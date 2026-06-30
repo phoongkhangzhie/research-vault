@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+.venv/
+venv/
+env/
+.env
+.python-version
+
+# uv
+.uv/
+uv.lock
+
+# pytest
+.pytest_cache/
+.cache/
+
+# State directory (instance data — never committed in the framework repo)
+state/
+*.state/
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Instance secrets / dotfiles
+.secrets
+*.secret
+.keyring/

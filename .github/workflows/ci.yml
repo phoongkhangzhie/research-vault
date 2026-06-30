@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Hermetic pytest suite ────────────────────────────────────────────────────
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run tests
+        run: uv run pytest tests/ -v --tb=short
+
+  # ── Leakage scanner (skeleton — teeth land at SR-4) ─────────────────────────
+  # This job is a STUB. It scans for private markers and fails loudly if found.
+  # At SR-4, the teeth are fully wired: codenames, identity strings, cluster paths,
+  # citekeys, model-roster lines, non-template agent memory. For now it catches
+  # the most obvious cases to prove the pipeline and enforce the boundary.
+  leakage-scan:
+    name: Leakage scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan for private codenames (STUB — teeth at SR-4)
+        run: |
+          echo "=== Leakage scan (skeleton) ==="
+          FAIL=0
+
+          # Private project codenames — must never appear in the framework repo
+          for marker in \
+            "cultural-social-sim" \
+            "csb" \
+            "dossier" \
+            "phoongkz" \
+            "juice2" \
+            "khangzhie" \
+            "phoong" \
+            "Stanford.*Khang\|Khang.*Stanford" \
+            "\\bkhang\\b"; do
+            if grep -rn --include="*.py" --include="*.toml" --include="*.md" \
+                        --include="*.json" --include="*.yml" --include="*.yaml" \
+                        -i "$marker" . 2>/dev/null | \
+               grep -v "^Binary" | \
+               grep -v "^\.git/" | \
+               grep -v "architecture.md:.*NO dependency.*NO import" | \
+               grep -v "\.github/workflows/ci.yml:" \
+               ; then
+              echo "FAIL: private marker found: $marker"
+              FAIL=1
+            fi
+          done
+
+          if [ "$FAIL" -eq 0 ]; then
+            echo "OK: no private markers found."
+          else
+            echo ""
+            echo "ERROR: The framework repo must contain no private markers."
+            echo "       These are added-at-SR-4 teeth for codenames, identity strings,"
+            echo "       cluster paths, citekeys, and model-roster entries."
+            exit 1
+          fi
+
+      - name: Check for hardcoded vault paths
+        run: |
+          echo "=== Hardcoded path scan ==="
+          if grep -rn --include="*.py" \
+              -E "(~/vault|~/cultural-social-sim|~/dossier|/juice2/|/phoongkz)" \
+              src/ 2>/dev/null; then
+            echo "FAIL: hardcoded private paths found in src/"
+            exit 1
+          fi
+          echo "OK: no hardcoded private paths."
+
+  # ── help --check gate ───────────────────────────────────────────────────────
+  help-check:
+    name: rv help --check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install package
+        run: uv sync --all-extras
+
+      - name: Verify all verbs have when_to_use docstrings
+        run: uv run rv help --check
