@@ -102,3 +102,44 @@ def test_adapters_defaults(tmp_instance):
     assert cfg.adapters["notifier"] == "file"
     assert cfg.adapters["backend"] == "local"
     assert cfg.adapters["secrets"] == "env"
+
+
+def test_minimal_config_derives_paths_from_instance_root(tmp_path, monkeypatch):
+    """A config that sets ONLY instance_root must resolve all derived paths under it.
+
+    This exercises the minimal/defaults path (not the all-keys-set path that conftest
+    uses). The instance_root-as-SSOT guarantee: tasks_dir, control_dir, notes_root,
+    and state_dir must all be children of instance_root, never of cwd().
+    """
+    # Use a different dir for cwd to prove paths don't anchor on cwd
+    cwd_dir = tmp_path / "cwd_unrelated"
+    cwd_dir.mkdir()
+    monkeypatch.chdir(cwd_dir)
+
+    instance_root = tmp_path / "my_instance"
+    instance_root.mkdir()
+
+    config_file = tmp_path / "research_vault.toml"
+    config_file.write_text(
+        f'instance_root = "{instance_root}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(config_file))
+    reset_config_cache()
+
+    cfg = load_config(reload=True)
+
+    assert cfg.instance_root == instance_root
+    # All derived paths must live under instance_root — not under cwd_unrelated
+    assert cfg.tasks_dir.is_relative_to(instance_root), (
+        f"tasks_dir {cfg.tasks_dir} is not under instance_root {instance_root}"
+    )
+    assert cfg.control_dir.is_relative_to(instance_root), (
+        f"control_dir {cfg.control_dir} is not under instance_root {instance_root}"
+    )
+    assert cfg.notes_root.is_relative_to(instance_root), (
+        f"notes_root {cfg.notes_root} is not under instance_root {instance_root}"
+    )
+    assert cfg.state_dir.is_relative_to(instance_root), (
+        f"state_dir {cfg.state_dir} is not under instance_root {instance_root}"
+    )

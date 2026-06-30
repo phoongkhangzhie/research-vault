@@ -69,17 +69,19 @@ def _load_toml(path: Path) -> dict[str, Any]:
 def _default_config() -> dict[str, Any]:
     """Return the zero-config defaults (usable without a research_vault.toml).
 
-    All paths default to subdirectories of the current working directory so that
-    `rv` can be explored without writing a config file.
+    Sub-paths are relative so that _expand_paths() resolves them against the
+    resolved instance_root. This means a config that sets ONLY instance_root
+    will have all derived paths (tasks_dir, control_dir, notes_root, state_dir)
+    derived from that root — not from cwd(), which would violate the config-SSOT
+    guarantee.
     """
-    cwd = Path.cwd()
     return {
-        "instance_root": str(cwd),
-        "notes_root": str(cwd / "notes"),
-        "state_dir": str(cwd / "state"),
-        "agents_dir": str(cwd / ".agents"),
-        "tasks_dir": str(cwd / "tasks"),
-        "control_dir": str(cwd / "control"),
+        "instance_root": str(Path.cwd()),
+        "notes_root": "notes",
+        "state_dir": "state",
+        "agents_dir": ".agents",
+        "tasks_dir": "tasks",
+        "control_dir": "control",
         "adapters": {
             "notifier": "file",
             "backend": "local",
