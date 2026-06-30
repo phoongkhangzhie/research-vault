@@ -1,3 +1,26 @@
+## 2026-06-30 (fix-round)
+
+### Done
+- BLOCKER 1: moved `project` positional to top-level verb parser for all 4 verbs (task, note,
+  control, devlog) — documented form `rv task <project> <subcommand>` now works. All CLI tests
+  updated to project-first form; new test exercises the documented form (was never tested).
+- BLOCKER 2: fixed `_default_config()` to use relative sub-paths ("notes", "tasks", etc.)
+  instead of cwd-absolute paths — `_expand_paths()` now resolves them against instance_root,
+  so a config with only `instance_root` set correctly derives all paths from it.
+  New test: minimal config (instance_root only) asserts all derived paths are under instance_root.
+- BLOCKER 3: replaced bare principal name "Khang" with "owner" in control.py template
+  (docstring, _render_control_file, cmd_inbox fallback) and in control/acme.md. Added
+  `\bkhang\b` (case-insensitive) to CI leakage scanner so this class can't slip through again.
+- 72 tests passing (was 70), rv help --check OK, leakage grep clean.
+
+### Decisions
+- Used "owner" (not "<owner>" or "the principal") in control template — clean, short, generic.
+- Relative defaults in _default_config() rather than a sentinel/None approach — simpler, and
+  _expand_paths() already had the relative-path resolution logic.
+
+### Open / next
+- PR #1 (feat/sr-1-scaffold) ready for re-review by rv-reviewer + rv-architect fit-check.
+
 ## 2026-06-30
 
 ### Done
