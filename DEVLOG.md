@@ -8,9 +8,10 @@
   instead of cwd-absolute paths — `_expand_paths()` now resolves them against instance_root,
   so a config with only `instance_root` set correctly derives all paths from it.
   New test: minimal config (instance_root only) asserts all derived paths are under instance_root.
-- BLOCKER 3: replaced bare principal name "Khang" with "owner" in control.py template
+- BLOCKER 3: replaced a bare principal name with "owner" in the control.py template
   (docstring, _render_control_file, cmd_inbox fallback) and in control/acme.md. Added
-  `\bkhang\b` (case-insensitive) to CI leakage scanner so this class can't slip through again.
+  the corresponding word-boundary marker (case-insensitive) to the CI leakage scanner
+  so this class of leak can't slip through again.
 - 72 tests passing (was 70), rv help --check OK, leakage grep clean.
 
 ### Decisions
