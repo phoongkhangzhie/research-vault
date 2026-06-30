@@ -58,7 +58,8 @@ jobs:
             "juice2" \
             "khangzhie" \
             "phoong" \
-            "Stanford.*Khang\|Khang.*Stanford"; do
+            "Stanford.*Khang\|Khang.*Stanford" \
+            "\\bkhang\\b"; do
             if grep -rn --include="*.py" --include="*.toml" --include="*.md" \
                         --include="*.json" --include="*.yml" --include="*.yaml" \
                         -i "$marker" . 2>/dev/null | \

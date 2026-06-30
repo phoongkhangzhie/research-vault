@@ -2,13 +2,13 @@
 
 When to use: use `rv control <project> …` to initialize, read, or update the coordination
 bus for a project. Each project has one control file at `control/<project>.md` (configurable).
-The control file is the async handshake record between the manager, hub, and Khang.
+The control file is the async handshake record between the manager, hub, and the principal.
 
 Control file structure:
   # CONTROL — <project>
-  ## Inbox   (hub/Khang → manager)
+  ## Inbox   (hub/owner → manager)
   ## Handshakes  (in-flight, needs the other side)
-  ## Outbox  (manager → hub/Khang)
+  ## Outbox  (manager → hub/owner)
   ## Open / blockers
 
 All paths resolved from Config — zero hardcoded paths.
@@ -44,13 +44,13 @@ at the top of each turn; the hub reads it to build the brief. Markdown, near-fre
 
 > *{intro}*
 
-## Inbox  (hub/Khang → manager)
+## Inbox  (hub/owner → manager)
   _(none)_
 
 ## Handshakes  (in-flight, needs the other side)
   _(none)_
 
-## Outbox  (manager → hub/Khang)
+## Outbox  (manager → hub/owner)
   _(none)_
 
 ## Open / blockers
@@ -167,7 +167,7 @@ def cmd_inbox(project: str, message: str, *, config: Config | None = None) -> Pa
             else:
                 text = text.rstrip() + "\n" + entry + "\n"
     else:
-        text = text.rstrip() + f"\n\n## Inbox  (hub/Khang → manager)\n{entry}\n"
+        text = text.rstrip() + f"\n\n## Inbox  (hub/owner → manager)\n{entry}\n"
 
     control_file.write_text(text, encoding="utf-8")
     return control_file
