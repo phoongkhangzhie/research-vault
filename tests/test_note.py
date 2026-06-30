@@ -102,19 +102,19 @@ def test_unknown_project_raises(cfg):
 
 
 def test_cli_note_new(tmp_instance, capsys):
-    """rv note new prints the created path."""
+    """rv note <project> new prints the created path (project-first form)."""
     from research_vault.cli import main
-    result = main(["note", "new", "demo-research", "findings", "CLI finding"])
+    result = main(["note", "demo-research", "new", "findings", "CLI finding"])
     assert result == 0
     out = capsys.readouterr().out
     assert "Created:" in out
 
 
 def test_cli_note_check_clean(tmp_instance, capsys):
-    """rv note check exits 0 when notes are valid."""
+    """rv note <project> check exits 0 when notes are valid (project-first form)."""
     from research_vault.cli import main
     from research_vault.config import load_config
     cfg = load_config(reload=True)
     note_mod.cmd_new("demo-research", "experiments", "Experiment", config=cfg)
-    result = main(["note", "check", "demo-research"])
+    result = main(["note", "demo-research", "check"])
     assert result == 0

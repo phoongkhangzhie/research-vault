@@ -192,29 +192,27 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     else:
         p = argparse.ArgumentParser(prog="rv devlog", description=desc)
 
+    p.add_argument("project", help="Project slug.")
+
     sub = p.add_subparsers(dest="devlog_cmd", required=True)
 
     # init
     init_p = sub.add_parser("init", help="Create the DEVLOG.md for a project.")
-    init_p.add_argument("project", help="Project slug.")
     init_p.add_argument("--note", default="", help="Optional header note.")
     init_p.add_argument("--overwrite", action="store_true")
 
     # append
     app_p = sub.add_parser("append", help="Append a bullet to a section of today's entry.")
-    app_p.add_argument("project", help="Project slug.")
     app_p.add_argument("section", choices=["Done", "Decisions", "Open / next"],
                        help="Section to append to.")
     app_p.add_argument("text", help="Bullet text.")
     app_p.add_argument("--date", default=None, help="Override date (YYYY-MM-DD).")
 
     # check
-    check_p = sub.add_parser("check", help="Check DEVLOG freshness.")
-    check_p.add_argument("project", help="Project slug.")
+    sub.add_parser("check", help="Check DEVLOG freshness.")
 
     # view
     view_p = sub.add_parser("view", help="Print the top of the DEVLOG.")
-    view_p.add_argument("project", help="Project slug.")
     view_p.add_argument("--lines", type=int, default=50, help="Number of lines to show.")
 
     return p

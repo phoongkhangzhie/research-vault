@@ -98,16 +98,16 @@ def test_unknown_project_raises(cfg):
 
 
 def test_cli_control_init(tmp_instance, capsys):
-    """rv control init prints the created path."""
+    """rv control <project> init prints the created path (project-first form)."""
     from research_vault.cli import main
-    result = main(["control", "init", "demo-research"])
+    result = main(["control", "demo-research", "init"])
     assert result == 0
     assert "Created:" in capsys.readouterr().out
 
 
 def test_cli_control_check(tmp_instance, capsys):
-    """rv control check exits 0 on a valid control file."""
+    """rv control <project> check exits 0 on a valid control file (project-first form)."""
     from research_vault.cli import main
-    main(["control", "init", "demo-research"])
-    result = main(["control", "check", "demo-research"])
+    main(["control", "demo-research", "init"])
+    result = main(["control", "demo-research", "check"])
     assert result == 0

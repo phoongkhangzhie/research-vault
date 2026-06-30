@@ -134,22 +134,32 @@ def test_update_nonexistent_raises(cfg):
 # ---------------------------------------------------------------------------
 
 def test_cli_task_add(tmp_instance, capsys):
-    """rv task add creates a card and prints the path."""
+    """rv task <project> add creates a card and prints the path (project-first form)."""
     from research_vault.cli import main
-    result = main(["task", "add", "demo-research", "CLI-created task"])
+    result = main(["task", "demo-research", "add", "CLI-created task"])
     assert result == 0
     out = capsys.readouterr().out
     assert "Created:" in out
 
 
 def test_cli_task_list(tmp_instance, capsys):
-    """rv task list shows created cards."""
+    """rv task <project> list shows created cards (project-first form)."""
     from research_vault.cli import main
     from research_vault.config import load_config
     cfg = load_config(reload=True)
     task_mod.cmd_add("demo-research", "Listed task", config=cfg)
 
-    result = main(["task", "list", "demo-research"])
+    result = main(["task", "demo-research", "list"])
     assert result == 0
     out = capsys.readouterr().out
     assert "listed-task" in out.lower() or "Listed task" in out
+
+
+def test_cli_task_project_first_documented_form(tmp_instance, capsys):
+    """The documented form 'rv task <project> add ...' succeeds (was never tested before)."""
+    from research_vault.cli import main
+    # This is the DOCUMENTED form per all when_to_use/docstrings: rv task <project> <subcommand>
+    result = main(["task", "demo-research", "add", "Documented form task", "--priority", "P1"])
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "Created:" in out

@@ -186,11 +186,12 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     else:
         p = argparse.ArgumentParser(prog="rv note", description=desc)
 
+    p.add_argument("project", help="Project slug.")
+
     sub = p.add_subparsers(dest="note_cmd", required=True)
 
     # new
     new_p = sub.add_parser("new", help="Create a new OKF note.")
-    new_p.add_argument("project", help="Project slug.")
     new_p.add_argument("type", choices=sorted(OKF_TYPES), help="OKF note type.")
     new_p.add_argument("title", help="Note title.")
     new_p.add_argument("--id", dest="note_id", default=None,
@@ -200,13 +201,11 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
 
     # list
     list_p = sub.add_parser("list", help="List OKF notes for a project.")
-    list_p.add_argument("project", help="Project slug.")
     list_p.add_argument("--type", dest="note_type", default=None,
                         choices=sorted(OKF_TYPES), help="Filter by OKF type.")
 
     # check
-    check_p = sub.add_parser("check", help="Validate OKF note frontmatter.")
-    check_p.add_argument("project", help="Project slug.")
+    sub.add_parser("check", help="Validate OKF note frontmatter.")
 
     return p
 

@@ -116,18 +116,18 @@ def test_unknown_project_raises(cfg):
 
 
 def test_cli_devlog_init(tmp_instance, capsys):
-    """rv devlog init prints the created path."""
+    """rv devlog <project> init prints the created path (project-first form)."""
     from research_vault.cli import main
-    result = main(["devlog", "init", "demo-research"])
+    result = main(["devlog", "demo-research", "init"])
     assert result == 0
     assert "Created:" in capsys.readouterr().out
 
 
 def test_cli_devlog_check_ok(tmp_instance, capsys):
-    """rv devlog check exits 0 for a fresh DEVLOG."""
+    """rv devlog <project> check exits 0 for a fresh DEVLOG (project-first form)."""
     from research_vault.cli import main
-    main(["devlog", "init", "demo-research"])
-    result = main(["devlog", "check", "demo-research"])
+    main(["devlog", "demo-research", "init"])
+    result = main(["devlog", "demo-research", "check"])
     assert result == 0
     out = capsys.readouterr().out
     assert "OK" in out

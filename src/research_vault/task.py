@@ -193,11 +193,12 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     else:
         p = argparse.ArgumentParser(prog="rv task", description=desc)
 
+    p.add_argument("project", help="Project slug (must be in config registry).")
+
     sub = p.add_subparsers(dest="task_cmd", required=True)
 
     # add
     add_p = sub.add_parser("add", help="Create a new task card.")
-    add_p.add_argument("project", help="Project slug (must be in config registry).")
     add_p.add_argument("title", help="Task title.")
     add_p.add_argument("--status", default="backlog", choices=sorted(VALID_STATUSES))
     add_p.add_argument("--priority", default="P2", choices=sorted(VALID_PRIORITIES))
@@ -207,18 +208,15 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
 
     # list
     list_p = sub.add_parser("list", help="List task cards.")
-    list_p.add_argument("project", help="Project slug.")
     list_p.add_argument("--status", dest="status_filter", default=None,
                         help="Filter by status.")
 
     # view
     view_p = sub.add_parser("view", help="View a task card.")
-    view_p.add_argument("project", help="Project slug.")
     view_p.add_argument("slug", help="Task slug (filename without .md).")
 
     # update
     upd_p = sub.add_parser("update", help="Update a task card's status or other fields.")
-    upd_p.add_argument("project", help="Project slug.")
     upd_p.add_argument("slug", help="Task slug.")
     upd_p.add_argument("--status", default=None)
     upd_p.add_argument("--priority", default=None)

@@ -191,26 +191,24 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     else:
         p = argparse.ArgumentParser(prog="rv control", description=desc)
 
+    p.add_argument("project", help="Project slug.")
+
     sub = p.add_subparsers(dest="control_cmd", required=True)
 
     # init
     init_p = sub.add_parser("init", help="Create the control file for a project.")
-    init_p.add_argument("project", help="Project slug.")
     init_p.add_argument("--note", default="", help="Optional creation note (appears in the file header).")
     init_p.add_argument("--overwrite", action="store_true",
                         help="Overwrite if the control file already exists.")
 
     # view
-    view_p = sub.add_parser("view", help="Print the control file.")
-    view_p.add_argument("project", help="Project slug.")
+    sub.add_parser("view", help="Print the control file.")
 
     # check
-    check_p = sub.add_parser("check", help="Validate control file structure.")
-    check_p.add_argument("project", help="Project slug.")
+    sub.add_parser("check", help="Validate control file structure.")
 
     # inbox
     inbox_p = sub.add_parser("inbox", help="Append a message to the Inbox section.")
-    inbox_p.add_argument("project", help="Project slug.")
     inbox_p.add_argument("message", help="Message text.")
 
     return p
