@@ -11,7 +11,7 @@ Verbs (SR-1):
 
 Verbs added by later SRs are listed in `rv help` but not yet implemented.
 
-Stdlib only. No import from ~/vault or any private instance.
+Stdlib only — no imports from private vault instances or project-specific paths.
 """
 
 import argparse
