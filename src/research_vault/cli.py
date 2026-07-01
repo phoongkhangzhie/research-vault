@@ -166,14 +166,19 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-2",
     },
-    # --- SR-3 (not yet implemented) ---
+    # --- SR-3 ---
     "dag": {
-        "module": None,
+        "module": "research_vault.dag.verbs",
         "when_to_use": (
-            "When you need to run, tick, complete, or approve nodes in a multi-node "
-            "research-loop DAG. The human-go node is the decision gate. Ships at SR-3."
+            "When you need to run, tick, complete, approve, add, or insert nodes in a "
+            "multi-node research-loop DAG. The human-go node is the solo decision gate: "
+            "it blocks until ALL transitive upstream nodes are terminal, then `dag approve` "
+            "is the exact command to run (printed by `dag status`). "
+            "Afterok+watch edges gate on artifact freshness (OKF type-dir checked by vault check). "
+            "In-session resolution only — no background pollers. "
+            "For external watches use: rv wait-for <cond> --then 'rv dag tick <run_id>' &"
         ),
-        "sr": "SR-3 (coming)",
+        "sr": "SR-3",
     },
 }
 
