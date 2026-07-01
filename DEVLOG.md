@@ -11,7 +11,7 @@
 - 472 total tests, all passing. rv lint PASS. rv help --check: OK (19 verbs).
 
 ### Decisions
-- `reads:` OPTIONAL (Khang's call per spec). Absent emits WARN (non-breaking, no fixture migration, same idiom as SR-DISP boundary smells).
+- `reads:` OPTIONAL (operator decision per spec). Absent emits WARN (non-breaking, no fixture migration, same idiom as SR-DISP boundary smells).
 - Resolution pass is separate from validate_manifest (purity boundary established by SR-DISP). `resolve_reads_pointer` wraps the `resolve_watch` fs-seam pattern (Path.exists + thin anchor helper) rather than re-rolling.
 - Symbol form (`path:symbol`) — file existence is hard (ManifestError), symbol presence is soft WARN (grep in source text; no AST coupling, no language toolchain dependency).
 - Anchor search: markdown headings containing the anchor text (any heading level; handles `## 5B-SCOPE.` and `## 5B-SCOPE` forms). Case-sensitive.
