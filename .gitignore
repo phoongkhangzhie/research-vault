@@ -39,3 +39,6 @@ state/
 .secrets
 *.secret
 .keyring/
+
+# Local-only maintenance aids (private ~/vault path structure — not for the public repo)
+doctrine/drift-watch.md

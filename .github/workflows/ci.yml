@@ -32,11 +32,11 @@ jobs:
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
 
-  # ── Leakage scanner (skeleton — teeth land at SR-4) ─────────────────────────
-  # This job is a STUB. It scans for private markers and fails loudly if found.
-  # At SR-4, the teeth are fully wired: codenames, identity strings, cluster paths,
-  # citekeys, model-roster lines, non-template agent memory. For now it catches
-  # the most obvious cases to prove the pipeline and enforce the boundary.
+  # ── Leakage scanner (full teeth — SR-4) ────────────────────────────────────
+  # Scans doctrine/ for all private marker classes:
+  #   codenames · identity strings · site URLs · cluster paths ·
+  #   secret-shaped strings · versioned model IDs · non-template memory slugs
+  # Implemented in scripts/leakage_scan.sh (tested hermetically in tests/).
   leakage-scan:
     name: Leakage scan
     runs-on: ubuntu-latest
@@ -44,55 +44,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Scan for private codenames (STUB — teeth at SR-4)
+      - name: Run leakage scanner over doctrine/
+        run: bash scripts/leakage_scan.sh doctrine
+
+      - name: Check for hardcoded private paths in src/
         run: |
-          echo "=== Leakage scan (skeleton) ==="
-          FAIL=0
-
-          # Private project codenames — must never appear in the framework repo
-          for marker in \
-            "cultural-social-sim" \
-            "csb" \
-            "dossier" \
-            "phoongkz" \
-            "juice2" \
-            "khangzhie" \
-            "phoong" \
-            "Stanford.*Khang\|Khang.*Stanford" \
-            "\\bkhang\\b"; do
-            if grep -rn --include="*.py" --include="*.toml" --include="*.md" \
-                        --include="*.json" --include="*.yml" --include="*.yaml" \
-                        -i "$marker" . 2>/dev/null | \
-               grep -v "^Binary" | \
-               grep -v "^\.git/" | \
-               grep -v "architecture.md:.*NO dependency.*NO import" | \
-               grep -v "\.github/workflows/ci.yml:" \
-               ; then
-              echo "FAIL: private marker found: $marker"
-              FAIL=1
-            fi
-          done
-
-          if [ "$FAIL" -eq 0 ]; then
-            echo "OK: no private markers found."
-          else
-            echo ""
-            echo "ERROR: The framework repo must contain no private markers."
-            echo "       These are added-at-SR-4 teeth for codenames, identity strings,"
-            echo "       cluster paths, citekeys, and model-roster entries."
-            exit 1
-          fi
-
-      - name: Check for hardcoded vault paths
-        run: |
-          echo "=== Hardcoded path scan ==="
+          echo "=== Hardcoded path scan (src/) ==="
           if grep -rn --include="*.py" \
-              -E "(~/vault|~/cultural-social-sim|~/dossier|/juice2/|/phoongkz)" \
+              -E "(/juice2/|/scr2/|phoongkz|phoongkhangzhie)" \
               src/ 2>/dev/null; then
             echo "FAIL: hardcoded private paths found in src/"
             exit 1
           fi
-          echo "OK: no hardcoded private paths."
+          echo "OK: no hardcoded private paths in src/"
 
   # ── help --check gate ───────────────────────────────────────────────────────
   help-check:
