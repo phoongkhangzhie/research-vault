@@ -111,6 +111,16 @@ def test_red_on_phoongkhangzhie_handle(tmp_path):
     assert_red(run_scan(tmp_path))
 
 
+def test_red_on_stanford_affiliation(tmp_path):
+    write_doc(tmp_path, "The operator is affiliated with Stanford University.\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_scrubbed_affiliation(tmp_path):
+    write_doc(tmp_path, "The operator is affiliated with a research institution.\n")
+    assert_green(run_scan(tmp_path))
+
+
 def test_green_on_scrubbed_identity(tmp_path):
     write_doc(
         tmp_path,

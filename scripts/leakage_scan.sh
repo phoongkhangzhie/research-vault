@@ -86,6 +86,8 @@ _grep_word    "identity/khang"              "khang"
 _grep_word    "identity/phoong"             "phoong"
 _grep_literal "identity/phoongkz"           "phoongkz"
 _grep_literal "identity/phoongkhangzhie"    "phoongkhangzhie"
+# Institutional affiliation — operator's affiliation must not appear in portable doctrine.
+_grep_word    "identity/stanford"           "stanford"
 
 # ── Class 3: Private site / URLs ─────────────────────────────────────────────
 _grep_literal "site/khangzhie.io"  "khangzhie.io"
