@@ -109,16 +109,30 @@ class LocalGitSource:
         return frozenset(ids)
 
     def get_terminal_set(self, config: Config, project: str) -> frozenset[str]:
-        """Branches that were developed AND are now merged into main.
+        """Branches/ids that are now terminal (merged into main by any merge model).
 
-        Primary signal: merge commit messages on main (e.g. "Merge branch 'feat/sr-x'")
-        — this reliably captures --no-ff merges without false-positives on empty branches.
+        Three complementary signals, covering all three GitHub merge strategies:
 
-        Secondary signal: branches in `--merged main` whose tip is NOT at main's current
-        tip (fast-forward merges that don't appear in merge commit messages).
+        Primary — merge commit messages on main (--no-ff merges):
+          `git log main --merges --format=%s` → "Merge branch 'feat/sr-x'"
+          Branch name extracted, id tokens parsed from it.
 
-        A freshly created branch (no commits, tip == main tip) is NOT terminal.
+        Secondary — `git branch --merged main` with developed tip (fast-forward merges):
+          Branch must still exist locally AND tip differs from main tip
+          (empty branches at main tip are NOT terminal — they were never dispatched).
+
+        Tertiary — squash-merge commits (GitHub squash-and-merge model):
+          Squash produces no merge commit and the branch may be deleted, so
+          signals 1+2 yield nothing. Signal 3 scans non-merge commit subjects on
+          main for lines ending with a PR-number anchor `(#N)` — GitHub adds this
+          automatically on squash-and-merge. Id tokens extracted from the commit
+          subject (the whole line, not just the branch name, since the branch may
+          be deleted). The `(#N)` anchor is the false-positive guard: random prose
+          mentioning an SR id has no trailing `(#N)`.
         """
+        from .controllib import _ID_TOKEN_RE
+        _PR_ANCHOR_RE = re.compile(r"\(#\d+\)\s*$")
+
         repo = self._repo_for(config, project)
         if not repo or not repo.exists():
             return frozenset()
@@ -132,20 +146,22 @@ class LocalGitSource:
         if not main_tip:
             return frozenset()
 
-        merged_branches: set[str] = set()
+        ids: set[str] = set()
 
-        # Primary: parse merge commit messages (catches --no-ff merges)
+        # Primary: parse merge commit messages (--no-ff)
         merge_log = self._git(
-            ["log", base, "--merges", "--pretty=format:%s"], repo
+            ["log", base, "--merges", "--format=%s"], repo
         )
         for line in merge_log.splitlines():
             # "Merge branch 'feat/sr-x'" or "Merge branch 'feat/sr-x' into main"
             m = re.match(r"Merge (?:branch|pull request) '([^']+)'", line)
             if m:
-                merged_branches.add(m.group(1))
+                branch_name = m.group(1)
+                for tok_m in _ID_TOKEN_RE.finditer(branch_name):
+                    ids.add(tok_m.group(1).lower())
 
         # Secondary: git branch --merged base, branch tip differs from main tip
-        # (fast-forward merges where main advanced but branch points to an old commit)
+        # (fast-forward merges not captured by merge commit messages)
         raw_merged = self._git(
             ["branch", "--merged", base, "--format=%(refname:short)"], repo
         )
@@ -153,20 +169,23 @@ class LocalGitSource:
             branch = branch.strip()
             if not branch or branch in ("main", "master", "HEAD"):
                 continue
-            if branch in merged_branches:
-                continue
             branch_tip = self._git(["rev-parse", branch], repo)
             if branch_tip and branch_tip != main_tip:
-                # Branch tip is not at main's current position → was developed
-                # AND is now merged (since it's in --merged list)
-                merged_branches.add(branch)
+                for tok_m in _ID_TOKEN_RE.finditer(branch):
+                    ids.add(tok_m.group(1).lower())
 
-        # Extract id tokens from merged branch names
-        ids: set[str] = set()
-        for branch in merged_branches:
-            from .controllib import _ID_TOKEN_RE
-            for m in _ID_TOKEN_RE.finditer(branch):
-                ids.add(m.group(1).lower())
+        # Tertiary: squash-merge commits on main (no merge commit created)
+        # GitHub squash-and-merge produces: "feat(scope): desc (#N)"
+        # Scan non-merge commits whose subject has a trailing (#N) anchor.
+        squash_log = self._git(
+            ["log", base, "--no-merges", "--format=%s"], repo
+        )
+        for line in squash_log.splitlines():
+            if _PR_ANCHOR_RE.search(line):
+                # This commit was squash-merged via PR — extract id tokens from subject
+                for tok_m in _ID_TOKEN_RE.finditer(line):
+                    ids.add(tok_m.group(1).lower())
+
         return frozenset(ids)
 
     def recent_branches(self, config: Config, project: str, n: int = 5) -> list[str]:
