@@ -311,15 +311,17 @@ class EnvSecretStore:
             return val
 
         # 2. keyring library (cross-platform; NOT macOS security binary)
-        try:
-            import keyring  # type: ignore[import]
-            stored = keyring.get_password(self._SERVICE, name)
-            if stored:
-                return stored.strip()
-        except ImportError:
-            pass  # keyring not installed — fall through to error
-        except Exception:
-            pass  # keyring error (locked, permission denied, etc.)
+        # Honor VAULT_SKIP_KEYRING=1 so tests and CI can skip keyring reliably.
+        if not os.environ.get("VAULT_SKIP_KEYRING"):
+            try:
+                import keyring  # type: ignore[import]
+                stored = keyring.get_password(self._SERVICE, name)
+                if stored:
+                    return stored.strip()
+            except ImportError:
+                pass  # keyring not installed — fall through to error
+            except Exception:
+                pass  # keyring error (locked, permission denied, etc.)
 
         raise KeyError(
             f"Secret {name!r} not found.\n"

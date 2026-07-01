@@ -453,16 +453,17 @@ def run(args: argparse.Namespace) -> int:
     sync_mode = getattr(args, "sync", False)
     registered_ts = time.time()
 
-    # Validate the watch expression (cheap check before spawning the background proc)
-    result = resolve_watch(watch, registered_ts=registered_ts)
-    if result.get("error") and "unknown watch source" in (result.get("error") or ""):
-        print(f"rv wait-for: {result['error']}", file=sys.stderr)
+    # Validate watch syntax only — do NOT execute cmd:/url: pre-flight here,
+    # as that would cause a synchronous side-effect before the background poller.
+    # Only check that the watch prefix is recognized.
+    _KNOWN_PREFIXES = ("artifact:", "sacct:", "pr:", "cmd:", "url:")
+    if not any(watch.startswith(p) for p in _KNOWN_PREFIXES):
+        print(f"rv wait-for: unknown watch source: {watch!r}", file=sys.stderr)
         return 1
 
     if sync_mode:
-        # Blocking mode for tests / debugging
-        _run_sync(watch, then_cmd, timeout_secs, interval_secs, registered_ts, log_path)
-        return 0
+        # Blocking mode for tests / debugging — propagate the exit code
+        return _run_sync(watch, then_cmd, timeout_secs, interval_secs, registered_ts, log_path)
 
     # Background mode: launch a detached poller shell and return immediately
     try:

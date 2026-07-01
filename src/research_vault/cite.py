@@ -43,7 +43,7 @@ from .adapters.base import EnvSecretStore
 # ---------------------------------------------------------------------------
 
 ZOTERO_API = "https://api.zotero.org"
-UA = "research_vault/cite (github.com/khangzhie/research-vault)"
+UA = "research_vault/cite"
 
 
 # ---------------------------------------------------------------------------

@@ -328,6 +328,26 @@ def test_wait_for_sync_resolves(tmp_path: Path) -> None:
     assert rc == 0
 
 
+def test_wait_for_then_fires_on_resolution(tmp_path: Path) -> None:
+    """--then is executed when the watch resolves in --sync mode."""
+    from research_vault.wait_for import _run_sync
+    artifact = tmp_path / "ready.jsonl"
+    artifact.write_text("data\n", encoding="utf-8")
+    sentinel = tmp_path / "then_fired.txt"
+
+    # Use a shell command that creates sentinel to confirm --then ran
+    rc = _run_sync(
+        watch=f"artifact:{artifact}",
+        then_cmd=f"touch {sentinel}",
+        timeout_secs=2,
+        interval_secs=0,
+        registered_ts=time.time() - 1,
+        log_path="",
+    )
+    assert rc == 0
+    assert sentinel.exists(), "--then command did not fire on resolution"
+
+
 def test_wait_for_sync_timeout(tmp_path: Path) -> None:
     """--sync mode: poller times out when the artifact never appears."""
     from research_vault.wait_for import _run_sync
