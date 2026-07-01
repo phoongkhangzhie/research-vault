@@ -2,14 +2,16 @@
 
 ### Done
 - Worktree: feat/sr-ci off origin/main, crew identity set.
-- TOOL-D3: gate-clean verdict header by construction on `rv control return`. When the `verdict` field is PASS or BLOCK, `_make_block` now emits `VERDICT: PASS` (or `BLOCK`) as the unindented first line of the `⟦RETURN⟧` block body — before the indented field list. The `verdict` field is suppressed from the indented section to avoid duplication; the unindented header IS the `verdict` field (the controllib parser reads it via the known-key path).
-- `_extract_gate_verdict()` helper: extracts PASS/BLOCK from the first word of the verdict value (case-insensitive). Non-PASS/BLOCK values (e.g., `approve`) return None — no header emitted, backward compat preserved.
-- 7 new hermetic tests in `tests/test_sr_ci.py`. Key acceptance test: a return authored with BLOCK/FAIL-quoting narrative fields still yields `VERDICT: PASS` as the first block line. All 7 green. Full suite: 523 passed (516 baseline + 7 new), zero regressions.
-- TOOL-D1 (verify-CI hard gate) explicitly NOT built — operator decision documented in task spec; hard gate creates rigidity; CI verification stays a hub practice.
+- TOOL-D3 v1 (bare token): emitted `VERDICT: PASS` / `VERDICT: BLOCK` as the first unindented block line on `rv control return`.
+- TOOL-D3 v2 (bracketed token — design change): upgraded to `VERDICT: [PASS]` / `VERDICT: [BLOCK]`. Bracket delimiter decouples the gate pattern from prose: `\[(PASS|BLOCK)\]` matches only the structured token; bare "PASS", "BLOCK", "FAIL" in narrative fields cannot false-match. `_extract_gate_verdict()` now uses `re.fullmatch(r'\[(PASS|BLOCK)\]', ...)` — rejects bare words by construction.
+- 16 hermetic tests in `tests/test_sr_ci.py` (expanded from 7). Key decoupling-proof test (test 3): verdict `[PASS]` + narrative containing bare BLOCK/FAIL → header reads `VERDICT: [PASS]`; `re.findall(r'\[(PASS|BLOCK)\]', text)` returns exactly `["PASS"]`. Unit class for `_extract_gate_verdict` proves bare words return None. Full suite: 532 passed (516 baseline + 16 new), zero regressions.
+- TOOL-D1 (verify-CI hard gate) explicitly NOT built — operator decision.
 
 ### Decisions
-- No blank line between header and fields: the controllib `_parse_block` terminates on blank lines, so inserting one would lose all required fields from the parsed block. The header IS the first field line (unindented); downstream tools that want the gate-readable token grep for `^VERDICT:` in the block body.
-- Validation: do not reject non-PASS/BLOCK verdict values — return None and skip the header. Keeps old `verdict: approve` usage valid.
+- Bracketed token `[PASS]`/`[BLOCK]` chosen over bare `PASS`/`BLOCK` after design change from coordinator: bare-word first-line approach still left narrative fields adjacent, so a fuzzy negation scan could re-trip on "BLOCK"/"FAIL" in the body. Bracketed form makes the gate pattern structurally unambiguous.
+- No blank line between header and fields: `_parse_block` terminates on blank lines; blank line would orphan required fields. Bracket decoupling removes the original need for the separator.
+- Non-bracket verdict values (e.g., `approve`) return None — no header, backward compat.
+- Note for hub: the live operator-vault `approve.py` gate should later be updated to match `[PASS]`/`[BLOCK]` instead of fuzzy negation-scanning. Separate operator-vault change tracked by the operator.
 
 ### Open / next
 - PR needs Argus review (reviewer-gate class).
