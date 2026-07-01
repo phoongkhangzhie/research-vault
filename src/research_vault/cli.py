@@ -64,30 +64,90 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-1",
     },
-    # --- SR-2 (not yet implemented) ---
-    "research": {
-        "module": None,
+    # --- SR-2 ---
+    "project": {
+        "module": "research_vault.project",
         "when_to_use": (
-            "When you want to run a research step (asta-backed), cite a paper, or annotate "
-            "candidates. Requires asta + Zotero. Ships at SR-2."
+            "When you need to register a new project, list registered projects, or manage "
+            "the project config registry. Use `rv project add` to register a new project "
+            "into research_vault.toml."
         ),
-        "sr": "SR-2 (coming)",
+        "sr": "SR-2",
     },
     "cite": {
-        "module": None,
+        "module": "research_vault.cite",
         "when_to_use": (
             "When you need to resolve, add, or list citekeys against the project's Zotero "
-            "collection. Requires ZOTERO_KEY. Ships at SR-2."
+            "collection. Requires ZOTERO_KEY env var (or cross-platform keyring). "
+            "Routes secrets through the SecretStore Protocol — never macOS security binary."
         ),
-        "sr": "SR-2 (coming)",
+        "sr": "SR-2",
+    },
+    "research": {
+        "module": "research_vault.research",
+        "when_to_use": (
+            "When you want to run a research step (asta-backed), find papers, annotate "
+            "candidates vs corpus, or add papers via the dedup gate. Requires asta + Zotero. "
+            "Takes default_project from config — never a compiled-in codename."
+        ),
+        "sr": "SR-2",
+    },
+    "role": {
+        "module": "research_vault.role",
+        "when_to_use": (
+            "When you need to list, view, or manage agent roles in the project registry. "
+            "Use `rv role list` to see all registered roles."
+        ),
+        "sr": "SR-2",
+    },
+    "build-agents": {
+        "module": "research_vault.build_agents",
+        "when_to_use": (
+            "When you need to regenerate agent hat files from the role registry and "
+            "role-doc templates. Runs the build-agents pipeline for all or a specific project."
+        ),
+        "sr": "SR-2",
+    },
+    "mdstore": {
+        "module": "research_vault.mdstore",
+        "when_to_use": (
+            "When you need to check, archive, or inspect the markdown document store. "
+            "Validates OKF link integrity, freshness, and document structure."
+        ),
+        "sr": "SR-2",
+    },
+    "wt": {
+        "module": "research_vault.wt",
+        "when_to_use": (
+            "When you need to create, list, or remove git worktrees for project task branches. "
+            "Use `rv wt add <task>` to create an isolated worktree on feat/<task>."
+        ),
+        "sr": "SR-2",
+    },
+    "git-health": {
+        "module": "research_vault.git_health",
+        "when_to_use": (
+            "When you need a cross-repo branch health report: which branches are merged, "
+            "stale, or have unique content. Use --prune to clean up DELETE-classed branches."
+        ),
+        "sr": "SR-2",
+    },
+    "lint": {
+        "module": "research_vault.lint",
+        "when_to_use": (
+            "When you need to run the project linter: checks for leakage of private "
+            "codenames/paths, validates config schema, and enforces the zero-hardcoded-path rule."
+        ),
+        "sr": "SR-2",
     },
     "wait-for": {
-        "module": None,
+        "module": "research_vault.wait_for",
         "when_to_use": (
             "When you need to background-wait for an artifact to appear (file freshness, "
-            "sacct terminal, url reachable) and then resume the session. Ships at SR-2."
+            "sacct terminal, pr merged) and then fire a command on resolution. The caller "
+            "returns immediately — no sleep-looping. Primitive that SR-3's DAG afterok composes."
         ),
-        "sr": "SR-2 (coming)",
+        "sr": "SR-2",
     },
     # --- SR-3 (not yet implemented) ---
     "dag": {
