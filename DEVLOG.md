@@ -14,7 +14,7 @@
 - 29 new hermetic tests; 384 total, all passing. rv lint PASS. rv help --check: OK (17 verbs). Leakage scan green on src/ + doctrine/.
 
 ### Decisions
-- Crew domain default is example.invalid in public source. Real domain (khangzhie.io) lives in private instance [crew] identity_domain config only — leakage scanner catches any file-content leak.
+- Crew domain default is example.invalid in public source. The real domain lives in private instance [crew] identity_domain config only — leakage scanner catches any file-content leak.
 - git-discipline check subcommand takes --repo to override cwd when called from a hook in a different repo. Profile (framework vs project) resolved by comparing resolved repo path to cfg.instance_root.
 - Signal D in git_health: branch token extracted via same regex as gitlib._ID_TOKEN_RE; matched against squash_terminal_ids(repo). Computed once per repo in cmd_report.
 - --staged mode in leakage_scan.sh uses xargs -I{} to scan each staged file individually (not recursive over a directory).
@@ -25,7 +25,7 @@
 ## 2026-07-01 (SR-DISP build)
 
 ### Done
-- Worktree: feat/sr-disp off origin/main, engineer@khangzhie.io identity.
+- Worktree: feat/sr-disp off origin/main, engineer crew identity (real domain in private config).
 - Schema teeth (dag/schema.py): spec REQUIRED on agent nodes (ManifestError on absence);
   continues OPTIONAL = {node, reason} with full cross-node validation (exists, type:agent,
   transitive-upstream ancestor via walker._transitive_upstream import, not-self, reason
