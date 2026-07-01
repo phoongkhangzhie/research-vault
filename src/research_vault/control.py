@@ -278,7 +278,12 @@ def _build_combined_live_set(
     git_repo: Path | None = None,
     extra_sources: list | None = None,
 ) -> frozenset[str]:
-    """Build the combined LIVE set from all available signal sources."""
+    """Build the combined LIVE set from all available signal sources.
+
+    Sources that error are skipped with a stderr warning (not silently swallowed)
+    so a failing git call surfaces as a visible warning rather than false GREEN.
+    """
+    import sys
     from .status import LocalGitSource, TaskBoardSource, DagRunSource
     sources: list[Any] = [
         LocalGitSource(repo_path=git_repo),
@@ -288,11 +293,22 @@ def _build_combined_live_set(
     if extra_sources:
         sources.extend(extra_sources)
     live: set[str] = set()
+    errors = 0
     for src in sources:
         try:
             live.update(src.build_live_set(config, project))
-        except Exception:
-            pass
+        except Exception as exc:
+            errors += 1
+            print(
+                f"[WARN] {src.__class__.__name__}.build_live_set errored: {exc}",
+                file=sys.stderr,
+            )
+    if errors:
+        print(
+            f"[WARN] {errors} signal source(s) errored building live set — "
+            "result may be incomplete (false GREEN possible)",
+            file=sys.stderr,
+        )
     return frozenset(live)
 
 
@@ -303,7 +319,12 @@ def _build_combined_terminal_set(
     git_repo: Path | None = None,
     extra_sources: list | None = None,
 ) -> frozenset[str]:
-    """Build the combined TERMINAL set from all available signal sources."""
+    """Build the combined TERMINAL set from all available signal sources.
+
+    Sources that error are skipped with a stderr warning so a failing git call
+    surfaces rather than silently yielding an empty terminal set.
+    """
+    import sys
     from .status import LocalGitSource, TaskBoardSource, DagRunSource
     sources: list[Any] = [
         LocalGitSource(repo_path=git_repo),
@@ -313,11 +334,22 @@ def _build_combined_terminal_set(
     if extra_sources:
         sources.extend(extra_sources)
     terminal: set[str] = set()
+    errors = 0
     for src in sources:
         try:
             terminal.update(src.get_terminal_set(config, project))
-        except Exception:
-            pass
+        except Exception as exc:
+            errors += 1
+            print(
+                f"[WARN] {src.__class__.__name__}.get_terminal_set errored: {exc}",
+                file=sys.stderr,
+            )
+    if errors:
+        print(
+            f"[WARN] {errors} signal source(s) errored building terminal set — "
+            "result may be incomplete (false GREEN possible)",
+            file=sys.stderr,
+        )
     return frozenset(terminal)
 
 
@@ -447,6 +479,17 @@ def cmd_reconcile(
     findings.extend(_check_r2(text))
     findings.extend(_check_r3(text, cfg, project))
     findings.extend(_check_r4(text, terminal_set))
+
+    # R5: resolved-but-unarchived bloat check.
+    # A control file with > RESOLVED_THRESHOLD closed entries that were never
+    # archived is a maintenance debt signal — the teeth check.
+    resolved_count = count_resolved_markers(text)
+    if resolved_count > RESOLVED_THRESHOLD:
+        findings.append(
+            f"[R5] BLOAT: {resolved_count} resolved-but-unarchived entries exceed "
+            f"threshold ({RESOLVED_THRESHOLD}). Run `rv control reconcile --archive` "
+            "or manually close + archive stale entries."
+        )
 
     if archive and terminal_set:
         _auto_archive_terminal(project, ctl_path, terminal_set, cfg)
