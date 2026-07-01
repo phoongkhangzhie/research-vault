@@ -1,3 +1,20 @@
+## 2026-07-01 (SR-DOC build)
+
+### Done
+- Worktree: feat/sr-doc off origin/main (post-SR-SCOPE). Crew identity set.
+- doctrine/standards.md: added "Test discipline (code profile)" section — four code-profile disciplines grounded in real review regressions (real merge model, non-vacuous assertions, hermetic fixture env-pinning, exit-code on run() path). Placed after harness hygiene, before enforcement.
+- doctrine/review-board.md: added "Proving a check has teeth (reviewer technique)" — pre-image replay method (new test: revert + confirm fail; new scanner rule: pre-change passes planted content, new rule catches it). Added "The verdict header — gate-clean by construction" — negation-free PASS/BLOCK header schema; noted tool half is SR-CI (rv control return emits by construction).
+- doctrine/coordination.md: added "Verify, don't relay" — two rules: verify CI/tool claims against the authority before recording; trace every relayed specific to source. Placed after Routing.
+- Leakage scan: PASS on all three doctrine files.
+- rv lint: PASS. rv help --check: OK (19 verbs).
+
+### Decisions
+- Applied DOC.2/DOC.3/DOC.4 verbatim as specified. Only authorized deviation: note in review-board verdict-header block that tool half = SR-CI.
+- DEVLOG and all doctrine files de-personalized — no operator name, no private domain, no filesystem paths.
+
+### Open / next
+- PR needs Argus review. No self-merge.
+
 ## 2026-07-01 (SR-SCOPE build)
 
 ### Done
