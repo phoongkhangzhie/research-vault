@@ -14,6 +14,8 @@
 #   5. Secret-shaped strings      (known secret env-var names, API-key prefixes)
 #   6. Versioned model IDs        (pinned claude-*-N strings belong in private config, not doctrine)
 #   7. Placeholder-template lint  (memory.md files must not contain real private journal content)
+#   8. Real citekeys              (Pandoc [@key] citations reveal private bibliography)
+#   9. Real projects.json entries (private project registry slugs/codes not in class 1)
 #
 # Self-exclusion: the scanner skips itself, ci.yml, and the test file
 # (all three intentionally list the marker strings).
@@ -128,6 +130,18 @@ for slug in "${PRIVATE_MEMORY_SLUGS[@]}"; do
         FAIL=1
     fi
 done
+
+# ── Class 8: Real citekeys ───────────────────────────────────────────────────
+# Pandoc inline-citation format: [@key] — private bibliography keys must not
+# appear in portable doctrine. Any [@<letter>… form is a private citekey reference
+# (citekeys identify specific papers in the operator's private Zotero library).
+_grep_re "citekey/pandoc-citation" '\[@[A-Za-z][A-Za-z0-9_:-]+'
+
+# ── Class 9: Real projects.json entries ──────────────────────────────────────
+# The vault's project registry contains private slugs not fully covered by class 1.
+# "_hub" is the hub-infrastructure registry key; "dsr" is the dossier project code.
+_grep_literal "projects-json/_hub"     '"_hub"'
+_grep_literal "projects-json/dsr-code" '"code": "dsr"'
 
 # ── Result ────────────────────────────────────────────────────────────────────
 echo ""

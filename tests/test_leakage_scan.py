@@ -261,6 +261,58 @@ def test_green_on_template_memory_md(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Class 8: Real citekeys (Pandoc inline-citation format)
+# ---------------------------------------------------------------------------
+
+
+def test_red_on_pandoc_citekey_citation(tmp_path):
+    # author-year form citekey in Pandoc citation syntax
+    write_doc(tmp_path, "The method follows [@smith2023survey] closely.\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_pandoc_citekey_camelcase(tmp_path):
+    # Zotero-style camelCase citekey in Pandoc citation syntax
+    write_doc(tmp_path, "See [@abdulhaiSimulatingPersonas2025] for details.\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_scrubbed_citation(tmp_path):
+    write_doc(
+        tmp_path,
+        "The method follows prior work closely.\n"
+        "See earlier studies for details.\n",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Class 9: Real projects.json entries
+# ---------------------------------------------------------------------------
+
+
+def test_red_on_projects_json_hub_slug(tmp_path):
+    # "_hub" is the hub-infrastructure slug in the vault's project registry
+    write_doc(tmp_path, 'The "_hub" entry manages the vault root directory.\n')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_projects_json_dsr_code(tmp_path):
+    # "dsr" is the dossier project's registry code — distinct from the word "dossier"
+    write_doc(tmp_path, '{ "code": "dsr", "sourceDir": "~/dossier" }\n')
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_scrubbed_projects_json(tmp_path):
+    write_doc(
+        tmp_path,
+        "Each project entry has a code, sourceDir, and roster.\n"
+        "Private projects must not appear in portable doctrine.\n",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
 # Composite: clean scrubbed doctrine directory greens
 # ---------------------------------------------------------------------------
 
