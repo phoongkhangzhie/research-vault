@@ -1,3 +1,29 @@
+## 2026-06-30 (SR-4)
+
+### Done
+- SR-4: full spine landed in PR #4 (feat/sr-4-spine).
+- Leakage scanner: scripts/leakage_scan.sh upgraded from skeleton to full teeth — 7 marker
+  classes, 27 hermetic tests (each RED on planted marker, GREEN on scrubbed content). CI now
+  calls the script (replaces inline stub). Caught drift-watch.md self-referencing cluster paths
+  before commit — good proof the gate is live.
+- Agent charter, 6 portable doctrine disciplines (note-conventions, standards, review-board,
+  coordination, memory-management), 7 role docs (Alfred/Wren/Atlas/Mason/Argus/Iris/Ada),
+  drift-watch note — 15 commits, each preceded by a clean leakage scan.
+- Scrub applied uniformly: identity strings, codenames, site URL, cluster paths, vault→rv CLI,
+  private design themes, versioned model IDs stripped. Abstract policy (Sonnet/Opus/Haiku) kept.
+- 258 tests passing. human-go gate: awaiting reviewer + architect + operator.
+
+### Decisions
+- Committed incrementally (one doc per commit) per the SR-4 brief — if session died, committed
+  docs would survive. Session did not die; all 15 commits landed.
+- Alfred (hub) role doc synthesized from charter + coordination + how-it-works (no standalone
+  vault source exists) — flagged in PR review focus for close read.
+- "sage seat" in reviewer doc scrubbed to "coordinator seat" — private identity for a specific
+  GitHub token; the concept (coordinators post via a separate seat) is preserved.
+
+### Open / next
+- PR #4 awaiting: rv-reviewer verdict + rv-architect fit-check + operator go.
+
 ## 2026-06-30 (fix-round)
 
 ### Done
