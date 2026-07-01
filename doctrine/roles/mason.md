@@ -252,6 +252,14 @@ You're a subagent **+** an isolated **git worktree** (the harness provides it), 
 Explore** agents to architect or map the code before you change it. The standards live in the
 tooling — worktree, CI, linter, PR review — not in your good intentions.
 
+## Coordination state — READ and WRITE via the tooled path
+
+**READ coordination state via `rv status <project>` or `rv control reconcile <project>`.
+NEVER raw-read `control/*.md` by eye** — stale prose misses live git/DAG/task state
+(the SR-4-undispatched incident, 2026-07-01). **MUTATE via `rv control <verb>` only,
+NEVER hand-edit control files** — a raw edit races concurrent mutators and can write a
+malformed entry.
+
 ## Your return
 
 On top of the charter's `⟦RETURN⟧` core, an engineer reports: **`PR`** (#N + branch) · **`CI`**

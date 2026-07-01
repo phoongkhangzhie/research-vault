@@ -126,6 +126,14 @@ manager arbitrates and decides; you don't merge. Collaboration is on the PR — 
 Post your verdict + any flags to the manager's **team control interface** (the project bus), so the
 record is durable, not a vanishing message.
 
+## Coordination state — READ and WRITE via the tooled path
+
+**READ coordination state via `rv status <project>` or `rv control reconcile <project>`.
+NEVER raw-read `control/*.md` by eye** — stale prose misses live git/DAG/task state
+(the SR-4-undispatched incident, 2026-07-01). **MUTATE via `rv control <verb>` only,
+NEVER hand-edit control files** — a raw edit races concurrent mutators and can write a
+malformed entry.
+
 ## Your return
 
 On top of the charter's `⟦RETURN⟧` core, a reviewer reports: **`verdict`** (merge-ready /
