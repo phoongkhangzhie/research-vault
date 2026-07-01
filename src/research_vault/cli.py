@@ -9,7 +9,24 @@ Verbs (SR-1):
   rv control <project> <subcommand> — manage the coordination control file
   rv devlog <project> <subcommand>  — manage the project DEVLOG
 
-Verbs added by later SRs are listed in `rv help` but not yet implemented.
+Verbs (SR-2): project, cite, research, role, build-agents, mdstore, wt,
+  git-health, lint, wait-for
+
+Plugin seam (instance vs portable verbs):
+  Portable verbs are the built-in set above — they ship with the package and
+  run on any machine without instance-specific configuration.
+
+  Instance verbs are project-specific extensions registered in the
+  ``[verbs]`` section of ``research_vault.toml``:
+
+    [verbs.my-verb]
+    module = "myproject.verbs.my_verb"
+    when_to_use = "When you need to run my project-specific step."
+
+  Instance verbs are loaded at dispatch time from the config and merged
+  into the verb registry. They shadow portable verbs of the same name,
+  allowing instance-level overrides. Instance verb modules must expose
+  ``build_parser`` and ``run`` in the same shape as portable verbs.
 
 Stdlib only — no imports from private vault instances or project-specific paths.
 """
@@ -64,30 +81,90 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-1",
     },
-    # --- SR-2 (not yet implemented) ---
-    "research": {
-        "module": None,
+    # --- SR-2 ---
+    "project": {
+        "module": "research_vault.project",
         "when_to_use": (
-            "When you want to run a research step (asta-backed), cite a paper, or annotate "
-            "candidates. Requires asta + Zotero. Ships at SR-2."
+            "When you need to register a new project, list registered projects, or manage "
+            "the project config registry. Use `rv project add` to register a new project "
+            "into research_vault.toml."
         ),
-        "sr": "SR-2 (coming)",
+        "sr": "SR-2",
     },
     "cite": {
-        "module": None,
+        "module": "research_vault.cite",
         "when_to_use": (
             "When you need to resolve, add, or list citekeys against the project's Zotero "
-            "collection. Requires ZOTERO_KEY. Ships at SR-2."
+            "collection. Requires ZOTERO_KEY env var (or cross-platform keyring). "
+            "Routes secrets through the SecretStore Protocol — never macOS security binary."
         ),
-        "sr": "SR-2 (coming)",
+        "sr": "SR-2",
+    },
+    "research": {
+        "module": "research_vault.research",
+        "when_to_use": (
+            "When you want to run a research step (asta-backed), find papers, annotate "
+            "candidates vs corpus, or add papers via the dedup gate. Requires asta + Zotero. "
+            "Takes default_project from config — never a compiled-in codename."
+        ),
+        "sr": "SR-2",
+    },
+    "role": {
+        "module": "research_vault.role",
+        "when_to_use": (
+            "When you need to list, view, or manage agent roles in the project registry. "
+            "Use `rv role list` to see all registered roles."
+        ),
+        "sr": "SR-2",
+    },
+    "build-agents": {
+        "module": "research_vault.build_agents",
+        "when_to_use": (
+            "When you need to regenerate agent hat files from the role registry and "
+            "role-doc templates. Runs the build-agents pipeline for all or a specific project."
+        ),
+        "sr": "SR-2",
+    },
+    "mdstore": {
+        "module": "research_vault.mdstore",
+        "when_to_use": (
+            "When you need to check, archive, or inspect the markdown document store. "
+            "Validates OKF link integrity, freshness, and document structure."
+        ),
+        "sr": "SR-2",
+    },
+    "wt": {
+        "module": "research_vault.wt",
+        "when_to_use": (
+            "When you need to create, list, or remove git worktrees for project task branches. "
+            "Use `rv wt add <task>` to create an isolated worktree on feat/<task>."
+        ),
+        "sr": "SR-2",
+    },
+    "git-health": {
+        "module": "research_vault.git_health",
+        "when_to_use": (
+            "When you need a cross-repo branch health report: which branches are merged, "
+            "stale, or have unique content. Use --prune to clean up DELETE-classed branches."
+        ),
+        "sr": "SR-2",
+    },
+    "lint": {
+        "module": "research_vault.lint",
+        "when_to_use": (
+            "When you need to run the project linter: checks for leakage of private "
+            "codenames/paths, validates config schema, and enforces the zero-hardcoded-path rule."
+        ),
+        "sr": "SR-2",
     },
     "wait-for": {
-        "module": None,
+        "module": "research_vault.wait_for",
         "when_to_use": (
             "When you need to background-wait for an artifact to appear (file freshness, "
-            "sacct terminal, url reachable) and then resume the session. Ships at SR-2."
+            "sacct terminal, pr merged) and then fire a command on resolution. The caller "
+            "returns immediately — no sleep-looping. Primitive that SR-3's DAG afterok composes."
         ),
-        "sr": "SR-2 (coming)",
+        "sr": "SR-2",
     },
     # --- SR-3 (not yet implemented) ---
     "dag": {
@@ -101,15 +178,65 @@ _VERB_REGISTRY: dict[str, dict] = {
 }
 
 
-def _load_verb(name: str):
+def _load_verb(name: str, registry: dict | None = None):
     """Dynamically import a verb module. Returns (build_parser, run) or (None, None)."""
-    entry = _VERB_REGISTRY.get(name, {})
+    reg = registry if registry is not None else _VERB_REGISTRY
+    entry = reg.get(name, {})
     module_path = entry.get("module")
     if not module_path:
         return None, None
     import importlib
     mod = importlib.import_module(module_path)
     return mod.build_parser, mod.run
+
+
+# ---------------------------------------------------------------------------
+# Plugin seam: instance verbs loaded from config
+# ---------------------------------------------------------------------------
+
+def _load_instance_verbs() -> dict[str, dict]:
+    """Load instance-specific verb extensions from the config's [verbs] section.
+
+    Instance verbs are registered in research_vault.toml:
+
+      [verbs.my-verb]
+      module = "myproject.verbs.my_verb"
+      when_to_use = "When you need to run my project-specific step."
+
+    Instance verbs shadow portable verbs of the same name, allowing overrides.
+    Modules must expose build_parser(parent) and run(args).
+
+    Returns an empty dict if:
+      - No config file is found (zero-config mode)
+      - No [verbs] section in the config
+      - The [verbs] section is malformed (warning printed, falls through)
+    """
+    try:
+        cfg = load_config()
+    except Exception:
+        return {}
+    verbs_cfg = cfg._raw.get("verbs", {})
+    if not isinstance(verbs_cfg, dict):
+        return {}
+    result: dict[str, dict] = {}
+    for verb_name, verb_entry in verbs_cfg.items():
+        if not isinstance(verb_entry, dict):
+            continue
+        module = verb_entry.get("module", "").strip()
+        when_to_use = verb_entry.get("when_to_use", "").strip()
+        if not module:
+            import sys as _sys
+            print(
+                f"rv: instance verb {verb_name!r} has no 'module' in config [verbs] — skipping.",
+                file=_sys.stderr,
+            )
+            continue
+        result[verb_name] = {
+            "module": module,
+            "when_to_use": when_to_use or f"Instance verb {verb_name!r} (see config [verbs]).",
+            "sr": "instance",
+        }
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +262,7 @@ def _check_verb_docstrings() -> list[str]:
 # Top-level parser
 # ---------------------------------------------------------------------------
 
-def _build_top_parser() -> argparse.ArgumentParser:
+def _build_top_parser(instance_verbs: dict | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rv",
         description=(
@@ -151,10 +278,15 @@ def _build_top_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="verb", metavar="<verb>")
 
-    # Register implemented verbs
-    for verb_name, entry in _VERB_REGISTRY.items():
+    # Build the merged registry: portable verbs first, then instance verbs (may shadow)
+    merged_registry = dict(_VERB_REGISTRY)
+    if instance_verbs:
+        merged_registry.update(instance_verbs)
+
+    # Register implemented verbs (portable + instance)
+    for verb_name, entry in merged_registry.items():
         if entry.get("module"):
-            build_parser, _ = _load_verb(verb_name)
+            build_parser, _ = _load_verb(verb_name, merged_registry)
             if build_parser:
                 build_parser(sub)
 
@@ -172,7 +304,7 @@ def _build_top_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    return parser, sub
+    return parser, sub, merged_registry
 
 
 # ---------------------------------------------------------------------------
@@ -181,15 +313,17 @@ def _build_top_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the `rv` CLI. Returns exit code."""
-    parser, _ = _build_top_parser()
+    # Load instance verbs from config (plugin seam: portable vs instance verbs)
+    instance_verbs = _load_instance_verbs()
+    parser, _, merged_registry = _build_top_parser(instance_verbs)
 
     # Check if the verb is registered-but-unimplemented BEFORE argparse rejects it.
     # argparse only knows implemented verbs; future-SR verbs are in _VERB_REGISTRY
     # with module=None and must be handled here for a friendly error message.
     raw_argv = list(argv or sys.argv[1:])
-    if raw_argv and raw_argv[0] in _VERB_REGISTRY:
+    if raw_argv and raw_argv[0] in merged_registry:
         verb = raw_argv[0]
-        entry = _VERB_REGISTRY[verb]
+        entry = merged_registry[verb]
         if not entry.get("module"):
             sr = entry.get("sr", "a future SR")
             print(
@@ -216,20 +350,22 @@ def main(argv: list[str] | None = None) -> int:
                 for v in violations:
                     print(f"  {v}")
                 return 1
-            print(f"rv help --check: OK — {len(_VERB_REGISTRY)} verbs, all have when_to_use.")
+            total = len(merged_registry)
+            print(f"rv help --check: OK — {total} verbs, all have when_to_use.")
             return 0
 
-        # Print verb table
+        # Print verb table (merged: portable + instance)
         print("Research Vault verbs:\n")
-        for verb_name, entry in _VERB_REGISTRY.items():
+        for verb_name, entry in merged_registry.items():
             sr = entry.get("sr", "")
             status = "" if entry.get("module") else f"  [{sr}]"
-            print(f"  rv {verb_name:<16} {entry['when_to_use'][:60]}…{status}")
+            tag = " [instance]" if sr == "instance" else ""
+            print(f"  rv {verb_name:<16} {entry['when_to_use'][:60]}…{status}{tag}")
         print("\nRun `rv <verb> --help` for details. `rv help --check` validates docstrings.")
         return 0
 
-    # --- dispatch to verb ---
-    _, run_fn = _load_verb(args.verb)
+    # --- dispatch to verb (merged registry: instance verbs shadow portable) ---
+    _, run_fn = _load_verb(args.verb, merged_registry)
     if run_fn is None:
         entry = _VERB_REGISTRY.get(args.verb, {})
         sr = entry.get("sr", "a future SR")

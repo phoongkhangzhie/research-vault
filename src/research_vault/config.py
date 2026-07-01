@@ -96,11 +96,24 @@ def _default_config() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _merge(base: dict, override: dict) -> dict:
-    """Shallow merge: override wins at the top level; nested dicts are merged one level deep."""
+    """Deep merge: override wins at every level; nested dicts are recursively merged.
+
+    ARGUS SR-1 forward-flag fix: the original shallow (one-level) merge drops
+    sibling defaults when a depth-2 key is overridden (e.g.
+    ``[adapters.backend.slurm]`` overriding ``[adapters.backend]`` would lose
+    ``adapters.notifier``). Full recursion prevents that.
+
+    Key mapping note (camelCase → snake_case for future projects.json backfill):
+      projects.json (camelCase)  →  research_vault.toml (snake_case)
+      sourceDir                  →  source_dir
+      tasksDir                   →  tasks_dir
+      controlFile                →  control_file
+      This is the one-pass rename needed when backfilling live instances.
+    """
     merged = dict(base)
     for k, v in override.items():
         if isinstance(v, dict) and isinstance(merged.get(k), dict):
-            merged[k] = {**merged[k], **v}
+            merged[k] = _merge(merged[k], v)
         else:
             merged[k] = v
     return merged
