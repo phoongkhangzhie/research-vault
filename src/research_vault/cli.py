@@ -210,6 +210,29 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-3, SR-DISP",
     },
+    # --- SR-5 ---
+    "init": {
+        "module": "research_vault.init",
+        "when_to_use": (
+            "When you need to scaffold a fresh Research Vault instance from templates. "
+            "Run `rv init [<dir>]` to create the instance root with config, control files, "
+            "task dirs, doctrine, notes root (OKF type dirs), and the two canned demo projects "
+            "(demo-research + demo-litreview). A real project is a SEPARATE repo — use "
+            "`rv project add` after init. Refuses to overwrite an existing instance."
+        ),
+        "sr": "SR-5",
+    },
+    "check": {
+        "module": "research_vault.check",
+        "when_to_use": (
+            "When you need to verify prerequisites before running any research loop. "
+            "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
+            "asta (optional), Zotero/ZOTERO_KEY (optional). "
+            "Run `rv check` at the start of every new session or after environment changes. "
+            "Exit 0 = all required present; exit 1 = missing prerequisites."
+        ),
+        "sr": "SR-5",
+    },
 }
 
 
