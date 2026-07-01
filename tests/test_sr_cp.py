@@ -55,7 +55,12 @@ def tmp_git_repo(tmp_path):
     """A minimal git repo for testing git-based live signals."""
     repo = tmp_path / "git-repo"
     repo.mkdir()
-    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+    # Pin the default branch to "main" so tests pass on CI runners that
+    # default to "master" (where init.defaultBranch is not overridden).
+    subprocess.run(
+        ["git", "init", "--initial-branch=main", str(repo)],
+        check=True, capture_output=True,
+    )
     subprocess.run(
         ["git", "-C", str(repo), "config", "user.email", "test@test.com"],
         check=True, capture_output=True,
@@ -258,6 +263,64 @@ class TestReconcileBites:
         )
         r4_findings = [f for f in findings if "sr-x" in f.lower() or entry_id.lower() in f.lower()]
         assert len(r4_findings) > 0, f"Expected R4 violation for merged branch, got: {findings}"
+
+    def test_r4_bites_on_squash_merged_branch_still_inflight(
+        self, cfg, ctl_file, tmp_git_repo
+    ):
+        """R4 (squash path): squash-merged branch with (#N) commit subject → STALE.
+
+        This is the repo's ACTUAL merge model (GitHub squash-and-merge).
+        Squash produces no merge commit so primary --merges signal is empty;
+        tertiary signal scans non-merge commit subjects for the (#N) anchor.
+        """
+        entry_id = "sr-p-mason-20260701"
+        _plant_inflight_handshake(ctl_file, entry_id)
+
+        # Create branch, add commit, then squash-merge into main
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "checkout", "-b", "feat/sr-p"],
+            check=True, capture_output=True,
+        )
+        (tmp_git_repo / "squash.txt").write_text("squashed\n")
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "add", "."],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "commit", "-m", "wip: sr-p work"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "checkout", "main"],
+            check=True, capture_output=True,
+        )
+        # Squash merge: collapses branch commits into one
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "merge", "--squash", "feat/sr-p"],
+            check=True, capture_output=True,
+        )
+        # Commit with GitHub-style squash subject: "feat(scope): desc (#N)"
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "commit",
+             "-m", "feat(sr-p): deliver sr-p implementation (#42)"],
+            check=True, capture_output=True,
+        )
+        # Branch may be deleted after squash-merge (as in real workflow)
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "branch", "-D", "feat/sr-p"],
+            check=True, capture_output=True,
+        )
+
+        findings = control_mod.cmd_reconcile(
+            "demo-research", config=cfg, git_repo=tmp_git_repo
+        )
+        r4_findings = [
+            f for f in findings
+            if "sr-p" in f.lower() or entry_id.lower() in f.lower()
+        ]
+        assert len(r4_findings) > 0, (
+            f"Expected R4 violation for squash-merged branch, got: {findings}"
+        )
 
     def test_r4_clears_when_branch_unmerged(self, cfg, ctl_file, tmp_git_repo):
         """R4 GREEN: Handshake in-flight, branch NOT merged → no R4 flag."""
@@ -766,12 +829,86 @@ class TestReconcileArchive:
 
         live_after = ctl_file.read_text(encoding="utf-8")
         archive_path = ctl_file.parent / (ctl_file.stem + ".archive.md")
-        # sr-m verdict should move if reconcile could match entry to the merged branch
-        # This test verifies the --archive flag triggers archiving of terminal entries
-        # The exact matching depends on implementation — check archive sidecar grew
-        assert archive_path.exists() or entry_id not in live_after or True
-        # Softer check: non-terminal entry stays
-        # (added separately below)
+        # sr-m entry must be gone from the live file
+        assert entry_id not in live_after, (
+            f"Terminal entry {entry_id!r} still in live file after --archive"
+        )
+        # Archive sidecar must exist and contain the entry
+        assert archive_path.exists(), "Archive sidecar was not created"
+        archive_text = archive_path.read_text(encoding="utf-8")
+        assert entry_id in archive_text, (
+            f"Entry {entry_id!r} missing from archive sidecar {archive_path}"
+        )
+
+    def test_reconcile_archive_moves_terminal_entry_squash(
+        self, cfg, ctl_file, tmp_git_repo
+    ):
+        """reconcile --archive auto-archives entry via squash-merge (#N) signal.
+
+        This exercises the ACTUAL merge model of this repo (GitHub squash-and-merge):
+        no merge commit is produced, so the primary --merges signal is empty;
+        the tertiary signal (non-merge commit subject with (#N) anchor) fires.
+        """
+        control_mod.cmd_post(
+            "demo-research",
+            section="outbox",
+            title="sr-q verdict",
+            by="argus",
+            kind="verdict",
+            config=cfg,
+        )
+        live_text = ctl_file.read_text(encoding="utf-8")
+        import re
+        m = re.search(r"\*\*([^:*]+:[^*]+)\*\*", live_text)
+        assert m, f"Could not find verdict entry: {live_text}"
+        entry_id = m.group(1)
+
+        # Squash-merge feat/sr-q with GitHub-style commit subject
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "checkout", "-b", "feat/sr-q"],
+            check=True, capture_output=True,
+        )
+        (tmp_git_repo / "sq.txt").write_text("squashed\n")
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "add", "."],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "commit", "-m", "wip: sr-q"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "checkout", "main"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "merge", "--squash", "feat/sr-q"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "commit",
+             "-m", "feat(sr-q): deliver sr-q verdict (#17)"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "branch", "-D", "feat/sr-q"],
+            check=True, capture_output=True,
+        )
+
+        control_mod.cmd_reconcile(
+            "demo-research", config=cfg, git_repo=tmp_git_repo, archive=True
+        )
+
+        live_after = ctl_file.read_text(encoding="utf-8")
+        archive_path = ctl_file.parent / (ctl_file.stem + ".archive.md")
+        assert entry_id not in live_after, (
+            f"Terminal entry {entry_id!r} still in live file after squash-merge --archive"
+        )
+        assert archive_path.exists(), "Archive sidecar was not created"
+        archive_text = archive_path.read_text(encoding="utf-8")
+        assert entry_id in archive_text, (
+            f"Entry {entry_id!r} missing from archive sidecar after squash-merge"
+        )
 
     def test_non_terminal_entry_stays(self, cfg, ctl_file):
         """reconcile --archive leaves non-terminal entries in place."""
@@ -817,9 +954,20 @@ class TestReconcileArchive:
         text = re.sub(r"^(- )(\*\*[^:*]+:[^*]+\*\*)", r"\1CLOSED: \2", text, flags=re.MULTILINE)
         ctl_file.write_text(text, encoding="utf-8")
 
-        # Check resolved count exceeds threshold (threshold is 5 in spec)
+        # Verify the count exceeds threshold (threshold is 5 in spec)
         count = control_mod.count_resolved_unarchived("demo-research", config=cfg)
         assert count >= 5, f"Expected >= 5 resolved entries, got {count}"
+
+        # Wire check: cmd_reconcile must return a finding (exit non-zero) when
+        # the resolved-but-unarchived count exceeds RESOLVED_THRESHOLD.
+        findings = control_mod.cmd_reconcile("demo-research", config=cfg)
+        bloat_findings = [
+            f for f in findings
+            if "resolved" in f.lower() and "threshold" in f.lower()
+        ]
+        assert bloat_findings, (
+            f"Expected reconcile to flag resolved-count bloat, got findings: {findings}"
+        )
 
     def test_resolved_count_under_threshold_is_green(self, cfg, ctl_file):
         """resolved-but-unarchived count under threshold → OK."""
