@@ -40,20 +40,120 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# OKF link checking
+# OKF link checking — local and cross-project
 # ---------------------------------------------------------------------------
 
 _OKF_LINK_RE = re.compile(
     r"\[(?P<text>[^\]]*)\]\((?P<path>[^)\s]+?\.md)(?P<section>#[^)\s]*)?\)"
 )
 
+# Cross-project OKF link pattern: @<slug>:<path/to/note.md>
+# Example: [finding](@project-b:literature/smith2024.md)
+_CROSS_PROJECT_RE = re.compile(r"^@(?P<slug>[a-z][a-z0-9-]*):/(?P<note_path>.+\.md)$")
+_CROSS_PROJECT_BARE_RE = re.compile(r"^@(?P<slug>[a-z][a-z0-9-]*):(?P<note_path>[^/].+\.md)$")
 
-def _check_links(text: str, note_path: Path, notes_root: Path) -> list[str]:
-    """Return a list of broken OKF link descriptions in the note."""
+
+def resolve_cross_project_link(
+    slug: str,
+    note_path_str: str,
+    cfg: Config,
+) -> dict[str, Any]:
+    """Resolve a cross-project OKF link to a concrete file path.
+
+    Parameters
+    ----------
+    slug:
+        The target project slug (must exist in the registry).
+    note_path_str:
+        Relative path to the note within the project's source_dir.
+    cfg:
+        The loaded Config (registry source of truth).
+
+    Returns
+    -------
+    dict with keys:
+        resolved (bool)      — True if the link resolves to an existing file.
+        path (Path | None)   — The absolute path if resolved, else None.
+        project (str)        — The target project slug.
+        note (str)           — The note path string.
+        provenance (str)     — Human-readable provenance string.
+        error (str | None)   — Error description if not resolved.
+    """
+    if slug not in cfg.projects:
+        return {
+            "resolved": False,
+            "path": None,
+            "project": slug,
+            "note": note_path_str,
+            "provenance": f"@{slug}:{note_path_str}",
+            "error": f"unknown project {slug!r}",
+        }
+    source_dir = Path(cfg.projects[slug].get("source_dir", ""))
+    target = (source_dir / note_path_str).resolve()
+    if target.exists():
+        return {
+            "resolved": True,
+            "path": target,
+            "project": slug,
+            "note": note_path_str,
+            "provenance": f"@{slug}:{note_path_str}",
+            "error": None,
+        }
+    return {
+        "resolved": False,
+        "path": None,
+        "project": slug,
+        "note": note_path_str,
+        "provenance": f"@{slug}:{note_path_str}",
+        "error": f"note not found: {target}",
+    }
+
+
+def _parse_cross_project_ref(path_str: str) -> tuple[str, str] | None:
+    """Parse a cross-project link path string into (slug, note_path).
+
+    Accepts both ``@slug:/path/note.md`` and ``@slug:path/note.md``.
+    Returns None if the path is not a cross-project reference.
+    """
+    m = _CROSS_PROJECT_RE.match(path_str)
+    if m:
+        return m.group("slug"), m.group("note_path")
+    m = _CROSS_PROJECT_BARE_RE.match(path_str)
+    if m:
+        return m.group("slug"), m.group("note_path")
+    return None
+
+
+def _check_links(
+    text: str,
+    note_path: Path,
+    notes_root: Path,
+    cfg: Config | None = None,
+) -> list[str]:
+    """Return a list of broken OKF link descriptions in the note.
+
+    Handles both local links and cross-project links (@slug:path).
+    Cross-project links require cfg to be passed; without it they are skipped.
+    """
     broken = []
     for m in _OKF_LINK_RE.finditer(text):
         link_path = m.group("path")
-        # Resolve relative to the notes_root or the note's parent dir
+
+        # Cross-project link?
+        xp = _parse_cross_project_ref(link_path)
+        if xp is not None:
+            slug, note_rel = xp
+            if cfg is not None:
+                result = resolve_cross_project_link(slug, note_rel, cfg)
+                if not result["resolved"]:
+                    broken.append(
+                        f"broken cross-project link: {link_path!r} in {note_path.name} "
+                        f"({result['error']})"
+                    )
+            # If cfg is None, skip cross-project link checks gracefully
+            continue
+
+        # Local link: resolve relative to the note's parent dir or notes_root
         candidate = (note_path.parent / link_path).resolve()
         if not candidate.exists():
             # Also try from notes_root
@@ -120,9 +220,9 @@ def cmd_check(
                 if req not in fm:
                     issues.append(f"missing frontmatter '{req}': {note_path.name}")
 
-            # Check links
+            # Check links (pass cfg for cross-project link resolution)
             if check_links:
-                issues.extend(_check_links(text, note_path, notes_dir))
+                issues.extend(_check_links(text, note_path, notes_dir, cfg=cfg))
 
         if issues:
             print(f"{slug}: {len(issues)} issue(s) in {len(note_files)} note(s):")
