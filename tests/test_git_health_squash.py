@@ -1,10 +1,13 @@
-"""test_git_health_squash.py — Signal D regression tests for git-health.
+"""test_git_health_squash.py — Signal D regression tests for git-health + reconcile.
 
 Verifies that git-health correctly classifies squash-merged branches as
-DELETE (was: FLAG — the SR-CP blind-spot).
+DELETE (was: FLAG — the SR-CP blind-spot), AND that the control-reconcile
+LocalGitSource.get_terminal_set detects squash-merged ids via the shared
+gitlib helper (B1 acceptance: single implementation, no duplication).
 
 The squash-terminal detection consumes gitlib.squash_terminal_ids, so this
-test also verifies the integration: gitlib helper + git_health._classify_branch.
+test also verifies the integration: gitlib helper + git_health._classify_branch
++ status.LocalGitSource.get_terminal_set.
 """
 from __future__ import annotations
 
@@ -159,3 +162,138 @@ control_dir = "{tmp_path / 'control'}"
                 os.environ.pop("GIT_HEALTH_REPOS", None)
             else:
                 os.environ["GIT_HEALTH_REPOS"] = old_repos
+
+
+# ---------------------------------------------------------------------------
+# B1: LocalGitSource.get_terminal_set uses gitlib (no duplicate squash impl)
+# ---------------------------------------------------------------------------
+
+
+class TestLocalGitSourceSquashViaGitlib:
+    """Reconcile's LocalGitSource.get_terminal_set detects squash-merged ids via gitlib.
+
+    B1 acceptance: after the fix, status._PR_ANCHOR_RE is gone and the squash
+    detection is fully delegated to gitlib.squash_terminal_ids.  These tests
+    verify the BEHAVIOUR — that the terminal set includes ids from squash
+    subjects — and are therefore also a correctness regression guard if the
+    gitlib delegation ever breaks.
+    """
+
+    def test_local_git_source_detects_squash_terminal(self, tmp_path):
+        """LocalGitSource.get_terminal_set returns the token from a squash-merged commit."""
+        import os
+        from research_vault.status import LocalGitSource
+        from research_vault.config import load_config, reset_config_cache
+
+        # Build a hermetic repo with a squash merge
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(
+            ["git", "init", "--initial-branch=main", str(repo)],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "t@t.invalid"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "T"],
+            check=True, capture_output=True,
+        )
+        (repo / "README.md").write_text("init\n")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-m", "chore: init"],
+            check=True, capture_output=True,
+        )
+        # Squash-merge: GitHub appends (#N) automatically; we do it manually.
+        squash_merge_repo(repo, "feat/sr-b1test", "feat(sr-b1test): migrated squash parser (#7)")
+
+        # Minimal config; LocalGitSource uses repo_path= directly, bypassing config lookup.
+        config_file = tmp_path / "rv.toml"
+        config_file.write_text(
+            f"""
+instance_root = "{tmp_path}"
+notes_root = "{tmp_path / 'notes'}"
+state_dir = "{tmp_path / 'state'}"
+agents_dir = "{tmp_path / '.agents'}"
+tasks_dir = "{tmp_path / 'tasks'}"
+control_dir = "{tmp_path / 'control'}"
+""",
+            encoding="utf-8",
+        )
+        old_env = os.environ.get("RESEARCH_VAULT_CONFIG")
+        os.environ["RESEARCH_VAULT_CONFIG"] = str(config_file)
+        try:
+            reset_config_cache()
+            cfg = load_config()
+            src = LocalGitSource(repo_path=repo)
+            terminal = src.get_terminal_set(cfg, "any-project")
+        finally:
+            if old_env is None:
+                os.environ.pop("RESEARCH_VAULT_CONFIG", None)
+            else:
+                os.environ["RESEARCH_VAULT_CONFIG"] = old_env
+            reset_config_cache()
+
+        assert "sr-b1test" in terminal, (
+            f"Expected 'sr-b1test' in terminal set from squash commit, got: {terminal!r}.\n"
+            "LocalGitSource.get_terminal_set must delegate to gitlib.squash_terminal_ids."
+        )
+
+    def test_local_git_source_no_squash_token_absent(self, tmp_path):
+        """An id NOT anchored with (#N) must NOT appear in the terminal squash set."""
+        import os
+        from research_vault.status import LocalGitSource
+        from research_vault.config import load_config, reset_config_cache
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(
+            ["git", "init", "--initial-branch=main", str(repo)],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "t@t.invalid"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "T"],
+            check=True, capture_output=True,
+        )
+        (repo / "README.md").write_text("init\n")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-m", "chore: init"],
+            check=True, capture_output=True,
+        )
+        # Commit WITHOUT the (#N) anchor — NOT a squash merge
+        (repo / "other.txt").write_text("other\n")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-m", "feat(sr-absent): regular commit no anchor"],
+            check=True, capture_output=True,
+        )
+
+        config_file = tmp_path / "rv.toml"
+        config_file.write_text(
+            f'instance_root = "{tmp_path}"\n',
+            encoding="utf-8",
+        )
+        old_env = os.environ.get("RESEARCH_VAULT_CONFIG")
+        os.environ["RESEARCH_VAULT_CONFIG"] = str(config_file)
+        try:
+            reset_config_cache()
+            cfg = load_config()
+            src = LocalGitSource(repo_path=repo)
+            terminal = src.get_terminal_set(cfg, "any-project")
+        finally:
+            if old_env is None:
+                os.environ.pop("RESEARCH_VAULT_CONFIG", None)
+            else:
+                os.environ["RESEARCH_VAULT_CONFIG"] = old_env
+            reset_config_cache()
+
+        assert "sr-absent" not in terminal, (
+            f"'sr-absent' should NOT be terminal (no (#N) anchor); got terminal={terminal!r}"
+        )
