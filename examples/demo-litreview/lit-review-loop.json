@@ -1,0 +1,72 @@
+{
+  "run_id": "lit-review-loop-topic",
+  "name": "Lit-review loop — topic (OKF coverage gate)",
+  "global_cap": 3,
+  "nodes": [
+    {
+      "id": "scope",
+      "type": "agent",
+      "label": "Define review scope (Ada/researcher — which papers are in scope)",
+      "role": "researcher",
+      "spec": "task://demo-litreview#scope",
+      "needs": []
+    },
+    {
+      "id": "survey",
+      "type": "agent",
+      "label": "Survey literature (Ada/researcher — identify and collect in-scope papers)",
+      "role": "researcher",
+      "spec": "task://demo-litreview#survey",
+      "needs": [{"from": "scope", "edge": "afterok"}]
+    },
+    {
+      "id": "distill-paper-1",
+      "type": "agent",
+      "label": "Distill paper 1 (Ada/researcher — read and write OKF literature note)",
+      "role": "researcher",
+      "spec": "task://demo-litreview#distill-paper-1",
+      "produces": {"note": "literature/smith2024.md"},
+      "needs": [{"from": "survey", "edge": "afterok"}]
+    },
+    {
+      "id": "distill-paper-2",
+      "type": "agent",
+      "label": "Distill paper 2 (Ada/researcher — read and write OKF literature note)",
+      "role": "researcher",
+      "spec": "task://demo-litreview#distill-paper-2",
+      "produces": {"note": "literature/jones2023.md"},
+      "needs": [{"from": "survey", "edge": "afterok"}]
+    },
+    {
+      "id": "okf-coverage-gate",
+      "type": "human-go",
+      "label": "OKF coverage gate — assert every in-scope paper has a literature note or is MENTION-ONLY",
+      "needs": [
+        {"from": "distill-paper-1", "edge": "afterok"},
+        {"from": "distill-paper-2", "edge": "afterok"}
+      ]
+    },
+    {
+      "id": "synthesize",
+      "type": "agent",
+      "label": "Synthesize findings (Ada/researcher — claims to concepts/, index to mocs/)",
+      "role": "researcher",
+      "spec": "task://demo-litreview#synthesize",
+      "needs": [{"from": "okf-coverage-gate", "edge": "afterok"}]
+    },
+    {
+      "id": "synthesis-critic",
+      "type": "agent",
+      "label": "Critique synthesis — flag orphan concepts/mocs (Argus/reviewer)",
+      "role": "reviewer",
+      "spec": "doctrine/roles/argus.md",
+      "needs": [{"from": "synthesize", "edge": "afterok"}]
+    },
+    {
+      "id": "human-go-synthesis",
+      "type": "human-go",
+      "label": "Human review gate — synthesis quality and OKF links resolved",
+      "needs": [{"from": "synthesis-critic", "edge": "afterok"}]
+    }
+  ]
+}

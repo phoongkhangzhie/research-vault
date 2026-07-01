@@ -1,0 +1,83 @@
+{
+  "run_id": "research-loop-q1",
+  "name": "Research loop — Q1 (pre-registration enforced)",
+  "global_cap": 3,
+  "nodes": [
+    {
+      "id": "plan",
+      "type": "agent",
+      "label": "Plan experiment + write pre-registration note (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#plan",
+      "produces": {"note": "experiments/exp-q1.md"},
+      "needs": []
+    },
+    {
+      "id": "plan-critic",
+      "type": "agent",
+      "label": "Critique plan — independent review (Argus/reviewer)",
+      "role": "reviewer",
+      "spec": "doctrine/roles/argus.md",
+      "needs": [{"from": "plan", "edge": "afterok"}]
+    },
+    {
+      "id": "human-go-plan",
+      "type": "human-go",
+      "label": "Human approval gate — plan quality and pre-registration filed",
+      "needs": [{"from": "plan-critic", "edge": "afterok"}]
+    },
+    {
+      "id": "run",
+      "type": "agent",
+      "label": "Run experiment (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#run",
+      "needs": [
+        {"from": "human-go-plan", "edge": "afterok"},
+        {
+          "from": "plan",
+          "edge": "afterok",
+          "watch": "note:experiments/exp-q1.md+fresh"
+        }
+      ]
+    },
+    {
+      "id": "score",
+      "type": "agent",
+      "label": "Score results (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#score",
+      "needs": [{"from": "run", "edge": "afterok"}]
+    },
+    {
+      "id": "analyze",
+      "type": "agent",
+      "label": "Analyze results + write findings note (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#analyze",
+      "produces": {"note": "findings/find-q1.md"},
+      "needs": [{"from": "score", "edge": "afterok"}]
+    },
+    {
+      "id": "human-go-findings",
+      "type": "human-go",
+      "label": "Human review gate — findings quality and artifact filed",
+      "needs": [
+        {
+          "from": "analyze",
+          "edge": "afterok",
+          "watch": "note:findings/find-q1.md+fresh"
+        }
+      ]
+    },
+    {
+      "id": "methods-update",
+      "type": "agent",
+      "label": "Update methods note if protocol changed (Ada/researcher — soft, non-blocking)",
+      "role": "researcher",
+      "spec": "task://demo-research#methods-update",
+      "produces": {"note": "methods/method-q1.md"},
+      "needs": [{"from": "analyze", "edge": "soft"}]
+    }
+  ]
+}
