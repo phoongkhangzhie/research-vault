@@ -209,6 +209,14 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
                     raise ManifestError(
                         f"Node {nid!r}: produces.note must be a non-empty string"
                     )
+            # SR-8: dataset provenance note (points to data artifact, never contains it)
+            if "dataset" in produces:
+                dataset_path = produces["dataset"]
+                if not isinstance(dataset_path, str) or not dataset_path.strip():
+                    raise ManifestError(
+                        f"Node {nid!r}: produces.dataset must be a non-empty string "
+                        f"(path to the datasets/ provenance note, e.g. 'datasets/my-data.md')"
+                    )
 
         # Validate needs list
         needs = node.get("needs", [])

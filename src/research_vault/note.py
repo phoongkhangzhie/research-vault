@@ -2,7 +2,8 @@
 
 When to use: use `rv note <project> <type> …` to create or list OKF notes for a project.
 Notes follow the Open Knowledge Format: markdown + YAML frontmatter with a required `type` field.
-The type determines the subdirectory: literature/, concepts/, methods/, experiments/, findings/, mocs/.
+The type determines the subdirectory: literature/, concepts/, methods/, experiments/,
+findings/, mocs/, datasets/.
 
 Path resolution: always via Config — zero hardcoded paths.
 Stdlib only.
@@ -28,6 +29,7 @@ OKF_TYPES = frozenset({
     "experiments",
     "findings",
     "mocs",
+    "datasets",   # SR-8: provenance note for data artifacts (points to data, never contains it)
 })
 
 
@@ -91,13 +93,26 @@ def cmd_new(project: str, note_type: str, title: str, *,
 
     Returns the path to the created note file.
     Raises ValueError if note_type is not a valid OKF type.
+
+    SR-8: for note_type == 'datasets', the template includes placeholder fields:
+      location — path/URL/DOI of the actual data artifact (fill this in)
+      hash     — content hash in sha256:<hex> format (fill this in)
+    Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
+    provenance note and afterok on it, so lineage is structural.
     """
     if note_type not in OKF_TYPES:
         raise ValueError(
             f"Unknown note type {note_type!r}. Valid types: {sorted(OKF_TYPES)}"
         )
     cfg = config or load_config()
-    notes_dir = cfg.project_notes_dir(project) / note_type
+
+    # SR-8: datasets are SHARED cross-project — live in cfg.datasets_root, not
+    # in the project-scoped notes directory. A dataset note filed for one project
+    # is visible and lineage-gatable from any other project.
+    if note_type == "datasets":
+        notes_dir = cfg.datasets_root
+    else:
+        notes_dir = cfg.project_notes_dir(project) / note_type
     notes_dir.mkdir(parents=True, exist_ok=True)
 
     slug = note_id or _slugify(title)
@@ -111,10 +126,33 @@ def cmd_new(project: str, note_type: str, title: str, *,
         "title": title,
         "created": _today(),
     }
+
+    # SR-8: datasets notes carry provenance-specific placeholder fields
+    if note_type == "datasets":
+        fields["location"] = ""   # fill in: path/URL/DOI of the data artifact
+        fields["hash"] = ""       # fill in: sha256:<hex> content hash of the artifact
+
     if tags:
         fields["tags"] = "[" + ", ".join(tags) + "]"
 
-    body = "\n<!-- Write your note here -->\n"
+    if note_type == "datasets":
+        body = (
+            "\n"
+            "<!-- Datasets provenance note (SR-8) -->\n"
+            "<!-- Fill in 'location' and 'hash' above before completing the DAG node. -->\n"
+            "<!--   location: /path/to/data.csv  OR  https://...  OR  doi:10.xxx/... -->\n"
+            "<!--   hash: sha256:<hex>  (run: sha256sum <file>) -->\n"
+            "\n"
+            "## What this dataset is\n\n"
+            "<!-- Describe the dataset: domain, size, format, collection method. -->\n\n"
+            "## Provenance\n\n"
+            "<!-- Which step/commit/input-datasets produced this? -->\n\n"
+            "## Schema\n\n"
+            "<!-- Column/field descriptions (optional — used for schema-shape validation). -->\n"
+        )
+    else:
+        body = "\n<!-- Write your note here -->\n"
+
     note_path.write_text(_render_frontmatter(fields) + "\n" + body, encoding="utf-8")
     return note_path
 
@@ -125,6 +163,9 @@ def cmd_list(project: str, note_type: str | None = None, *,
 
     If note_type is given, list only that type's subdirectory.
     Returns list of {path, fields} dicts.
+
+    SR-8: datasets are SHARED — cmd_list for note_type='datasets' scans
+    cfg.datasets_root rather than the project-scoped notes directory.
     """
     cfg = config or load_config()
     base = cfg.project_notes_dir(project)
@@ -136,7 +177,11 @@ def cmd_list(project: str, note_type: str | None = None, *,
 
     notes = []
     for t in types_to_scan:
-        subdir = base / t
+        # SR-8: datasets live in the shared datasets_root, not project_notes_dir/datasets/
+        if t == "datasets":
+            subdir = cfg.datasets_root
+        else:
+            subdir = base / t
         if not subdir.exists():
             continue
         for p in sorted(subdir.glob("*.md")):
@@ -151,8 +196,15 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
 
     Checks that:
     - Each note has a `type` frontmatter field
-    - The `type` value matches its parent directory name
+    - The `type` value matches its parent directory name (non-datasets types)
     - The `type` is a known OKF type
+    - SR-8: datasets notes (scanned from cfg.datasets_root) have non-empty
+      `location` and `hash` fields. The type-dir check is skipped for datasets
+      since datasets_root may have any directory name.
+
+    SR-8 note: datasets are SHARED across projects. cmd_check scans
+    cfg.datasets_root for the datasets type (same root for all projects);
+    the 6 other OKF types remain project-scoped in project_notes_dir.
 
     Returns a list of violation strings (empty = all clear).
     """
@@ -161,21 +213,52 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
     violations = []
 
     for t in OKF_TYPES:
-        subdir = base / t
+        # SR-8: datasets live in the shared datasets_root
+        if t == "datasets":
+            subdir = cfg.datasets_root
+        else:
+            subdir = base / t
         if not subdir.exists():
             continue
+
         for p in sorted(subdir.glob("*.md")):
             text = p.read_text(encoding="utf-8")
             fields, _ = _parse_frontmatter(text)
             note_type = fields.get("type", "")
+
             if not note_type:
                 violations.append(f"{p}: missing 'type' frontmatter field")
-            elif note_type not in OKF_TYPES:
+                continue
+
+            if note_type not in OKF_TYPES:
                 violations.append(f"{p}: unknown type {note_type!r}")
-            elif note_type != t:
-                violations.append(
-                    f"{p}: type={note_type!r} but file is in {t!r} directory"
-                )
+                continue
+
+            if t == "datasets":
+                # For the shared datasets type, check type == "datasets" (not type-dir
+                # match, since datasets_root may have any directory name).
+                if note_type != "datasets":
+                    violations.append(
+                        f"{p}: expected type='datasets', got {note_type!r}"
+                    )
+                # SR-8: datasets notes must have location and hash filled in
+                if not fields.get("location", "").strip():
+                    violations.append(
+                        f"{p}: datasets note missing 'location' field "
+                        f"(path/URL/DOI of the actual data artifact)"
+                    )
+                if not fields.get("hash", "").strip():
+                    violations.append(
+                        f"{p}: datasets note missing 'hash' field "
+                        f"(content hash in sha256:<hex> format)"
+                    )
+            else:
+                # Standard OKF type-dir contract for the 6 project-scoped types
+                if note_type != t:
+                    violations.append(
+                        f"{p}: type={note_type!r} but file is in {t!r} directory"
+                    )
+
     return violations
 
 
@@ -187,8 +270,12 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     """Build the argument parser for the `note` verb.
 
     When to use: use `rv note <project> <subcommand>` to create or inspect OKF notes.
-    Notes are typed markdown files (literature, concepts, methods, experiments, findings, mocs)
-    stored under the project's notes directory. The type field in frontmatter is enforced.
+    Notes are typed markdown files (literature, concepts, methods, experiments, findings,
+    mocs, datasets) stored under the project's notes directory. The type field in
+    frontmatter is enforced. datasets notes are SR-8 provenance metadata — they POINT to
+    data artifacts (path/URL/DOI + content-hash), never contain the data itself.
+    Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
+    provenance note and afterok on it so lineage is structural.
     """
     desc = "Create and list OKF notes for a project."
     if parent is not None:
