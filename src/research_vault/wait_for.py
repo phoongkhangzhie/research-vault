@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import os
 import re
 import subprocess
@@ -73,6 +74,138 @@ def parse_duration_secs(s: str) -> int:
     if total == 0:
         raise ValueError(f"zero duration: {s!r}")
     return total
+
+
+# ---------------------------------------------------------------------------
+# SR-8: Dataset resolver helpers (stdlib only — no data/compute library)
+# ---------------------------------------------------------------------------
+
+def _parse_dataset_note_frontmatter(text: str) -> dict[str, str]:
+    """Parse YAML frontmatter from a datasets provenance note.
+
+    Returns a dict of field → value strings (stripped). Empty dict if no frontmatter.
+    """
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}
+    fm_block = text[3:end].strip()
+    fields: dict[str, str] = {}
+    for line in fm_block.splitlines():
+        m = re.match(r"^(\w+):\s*(.*)$", line)
+        if m:
+            key, val = m.group(1), m.group(2).strip()
+            if val.startswith(("'", '"')) and val.endswith(val[0]):
+                val = val[1:-1]
+            fields[key] = val
+    return fields
+
+
+def _is_local_path(location: str) -> bool:
+    """Return True if location looks like a local filesystem path (not URL/DOI)."""
+    lower = location.lower()
+    for prefix in ("http://", "https://", "ftp://", "s3://", "gs://", "doi:", "hdfs://"):
+        if lower.startswith(prefix):
+            return False
+    return True
+
+
+def _verify_local_file_hash(location: str, recorded_hash: str) -> dict:
+    """Verify a local file's sha256 hash against the recorded hash.
+
+    Returns {"ok": bool, "state": str, "error": str|None}.
+    recorded_hash must be in "sha256:<hex>" format.
+    If the hash is in an unknown format, we accept it (forward-compatible).
+    """
+    p = Path(location)
+    if not p.exists():
+        return {
+            "ok": False,
+            "state": "artifact-missing",
+            "error": f"data artifact not found: {location}",
+        }
+
+    # Only verify sha256: prefixed hashes; other formats are accepted as-is
+    if not recorded_hash.startswith("sha256:"):
+        return {"ok": True, "state": "hash-format-unknown", "error": None}
+
+    expected_hex = recorded_hash[len("sha256:"):]
+    try:
+        actual_hex = hashlib.sha256(p.read_bytes()).hexdigest()
+    except OSError as e:
+        return {"ok": False, "state": "hash-read-error", "error": str(e)}
+
+    if actual_hex != expected_hex:
+        return {
+            "ok": False,
+            "state": f"hash-mismatch(expected={expected_hex[:12]}...,actual={actual_hex[:12]}...)",
+            "error": None,
+        }
+    return {"ok": True, "state": "hash-verified", "error": None}
+
+
+def check_dataset_provenance(
+    dataset_note_rel: str,
+    notes_root: Path,
+) -> list[str]:
+    """Validate a datasets provenance note at complete-time (dag complete gate).
+
+    Args:
+      dataset_note_rel — note path relative to notes_root (e.g. "datasets/my-data.md")
+      notes_root       — the project's notes root directory
+
+    Returns a list of issue strings (empty = OK, gate passes).
+
+    Checks:
+      1. Provenance note exists
+      2. Note has non-empty `location` field
+      3. Note has non-empty `hash` field
+      4. If location is a local file: file exists AND sha256 matches
+    """
+    note_path = Path(dataset_note_rel)
+    if not note_path.is_absolute():
+        note_path = notes_root / dataset_note_rel
+
+    if not note_path.exists():
+        return [f"dataset provenance note does not exist: {note_path}"]
+
+    try:
+        text = note_path.read_text(encoding="utf-8")
+    except OSError as e:
+        return [f"cannot read dataset provenance note {note_path}: {e}"]
+
+    fields = _parse_dataset_note_frontmatter(text)
+    issues: list[str] = []
+
+    location = fields.get("location", "").strip()
+    if not location:
+        issues.append(
+            f"datasets note {note_path.name!r}: missing 'location' field "
+            f"(path/URL/DOI of the actual data artifact)"
+        )
+
+    recorded_hash = fields.get("hash", "").strip()
+    if not recorded_hash:
+        issues.append(
+            f"datasets note {note_path.name!r}: missing 'hash' field "
+            f"(content hash in sha256:<hex> format)"
+        )
+
+    if issues:
+        return issues
+
+    # For local file paths: verify file exists and hash matches
+    if _is_local_path(location):
+        check = _verify_local_file_hash(location, recorded_hash)
+        if not check["ok"]:
+            issues.append(
+                f"datasets note {note_path.name!r}: {check['state']} — "
+                f"location={location!r}, recorded hash={recorded_hash!r}"
+                + (f" — {check['error']}" if check.get("error") else "")
+            )
+
+    return issues
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +288,95 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
             }
 
         return {"ready": True, "state": "exists", "artifact_path": str(p), "error": None}
+
+    # ── dataset:<id> — SR-8 dataset provenance resolver ──────────────────────
+    # Resolves ready only when:
+    #   1. The provenance note datasets/<id>.md exists in notes_root
+    #   2. The note has a non-empty `location` field (points-to)
+    #   3. The note has a non-empty `hash` field (content hash)
+    #   4. If location is a local file path: the file exists AND the sha256 matches
+    #   5. If location is a URL/DOI: trust the recorded hash (no remote fetch)
+    #
+    # Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
+    # provenance note and afterok on it so lineage is structural (SR-8).
+    if watch.startswith("dataset:"):
+        dataset_id = watch[len("dataset:"):]
+        if not dataset_id.strip():
+            return {
+                "ready": False,
+                "state": "invalid-dataset-id",
+                "artifact_path": None,
+                "error": "dataset: watch requires a non-empty dataset id",
+            }
+
+        try:
+            from .config import load_config as _load_config
+            _cfg = _load_config()
+            note_path = _cfg.notes_root / "datasets" / f"{dataset_id}.md"
+        except Exception as e:
+            return {
+                "ready": False,
+                "state": "config-error",
+                "artifact_path": None,
+                "error": f"cannot resolve notes_root for dataset: watch: {e}",
+            }
+
+        if not note_path.exists():
+            return {
+                "ready": False,
+                "state": "note-missing",
+                "artifact_path": str(note_path),
+                "error": None,
+            }
+
+        # Parse the provenance note frontmatter
+        try:
+            text = note_path.read_text(encoding="utf-8")
+        except OSError as e:
+            return {
+                "ready": False,
+                "state": "note-unreadable",
+                "artifact_path": str(note_path),
+                "error": str(e),
+            }
+
+        fields = _parse_dataset_note_frontmatter(text)
+        location = fields.get("location", "").strip()
+        recorded_hash = fields.get("hash", "").strip()
+
+        if not location:
+            return {
+                "ready": False,
+                "state": "location-missing",
+                "artifact_path": str(note_path),
+                "error": "datasets note missing 'location' field",
+            }
+        if not recorded_hash:
+            return {
+                "ready": False,
+                "state": "hash-missing",
+                "artifact_path": str(note_path),
+                "error": "datasets note missing 'hash' field",
+            }
+
+        # For local file paths: verify the file exists and hash matches.
+        # For URLs (http/https/ftp) and DOIs: trust the recorded hash.
+        if _is_local_path(location):
+            check_result = _verify_local_file_hash(location, recorded_hash)
+            if not check_result["ok"]:
+                return {
+                    "ready": False,
+                    "state": check_result["state"],
+                    "artifact_path": str(note_path),
+                    "error": check_result.get("error"),
+                }
+
+        return {
+            "ready": True,
+            "state": f"provenance-ok(location={location!r},hash={recorded_hash[:20]}...)",
+            "artifact_path": str(note_path),
+            "error": None,
+        }
 
     # ── artifact:<path>[+fresh] ───────────────────────────────────────────────
     if watch.startswith("artifact:"):
@@ -505,7 +727,11 @@ def run(args: argparse.Namespace) -> int:
     # Validate watch syntax only — do NOT execute cmd:/url: pre-flight here,
     # as that would cause a synchronous side-effect before the background poller.
     # Only check that the watch prefix is recognized.
-    _KNOWN_PREFIXES = ("artifact:", "sacct:", "pr:", "cmd:", "url:")
+    _KNOWN_PREFIXES = (
+        "artifact:", "sacct:", "pr:", "cmd:", "url:",
+        "note:",      # OKF note resolver (notes_root-aware)
+        "dataset:",   # SR-8: dataset provenance resolver (exists + hash + location)
+    )
     if not any(watch.startswith(p) for p in _KNOWN_PREFIXES):
         print(f"rv wait-for: unknown watch source: {watch!r}", file=sys.stderr)
         return 1

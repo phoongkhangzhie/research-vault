@@ -77,9 +77,14 @@ _VERB_REGISTRY: dict[str, dict] = {
         "module": "research_vault.note",
         "when_to_use": (
             "When you need to create or inspect OKF notes (literature, concepts, methods, "
-            "experiments, findings, mocs) for a project. Enforces the type↔directory contract."
+            "experiments, findings, mocs, datasets) for a project. Enforces the "
+            "type↔directory contract. "
+            "SR-8 datasets notes are provenance metadata — they POINT to the data artifact "
+            "(path/URL/DOI + content-hash), never contain the data itself. "
+            "Anti-pattern: do NOT hand-copy a data path into a finding — file a "
+            "datasets/ provenance note and afterok on it so data lineage is structural."
         ),
-        "sr": "SR-1",
+        "sr": "SR-1, SR-8",
     },
     "control": {
         "module": "research_vault.control",

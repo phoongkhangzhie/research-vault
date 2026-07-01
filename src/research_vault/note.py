@@ -2,7 +2,8 @@
 
 When to use: use `rv note <project> <type> …` to create or list OKF notes for a project.
 Notes follow the Open Knowledge Format: markdown + YAML frontmatter with a required `type` field.
-The type determines the subdirectory: literature/, concepts/, methods/, experiments/, findings/, mocs/.
+The type determines the subdirectory: literature/, concepts/, methods/, experiments/,
+findings/, mocs/, datasets/.
 
 Path resolution: always via Config — zero hardcoded paths.
 Stdlib only.
@@ -28,6 +29,7 @@ OKF_TYPES = frozenset({
     "experiments",
     "findings",
     "mocs",
+    "datasets",   # SR-8: provenance note for data artifacts (points to data, never contains it)
 })
 
 
@@ -81,6 +83,12 @@ def cmd_new(project: str, note_type: str, title: str, *,
 
     Returns the path to the created note file.
     Raises ValueError if note_type is not a valid OKF type.
+
+    SR-8: for note_type == 'datasets', the template includes placeholder fields:
+      location — path/URL/DOI of the actual data artifact (fill this in)
+      hash     — content hash in sha256:<hex> format (fill this in)
+    Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
+    provenance note and afterok on it, so lineage is structural.
     """
     if note_type not in OKF_TYPES:
         raise ValueError(
@@ -101,10 +109,33 @@ def cmd_new(project: str, note_type: str, title: str, *,
         "title": title,
         "created": _today(),
     }
+
+    # SR-8: datasets notes carry provenance-specific placeholder fields
+    if note_type == "datasets":
+        fields["location"] = ""   # fill in: path/URL/DOI of the data artifact
+        fields["hash"] = ""       # fill in: sha256:<hex> content hash of the artifact
+
     if tags:
         fields["tags"] = "[" + ", ".join(tags) + "]"
 
-    body = "\n<!-- Write your note here -->\n"
+    if note_type == "datasets":
+        body = (
+            "\n"
+            "<!-- Datasets provenance note (SR-8) -->\n"
+            "<!-- Fill in 'location' and 'hash' above before completing the DAG node. -->\n"
+            "<!--   location: /path/to/data.csv  OR  https://...  OR  doi:10.xxx/... -->\n"
+            "<!--   hash: sha256:<hex>  (run: sha256sum <file>) -->\n"
+            "\n"
+            "## What this dataset is\n\n"
+            "<!-- Describe the dataset: domain, size, format, collection method. -->\n\n"
+            "## Provenance\n\n"
+            "<!-- Which step/commit/input-datasets produced this? -->\n\n"
+            "## Schema\n\n"
+            "<!-- Column/field descriptions (optional — used for schema-shape validation). -->\n"
+        )
+    else:
+        body = "\n<!-- Write your note here -->\n"
+
     note_path.write_text(_render_frontmatter(fields) + "\n" + body, encoding="utf-8")
     return note_path
 
@@ -143,6 +174,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
     - Each note has a `type` frontmatter field
     - The `type` value matches its parent directory name
     - The `type` is a known OKF type
+    - SR-8: datasets notes also have non-empty `location` and `hash` fields
 
     Returns a list of violation strings (empty = all clear).
     """
@@ -166,6 +198,20 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 violations.append(
                     f"{p}: type={note_type!r} but file is in {t!r} directory"
                 )
+
+            # SR-8: datasets notes must have location and hash filled in
+            if note_type == "datasets":
+                if not fields.get("location", "").strip():
+                    violations.append(
+                        f"{p}: datasets note missing 'location' field "
+                        f"(path/URL/DOI of the actual data artifact)"
+                    )
+                if not fields.get("hash", "").strip():
+                    violations.append(
+                        f"{p}: datasets note missing 'hash' field "
+                        f"(content hash in sha256:<hex> format)"
+                    )
+
     return violations
 
 
@@ -177,8 +223,12 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     """Build the argument parser for the `note` verb.
 
     When to use: use `rv note <project> <subcommand>` to create or inspect OKF notes.
-    Notes are typed markdown files (literature, concepts, methods, experiments, findings, mocs)
-    stored under the project's notes directory. The type field in frontmatter is enforced.
+    Notes are typed markdown files (literature, concepts, methods, experiments, findings,
+    mocs, datasets) stored under the project's notes directory. The type field in
+    frontmatter is enforced. datasets notes are SR-8 provenance metadata — they POINT to
+    data artifacts (path/URL/DOI + content-hash), never contain the data itself.
+    Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
+    provenance note and afterok on it so lineage is structural.
     """
     desc = "Create and list OKF notes for a project."
     if parent is not None:

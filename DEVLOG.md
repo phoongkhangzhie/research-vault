@@ -1,3 +1,25 @@
+## 2026-07-01 (SR-8 build)
+
+### Done
+- Worktree: feat/sr-8 off origin/main. Crew identity set.
+- Seam 1 — OKF type `datasets/`: added `"datasets"` to `note.OKF_TYPES` (frozenset, note.py:24). 7th canonical type. `cmd_new` for datasets notes adds `location:` and `hash:` placeholder frontmatter fields. `cmd_check` extended to verify datasets notes have non-empty `location` and `hash` fields. CLI `when_to_use` for `note` updated with datasets description and anti-pattern.
+- Seam 2 — `produces: {dataset: …}`: extended schema validation (schema.py:~207) to accept `produces.dataset` as non-empty string. Extended `cmd_complete` in verbs.py to gate on the `check_dataset_provenance` function at complete-time: note exists + location non-empty + hash non-empty + (local path) sha256 matches.
+- Seam 3 — Resolver `dataset:<id>`: added `dataset:` branch to `resolve_watch` (wait_for.py, mirroring `note:` pattern). Checks: note at `notes_root/datasets/<id>.md` exists + location field non-empty + hash field non-empty + (local file) sha256 matches. URL/DOI/remote locations trust the recorded hash (zero-infra). Added `dataset:` and `note:` to `_KNOWN_PREFIXES` (wait_for.py run(), fixing pre-existing `note:` omission).
+- Seam 4 (Adapter) — unchanged; `ComputeBackend.submit` present as designed.
+- Tests: 32 new hermetic tests in `tests/test_sr8.py`. Four classes: OKF type, schema, complete-time gate, walker/frontier structural teeth. Key structural-teeth test: finding node with `afterok + watch: dataset:my-data` provably cannot enter frontier when dataset note missing or hash mismatches; enters frontier only when note+hash+location valid. Full suite: 564 passed (532 + 32), zero regressions.
+- `rv lint`: PASS. `rv help --check`: OK (19 verbs). No `~/vault` edits.
+
+### Decisions
+- D-SR8-1 = YES (approved 2026-07-01): `"datasets"` added as 7th canonical OKF type. Permanent widening of `note.OKF_TYPES`.
+- No new top-level verb introduced (reuse-over-create): SR-8 extends `rv note` (datasets as note type) and `rv dag` (produces/watch). Anti-pattern folded into `note` verb `when_to_use` in cli.py.
+- Structural teeth ride the watch/frontier path (`_edge_satisfied` → `resolve_watch` → `dataset:` branch), not `produces` post-check. Tests authored accordingly.
+- Schema-shape validation left OPTIONAL (zero-infra, no pandas/pyarrow). Gate defaults to exists + content-hash via `hashlib.sha256` (stdlib).
+- Hash verification for URL/DOI/remote locations skipped (trust recorded hash). Local file paths get full sha256 verification.
+- `note:` prefix added to `_KNOWN_PREFIXES` alongside `dataset:` — pre-existing omission caught and fixed.
+
+### Open / next
+- PR needs reviewer-gate + Architect verification before merge (crew cannot self-approve).
+
 ## 2026-07-01 (SR-CI build)
 
 ### Done

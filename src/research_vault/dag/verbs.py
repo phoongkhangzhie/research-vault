@@ -425,6 +425,28 @@ def cmd_complete(args: argparse.Namespace) -> int:
                     print(f"  {issue}", file=sys.stderr)
                 print("  Fix: ensure the note's type: frontmatter matches its parent directory.", file=sys.stderr)
                 return 1
+        # SR-8: dataset provenance gate — complete-time check.
+        # The gate: note exists + location non-empty + hash non-empty +
+        # (if local path) file exists and sha256 matches.
+        # NOT-done when hash mismatches — "you structurally cannot publish a finding
+        # whose data lineage isn't recorded" (the structural teeth are on the
+        # watch/frontier path; this is the post-hoc complete-time check).
+        if "dataset" in produces:
+            from ..wait_for import check_dataset_provenance
+            issues = check_dataset_provenance(produces["dataset"], cfg.notes_root)
+            if issues:
+                print(
+                    f"rv dag complete: dataset provenance gate FAILED for node {node_id!r}:",
+                    file=sys.stderr,
+                )
+                for issue in issues:
+                    print(f"  {issue}", file=sys.stderr)
+                print(
+                    "  Fix: ensure the datasets/ provenance note has 'location' and 'hash' "
+                    "filled in, and that the hash matches the actual data artifact.",
+                    file=sys.stderr,
+                )
+                return 1
 
     run_state.set_node_status(node_id, status)
     store.save(run_state)
