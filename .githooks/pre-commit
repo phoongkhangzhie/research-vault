@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+# pre-commit — Research Vault git-discipline hook
+#
+# Runs cheapest-reject-first:
+#   1. protect-main (branch/path-keyed, identity-free)
+#   2. staged leakage scan (profile-aware: secrets everywhere; private
+#      markers framework-repo-only)
+#   3. rv lint (when src/ files are staged)
+#
+# Bypass consciously (never silently):
+#   git commit --no-verify      — bypass all hooks
+#   RV_ALLOW_MAIN_COMMIT=1      — bypass protect-main only
+#
+# Install via: rv git-discipline install
+exec rv git-discipline check --staged
