@@ -33,10 +33,12 @@ jobs:
         run: uv run pytest tests/ -v --tb=short
 
   # ── Leakage scanner (full teeth — SR-4) ────────────────────────────────────
-  # Scans doctrine/ for all private marker classes:
+  # Scans doctrine/ and tracked root-level files for all private marker classes:
   #   codenames · identity strings · site URLs · cluster paths ·
   #   secret-shaped strings · versioned model IDs · non-template memory slugs
   # Implemented in scripts/leakage_scan.sh (tested hermetically in tests/).
+  # DEVLOG.md is repo-tracked and public-bound; must be leak-scanned too
+  # (root cause: B2 pre-existing leak at SR-DISP entry was silent without this).
   leakage-scan:
     name: Leakage scan
     runs-on: ubuntu-latest
@@ -46,6 +48,9 @@ jobs:
 
       - name: Run leakage scanner over doctrine/
         run: bash scripts/leakage_scan.sh doctrine
+
+      - name: Run leakage scanner over DEVLOG.md
+        run: bash scripts/leakage_scan.sh DEVLOG.md
 
       - name: Check for hardcoded private paths in src/
         run: |
