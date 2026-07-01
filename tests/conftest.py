@@ -11,6 +11,12 @@ from pathlib import Path
 
 # Ensure the src package is importable from the repo root
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Ensure tests/ is importable (for tests.gitutil shared fixtures)
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Re-export shared fixtures from gitutil so they are globally available
+# to all test modules without requiring explicit imports.
+from tests.gitutil import tmp_git_repo  # noqa: F401  (pytest fixture registration)
 
 
 @pytest.fixture(autouse=True)

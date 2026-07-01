@@ -122,16 +122,12 @@ class LocalGitSource:
           (empty branches at main tip are NOT terminal — they were never dispatched).
 
         Tertiary — squash-merge commits (GitHub squash-and-merge model):
-          Squash produces no merge commit and the branch may be deleted, so
-          signals 1+2 yield nothing. Signal 3 scans non-merge commit subjects on
-          main for lines ending with a PR-number anchor `(#N)` — GitHub adds this
-          automatically on squash-and-merge. Id tokens extracted from the commit
-          subject (the whole line, not just the branch name, since the branch may
-          be deleted). The `(#N)` anchor is the false-positive guard: random prose
-          mentioning an SR id has no trailing `(#N)`.
+          Delegated to ``gitlib.squash_terminal_ids`` — the single shared
+          implementation consumed by both git_health and control-reconcile.
+          No duplicate `_PR_ANCHOR_RE` or inline squash parser here (B1).
         """
         from .controllib import _ID_TOKEN_RE
-        _PR_ANCHOR_RE = re.compile(r"\(#\d+\)\s*$")
+        from . import gitlib
 
         repo = self._repo_for(config, project)
         if not repo or not repo.exists():
@@ -174,17 +170,10 @@ class LocalGitSource:
                 for tok_m in _ID_TOKEN_RE.finditer(branch):
                     ids.add(tok_m.group(1).lower())
 
-        # Tertiary: squash-merge commits on main (no merge commit created)
-        # GitHub squash-and-merge produces: "feat(scope): desc (#N)"
-        # Scan non-merge commits whose subject has a trailing (#N) anchor.
-        squash_log = self._git(
-            ["log", base, "--no-merges", "--format=%s"], repo
-        )
-        for line in squash_log.splitlines():
-            if _PR_ANCHOR_RE.search(line):
-                # This commit was squash-merged via PR — extract id tokens from subject
-                for tok_m in _ID_TOKEN_RE.finditer(line):
-                    ids.add(tok_m.group(1).lower())
+        # Tertiary: squash-merge commits on main (no merge commit created).
+        # Single implementation in gitlib — git_health + control-reconcile both
+        # call this helper; no second parser, no second _PR_ANCHOR_RE (B1).
+        ids.update(gitlib.squash_terminal_ids(repo, base))
 
         return frozenset(ids)
 

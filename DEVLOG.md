@@ -1,7 +1,31 @@
+## 2026-07-01 (SR-GD build)
+
+### Done
+- Worktree: feat/sr-gd off origin/main, engineer@example.invalid crew identity (placeholder — real domain in private instance config).
+- tests/gitutil.py: promoted shared fixtures from SR-CP (tmp_git_repo, squash_merge_repo, invoke_cli). conftest.py re-exports tmp_git_repo globally.
+- src/research_vault/gitlib.py: shared squash_terminal_ids() helper (Signal D / GD-D4). Single implementation consumed by git_health + control-reconcile — no duplication. (B1 fix: status.py formerly had a duplicate inline squash parser + _PR_ANCHOR_RE; now fully migrated to gitlib.)
+- src/research_vault/git_health.py: Signal D added — squash-merged branches now classify DELETE (was FLAG). Imports gitlib.squash_terminal_ids. Updated docstring + when_to_use anti-patterns.
+- scripts/leakage_scan.sh: --staged (git diff --cached --name-only file-list mode) + --secrets-only (class 5 only; project-repo profile) flags added.
+- src/research_vault/git_discipline.py: new verb — check --staged (profile-aware protect-main + leakage + lint), commit-msg, install/uninstall/status (core.hooksPath per-repo, idempotent, cross-repo --all, prints branch-protection guidance).
+- cli.py: git-discipline registered in _VERB_REGISTRY; wt + git-health when_to_use strings updated with named anti-patterns (committed-to-main / never-made-a-worktree / hand-merged-red-CI).
+- src/research_vault/wt.py: --project <slug> (target project repo source_dir) + --as <role> (set git identity by construction). Fixes wt.py:75 instance-root-only hardcode.
+- doctrine/git-discipline.md: portable identity-free discipline clause — leakage-scanned, no private markers.
+- .githooks/pre-commit + .githooks/commit-msg: tracked POSIX sh shims.
+- 29 new hermetic tests; 384 total, all passing. rv lint PASS. rv help --check: OK (17 verbs). Leakage scan green on src/ + doctrine/.
+
+### Decisions
+- Crew domain default is example.invalid in public source. The real domain lives in private instance [crew] identity_domain config only — leakage scanner catches any file-content leak.
+- git-discipline check subcommand takes --repo to override cwd when called from a hook in a different repo. Profile (framework vs project) resolved by comparing resolved repo path to cfg.instance_root.
+- Signal D in git_health: branch token extracted via same regex as gitlib._ID_TOKEN_RE; matched against squash_terminal_ids(repo). Computed once per repo in cmd_report.
+- --staged mode in leakage_scan.sh uses xargs -I{} to scan each staged file individually (not recursive over a directory).
+
+### Open / next
+- PR needs Argus review + Architect fit-check (reviewer-gate class).
+
 ## 2026-07-01 (SR-5 build)
 
 ### Done
-- Worktree: feat/sr-5 off origin/main (SR-DISP merged), engineer@khangzhie.io identity.
+- Worktree: feat/sr-5 off origin/main (SR-DISP merged), engineer crew identity (real domain in private config).
 - note: watch form (wait_for.py): `note:<type>/<id>[+fresh]` — resolves OKF note paths
   relative to load_config().notes_root. Portable across installations (no hardcoded paths).
 - examples/demo-research/research-loop.json: 8 nodes, full named crew (researcher/Ada,
@@ -40,7 +64,7 @@
 ## 2026-07-01 (SR-DISP build)
 
 ### Done
-- Worktree: feat/sr-disp off origin/main, engineer@khangzhie.io identity.
+- Worktree: feat/sr-disp off origin/main, engineer crew identity (real domain in private config).
 - Schema teeth (dag/schema.py): spec REQUIRED on agent nodes (ManifestError on absence);
   continues OPTIONAL = {node, reason} with full cross-node validation (exists, type:agent,
   transitive-upstream ancestor via walker._transitive_upstream import, not-self, reason
@@ -96,22 +120,22 @@
 ## 2026-07-01 (SR-4 reviewer fixes — B1/F1/F2)
 
 ### Done
-- B1: pushed unpushed commit 41a3a16 (Stanford identity marker class, +2 scanner lines, +2 tests)
+- B1: pushed unpushed commit 41a3a16 (institutional-affiliation identity marker class, +2 scanner lines, +2 tests)
   together with F1+F2 below.
 - F1: added 2 missing leakage-gate marker classes per SR-4 spec §5 scope-IN:
-  - Class 8 (real citekeys): Pandoc `[@key]` citation format — detects private bibliography
-    references; pattern `\[@[A-Za-z][A-Za-z0-9_:-]+`. 3 new tests.
-  - Class 9 (real projects.json entries): `"_hub"` infrastructure slug + `"code": "dsr"` dossier
-    registry code (not covered by Class 1 codename scanner). 3 new tests.
+  - Class 8 (real citekeys): Pandoc bracket-citation format — detects private bibliography
+    references; pattern matches bracket-at-letter prefix. 3 new tests.
+  - Class 9 (real projects.json entries): hub-infrastructure slug + private project-registry code
+    (not covered by Class 1 codename scanner). 3 new tests.
   Scanner now 9 classes; test suite 35 leakage tests (260+6=266 total). All green.
   Doctrine/ GREEN on new classes (Argus-confirmed no residue).
 - F2: `git rm --cached doctrine/drift-watch.md` + added to .gitignore. File stays on disk as a
   local-only maintenance aid. DEVLOG references are historical (no link in docs/manifest/rv help).
 
 ### Decisions
-- Class 8 pattern: `\[@[A-Za-z]` captures ALL Pandoc citations (any inline `[@word` is a private
-  citekey — doctrine must not cite the private bibliography).
-- Class 9 patterns: `"_hub"` (hub infrastructure slug) + `"code": "dsr"` (dossier project code)
+- Class 8 pattern: bracket-at-letter prefix captures ALL Pandoc citations (any inline bracket-citation is a
+  private citekey — doctrine must not cite the private bibliography).
+- Class 9 patterns: hub-infrastructure slug + private project-code entry
   are the two projects.json entries NOT already caught by Class 1 codename scan.
 - drift-watch.md kept local: it maps `~/vault/src/content/docs/method/` paths and Astro/Starlight
   layout — private vault structure. Operator call correct: keep as local-only re-sync aid, not

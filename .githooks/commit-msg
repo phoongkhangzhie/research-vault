@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+# commit-msg — Research Vault git-discipline hook
+#
+# Enforces conventional-commit format on the commit subject:
+#   <type>(<scope>): <description>
+#   types: feat|fix|docs|refactor|test|chore|ci|build|perf
+#
+# Install via: rv git-discipline install
+exec rv git-discipline commit-msg "$1"
