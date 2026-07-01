@@ -8,6 +8,11 @@ When to use: ``rv lint [--strict]`` to run the project linter. Checks:
      fields (source_dir, code).
   3. Zero-hardcoded-path rule: confirms no absolute paths to private home
      directories appear in the source tree.
+  4. Vacuous-assertion rule (SR-LINT): flags ``assert True`` / ``or True``
+     in test files — tautological assertions always pass, masking bugs.
+  5. Unpinned-git-init rule (SR-LINT): flags ``git init`` WITHOUT
+     ``--initial-branch`` in test files — an unpinned branch passes locally
+     but fails on master-default CI runners.
 
 All path resolution goes through Config — zero hardcoded paths or codenames.
 Stdlib only.
@@ -21,6 +26,124 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, load_config
+
+
+# ---------------------------------------------------------------------------
+# Test-hygiene rules — module-level state for monkeypatching in tests
+# ---------------------------------------------------------------------------
+
+# Repository root (two levels up from src/research_vault/lint.py).
+_FRAMEWORK_ROOT: Path = Path(__file__).parent.parent.parent
+# Default tests directory; monkeypatched by integration tests.
+_TESTS_DIR: Path = _FRAMEWORK_ROOT / "tests"
+
+# Vacuous-assertion patterns (rule 4 / SR-LINT).
+# Each entry is (compiled_pattern, human_label).
+_VACUOUS_ASSERT_PATS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\bassert\s+True\b"), "assert True"),
+    (re.compile(r"\bor\s+True\b"), "or True"),
+]
+
+# Unpinned-git-init pattern (rule 5 / SR-LINT).
+# Matches ["git", "init" as a list literal with init as the immediate subcommand.
+# The tight form `"git",\s*"init"` avoids matching commit messages like
+# `["git", "-C", repo, "commit", "-m", "init"]` where "init" follows "-m".
+_GIT_INIT_PAT: re.Pattern[str] = re.compile(r'"git",\s*"init"')
+_INITIAL_BRANCH_PAT: re.Pattern[str] = re.compile(r"--initial-branch")
+
+
+# ---------------------------------------------------------------------------
+# Test-hygiene helpers (SR-LINT)
+# ---------------------------------------------------------------------------
+
+def _get_test_hygiene_skip_files(cfg: Config) -> frozenset[str]:
+    """Return basenames of test files to skip in test-hygiene scans.
+
+    Config key: ``lint.test_hygiene_skip_files`` (list of basename strings).
+    Defaults include ``test_lint_rules.py`` (the self-test file that plants
+    the very patterns the rules detect — analogous to test_leakage_scan.py
+    being self-excluded from the leakage scan).
+    """
+    raw = cfg._raw.get("lint", {})
+    if not isinstance(raw, dict):
+        configured: list[str] = []
+    else:
+        configured = list(raw.get("test_hygiene_skip_files", []))
+    # Always exclude the self-test file so its planted patterns don't
+    # false-positive when rv lint runs repo-wide.
+    defaults = ["test_lint_rules.py"]
+    return frozenset(defaults + configured)
+
+
+def _collect_test_files(
+    tests_dir: Path,
+    *,
+    skip_files: frozenset[str] | None = None,
+) -> list[Path]:
+    """Return all .py files under tests_dir, excluding skip_files by basename."""
+    if not tests_dir.exists():
+        return []
+    skip = skip_files or frozenset()
+    return [
+        f
+        for f in tests_dir.rglob("*.py")
+        if "__pycache__" not in f.parts and f.name not in skip
+    ]
+
+
+def check_vacuous_assertions(
+    files: list[Path],
+) -> list[tuple[str, int, str, str]]:
+    """Scan *files* for vacuous assertions.
+
+    Flags:
+    - ``assert True`` — unconditionally passes; never catches a bug.
+    - ``or True``     — short-circuits any expression to True;
+                        ``assert expr or True`` always passes.
+
+    Returns a list of ``(file_path, lineno, label, matching_line)`` tuples.
+    Each matched line is reported at most once (the first matching pattern wins).
+    """
+    findings: list[tuple[str, int, str, str]] = []
+    for f in files:
+        try:
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for lineno, line in enumerate(lines, start=1):
+            for pat, label in _VACUOUS_ASSERT_PATS:
+                if pat.search(line):
+                    findings.append((str(f), lineno, label, line.rstrip()))
+                    break  # report each line at most once
+    return findings
+
+
+def check_unpinned_git_init(
+    files: list[Path],
+) -> list[tuple[str, int, str]]:
+    """Scan *files* for ``git init`` calls that omit ``--initial-branch``.
+
+    An unpinned initial branch passes locally when ``init.defaultBranch=main``
+    but fails on CI runners that default to ``master``.  The fix is always
+    ``["git", "init", "--initial-branch=main", ...]`` (or the space-separated
+    ``"--initial-branch", branch`` form).
+
+    Matches the list-literal form ``"git",`` immediately followed by ``"init"``
+    (with optional whitespace) to avoid false-positives on commit messages like
+    ``["git", "-C", repo, "commit", "-m", "init"]``.
+
+    Returns a list of ``(file_path, lineno, matching_line)`` tuples.
+    """
+    findings: list[tuple[str, int, str]] = []
+    for f in files:
+        try:
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for lineno, line in enumerate(lines, start=1):
+            if _GIT_INIT_PAT.search(line) and not _INITIAL_BRANCH_PAT.search(line):
+                findings.append((str(f), lineno, line.rstrip()))
+    return findings
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +267,36 @@ def cmd_lint(cfg: Config, *, strict: bool = False) -> int:
         issues_total += len(doc_violations)
     else:
         print("Verb docstring gate: OK")
+
+    # 4. Test-hygiene rules (SR-LINT) — scoped to test files only
+    skip_files = _get_test_hygiene_skip_files(cfg)
+    test_files = _collect_test_files(_TESTS_DIR, skip_files=skip_files)
+
+    # 4a. Vacuous-assertion rule
+    va_findings = check_vacuous_assertions(test_files)
+    if va_findings:
+        print(f"\nVacuous-assertion rule: {len(va_findings)} finding(s) "
+              f"(assert True / or True in test files):")
+        for fpath, lineno, label, line in va_findings:
+            print(f"  {fpath}:{lineno}: [{label}]")
+            print(f"    {line}")
+        issues_total += len(va_findings)
+    else:
+        n = len(test_files)
+        print(f"Vacuous-assertion rule: OK ({n} test file(s) checked)")
+
+    # 4b. Unpinned-git-init rule
+    gi_findings = check_unpinned_git_init(test_files)
+    if gi_findings:
+        print(f"\nUnpinned-git-init rule: {len(gi_findings)} finding(s) "
+              f"(git init without --initial-branch in test files):")
+        for fpath, lineno, line in gi_findings:
+            print(f"  {fpath}:{lineno}:")
+            print(f"    {line}")
+        issues_total += len(gi_findings)
+    else:
+        n = len(test_files)
+        print(f"Unpinned-git-init rule: OK ({n} test file(s) checked)")
 
     if issues_total == 0:
         print("\nlint: PASS")

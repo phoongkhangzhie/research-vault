@@ -19,6 +19,27 @@
 ### Open / next
 - PR needs Argus review + Architect fit-check (reviewer-gate class). No self-merge.
 
+## 2026-07-01 (SR-LINT build)
+
+### Done
+- Worktree: feat/sr-lint off origin/main (SR-5 + SR-GD merged), engineer crew identity.
+- src/research_vault/lint.py: two new test-hygiene rules (SR-LINT), exported as public functions.
+  - check_vacuous_assertions(files): flags `assert True` and `or True` in test files. Pattern: `\bassert\s+True\b` / `\bor\s+True\b`. Reports (file, lineno, label, line).
+  - check_unpinned_git_init(files): flags `["git", "init"` without `--initial-branch` on the same line. Tight regex `"git",\s*"init"` avoids false-positives on git commit `-m "init"` messages.
+  - _TESTS_DIR module-level constant (monkeypatchable) pointing to repo-root/tests.
+  - _get_test_hygiene_skip_files: config-driven (lint.test_hygiene_skip_files) + hardcoded default ["test_lint_rules.py"] (self-exclusion, same pattern as leakage scan).
+  - cmd_lint updated: rules 4a + 4b run after existing checks; each reports per-file findings with file:line and contributes to exit code.
+- tests/test_lint_rules.py: 27 hermetic tests (TDD red→green). TestVacuousAssertions (12), TestUnpinnedGitInit (11), TestCmdLintIntegration (4). No subprocess; calls rule functions directly on temp files.
+- 445 total suite passes. rv lint repo-wide: PASS (23 test files checked, zero findings).
+
+### Decisions
+- Self-exclusion of test_lint_rules.py: the test file plants `assert True`, `or True`, and `["git", "init"` in string literals (to test detection); scanning it would false-positive. Excluded by default in _get_test_hygiene_skip_files, exactly as test_leakage_scan.py is self-excluded from the leakage scan.
+- Tight git-init regex (`"git",\s*"init"`) rather than broad `"git".*"init"`: the broad form matches git commit calls with `-m "init"` messages (false positives found in test_sr_cp.py). The tight form requires init to immediately follow git in the list literal.
+- Vacuous-assertion rule: reports each line at most once (first matching pattern wins) to avoid double-counting a line that matches both `assert True` and `or True`.
+
+### Open / next
+- PR open, awaiting Argus review + Architect fit-check (reviewer-gate class, no self-merge).
+
 ## 2026-07-01 (SR-GD build)
 
 ### Done
