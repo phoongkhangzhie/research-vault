@@ -206,6 +206,40 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_corroborate(args: argparse.Namespace) -> int:
+    """corroborate: search peer projects' OKF notes for evidence matching a claim.
+
+    Free cross-project reads — no gate, no disclosure scoping.
+    Everything in research-vault is public by construction.
+    """
+    from .cross_project import corroborate_across_projects
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv research corroborate: config error: {e}", file=sys.stderr)
+        return 1
+
+    hits = corroborate_across_projects(
+        claim=args.claim,
+        cfg=cfg,
+        from_slug=getattr(args, "from_project", None),
+        against_slugs=getattr(args, "against_projects", None),
+    )
+
+    if not hits:
+        print(f"No corroboration found for: {args.claim!r}")
+        return 0
+
+    print(f"{len(hits)} corroborating note(s) for: {args.claim!r}\n")
+    for hit in hits:
+        print(f"  {hit['provenance']}")
+        if hit["excerpt"]:
+            print(f"    excerpt: {hit['excerpt']}")
+    print()
+    return 0
+
+
 def cmd_add(args: argparse.Namespace) -> int:
     """add: dedup preflight → cite add → cite link."""
     _preflight_asta()
@@ -279,6 +313,22 @@ def build_parser(
     add_p.add_argument("--force", action="store_true", help="Bypass dedup gate (logs loudly).")
     add_p.add_argument("--dry-run", action="store_true", help="Preview without writing.")
 
+    # corroborate — cross-project OKF note search (SR-XP: free cross-project reads)
+    corr_p = sub.add_parser(
+        "corroborate",
+        help="Search peer projects' OKF notes for evidence matching a claim (SR-XP).",
+    )
+    corr_p.add_argument("claim", help="Claim or query string to corroborate.")
+    corr_p.add_argument(
+        "--from", dest="from_project", default=None,
+        help="Originating project slug (excluded from search).",
+    )
+    corr_p.add_argument(
+        "--against", dest="against_projects", nargs="+", default=None,
+        metavar="SLUG",
+        help="Project slug(s) to search. Default: all registered projects except --from.",
+    )
+
     return p
 
 
@@ -292,6 +342,8 @@ def run(args: argparse.Namespace) -> int:
             return cmd_cited_by(args)
         elif cmd == "add":
             return cmd_add(args)
+        elif cmd == "corroborate":
+            return cmd_corroborate(args)
         else:
             print(f"rv research: unknown subcommand {cmd!r}", file=sys.stderr)
             return 1

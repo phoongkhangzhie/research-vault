@@ -38,7 +38,6 @@ def cfg_with_project(tmp_path: Path) -> Config:
                 "code": "tp",
                 "source_dir": str(proj_dir),
                 "roster": ["engineer", "researcher"],
-                "disclosure": "private",
             }
         },
         "default_project": "test-proj",
