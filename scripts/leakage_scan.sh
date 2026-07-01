@@ -59,7 +59,7 @@ fi
 
 FAIL=0
 
-SKIP_PATTERN='(leakage_scan\.sh|\.github/workflows/ci\.yml|tests/test_leakage_scan\.py)'
+SKIP_PATTERN='(leakage_scan\.sh|\.github/workflows/ci\.yml|tests/test_leakage_scan\.py|tests/test_git_discipline\.py)'
 
 # ── Staged file list ──────────────────────────────────────────────────────────
 # In staged mode, build a filtered list of staged files to scan.

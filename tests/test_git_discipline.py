@@ -11,7 +11,7 @@ Covers (per acceptance criteria):
   - --as <role> sets the worktree git identity from config
   - profile-aware leakage: secret caught in project repo; private-marker NOT flagged there
   - private-marker IS flagged in framework repo
-  - leakage GREEN — no khangzhie.io in any scanned file
+  - leakage GREEN — no private crew domain in any scanned file
 """
 from __future__ import annotations
 
@@ -455,7 +455,7 @@ class TestCrewIdentity:
             text=True,
             cwd=str(Path(__file__).parent.parent),
         )
-        # If khangzhie.io (or any private marker) appears in src/, this fails
+        # If the private crew domain (or any private marker) appears in src/, this fails
         assert result.returncode == 0, (
             f"Leakage scan found private markers in src/:\n{result.stdout}"
         )
