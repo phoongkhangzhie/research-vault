@@ -1,9 +1,16 @@
-"""devlog.py — DEVLOG management and freshness check for projects.
+"""devlog.py — DEVLOG management, freshness check, and index/search for projects.
 
-When to use: use `rv devlog <project> <subcommand>` to seed, append to, or check the
-freshness of a project's DEVLOG.md. The DEVLOG is the grounded record of decisions and
-progress — one entry per working day, newest on top, structured with ### Done / ### Decisions
-/ ### Open / next sections.
+When to use: use `rv devlog <project> <subcommand>` to seed, append to, check the
+freshness of, or search a project's DEVLOG.md. The DEVLOG is the grounded record of
+decisions and progress — one entry per working day, newest on top, structured with
+### Done / ### Decisions / ### Open / next sections.
+
+Use `rv devlog index` and `rv devlog search` to navigate the DEVLOG without loading the
+whole file. Anti-pattern: do NOT grep or cat DEVLOG.md directly — use the index face.
+
+Freshness rules:
+  MISSING — no DEVLOG.md found → FAIL
+  STALE   — latest dated entry is >14 days old while the project dir had recent writes
 
 Freshness rules:
   MISSING — no DEVLOG.md found → FAIL
@@ -176,6 +183,99 @@ def cmd_view(project: str, *, config: Config | None = None, lines: int = 50) -> 
 
 
 # ---------------------------------------------------------------------------
+# INDEX / SEARCH commands (SR-CP: append-only-record read face)
+# ---------------------------------------------------------------------------
+
+def _parse_entries(devlog_path: Path) -> list[dict]:
+    """Parse dated entries from a DEVLOG.md.
+
+    Returns list of dicts: {date, summary, body, lineno}.
+    summary is the first non-empty line of the entry body (used for index one-liners).
+    body is the full entry body text.
+
+    Does NOT load the whole file into one string for search — iterates lines.
+    """
+    if not devlog_path.exists():
+        return []
+
+    entries: list[dict] = []
+    current_date: str | None = None
+    current_body_lines: list[str] = []
+    current_lineno: int = 0
+
+    def _flush() -> None:
+        if current_date is not None:
+            body = "\n".join(current_body_lines).strip()
+            # Extract summary: first non-empty, non-header line
+            summary = ""
+            for ln in current_body_lines:
+                s = ln.strip()
+                if s and not s.startswith("#") and not s.startswith("- _(add"):
+                    # Strip leading "- " for bullet lines
+                    summary = s[2:].strip() if s.startswith("- ") else s
+                    break
+            if not summary:
+                summary = body[:80] if body else "(empty)"
+            entries.append({
+                "date": current_date,
+                "summary": summary,
+                "body": body,
+                "lineno": current_lineno,
+            })
+
+    for lineno, line in enumerate(devlog_path.read_text(encoding="utf-8").splitlines(), 1):
+        m = _DATE_ENTRY_RE.match(line)
+        if m:
+            _flush()
+            current_date = m.group(1)
+            current_body_lines = []
+            current_lineno = lineno
+        elif current_date is not None:
+            current_body_lines.append(line)
+
+    _flush()
+    return entries
+
+
+def cmd_index(project: str, *, config: Config | None = None) -> list[dict]:
+    """Return a one-liner index of all dated DEVLOG entries.
+
+    Returns list of dicts: {date, summary}.
+    Idempotent: calling twice returns the same list.
+    Does NOT require loading the whole file to get the index.
+
+    Anti-pattern: do NOT grep/cat DEVLOG.md to find entries — use this instead.
+    """
+    cfg = config or load_config()
+    devlog_path = cfg.project_devlog(project)
+    entries = _parse_entries(devlog_path)
+    return [{"date": e["date"], "summary": e["summary"]} for e in entries]
+
+
+def cmd_search(project: str, query: str, *, config: Config | None = None) -> list[dict]:
+    """Search dated DEVLOG entries for a keyword/phrase.
+
+    Returns list of matching dicts: {date, summary, body}.
+    Case-insensitive substring match against entry body.
+
+    Anti-pattern: do NOT grep the raw DEVLOG file — use this for indexed access.
+    """
+    cfg = config or load_config()
+    devlog_path = cfg.project_devlog(project)
+    entries = _parse_entries(devlog_path)
+    q_low = query.lower()
+    results = []
+    for e in entries:
+        if q_low in e["body"].lower() or q_low in e["summary"].lower():
+            results.append({
+                "date": e["date"],
+                "summary": e["summary"],
+                "body": e["body"],
+            })
+    return results
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -184,7 +284,11 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
 
     When to use: use `rv devlog <project> <subcommand>` to manage a project's DEVLOG.md.
     The DEVLOG is the grounded decision record — one entry per working day, newest on top.
-    Use `check` in CI to enforce DEVLOG freshness. Use `append` to add a bullet to a section.
+    Use `check` in CI to enforce DEVLOG freshness. Use `append` to add a bullet.
+    Use `index` to get a one-liner per entry. Use `search` to find entries by keyword.
+
+    Anti-pattern: do NOT grep/cat DEVLOG.md to find or read entries — that loads the whole
+    file and misses the structured index. Use `rv devlog index` and `rv devlog search` instead.
     """
     desc = "Manage project DEVLOG.md — the grounded decision and progress record."
     if parent is not None:
@@ -214,6 +318,19 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     # view
     view_p = sub.add_parser("view", help="Print the top of the DEVLOG.")
     view_p.add_argument("--lines", type=int, default=50, help="Number of lines to show.")
+
+    # index (SR-CP)
+    sub.add_parser(
+        "index",
+        help="Print a one-liner per dated entry (the structured index face).",
+    )
+
+    # search (SR-CP)
+    search_p = sub.add_parser(
+        "search",
+        help="Search DEVLOG entries by keyword (anti-pattern: do not grep the raw file).",
+    )
+    search_p.add_argument("query", help="Keyword or phrase to search for.")
 
     return p
 
@@ -245,6 +362,24 @@ def run(args: argparse.Namespace) -> int:
 
         elif args.devlog_cmd == "view":
             print(cmd_view(args.project, config=cfg, lines=args.lines))
+            return 0
+
+        elif args.devlog_cmd == "index":
+            entries = cmd_index(args.project, config=cfg)
+            if not entries:
+                print(f"rv devlog index: no dated entries in {args.project!r}")
+                return 0
+            for e in entries:
+                print(f"  {e['date']} — {e['summary'][:80]}")
+            return 0
+
+        elif args.devlog_cmd == "search":
+            results = cmd_search(args.project, args.query, config=cfg)
+            if not results:
+                print(f"rv devlog search: no matches for {args.query!r}")
+                return 0
+            for r in results:
+                print(f"  {r['date']} — {r['summary'][:80]}")
             return 0
 
     except (KeyError, FileNotFoundError, FileExistsError) as e:
