@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -173,11 +172,9 @@ class TestDoctor:
         assert r2["ts"] == ts1  # same timestamp means from cache
 
     def test_doctor_refresh_re_probes(self, cfg: Config) -> None:
-        """rv doctor --refresh forces a new probe (overwrites cache)."""
+        """rv doctor --refresh forces a new probe (overwrites cache); from_cache=False."""
         from research_vault.doctor import cmd_doctor, _CACHE_FILE
         r1 = cmd_doctor(cfg, refresh=True)
-        # Small sleep to ensure different timestamp if re-probing
-        time.sleep(0.01)
         r2 = cmd_doctor(cfg, refresh=True)
         assert r2.get("from_cache") is False
 

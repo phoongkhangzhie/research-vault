@@ -18,7 +18,7 @@
 - Outcome capture: `rv compute outcome add --job --tier --result` appends to `run_outcomes` in manifest with ISO timestamp.
 
 ### Open / next
-- PR open for reviewer-gate + Architect review, then Khang merges.
+- PR open for reviewer-gate + Architect review, then the maintainer merges.
 - SR-7 (SLURM execution) consumes this manifest's `backends.profiles[*].submit_pattern` + `gpu_tiers` + `rules`.
 
 ## 2026-07-01 (SR-NEW build)

@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -159,7 +160,7 @@ def _probe_generic(probe_commands: list[str]) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for cmd_str in probe_commands:
         try:
-            tokens = cmd_str.split()
+            tokens = shlex.split(cmd_str)
             result = subprocess.run(
                 tokens,
                 capture_output=True,
