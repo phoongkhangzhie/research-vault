@@ -1,4 +1,4 @@
-"""schema.py — DAG manifest schema for Research Vault (SR-3 + SR-DISP).
+"""schema.py — DAG manifest schema for Research Vault (SR-3 + SR-DISP + SR-SCOPE).
 
 JSON manifest format:
   {
@@ -11,6 +11,11 @@ JSON manifest format:
         "type": "agent",               # "agent" | "human-go"
         "label": "Literature search",  # optional display label
         "spec": "task://research#lit-search",  # REQUIRED on agent nodes (SR-DISP)
+        "reads": [                     # OPTIONAL — bounded reading-scope (SR-SCOPE)
+          "src/research_vault/dag/schema.py",       # bare = file pointer
+          "tasks/design.md#5B-SCOPE",               # <file>#<anchor> = doc/task section
+          {"ref": "control/rv.md#sr-scope", "why": "prior verdict"}  # {ref, why?}
+        ],
         "continues": {                 # OPTIONAL — explicit resume exception (SR-DISP)
           "node": "prior-agent-id",    # must be a transitive-upstream agent ancestor
           "reason": "tight iterative continuation — one-step refinement, no artifact boundary"
@@ -57,13 +62,25 @@ SR-DISP additions (schema-by-construction dispatch discipline):
     - continues.reason must be a non-empty string (forces articulation of the judgment)
     Any violation is a ManifestError.
 
-  human-go nodes are EXEMPT from spec/continues requirements (they are decision gates,
-  not dispatch targets).
+  human-go nodes are EXEMPT from spec/continues/reads requirements (they are decision
+  gates, not dispatch targets).
+
+SR-SCOPE additions (bounded reading-scope grounding manifest):
+  Agent nodes:
+  - reads OPTIONAL — but absent emits a non-fatal WARN (manifest_warns).
+    When present, must be a non-empty list; each item must be either:
+      - a non-empty string (bare pointer: file path, file#anchor, or path:symbol), OR
+      - a dict {ref: <non-empty str>, why?: <optional str>}
+    Any violation is a ManifestError (structural, pure/in-memory check).
+  - Pointer RESOLUTION (I/O: file exists, anchor found) is NOT done here —
+    it is deferred to the run/tick pass in dag/reads.py (resolve_reads_pointers).
+  - human-go nodes must NOT carry reads: (ManifestError if present).
 
 Non-fatal WARNs (manifest_warns):
-  A continues path crossing a produces: or human-go node between the continued ancestor
-  and the current node → structural boundary-smell WARN. Non-fatal: the manifest is still
-  valid, but the external runtime should prefer a fresh dispatch pointed at the artifact.
+  1. A continues path crossing a produces: or human-go node between the continued ancestor
+     and the current node → structural boundary-smell WARN (SR-DISP).
+  2. An agent node with NO reads: field → reads-scope WARN (SR-SCOPE).
+  Both are non-fatal: the manifest is still valid, but the runtime should surface them.
 
 Stdlib only (plus intra-package walker import for _transitive_upstream reuse — no circularity).
 """
@@ -175,6 +192,11 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
         if node_type == "agent":
             _validate_agent_spec(nid, node)
             _validate_continues_structure(nid, node)
+            _validate_reads_structure(nid, node)
+
+        # ── SR-SCOPE: human-go nodes must NOT carry reads: ────────────────────
+        if node_type == "human-go":
+            _validate_no_reads_on_human_go(nid, node)
 
         # Validate produces (optional)
         produces = node.get("produces")
@@ -296,6 +318,86 @@ def _validate_continues_structure(nid: str, node: dict) -> None:
         )
 
 
+def _validate_reads_structure(nid: str, node: dict) -> None:
+    """Validate the structural shape of a reads field on an agent node (if present).
+
+    SR-SCOPE structural teeth (pure/in-memory — no I/O):
+      - reads is OPTIONAL; absent is valid.
+      - If present: must be a non-empty list.
+      - Each item must be either:
+          a non-empty string (bare pointer), OR
+          a dict with a non-empty 'ref' key (and optional 'why': str).
+      - Any violation is a ManifestError.
+
+    Pointer RESOLUTION (filesystem) is NOT done here — that is the run/tick pass
+    in dag/reads.py (resolve_reads_pointers), respecting the purity boundary.
+
+    Raises ManifestError on any structural violation.
+    """
+    reads = node.get("reads")
+    if reads is None:
+        return  # optional — absent is valid
+
+    if not isinstance(reads, list):
+        raise ManifestError(
+            f"Node {nid!r}: 'reads' must be a list of pointer strings or {{ref:...}} dicts, "
+            f"got {type(reads).__name__!r} (SR-SCOPE)"
+        )
+
+    if len(reads) == 0:
+        raise ManifestError(
+            f"Node {nid!r}: 'reads' must be non-empty if present — "
+            f"an empty declared scope is invalid (SR-SCOPE). "
+            f"Remove the field entirely if there are no grounding pointers."
+        )
+
+    for i, item in enumerate(reads):
+        if isinstance(item, str):
+            if not item.strip():
+                raise ManifestError(
+                    f"Node {nid!r}: reads[{i}] must be a non-empty string, "
+                    f"got {item!r} (SR-SCOPE)"
+                )
+        elif isinstance(item, dict):
+            ref = item.get("ref")
+            if ref is None:
+                raise ManifestError(
+                    f"Node {nid!r}: reads[{i}] dict must have a 'ref' key "
+                    f"(SR-SCOPE). Got keys: {sorted(item.keys())}"
+                )
+            if not isinstance(ref, str) or not ref.strip():
+                raise ManifestError(
+                    f"Node {nid!r}: reads[{i}].ref must be a non-empty string, "
+                    f"got {ref!r} (SR-SCOPE)"
+                )
+            # 'why' is optional — if present, should be a string (non-fatal structural check)
+            why = item.get("why")
+            if why is not None and not isinstance(why, str):
+                raise ManifestError(
+                    f"Node {nid!r}: reads[{i}].why must be a string if present, "
+                    f"got {type(why).__name__!r} (SR-SCOPE)"
+                )
+        else:
+            raise ManifestError(
+                f"Node {nid!r}: reads[{i}] must be a non-empty string or a "
+                f"{{ref: <str>, why?: <str>}} dict, got {type(item).__name__!r} (SR-SCOPE)"
+            )
+
+
+def _validate_no_reads_on_human_go(nid: str, node: dict) -> None:
+    """Raise ManifestError if a human-go node carries a reads: field.
+
+    human-go nodes are decision gates, not dispatch targets — they have no
+    reading-scope (same exemption as spec/continues, SR-SCOPE).
+    """
+    if "reads" in node:
+        raise ManifestError(
+            f"Node {nid!r}: 'reads' is not allowed on human-go nodes — "
+            f"human-go nodes are decision gates, not dispatch targets (SR-SCOPE). "
+            f"Remove the 'reads' field from this node."
+        )
+
+
 def _validate_continues_cross_node(
     nid: str,
     node: dict,
@@ -391,10 +493,14 @@ def manifest_warns(manifest: dict[str, Any]) -> list[str]:
     Does NOT raise. A manifest that passes validate_manifest may still have
     structural smells surfaced here.
 
-    Currently detected: a 'continues' path from the continued ancestor to the
-    current node that crosses a node with 'produces:' or a 'human-go' node.
-    This is a structural signal that a durable-artifact or decision boundary
-    was crossed — prefer a fresh dispatch pointed at the artifact.
+    Currently detected:
+      1. SR-DISP: a 'continues' path from the continued ancestor to the current node
+         that crosses a node with 'produces:' or a 'human-go' node. Structural signal
+         that a durable-artifact or decision boundary was crossed — prefer a fresh
+         dispatch pointed at the artifact.
+      2. SR-SCOPE: an agent node with NO 'reads:' field — dispatched with an unbounded
+         reading-scope; the agent will re-ground by broad exploration. Bound it with
+         the artifacts the agent must read (add a 'reads:' field).
 
     Called by verbs (dag run / tick / status) to surface smells at runtime.
     """
@@ -458,6 +564,18 @@ def manifest_warns(manifest: dict[str, Any]) -> list[str]:
                 f"⚠ [{nid}] resumes across a durable-artifact/decision boundary "
                 f"(produces/human-go at: {crossed}, between {cont_node_id!r} and {nid!r}) "
                 f"— prefer a fresh dispatch pointed at the artifact."
+            )
+
+    # ── SR-SCOPE: absent reads: WARN on agent nodes ───────────────────────────
+    for nid, node in nodes_by_id.items():
+        node_type = node.get("type", DEFAULT_NODE_TYPE)
+        if node_type != "agent":
+            continue  # human-go exempt
+        if node.get("reads") is None:
+            warns.append(
+                f"⚠ [{nid}] dispatched with an unbounded reading-scope (no 'reads:') "
+                f"— the agent will re-ground by broad exploration; bound it with "
+                f"the artifacts it must read (SR-SCOPE)."
             )
 
     return warns

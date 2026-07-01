@@ -152,3 +152,63 @@ refinement where transcript context is genuinely useful.
 `continues` vs a fresh dispatch is irreducible judgment. The tool enforces grounding
 (`spec`) and reference integrity (`continues.node` must resolve), and forces the
 justification (`reason`); it does not adjudicate "tight enough." That residue lives here.
+
+## Bound the reading-scope: the `reads:` grounding manifest
+
+**The problem `spec:` alone does not solve.** A fresh dispatch with a pointed `spec:`
+says *what to do* — but a fresh agent still re-grounds by broad exploration: it reads
+whatever looks relevant. That re-grounding is fresh dispatch's one real cost. An unbounded
+reading-scope re-inflates the very token cost fresh dispatch was meant to kill.
+
+**`reads:` = WHAT TO LOOK AT.** Each DAG `agent` node may carry a `reads:` field — a
+bounded list of grounding pointers the agent is expected to read:
+```json
+"reads": [
+  "src/research_vault/dag/schema.py",
+  "tasks/design.md#5B-SCOPE",
+  {"ref": "control/research-vault.md#sr-scope", "why": "prior verdict"}
+]
+```
+`spec:` crystallizes WHAT-to-do; `reads:` crystallizes WHAT-to-look-at. They are distinct
+fields, distinct concerns, on the same node.
+
+**`reads:` is OPTIONAL — but absent emits a WARN.** `spec:` (required) already guarantees
+≥1 grounding pointer. `reads:` is the ADDITIONAL bounded evidence set for nodes that need
+supporting artifacts beyond the spec. Forcing it on every trivial node breeds filler.
+Absent `reads:` emits a non-fatal `⚠ … dispatched with an unbounded reading-scope` warn
+at `dag run`/`tick`/`status` — the structural-smell WARN idiom from SR-DISP applied here.
+
+**The relationship to spawn-request `inputs:`.** The spawn-request control-bus field
+`inputs:` (one of the 11 `SPAWN_REQUIRED` fields) is the *prose* reading-scope, authored
+by a coordinator before artifacts exist. When that spawn becomes a DAG `agent` node, its
+`inputs:` becomes the node's machine-checked `reads:` — the same concept at two layers,
+teeth applied once at the machine layer. The prose `inputs:` field is unchanged; it is the
+semantic ancestor of the structured `reads:` field.
+
+**Teeth (what is tooled vs what is doctrine):**
+
+| Concern | Layer |
+|---|---|
+| `reads:` well-formed (list · non-empty-if-present · str-or-`{ref,why}` items) | **TOOLED** (ManifestError, pure validate) |
+| Every pointer RESOLVES (file/anchor/bus exists) | **TOOLED** (hard, at `dag run`/`tick`) |
+| `reads:` surfaced on the `DISPATCH` line for the runtime | **TOOLED** (frontier print suffix) |
+| Is the scope **SUFFICIENT** (agent won't need more)? | **DOCTRINE** (irreducible spec-author judgment) |
+| Is the scope **MINIMAL** (no over-listing)? | **DOCTRINE** (same irreducible judgment) |
+| Did the agent actually read outside scope? | **RUNTIME** (not RV — no observation seam) |
+
+**The scope-sufficiency loop.** RV has no observation seam into what the agent read —
+it cannot diff actual-reads vs declared. The loop closes through the artifact RV already
+owns: a returning agent that had to read far beyond its `reads:` surfaces it in its
+`⟦RETURN⟧` (`confidence`/`retro` — "reads-scope was insufficient; had to consult X").
+The spec-author reads that to fix the scope next round. No new hard `⟦RETURN⟧` field —
+this is a doctrine convention, not a schema change.
+
+**The `DISPATCH` line** carries the bounded scope so the adopter's runtime hands the agent
+its targeted reading list:
+```
+→ DISPATCH  [lit-search] Literature search
+    FRESH — spec:task://research#lit-search — reads: src/schema.py, tasks/design.md#5B-SCOPE
+```
+When `reads:` is absent the suffix is omitted. A runtime that logs tool-calls could diff
+actual-reads vs declared and emit an "out-of-scope read" signal — that is a runtime feature,
+not an RV one. RV only *enables* it by surfacing `reads:` on the frontier.
