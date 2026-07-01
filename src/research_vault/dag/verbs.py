@@ -56,6 +56,7 @@ from ..wait_for import resolve_watch
 from .schema import (
     load_manifest,
     validate_manifest,
+    manifest_warns,
     ManifestError,
     global_cap as manifest_global_cap,
     nodes_by_id as manifest_nodes_by_id,
@@ -87,7 +88,12 @@ def _sym(status: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _print_frontier(frontier: list[FrontierNode], run_id: str) -> None:
-    """Print frontier items and actionable commands."""
+    """Print frontier items and actionable commands.
+
+    SR-DISP: DISPATCH lines carry the spec pointer and dispatch mode:
+      FRESH — spec:<ptr>             (no continues field — default fresh dispatch)
+      CONTINUES <node> — <reason> — spec:<ptr>   (explicit resume exception)
+    """
     if not frontier:
         print("  (frontier empty — all nodes terminal or waiting for external conditions)")
         return
@@ -95,9 +101,30 @@ def _print_frontier(frontier: list[FrontierNode], run_id: str) -> None:
         label = item.node.get("label", item.node_id)
         if item.action == "dispatch":
             print(f"  → DISPATCH  [{item.node_id}] {label}")
+            # SR-DISP: print mode line (spec pointer + fresh/continues mode)
+            spec = item.node.get("spec", "")
+            continues = item.node.get("continues")
+            if continues and isinstance(continues, dict):
+                cont_node = continues.get("node", "")
+                cont_reason = continues.get("reason", "")
+                print(f"      CONTINUES {cont_node} — {cont_reason} — spec:{spec}")
+            else:
+                print(f"      FRESH — spec:{spec}")
         elif item.action == "await-go":
             print(f"  ⏸ AWAIT-GO  [{item.node_id}] {label}")
             print(f"      run: rv dag approve {run_id} {item.node_id}")
+
+
+def _print_manifest_warns(manifest: dict[str, Any]) -> None:
+    """Print non-fatal SR-DISP boundary-smell warnings to stdout (if any).
+
+    Called by dag run / tick / status after loading the manifest.
+    """
+    warns = manifest_warns(manifest)
+    for w in warns:
+        print(w)
+    if warns:
+        print()
 
 
 def _recompute_awaiting_go(
@@ -231,6 +258,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"rv dag run: {e}", file=sys.stderr)
         return 1
 
+    _print_manifest_warns(manifest)
     print(f"Run {run_id!r} started.")
     print(f"  manifest: {manifest_path}")
     print(f"  nodes: {len(manifest['nodes'])}")
@@ -271,6 +299,7 @@ def cmd_tick(args: argparse.Namespace) -> int:
         print(f"rv dag tick: manifest error: {e}", file=sys.stderr)
         return 1
 
+    _print_manifest_warns(manifest)
     print(f"Tick: run {run_id!r}")
     frontier = _recompute_awaiting_go(run_state, manifest, store)
     print("Frontier:")
@@ -625,6 +654,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"rv dag status: manifest error: {e}", file=sys.stderr)
         return 1
 
+    _print_manifest_warns(manifest)
     print(f"Run: {run_id}")
     print(f"  manifest: {manifest_path}")
     import datetime as _dt

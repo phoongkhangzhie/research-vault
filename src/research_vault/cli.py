@@ -201,8 +201,14 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Afterok+watch edges gate on artifact freshness (OKF type-dir checked by vault check). "
             "In-session resolution only — no background pollers. "
             "For external watches use: rv wait-for <cond> --then 'rv dag tick <run_id>' &"
+            " — SR-DISP dispatch discipline: agent nodes require 'spec' (non-empty pointer to "
+            "the durable brief); absence is a ManifestError. Anti-patterns: (1) an agent node "
+            "dispatched with no pointed 'spec' — always ground the dispatch; "
+            "(2) a 'continues' resume across a durable-artifact boundary (a produces:/human-go "
+            "node between the resumed ancestor and this node) — prefer a fresh dispatch "
+            "pointed at the artifact instead."
         ),
-        "sr": "SR-3",
+        "sr": "SR-3, SR-DISP",
     },
 }
 

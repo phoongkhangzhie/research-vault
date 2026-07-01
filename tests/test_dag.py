@@ -124,12 +124,29 @@ def _manifest(nodes: list[dict], run_id: str = "test-run", global_cap: int = 4) 
     return {"run_id": run_id, "name": "Test DAG", "global_cap": global_cap, "nodes": nodes}
 
 
-def _node(nid: str, node_type: str = "agent", needs: list | None = None, produces: dict | None = None) -> dict:
+def _node(
+    nid: str,
+    node_type: str = "agent",
+    needs: list | None = None,
+    produces: dict | None = None,
+    spec: str | None = "fixture://test-spec",
+    continues: dict | None = None,
+) -> dict:
+    """Build a manifest node.
+
+    For agent nodes, spec defaults to "fixture://test-spec" (SR-DISP: spec is required).
+    For human-go nodes, spec is omitted (human-go nodes are exempt from spec requirement).
+    Pass spec=None explicitly to test the missing-spec error path.
+    """
     n: dict = {"id": nid, "type": node_type, "label": f"Node {nid}"}
+    if node_type == "agent" and spec is not None:
+        n["spec"] = spec
     if needs:
         n["needs"] = needs
     if produces:
         n["produces"] = produces
+    if continues is not None:
+        n["continues"] = continues
     return n
 
 

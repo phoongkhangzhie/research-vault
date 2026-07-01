@@ -1,4 +1,4 @@
-"""schema.py — DAG manifest schema for Research Vault (SR-3).
+"""schema.py — DAG manifest schema for Research Vault (SR-3 + SR-DISP).
 
 JSON manifest format:
   {
@@ -10,6 +10,11 @@ JSON manifest format:
         "id": "lit-search",
         "type": "agent",               # "agent" | "human-go"
         "label": "Literature search",  # optional display label
+        "spec": "task://research#lit-search",  # REQUIRED on agent nodes (SR-DISP)
+        "continues": {                 # OPTIONAL — explicit resume exception (SR-DISP)
+          "node": "prior-agent-id",    # must be a transitive-upstream agent ancestor
+          "reason": "tight iterative continuation — one-step refinement, no artifact boundary"
+        },
         "produces": {                  # optional — declares artifact this node creates
           "note": "experiments/exp-001.md"   # OKF note path, relative to notes_root
         },
@@ -32,7 +37,7 @@ Edge kinds:
   afterany  — at least one predecessor in a group has reached any terminal state.
   soft      — advisory; never blocks the downstream node from advancing.
 
-Validation rules:
+Validation rules (SR-3):
   - run_id and nodes are required at the top level.
   - Node IDs must be unique strings.
   - All needs.from values must resolve to a known node ID.
@@ -41,7 +46,26 @@ Validation rules:
   - node type must be "agent" or "human-go".
   - edge kind must be one of the four above.
 
-Stdlib only. No external deps.
+SR-DISP additions (schema-by-construction dispatch discipline):
+  Agent nodes:
+  - spec REQUIRED (non-empty string): points to the durable brief for this dispatch.
+    Absence is a ManifestError — fresh-by-default enforced by construction.
+  - continues OPTIONAL = {node, reason}:
+    - continues.node must be a string that names an existing agent node
+    - continues.node must be a transitive-upstream ancestor of this node
+    - continues.node must not equal this node's own id
+    - continues.reason must be a non-empty string (forces articulation of the judgment)
+    Any violation is a ManifestError.
+
+  human-go nodes are EXEMPT from spec/continues requirements (they are decision gates,
+  not dispatch targets).
+
+Non-fatal WARNs (manifest_warns):
+  A continues path crossing a produces: or human-go node between the continued ancestor
+  and the current node → structural boundary-smell WARN. Non-fatal: the manifest is still
+  valid, but the external runtime should prefer a fresh dispatch pointed at the artifact.
+
+Stdlib only (plus intra-package walker import for _transitive_upstream reuse — no circularity).
 """
 from __future__ import annotations
 
@@ -103,6 +127,8 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
 
     Raises ManifestError describing the first violation found.
     Call this after loading from JSON, or before writing a new manifest.
+
+    SR-DISP: validates spec/continues on agent nodes (see module docstring).
     """
     if not isinstance(manifest, dict):
         raise ManifestError("Manifest must be a dict")
@@ -144,6 +170,11 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
             raise ManifestError(
                 f"Node {nid!r}: unknown type {node_type!r}. Valid: {sorted(NODE_TYPES)}"
             )
+
+        # ── SR-DISP: spec and continues validation for agent nodes ────────────
+        if node_type == "agent":
+            _validate_agent_spec(nid, node)
+            _validate_continues_structure(nid, node)
 
         # Validate produces (optional)
         produces = node.get("produces")
@@ -193,6 +224,128 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     # ── Acyclicity check via Kahn's topological sort ──────────────────────────
     _assert_acyclic(nodes, nodes_by_id)
 
+    # ── SR-DISP: continues cross-node validation (post-acyclicity) ────────────
+    # Requires: all nodes known, graph acyclic, needs.from refs resolved.
+    for node in nodes:
+        nid = node["id"]
+        node_type = node.get("type", DEFAULT_NODE_TYPE)
+        if node_type != "agent":
+            continue
+        continues = node.get("continues")
+        if continues is None:
+            continue
+        _validate_continues_cross_node(nid, node, nodes_by_id)
+
+
+def _validate_agent_spec(nid: str, node: dict) -> None:
+    """Validate that an agent node has a non-empty spec field.
+
+    Raises ManifestError if spec is missing or empty.
+    """
+    spec = node.get("spec")
+    if spec is None:
+        raise ManifestError(
+            f"Node {nid!r}: agent nodes require a 'spec' field pointing to the durable brief "
+            f"(SR-DISP: fresh-by-default enforcement). "
+            f"Example: \"spec\": \"task://research#lit-search\""
+        )
+    if not isinstance(spec, str) or not spec.strip():
+        raise ManifestError(
+            f"Node {nid!r}: 'spec' must be a non-empty string, got {spec!r}"
+        )
+
+
+def _validate_continues_structure(nid: str, node: dict) -> None:
+    """Validate the structural shape of a continues field (if present).
+
+    Checks: is a dict, has 'node' (string), has 'reason' (non-empty string).
+    Cross-node checks (ancestor resolution) are done in _validate_continues_cross_node.
+
+    Raises ManifestError on any violation.
+    """
+    continues = node.get("continues")
+    if continues is None:
+        return
+
+    if not isinstance(continues, dict):
+        raise ManifestError(
+            f"Node {nid!r}: 'continues' must be a dict with 'node' and 'reason' fields, "
+            f"got {type(continues).__name__}"
+        )
+
+    cont_node = continues.get("node")
+    if cont_node is None:
+        raise ManifestError(
+            f"Node {nid!r}: 'continues' missing 'node' field"
+        )
+    if not isinstance(cont_node, str):
+        raise ManifestError(
+            f"Node {nid!r}: 'continues.node' must be a string, got {type(cont_node).__name__}"
+        )
+
+    reason = continues.get("reason")
+    if reason is None:
+        raise ManifestError(
+            f"Node {nid!r}: 'continues' missing 'reason' field — "
+            f"the justification for a resume is required by construction (SR-DISP)"
+        )
+    if not isinstance(reason, str) or not reason.strip():
+        raise ManifestError(
+            f"Node {nid!r}: 'continues.reason' must be a non-empty string — "
+            f"articulate why this is a tight iteration, not a fresh dispatch"
+        )
+
+
+def _validate_continues_cross_node(
+    nid: str,
+    node: dict,
+    nodes_by_id: dict[str, dict],
+) -> None:
+    """Validate continues.node cross-node constraints.
+
+    Checks:
+    1. continues.node exists in the manifest
+    2. continues.node is type: agent
+    3. continues.node is not self
+    4. continues.node is a transitive-upstream ancestor of nid
+
+    Raises ManifestError on any violation.
+    """
+    from .walker import _transitive_upstream  # no circular dep: walker doesn't import schema
+
+    continues = node["continues"]
+    cont_node_id = continues["node"]  # already validated as a string
+
+    # 1. Must exist in manifest
+    if cont_node_id not in nodes_by_id:
+        raise ManifestError(
+            f"Node {nid!r}: continues.node {cont_node_id!r} is not a known node id"
+        )
+
+    # 2. Must be type: agent
+    cont_node = nodes_by_id[cont_node_id]
+    cont_type = cont_node.get("type", DEFAULT_NODE_TYPE)
+    if cont_type != "agent":
+        raise ManifestError(
+            f"Node {nid!r}: continues.node {cont_node_id!r} is type {cont_type!r}, "
+            f"not 'agent' — can only continue an agent thread (SR-DISP)"
+        )
+
+    # 3. Must not be self
+    if cont_node_id == nid:
+        raise ManifestError(
+            f"Node {nid!r}: continues.node must not be the node itself (self-continuation)"
+        )
+
+    # 4. Must be a transitive-upstream ancestor
+    ancestors = _transitive_upstream(nid, nodes_by_id)
+    if cont_node_id not in ancestors:
+        raise ManifestError(
+            f"Node {nid!r}: continues.node {cont_node_id!r} is not a transitive-upstream "
+            f"ancestor of {nid!r} — can only continue a thread from actual upstream work "
+            f"(SR-DISP: same rule as needs.from resolution)"
+        )
+
 
 def _assert_acyclic(nodes: list[dict], nodes_by_id: dict[str, dict]) -> None:
     """Raise ManifestError if the DAG contains a cycle (Kahn's algorithm)."""
@@ -226,6 +379,88 @@ def _assert_acyclic(nodes: list[dict], nodes_by_id: dict[str, dict]) -> None:
             "DAG manifest contains a cycle — topological sort incomplete "
             f"({processed} of {len(nodes_by_id)} nodes processed)"
         )
+
+
+# ---------------------------------------------------------------------------
+# SR-DISP: non-fatal boundary-smell WARNs
+# ---------------------------------------------------------------------------
+
+def manifest_warns(manifest: dict[str, Any]) -> list[str]:
+    """Return non-fatal warning strings for structural boundary smells.
+
+    Does NOT raise. A manifest that passes validate_manifest may still have
+    structural smells surfaced here.
+
+    Currently detected: a 'continues' path from the continued ancestor to the
+    current node that crosses a node with 'produces:' or a 'human-go' node.
+    This is a structural signal that a durable-artifact or decision boundary
+    was crossed — prefer a fresh dispatch pointed at the artifact.
+
+    Called by verbs (dag run / tick / status) to surface smells at runtime.
+    """
+    from .walker import _transitive_upstream  # no circular dep
+
+    nodes_by_id: dict[str, dict] = {n["id"]: n for n in manifest.get("nodes", [])}
+    warns: list[str] = []
+
+    # Build a successors map for forward reachability from the continues ancestor.
+    successors: dict[str, list[str]] = {nid: [] for nid in nodes_by_id}
+    for nid, node in nodes_by_id.items():
+        for need in node.get("needs", []):
+            from_id = need.get("from")
+            if from_id and from_id in successors:
+                successors[from_id].append(nid)
+
+    for nid, node in nodes_by_id.items():
+        node_type = node.get("type", DEFAULT_NODE_TYPE)
+        if node_type != "agent":
+            continue
+        continues = node.get("continues")
+        if not continues or not isinstance(continues, dict):
+            continue
+        cont_node_id = continues.get("node")
+        if not cont_node_id or not isinstance(cont_node_id, str):
+            continue
+        if cont_node_id not in nodes_by_id:
+            continue  # will have been caught by validate_manifest
+
+        # Find nodes "between" cont_node_id and nid:
+        #   = ancestors(nid) ∩ descendants(cont_node_id)
+        # ancestors(nid): _transitive_upstream(nid)
+        # descendants(cont_node_id): forward BFS from cont_node_id
+        ancestors_nid = _transitive_upstream(nid, nodes_by_id)
+
+        # Forward BFS from cont_node_id
+        descendants_cont: set[str] = set()
+        bfs_queue = [cont_node_id]
+        while bfs_queue:
+            n = bfs_queue.pop()
+            for succ in successors.get(n, []):
+                if succ not in descendants_cont:
+                    descendants_cont.add(succ)
+                    bfs_queue.append(succ)
+
+        # Between = ancestors of nid that are also descendants of cont_node_id
+        # (excludes cont_node_id itself and nid itself)
+        between = ancestors_nid & descendants_cont - {nid}
+
+        # Check if any node in 'between' has produces: or is human-go
+        boundary_crossings = []
+        for bn in between:
+            bn_node = nodes_by_id[bn]
+            bn_type = bn_node.get("type", DEFAULT_NODE_TYPE)
+            if bn_type == "human-go" or bn_node.get("produces"):
+                boundary_crossings.append(bn)
+
+        if boundary_crossings:
+            crossed = ", ".join(sorted(boundary_crossings))
+            warns.append(
+                f"⚠ [{nid}] resumes across a durable-artifact/decision boundary "
+                f"(produces/human-go at: {crossed}, between {cont_node_id!r} and {nid!r}) "
+                f"— prefer a fresh dispatch pointed at the artifact."
+            )
+
+    return warns
 
 
 # ---------------------------------------------------------------------------

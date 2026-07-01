@@ -1,3 +1,32 @@
+## 2026-07-01 (SR-DISP build)
+
+### Done
+- Worktree: feat/sr-disp off origin/main, engineer@khangzhie.io identity.
+- Schema teeth (dag/schema.py): spec REQUIRED on agent nodes (ManifestError on absence);
+  continues OPTIONAL = {node, reason} with full cross-node validation (exists, type:agent,
+  transitive-upstream ancestor via walker._transitive_upstream import, not-self, reason
+  non-empty). Each violation a ManifestError.
+- manifest_warns() non-fatal WARN: continues path crossing produces:/human-go boundary
+  (forward BFS from ancestor ∩ backward ancestors of node). Surfaced by dag run/tick/status.
+- Frontier mode line (verbs.py _print_frontier): DISPATCH lines carry
+  "FRESH — spec:<ptr>" or "CONTINUES <node> — <reason> — spec:<ptr>".
+- Doctrine clause (doctrine/coordination.md): "Dispatch: fresh + pointed by default;
+  resume is the justified exception" subsection — de-personalized, leakage-scanned.
+- Discovery (cli.py _VERB_REGISTRY dag when_to_use): two named anti-patterns appended.
+- Fixture migration (test_dag.py _node()): spec="fixture://test-spec" default for agents.
+- 34 new hermetic tests; 347 total, all passing. rv lint PASS. rv help --check: OK.
+
+### Decisions
+- Import walker._transitive_upstream into schema.py — no circular dep (walker doesn't
+  import schema); spec says "reuse"; inlining would be duplication.
+- manifest_warns uses forward BFS from continues.node ∩ backward _transitive_upstream(nid)
+  to find "between" nodes; O(N) total, cleanest formula.
+- WARN prints before "Run started" / "Tick" headers so it's visible at top of output.
+- human-go nodes exempt from spec requirement (they're decision gates, not dispatch targets).
+
+### Open / next
+- PR needs reviewer (Argus) + Architect fit-check before merge (human-go gate).
+
 ## 2026-07-01 (SR-CP build)
 
 ### Done

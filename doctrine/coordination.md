@@ -112,3 +112,43 @@ nudging annoys you.
 Dormant projects cost nothing (no session). The active project is one warm session,
 loaded once. Coordination is tiny file I/O. The hub stays thin. That beats both
 *reloading a full prompt on every switch* and *keeping every manager hot*.
+
+## Dispatch: fresh + pointed by default; resume is the justified exception
+
+**Default: spawn a FRESH agent pointed at a durable spec.** Every DAG `agent` node carries
+a `spec` field — a non-empty pointer to the brief the agent is dispatched against
+(a task-file section, a control-file slug, or a path). Absence is a `ManifestError` by
+construction (the schema enforces it). The `rv dag` frontier line prints `FRESH — spec:<ptr>`
+so the adopter's runtime knows to spawn new.
+
+**Why fresh by default:** a resumed background agent reloads its entire accumulated transcript
+on every invocation — per-call cost grows monotonically. A fresh agent pays only for the
+pointed spec and re-derives from current ground truth (can't drift on stale in-context
+assumptions).
+
+**Resume is the justified exception.** A `continues` field overrides to resume mode:
+```json
+"continues": { "node": "<prior-agent-node-id>", "reason": "<non-empty justification>" }
+```
+The schema validates: `continues.node` must exist, be `type: agent`, be a
+transitive-upstream ancestor, and not be self. `continues.reason` is **required** — the
+tool forces articulation of the justification on the record. The frontier prints
+`CONTINUES <node> — <reason> — spec:<ptr>`.
+
+Valid use: tight iterative continuation with no intervening durable artifact — a one-step
+refinement where transcript context is genuinely useful.
+
+**Named anti-patterns (tooled as structural WARNs, not hard errors):**
+
+- *No pointed spec:* an agent node without `spec` is a `ManifestError` — you cannot
+  dispatch ungrounded.
+- *Resume across a durable-artifact boundary:* a `continues` whose DAG path from the
+  continued ancestor crosses a `produces:` or `human-go` node. The validator warns
+  (`⚠ … resumes across a durable-artifact/decision boundary — prefer a fresh dispatch
+  pointed at the artifact`). Non-fatal: the schema accepts it, but the structural smell
+  is surfaced at `dag run`/`tick`/`status`.
+
+**What stays doctrine (not tooled):** whether a resume is *tight enough* to justify
+`continues` vs a fresh dispatch is irreducible judgment. The tool enforces grounding
+(`spec`) and reference integrity (`continues.node` must resolve), and forces the
+justification (`reason`); it does not adjudicate "tight enough." That residue lives here.
