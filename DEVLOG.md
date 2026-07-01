@@ -1,3 +1,19 @@
+## 2026-07-01 (SR-CI build)
+
+### Done
+- Worktree: feat/sr-ci off origin/main, crew identity set.
+- TOOL-D3: gate-clean verdict header by construction on `rv control return`. When the `verdict` field is PASS or BLOCK, `_make_block` now emits `VERDICT: PASS` (or `BLOCK`) as the unindented first line of the `⟦RETURN⟧` block body — before the indented field list. The `verdict` field is suppressed from the indented section to avoid duplication; the unindented header IS the `verdict` field (the controllib parser reads it via the known-key path).
+- `_extract_gate_verdict()` helper: extracts PASS/BLOCK from the first word of the verdict value (case-insensitive). Non-PASS/BLOCK values (e.g., `approve`) return None — no header emitted, backward compat preserved.
+- 7 new hermetic tests in `tests/test_sr_ci.py`. Key acceptance test: a return authored with BLOCK/FAIL-quoting narrative fields still yields `VERDICT: PASS` as the first block line. All 7 green. Full suite: 523 passed (516 baseline + 7 new), zero regressions.
+- TOOL-D1 (verify-CI hard gate) explicitly NOT built — operator decision documented in task spec; hard gate creates rigidity; CI verification stays a hub practice.
+
+### Decisions
+- No blank line between header and fields: the controllib `_parse_block` terminates on blank lines, so inserting one would lose all required fields from the parsed block. The header IS the first field line (unindented); downstream tools that want the gate-readable token grep for `^VERDICT:` in the block body.
+- Validation: do not reject non-PASS/BLOCK verdict values — return None and skip the header. Keeps old `verdict: approve` usage valid.
+
+### Open / next
+- PR needs Argus review (reviewer-gate class).
+
 ## 2026-07-01 (SR-SCOPE build)
 
 ### Done

@@ -559,11 +559,46 @@ def _make_bullet(entry_id: str, body: str) -> str:
     return f"- **{entry_id}**"
 
 
+_GATE_VOCAB: frozenset[str] = frozenset({"PASS", "BLOCK"})
+
+
+def _extract_gate_verdict(verdict_val: str) -> str | None:
+    """Return 'PASS' or 'BLOCK' if *verdict_val* starts with one of those tokens (case-insensitive).
+
+    Returns None for any other value (backward compat — 'approve', etc.).
+    This is the gate-vocab: only these two values get the machine-readable header.
+    """
+    token = verdict_val.strip().split()[0].upper() if verdict_val.strip() else ""
+    return token if token in _GATE_VOCAB else None
+
+
 def _make_block(marker: str, fields: dict[str, str]) -> str:
-    """Render a ⟦MARKER⟧ block with the given fields."""
+    """Render a ⟦MARKER⟧ block with the given fields.
+
+    RETURN blocks with a PASS/BLOCK verdict field get a gate-clean verdict header
+    as the first line of the block body (TOOL-D3 / SR-CI).  The header is:
+        VERDICT: PASS   (or BLOCK)
+    emitted unindented, before the field list.  The verdict field is then omitted
+    from the indented fields to avoid duplication — the header IS the verdict field
+    (the parser reads it as ``verdict: PASS`` via the known-key path in controllib).
+    """
     lines = [f"⟦{marker}⟧"]
-    for key, val in fields.items():
-        lines.append(f"  {key}: {val}")
+
+    if marker == "RETURN":
+        verdict_val = fields.get("verdict", "")
+        gate_token = _extract_gate_verdict(verdict_val)
+        if gate_token:
+            # Gate-clean header: unindented, first line after the marker.
+            # The controllib parser reads this as verdict=gate_token (known key).
+            lines.append(f"VERDICT: {gate_token}")
+        for key, val in fields.items():
+            if key == "verdict" and gate_token:
+                continue  # already emitted as header; skip to avoid duplication
+            lines.append(f"  {key}: {val}")
+    else:
+        for key, val in fields.items():
+            lines.append(f"  {key}: {val}")
+
     return "\n".join(lines)
 
 
