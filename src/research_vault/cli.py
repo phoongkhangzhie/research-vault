@@ -161,7 +161,9 @@ _VERB_REGISTRY: dict[str, dict] = {
         "module": "research_vault.wt",
         "when_to_use": (
             "When you need to create, list, or remove git worktrees for project task branches. "
-            "Use `rv wt add <task>` to create an isolated worktree on feat/<task>."
+            "Use `rv wt add <task>` to create an isolated worktree on feat/<task>. "
+            "Anti-patterns this prevents: committed-to-main directly · never made a worktree · "
+            "working on main instead of an isolated branch."
         ),
         "sr": "SR-2",
     },
@@ -169,7 +171,8 @@ _VERB_REGISTRY: dict[str, dict] = {
         "module": "research_vault.git_health",
         "when_to_use": (
             "When you need a cross-repo branch health report: which branches are merged, "
-            "stale, or have unique content. Use --prune to clean up DELETE-classed branches."
+            "stale, or have unique content. Use --prune to clean up DELETE-classed branches. "
+            "Anti-patterns caught: committed-to-main / never-made-a-worktree / hand-merged-red-CI."
         ),
         "sr": "SR-2",
     },
@@ -189,6 +192,18 @@ _VERB_REGISTRY: dict[str, dict] = {
             "returns immediately — no sleep-looping. Primitive that SR-3's DAG afterok composes."
         ),
         "sr": "SR-2",
+    },
+    # --- SR-GD ---
+    "git-discipline": {
+        "module": "research_vault.git_discipline",
+        "when_to_use": (
+            "When you need to install, check, or manage identity-free git-discipline hooks "
+            "(protect-main + leakage scan + conventional-commit format). "
+            "Use `rv git-discipline install` to set core.hooksPath per repo (worktrees inherit). "
+            "Anti-patterns addressed: committed-to-main directly · never made a worktree · "
+            "hand-merged red CI."
+        ),
+        "sr": "SR-GD",
     },
     # --- SR-3 ---
     "dag": {
