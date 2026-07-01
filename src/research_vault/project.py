@@ -1,8 +1,8 @@
 """project.py — config-registry verbs for Research Vault.
 
 When to use: ``rv project add <name>`` registers a new project into the
-multi-project TOML config registry (the config SSOT). Additional project
-management verbs (list, show, remove) are stubs for future SRs.
+multi-project TOML config registry (the config SSOT). ``rv project list``
+enumerates all registered projects — the cross-project discovery substrate.
 
 Design constraints honored here:
   - VALIDATE: the entry is schema-checked before writing.
@@ -10,10 +10,9 @@ Design constraints honored here:
     TOML file. The rest of the file is byte-unchanged (no whole-file re-dump).
   - IDEMPOTENT: a duplicate name OR code raises a clear error; never silently
     clobbers an existing entry.
-  - CANONICAL form: field order is fixed (name, code, source_dir, roster,
-    disclosure) — matches what SR-4's crew reader expects.
-  - ARGUS SR-1 FORWARD-FLAG: roster, code, and disclosure are written from
-    day one so SR-4 reads an existing field with no registry re-migration.
+  - CANONICAL form: field order is fixed (code, source_dir, roster).
+  - SR-1 FORWARD-FLAG: roster and code are written from day one so SR-4
+    reads existing fields with no registry re-migration.
 
 Stdlib only — no third-party deps.
 """
@@ -38,11 +37,7 @@ _REQUIRED_FIELDS = ("name", "code", "source_dir")
 # Optional fields with their defaults (used for canonical form)
 _OPTIONAL_FIELDS = {
     "roster": [],
-    "disclosure": "private",
 }
-
-# Valid disclosure values
-_VALID_DISCLOSURE = frozenset({"private", "public"})
 
 # Project name: lowercase letters, digits, hyphens only; must start with a letter
 _NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -52,7 +47,7 @@ _CODE_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
 
 def _validate_entry(name: str, code: str, source_dir: str,
-                    roster: list[str], disclosure: str) -> None:
+                    roster: list[str]) -> None:
     """Raise ValueError with a clear message if any field fails validation."""
     if not _NAME_RE.match(name):
         raise ValueError(
@@ -66,10 +61,6 @@ def _validate_entry(name: str, code: str, source_dir: str,
         )
     if not source_dir.strip():
         raise ValueError("source_dir must not be empty.")
-    if disclosure not in _VALID_DISCLOSURE:
-        raise ValueError(
-            f"Invalid disclosure {disclosure!r}. Must be one of: {sorted(_VALID_DISCLOSURE)}"
-        )
     for role in roster:
         if not role.strip():
             raise ValueError(f"Roster role name must not be blank: {role!r}")
@@ -115,11 +106,10 @@ def _render_project_section(
     code: str,
     source_dir: str,
     roster: list[str],
-    disclosure: str,
 ) -> str:
     """Render the canonical TOML section for a new project entry.
 
-    Field order is fixed: code, source_dir, roster, disclosure.
+    Field order is fixed: code, source_dir, roster.
     The section header is ``[projects.<name>]``.
     This is the EMIT CANONICAL FORM requirement — SR-4 can rely on this order.
     """
@@ -131,7 +121,6 @@ def _render_project_section(
         lines.append(f"roster = {roster_toml}")
     else:
         lines.append("roster = []")
-    lines.append(f"disclosure = {_toml_string(disclosure)}")
     lines.append("")  # trailing newline after section
     return "\n".join(lines)
 
@@ -141,7 +130,6 @@ def cmd_add(
     code: str,
     source_dir: str,
     roster: list[str],
-    disclosure: str,
     *,
     config_path: Path | None = None,
 ) -> None:
@@ -158,7 +146,7 @@ def cmd_add(
     source_dir = str(Path(source_dir).expanduser())
 
     # Validate fields
-    _validate_entry(name, code, source_dir, roster, disclosure)
+    _validate_entry(name, code, source_dir, roster)
 
     # Locate the config file
     if config_path is None:
@@ -174,13 +162,44 @@ def cmd_add(
     _check_no_duplicate(existing, name, code)
 
     # Render the new section
-    new_section = _render_project_section(name, code, source_dir, roster, disclosure)
+    new_section = _render_project_section(name, code, source_dir, roster)
 
     # MINIMAL WRITE: append only the new section (rest of file byte-unchanged)
     with open(config_path, "a", encoding="utf-8") as f:
         f.write(new_section)
 
     print(f"Registered project {name!r} (code={code!r}) in {config_path}")
+
+
+def cmd_list(cfg: Config | None = None) -> int:
+    """List all registered projects from the config registry.
+
+    Enumerates: slug, code, source_dir, roster.
+    This is the cross-project discovery substrate — agents use this to enumerate
+    peer projects and find their note stores for cross-project corroboration.
+    Returns 0 on success, 1 on config error.
+    """
+    if cfg is None:
+        try:
+            cfg = load_config()
+        except Exception as e:
+            print(f"rv project list: config error: {e}", file=sys.stderr)
+            return 1
+    slugs = cfg.all_project_slugs()
+    if not slugs:
+        print("No projects registered.")
+        return 0
+    print(f"{len(slugs)} project(s):")
+    for slug in slugs:
+        proj = cfg.projects[slug]
+        code = proj.get("code", "?")
+        source = proj.get("source_dir", "")
+        roster = proj.get("roster", [])
+        roster_str = "[" + ", ".join(roster) + "]" if roster else "[]"
+        print(f"  {slug:<24} code={code:<12} roster={roster_str}")
+        if source:
+            print(f"  {'':24} source={source}")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -193,11 +212,13 @@ def build_parser(
     """Build the argument parser for the ``project`` verb.
 
     When to use: ``rv project add <name> --code <c> --source <dir>`` registers
-    a project into the multi-project config registry.
+    a project into the multi-project config registry. ``rv project list``
+    enumerates all registered projects (cross-project discovery substrate).
     """
     desc = (
         "Manage the project config registry. "
-        "``rv project add`` registers a new project into research_vault.toml."
+        "``rv project add`` registers a new project into research_vault.toml. "
+        "``rv project list`` enumerates all registered projects."
     )
     if parent is not None:
         p = parent.add_parser("project", help="Manage the project config registry.", description=desc)
@@ -225,14 +246,9 @@ def build_parser(
         metavar="ROLE",
         help="Space-separated list of roles for this project (e.g. engineer researcher).",
     )
-    add_p.add_argument(
-        "--disclosure", default="private",
-        choices=sorted(_VALID_DISCLOSURE),
-        help="Disclosure level: private (default) or public.",
-    )
 
-    # list (stub — future SR)
-    sub.add_parser("list", help="List all registered projects. [SR-future]")
+    # list — real implementation (SR-XP)
+    sub.add_parser("list", help="List all registered projects (slug, code, roster, source).")
 
     return p
 
@@ -246,7 +262,6 @@ def run(args: argparse.Namespace) -> int:
                 code=args.code,
                 source_dir=args.source_dir,
                 roster=args.roster,
-                disclosure=args.disclosure,
             )
             return 0
         except FileNotFoundError as e:
@@ -260,21 +275,6 @@ def run(args: argparse.Namespace) -> int:
             return 1
 
     elif args.project_cmd == "list":
-        try:
-            cfg = load_config()
-        except Exception as e:
-            print(f"rv project list: config error: {e}", file=sys.stderr)
-            return 1
-        slugs = cfg.all_project_slugs()
-        if not slugs:
-            print("No projects registered.")
-        else:
-            print(f"{len(slugs)} project(s):")
-            for slug in slugs:
-                proj = cfg.projects[slug]
-                code = proj.get("code", "?")
-                disclosure = proj.get("disclosure", "private")
-                print(f"  {slug:<24} code={code:<12} disclosure={disclosure}")
-        return 0
+        return cmd_list()
 
     return 0
