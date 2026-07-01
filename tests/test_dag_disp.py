@@ -271,6 +271,15 @@ class TestContinuesValidation:
 # 3. Boundary-smell WARN — non-fatal
 # ===========================================================================
 
+def _continues_boundary_warns(manifest: dict) -> list[str]:
+    """Filter manifest_warns to only continues-boundary-smell warns (SR-DISP).
+
+    SR-SCOPE adds a second warn category (absent reads:) — the DISP tests
+    should filter to the specific warn type they are testing.
+    """
+    return [w for w in manifest_warns(manifest) if "resumes across" in w]
+
+
 class TestBoundarySmellWarn:
     def test_continues_crossing_produces_node_emits_warn(self):
         """continues path crosses a produces: node → WARN returned by manifest_warns (non-fatal)."""
@@ -286,8 +295,8 @@ class TestBoundarySmellWarn:
         ])
         # validation must succeed (non-fatal)
         validate_manifest(m)
-        # but warns must surface the boundary crossing
-        warns = manifest_warns(m)
+        # but continues-boundary warns must surface the boundary crossing
+        warns = _continues_boundary_warns(m)
         assert len(warns) == 1
         assert "c" in warns[0]
         assert "boundary" in warns[0].lower() or "produces" in warns[0].lower() or "prefer" in warns[0].lower()
@@ -302,12 +311,16 @@ class TestBoundarySmellWarn:
                    needs=[_need("gate")]),  # path from a to c crosses human-go gate
         ])
         validate_manifest(m)  # non-fatal — must not raise
-        warns = manifest_warns(m)
+        warns = _continues_boundary_warns(m)
         assert len(warns) == 1
         assert "c" in warns[0]
 
-    def test_continues_no_boundary_crossing_no_warn(self):
-        """A continues with no boundary crossing → no warnings."""
+    def test_continues_no_boundary_crossing_no_continues_warn(self):
+        """A continues with no boundary crossing → no continues-boundary WARN.
+
+        NOTE: SR-SCOPE may add absent-reads: warns for these nodes; this test
+        filters to continues-smell warns only (the SR-DISP concern).
+        """
         m = _manifest([
             _agent("a", spec="task://test#a"),
             _agent("b", spec="task://test#b",
@@ -315,7 +328,7 @@ class TestBoundarySmellWarn:
                    needs=[_need("a")]),  # direct continuation, no produces/human-go between
         ])
         validate_manifest(m)
-        warns = manifest_warns(m)
+        warns = _continues_boundary_warns(m)
         assert warns == []
 
     def test_boundary_warn_still_validates(self):
@@ -334,14 +347,18 @@ class TestBoundarySmellWarn:
         warns = manifest_warns(m)
         assert len(warns) >= 1  # has warns but did not raise
 
-    def test_manifest_warns_no_continues_no_warns(self):
-        """A manifest with no continues nodes → no warnings."""
+    def test_manifest_warns_no_continues_no_continues_warn(self):
+        """A manifest with no continues nodes → no continues-boundary warns.
+
+        NOTE: SR-SCOPE may add absent-reads: warns; this test filters to
+        continues-smell warns only (the SR-DISP concern).
+        """
         m = _manifest([
             _agent("a", spec="task://test#a"),
             _agent("b", spec="task://test#b", needs=[_need("a")]),
         ])
         validate_manifest(m)
-        assert manifest_warns(m) == []
+        assert _continues_boundary_warns(m) == []
 
 
 # ===========================================================================
@@ -415,7 +432,7 @@ class TestWarnSurfacedByVerb:
         assert all(isinstance(w, str) for w in warns)
 
     def test_manifest_warns_multiple_boundary_nodes(self):
-        """Multiple agents with boundary-crossing continues each emit a warn."""
+        """Multiple agents with boundary-crossing continues each emit a boundary warn."""
         m = _manifest([
             _agent("a", spec="task://test#a"),
             _agent("b", spec="task://test#b",
@@ -428,7 +445,8 @@ class TestWarnSurfacedByVerb:
                    continues={"node": "a", "reason": "iter-d"},
                    needs=[_need("b")]),
         ])
-        warns = manifest_warns(m)
+        # Filter to continues-boundary warns only (SR-SCOPE adds absent-reads warns too)
+        warns = _continues_boundary_warns(m)
         # Both c and d cross the produces boundary
         assert len(warns) == 2
 

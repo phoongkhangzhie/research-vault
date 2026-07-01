@@ -1,4 +1,4 @@
-"""verbs.py — `rv dag` verb implementations for Research Vault (SR-3).
+"""verbs.py — `rv dag` verb implementations for Research Vault (SR-3 + SR-SCOPE).
 
 Verbs:
   rv dag run <manifest>
@@ -53,6 +53,7 @@ from typing import Any
 
 from ..config import load_config
 from ..wait_for import resolve_watch
+from .reads import resolve_reads_pointers
 from .schema import (
     load_manifest,
     validate_manifest,
@@ -93,6 +94,11 @@ def _print_frontier(frontier: list[FrontierNode], run_id: str) -> None:
     SR-DISP: DISPATCH lines carry the spec pointer and dispatch mode:
       FRESH — spec:<ptr>             (no continues field — default fresh dispatch)
       CONTINUES <node> — <reason> — spec:<ptr>   (explicit resume exception)
+
+    SR-SCOPE: when reads: is present on the node, appends the bounded grounding scope:
+      FRESH — spec:<ptr> — reads: <p1>, <p2>, …
+      CONTINUES <node> — <reason> — spec:<ptr> — reads: <p1>, <p2>, …
+    When reads: is absent the suffix is omitted (non-breaking additive suffix).
     """
     if not frontier:
         print("  (frontier empty — all nodes terminal or waiting for external conditions)")
@@ -107,16 +113,30 @@ def _print_frontier(frontier: list[FrontierNode], run_id: str) -> None:
             if continues and isinstance(continues, dict):
                 cont_node = continues.get("node", "")
                 cont_reason = continues.get("reason", "")
-                print(f"      CONTINUES {cont_node} — {cont_reason} — spec:{spec}")
+                mode_line = f"      CONTINUES {cont_node} — {cont_reason} — spec:{spec}"
             else:
-                print(f"      FRESH — spec:{spec}")
+                mode_line = f"      FRESH — spec:{spec}"
+            # SR-SCOPE: append reads: suffix if present
+            reads = item.node.get("reads")
+            if reads and isinstance(reads, list):
+                refs = []
+                for r in reads:
+                    if isinstance(r, str):
+                        refs.append(r)
+                    elif isinstance(r, dict):
+                        ref = r.get("ref", "")
+                        if ref:
+                            refs.append(ref)
+                if refs:
+                    mode_line += f" — reads: {', '.join(refs)}"
+            print(mode_line)
         elif item.action == "await-go":
             print(f"  ⏸ AWAIT-GO  [{item.node_id}] {label}")
             print(f"      run: rv dag approve {run_id} {item.node_id}")
 
 
 def _print_manifest_warns(manifest: dict[str, Any]) -> None:
-    """Print non-fatal SR-DISP boundary-smell warnings to stdout (if any).
+    """Print non-fatal SR-DISP/SR-SCOPE warnings to stdout (if any).
 
     Called by dag run / tick / status after loading the manifest.
     """
@@ -125,6 +145,32 @@ def _print_manifest_warns(manifest: dict[str, Any]) -> None:
         print(w)
     if warns:
         print()
+
+
+def _resolve_reads_or_warn(
+    manifest: dict[str, Any],
+    project_root: Path,
+    verb_prefix: str,
+) -> None:
+    """SR-SCOPE: resolve reads: pointers; print errors + warns to stdout/stderr.
+
+    Hard errors (unresolvable pointers) are printed to stderr — they signal the
+    manifest's reading-scope is broken and the agent would re-ground blindly.
+    Soft warns (symbol not found) are printed to stdout.
+
+    This is a non-blocking advisory pass — it does NOT abort the run/tick
+    (the manifest already passed validate_manifest structurally). Surfacing the
+    errors here is the run/tick equivalent of reconcile's artifact checks.
+    """
+    errors, warns = resolve_reads_pointers(manifest, project_root=project_root)
+    for w in warns:
+        print(f"  ⚠ reads-scope: {w}")
+    if errors:
+        import sys as _sys
+        for e in errors:
+            print(f"{verb_prefix}: reads-scope ERROR: {e}", file=_sys.stderr)
+        print(f"{verb_prefix}: {len(errors)} reads pointer(s) unresolvable — "
+              f"fix the manifest's reads: field(s) before dispatching.", file=_sys.stderr)
 
 
 def _recompute_awaiting_go(
@@ -259,6 +305,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
 
     _print_manifest_warns(manifest)
+
+    # SR-SCOPE: resolve reads: pointers (I/O pass — after pure validate)
+    _resolve_reads_or_warn(manifest, manifest_path.parent, "rv dag run")
+
     print(f"Run {run_id!r} started.")
     print(f"  manifest: {manifest_path}")
     print(f"  nodes: {len(manifest['nodes'])}")
@@ -300,6 +350,10 @@ def cmd_tick(args: argparse.Namespace) -> int:
         return 1
 
     _print_manifest_warns(manifest)
+
+    # SR-SCOPE: resolve reads: pointers (I/O pass — after pure validate)
+    _resolve_reads_or_warn(manifest, manifest_path.parent, "rv dag tick")
+
     print(f"Tick: run {run_id!r}")
     frontier = _recompute_awaiting_go(run_state, manifest, store)
     print("Frontier:")

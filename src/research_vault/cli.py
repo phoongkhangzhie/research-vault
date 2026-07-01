@@ -222,8 +222,14 @@ _VERB_REGISTRY: dict[str, dict] = {
             "(2) a 'continues' resume across a durable-artifact boundary (a produces:/human-go "
             "node between the resumed ancestor and this node) — prefer a fresh dispatch "
             "pointed at the artifact instead."
+            " — SR-SCOPE grounding: agent nodes may carry a 'reads:' field (optional, "
+            "resolve-checked) to bound the agent's reading-scope — a list of file/doc-section/"
+            "bus-ref pointers the agent must read. Anti-pattern: (3) an agent node dispatched "
+            "with an unbounded reading-scope (no 'reads:') will re-ground by broad exploration, "
+            "re-inflating the token cost fresh dispatch was meant to kill — bound it with the "
+            "artifacts the agent must read."
         ),
-        "sr": "SR-3, SR-DISP",
+        "sr": "SR-3, SR-DISP, SR-SCOPE",
     },
     # --- SR-5 ---
     "init": {
