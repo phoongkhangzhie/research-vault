@@ -24,6 +24,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from .note import scaffold_okf_dirs
+
 
 # ---------------------------------------------------------------------------
 # Config template
@@ -279,8 +281,8 @@ def cmd_init_in_dir(target_dir: str) -> int:
         print(f"  created: {d.relative_to(target)}/")
 
     # ── Create OKF note type dirs ────────────────────────────────────────────
-    for note_type in ("experiments", "findings", "methods", "literature", "concepts", "mocs"):
-        (notes_root / note_type).mkdir(exist_ok=True)
+    scaffold_okf_dirs(notes_root)
+    for note_type in sorted({"experiments", "findings", "methods", "literature", "concepts", "mocs"}):
         print(f"  created: notes/{note_type}/")
 
     # ── Write research_vault.toml ────────────────────────────────────────────

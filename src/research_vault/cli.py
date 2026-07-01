@@ -109,9 +109,14 @@ _VERB_REGISTRY: dict[str, dict] = {
     "project": {
         "module": "research_vault.project",
         "when_to_use": (
-            "When you need to register a new project, list registered projects, or manage "
-            "the project config registry. Use `rv project add` to register a new project "
-            "into research_vault.toml."
+            "When you need to stand up a WHOLE new research project as its own repo "
+            "(git init + registry + OKF dirs + control bus + DEVLOG + architecture + "
+            "corpus + crew, in one command) use `rv project new <slug> --code <c> "
+            "--source <dir>`. Anti-pattern: hand-creating the repo + hand-copying "
+            "scaffolding + hand-editing research_vault.toml (races the registry, skips "
+            "the control-bus banner, forgets the OKF type-dirs). Use `rv project add` "
+            "if you only need the registry entry for an existing repo. Use `rv project "
+            "list` to enumerate all registered projects."
         ),
         "sr": "SR-2",
     },

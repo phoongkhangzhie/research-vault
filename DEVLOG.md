@@ -1,3 +1,30 @@
+## 2026-07-01 (SR-NEW build)
+
+### Done
+- Worktree: feat/sr-new off origin/main (post all prior SRs merged).
+- Added `scaffold_okf_dirs(base)` helper to `note.py` (SSOT for OKF types); `init.py` now calls it instead of re-listing the six types inline.
+- Extended `_render_project_section` and `cmd_add` with optional `extra: dict` param for additional registry keys (refs, collection). Backward-compatible.
+- Added `create_collection(name, *, key, uid) -> str` and `sync_library(coll_key, *, key, uid, refs_path) -> list` to `cite.py` (both reuse `_zotero`/`_find_collection` plumbing; sync_library is the thin mirror primitive for NEW-D2).
+- Added `_PROJECT_ARCHITECTURE_TEMPLATE` (project-shaped, not instance-shaped) + `cmd_new` to `project.py` — the full 13-step register-first transactional sequence with rollback.
+- `--source` made optional (default = `instance_root.parent / slug`, sibling-of-instance convention). Explicit `--source <dir>` overrides. Overwrite guard retained.
+- With `--zotero`: create_collection + sync_library called (initial sync, empty for new collection, establishes mirror pattern); graceful degradation if key missing (catches SystemExit).
+- Added `new` subparser to `project.build_parser` and dispatch in `run`.
+- Updated `cli.py` `when_to_use` for `project` to surface `rv project new` with the anti-pattern warning.
+- 44 hermetic tests in `tests/test_project_new.py`: happy path, registry, scaffold, crew, Zotero-skipped, git-discipline consent, guards (incl. default-source), rollback, discovery, CLI path (with and without --source), unit-level primitives.
+- Full suite: 576 passed (532 baseline + 44 new), zero regressions. rv lint PASS. rv help --check OK (19 verbs).
+
+### Decisions
+- Compose-not-duplicate: every scaffold step calls the existing verb function (control.cmd_init, devlog.cmd_init, build_agents.cmd_build, git_discipline._install_repo) — no path re-implementation.
+- Register-first: confirmed load-bearing; config cache reload mandatory after cmd_add.
+- SR-STRIP confirmed landed: disclosure field gone from project.py; composed against current signature.
+- NEW-D1 REVERSED (operator): --source now optional, default = instance_root.parent/slug (sibling-of-instance convention).
+- NEW-D2 REFINED (operator): --zotero now triggers sync_library after collection creation (mirror pattern, yields [] for new collections — wired for future ingestion).
+- Zotero step catches SystemExit (not just Exception) since _get_zotero_key() calls sys.exit on missing key.
+- `--git-discipline` flag without the option prints install-offer line; with flag calls _install_repo.
+
+### Open / next
+- PR ready for Argus review + Architect fit-check (composes-not-duplicates, register-first transaction, rollback, acceptance tests all pass).
+
 ## 2026-07-01 (SR-CI build)
 
 ### Done

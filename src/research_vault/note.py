@@ -31,6 +31,16 @@ OKF_TYPES = frozenset({
 })
 
 
+def scaffold_okf_dirs(base: Path) -> None:
+    """Create OKF note-type subdirectories under *base*.
+
+    This is the canonical helper — callers (init, project new) MUST use this
+    instead of re-listing the types, so note.OKF_TYPES stays the SSOT.
+    """
+    for note_type in OKF_TYPES:
+        (base / note_type).mkdir(parents=True, exist_ok=True)
+
+
 def _today() -> str:
     return datetime.date.today().isoformat()
 
