@@ -3,10 +3,17 @@
 All hermetic (tmp_instance). No ~/vault reads or writes.
 
 Four seams tested:
-  1. OKF type `datasets/` — new type in OKF_TYPES; note creation + check validates.
+  1. OKF type `datasets` — 7th canonical type; cross-project SHARED (datasets_root, not
+     project_notes_dir); cmd_new/list/check all use cfg.datasets_root.
   2. DAG `produces: {dataset: …}` — schema validates; complete-time gate (exists + hash).
   3. Resolver predicate `dataset:<id>` — resolve_watch returns ready only when note+hash valid.
   4. Walker/frontier path — finding node cannot enter frontier until dataset:<id> resolves.
+
+Amendment (2026-07-01) changes:
+  - Config key `datasets_root` (default: notes_root/datasets, overridable).
+  - datasets notes are SHARED (datasets_root), not project-scoped (project_notes_dir).
+  - _verify_local_file_hash uses streaming chunked read (no full-file RAM load).
+  - Cross-project test: two projects share the same dataset note at datasets_root.
 
 All agent nodes in test manifests carry `spec:` and `reads:` (SR-DISP/SR-SCOPE compliance).
 """
@@ -34,27 +41,26 @@ def _sha256_hex(data: bytes) -> str:
 
 
 def _write_dataset_note(
-    base_dir: Path,
+    datasets_root: Path,
     note_id: str,
     *,
     location: str = "",
     hash_val: str = "",
     title: str = "Test dataset",
 ) -> Path:
-    """Write a datasets provenance note under base_dir/datasets/. Returns path.
+    """Write a datasets provenance note DIRECTLY in datasets_root/. Returns path.
 
-    base_dir is typically cfg.project_notes_dir('demo-research') for cmd_check tests,
-    or cfg.notes_root for resolve_watch (dataset:<id>) tests.
+    datasets_root is cfg.datasets_root — the shared cross-project root.
+    Notes live at datasets_root/<note_id>.md (no subdirectory within datasets_root).
     """
-    subdir = base_dir / "datasets"
-    subdir.mkdir(parents=True, exist_ok=True)
+    datasets_root.mkdir(parents=True, exist_ok=True)
     lines = ["---", "type: datasets", f"title: {title}", "created: 2026-07-01"]
     if location:
         lines.append(f"location: {location}")
     if hash_val:
         lines.append(f"hash: {hash_val}")
     lines += ["---", "", "<!-- provenance note -->", ""]
-    p = subdir / f"{note_id}.md"
+    p = datasets_root / f"{note_id}.md"
     p.write_text("\n".join(lines), encoding="utf-8")
     return p
 
@@ -77,11 +83,56 @@ def _agent_node(nid: str, **kwargs) -> dict:
 
 
 # ============================================================================
-# Seam 1: OKF type `datasets/`
+# Config: datasets_root
+# ============================================================================
+
+class TestDatasetsRootConfig:
+    """datasets_root is a first-class config key that defaults to notes_root/datasets."""
+
+    def test_datasets_root_defaults_to_notes_root_slash_datasets(self, tmp_instance):
+        """When not set in TOML, datasets_root = notes_root / 'datasets'."""
+        cfg = load_config(reload=True)
+        assert cfg.datasets_root == cfg.notes_root / "datasets"
+
+    def test_datasets_root_overridable_in_toml(self, tmp_path):
+        """A custom datasets_root path in TOML is respected."""
+        import os
+        shared_dir = tmp_path / "shared-data"
+        config_file = tmp_path / "research_vault.toml"
+        config_file.write_text(
+            f'instance_root = "{tmp_path}"\n'
+            f'notes_root = "{tmp_path / "notes"}"\n'
+            f'state_dir = "{tmp_path / "state"}"\n'
+            f'agents_dir = "{tmp_path / ".agents"}"\n'
+            f'tasks_dir = "{tmp_path / "tasks"}"\n'
+            f'control_dir = "{tmp_path / "control"}"\n'
+            f'datasets_root = "{shared_dir}"\n',
+            encoding="utf-8",
+        )
+        old = os.environ.get("RESEARCH_VAULT_CONFIG")
+        os.environ["RESEARCH_VAULT_CONFIG"] = str(config_file)
+        try:
+            cfg = load_config(reload=True)
+            assert cfg.datasets_root == shared_dir
+        finally:
+            if old is None:
+                os.environ.pop("RESEARCH_VAULT_CONFIG", None)
+            else:
+                os.environ["RESEARCH_VAULT_CONFIG"] = old
+            load_config(reload=True)
+
+    def test_datasets_root_is_path_object(self, tmp_instance):
+        """cfg.datasets_root is a Path, not a string."""
+        cfg = load_config(reload=True)
+        assert isinstance(cfg.datasets_root, Path)
+
+
+# ============================================================================
+# Seam 1: OKF type `datasets` — shared, cross-project
 # ============================================================================
 
 class TestDatasetsOkfType:
-    """datasets is the 7th canonical OKF type."""
+    """datasets is the 7th canonical OKF type, shared across projects via datasets_root."""
 
     def test_datasets_in_okf_types(self):
         """'datasets' must be in the OKF_TYPES frozenset."""
@@ -93,12 +144,18 @@ class TestDatasetsOkfType:
         expected = {"literature", "concepts", "methods", "experiments", "findings", "mocs", "datasets"}
         assert note_mod.OKF_TYPES == expected
 
-    def test_new_dataset_note_creates_in_datasets_dir(self, tmp_instance):
-        """cmd_new creates a datasets note in the datasets/ subdirectory."""
+    def test_new_dataset_note_creates_in_datasets_root(self, tmp_instance):
+        """cmd_new for datasets writes to cfg.datasets_root, NOT project_notes_dir."""
         cfg = load_config(reload=True)
         path = note_mod.cmd_new("demo-research", "datasets", "My provenance note", config=cfg)
         assert path.exists()
-        assert path.parent.name == "datasets"
+        # Must be in datasets_root, not in project_notes_dir
+        assert path.parent == cfg.datasets_root
+        # Must NOT be in project_notes_dir
+        project_dir = cfg.project_notes_dir("demo-research")
+        assert not path.is_relative_to(project_dir), (
+            f"datasets note must not be in project_notes_dir; got {path}"
+        )
 
     def test_new_dataset_note_has_type_frontmatter(self, tmp_instance):
         """New datasets note has type: datasets in frontmatter."""
@@ -122,7 +179,7 @@ class TestDatasetsOkfType:
         data_file.write_bytes(b"col1,col2\n1,2\n")
         h = _sha256_hex(data_file.read_bytes())
         _write_dataset_note(
-            cfg.project_notes_dir("demo-research"),
+            cfg.datasets_root,
             "check-ok",
             location=str(data_file),
             hash_val=h,
@@ -134,9 +191,9 @@ class TestDatasetsOkfType:
         """A datasets note without a location field fails cmd_check."""
         cfg = load_config(reload=True)
         _write_dataset_note(
-            cfg.project_notes_dir("demo-research"),
+            cfg.datasets_root,
             "no-location",
-            location="",  # missing
+            location="",   # missing
             hash_val="sha256:abc123",
         )
         violations = note_mod.cmd_check("demo-research", config=cfg)
@@ -148,32 +205,68 @@ class TestDatasetsOkfType:
         """A datasets note without a hash field fails cmd_check."""
         cfg = load_config(reload=True)
         _write_dataset_note(
-            cfg.project_notes_dir("demo-research"),
+            cfg.datasets_root,
             "no-hash",
             location="/some/path.csv",
-            hash_val="",  # missing
+            hash_val="",   # missing
         )
         violations = note_mod.cmd_check("demo-research", config=cfg)
         assert any("hash" in v for v in violations), (
             f"Expected a 'hash' violation, got: {violations}"
         )
 
-    def test_check_dataset_note_type_dir_mismatch_caught(self, tmp_instance):
-        """A datasets note filed in the wrong directory is caught by cmd_check."""
+    def test_check_dataset_scans_datasets_root_not_project_dir(self, tmp_instance):
+        """cmd_check for datasets scans datasets_root, not project_notes_dir.
+
+        A note filed in project_notes_dir/datasets/ (old convention) is NOT seen;
+        a note in datasets_root/ IS seen.
+        """
         cfg = load_config(reload=True)
-        # File a note in findings/ with type: datasets
-        wrong_dir = cfg.project_notes_dir("demo-research") / "findings"
-        wrong_dir.mkdir(parents=True, exist_ok=True)
-        wrong_note = wrong_dir / "misplaced.md"
-        wrong_note.write_text(
-            "---\ntype: datasets\ntitle: wrong\ncreated: 2026-07-01\n"
-            "location: /x\nhash: sha256:abc\n---\n\nbody\n",
+
+        # File note in project_notes_dir/datasets/ (old wrong place) — should NOT be seen
+        old_dir = cfg.project_notes_dir("demo-research") / "datasets"
+        old_dir.mkdir(parents=True, exist_ok=True)
+        (old_dir / "stale.md").write_text(
+            "---\ntype: datasets\ntitle: stale\ncreated: 2026-07-01\n"
+            "location: /x\nhash: sha256:abc\n---\n",
             encoding="utf-8",
         )
-        violations = note_mod.cmd_check("demo-research", config=cfg)
-        assert any("datasets" in v or "misplaced" in v for v in violations), (
-            f"Expected a type-dir violation, got: {violations}"
+
+        # File a valid note in datasets_root/ — should be seen and pass
+        _write_dataset_note(
+            cfg.datasets_root, "shared-note",
+            location="https://example.com/data.csv",
+            hash_val="sha256:abc123",
         )
+
+        violations = note_mod.cmd_check("demo-research", config=cfg)
+        # The stale.md in old project dir should NOT appear in violations
+        # (it's not scanned). The shared-note in datasets_root should pass.
+        assert not any("stale" in v for v in violations), (
+            f"Should not scan project_notes_dir for datasets; got: {violations}"
+        )
+        assert violations == [], f"Expected no violations, got: {violations}"
+
+    def test_datasets_note_visible_across_projects(self, tmp_instance):
+        """A datasets note in datasets_root is visible to cmd_check for ANY project.
+
+        This is the cross-project sharing guarantee: one dataset note at datasets_root
+        is accessible to findings in any project.
+        """
+        cfg = load_config(reload=True)
+
+        # File a dataset note once
+        _write_dataset_note(
+            cfg.datasets_root, "shared-corpus",
+            location="https://data.example.org/corpus.jsonl",
+            hash_val="sha256:abc123def456",
+        )
+
+        # Both projects see it and have no violations
+        violations_p1 = note_mod.cmd_check("demo-research", config=cfg)
+        violations_p2 = note_mod.cmd_check("demo-litreview", config=cfg)
+        assert violations_p1 == [], f"demo-research violations: {violations_p1}"
+        assert violations_p2 == [], f"demo-litreview violations: {violations_p2}"
 
 
 # ============================================================================
@@ -186,7 +279,7 @@ class TestProducesDatasetSchema:
     def test_schema_accepts_produces_dataset(self):
         """A manifest with produces.dataset (non-empty string) passes validation."""
         m = _minimal_manifest([
-            _agent_node("data-step", produces={"dataset": "datasets/my-data.md"}),
+            _agent_node("data-step", produces={"dataset": "my-data.md"}),
         ])
         validate_manifest(m)  # must not raise
 
@@ -213,7 +306,7 @@ class TestProducesDatasetSchema:
                 "data-step",
                 produces={
                     "note": "experiments/exp-001.md",
-                    "dataset": "datasets/my-data.md",
+                    "dataset": "my-data.md",
                 },
             ),
         ])
@@ -221,7 +314,11 @@ class TestProducesDatasetSchema:
 
 
 class TestCompleteProducesDatasetGate:
-    """dag complete: produces.dataset gate checks note+location+hash at complete-time."""
+    """dag complete: produces.dataset gate checks note+location+hash at complete-time.
+
+    The produces.dataset value is the note filename (e.g. 'my-data.md') resolved
+    against cfg.datasets_root (the shared cross-project datasets store).
+    """
 
     def _make_run(self, tmp_instance, manifest: dict):
         """Helper: create a run state for a manifest. Returns (store, run_state, cfg)."""
@@ -235,7 +332,6 @@ class TestCompleteProducesDatasetGate:
             created_at=_time.time(),
         )
         run_state.init_nodes(manifest)
-        # Write manifest to tmp path
         mf_path = Path(tmp_instance) / "manifest.json"
         mf_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         store.create(run_state)
@@ -247,7 +343,7 @@ class TestCompleteProducesDatasetGate:
         import argparse
 
         manifest = _minimal_manifest([
-            _agent_node("data-step", produces={"dataset": "datasets/missing.md"}),
+            _agent_node("data-step", produces={"dataset": "missing.md"}),
         ])
         store, run_state, cfg = self._make_run(tmp_instance, manifest)
 
@@ -261,11 +357,10 @@ class TestCompleteProducesDatasetGate:
         import argparse
 
         cfg = load_config(reload=True)
-        # Write a note without location
-        _write_dataset_note(cfg.notes_root, "no-loc", location="", hash_val="sha256:abc")
+        _write_dataset_note(cfg.datasets_root, "no-loc", location="", hash_val="sha256:abc")
 
         manifest = _minimal_manifest([
-            _agent_node("data-step", produces={"dataset": "datasets/no-loc.md"}),
+            _agent_node("data-step", produces={"dataset": "no-loc.md"}),
         ])
         store, run_state, _ = self._make_run(tmp_instance, manifest)
 
@@ -279,10 +374,10 @@ class TestCompleteProducesDatasetGate:
         import argparse
 
         cfg = load_config(reload=True)
-        _write_dataset_note(cfg.notes_root, "no-hash", location="/tmp/data.csv", hash_val="")
+        _write_dataset_note(cfg.datasets_root, "no-hash", location="/tmp/data.csv", hash_val="")
 
         manifest = _minimal_manifest([
-            _agent_node("data-step", produces={"dataset": "datasets/no-hash.md"}),
+            _agent_node("data-step", produces={"dataset": "no-hash.md"}),
         ])
         store, run_state, _ = self._make_run(tmp_instance, manifest)
 
@@ -291,26 +386,26 @@ class TestCompleteProducesDatasetGate:
         assert rc != 0, "Should fail when dataset note missing hash"
 
     def test_complete_produces_dataset_fails_hash_mismatch(self, tmp_instance):
-        """dag complete FAILS (NOT-done) when the recorded hash mismatches the actual file."""
+        """dag complete FAILS (NOT-done) when the recorded hash mismatches the actual file.
+
+        This is the critical NOT-done test: a node with a filed provenance note but the
+        wrong hash cannot be marked complete — the gate catches the mismatch.
+        """
         from research_vault.dag import verbs as dag_verbs
         import argparse
 
         cfg = load_config(reload=True)
-
-        # Write a real data file
         data_file = Path(tmp_instance) / "data.csv"
         data_file.write_bytes(b"col1,col2\n1,2\n")
-
-        # Record the WRONG hash in the note
-        wrong_hash = "sha256:" + "deadbeef" * 8  # wrong hash
+        wrong_hash = "sha256:" + "deadbeef" * 8
         _write_dataset_note(
-            cfg.notes_root, "hash-mismatch",
+            cfg.datasets_root, "hash-mismatch",
             location=str(data_file),
             hash_val=wrong_hash,
         )
 
         manifest = _minimal_manifest([
-            _agent_node("data-step", produces={"dataset": "datasets/hash-mismatch.md"}),
+            _agent_node("data-step", produces={"dataset": "hash-mismatch.md"}),
         ])
         store, run_state, _ = self._make_run(tmp_instance, manifest)
 
@@ -324,21 +419,19 @@ class TestCompleteProducesDatasetGate:
         import argparse
 
         cfg = load_config(reload=True)
-
-        # Write a data file and record its correct hash
-        data_file = Path(tmp_instance) / "good-data.csv"
         data_bytes = b"col1,col2\n1,2\n3,4\n"
+        data_file = Path(tmp_instance) / "good-data.csv"
         data_file.write_bytes(data_bytes)
         correct_hash = _sha256_hex(data_bytes)
 
         _write_dataset_note(
-            cfg.notes_root, "good-data",
+            cfg.datasets_root, "good-data",
             location=str(data_file),
             hash_val=correct_hash,
         )
 
         manifest = _minimal_manifest([
-            _agent_node("data-step", produces={"dataset": "datasets/good-data.md"}),
+            _agent_node("data-step", produces={"dataset": "good-data.md"}),
         ])
         store, run_state, _ = self._make_run(tmp_instance, manifest)
 
@@ -352,16 +445,14 @@ class TestCompleteProducesDatasetGate:
         import argparse
 
         cfg = load_config(reload=True)
-
-        # URL location: no local file to verify hash against
         _write_dataset_note(
-            cfg.notes_root, "url-data",
+            cfg.datasets_root, "url-data",
             location="https://example.com/data.csv",
             hash_val="sha256:abc123def456",
         )
 
         manifest = _minimal_manifest([
-            _agent_node("data-step", produces={"dataset": "datasets/url-data.md"}),
+            _agent_node("data-step", produces={"dataset": "url-data.md"}),
         ])
         store, run_state, _ = self._make_run(tmp_instance, manifest)
 
@@ -375,43 +466,62 @@ class TestCompleteProducesDatasetGate:
 # ============================================================================
 
 class TestDatasetResolver:
-    """resolve_watch('dataset:<id>') gate: note exists + hash + location valid."""
+    """resolve_watch('dataset:<id>') gate: note exists + hash + location valid.
+
+    All notes written to cfg.datasets_root (the shared root).
+    """
 
     def test_dataset_resolver_not_ready_when_note_missing(self, tmp_instance):
-        """dataset: returns not-ready when the provenance note doesn't exist."""
+        """dataset: returns not-ready when the provenance note doesn't exist.
+
+        Non-vacuous: verify the 'ready' key is False, not just truthy-false.
+        """
         result = resolve_watch("dataset:nonexistent")
-        assert not result["ready"]
-        assert "missing" in result["state"] or "not-ready" in result["state"] or not result["ready"]
+        assert result["ready"] is False
+        assert result.get("state") is not None  # some diagnostic state
 
     def test_dataset_resolver_not_ready_when_hash_missing(self, tmp_instance):
-        """dataset: returns not-ready when the provenance note has no hash field."""
+        """dataset: returns not-ready when the provenance note has no hash field.
+
+        Non-vacuous: explicitly distinct from 'note missing' case — the note
+        exists but is incomplete, which is a different failure mode.
+        """
         cfg = load_config(reload=True)
-        _write_dataset_note(cfg.notes_root, "no-hash-resolver", location="/tmp/x.csv", hash_val="")
+        _write_dataset_note(cfg.datasets_root, "no-hash-resolver", location="/tmp/x.csv", hash_val="")
         result = resolve_watch("dataset:no-hash-resolver")
-        assert not result["ready"]
+        assert result["ready"] is False
+        assert "hash" in (result.get("state", "") + str(result.get("error", "")))
 
     def test_dataset_resolver_not_ready_when_location_missing(self, tmp_instance):
-        """dataset: returns not-ready when the provenance note has no location field."""
+        """dataset: returns not-ready when the provenance note has no location field.
+
+        Non-vacuous: location absence is distinct from hash absence.
+        """
         cfg = load_config(reload=True)
-        _write_dataset_note(cfg.notes_root, "no-loc-resolver", location="", hash_val="sha256:abc")
+        _write_dataset_note(cfg.datasets_root, "no-loc-resolver", location="", hash_val="sha256:abc")
         result = resolve_watch("dataset:no-loc-resolver")
-        assert not result["ready"]
+        assert result["ready"] is False
+        assert "location" in (result.get("state", "") + str(result.get("error", "")))
 
     def test_dataset_resolver_not_ready_when_file_hash_mismatch(self, tmp_instance):
-        """dataset: returns not-ready when the recorded hash mismatches the local file."""
+        """dataset: returns not-ready when the recorded hash mismatches the local file.
+
+        Non-vacuous: the note exists and has BOTH fields but the hash is wrong —
+        a corrupt/swapped artifact. This is distinct from missing fields.
+        """
         cfg = load_config(reload=True)
         data_file = Path(tmp_instance) / "mismatch.csv"
         data_file.write_bytes(b"real,data\n1,2\n")
         wrong_hash = "sha256:" + "0" * 64
 
         _write_dataset_note(
-            cfg.notes_root, "hash-mismatch-resolver",
+            cfg.datasets_root, "hash-mismatch-resolver",
             location=str(data_file),
             hash_val=wrong_hash,
         )
         result = resolve_watch("dataset:hash-mismatch-resolver")
-        assert not result["ready"]
-        assert "mismatch" in result["state"] or not result["ready"]
+        assert result["ready"] is False
+        assert "mismatch" in result.get("state", "")
 
     def test_dataset_resolver_ready_with_matching_local_file(self, tmp_instance):
         """dataset: returns ready when note + local file + correct hash all match."""
@@ -422,38 +532,37 @@ class TestDatasetResolver:
         correct_hash = _sha256_hex(data_bytes)
 
         _write_dataset_note(
-            cfg.notes_root, "hash-match-resolver",
+            cfg.datasets_root, "hash-match-resolver",
             location=str(data_file),
             hash_val=correct_hash,
         )
         result = resolve_watch("dataset:hash-match-resolver")
-        assert result["ready"], f"Expected ready, got: {result}"
+        assert result["ready"] is True, f"Expected ready, got: {result}"
 
     def test_dataset_resolver_ready_with_url_location(self, tmp_instance):
         """dataset: returns ready for URL-location when note has hash (no file check)."""
         cfg = load_config(reload=True)
         _write_dataset_note(
-            cfg.notes_root, "url-resolver",
+            cfg.datasets_root, "url-resolver",
             location="https://zenodo.org/record/123/data.csv",
             hash_val="sha256:abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
         )
         result = resolve_watch("dataset:url-resolver")
-        assert result["ready"], f"Expected ready for URL location, got: {result}"
+        assert result["ready"] is True, f"Expected ready for URL location, got: {result}"
 
     def test_dataset_resolver_ready_with_doi_location(self, tmp_instance):
         """dataset: returns ready for DOI-location when note has hash (no file check)."""
         cfg = load_config(reload=True)
         _write_dataset_note(
-            cfg.notes_root, "doi-resolver",
+            cfg.datasets_root, "doi-resolver",
             location="doi:10.5281/zenodo.12345",
             hash_val="sha256:def456abc123def456abc123def456abc123def456abc123def456abc123def4",
         )
         result = resolve_watch("dataset:doi-resolver")
-        assert result["ready"], f"Expected ready for DOI location, got: {result}"
+        assert result["ready"] is True, f"Expected ready for DOI location, got: {result}"
 
     def test_dataset_in_known_prefixes(self, tmp_instance):
         """'dataset:' must be in the known prefixes so rv wait-for accepts it."""
-        # The CLI validation uses _KNOWN_PREFIXES; verify it includes 'dataset:'
         from research_vault import wait_for as wf_mod
         import inspect
         src = inspect.getsource(wf_mod.run)
@@ -461,12 +570,93 @@ class TestDatasetResolver:
             "'dataset:' must be in the _KNOWN_PREFIXES tuple in wait_for.run()"
         )
 
-    def test_dataset_resolver_error_message_on_missing(self, tmp_instance):
-        """dataset: resolver populates error or state on missing note."""
-        result = resolve_watch("dataset:ghost-note")
-        assert not result["ready"]
-        # Should have some indication of the problem
-        assert result.get("state") or result.get("error")
+    def test_note_prefix_in_known_prefixes(self, tmp_instance):
+        """'note:' must also be in the known prefixes (was omitted before SR-8)."""
+        from research_vault import wait_for as wf_mod
+        import inspect
+        src = inspect.getsource(wf_mod.run)
+        assert "note:" in src, (
+            "'note:' must be in the _KNOWN_PREFIXES tuple in wait_for.run() — "
+            "was omitted pre-SR-8"
+        )
+
+    def test_dataset_resolver_resolves_from_datasets_root_not_project_dir(self, tmp_instance):
+        """dataset:<id> resolves from cfg.datasets_root, not project_notes_dir.
+
+        This is the cross-project sharing test: a note at datasets_root is resolved
+        by the dataset: resolver regardless of which project the DAG belongs to.
+        """
+        cfg = load_config(reload=True)
+
+        # Write the note at datasets_root (NOT inside any project directory)
+        _write_dataset_note(
+            cfg.datasets_root, "cross-project-data",
+            location="https://example.com/corpus.jsonl",
+            hash_val="sha256:feedcafe" + "0" * 56,
+        )
+
+        # Resolver should find it
+        result = resolve_watch("dataset:cross-project-data")
+        assert result["ready"] is True, (
+            f"dataset: resolver must find note at datasets_root, not project dir. Got: {result}"
+        )
+
+        # And it should NOT be in demo-research's project notes dir
+        project_dir = cfg.project_notes_dir("demo-research")
+        project_note = project_dir / "datasets" / "cross-project-data.md"
+        assert not project_note.exists(), "Note must not have leaked into project dir"
+
+
+# ============================================================================
+# Streaming hash: _verify_local_file_hash reads in chunks (not full RAM load)
+# ============================================================================
+
+class TestStreamingHash:
+    """_verify_local_file_hash must use chunked streaming read (not p.read_bytes()).
+
+    Datasets are big-by-premise — loading the whole artifact into RAM would OOM
+    on large files. The implementation must stream in fixed-size chunks.
+    """
+
+    def test_streaming_hash_correct_for_matching_file(self, tmp_instance):
+        """Streaming hash produces correct result when hash matches."""
+        from research_vault.wait_for import _verify_local_file_hash
+
+        data = b"x" * (3 << 20)  # 3 MiB — spans multiple 1 MiB chunks
+        data_file = Path(tmp_instance) / "big.bin"
+        data_file.write_bytes(data)
+        correct_hash = "sha256:" + hashlib.sha256(data).hexdigest()
+
+        result = _verify_local_file_hash(str(data_file), correct_hash)
+        assert result["ok"] is True, f"Expected ok=True, got: {result}"
+
+    def test_streaming_hash_detects_mismatch(self, tmp_instance):
+        """Streaming hash correctly detects a hash mismatch."""
+        from research_vault.wait_for import _verify_local_file_hash
+
+        data = b"y" * (2 << 20)  # 2 MiB
+        data_file = Path(tmp_instance) / "big-mismatch.bin"
+        data_file.write_bytes(data)
+        wrong_hash = "sha256:" + "0" * 64
+
+        result = _verify_local_file_hash(str(data_file), wrong_hash)
+        assert result["ok"] is False
+        assert "mismatch" in result["state"]
+
+    def test_streaming_hash_uses_chunked_read(self):
+        """Implementation uses chunked streaming (not read_bytes) — verified by source."""
+        from research_vault import wait_for as wf_mod
+        import inspect
+        src = inspect.getsource(wf_mod._verify_local_file_hash)
+        # Must use chunked read pattern: read(chunk_size) or walrus-operator chunk loop
+        assert "read(" in src or "1 <<" in src or "1<<" in src, (
+            "_verify_local_file_hash must use chunked streaming read, not p.read_bytes()"
+        )
+        # Must NOT load the entire file: read_bytes() is forbidden
+        assert "read_bytes()" not in src, (
+            "_verify_local_file_hash must not use p.read_bytes() — "
+            "datasets are big; use chunked streaming"
+        )
 
 
 # ============================================================================
@@ -478,15 +668,12 @@ class TestDatasetWalkerFrontier:
     """The structural teeth: a finding node cannot enter the frontier until
     dataset:<id> resolves via the watch expression on its afterok edge.
 
-    This is tested against the watch/frontier path (compute_frontier → _edge_satisfied
-    → resolve_watch), NOT the produces post-check — the spec's critical note.
+    Tests are against the watch/frontier path (compute_frontier → _edge_satisfied
+    → resolve_watch), NOT the produces post-check.
     """
 
-    def _make_dag_for_finding_gate(self, tmp_instance, cfg) -> tuple[dict, dict]:
-        """Build a manifest with data-step → finding (afterok + watch: dataset:my-data).
-
-        Returns (manifest, node_states_with_data_step_succeeded).
-        """
+    def _make_dag_for_finding_gate(self, cfg) -> tuple[dict, dict]:
+        """Build manifest + node_states with data-step succeeded, finding pending."""
         manifest = _minimal_manifest([
             _agent_node("data-step"),
             _agent_node(
@@ -510,12 +697,15 @@ class TestDatasetWalkerFrontier:
 
         This is THE structural teeth test: data-step = succeeded, but the
         dataset:my-data watch is not satisfied (note missing) → finding blocked.
+
+        Non-vacuous: data-step IS in the frontier (it has no needs) only if both
+        data-step and finding-node were pending. Here data-step = succeeded, so
+        the only candidate is finding-node, which must be blocked.
         """
         cfg = load_config(reload=True)
-        manifest, node_states = self._make_dag_for_finding_gate(tmp_instance, cfg)
+        manifest, node_states = self._make_dag_for_finding_gate(cfg)
 
-        # Ensure the dataset note does NOT exist
-        dataset_note = cfg.notes_root / "datasets" / "my-data.md"
+        dataset_note = cfg.datasets_root / "my-data.md"
         assert not dataset_note.exists(), "Test setup: note must not pre-exist"
 
         frontier = compute_frontier(manifest, node_states, {}, global_cap=4)
@@ -525,26 +715,39 @@ class TestDatasetWalkerFrontier:
             f"finding-node must NOT be in frontier when dataset note is missing. "
             f"Got frontier: {frontier_ids}"
         )
+        # data-step is already terminal (succeeded), so frontier should be empty
+        assert frontier_ids == [], (
+            f"Frontier must be empty when data-step=succeeded and finding-node blocked. "
+            f"Got: {frontier_ids}"
+        )
 
     def test_finding_enters_frontier_when_dataset_note_ready(self, tmp_instance):
         """Finding node enters frontier once dataset:<id> resolves (note + hash + location).
 
         This proves the structural teeth: data-step = succeeded AND dataset:my-data
         resolves → finding enters frontier.
+
+        Non-vacuous: verified the resolver actually passes (not a trivially empty
+        watch check). The note has BOTH required fields with a correct hash.
         """
         cfg = load_config(reload=True)
-        manifest, node_states = self._make_dag_for_finding_gate(tmp_instance, cfg)
+        manifest, node_states = self._make_dag_for_finding_gate(cfg)
 
-        # Write the dataset note with valid location + hash
         data_bytes = b"result,value\n1,42\n"
         data_file = Path(tmp_instance) / "my-data.csv"
         data_file.write_bytes(data_bytes)
         correct_hash = _sha256_hex(data_bytes)
 
         _write_dataset_note(
-            cfg.notes_root, "my-data",
+            cfg.datasets_root, "my-data",
             location=str(data_file),
             hash_val=correct_hash,
+        )
+
+        # First verify the resolver itself is ready (non-vacuous: confirm precondition)
+        resolver_result = resolve_watch("dataset:my-data")
+        assert resolver_result["ready"] is True, (
+            f"Precondition: resolver must be ready before frontier check. Got: {resolver_result}"
         )
 
         frontier = compute_frontier(manifest, node_states, {}, global_cap=4)
@@ -558,21 +761,27 @@ class TestDatasetWalkerFrontier:
     def test_finding_NOT_in_frontier_when_hash_mismatch(self, tmp_instance):
         """Finding stays blocked when dataset note exists but hash mismatches.
 
-        The 'structurally cannot publish' guarantee holds even with a filed note
-        if the hash is wrong — a corrupt or swapped dataset cannot slip through.
+        Non-vacuous: the note is PRESENT with both fields filled — only the hash
+        value is wrong. Confirms the gate inspects the hash, not just field presence.
         """
         cfg = load_config(reload=True)
-        manifest, node_states = self._make_dag_for_finding_gate(tmp_instance, cfg)
+        manifest, node_states = self._make_dag_for_finding_gate(cfg)
 
-        # Write note with wrong hash
         data_file = Path(tmp_instance) / "mismatch-data.csv"
         data_file.write_bytes(b"real,data\n1,2\n")
         wrong_hash = "sha256:" + "0" * 64
 
         _write_dataset_note(
-            cfg.notes_root, "my-data",
+            cfg.datasets_root, "my-data",
             location=str(data_file),
             hash_val=wrong_hash,
+        )
+
+        # Confirm the resolver itself reports not-ready (non-vacuous: the mismatch
+        # blocks the resolver, not some other condition)
+        resolver_result = resolve_watch("dataset:my-data")
+        assert resolver_result["ready"] is False, (
+            f"Precondition: resolver must be NOT ready on hash mismatch. Got: {resolver_result}"
         )
 
         frontier = compute_frontier(manifest, node_states, {}, global_cap=4)
@@ -586,22 +795,24 @@ class TestDatasetWalkerFrontier:
     def test_finding_NOT_in_frontier_when_data_step_not_succeeded(self, tmp_instance):
         """Finding stays blocked when data-step has not succeeded yet.
 
-        Even with a valid dataset note, the afterok edge on data-step blocks.
+        Non-vacuous: even with a VALID dataset note, the afterok edge on data-step
+        itself blocks the finding. Confirms the afterok gate (predecessor status)
+        is checked independently of the watch expression.
         """
         cfg = load_config(reload=True)
-        manifest, _ = self._make_dag_for_finding_gate(tmp_instance, cfg)
+        manifest, _ = self._make_dag_for_finding_gate(cfg)
 
         # Write valid dataset note
         data_bytes = b"col\n1\n"
         data_file = Path(tmp_instance) / "data-pending.csv"
         data_file.write_bytes(data_bytes)
         _write_dataset_note(
-            cfg.notes_root, "my-data",
+            cfg.datasets_root, "my-data",
             location=str(data_file),
             hash_val=_sha256_hex(data_bytes),
         )
 
-        # data-step is pending, not succeeded
+        # data-step is pending, not succeeded — afterok edge not satisfied
         node_states = {
             "data-step": {"status": "pending"},
             "finding-node": {"status": "pending"},
@@ -612,4 +823,6 @@ class TestDatasetWalkerFrontier:
 
         assert "finding-node" not in frontier_ids
         # data-step itself should be in frontier (it has no needs)
-        assert "data-step" in frontier_ids
+        assert "data-step" in frontier_ids, (
+            "data-step must be in frontier when it is pending with no needs"
+        )

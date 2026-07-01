@@ -121,7 +121,10 @@ def _merge(base: dict, override: dict) -> dict:
 
 def _expand_paths(cfg: dict, instance_root: Path) -> dict:
     """Expand ~ and make relative paths absolute against instance_root."""
-    path_keys = ("notes_root", "state_dir", "agents_dir", "tasks_dir", "control_dir")
+    # datasets_root is included here so a toml-set value is expanded correctly.
+    # When absent from the toml, Config.__init__ derives it from notes_root/datasets.
+    path_keys = ("notes_root", "state_dir", "agents_dir", "tasks_dir", "control_dir",
+                 "datasets_root")
     for key in path_keys:
         if key in cfg:
             p = Path(cfg[key]).expanduser()
@@ -155,6 +158,14 @@ class Config:
         self.agents_dir = Path(raw["agents_dir"])
         self.tasks_dir = Path(raw["tasks_dir"])
         self.control_dir = Path(raw["control_dir"])
+        # SR-8: datasets_root — shared cross-project dataset provenance store.
+        # Default: notes_root/datasets (derived, not stored in _default_config so
+        # that a custom notes_root still yields notes_root/datasets by default).
+        # Override in research_vault.toml: datasets_root = "/shared/datasets"
+        if "datasets_root" in raw:
+            self.datasets_root = Path(raw["datasets_root"])
+        else:
+            self.datasets_root = self.notes_root / "datasets"
         self.adapters: dict[str, str] = raw.get("adapters", {})
         self.projects: dict[str, dict[str, Any]] = raw.get("projects", {})
 

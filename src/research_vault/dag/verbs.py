@@ -433,7 +433,10 @@ def cmd_complete(args: argparse.Namespace) -> int:
         # watch/frontier path; this is the post-hoc complete-time check).
         if "dataset" in produces:
             from ..wait_for import check_dataset_provenance
-            issues = check_dataset_provenance(produces["dataset"], cfg.notes_root)
+            # SR-8 amendment: datasets are shared — resolve against cfg.datasets_root
+            # (not notes_root). The produces.dataset value is the note filename
+            # (e.g. "my-data.md") resolved against the shared datasets store.
+            issues = check_dataset_provenance(produces["dataset"], cfg.datasets_root)
             if issues:
                 print(
                     f"rv dag complete: dataset provenance gate FAILED for node {node_id!r}:",

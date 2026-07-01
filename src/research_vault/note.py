@@ -95,7 +95,14 @@ def cmd_new(project: str, note_type: str, title: str, *,
             f"Unknown note type {note_type!r}. Valid types: {sorted(OKF_TYPES)}"
         )
     cfg = config or load_config()
-    notes_dir = cfg.project_notes_dir(project) / note_type
+
+    # SR-8: datasets are SHARED cross-project — live in cfg.datasets_root, not
+    # in the project-scoped notes directory. A dataset note filed for one project
+    # is visible and lineage-gatable from any other project.
+    if note_type == "datasets":
+        notes_dir = cfg.datasets_root
+    else:
+        notes_dir = cfg.project_notes_dir(project) / note_type
     notes_dir.mkdir(parents=True, exist_ok=True)
 
     slug = note_id or _slugify(title)
@@ -146,6 +153,9 @@ def cmd_list(project: str, note_type: str | None = None, *,
 
     If note_type is given, list only that type's subdirectory.
     Returns list of {path, fields} dicts.
+
+    SR-8: datasets are SHARED — cmd_list for note_type='datasets' scans
+    cfg.datasets_root rather than the project-scoped notes directory.
     """
     cfg = config or load_config()
     base = cfg.project_notes_dir(project)
@@ -157,7 +167,11 @@ def cmd_list(project: str, note_type: str | None = None, *,
 
     notes = []
     for t in types_to_scan:
-        subdir = base / t
+        # SR-8: datasets live in the shared datasets_root, not project_notes_dir/datasets/
+        if t == "datasets":
+            subdir = cfg.datasets_root
+        else:
+            subdir = base / t
         if not subdir.exists():
             continue
         for p in sorted(subdir.glob("*.md")):
@@ -172,9 +186,15 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
 
     Checks that:
     - Each note has a `type` frontmatter field
-    - The `type` value matches its parent directory name
+    - The `type` value matches its parent directory name (non-datasets types)
     - The `type` is a known OKF type
-    - SR-8: datasets notes also have non-empty `location` and `hash` fields
+    - SR-8: datasets notes (scanned from cfg.datasets_root) have non-empty
+      `location` and `hash` fields. The type-dir check is skipped for datasets
+      since datasets_root may have any directory name.
+
+    SR-8 note: datasets are SHARED across projects. cmd_check scans
+    cfg.datasets_root for the datasets type (same root for all projects);
+    the 6 other OKF types remain project-scoped in project_notes_dir.
 
     Returns a list of violation strings (empty = all clear).
     """
@@ -183,24 +203,35 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
     violations = []
 
     for t in OKF_TYPES:
-        subdir = base / t
+        # SR-8: datasets live in the shared datasets_root
+        if t == "datasets":
+            subdir = cfg.datasets_root
+        else:
+            subdir = base / t
         if not subdir.exists():
             continue
+
         for p in sorted(subdir.glob("*.md")):
             text = p.read_text(encoding="utf-8")
             fields, _ = _parse_frontmatter(text)
             note_type = fields.get("type", "")
+
             if not note_type:
                 violations.append(f"{p}: missing 'type' frontmatter field")
-            elif note_type not in OKF_TYPES:
-                violations.append(f"{p}: unknown type {note_type!r}")
-            elif note_type != t:
-                violations.append(
-                    f"{p}: type={note_type!r} but file is in {t!r} directory"
-                )
+                continue
 
-            # SR-8: datasets notes must have location and hash filled in
-            if note_type == "datasets":
+            if note_type not in OKF_TYPES:
+                violations.append(f"{p}: unknown type {note_type!r}")
+                continue
+
+            if t == "datasets":
+                # For the shared datasets type, check type == "datasets" (not type-dir
+                # match, since datasets_root may have any directory name).
+                if note_type != "datasets":
+                    violations.append(
+                        f"{p}: expected type='datasets', got {note_type!r}"
+                    )
+                # SR-8: datasets notes must have location and hash filled in
                 if not fields.get("location", "").strip():
                     violations.append(
                         f"{p}: datasets note missing 'location' field "
@@ -210,6 +241,12 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                     violations.append(
                         f"{p}: datasets note missing 'hash' field "
                         f"(content hash in sha256:<hex> format)"
+                    )
+            else:
+                # Standard OKF type-dir contract for the 6 project-scoped types
+                if note_type != t:
+                    violations.append(
+                        f"{p}: type={note_type!r} but file is in {t!r} directory"
                     )
 
     return violations

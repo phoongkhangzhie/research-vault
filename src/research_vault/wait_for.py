@@ -117,6 +117,9 @@ def _verify_local_file_hash(location: str, recorded_hash: str) -> dict:
     Returns {"ok": bool, "state": str, "error": str|None}.
     recorded_hash must be in "sha256:<hex>" format.
     If the hash is in an unknown format, we accept it (forward-compatible).
+
+    Uses STREAMING chunked read (1 MiB chunks) so large data artifacts do not
+    load into RAM — datasets are big-by-premise (reviewer finding, SR-8 amendment).
     """
     p = Path(location)
     if not p.exists():
@@ -132,7 +135,11 @@ def _verify_local_file_hash(location: str, recorded_hash: str) -> dict:
 
     expected_hex = recorded_hash[len("sha256:"):]
     try:
-        actual_hex = hashlib.sha256(p.read_bytes()).hexdigest()
+        h = hashlib.sha256()
+        with open(p, "rb") as fh:
+            while chunk := fh.read(1 << 20):  # 1 MiB chunks — streaming (datasets are big)
+                h.update(chunk)
+        actual_hex = h.hexdigest()
     except OSError as e:
         return {"ok": False, "state": "hash-read-error", "error": str(e)}
 
@@ -146,26 +153,29 @@ def _verify_local_file_hash(location: str, recorded_hash: str) -> dict:
 
 
 def check_dataset_provenance(
-    dataset_note_rel: str,
-    notes_root: Path,
+    dataset_note_filename: str,
+    datasets_root: Path,
 ) -> list[str]:
     """Validate a datasets provenance note at complete-time (dag complete gate).
 
     Args:
-      dataset_note_rel — note path relative to notes_root (e.g. "datasets/my-data.md")
-      notes_root       — the project's notes root directory
+      dataset_note_filename — note filename in datasets_root (e.g. "my-data.md").
+                              The produces.dataset schema value is this filename.
+      datasets_root         — cfg.datasets_root (the shared cross-project store).
 
     Returns a list of issue strings (empty = OK, gate passes).
 
     Checks:
-      1. Provenance note exists
+      1. Provenance note exists at datasets_root / dataset_note_filename
       2. Note has non-empty `location` field
       3. Note has non-empty `hash` field
-      4. If location is a local file: file exists AND sha256 matches
+      4. If location is a local file: file exists AND sha256 matches (streaming read)
+
+    SR-8 amendment: uses datasets_root (shared) not notes_root (project-scoped).
     """
-    note_path = Path(dataset_note_rel)
+    note_path = Path(dataset_note_filename)
     if not note_path.is_absolute():
-        note_path = notes_root / dataset_note_rel
+        note_path = datasets_root / dataset_note_filename
 
     if not note_path.exists():
         return [f"dataset provenance note does not exist: {note_path}"]
@@ -291,11 +301,15 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
 
     # ── dataset:<id> — SR-8 dataset provenance resolver ──────────────────────
     # Resolves ready only when:
-    #   1. The provenance note datasets/<id>.md exists in notes_root
+    #   1. The provenance note <id>.md exists in cfg.datasets_root (shared cross-project)
     #   2. The note has a non-empty `location` field (points-to)
     #   3. The note has a non-empty `hash` field (content hash)
     #   4. If location is a local file path: the file exists AND the sha256 matches
     #   5. If location is a URL/DOI: trust the recorded hash (no remote fetch)
+    #
+    # SR-8 amendment: uses cfg.datasets_root (shared across projects), not
+    # notes_root/datasets/ (project-scoped). This lets a dataset note filed for
+    # one project be waited-on by a DAG finding in any other project.
     #
     # Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
     # provenance note and afterok on it so lineage is structural (SR-8).
@@ -312,13 +326,13 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
         try:
             from .config import load_config as _load_config
             _cfg = _load_config()
-            note_path = _cfg.notes_root / "datasets" / f"{dataset_id}.md"
+            note_path = _cfg.datasets_root / f"{dataset_id}.md"
         except Exception as e:
             return {
                 "ready": False,
                 "state": "config-error",
                 "artifact_path": None,
-                "error": f"cannot resolve notes_root for dataset: watch: {e}",
+                "error": f"cannot resolve datasets_root for dataset: watch: {e}",
             }
 
         if not note_path.exists():
