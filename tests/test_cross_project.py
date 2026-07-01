@@ -324,5 +324,6 @@ def test_corroborate_no_vault_access(two_project_cfg: Config) -> None:
             f"source_dir {source!r} must not be inside ~/vault. "
             "Cross-project reads must stay within the registered project directories."
         )
-    # If we reach here, the structural guarantee holds.
-    assert True
+    # The loop above must have actually run (registry non-empty) for the
+    # structural guarantee to mean anything — guard against a vacuous pass.
+    assert two_project_cfg.projects, "fixture must register projects for this test to be meaningful"
