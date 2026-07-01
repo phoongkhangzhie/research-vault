@@ -337,10 +337,10 @@ def cmd_complete(args: argparse.Namespace) -> int:
         if "note" in produces:
             issues = _check_okf_note_type(produces["note"], cfg.notes_root)
             if issues:
-                print(f"rv dag complete: OKF vault check FAILED for node {node_id!r}:")
+                print(f"rv dag complete: OKF vault check FAILED for node {node_id!r}:", file=sys.stderr)
                 for issue in issues:
-                    print(f"  {issue}")
-                print("  Fix: ensure the note's type: frontmatter matches its parent directory.")
+                    print(f"  {issue}", file=sys.stderr)
+                print("  Fix: ensure the note's type: frontmatter matches its parent directory.", file=sys.stderr)
                 return 1
 
     run_state.set_node_status(node_id, status)

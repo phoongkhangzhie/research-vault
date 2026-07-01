@@ -37,12 +37,14 @@ def test_cli_version(capsys):
     assert "0.1.0" in out
 
 
-def test_cli_unimplemented_verb_exits_1(tmp_instance, capsys):
-    """rv <future-verb> exits 1 with a helpful message."""
-    result = main(["dag", "run"])
-    assert result == 1
-    err = capsys.readouterr().err
-    assert "SR-3" in err or "not yet implemented" in err
+def test_cli_unknown_verb_exits_nonzero(tmp_instance, capsys):
+    """rv <completely-unknown-verb> exits non-zero (argparse/cli error).
+
+    NOTE: 'dag' was previously the SR-3 stub tested here; it shipped in SR-3
+    and is now a full verb. This test now uses a nonexistent verb name.
+    """
+    result = main(["no-such-verb-ever"])
+    assert result != 0
 
 
 def test_all_verbs_have_nonempty_when_to_use():
