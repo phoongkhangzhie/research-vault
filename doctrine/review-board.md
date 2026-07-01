@@ -40,6 +40,27 @@ Each survivor, atomic:
 > **Why it survives.** What the refuters tried and failed to dismiss.
 > **Fix.** The concrete next action.
 
+## Proving a check has teeth (reviewer technique)
+
+A gate, scanner, or test PR must be shown to *add* teeth, not merely to be present — via **pre-image
+replay**: run the check against the exact state it claims to catch.
+- **New test:** revert the single file under test to its previous version (`git show <prev>:path`) and
+  confirm the test now *fails* — proving it covers the real gap, not a relabel of an existing pass.
+- **New scanner/gate rule:** run the **pre-change** scanner over planted violating content and confirm it
+  *passes* (no teeth before) while the new rule *catches* it (teeth after). A rule that only fires on
+  content the old rule already caught adds nothing.
+
+## The verdict header — gate-clean by construction
+
+A reviewer verdict carries a rich narrative that may quote "FAIL" / "BLOCK" from its own pre-image-replay
+proof. But the approve-gate reads only a short negation-veto window at the top — so a narrative negation
+there blocks a legitimate PASS. **A verdict leads with a one-line, negation-free `PASS` / `BLOCK` header,
+then a blank line, then the narrative.** The header is the machine-readable gate signal; the narrative is
+for the human.
+
+_Tool half:_ `rv control return` emits the negation-free `PASS`/`BLOCK` header by construction (SR-CI),
+so a reviewer cannot accidentally author a verdict whose narrative negation trips the approve-gate.
+
 ## The board view
 
 A cross-project rollup tracks what critique is still unresolved across all work, with status
