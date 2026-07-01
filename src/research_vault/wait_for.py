@@ -107,6 +107,55 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
     """
     watch = (watch or "").strip()
 
+    # ── note:<type>/<id>[+fresh] — notes_root-aware OKF note watch ───────────
+    # Resolves the note path relative to load_config().notes_root.
+    # Use this form in DAG manifests for portable OKF note watches.
+    # Example: "note:experiments/exp-q1.md+fresh"
+    if watch.startswith("note:"):
+        rest = watch[len("note:"):]
+        check_fresh = False
+        if rest.endswith("+fresh"):
+            rest = rest[:-len("+fresh")]
+            check_fresh = True
+
+        try:
+            from .config import load_config as _load_config
+            _cfg = _load_config()
+            p = _cfg.notes_root / rest
+        except Exception as e:
+            return {
+                "ready": False,
+                "state": "config-error",
+                "artifact_path": rest,
+                "error": f"cannot resolve notes_root for note: watch: {e}",
+            }
+
+        exists = p.exists()
+        if not exists:
+            return {"ready": False, "state": "missing", "artifact_path": str(p), "error": None}
+
+        if check_fresh:
+            if registered_ts is None:
+                return {
+                    "ready": False,
+                    "state": "fresh-check-skipped",
+                    "artifact_path": str(p),
+                    "error": "registered_ts required for +fresh check",
+                }
+            mtime = p.stat().st_mtime
+            fresh = mtime >= registered_ts
+            return {
+                "ready": fresh,
+                "state": (
+                    f"fresh(mtime={mtime:.0f},registered={registered_ts:.0f})"
+                    if fresh else "stale"
+                ),
+                "artifact_path": str(p),
+                "error": None,
+            }
+
+        return {"ready": True, "state": "exists", "artifact_path": str(p), "error": None}
+
     # ── artifact:<path>[+fresh] ───────────────────────────────────────────────
     if watch.startswith("artifact:"):
         rest = watch[len("artifact:"):]

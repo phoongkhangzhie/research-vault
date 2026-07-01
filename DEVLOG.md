@@ -22,6 +22,45 @@
 ### Open / next
 - PR needs Argus review + Architect fit-check (reviewer-gate class).
 
+## 2026-07-01 (SR-5 build)
+
+### Done
+- Worktree: feat/sr-5 off origin/main (SR-DISP merged), engineer crew identity (real domain in private config).
+- note: watch form (wait_for.py): `note:<type>/<id>[+fresh]` — resolves OKF note paths
+  relative to load_config().notes_root. Portable across installations (no hardcoded paths).
+- examples/demo-research/research-loop.json: 8 nodes, full named crew (researcher/Ada,
+  reviewer/Argus). Pre-registration gate: run carries
+  `afterok+watch: note:experiments/exp-q1.md+fresh` so run cannot fire without the
+  pre-reg note. All agent nodes have spec: (SR-DISP compliant).
+- examples/demo-litreview/lit-review-loop.json: 8 nodes, full named crew. OKF coverage
+  gate: distill nodes have produces: {note: "literature/<key>.md"}; cmd_complete's
+  _check_okf_note_type blocks success without the note; okf-coverage-gate human-go only
+  approvable when all distill nodes terminal.
+- Placeholder note dirs + README files in each demo project.
+- src/research_vault/init.py: rv init [<dir>] — scaffolds multi-project instance from
+  templates. Creates: research_vault.toml, DEVLOG.md, architecture.md, control/,
+  tasks/, doctrine/ (copied from repo), examples/demo-* (copied), notes/ + OKF type dirs,
+  QUICKSTART.md. Guards against overwrite. Multi-repo topology note: examples/ are
+  in-repo for demo; real projects are separate repos via rv project add.
+- src/research_vault/check.py: rv check — preflight: Claude CLI + ANTHROPIC_API_KEY
+  (required), asta + ZOTERO_KEY (optional). run_preflight() returns structured result dict.
+  Clear install instructions on failure.
+- src/research_vault/templates/QUICKSTART.md — getting-started guide with both loops.
+- cli.py: init and check verbs wired (18 total, rv help --check: OK).
+- 22 new hermetic tests; 369 total, all passing.
+
+### Decisions
+- note: watch form chosen over absolute paths in manifests — portable across installations.
+- OKF coverage gate: structural enforcement via produces check in cmd_complete (not
+  separate walker check). Human-go approvable once distill nodes terminal; distill cannot
+  succeed without notes → gate bites without extra machinery.
+- rv init copies examples/ from repo root (not from src package) — examples/ is not
+  a Python package; importlib.resources not applicable. Graceful fallback if not found.
+- No rv project new capstone in this increment (deferred per spec §5B-SR5-COH).
+
+### Open / next
+- PR #7 needs reviewer (Argus) + Architect fit-check.
+
 ## 2026-07-01 (SR-DISP build)
 
 ### Done
