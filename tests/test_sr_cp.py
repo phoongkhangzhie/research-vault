@@ -1044,3 +1044,102 @@ class TestDevlogIndex:
         for entry in idx:
             assert isinstance(entry, dict), f"Index entry is not a dict: {entry!r}"
             assert "date" in entry, f"Index entry missing date: {entry}"
+
+
+# ---------------------------------------------------------------------------
+# Test 9: CLI exit-code contract for reconcile
+# ---------------------------------------------------------------------------
+
+class TestReconcileExitCode:
+    """Reconcile exits 1 on drift and 0 when clean — CLI dispatcher path.
+
+    The core contract that makes `rv control reconcile` composable into
+    pre-commit/CI hooks. Asserted via the run() dispatcher, not cmd_reconcile
+    alone, so the CLI routing code is covered by real exit-code assertions.
+    """
+
+    def _run_reconcile(self, project: str) -> int:
+        """Invoke the CLI reconcile dispatcher and return its exit code."""
+        from research_vault.control import build_parser, run as control_run
+        parser = build_parser()
+        args = parser.parse_args([project, "reconcile"])
+        return control_run(args)
+
+    def test_reconcile_exits_1_on_r1_drift(self, cfg, ctl_file):
+        """Reconcile exits 1 when R1 drift (not-yet claim + active task) is present."""
+        from research_vault import task as task_mod
+        _plant_not_yet_claim(ctl_file, "sr-x")
+        task_mod.cmd_add("demo-research", "sr-x implementation",
+                         config=cfg, status="in_progress")
+
+        exit_code = self._run_reconcile("demo-research")
+        assert exit_code == 1, (
+            f"Expected exit code 1 on R1 drift, got {exit_code}"
+        )
+
+    def test_reconcile_exits_1_on_r5_bloat(self, cfg, ctl_file):
+        """Reconcile exits 1 when resolved-count exceeds RESOLVED_THRESHOLD."""
+        import re
+        # Post 6 entries (over the threshold of 5)
+        for i in range(6):
+            control_mod.cmd_post(
+                "demo-research",
+                section="handshakes",
+                title=f"bloat-{i}",
+                by="mason",
+                config=cfg,
+            )
+        # Stamp CLOSED: markers without archiving (simulating stale resolved entries)
+        text = ctl_file.read_text(encoding="utf-8")
+        text = re.sub(
+            r"^(- )(\*\*[^:*]+:[^*]+\*\*)", r"\1CLOSED: \2",
+            text, flags=re.MULTILINE,
+        )
+        ctl_file.write_text(text, encoding="utf-8")
+
+        exit_code = self._run_reconcile("demo-research")
+        assert exit_code == 1, (
+            f"Expected exit code 1 on R5 resolved-count bloat, got {exit_code}"
+        )
+
+    def test_reconcile_exits_0_when_clean(self, cfg, ctl_file):
+        """Reconcile exits 0 when control file has no drift."""
+        exit_code = self._run_reconcile("demo-research")
+        assert exit_code == 0, (
+            f"Expected exit code 0 on clean control file, got {exit_code}"
+        )
+
+    def test_reconcile_exits_0_at_exactly_threshold(self, cfg, ctl_file):
+        """Resolved count AT threshold (== RESOLVED_THRESHOLD) is not a violation.
+
+        Boundary: `count > RESOLVED_THRESHOLD` (5 > 5 is False).
+        5 entries resolved → still green; the flag fires only above 5.
+        """
+        import re
+        from research_vault.controllib import RESOLVED_THRESHOLD
+        # Post exactly RESOLVED_THRESHOLD entries
+        for i in range(RESOLVED_THRESHOLD):
+            control_mod.cmd_post(
+                "demo-research",
+                section="handshakes",
+                title=f"at-threshold-{i}",
+                by="mason",
+                config=cfg,
+            )
+        text = ctl_file.read_text(encoding="utf-8")
+        text = re.sub(
+            r"^(- )(\*\*[^:*]+:[^*]+\*\*)", r"\1CLOSED: \2",
+            text, flags=re.MULTILINE,
+        )
+        ctl_file.write_text(text, encoding="utf-8")
+
+        # Verify the count is exactly at the threshold
+        count = control_mod.count_resolved_unarchived("demo-research", config=cfg)
+        assert count == RESOLVED_THRESHOLD, (
+            f"Expected exactly {RESOLVED_THRESHOLD} resolved entries, got {count}"
+        )
+
+        exit_code = self._run_reconcile("demo-research")
+        assert exit_code == 0, (
+            f"Expected exit 0 at exactly threshold ({RESOLVED_THRESHOLD}), got {exit_code}"
+        )
