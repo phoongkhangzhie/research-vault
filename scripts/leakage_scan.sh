@@ -88,7 +88,7 @@ _grep_literal() {
     local label="$1" lit="$2"
     local found
     if [ "$STAGED" -eq 1 ]; then
-        found=$(echo "$STAGED_FILES" | xargs -I{} grep -n -F "$lit" {} 2>/dev/null \
+        found=$(echo "$STAGED_FILES" | xargs -I{} grep -nH -F "$lit" {} 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" || true)
     else
         found=$(grep -rn --include="*.md" --include="*.yml" --include="*.yaml" \
@@ -108,7 +108,7 @@ _grep_word() {
     local label="$1" word="$2"
     local found
     if [ "$STAGED" -eq 1 ]; then
-        found=$(echo "$STAGED_FILES" | xargs -I{} grep -n -wi "$word" {} 2>/dev/null \
+        found=$(echo "$STAGED_FILES" | xargs -I{} grep -nH -wi "$word" {} 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" || true)
     else
         found=$(grep -rn --include="*.md" --include="*.yml" --include="*.yaml" \
@@ -128,7 +128,7 @@ _grep_re() {
     local label="$1" pattern="$2"
     local found
     if [ "$STAGED" -eq 1 ]; then
-        found=$(echo "$STAGED_FILES" | xargs -I{} grep -n -E "$pattern" {} 2>/dev/null \
+        found=$(echo "$STAGED_FILES" | xargs -I{} grep -nH -E "$pattern" {} 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" || true)
     else
         found=$(grep -rn --include="*.md" --include="*.yml" --include="*.yaml" \

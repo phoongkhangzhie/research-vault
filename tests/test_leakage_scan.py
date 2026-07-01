@@ -22,6 +22,56 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
+# Staged-mode helpers (B3)
+# ---------------------------------------------------------------------------
+
+def _make_staged_repo(tmp_path: Path) -> Path:
+    """Create a minimal git repo for staged-mode tests."""
+    repo = tmp_path / "staged-repo"
+    repo.mkdir()
+    subprocess.run(
+        ["git", "init", "--initial-branch=main", str(repo)],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "t@t.invalid"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.name", "T"],
+        check=True, capture_output=True,
+    )
+    (repo / "README.md").write_text("init\n")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-m", "chore: init"],
+        check=True, capture_output=True,
+    )
+    return repo
+
+
+def _stage_file(repo: Path, relative_path: str, content: str) -> None:
+    """Write a file at *relative_path* in *repo* and stage it."""
+    target = repo / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content)
+    subprocess.run(
+        ["git", "-C", str(repo), "add", relative_path],
+        check=True, capture_output=True,
+    )
+
+
+def run_staged_scan(repo: Path) -> subprocess.CompletedProcess:
+    """Run leakage_scan.sh --staged from within *repo*."""
+    return subprocess.run(
+        ["/bin/bash", str(SCRIPT), "--staged"],
+        capture_output=True,
+        text=True,
+        cwd=str(repo),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -310,6 +360,96 @@ def test_green_on_scrubbed_projects_json(tmp_path):
         "Private projects must not appear in portable doctrine.\n",
     )
     assert_green(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Staged-mode self-exclusion (B3 — cross-mode parity)
+# ---------------------------------------------------------------------------
+# These tests verify that the four self-excluded files are skipped in STAGED
+# mode as well as in directory mode.  Before the B3 fix (missing -H), staged
+# grep emitted "linenum:content" with no filename prefix, so SKIP_PATTERN
+# could never match and the scanner false-positived on these files.
+
+
+class TestStagedSelfExclusion:
+    """Staged-mode self-exclusion must match directory-mode behaviour (B3)."""
+
+    def test_staged_self_exclusion_leakage_scan_sh(self, tmp_path):
+        """scripts/leakage_scan.sh staged with a private marker → exit 0 (self-excluded)."""
+        repo = _make_staged_repo(tmp_path)
+        # Plant a private marker inside the self-excluded file
+        _stage_file(repo, "scripts/leakage_scan.sh", "cultural-social-sim marker\n")
+        assert_green(run_staged_scan(repo))
+
+    def test_staged_self_exclusion_ci_yml(self, tmp_path):
+        """.github/workflows/ci.yml staged with a private marker → exit 0 (self-excluded)."""
+        repo = _make_staged_repo(tmp_path)
+        _stage_file(repo, ".github/workflows/ci.yml", "cultural-social-sim marker\n")
+        assert_green(run_staged_scan(repo))
+
+    def test_staged_self_exclusion_test_leakage_scan(self, tmp_path):
+        """tests/test_leakage_scan.py staged with a private marker → exit 0 (self-excluded)."""
+        repo = _make_staged_repo(tmp_path)
+        _stage_file(repo, "tests/test_leakage_scan.py", "cultural-social-sim marker\n")
+        assert_green(run_staged_scan(repo))
+
+    def test_staged_self_exclusion_test_git_discipline(self, tmp_path):
+        """tests/test_git_discipline.py staged with a private marker → exit 0 (self-excluded)."""
+        repo = _make_staged_repo(tmp_path)
+        _stage_file(repo, "tests/test_git_discipline.py", "cultural-social-sim marker\n")
+        assert_green(run_staged_scan(repo))
+
+    def test_staged_non_excluded_file_still_detected(self, tmp_path):
+        """A private marker in a non-excluded staged file must still trigger exit 1."""
+        repo = _make_staged_repo(tmp_path)
+        _stage_file(repo, "doctrine/charter.md", "cultural-social-sim marker\n")
+        assert_red(run_staged_scan(repo))
+
+    def test_staged_no_staged_files_exits_clean(self, tmp_path):
+        """Staged scan with no matching staged files exits 0."""
+        repo = _make_staged_repo(tmp_path)
+        assert_green(run_staged_scan(repo))
+
+
+# ---------------------------------------------------------------------------
+# Directory-mode self-exclusion parity (explicit regression)
+# ---------------------------------------------------------------------------
+
+
+class TestDirModeSelfExclusion:
+    """Directory-mode self-exclusion covers all four excluded paths."""
+
+    def test_dir_self_exclusion_leakage_scan_sh(self, tmp_path):
+        """Private marker inside scripts/leakage_scan.sh → exit 0 in dir mode."""
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "leakage_scan.sh").write_text(
+            "cultural-social-sim marker\n"
+        )
+        assert_green(run_scan(tmp_path))
+
+    def test_dir_self_exclusion_ci_yml(self, tmp_path):
+        """Private marker in .github/workflows/ci.yml → exit 0 in dir mode."""
+        (tmp_path / ".github" / "workflows").mkdir(parents=True)
+        (tmp_path / ".github" / "workflows" / "ci.yml").write_text(
+            "cultural-social-sim marker\n"
+        )
+        assert_green(run_scan(tmp_path))
+
+    def test_dir_self_exclusion_test_leakage_scan(self, tmp_path):
+        """Private marker in tests/test_leakage_scan.py → exit 0 in dir mode."""
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests" / "test_leakage_scan.py").write_text(
+            "cultural-social-sim marker\n"
+        )
+        assert_green(run_scan(tmp_path))
+
+    def test_dir_self_exclusion_test_git_discipline(self, tmp_path):
+        """Private marker in tests/test_git_discipline.py → exit 0 in dir mode."""
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests" / "test_git_discipline.py").write_text(
+            "cultural-social-sim marker\n"
+        )
+        assert_green(run_scan(tmp_path))
 
 
 # ---------------------------------------------------------------------------
