@@ -1,25 +1,75 @@
-## 2026-07-01 (SR-8 build)
+## 2026-07-01 (SR-8 build + amendment)
 
 ### Done
 - Worktree: feat/sr-8 off origin/main. Crew identity set.
 - Seam 1 — OKF type `datasets/`: added `"datasets"` to `note.OKF_TYPES` (frozenset, note.py:24). 7th canonical type. `cmd_new` for datasets notes adds `location:` and `hash:` placeholder frontmatter fields. `cmd_check` extended to verify datasets notes have non-empty `location` and `hash` fields. CLI `when_to_use` for `note` updated with datasets description and anti-pattern.
 - Seam 2 — `produces: {dataset: …}`: extended schema validation (schema.py:~207) to accept `produces.dataset` as non-empty string. Extended `cmd_complete` in verbs.py to gate on the `check_dataset_provenance` function at complete-time: note exists + location non-empty + hash non-empty + (local path) sha256 matches.
-- Seam 3 — Resolver `dataset:<id>`: added `dataset:` branch to `resolve_watch` (wait_for.py, mirroring `note:` pattern). Checks: note at `notes_root/datasets/<id>.md` exists + location field non-empty + hash field non-empty + (local file) sha256 matches. URL/DOI/remote locations trust the recorded hash (zero-infra). Added `dataset:` and `note:` to `_KNOWN_PREFIXES` (wait_for.py run(), fixing pre-existing `note:` omission).
+- Seam 3 — Resolver `dataset:<id>`: added `dataset:` branch to `resolve_watch` (wait_for.py, mirroring `note:` pattern). URL/DOI/remote locations trust the recorded hash (zero-infra). Added `dataset:` and `note:` to `_KNOWN_PREFIXES` (wait_for.py run(), fixing pre-existing `note:` omission).
 - Seam 4 (Adapter) — unchanged; `ComputeBackend.submit` present as designed.
-- Tests: 32 new hermetic tests in `tests/test_sr8.py`. Four classes: OKF type, schema, complete-time gate, walker/frontier structural teeth. Key structural-teeth test: finding node with `afterok + watch: dataset:my-data` provably cannot enter frontier when dataset note missing or hash mismatches; enters frontier only when note+hash+location valid. Full suite: 564 passed (532 + 32), zero regressions.
-- `rv lint`: PASS. `rv help --check`: OK (19 verbs). No `~/vault` edits.
+- Amendment (operator decision 2026-07-01): (a) New config key `datasets_root` (default: notes_root/datasets, overridable). (b) datasets notes are SHARED cross-project — write/list/check/resolver all use cfg.datasets_root, not project_notes_dir. (c) _verify_local_file_hash now uses 1 MiB chunked streaming read (not full-file RAM load). (d) Rebased onto origin/main to incorporate SR-6 (cli.py and DEVLOG additive merge).
+- Tests: 40 new hermetic tests in `tests/test_sr8.py`. Classes: config/datasets_root, OKF type, schema, complete-time gate, streaming hash, walker/frontier structural teeth. Full suite: post-SR-6-merge count TBD; zero regressions.
+- `rv lint`: PASS. `rv help --check`: OK (all verbs). No `~/vault` edits.
 
 ### Decisions
 - D-SR8-1 = YES (approved 2026-07-01): `"datasets"` added as 7th canonical OKF type. Permanent widening of `note.OKF_TYPES`.
-- No new top-level verb introduced (reuse-over-create): SR-8 extends `rv note` (datasets as note type) and `rv dag` (produces/watch). Anti-pattern folded into `note` verb `when_to_use` in cli.py.
-- Structural teeth ride the watch/frontier path (`_edge_satisfied` → `resolve_watch` → `dataset:` branch), not `produces` post-check. Tests authored accordingly.
-- Schema-shape validation left OPTIONAL (zero-infra, no pandas/pyarrow). Gate defaults to exists + content-hash via `hashlib.sha256` (stdlib).
-- Hash verification for URL/DOI/remote locations skipped (trust recorded hash). Local file paths get full sha256 verification.
-- `note:` prefix added to `_KNOWN_PREFIXES` alongside `dataset:` — pre-existing omission caught and fixed.
+- datasets notes are SHARED (not project-scoped): operator decision resolves the check/resolver asymmetry in the resolver's direction. A dataset note filed once is visible across all projects.
+- No new top-level verb introduced (reuse-over-create): SR-8 extends `rv note` and `rv dag`. Anti-pattern folded into `note` verb `when_to_use`.
+- Structural teeth ride the watch/frontier path, not `produces` post-check. Tests authored accordingly per spec.
+- Schema-shape validation left OPTIONAL (zero-infra, no pandas/pyarrow). Gate defaults to exists + content-hash via stdlib hashlib with streaming read.
+- `note:` prefix added to `_KNOWN_PREFIXES` alongside `dataset:` — pre-existing omission corrected.
 
 ### Open / next
-- PR needs reviewer-gate + Architect verification before merge (crew cannot self-approve).
+- PR #15 needs reviewer-gate + Architect verification before merge (crew cannot self-approve).
 
+## 2026-07-01 (SR-6 build)
+
+### Done
+- Worktree: feat/sr-6 off origin/main.
+- Added `compute.py` — compute manifest I/O (`_load_manifest`, `_save_manifest`, `_default_manifest`) + five commands: `cmd_show`, `cmd_explain`, `cmd_lesson_add`, `cmd_outcome_add`, `run`. Manifest stored at `state_dir/compute_manifest.json` (never ~/vault). Backend archetypes in manifest: local, ssh, ssh+slurm, ssh+pbs, generic, plus container as orthogonal modifier field.
+- Added `doctor.py` — capability probe + DISCOVER-ONCE cache at `state_dir/doctor_cache.json`. Probes: nvidia-smi, sbatch/sinfo (SLURM detail), qsub/qstat (PBS detail), hf/uv/conda CLIs, conda env list, generic profile probe_commands. Degrades gracefully on every absent tool — no traceback, reports "not available". Second call reads cache (no re-probe). `--refresh` forces fresh probe.
+- Added `plugins.py` — D-SR6-1=THIN: surfaces `_NOTIFIER_REGISTRY` / `_BACKEND_REGISTRY` / `_SECRETS_REGISTRY` static dicts + config-selected adapters. No entry-points seam (confirmed absent by grep).
+- Registered three SR-6 verbs in `cli.py` `_VERB_REGISTRY`: `compute` / `doctor` / `plugins` — each with `when_to_use` folding the trial-submit anti-pattern inline + `sr: "SR-6"`.
+- 38 hermetic tests in `tests/test_sr6.py` covering all seven acceptance criteria from the brief.
+- Full suite: 614 passed (576 baseline + 38 new), zero regressions. `rv lint` PASS. `rv help --check` OK (22 verbs).
+
+### Decisions
+- D-SR6-1=THIN confirmed: no entry-points seam built. `rv plugins list` surfaces static registries only — honest to the merged code.
+- Container as orthogonal modifier: manifest field `container` on a backend profile (not a 5th archetype row).
+- JSON for manifest (not TOML): stdlib TOML is read-only (tomllib); JSON is bidirectional without extra deps.
+- `rv compute explain <job>` (not `rv run --explain`) per NOTE #2: avoids collision with `rv dag run`.
+- `rv doctor --refresh` forces re-probe; default reads cache — second call reads cache confirmed by test (same ts).
+- Outcome capture: `rv compute outcome add --job --tier --result` appends to `run_outcomes` in manifest with ISO timestamp.
+
+### Open / next
+- PR open for reviewer-gate + Architect review, then the maintainer merges.
+- SR-7 (SLURM execution) consumes this manifest's `backends.profiles[*].submit_pattern` + `gpu_tiers` + `rules`.
+
+## 2026-07-01 (SR-NEW build)
+
+### Done
+- Worktree: feat/sr-new off origin/main (post all prior SRs merged).
+- Added `scaffold_okf_dirs(base)` helper to `note.py` (SSOT for OKF types); `init.py` now calls it instead of re-listing the six types inline.
+- Extended `_render_project_section` and `cmd_add` with optional `extra: dict` param for additional registry keys (refs, collection). Backward-compatible.
+- Added `create_collection(name, *, key, uid) -> str` and `sync_library(coll_key, *, key, uid, refs_path) -> list` to `cite.py` (both reuse `_zotero`/`_find_collection` plumbing; sync_library is the thin mirror primitive for NEW-D2).
+- Added `_PROJECT_ARCHITECTURE_TEMPLATE` (project-shaped, not instance-shaped) + `cmd_new` to `project.py` — the full 13-step register-first transactional sequence with rollback.
+- `--source` made optional (default = `instance_root.parent / slug`, sibling-of-instance convention). Explicit `--source <dir>` overrides. Overwrite guard retained.
+- With `--zotero`: create_collection + sync_library called (initial sync, empty for new collection, establishes mirror pattern); graceful degradation if key missing (catches SystemExit).
+- Added `new` subparser to `project.build_parser` and dispatch in `run`.
+- Updated `cli.py` `when_to_use` for `project` to surface `rv project new` with the anti-pattern warning.
+- 44 hermetic tests in `tests/test_project_new.py`: happy path, registry, scaffold, crew, Zotero-skipped, git-discipline consent, guards (incl. default-source), rollback, discovery, CLI path (with and without --source), unit-level primitives.
+- Full suite: 576 passed (532 baseline + 44 new), zero regressions. rv lint PASS. rv help --check OK (19 verbs).
+
+### Decisions
+- Compose-not-duplicate: every scaffold step calls the existing verb function (control.cmd_init, devlog.cmd_init, build_agents.cmd_build, git_discipline._install_repo) — no path re-implementation.
+- Register-first: confirmed load-bearing; config cache reload mandatory after cmd_add.
+- SR-STRIP confirmed landed: disclosure field gone from project.py; composed against current signature.
+- NEW-D1 REVERSED (operator): --source now optional, default = instance_root.parent/slug (sibling-of-instance convention).
+- NEW-D2 REFINED (operator): --zotero now triggers sync_library after collection creation (mirror pattern, yields [] for new collections — wired for future ingestion).
+- Zotero step catches SystemExit (not just Exception) since _get_zotero_key() calls sys.exit on missing key.
+- `--git-discipline` flag without the option prints install-offer line; with flag calls _install_repo.
+
+### Open / next
+- PR ready for Argus review + Architect fit-check (composes-not-duplicates, register-first transaction, rollback, acceptance tests all pass).
 ## 2026-07-01 (SR-CI build)
 
 ### Done

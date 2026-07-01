@@ -152,6 +152,70 @@ def _find_collection(key: str, uid: int, name: str) -> str | None:
     return None
 
 
+def create_collection(name: str, *, key: str, uid: int) -> str:
+    """Create a new Zotero collection and return its key.
+
+    Reuses the existing _whoami/_zotero POST plumbing.
+    Called only under the --zotero guard in `rv project new`.
+    Idempotent: returns existing collection key if the collection already exists.
+
+    Raises RuntimeError if the API call fails.
+    """
+    existing = _find_collection(key, uid, name)
+    if existing is not None:
+        return existing  # idempotent: return key if collection already exists
+
+    status, body = _zotero(
+        "POST",
+        f"/users/{uid}/collections",
+        key,
+        body=[{"name": name, "parentCollection": False}],
+    )
+    if status not in (200, 201) or not isinstance(body, dict):
+        raise RuntimeError(
+            f"Zotero create-collection failed (status={status}): {body}"
+        )
+    # Response: {"success": {"0": "<key>"}, ...}
+    success = body.get("success", {})
+    if not success:
+        raise RuntimeError(f"Zotero create-collection: no success key in response: {body}")
+    coll_key = next(iter(success.values()))
+    return coll_key
+
+
+def sync_library(coll_key: str, *, key: str, uid: int, refs_path: "Path") -> list:
+    """Sync the Zotero collection items into refs_path (library.json).
+
+    Fetches all items in the collection (paginated) and writes them as a JSON
+    list to refs_path. For a fresh empty collection this yields [].
+
+    This is the wiring step: after create_collection, project new calls this so
+    library.json reflects the Zotero collection from the start (mirror pattern).
+    Reuses the _zotero GET plumbing — no new HTTP layer.
+
+    Returns the list of item records written.
+    """
+    from pathlib import Path as _Path
+    import json as _json
+
+    out, start = [], 0
+    while True:
+        path = (
+            f"/users/{uid}/collections/{coll_key}/items/top"
+            f"?limit=100&start={start}"
+        )
+        status, items = _zotero("GET", path, key)
+        if status != 200 or not isinstance(items, list):
+            break
+        out += items
+        if len(items) < 100:
+            break
+        start += 100
+
+    _Path(refs_path).write_text(_json.dumps(out, indent=2), encoding="utf-8")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Metadata fetching
 # ---------------------------------------------------------------------------

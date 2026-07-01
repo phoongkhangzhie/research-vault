@@ -114,9 +114,14 @@ _VERB_REGISTRY: dict[str, dict] = {
     "project": {
         "module": "research_vault.project",
         "when_to_use": (
-            "When you need to register a new project, list registered projects, or manage "
-            "the project config registry. Use `rv project add` to register a new project "
-            "into research_vault.toml."
+            "When you need to stand up a WHOLE new research project as its own repo "
+            "(git init + registry + OKF dirs + control bus + DEVLOG + architecture + "
+            "corpus + crew, in one command) use `rv project new <slug> --code <c> "
+            "--source <dir>`. Anti-pattern: hand-creating the repo + hand-copying "
+            "scaffolding + hand-editing research_vault.toml (races the registry, skips "
+            "the control-bus banner, forgets the OKF type-dirs). Use `rv project add` "
+            "if you only need the registry entry for an existing repo. Use `rv project "
+            "list` to enumerate all registered projects."
         ),
         "sr": "SR-2",
     },
@@ -258,6 +263,47 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Exit 0 = all required present; exit 1 = missing prerequisites."
         ),
         "sr": "SR-5",
+    },
+    # --- SR-6 ---
+    "compute": {
+        "module": "research_vault.compute",
+        "when_to_use": (
+            "When you need to see how to run on this environment (rv compute show), "
+            "resolve env/tier/flags for a specific job/model (rv compute explain <job>), "
+            "capture a cluster gotcha as a declared rule (rv compute lesson add), or "
+            "record a run outcome so the manifest improves from real experience "
+            "(rv compute outcome add). "
+            "Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what "
+            "env/tier to use — rv compute show / rv doctor already declare it. "
+            "Memory is flimsy; this tooling makes it robust."
+        ),
+        "sr": "SR-6",
+    },
+    "doctor": {
+        "module": "research_vault.doctor",
+        "when_to_use": (
+            "When you need to probe and cache compute environment capabilities "
+            "(conda envs, SLURM/PBS scheduler, CLI tools, GPU presence). "
+            "Run `rv doctor` once after setup or after environment changes — agents "
+            "query the cache; re-run with --refresh on env-change or failure. "
+            "Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what "
+            "env/tier to use — rv doctor already discovers and caches it. "
+            "Degrades gracefully without a scheduler: reports 'not available', no traceback."
+        ),
+        "sr": "SR-6",
+    },
+    "plugins": {
+        "module": "research_vault.plugins",
+        "when_to_use": (
+            "When you need to see which adapter plugins are registered "
+            "(notifiers, compute backends, secret stores) and which are currently "
+            "active (config-selected). Use `rv plugins list`. "
+            "D-SR6-1=THIN: surfaces static registries only — no entry-points "
+            "self-registration. "
+            "Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what "
+            "adapters are wired — rv plugins list already shows the registry."
+        ),
+        "sr": "SR-6",
     },
 }
 
