@@ -559,11 +559,55 @@ def _make_bullet(entry_id: str, body: str) -> str:
     return f"- **{entry_id}**"
 
 
+# Matches the bracketed gate token: [PASS] or [BLOCK] (case-insensitive, full value).
+# Bare words like "PASS", "BLOCK", "FAIL" in prose do NOT match — by design, so that
+# narrative mentions cannot be confused with the structured gate verdict.
+_GATE_TOKEN_RE = re.compile(r"^\[(PASS|BLOCK)\]$", re.IGNORECASE)
+
+
+def _extract_gate_verdict(verdict_val: str) -> str | None:
+    """Return 'PASS' or 'BLOCK' if *verdict_val* is exactly the bracketed gate token.
+
+    Recognized forms: ``[PASS]`` and ``[BLOCK]`` (case-insensitive, full value).
+    A bare word — 'PASS', 'BLOCK', 'FAIL', 'approve' — does NOT match.
+    This ensures prose mentions in narrative fields can never false-trigger the gate.
+    """
+    m = _GATE_TOKEN_RE.match(verdict_val.strip())
+    return m.group(1).upper() if m else None
+
+
 def _make_block(marker: str, fields: dict[str, str]) -> str:
-    """Render a ⟦MARKER⟧ block with the given fields."""
+    """Render a ⟦MARKER⟧ block with the given fields.
+
+    RETURN blocks with a ``[PASS]`` or ``[BLOCK]`` verdict field get a gate-clean
+    verdict header as the first line of the block body (TOOL-D3 / SR-CI).  Shape:
+
+        VERDICT: [PASS]
+          did: …
+          outcome: … (may mention bare BLOCK / FAIL in prose — bracket decouples)
+
+    The bracket delimiter is the key: the approve-gate matches ``[PASS]`` /
+    ``[BLOCK]``; a bare "BLOCK" or "FAIL" anywhere in prose cannot false-match.
+    The verdict field is suppressed from the indented list — the header IS the
+    verdict field, readable by the controllib parser via the known-key path.
+    """
     lines = [f"⟦{marker}⟧"]
-    for key, val in fields.items():
-        lines.append(f"  {key}: {val}")
+
+    if marker == "RETURN":
+        verdict_val = fields.get("verdict", "")
+        gate_token = _extract_gate_verdict(verdict_val)
+        if gate_token:
+            # Gate-clean header: unindented, first line after the marker.
+            # Bracketed token: controllib parser reads "verdict: [PASS]".
+            lines.append(f"VERDICT: [{gate_token}]")
+        for key, val in fields.items():
+            if key == "verdict" and gate_token:
+                continue  # already emitted as header; skip to avoid duplication
+            lines.append(f"  {key}: {val}")
+    else:
+        for key, val in fields.items():
+            lines.append(f"  {key}: {val}")
+
     return "\n".join(lines)
 
 
