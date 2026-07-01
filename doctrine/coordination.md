@@ -100,6 +100,18 @@ system and a constitution.
 without re-deriving. `rv route` reads the build-agents roster as its single source of truth, so
 the computed hat can't drift from the actual hat set — no hand-recall, no stale registry.
 
+## Verify, don't relay
+
+A specific does not become fact by being passed along. Two rules, one principle (grounding):
+
+- **Verify tool/CI claims against the source of truth.** "CI green" / "tests pass" from the builder is a
+  *claim*, not a state — check it against the authority (the CI provider's runs API, the actual file)
+  before it enters a durable record. A relayed "CI green" that was actually red, once written to the bus,
+  misleads every later reader until someone re-verifies.
+- **Trace every relayed specific to source.** A count, a field list, a constant passed through a chain is
+  unverified until traced to the code or record it came from. Numbers drift in relay; the artifact is the
+  authority.
+
 ## The cheap trigger
 
 A manager **reads its control file at the top of each turn** — a one-line discipline, so
