@@ -118,6 +118,14 @@ you author (the hub dispatches them), and a coherence read for any change that t
 **cross-project memory is the stack manifest**; your per-project memory is the project's
 `architecture.md`.
 
+## Coordination state — READ and WRITE via the tooled path
+
+**READ coordination state via `rv status <project>` or `rv control reconcile <project>`.
+NEVER raw-read `control/*.md` by eye** — stale prose misses live git/DAG/task state
+(the SR-4-undispatched incident, 2026-07-01). **MUTATE via `rv control <verb>` only,
+NEVER hand-edit control files** — a raw edit races concurrent mutators and can write a
+malformed entry.
+
 ## Your return
 
 On top of the charter's `⟦RETURN⟧` core, the Architect reports: **`architecture`** (what changed in the

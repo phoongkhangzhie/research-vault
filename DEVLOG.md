@@ -1,3 +1,30 @@
+## 2026-07-01 (SR-CP build)
+
+### Done
+- Built full SR-CP (control-plane records lifecycle): READ + reconcile + WRITE + CLEAN + INDEX.
+- controllib.py: shared parser, SPAWN_REQUIRED/RETURN_REQUIRED constants (11+6 fields), locked_mutate
+  (fcntl.flock advisory lock), atomic_write, append_to_archive (MEMORY.md-shape sidecar index).
+- status.py: rv status verb (control sections + task board + DEVLOG tail + local git + DAG runs);
+  SignalSource Protocol seam (LocalGitSource, TaskBoardSource, DagRunSource); NO gh/network in core.
+- control.py: cmd_reconcile (R1–R4 deterministic rules), cmd_post/spawn_request/return_entry/close/
+  edit/move write-face verbs; all mutating verbs under advisory lock; cmd_heal inserts banner.
+- devlog.py: cmd_index and cmd_search (structured read face without loading whole file).
+- cli.py: status verb + anti-pattern lines in control/devlog registry entries; rv help --check: OK.
+- doctrine: coordination-state clause in agent-charter + all 7 role docs (read/write enforcement).
+- 41 deterministic hermetic tests for all 8 §5B-CP acceptance criteria. 307 total, all passing.
+
+### Decisions
+- SignalSource.get_terminal_set uses merge commit message parsing (--no-ff) + branch-tip-differs-from-
+  main check (fast-forward); merge-base approach failed post-merge (merge-base == branch tip after FF).
+- cmd_inbox backward-compat: returns Path (not tuple) to avoid breaking existing callers.
+- NOT_YET_LEXICON includes "pending" as specified; ID token regex broadened to sr-[a-z0-9]+ to match
+  alpha ids like sr-x, sr-cp (spec uses sr-4 but tests use sr-x placeholders).
+- Archive sidecar: .archive.md with INDEX:START/END region at top; idempotent regeneration.
+- RESOLVED_THRESHOLD=5 for teeth check.
+
+### Open / next
+- PR needs reviewer (Argus) + Architect fit-check before merge (human-go).
+
 ## 2026-07-01 (SR-4 reviewer fixes — B1/F1/F2)
 
 ### Done

@@ -9,6 +9,8 @@ Verbs (SR-1):
   rv control <project> <subcommand> — manage the coordination control file
   rv devlog <project> <subcommand>  — manage the project DEVLOG
 
+Verbs (SR-CP): status — structured READ face for coordination state (rv status <project>)
+
 Verbs (SR-2): project, cite, research, role, build-agents, mdstore, wt,
   git-health, lint, wait-for
 
@@ -49,6 +51,20 @@ from .config import load_config
 # The build_parser + run functions are fetched from the module at dispatch time.
 
 _VERB_REGISTRY: dict[str, dict] = {
+    # --- SR-CP ---
+    "status": {
+        "module": "research_vault.status",
+        "when_to_use": (
+            "When you need a project's coordination / dispatch / blocker state — control "
+            "sections, task board, DEVLOG tail, local git, DAG runs. "
+            "This IS the tooled read face. "
+            "Anti-pattern: do NOT `cat`/`Read` `control/*.md` and parse by eye — it "
+            "silently misses live git/DAG/task state and parses stale prose "
+            "(the SR-4-mistaken-for-undispatched incident, 2026-07-01); use `rv status` instead."
+        ),
+        "sr": "SR-CP",
+    },
+    # --- SR-1 ---
     "task": {
         "module": "research_vault.task",
         "when_to_use": (
@@ -68,16 +84,24 @@ _VERB_REGISTRY: dict[str, dict] = {
     "control": {
         "module": "research_vault.control",
         "when_to_use": (
-            "When you need to initialize, view, validate, or update the coordination control "
-            "file for a project. The control file is the async manager-hub handshake bus."
+            "When you need to initialize, validate, reconcile, or MUTATE the coordination "
+            "control file for a project. READ via `rv status`. MUTATE via "
+            "`rv control post/spawn-request/return/close/edit/move`. "
+            "Anti-pattern: do NOT open `control/*.md` and hand-type bullets — it races "
+            "other agents and can author schema-invalid entries; do NOT `cat`/`Read` the "
+            "file by eye — use `rv status` or `rv control reconcile` to read current state."
         ),
         "sr": "SR-1",
     },
     "devlog": {
         "module": "research_vault.devlog",
         "when_to_use": (
-            "When you need to create, append to, or check the freshness of a project's "
-            "DEVLOG.md — the grounded decision and progress record."
+            "When you need to create, append to, check the freshness of, or SEARCH a "
+            "project's DEVLOG.md — the grounded decision and progress record. "
+            "Use `rv devlog index` for a one-liner per entry; `rv devlog search` to find "
+            "entries by keyword. "
+            "Anti-pattern: do NOT grep/cat DEVLOG.md directly to find entries — that loads "
+            "the whole file and misses the structured index face."
         ),
         "sr": "SR-1",
     },

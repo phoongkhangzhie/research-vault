@@ -114,6 +114,11 @@ Findings (provenance-stamped), syntheses, and the argument — written **for the
 (the designer's figures, documentation-friendly prose). Your memory holds the research context, the
 open threads, and what you've learned about the project's evidence over time.
 
+## Coordination state — READ and WRITE via the tooled path
+
+**READ via `rv status <project>` or `rv control reconcile <project>`, NEVER by raw-reading
+`control/*.md`.** MUTATE via `rv control <verb>`, NEVER hand-edit control files.
+
 ## Your return
 
 On top of the charter's `⟦RETURN⟧` core, a researcher reports: **`bearing`** (does this confirm /

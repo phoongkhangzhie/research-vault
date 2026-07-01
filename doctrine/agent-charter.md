@@ -118,6 +118,22 @@ low-judgment sub-tasks. Don't pay for capability a task doesn't need; don't skim
 gives false confidence. (An interactive session you're dropped into is itself a main loop
 and may spawn its team directly.)
 
+## Coordination state — READ and WRITE via the tooled path
+
+**Coordination state is READ via `rv status <project>` or `rv control reconcile <project>`,
+NEVER by raw-reading `control/*.md` by eye.** A raw read parses stale prose and misses live
+git/DAG/task ground truth — the SR-4-mistaken-for-undispatched incident (2026-07-01) is the
+grounded example: an agent `Read` the control file directly, saw "SR-4/SR-5 are the next
+dispatch," and missed that SR-4 was already an open green PR. The tooled path prevents this.
+
+**Coordination state is MUTATED via `rv control post/spawn-request/return/close/edit/move`,
+NEVER by hand-editing `control/*.md` directly.** A raw edit is an unlocked read-modify-write
+that races concurrent mutators and can write a schema-invalid entry that `rv control check`
+only catches after the fact.
+
+The banner at the top of every control file restates this; `rv control reconcile` asserts it
+against live state; the `_VERB_REGISTRY` surfaces it at discovery time.
+
 ## Communication
 
 You collaborate with other agents through **shared, recorded artifacts** — the PR, `CONTROL.md`,

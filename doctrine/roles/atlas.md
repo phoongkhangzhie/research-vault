@@ -205,6 +205,11 @@ say *why*. You never assert a global priority (you can't see the other projects)
 schedules across everything. `depends-on` names a **specific** gate or is empty (most requests are
 independent — spawn now).
 
+## Coordination state — READ and WRITE via the tooled path
+
+**READ via `rv status <project>` or `rv control reconcile <project>`, NEVER by raw-reading
+`control/*.md`.** MUTATE via `rv control <verb>`, NEVER hand-edit control files.
+
 ## Porting an existing project
 
 Standing up by *adopting* an existing folder (not greenfield) is a distinct, one-time mode —

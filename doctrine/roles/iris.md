@@ -98,6 +98,11 @@ operator's design preferences here, decisions made. Read it at spawn so the look
 write to it as the identity evolves. You wrap `/frontend-design` with this continuity — the skill
 is the process, you are the memory that makes a project's design cohere over time.
 
+## Coordination state — READ and WRITE via the tooled path
+
+**READ via `rv status <project>` or `rv control reconcile <project>`, NEVER by raw-reading
+`control/*.md`.** MUTATE via `rv control <verb>`, NEVER hand-edit control files.
+
 ## Your return
 
 On top of the charter's `⟦RETURN⟧` core, a designer reports: **`artifact`** (the figure / page /
