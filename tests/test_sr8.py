@@ -218,12 +218,16 @@ class TestDatasetsOkfType:
     def test_check_dataset_scans_datasets_root_not_project_dir(self, tmp_instance):
         """cmd_check for datasets scans datasets_root, not project_notes_dir.
 
-        A note filed in project_notes_dir/datasets/ (old convention) is NOT seen;
-        a note in datasets_root/ IS seen.
+        Non-vacuous discriminant: we write an INVALID note (missing hash) to
+        datasets_root/ and a VALID note to the old project_notes_dir/datasets/.
+        If cmd_check binds to datasets_root, it finds the invalid note → hash
+        violation detected.  If it regressed to project-scoped, it finds only
+        the valid stale.md → violations == [] → this test fails.
         """
         cfg = load_config(reload=True)
 
-        # File note in project_notes_dir/datasets/ (old wrong place) — should NOT be seen
+        # File a VALID note in project_notes_dir/datasets/ (old wrong place)
+        # — a regressed impl would scan here and see a clean note, yielding [].
         old_dir = cfg.project_notes_dir("demo-research") / "datasets"
         old_dir.mkdir(parents=True, exist_ok=True)
         (old_dir / "stale.md").write_text(
@@ -232,41 +236,54 @@ class TestDatasetsOkfType:
             encoding="utf-8",
         )
 
-        # File a valid note in datasets_root/ — should be seen and pass
+        # File an INVALID note (no hash) in datasets_root/ — cmd_check must find
+        # and flag it.  A correct impl yields a hash violation; a regressed impl
+        # (scanning project dir instead) yields [] and fails this assertion.
         _write_dataset_note(
-            cfg.datasets_root, "shared-note",
+            cfg.datasets_root, "no-hash-shared",
             location="https://example.com/data.csv",
-            hash_val="sha256:abc123",
+            hash_val="",   # deliberately invalid
         )
 
         violations = note_mod.cmd_check("demo-research", config=cfg)
-        # The stale.md in old project dir should NOT appear in violations
-        # (it's not scanned). The shared-note in datasets_root should pass.
+
+        # Must detect the missing hash in datasets_root/ (proves it was scanned).
+        assert any("hash" in v for v in violations), (
+            f"Expected a hash violation from datasets_root scan; got: {violations}"
+        )
+        # Must NOT flag stale.md from project_notes_dir (proves that dir was not scanned).
         assert not any("stale" in v for v in violations), (
             f"Should not scan project_notes_dir for datasets; got: {violations}"
         )
-        assert violations == [], f"Expected no violations, got: {violations}"
 
     def test_datasets_note_visible_across_projects(self, tmp_instance):
         """A datasets note in datasets_root is visible to cmd_check for ANY project.
 
-        This is the cross-project sharing guarantee: one dataset note at datasets_root
-        is accessible to findings in any project.
+        Non-vacuous discriminant: we write an INVALID note (missing location) to
+        datasets_root/ once.  Both projects must detect the violation, proving they
+        both scan the shared datasets_root.  If cmd_check were project-scoped, each
+        project would scan its own (empty) project_notes_dir → violations == [] for
+        both → both assertions below would fail.
         """
         cfg = load_config(reload=True)
 
-        # File a dataset note once
+        # File an INVALID note (no location) at datasets_root/ once.
         _write_dataset_note(
             cfg.datasets_root, "shared-corpus",
-            location="https://data.example.org/corpus.jsonl",
+            location="",                     # deliberately invalid
             hash_val="sha256:abc123def456",
         )
 
-        # Both projects see it and have no violations
         violations_p1 = note_mod.cmd_check("demo-research", config=cfg)
         violations_p2 = note_mod.cmd_check("demo-litreview", config=cfg)
-        assert violations_p1 == [], f"demo-research violations: {violations_p1}"
-        assert violations_p2 == [], f"demo-litreview violations: {violations_p2}"
+
+        # Both projects must detect the missing-location violation in datasets_root.
+        assert any("location" in v for v in violations_p1), (
+            f"demo-research should flag missing location in shared note; got: {violations_p1}"
+        )
+        assert any("location" in v for v in violations_p2), (
+            f"demo-litreview should flag missing location in shared note; got: {violations_p2}"
+        )
 
 
 # ============================================================================
