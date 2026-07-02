@@ -1,4 +1,4 @@
-"""review/style.py — the review_tips config seam (SR-LR-1, §5L.6).
+"""review/style.py — the review_tips config seam (SR-LR-1, section 5L.6).
 
 SEAM CONTRACT
   ``get_review_tips(config=None)`` is the call-point for the review DAG nodes'
@@ -29,7 +29,7 @@ SEAM CONTRACT
 
 Two halves independently mergeable:
   - Engineer ships this module (SR-LR-1 plumbing).
-  - Ada replaces the default payload with her retrieval-grounded �5L.6 strings (follow-up).
+  - Ada replaces the default payload with her retrieval-grounded section 5L.6 strings (follow-up).
   Keep ``get_review_tips`` / ``get_review_style_preamble`` signatures stable.
 
 Stdlib only.
@@ -58,7 +58,7 @@ REVIEW_TIPS_KEYS: frozenset[str] = frozenset({
 
 _DEFAULT_PREAMBLE: str = (
     "You are conducting a structured, pre-registered, saturation-gated literature review "
-    "following the Research Vault SR-LR-1 protocol (§5L).\n"
+    "following the Research Vault SR-LR-1 protocol (section 5L).\n"
     "Anti-fabrication spine: every claim must trace to a citekey in the corpus; "
     "every citekey must resolve to a `literature/` OKF note; "
     "no invented references, no paraphrased-without-citation claims.\n"
@@ -70,7 +70,7 @@ _DEFAULT_PREAMBLE: str = (
 )
 
 # ---------------------------------------------------------------------------
-# Default payload — Ada's review-prompt content (§5L.6)
+# Default payload — Ada's review-prompt content (section 5L.6)
 # ---------------------------------------------------------------------------
 # The Architect owns the keys/shape; Ada owns the prose.
 # Each string is the prompt guidance for that node of the review DAG.
@@ -86,7 +86,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "  - `exclusion`: criteria that disqualify a paper.\n"
         "  - `coverage_claim`: what a COMPLETE corpus would contain "
         "(e.g. 'all English papers 2015–2025 on X in venues Y').\n"
-        "  - `counter-position` (REQUIRED — L-2 structural gate, §5L.3/§5M): "
+        "  - `counter-position` (REQUIRED — L-2 structural gate, section 5L.3/section 5M): "
         "the literature that would REFUTE the coverage claim — name the specific "
         "sub-literature or opposing view that must be actively sought. "
         "A review with an empty or missing `counter-position` cannot pass the "
@@ -111,7 +111,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "Output: a `_search_hits.md` log of every query + its result count + annotations."
     ),
     "review_snowball_tips": (
-        "Run the saturation loop INSIDE this node (§5L.2). "
+        "Run the saturation loop INSIDE this node (section 5L.2). "
         "The loop is INTERNAL — do NOT create new DAG nodes per round; "
         "this is a bounded walk over the citation graph, not a DAG cycle.\n\n"
         "Each round:\n"
@@ -193,7 +193,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "You are the coverage critic (Argus role). You are a REJECTS-ONLY reviewer: "
         "a `[PASS]` does NOT certify coverage, it only fails to find a blocking hole.\n\n"
         "Judge FOUR axes (each can independently issue `[BLOCK]`):\n\n"
-        "1. SATURATION PLATEAU — is it real or premature? (§5L.2)\n"
+        "1. SATURATION PLATEAU — is it real or premature? (section 5L.2)\n"
         "   Read the `_saturation.md` curve. Check:\n"
         "   - Did the curve plateau at round K with 0 new citekeys AND 0 new concept-tags "
         "for 2 consecutive rounds? (genuine saturation)\n"
@@ -209,7 +209,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "   Compare the accepted corpus against `_protocol.md` inclusion/exclusion.\n"
         "   Any paper included that violates inclusion criteria = fishing = `[BLOCK]`.\n"
         "   Any paper excluded that meets inclusion criteria = coverage gap = `[BLOCK]`.\n\n"
-        "4. COUNTER-POSITION (L-2 gate — REQUIRED, §5L.3/§5M)\n"
+        "4. COUNTER-POSITION (L-2 gate — REQUIRED, section 5L.3/section 5M)\n"
         "   The `_protocol.md` MUST have a non-empty `counter-position` field.\n"
         "   - Missing or empty `counter-position` → `[BLOCK]` (hard structural gate).\n"
         "   - Non-empty `counter-position` but corpus contains ZERO papers from the "
@@ -251,7 +251,7 @@ def get_review_tips(config: Any = None) -> dict[str, str]:
     Contract:
         - Always returns a dict with all REVIEW_TIPS_KEYS present.
         - Adopter overrides cannot remove a key — they can only replace the value.
-        - The default is Ada's review-prompt content (§5L.6); adopters own the prose.
+        - The default is Ada's review-prompt content (section 5L.6); adopters own the prose.
 
     sr: SR-LR-1
     """
