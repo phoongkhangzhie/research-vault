@@ -162,6 +162,69 @@ def check_unpinned_git_init(
 
 
 # ---------------------------------------------------------------------------
+# Getsource-guard smell (AST-based, rule 7 / SR-LINT)
+# ---------------------------------------------------------------------------
+
+def _is_getsource_call(node: ast.expr) -> bool:
+    """Return True if *node* is a call to ``inspect.getsource`` or bare ``getsource``."""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if isinstance(func, ast.Name) and func.id == "getsource":
+        return True
+    if isinstance(func, ast.Attribute) and func.attr == "getsource":
+        return True
+    return False
+
+
+def _assert_contains_getsource_in(assert_node: ast.Assert) -> bool:
+    """Return True if *assert_node* contains an ``X in getsource(...)`` comparison."""
+    for node in ast.walk(assert_node.test):
+        if not isinstance(node, ast.Compare):
+            continue
+        for op, comparator in zip(node.ops, node.comparators):
+            if isinstance(op, ast.In) and _is_getsource_call(comparator):
+                return True
+    return False
+
+
+def check_getsource_guard(
+    files: list[Path],
+) -> list[tuple[str, int, str]]:
+    """Scan *files* for the getsource-guard smell (rule 7 / SR-LINT).
+
+    Flags any ``assert … in inspect.getsource(fn)`` (or bare ``getsource``)
+    assertion in test files.  ``inspect.getsource`` returns comments and
+    docstrings as well as live code, so the assertion passes even when the
+    guarded code path is dead — the string may survive in a comment.
+
+    This is a **smell flag**, not a proof of vacuity.  The rule reports the
+    location and suggests the fix: assert on the negative (the bad pattern is
+    *absent*) or strip comments via AST before comparing.
+
+    Returns a list of ``(file_path, lineno, matching_line)`` tuples.
+    Files with SyntaxErrors are skipped gracefully.
+    """
+    findings: list[tuple[str, int, str]] = []
+    for f in files:
+        try:
+            src = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        try:
+            tree = ast.parse(src, filename=str(f))
+        except SyntaxError:
+            continue
+        lines = src.splitlines()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assert) and _assert_contains_getsource_in(node):
+                lineno = node.lineno
+                line_text = lines[lineno - 1].rstrip() if lineno <= len(lines) else ""
+                findings.append((str(f), lineno, line_text))
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # F811 — redefined-in-same-scope (AST-based, rule 6)
 # ---------------------------------------------------------------------------
 
@@ -511,6 +574,22 @@ def cmd_lint(cfg: Config, *, strict: bool = False) -> int:
     else:
         n = len(test_files)
         print(f"Unpinned-git-init rule: OK ({n} test file(s) checked)")
+
+    # 4c. Getsource-guard smell (rule 7 / SR-LINT)
+    gs_findings = check_getsource_guard(test_files)
+    if gs_findings:
+        print(
+            f"\nGetsource-guard smell (rule 7): {len(gs_findings)} finding(s) "
+            f"(assert X in getsource(fn) — passes even when live code is dead; "
+            f"fix: assert the bad pattern is ABSENT, or strip comments via AST):"
+        )
+        for fpath, lineno, line in gs_findings:
+            print(f"  {fpath}:{lineno}:")
+            print(f"    {line}")
+        issues_total += len(gs_findings)
+    else:
+        n = len(test_files)
+        print(f"Getsource-guard smell (rule 7): OK ({n} test file(s) checked)")
 
     # 5. Redefined-in-same-scope rule (F811) — scoped to production src/
     src_files = _collect_src_files(_SRC_DIR)
