@@ -265,6 +265,62 @@ def _check_okf_note_type(note_path_str: str, notes_root: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# SR-RESOLVE-SCOPE: project-scoped typed produces gate
+# ---------------------------------------------------------------------------
+
+# Maps produces.* subkey → OKF type directory.
+# SSOT: the produces subkey name ("result"/"figure"/"manuscript") is the
+# semantic name; the OKF type directory is the filesystem path segment.
+_PRODUCES_KEY_TO_OKF_DIR: dict[str, str] = {
+    "result": "experiments",
+    "figure": "figures",
+    "manuscript": "manuscript",
+}
+
+
+def _check_project_scoped_note(
+    pkey: str,
+    note_ref: str,
+    cfg,
+) -> list[str]:
+    """Validate a project-scoped produces.result / .figure / .manuscript note.
+
+    note_ref format: "<project>/<id>" where id may or may not include .md.
+    Resolves to: project_notes_dir(project) / <type_dir> / "<id>.md"
+    then validates via _check_okf_note_type (type:dir match).
+
+    Returns a list of issue strings (empty = OK).
+    SR-RESOLVE-SCOPE.
+    """
+    if "/" not in note_ref:
+        return [
+            f"produces.{pkey}: expected '<project>/<id>' format, got {note_ref!r}"
+        ]
+
+    project_slug, note_id = note_ref.split("/", 1)
+    if not project_slug or not note_id:
+        return [
+            f"produces.{pkey}: empty project or id in {note_ref!r}"
+        ]
+
+    type_dir = _PRODUCES_KEY_TO_OKF_DIR[pkey]
+
+    try:
+        proj_notes = cfg.project_notes_dir(project_slug)
+    except KeyError:
+        return [
+            f"produces.{pkey}: unknown project slug {project_slug!r} "
+            f"(not in config projects registry)"
+        ]
+
+    note_id_with_ext = note_id if note_id.endswith(".md") else f"{note_id}.md"
+    note_path = proj_notes / type_dir / note_id_with_ext
+
+    # _check_okf_note_type takes an absolute path; notes_root unused for absolute.
+    return _check_okf_note_type(str(note_path), proj_notes)
+
+
+# ---------------------------------------------------------------------------
 # Verb: run
 # ---------------------------------------------------------------------------
 
@@ -450,6 +506,27 @@ def cmd_complete(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 return 1
+        # SR-RESOLVE-SCOPE: project-scoped typed produces gate.
+        # produces.result / .figure / .manuscript = "<project>/<id>"
+        # Each resolves to project_notes_dir(project) / <type_dir> / <id>.md
+        # and validates type:dir frontmatter match (same gate as produces.note).
+        for _pkey in _PRODUCES_KEY_TO_OKF_DIR:
+            if _pkey in produces:
+                issues = _check_project_scoped_note(_pkey, produces[_pkey], cfg)
+                if issues:
+                    print(
+                        f"rv dag complete: OKF vault check FAILED for node {node_id!r} "
+                        f"(produces.{_pkey}={produces[_pkey]!r}):",
+                        file=sys.stderr,
+                    )
+                    for issue in issues:
+                        print(f"  {issue}", file=sys.stderr)
+                    print(
+                        f"  Fix: ensure the {_PRODUCES_KEY_TO_OKF_DIR[_pkey]}/ note exists "
+                        f"and its type: frontmatter matches its parent directory.",
+                        file=sys.stderr,
+                    )
+                    return 1
 
     run_state.set_node_status(node_id, status)
     store.save(run_state)

@@ -217,6 +217,24 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
                         f"Node {nid!r}: produces.dataset must be a non-empty string "
                         f"(path to the datasets/ provenance note, e.g. 'datasets/my-data.md')"
                     )
+            # SR-RESOLVE-SCOPE: project-scoped typed produces subkeys.
+            # Each takes "<project>/<id>" — the resolver maps to the correct OKF type dir.
+            #   produces.result     → experiments/<id>.md  in project_notes_dir
+            #   produces.figure     → figures/<id>.md      in project_notes_dir
+            #   produces.manuscript → manuscript/<id>.md   in project_notes_dir
+            for _pkey in ("result", "figure", "manuscript"):
+                if _pkey in produces:
+                    _pval = produces[_pkey]
+                    if not isinstance(_pval, str) or not _pval.strip():
+                        raise ManifestError(
+                            f"Node {nid!r}: produces.{_pkey} must be a non-empty string "
+                            f"in '<project>/<id>' format (e.g. 'my-project/exp-001')"
+                        )
+                    if "/" not in _pval:
+                        raise ManifestError(
+                            f"Node {nid!r}: produces.{_pkey} must include a project slug: "
+                            f"'<project>/<id>' (e.g. 'my-project/exp-001'), got {_pval!r}"
+                        )
 
         # Validate needs list
         needs = node.get("needs", [])
