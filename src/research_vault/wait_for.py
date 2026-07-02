@@ -224,8 +224,45 @@ def check_dataset_provenance(
 
 
 # ---------------------------------------------------------------------------
-# sched: resolver helper (SR-7) — shared SSOT with RemoteBackend.status
+# sched: resolver helpers (SR-7) — shared SSOT with RemoteBackend.status
 # ---------------------------------------------------------------------------
+
+# SLURM terminal states (shared by sacct: resolver and the _resolve_sched
+# degrade fallback — single definition, no drift).
+_SLURM_TERMINAL: frozenset[str] = frozenset({
+    "COMPLETED", "FAILED", "CANCELLED", "TIMEOUT",
+    "NODE_FAIL", "OUT_OF_MEMORY", "PREEMPTED", "BOOT_FAIL",
+})
+
+
+def _parse_sacct_state(stdout: str, job_id: str) -> dict[str, Any]:
+    """Parse ``sacct --noheader -P`` output for *job_id* → resolve_watch dict.
+
+    Shared SSOT for the ``sacct:`` resolver and the ``_resolve_sched`` slurm
+    degrade path — eliminates the duplicate line-parse loop that previously
+    lived in both.
+
+    Returns the standard resolve_watch shape::
+
+        {"ready": bool, "state": str, "artifact_path": None, "error": None}
+
+    ``ready`` is True only when the job reached a terminal SLURM state.
+    When *job_id* is not found in *stdout*, returns ``ready=False`` +
+    ``state="pending"``.
+    """
+    for line in stdout.splitlines():
+        parts = line.strip().split("|")
+        if len(parts) >= 2:
+            job_col = parts[0].strip()
+            state = parts[1].strip().upper().split()[0]
+            if job_col.split(".")[0] == str(job_id) or job_col == str(job_id):
+                return {
+                    "ready": state in _SLURM_TERMINAL,
+                    "state": state,
+                    "artifact_path": None,
+                    "error": None,
+                }
+    return {"ready": False, "state": "pending", "artifact_path": None, "error": None}
 
 def _resolve_sched(backend_name: str, job_id: str) -> dict[str, Any]:
     """Resolve a sched:<backend>:<jobid> watch expression.
@@ -284,6 +321,8 @@ def _resolve_sched(backend_name: str, job_id: str) -> dict[str, Any]:
         # For sched:slurm: fall back to the built-in sacct path so this behaves
         # identically to sacct:<jobid> (back-compat at zero-config).
         if backend_name in ("slurm",):
+            # Zero-config degrade: call sacct directly via ssh alias.
+            # Uses _parse_sacct_state (shared with the sacct: resolver — single SSOT).
             alias = os.environ.get("RV_SSH_ALIAS", "sc")
             try:
                 result = subprocess.run(
@@ -296,22 +335,7 @@ def _resolve_sched(backend_name: str, job_id: str) -> dict[str, Any]:
                         "ready": False, "state": "unknown",
                         "artifact_path": None, "error": result.stderr[:200],
                     }
-                terminal_slurm = frozenset({
-                    "COMPLETED", "FAILED", "CANCELLED", "TIMEOUT",
-                    "NODE_FAIL", "OUT_OF_MEMORY", "PREEMPTED", "BOOT_FAIL",
-                })
-                for line in result.stdout.splitlines():
-                    parts = line.strip().split("|")
-                    if len(parts) >= 2:
-                        job_col = parts[0].strip()
-                        state = parts[1].strip().upper().split()[0]
-                        if job_col.split(".")[0] == str(job_id) or job_col == str(job_id):
-                            terminal = state in terminal_slurm
-                            return {
-                                "ready": terminal, "state": state,
-                                "artifact_path": None, "error": None,
-                            }
-                return {"ready": False, "state": "pending", "artifact_path": None, "error": None}
+                return _parse_sacct_state(result.stdout, job_id)
             except FileNotFoundError:
                 return {
                     "ready": False, "state": "ssh-unavailable",
@@ -560,6 +584,8 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
     # ── sacct:<jobid> ─────────────────────────────────────────────────────────
     # Back-compat alias: equivalent to sched:slurm:<jobid>.
     # The resolver is fully live — not a stub.
+    # Uses _parse_sacct_state (shared with the _resolve_sched degrade path —
+    # single SSOT, no duplicate line-parse loop).
     if watch.startswith("sacct:"):
         job_id = watch[len("sacct:"):]
         alias = os.environ.get("RV_SSH_ALIAS", "sc")
@@ -572,24 +598,7 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
             if result.returncode != 0:
                 return {"ready": False, "state": "unknown", "artifact_path": None,
                         "error": result.stderr[:200]}
-            terminal_states = frozenset({
-                "COMPLETED", "FAILED", "CANCELLED", "TIMEOUT",
-                "NODE_FAIL", "OUT_OF_MEMORY", "PREEMPTED", "BOOT_FAIL",
-            })
-            for line in result.stdout.splitlines():
-                parts = line.strip().split("|")
-                if len(parts) >= 2:
-                    job_col = parts[0].strip()
-                    state = parts[1].strip().upper().split()[0]
-                    if job_col.split(".")[0] == str(job_id) or job_col == str(job_id):
-                        terminal = state in terminal_states
-                        return {
-                            "ready": terminal,
-                            "state": state,
-                            "artifact_path": None,
-                            "error": None,
-                        }
-            return {"ready": False, "state": "pending", "artifact_path": None, "error": None}
+            return _parse_sacct_state(result.stdout, job_id)
         except subprocess.TimeoutExpired:
             return {"ready": False, "state": "timeout", "artifact_path": None, "error": "sacct timeout"}
         except FileNotFoundError:

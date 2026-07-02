@@ -27,7 +27,21 @@ from .base import (
     EnvSecretStore,
     load_adapters,
 )
-from .remote import RemoteBackend
+
+# RemoteBackend is exported lazily via PEP 562 module __getattr__ so that
+# importing this package when backend=local does NOT pull in adapters.remote
+# (the ssh/subprocess import).  Callers that explicitly need RemoteBackend get
+# it through normal attribute access or 'from research_vault.adapters.remote
+# import RemoteBackend' directly.
+
+
+def __getattr__(name: str):  # noqa: ANN001
+    """PEP 562 lazy module attribute — resolves RemoteBackend on first access."""
+    if name == "RemoteBackend":
+        from .remote import RemoteBackend  # noqa: PLC0415
+        return RemoteBackend
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "Notifier",
@@ -38,5 +52,5 @@ __all__ = [
     "LocalSubprocess",
     "EnvSecretStore",
     "load_adapters",
-    "RemoteBackend",
+    "RemoteBackend",  # Available lazily via __getattr__
 ]

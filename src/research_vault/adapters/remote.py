@@ -112,7 +112,6 @@ def _merge_profile_defaults(profile: dict[str, Any]) -> dict[str, Any]:
     """
     archetype = profile.get("archetype", "generic")
     defaults = dict(_ARCHETYPE_DEFAULTS.get(archetype, {}))
-    merged = defaults
     merged = {**defaults, **profile}
     return merged
 
@@ -298,8 +297,25 @@ class RemoteBackend:
         submit_declared = profile.get("submit") or profile.get("submit_pattern") or ""
 
         if archetype == "ssh":
-            # Shell-template mode: {cmd} placeholder → shlex.join(cmd)
-            cmd_str = shlex.join(cmd)
+            # Shell-template mode: {cmd} placeholder → shell string.
+            # env and cwd are wired into the shell string so they execute on
+            # the remote side.  We wrap in 'sh -c ...' when either is set so
+            # that nohup/background mechanics in the template still work
+            # (nohup cannot directly receive a compound shell expression).
+            if env or cwd:
+                shell_parts: list[str] = []
+                if cwd:
+                    shell_parts.append("cd " + shlex.quote(cwd))
+                env_str = " ".join(
+                    f"{k}={shlex.quote(v)}" for k, v in (env or {}).items()
+                )
+                inner = (env_str + " " if env_str else "") + shlex.join(cmd)
+                shell_parts.append(inner)
+                cmd_str = "sh -c " + shlex.quote(
+                    " && ".join(shell_parts) if cwd else inner
+                )
+            else:
+                cmd_str = shlex.join(cmd)
             expanded = submit_declared.format(cmd=cmd_str, **{
                 k: v for k, v in interp.items()
             })
@@ -329,7 +345,27 @@ class RemoteBackend:
                 image = container.get("image", "")
                 ssh_argv += [runtime, "exec", image]
 
-            ssh_argv += ["--"] + list(cmd)
+            # Wire env and cwd into the command sent to the cluster.
+            # When either is provided, wrap cmd in 'sh -c' so both env exports
+            # and directory changes execute on the remote side before the
+            # workload starts.  Without env/cwd, cmd passes through unchanged.
+            if env or cwd:
+                std_parts: list[str] = []
+                if cwd:
+                    std_parts.append("cd " + shlex.quote(cwd))
+                std_env = " ".join(
+                    f"{k}={shlex.quote(v)}" for k, v in (env or {}).items()
+                )
+                std_inner = (std_env + " " if std_env else "") + shlex.join(cmd)
+                std_parts.append(std_inner)
+                effective_cmd: list[str] = [
+                    "/bin/sh", "-c",
+                    " && ".join(std_parts) if cwd else std_inner,
+                ]
+            else:
+                effective_cmd = list(cmd)
+
+            ssh_argv += ["--"] + effective_cmd
 
         try:
             result = subprocess.run(

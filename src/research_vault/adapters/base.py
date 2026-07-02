@@ -356,7 +356,7 @@ def _remote_backend_cls() -> type:
     return RemoteBackend
 
 
-_BACKEND_REGISTRY: dict[str, type] = {
+_BACKEND_REGISTRY: dict[str, type | None] = {
     "local": LocalSubprocess,
     # SR-7: one RemoteBackend class registered under four archetype keys.
     # Loaded lazily so the module stays importable on any machine.
