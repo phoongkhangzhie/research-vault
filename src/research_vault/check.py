@@ -182,8 +182,45 @@ def _check_figures() -> tuple[bool, str, bool]:
 # Main preflight runner
 # ---------------------------------------------------------------------------
 
-def run_preflight() -> dict[str, Any]:
+def _check_project_integrity(cfg: Any) -> list[tuple[str, str]]:
+    """Check every registered project for a present, filled CONTRACT.
+
+    Returns a list of (slug, message) tuples for projects with CONTRACT issues.
+    Never raises — errors surface as WARN messages.
+    """
+    from .build_agents import _is_contract_stub, _load_contract_text
+
+    issues: list[tuple[str, str]] = []
+    try:
+        slugs = cfg.all_project_slugs()
+    except Exception:
+        return issues
+
+    for slug in slugs:
+        proj_dir = cfg.agents_dir / slug
+        contract_text = _load_contract_text(proj_dir)
+        if contract_text is None:
+            issues.append((
+                slug,
+                f"{slug}: no CONTRACT.md found at .agents/{slug}/CONTRACT.md — "
+                f"run `rv project new` or create it manually, "
+                f"then `rv build-agents --project {slug}`",
+            ))
+        elif _is_contract_stub(contract_text):
+            issues.append((
+                slug,
+                f"{slug}: CONTRACT.md is an unfilled stub — "
+                f"fill every <!-- FILL --> placeholder then re-run "
+                f"`rv build-agents --project {slug}`",
+            ))
+    return issues
+
+
+def run_preflight(cfg: Any = None) -> dict[str, Any]:
     """Run all preflight checks and return a result dict.
+
+    cfg: optional Config object; if None, attempts to load from environment.
+         Used for project-integrity checks (per registered project).
 
     Returns:
       {
@@ -195,6 +232,10 @@ def run_preflight() -> dict[str, Any]:
         "all_required_ok": bool,
         "report": str,        human-readable multi-line report
       }
+
+    NOTE: all_required_ok is governed ONLY by claude_cli and api_key.
+    Project integrity issues (missing/stub CONTRACT) produce WARN lines in
+    the report but NEVER affect all_required_ok or the exit code.
 
     This is the programmatic entrypoint (used by tests and `rv check`).
     """
@@ -231,6 +272,25 @@ def run_preflight() -> dict[str, Any]:
     status = "OK" if figures_ok else "WARN"
     lines.append(f"  [{status}] {figures_msg}")
 
+    # Project integrity section (WARN only — never touches all_required_ok)
+    _cfg = cfg
+    if _cfg is None:
+        try:
+            from .config import load_config
+            _cfg = load_config()
+        except Exception:
+            _cfg = None
+
+    if _cfg is not None:
+        integrity_issues = _check_project_integrity(_cfg)
+        lines.append("")
+        lines.append("Project integrity:")
+        if not integrity_issues:
+            lines.append("  [OK] All registered projects have a filled CONTRACT.")
+        else:
+            for slug, msg in integrity_issues:
+                lines.append(f"  [WARN] CONTRACT — {msg}")
+
     # Summary
     lines.append("")
     if all_required:
@@ -238,6 +298,8 @@ def run_preflight() -> dict[str, Any]:
         optional_missing = not asta_ok or not zotero_ok or not wandb_ok or not figures_ok
         if optional_missing:
             lines.append("  (optional tools not found — some features limited)")
+        if _cfg is not None and _check_project_integrity(_cfg):
+            lines.append("  (project integrity warnings above — hats may lack their lens)")
     else:
         lines.append("Result: FAIL — required prerequisites missing (see FAIL items above).")
 
