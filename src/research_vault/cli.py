@@ -347,7 +347,7 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-MS-1a",
     },
-    # --- SR-FIG ---
+    # --- SR-FIG / SR-FIG-REC ---
     "figure": {
         "module": "research_vault.figure",
         "when_to_use": (
@@ -355,17 +355,25 @@ _VERB_REGISTRY: dict[str, dict] = {
             "(results_location/results_hash populated by `rv wandb pull`) and need a "
             "publication-quality plot with full provenance. Use `rv figure new --experiment <id>` "
             "to declare the figure spec (experiment results hash + filter recipe + style preset), "
-            "`rv figure preview` to inspect the exact data frame before rendering, and "
-            "`rv figure render` to produce SVG+PNG images via the apply_style seam. "
+            "`rv figure preview` to inspect the exact data frame before rendering, "
+            "`rv figure render` to produce SVG+PNG images via the apply_style seam, and "
+            "`rv figure recommend <view>` to get ranked plot-type suggestions grounded in the "
+            "Cleveland–McGill perceptual-accuracy ladder + Mackinlay expressiveness→effectiveness. "
+            "When `rv figure new` is called without `--type`, the recommender auto-picks and "
+            "prints the rationale; `--type` overrides silently (recommend-not-mandate). "
             "The optional `--benchmark <id>` references a shared datasets/ note for comparison "
             "overlay only — it is never the primary source. "
             "Requires pip install research-vault[figures] for preview/render. "
             "Anti-pattern: do NOT hand-write a one-off matplotlib script and drop a PNG into "
             "a finding — declare `rv figure new` against an `experiments/` note so the figure "
             "carries experiment→results→filter→style provenance and afterok-able lineage. "
-            "One-off scripts break the reproducibility chain that makes figures publishable."
+            "One-off scripts break the reproducibility chain that makes figures publishable. "
+            "Anti-pattern: do NOT pick a plot type by gut feel or habit (eyeballing a chart "
+            "type skips the perceptual encoding-accuracy check) — use `rv figure recommend` "
+            "to get a ranked recommendation for your data's structure and task "
+            "(comparison, trend, relationship, distribution, composition, lookup, deviation)."
         ),
-        "sr": "SR-FIG",
+        "sr": "SR-FIG, SR-FIG-REC",
     },
     # --- SR-PLAN-1 ---
     "plan": {
