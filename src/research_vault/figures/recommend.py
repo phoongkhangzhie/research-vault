@@ -100,7 +100,15 @@ def infer_view(df: Any) -> list[ViewColumn]:
                 dtype = "nominal"
 
         # role heuristic
-        if dtype == "quantitative" and card > 10:
+        # A quantitative column is a "measure" when:
+        #   (a) absolute cardinality > 10 (many distinct values — clearly continuous), OR
+        #   (b) uniqueness fraction > 0.5 (>50% of rows are distinct — a small dataset
+        #       with numeric values like confusion-matrix counts rather than a group-ID).
+        # This handles small frames (e.g. 9-row confusion-matrix count col with card=7)
+        # that card > 10 alone misclassifies as dimension.
+        nrows = max(len(df), 1)
+        card_fraction = card / nrows
+        if dtype == "quantitative" and (card > 10 or card_fraction > 0.5):
             role = "measure"
         elif dtype == "temporal":
             role = "dimension"
