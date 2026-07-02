@@ -21,22 +21,37 @@ Usage (opt-in, from cmd_reconcile caller):
     src = GitHubActionsSource(repo="owner/repo", pr_number=7)
     findings = cmd_reconcile("my-project", extra_sources=[src])
 
-Green semantics (D-CIF-4):
-  "green" = all REQUIRED checks concluded success.
-  Failing optional checks do NOT block green.
-  This matches branch-protection semantics.
+Green semantics (D-CIF-4 REVISED):
+  "green" = ALL checks concluded bucket=="pass".
+  Checks with bucket=="skipping" are non-blocking (pass-through).
+  Any bucket in {"fail", "pending", "cancel"} → not green → id withheld.
+  Zero checks → conservative (not green).
+
+  The required/optional distinction is unobtainable from ``gh pr checks`` output;
+  the operator-confirmed semantics are: green = every check passed.
+
+ID vocabulary:
+  The source emits sr-* tokens extracted from the PR's headRefName (branch name)
+  via the shared _ID_TOKEN_RE pattern (controllib.py:123).  This mirrors how
+  LocalGitSource works (status.py:106-108) and ensures the ids join correctly
+  against the control file via _check_r4 / extract_id_tokens.  pr-<N> tokens are
+  NOT emitted — they never match _ID_TOKEN_RE and would be silently inert.
 
 gh absent → raises (FileNotFoundError / RuntimeError); the combined-set builder
   skips with a loud "false GREEN possible" warning (control.py:300-311) — the gate
   does NOT go green on an unverified fetch. Zero crash, zero false-green.
 
 NO poller (D-CIF-3 DEFER): one-shot fetch at reconcile/gate time only.
+
+CLI activation path (OUT OF SCOPE):
+  Nothing in the shipped CLI constructs GitHubActionsSource automatically.
+  Activation is manual (extra_sources=[...]).  A ``rv reconcile --gh-pr N`` flag
+  is filed as a separate follow-up SR.
 """
 from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -44,13 +59,18 @@ if TYPE_CHECKING:
 
 
 class GitHubActionsSource:
-    """SignalSource: GitHub Actions CI state fetched via ``gh pr checks``.
+    """SignalSource: GitHub Actions CI state fetched via ``gh pr checks --json``.
 
     Implements the SignalSource Protocol (status.py:47) for the tier-3 GitHub
     adapter (SR-CIF). Plugs into the ``extra_sources`` seam with zero core changes.
 
-    Green semantics: all REQUIRED checks concluded ``pass``.
-    Failing optional checks do NOT block green (branch-protection semantics, D-CIF-4).
+    ID vocabulary: emits sr-* tokens from headRefName (the PR branch name), exactly
+    as LocalGitSource does.  This is the remote-CI analogue of that source; both
+    speak the same join vocabulary so ids reach _check_r4 / _check_r1 correctly.
+
+    Green semantics (D-CIF-4 REVISED): all non-skipping checks must have
+    bucket=="pass".  The required/optional distinction is unobtainable from
+    ``gh pr checks``; bucket-based green is operator-confirmed semantics.
 
     On fetch error (gh absent, API error, auth missing): raises so the combined-set
     builder emits "false GREEN possible" and skips this source — the gate cannot
@@ -70,92 +90,70 @@ class GitHubActionsSource:
     # ------------------------------------------------------------------
 
     def build_live_set(self, config: "Config", project: str) -> frozenset[str]:
-        """Return ``{pr-<n>}`` when the PR is open (not yet merged/closed).
+        """Return sr-* ids from headRefName when the PR is open (not yet merged/closed).
 
-        A PR that is open is "live" (in-flight). On fetch error, raises so the
-        combined-set builder can warn and skip rather than silently omit.
+        Fetches ``gh pr view --json state,headRefName``.  If the PR is open, runs
+        _ID_TOKEN_RE over headRefName and contributes the matching sr-* tokens.
+        On fetch error, raises so the combined-set builder warns and skips.
         """
-        state = self._fetch_pr_state()
+        state, branch_ids = self._fetch_pr_info()
         if state == "open":
-            return frozenset({f"pr-{self._pr}"})
+            return branch_ids
         return frozenset()
 
     def get_terminal_set(self, config: "Config", project: str) -> frozenset[str]:
-        """Return ``{pr-<n>}`` ONLY when ALL required checks concluded success.
+        """Return sr-* ids from headRefName ONLY when ALL checks concluded success.
 
-        D-CIF-1 hard-refuse: red / pending / unverified → contributes NOTHING.
+        D-CIF-1 hard-refuse: any fail/pending/cancel check, or zero checks →
+        contributes NOTHING.  bucket=="skipping" is non-blocking (pass-through).
         On fetch error, raises so the combined-set builder emits its
         "false GREEN possible" warning (control.py:300-311) and skips.
         """
-        checks = self._fetch_checks()
-        required_checks = [c for c in checks if c["required"]]
-
-        if not required_checks:
-            # No required checks at all — treat as not-verified (conservative).
-            # A PR with zero required checks cannot be confirmed green by construction.
+        _, branch_ids = self._fetch_pr_info()
+        if not branch_ids:
+            # No sr-* tokens in branch name — nothing to contribute
             return frozenset()
 
-        all_pass = all(c["state"] == "pass" for c in required_checks)
+        checks = self._fetch_checks()
+
+        if not checks:
+            # Zero checks → conservative: cannot confirm green
+            return frozenset()
+
+        # Non-skipping checks must all be "pass"
+        non_skipping = [c for c in checks if c.get("bucket") != "skipping"]
+        if not non_skipping:
+            # All checks are skipping — conservative: cannot confirm green
+            return frozenset()
+
+        all_pass = all(c.get("bucket") == "pass" for c in non_skipping)
         if all_pass:
-            return frozenset({f"pr-{self._pr}"})
+            return branch_ids
         return frozenset()
 
     # ------------------------------------------------------------------
     # Private helpers — gh subprocess calls
     # ------------------------------------------------------------------
 
-    def _fetch_checks(self) -> list[dict]:
-        """Fetch PR check results via ``gh pr checks``.
+    def _fetch_pr_info(self) -> tuple[str, frozenset[str]]:
+        """Fetch PR state and branch-derived sr-* ids in one gh call.
 
-        Returns a list of dicts: [{"name": str, "state": str, "required": bool}].
+        Calls ``gh pr view <N> --repo <repo> --json state,headRefName``.
 
-        gh pr checks output (tab-delimited):
-            <name> \\t <state> \\t <required> \\t <link>
-
-        ``state`` values from gh: "pass" | "fail" | "pending" | "skipping"
-        ``required`` column: "true" | "false"
+        Returns:
+            (state, branch_ids) where:
+            - state: "open" | "closed" | "merged" | "unknown" (lowercased)
+            - branch_ids: frozenset of sr-* tokens extracted from headRefName
+              via _ID_TOKEN_RE (empty if branch name has no sr-* tokens)
 
         Raises RuntimeError (or FileNotFoundError if gh absent) on failure,
         so the combined-set builder's except clause fires and warns.
         """
         result = subprocess.run(
             [
-                "gh", "pr", "checks", str(self._pr),
-                "--repo", self._repo,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"gh pr checks failed for PR #{self._pr} in {self._repo!r}: "
-                f"{result.stderr.strip()!r}"
-            )
-
-        checks: list[dict] = []
-        for line in result.stdout.strip().splitlines():
-            parts = line.split("\t")
-            if len(parts) < 3:
-                continue
-            name = parts[0].strip()
-            state = parts[1].strip().lower()
-            required = parts[2].strip().lower() == "true"
-            checks.append({"name": name, "state": state, "required": required})
-
-        return checks
-
-    def _fetch_pr_state(self) -> str:
-        """Fetch PR open/closed/merged state via ``gh pr view``.
-
-        Returns one of: "open" | "closed" | "merged" | "unknown".
-
-        Raises RuntimeError (or FileNotFoundError if gh absent) on failure.
-        """
-        result = subprocess.run(
-            [
                 "gh", "pr", "view", str(self._pr),
                 "--repo", self._repo,
-                "--json", "state",
+                "--json", "state,headRefName",
             ],
             capture_output=True,
             text=True,
@@ -168,9 +166,53 @@ class GitHubActionsSource:
 
         try:
             data = json.loads(result.stdout)
-            return data.get("state", "unknown").lower()
         except (json.JSONDecodeError, AttributeError):
             raise RuntimeError(
                 f"gh pr view returned unexpected output for PR #{self._pr}: "
+                f"{result.stdout[:200]!r}"
+            )
+
+        state = data.get("state", "unknown").lower()
+        branch = data.get("headRefName", "")
+
+        from ..controllib import _ID_TOKEN_RE
+        ids = frozenset(m.group(1).lower() for m in _ID_TOKEN_RE.finditer(branch))
+        return state, ids
+
+    def _fetch_checks(self) -> list[dict]:
+        """Fetch PR check results via ``gh pr checks --json name,state,bucket``.
+
+        Returns a list of dicts: [{"name": str, "state": str, "bucket": str}].
+
+        Real ``gh pr checks --json`` output (gh 2.9x):
+            [{"bucket": "pass", "name": "...", "state": "SUCCESS"}, ...]
+
+        ``bucket`` values: "pass" | "fail" | "pending" | "skipping" | "cancel"
+        ``state`` is the raw GitHub check conclusion (SUCCESS, FAILURE, etc.);
+        ``bucket`` is the canonical field to key off.
+
+        Raises RuntimeError (or FileNotFoundError if gh absent) on failure,
+        so the combined-set builder's except clause fires and warns.
+        """
+        result = subprocess.run(
+            [
+                "gh", "pr", "checks", str(self._pr),
+                "--repo", self._repo,
+                "--json", "name,state,bucket",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"gh pr checks failed for PR #{self._pr} in {self._repo!r}: "
+                f"{result.stderr.strip()!r}"
+            )
+
+        try:
+            return json.loads(result.stdout)
+        except (json.JSONDecodeError, ValueError):
+            raise RuntimeError(
+                f"gh pr checks --json returned unexpected output for PR #{self._pr}: "
                 f"{result.stdout[:200]!r}"
             )

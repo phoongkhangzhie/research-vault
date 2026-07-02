@@ -13,7 +13,7 @@
 - Follow-up filed (not built): CLI activation path — nothing in shipped CLI constructs `GitHubActionsSource` automatically. Activation is manual (`extra_sources=[...]`). A `rv reconcile --gh-pr N` flag is a separate SR.
 
 ### Open / next
-- PR #20 rework awaits reviewer + Architect re-check → human-go (Khang merges). NO self-merge.
+- PR #20 rework awaits reviewer + Architect re-check → human-go (operator merges). NO self-merge.
 
 ## 2026-07-01 (SR-FIG plumbing build — REWORK: experiment-results primary source)
 
