@@ -1,3 +1,31 @@
+## 2026-07-01 (SR-FIG plumbing build)
+
+### Done
+- Worktree: feat/sr-fig off origin/main. Crew identity set (mason).
+- `figures` added as the **8th OKF type** in `note.OKF_TYPES` (note.py). PROJECT-SCOPED: `project_notes_dir(project)/figures/` — deliberately NOT a shared root (only datasets/ gets the SR-8 shared treatment). `scaffold_okf_dirs` picks it up automatically.
+- `note.cmd_check` extended with figures branch: type-dir contract + `source_dataset` + `dataset_hash` required fields.
+- `src/research_vault/figure.py` — `rv figure new/preview/render/list` verb. `cmd_new` reads dataset hash from SR-8 datasets note, records OKF link + hash + filter recipe + style preset in frontmatter. `cmd_preview` writes `state/figures/<fig>-view.csv` + `state/figures/<fig>-view.md`. Import guard: `_check_figures_extra()` never raises ImportError — prints friendly message + returns 1.
+- `src/research_vault/figures/style.py` — `apply_style(preset, skin)` **STUB**. Seam for Iris's aesthetic half. Signature exactly `apply_style(preset, skin)`. Minimal rcParams set per preset. Importable without matplotlib.
+- `pyproject.toml` — `[project.optional-dependencies] figures = [matplotlib>=3.8, seaborn>=0.13, pandas>=2.2]`.
+- `cli.py` — `_VERB_REGISTRY["figure"]` added with `when_to_use` (data/scores→plot intent), anti-pattern (no one-off matplotlib scripts), `sr: SR-FIG`.
+- `check.py` — `_check_figures()` added; `run_preflight()` gains `figures` key (bool, optional, does not affect `all_required_ok`).
+- `examples/demo-figures/demo-figures.json` — three-node manifest (`extract → data-check human-go → render`). All agent nodes carry `spec:` + `reads:` (SR-DISP/SR-SCOPE).
+- `tests/test_sr_fig.py` — 44 tests across 8 classes (OKF type, cmd_check, figure new, preview, list, verb registry, style seam, rv check, demo loop).
+- `tests/test_sr8.py` — updated OKF type count assertion 7→8 (stale test corrected).
+- Full suite: 698 passed, 4 skipped (pandas not in test env). `rv lint`: PASS. `rv help --check`: OK (23 verbs). PR #18 opened (human-go class).
+
+### Decisions
+- D-FIG-2 = YES (operator-approved in brief): `figures` as 8th OKF type. Permanent vocabulary widening.
+- D-FIG-5 = pulled into first release (operator decision in brief).
+- D-FIG-3 = confirmed: `[figures]` optional extra approach. Core stays `dependencies = []`.
+- figures are PROJECT-SCOPED (not shared). This is the critical scoping correction from the brief — the §5E draft said "symmetric with datasets/" but the brief corrects it: figures follow the standard 6-type pattern.
+- `figure:<id>` resolver predicate: DEFERRED to SR-RESOLVE-SCOPE (noted in figure.py).
+- D-FIG-6 (human-go view nicety): DEFERRED.
+
+### Open / next
+- PR #18 needs reviewer-gate + Architect fit-check before Khang merges (human-go class; engineer does not self-merge).
+- Iris aesthetic deliverable: plug real `figures/style.py` against the `apply_style(preset, skin)` seam.
+
 ## 2026-07-01 (SR-8 build + amendment)
 
 ### Done
