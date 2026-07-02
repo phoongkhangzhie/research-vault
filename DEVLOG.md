@@ -14,6 +14,23 @@
 - env/cwd wired via `sh -c` wrap (not scheduler-specific flags like `--chdir`) — cross-archetype and correct for both slurm and generic; no new archetype surface.
 
 ---
+## 2026-07-02 (SR-MS-1b fix — grounding-builders wired into compile)
+
+### Done
+- **Macro brace bug fixed** (`results_inject.py`): old pattern `{value%  % key}}` placed `%` inside the macro body, commenting out the closing brace → runaway-argument on every compile. Fixed: closing `}` is now before the comment; `%` in values is escaped as `\%`.
+- **Builders wired into `run_compile`** (`compile.py`): `build_refs_bib → inject_results → inject_appendix` now runs unconditionally before the pdflatex sequence. An unmatched `\cite` hard-fails the compile (§5J.4 — never render an ungrounded PDF). A results_hash mismatch hard-fails with a clear message. Non-fatal bib errors (e.g. missing library.json) surface as `builder_warnings` in the return dict.
+- **`_resolve_experiment_notes`** helper added to `compile.py`: parses `synthesized_okf` from the manuscript note frontmatter and resolves `experiments/<id>` items relative to the project notes dir.
+- **`cmd_compile`** updated (`__init__.py`): resolves `library_path` from project config's `refs` key (falling back to `project_notes_dir/library.json`), passes it to `run_compile`. Docstring now accurately describes the builder-first execution order.
+- **E2E pdflatex test** added (`test_sr_ms_1b.py`, class `TestE2ECompileWired`): scaffolds a manuscript with a scoped experiment (accuracy + coverage_pct 72%), runs `cmd_compile`, asserts `results.tex` has `\newcommand`, `refs.bib` exists, appendix is populated, provenance stamp is in the note, AND (pdflatex present on this system at `/opt/homebrew/bin/pdflatex`) the pdflatex log has no "Runaway argument" / "missing } inserted" → macro brace fix confirmed by real compilation.
+- Full suite: 44 tests in `test_sr_ms_1b.py` pass; 1033 total pass, 18 skipped. `rv lint`: PASS. Leakage scan: clean.
+
+### Decisions
+- `run_compile` hard-fails on unmatched `\cite` only; a missing `library.json` is a warning (the .bib is written empty, compile continues). This is the correct split: unmatched cites are a grounding violation; missing library is a workflow-sequence issue.
+- `library_path` defaults to `manuscript_note_path.parent.parent / "library.json"` inside `run_compile` when called directly (not through `cmd_compile`). `cmd_compile` resolves from config first, making the config-driven path the primary.
+- `experiment_notes` resolved from `synthesized_okf` inside `run_compile` (not in `cmd_compile`) so standalone `run_compile` calls also auto-resolve — consistent behavior regardless of call site.
+
+### Open / next
+- **SR-MS-1c (deferred):** Draft-time macro-visibility prep seam. The `results-discussion` agent node needs `\resultAcc` reachable WHILE drafting, but `run_compile` runs at the DAG's end (compile is a post-draft gate). A prep seam (e.g. `rv manuscript compile --prep-only` or separate `rv manuscript bib` / `rv manuscript inject` verbs) would let draft nodes run the builders first, with compile re-running them idempotently as a safety net. Deferring the wiring (what SR-MS-1b had) was NOT acceptable; deferring THIS prep-only path is fine. Scope: SR-MS-1c.
 
 ## 2026-07-02 (SR-LR-1 L-1 fix — rv research references backward snowball)
 
@@ -59,6 +76,31 @@
 
 ### Open / next
 - PR #25 → reviewer + Architect fit → operator merges (human-go class). NO self-merge.
+
+## 2026-07-02 (SR-MS-1b complete — grounding-builders + compile half)
+
+### Done
+- **`bib.py`**: Zotero→BibTeX closed-bib exporter. Reads library.json citekey index (`data["citationKey"]` or "Citation Key:" in `extra`). Unmatched `\cite{key}` → hard error. Strips LaTeX % comments before scanning (template has example citekeys in comments). LaTeX cite{} command form only — class-8 leakage-scan safe by construction.
+- **`results_inject.py`**: hash-verified results macros. Calls `check_result_provenance()` (SHA256 gate) before reading. Emits `\newcommand{\resultAcc}{...}` into results.tex. `_to_macro_name`: CamelCase + spelled-out digits. `_stamp_provenance` appends a timestamp block to the note.
+- **`appendix.py`**: repro-table injection. REPRO_SENTINEL → `\textit{not recorded in provenance}` (explicit gap, not omitted). Manual fields flagged "(manual entry required)".
+- **`compile.py`**: exec-guarded pdflatex→bibtex→pdflatex×2 + chktex fix-loop (CHKTEX_MAX_ITERS=3). Friendly "install texlive-full" message when tools absent. `_find_tool()` checked as module-level function for monkeypatching. On success: updates manuscript_pdf + manuscript_hash in note.
+- **`check_gates.py`**: 4 structural gates (unmatched cite, figure existence, compile-success passive, data-code-availability sentinel cross-check). All scan with % comment stripping.
+- **`__init__.py` fold-ins**: project_root-relative `reads:` pointers; stub .tex files for all sections at scaffold time (prevents immediate pdflatex abort); config= param for style seam; cmd_compile() + cmd_check() public functions.
+- **`style.py` fold-ins**: `get_style_preamble(config=)` reads `[manuscript_style]._preamble`; `get_section_tips(config=)` reads per-key overrides (per-key merge, explicit arg has highest priority).
+- **`verbs.py`**: added `compile` + `check` subcommands with ms_id positional arg.
+- **`check.py`**: `_check_latex()` optional prereq probe (mirrors figures pattern). Uses `shutil.which(path=augmented_path)` with /opt/homebrew/bin so monkeypatching works in tests.
+- **`leakage_scan.sh`**: exclude `manuscripts/` from staged-mode scan (belt-and-suspenders; .tex/.bib already excluded by extension filter).
+- **43 SR-MS-1b tests**: all green. 984 total passing, 5 skipped. No regressions.
+
+### Decisions
+- **`\s*` → `[ \t]*` in `_update_note_field`**: `\s*` with MULTILINE consumed trailing newlines and ate the following YAML field into the match group, then deleted it on substitution. Changed to `[ \t]*` (horizontal whitespace only). Bug was silent: note frontmatter silently dropped fields after `manuscript_pdf:` and `manuscript_hash:`.
+- **Section stubs at scaffold time**: template `manuscript.tex` has `\input{sections/abstract}` etc. not commented out. Without stubs, fresh `rv manuscript new` followed by `rv manuscript compile` aborts immediately. Created 13 minimal `% fieldname.tex — populated by rv dag run` stubs at `cmd_new()` time.
+- **`shutil.which(path=augmented_path)` not direct file check**: makes the LaTeX prereq probe monkeypatch-friendly. Compile's `_find_tool` retains direct-file fallback (it's the exec-guard, not a preflight probe); tests for compile patch `_find_tool` directly.
+- **Comment stripping in bib.py + check_gates.py**: manuscript.tex template has `\cite{key}` examples in % comment lines. Scanning raw text would generate false unmatched-cite errors. Stripping before scanning is the correct approach; the `_strip_latex_comments` helper handles `\\%` (escaped percent) correctly.
+
+### Open / next
+- SR-MS-2: semantic grounding gates (support-matcher, hedge-lint, completeness, citation-context check)
+- `rv manuscript compile` calls to `bib.py` + `results_inject.py` + `appendix.py` need to be wired into the compile flow (currently those modules are standalone; compile.py runs pdflatex but doesn't call bib.py yet — that wiring is scoped to SR-MS-1b's "calling" PR or a follow-on)
 
 ## 2026-07-02 (SR-MS-1a complete — manuscript structure half)
 

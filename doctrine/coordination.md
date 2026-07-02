@@ -224,3 +224,23 @@ its targeted reading list:
 When `reads:` is absent the suffix is omitted. A runtime that logs tool-calls could diff
 actual-reads vs declared and emit an "out-of-scope read" signal — that is a runtime feature,
 not an RV one. RV only *enables* it by surfacing `reads:` on the frontier.
+
+## CONTRACT — the project lens (milestone-manual re-bake)
+
+Each project carries a `CONTRACT.md` in `.agents/<slug>/` — the project lens composed into
+every agent hat (`charter + role + CONTRACT`). It holds **slow-moving strategic content only**:
+Identity, golden rules, pointers, roadmap, roster.  Operational state stays off it (read fresh
+from the board).
+
+`rv project new` scaffolds a placeholdered skeleton.  The architect fills it on first real work.
+
+**On a milestone** (a phase boundary, a major deliverable, a significant scope change): the
+architect updates the affected project's CONTRACT (roadmap block especially), then runs
+`rv build-agents --project <slug>` to re-bake the hats.  No automated staleness check — mtime
+is an unreliable oracle (the mtime-freshness trap); content drift is a human judgment call on
+milestone boundaries.
+
+A missing or unfilled-stub CONTRACT is surfaced as a WARN by `rv build-agents` (loud, to
+stderr, with a banner embedded in every hat) and by `rv check` (Project integrity section).
+These are nudges — `rv check` exit code is unchanged (exit 1 is reserved for missing Claude CLI
+/ API key).  The teeth are visibility, not a gate.
