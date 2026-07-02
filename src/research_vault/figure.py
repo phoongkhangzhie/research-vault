@@ -1,19 +1,20 @@
-"""figure.py — `rv figure` verb: data→figure provenance + publication-quality plots.
+"""figure.py — `rv figure` verb: experiment-results → publication-quality figures.
 
-When to use: When you have a dataset/scores note (SR-8 datasets/) and need a
+When to use: When you have an experiment note (experiments/<id>.md) with attached
+results (results_location populated by `rv wandb pull` or manually) and need a
 publication-quality plot. Creates a figure-spec note (figures/<id>.md) with full
-provenance — dataset OKF link, content hash, extract/filter recipe, style preset —
-and renders styled SVG+PNG images via the apply_style seam.
+provenance — experiment OKF link, results content hash, extract/filter recipe,
+style preset. Optionally references a shared `datasets/` benchmark for overlay.
 
 Anti-pattern: do NOT hand-write a one-off matplotlib script and drop a PNG into a
-finding — declare `rv figure new` against a `datasets/` note so the figure carries
-dataset→filter→style provenance and afterok-able lineage.
+finding — declare `rv figure new` against an `experiments/` note so the figure carries
+experiment→results→filter→style provenance and afterok-able lineage.
 
 Commands:
-  rv figure <project> new <fig-id> --dataset <id> [options]  — create figure-spec note
-  rv figure <project> preview <fig-id>                       — print frame + write view CSV
-  rv figure <project> render <fig-id>                        — render SVG+PNG
-  rv figure <project> list                                    — list figure specs
+  rv figure <project> new <fig-id> --experiment <id> [--benchmark <id>] [options]
+  rv figure <project> preview <fig-id>
+  rv figure <project> render <fig-id>
+  rv figure <project> list
 
 Requires the optional [figures] extra for preview/render:
   pip install research-vault[figures]
@@ -27,6 +28,8 @@ This is deliberately NOT a shared root (only datasets/ gets the SR-8 shared trea
 
 Stdlib only at import time — pandas/matplotlib are guarded behind the [figures] extra
 and imported only in preview/render, never at module level.
+
+sr: SR-FIG
 """
 from __future__ import annotations
 
@@ -112,21 +115,21 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
     return fields
 
 
-def _parse_dataset_note_hash(datasets_root: Path, dataset_id: str) -> str:
-    """Read the dataset hash from the SR-8 datasets provenance note.
+def _parse_experiment_note(project_notes_dir: Path, experiment_id: str) -> dict[str, str]:
+    """Read the experiment note and return its frontmatter fields.
 
-    Returns the hash string (e.g. "sha256:abc...") or empty string if absent.
-    Raises ValueError if the note doesn't exist.
+    Returns the field dict with results_location, results_hash, etc.
+    Raises ValueError if the note doesn't exist or has no results_location.
     """
-    note_path = datasets_root / f"{dataset_id}.md"
+    note_path = project_notes_dir / "experiments" / f"{experiment_id}.md"
     if not note_path.exists():
         raise ValueError(
-            f"dataset note not found: {note_path}\n"
-            f"Create it first with: rv note <project> new datasets <title>"
+            f"experiment note not found: {note_path}\n"
+            f"Create it first with: rv note <project> new experiments <title>\n"
+            f"Then populate results with: rv wandb pull <run-id> --experiment {experiment_id}"
         )
     text = note_path.read_text(encoding="utf-8")
-    fields = _parse_frontmatter(text)
-    return fields.get("hash", "").strip()
+    return _parse_frontmatter(text)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +154,8 @@ def cmd_new(
     project: str,
     fig_id: str,
     *,
-    dataset_id: str,
+    experiment_id: str,
+    benchmark_id: str | None = None,
     select: list[str] | None = None,
     filter_expr: str | None = None,
     plot_type: str = "line",
@@ -161,24 +165,31 @@ def cmd_new(
     """Create a figure-spec note (figures/<fig-id>.md) in the project's notes directory.
 
     The figure-spec records the full provenance:
-      - source_dataset: datasets/<dataset_id>  — OKF link to the SR-8 datasets note
-      - dataset_hash: sha256:<hex>             — content hash from the datasets note
-      - select: <col1,col2,...>               — column subset (empty = all columns)
-      - filter: <expr>                         — pandas query expression (empty = no filter)
-      - plot_type: <type>                      — line | scatter | bar | box | hist | ...
-      - style: <preset>                        — publication | slide | poster
+      - source_experiment: experiments/<experiment_id>  — OKF link to the experiment note
+      - experiment_results_hash: sha256:<hex>           — results_hash from the experiment
+      - benchmark_dataset: datasets/<benchmark_id>      — OPTIONAL comparison overlay
+      - select: <col1,col2,...>                         — column subset (empty = all)
+      - filter: <expr>                                  — pandas query expression
+      - plot_type: <type>                               — line | scatter | bar | box | hist
+      - style: <preset>                                 — publication | slide | poster
+
+    The PRIMARY frame source is the experiment note's results_location (the metrics
+    artifact written by `rv wandb pull`). The optional benchmark_id references a shared
+    datasets/ note for comparison overlay only — it is never the primary source.
 
     figures are PROJECT-SCOPED — the note lives at project_notes_dir(project)/figures/.
 
-    Raises ValueError if the dataset note (datasets/<dataset_id>.md) does not exist
-    in cfg.datasets_root — you must create the SR-8 datasets note first.
+    Raises ValueError if the experiment note (experiments/<experiment_id>.md) does not
+    exist in the project's notes directory — create and pull results first.
 
     Returns the path to the created figure note.
     """
     cfg = config or load_config()
+    project_notes_dir = cfg.project_notes_dir(project)
 
-    # Verify the dataset note exists and read its hash
-    dataset_hash = _parse_dataset_note_hash(cfg.datasets_root, dataset_id)
+    # Read the experiment note — the primary results source
+    exp_fields = _parse_experiment_note(project_notes_dir, experiment_id)
+    results_hash = exp_fields.get("results_hash", "").strip()
 
     # Create the figures directory (project-scoped)
     figs_dir = _figures_dir(project, cfg)
@@ -196,8 +207,8 @@ def cmd_new(
         "type": "figures",
         "title": fig_id,
         "created": _today(),
-        "source_dataset": f"datasets/{dataset_id}",
-        "dataset_hash": dataset_hash,
+        "source_experiment": f"experiments/{experiment_id}",
+        "experiment_results_hash": results_hash,
         "select": select_str,
         "filter": filter_str,
         "plot_type": plot_type,
@@ -205,9 +216,14 @@ def cmd_new(
         "rendered": "false",
     }
 
+    # Optional benchmark dataset (comparison overlay only, NOT the primary source)
+    if benchmark_id:
+        fields["benchmark_dataset"] = f"datasets/{benchmark_id}"
+
     body = (
         "\n"
         "<!-- Figures provenance note (SR-FIG) -->\n"
+        "<!-- Primary source: the experiment's results_location (rv wandb pull output). -->\n"
         "<!-- This note POINTS to image files — it does NOT embed image bytes. -->\n"
         "<!-- Run: rv figure preview <fig-id>  to inspect the data frame. -->\n"
         "<!-- Run: rv figure render <fig-id>   to produce SVG+PNG images. -->\n"
@@ -233,6 +249,9 @@ def cmd_preview(
     This is the human-go inspection surface (§5E.3): the operator eyeballs the
     exact frame that will feed the plot before approving the data-check DAG node.
 
+    The frame is loaded from the experiment note's results_location — the metrics
+    artifact written by `rv wandb pull` (or set manually).
+
     Prints to stdout:
       - Frame shape (rows × cols)
       - Column names + dtypes
@@ -257,46 +276,47 @@ def cmd_preview(
     if not note_path.exists():
         print(
             f"rv figure preview: figure spec not found: {note_path}\n"
-            f"  Create it first: rv figure {project} new {fig_id} --dataset <id>",
+            f"  Create it first: rv figure {project} new {fig_id} --experiment <exp-id>",
             file=sys.stderr,
         )
         return 1
 
     fields = _parse_frontmatter(note_path.read_text(encoding="utf-8"))
-    dataset_id = fields.get("source_dataset", "").replace("datasets/", "").strip()
-    if not dataset_id:
+    source_exp = fields.get("source_experiment", "").strip()
+    if not source_exp:
         print(
-            f"rv figure preview: figure spec missing 'source_dataset' field: {note_path}",
+            f"rv figure preview: figure spec missing 'source_experiment' field: {note_path}",
             file=sys.stderr,
         )
         return 1
 
-    # Resolve the dataset data file from the SR-8 datasets note
-    dataset_note = cfg.datasets_root / f"{dataset_id}.md"
-    if not dataset_note.exists():
-        print(
-            f"rv figure preview: dataset note not found: {dataset_note}",
-            file=sys.stderr,
-        )
+    # Resolve the experiment note to get results_location
+    experiment_id = source_exp.replace("experiments/", "").strip()
+    project_notes_dir = cfg.project_notes_dir(project)
+    try:
+        exp_fields = _parse_experiment_note(project_notes_dir, experiment_id)
+    except ValueError as e:
+        print(f"rv figure preview: {e}", file=sys.stderr)
         return 1
 
-    ds_fields = _parse_frontmatter(dataset_note.read_text(encoding="utf-8"))
-    location = ds_fields.get("location", "").strip()
+    location = exp_fields.get("results_location", "").strip()
     if not location:
         print(
-            f"rv figure preview: dataset note has no 'location' field: {dataset_note}",
+            f"rv figure preview: experiment note has no 'results_location' field.\n"
+            f"  Run: rv wandb pull <run-id> --experiment {experiment_id} --project {project}\n"
+            f"  Or fill results_location manually in: {project_notes_dir}/experiments/{experiment_id}.md",
             file=sys.stderr,
         )
         return 1
 
-    # Load the data
+    # Load the data from the experiment results artifact
     try:
         if location.lower().endswith(".csv") or not location.startswith(("http", "doi:")):
             df = pd.read_csv(location)
         else:
             print(
                 f"rv figure preview: only local CSV files supported in preview; "
-                f"got location={location!r}",
+                f"got results_location={location!r}",
                 file=sys.stderr,
             )
             return 1
@@ -334,6 +354,7 @@ def cmd_preview(
     nrows, ncols = df.shape
     print(f"\n=== figure preview: {fig_id} ===")
     print(f"Shape: {nrows} rows × {ncols} cols")
+    print(f"Source: experiments/{experiment_id} → {location}")
     print(f"Columns: {list(df.columns)}")
     print(f"\nDtypes:")
     for col, dtype in df.dtypes.items():
@@ -361,7 +382,7 @@ def cmd_preview(
 
     view_md.write_text(
         f"# Data view: {fig_id}\n\n"
-        f"Source: `datasets/{dataset_id}` · Shape: {nrows}×{ncols}\n"
+        f"Source: `experiments/{experiment_id}` → `{location}`\n"
         f"Select: `{select_str or '(all columns)'}` · Filter: `{filter_str or '(none)'}`\n\n"
         f"## Frame head (first {min(20, nrows)} rows)\n\n"
         f"{md_table}\n",
@@ -383,7 +404,7 @@ def cmd_render(
 ) -> int:
     """Render the figure spec to SVG+PNG images.
 
-    Reads the figure spec note, loads the dataset, applies extract/filter,
+    Reads the figure spec note, loads the experiment results, applies extract/filter,
     calls apply_style(preset, skin=project), and renders to:
       state/figures/<fig-id>.svg
       state/figures/<fig-id>.png
@@ -412,23 +433,29 @@ def cmd_render(
         return 1
 
     fields = _parse_frontmatter(note_path.read_text(encoding="utf-8"))
-    dataset_id = fields.get("source_dataset", "").replace("datasets/", "").strip()
-    if not dataset_id:
+    source_exp = fields.get("source_experiment", "").strip()
+    if not source_exp:
         print(
-            f"rv figure render: figure spec missing 'source_dataset': {note_path}",
+            f"rv figure render: figure spec missing 'source_experiment': {note_path}",
             file=sys.stderr,
         )
         return 1
 
-    # Load dataset
-    dataset_note = cfg.datasets_root / f"{dataset_id}.md"
-    if not dataset_note.exists():
-        print(f"rv figure render: dataset note not found: {dataset_note}", file=sys.stderr)
+    experiment_id = source_exp.replace("experiments/", "").strip()
+    project_notes_dir = cfg.project_notes_dir(project)
+    try:
+        exp_fields = _parse_experiment_note(project_notes_dir, experiment_id)
+    except ValueError as e:
+        print(f"rv figure render: {e}", file=sys.stderr)
         return 1
-    ds_fields = _parse_frontmatter(dataset_note.read_text(encoding="utf-8"))
-    location = ds_fields.get("location", "").strip()
+
+    location = exp_fields.get("results_location", "").strip()
     if not location:
-        print(f"rv figure render: dataset note missing 'location': {dataset_note}", file=sys.stderr)
+        print(
+            f"rv figure render: experiment note missing 'results_location': "
+            f"{project_notes_dir}/experiments/{experiment_id}.md",
+            file=sys.stderr,
+        )
         return 1
 
     try:
@@ -461,7 +488,10 @@ def cmd_render(
     fig, ax = plt.subplots()
     numeric_cols = df.select_dtypes("number").columns.tolist()
     if numeric_cols:
-        df[numeric_cols].plot(ax=ax, kind="line" if plot_type not in ("bar", "scatter", "hist", "box") else plot_type)
+        df[numeric_cols].plot(
+            ax=ax,
+            kind="line" if plot_type not in ("bar", "scatter", "hist", "box") else plot_type,
+        )
     ax.set_title(fig_id)
     ax.set_xlabel("")
 
@@ -507,7 +537,7 @@ def _update_figure_note_rendered(
     new_lines = []
     for line in lines:
         if line.startswith("rendered:"):
-            new_lines.append(f"rendered: true")
+            new_lines.append("rendered: true")
         else:
             new_lines.append(line)
 
@@ -555,23 +585,28 @@ def cmd_list(
 def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.ArgumentParser:  # type: ignore[type-arg]
     """Build the argument parser for the `figure` verb.
 
-    When to use: When you have a dataset/scores note (SR-8 datasets/) and need a
-    publication-quality plot with full dataset→filter→style provenance. Use
-    `rv figure new` to declare the figure spec (without rendering), `rv figure preview`
-    to inspect the exact data frame, and `rv figure render` to produce the images.
+    When to use: When you have an experiment note (experiments/<id>.md) with attached
+    results (results_location/results_hash from `rv wandb pull` or manual fill) and
+    need a publication-quality plot with full experiment→results→filter→style provenance.
+    Use `rv figure new` to declare the figure spec, `rv figure preview` to inspect the
+    exact data frame, and `rv figure render` to produce the images.
 
     Anti-pattern: do NOT hand-write a one-off matplotlib script and drop a PNG into a
-    finding — declare `rv figure new` against a `datasets/` note so the figure carries
-    dataset→filter→style provenance and afterok-able lineage. One-off scripts drop the
-    reproducibility chain; rv figure new builds it structurally.
+    finding — declare `rv figure new` against an `experiments/` note so the figure carries
+    experiment→results→filter→style provenance and afterok-able lineage. One-off scripts
+    drop the reproducibility chain; rv figure new builds it structurally.
+
+    sr: SR-FIG
     """
     desc = (
-        "Create, preview, render, and list publication-quality figures from SR-8 dataset notes.\n"
-        "Figures carry full provenance: dataset OKF link + hash + filter recipe + style preset.\n"
+        "Create, preview, render, and list publication-quality figures from experiment results.\n"
+        "Figures carry full provenance: experiment OKF link + results hash + filter recipe + style.\n"
+        "Primary source: experiments/<id> results_location (populated by rv wandb pull).\n"
+        "Optional --benchmark: shared datasets/<id> for comparison overlay only.\n"
         "Requires pip install research-vault[figures] for preview/render (matplotlib/seaborn/pandas)."
     )
     if parent is not None:
-        p = parent.add_parser("figure", help="Data→figure provenance + render.", description=desc)
+        p = parent.add_parser("figure", help="Experiment-results → publication figure.", description=desc)
     else:
         p = argparse.ArgumentParser(prog="rv figure", description=desc)
 
@@ -582,16 +617,20 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     # new
     new_p = sub.add_parser(
         "new",
-        help="Create a figure-spec note (figures/<id>.md) without rendering.",
+        help="Create a figure-spec note (figures/<id>.md) sourced from experiment results.",
     )
     new_p.add_argument("fig_id", metavar="fig-id", help="Figure identifier (slug).")
     new_p.add_argument(
-        "--dataset", dest="dataset_id", required=True, metavar="DATASET-ID",
-        help="ID of the SR-8 datasets note (e.g. 'hfs-run-007').",
+        "--experiment", dest="experiment_id", required=True, metavar="EXP-ID",
+        help="ID of the experiment note (e.g. 'hfs-run-007'). PRIMARY source.",
+    )
+    new_p.add_argument(
+        "--benchmark", dest="benchmark_id", default=None, metavar="DATASET-ID",
+        help="OPTIONAL: ID of a shared datasets/ note for comparison overlay only.",
     )
     new_p.add_argument(
         "--select", nargs="+", default=None, metavar="COL",
-        help="Column(s) to select from the dataset. Omit to use all columns.",
+        help="Column(s) to select from the results frame. Omit to use all columns.",
     )
     new_p.add_argument(
         "--filter", dest="filter_expr", default=None, metavar="EXPR",
@@ -609,24 +648,22 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     )
 
     # preview
-    prev_p = sub.add_parser(
+    sub.add_parser(
         "preview",
         help=(
-            "Print the exact data frame + write state/figures/<id>-view.csv. "
+            "Print the exact data frame from experiment results + write state/figures/<id>-view.csv. "
             "The human-go data-check inspection surface (§5E.3). Requires [figures] extra."
         ),
     )
-    prev_p.add_argument("fig_id", metavar="fig-id", help="Figure identifier.")
 
     # render
-    rend_p = sub.add_parser(
+    sub.add_parser(
         "render",
         help="Render the figure spec to SVG+PNG. Requires [figures] extra.",
     )
-    rend_p.add_argument("fig_id", metavar="fig-id", help="Figure identifier.")
 
     # list
-    list_p = sub.add_parser("list", help="List figure specs for the project.")
+    sub.add_parser("list", help="List figure specs for the project.")
 
     return p
 
@@ -644,7 +681,8 @@ def run(args: argparse.Namespace) -> int:
             path = cmd_new(
                 args.project,
                 args.fig_id,
-                dataset_id=args.dataset_id,
+                experiment_id=args.experiment_id,
+                benchmark_id=args.benchmark_id,
                 select=args.select,
                 filter_expr=args.filter_expr,
                 plot_type=args.plot_type,
@@ -668,11 +706,11 @@ def run(args: argparse.Namespace) -> int:
             print(f"Figure specs for {args.project!r}:")
             for r in results:
                 fid = r["path"].stem
-                ds = r["fields"].get("source_dataset", "?")
+                exp = r["fields"].get("source_experiment", "?")
                 style = r["fields"].get("style", "?")
                 rendered = r["fields"].get("rendered", "false")
                 rendered_tag = " [rendered]" if rendered == "true" else ""
-                print(f"  {fid}: dataset={ds} style={style}{rendered_tag}")
+                print(f"  {fid}: experiment={exp} style={style}{rendered_tag}")
             return 0
 
     except (ValueError, KeyError) as e:

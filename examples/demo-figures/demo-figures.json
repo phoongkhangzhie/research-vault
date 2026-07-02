@@ -1,16 +1,16 @@
 {
   "run_id": "demo-figures-hfs-by-lang",
-  "name": "Demo figures loop — scores/dataset → publication figure",
+  "name": "Demo figures loop — experiment results → publication figure",
   "global_cap": 2,
   "nodes": [
     {
       "id": "extract",
       "type": "agent",
-      "label": "Extract + filter dataset frame (Mason/engineer)",
+      "label": "Extract + filter experiment results frame (Mason/engineer)",
       "role": "engineer",
       "spec": "task://demo-figures#extract",
       "reads": [
-        "notes/<proj>/datasets/hfs-run-007.md",
+        "notes/<proj>/experiments/hfs-run-007.md",
         "notes/<proj>/figures/hfs-by-lang.md"
       ],
       "produces": {

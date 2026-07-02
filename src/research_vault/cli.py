@@ -328,16 +328,19 @@ _VERB_REGISTRY: dict[str, dict] = {
     "figure": {
         "module": "research_vault.figure",
         "when_to_use": (
-            "When you have a dataset/scores note (SR-8 datasets/) and need a "
-            "publication-quality plot with full provenance. Use `rv figure new` to declare "
-            "the figure spec (dataset OKF link + filter recipe + style preset), "
+            "When you have an experiment note (experiments/<id>.md) with results attached "
+            "(results_location/results_hash populated by `rv wandb pull`) and need a "
+            "publication-quality plot with full provenance. Use `rv figure new --experiment <id>` "
+            "to declare the figure spec (experiment results hash + filter recipe + style preset), "
             "`rv figure preview` to inspect the exact data frame before rendering, and "
             "`rv figure render` to produce SVG+PNG images via the apply_style seam. "
+            "The optional `--benchmark <id>` references a shared datasets/ note for comparison "
+            "overlay only — it is never the primary source. "
             "Requires pip install research-vault[figures] for preview/render. "
             "Anti-pattern: do NOT hand-write a one-off matplotlib script and drop a PNG into "
-            "a finding — declare `rv figure new` against a `datasets/` note so the figure "
-            "carries dataset→filter→style provenance and afterok-able lineage. One-off scripts "
-            "break the reproducibility chain that makes figures structurally publishable."
+            "a finding — declare `rv figure new` against an `experiments/` note so the figure "
+            "carries experiment→results→filter→style provenance and afterok-able lineage. "
+            "One-off scripts break the reproducibility chain that makes figures publishable."
         ),
         "sr": "SR-FIG",
     },
