@@ -29,6 +29,37 @@
 
 ### Open / next
 - Hub to open PR for review (human-go class — cross-project linter gate change).
+## 2026-07-02 (SR-HARDENING — Argus + Wren BLOCK fixes: de-vacuousing + SSOT lazy import)
+
+### Done
+- **Fix 1 (Argus BLOCK) — de-vacuoused routing guard test** (`tests/test_sr_hardening.py`):
+  Replaced `test_okf_shared_types_is_not_hardcoded_string` (vacuous: asserted presence of
+  "OKF_SHARED_TYPES" in raw `inspect.getsource()` — passed even with reverted routing because
+  comments contain the string) with `test_routing_condition_uses_membership_not_equality`.
+  New test uses `ast.get_source_segment` to extract comment-free condition source for each
+  `if X: <var> = cfg.datasets_root` block in cmd_new/cmd_list/cmd_check, then asserts ABSENCE
+  of `'== "datasets"'`. Red-before-green proven: reverted cmd_new routing to `== "datasets"` →
+  new test FAILED; old vacuous test still PASSED; restored → both green.
+- **Fix 2 (Wren BLOCK) — SSOT lazy import in Config.__init__** (`config.py`):
+  Removed `_OKF_RESERVED_SLUGS` module-level frozenset (hardcoded 9-string fork of
+  `note.OKF_TYPES ∪ OKF_SHARED_TYPES`, could silently drift). Replaced with call-time import
+  inside `Config.__init__`: `from .note import OKF_TYPES, OKF_SHARED_TYPES; _reserved = OKF_TYPES | OKF_SHARED_TYPES`.
+  Added `test_reserved_slugs_derived_from_note_ssot_not_hardcoded` — asserts no module-level
+  `_OKF_RESERVED_SLUGS` attribute. Red-before-green proven: test FAILED on old constant; PASSES
+  after lazy-import fix. All 12 slug-guard functional tests still green.
+- 1324 tests, 37 skipped; `rv lint` PASS; `rv help --check` OK; leakage clean.
+
+### Decisions
+- **Lazy import chosen over drift-guard test**: the lazy import inside `__init__` eliminates
+  the fork entirely — a future 10th OKF type is automatically rejected, no sync required.
+  Drift-guard tests are defensive; removing the thing that can drift is stronger. Call-time
+  import is safe: Config.__init__ runs after both modules are fully loaded (note.py's
+  module-level import of Config completes before any Config() call).
+- Removed `# noqa: PLC0415` comment from the import line — our linter is AST-based, not
+  ruff/pylint; the comment was misleading rather than functional.
+
+### Open / next
+- Hub to push for Argus + Wren re-review; crew cannot self-approve.
 
 ## 2026-07-02 (lint-f811 — F811 redefined-while-unused gate)
 
@@ -53,6 +84,47 @@
 
 ### Open / next
 - PR `feat/lint-f811` pushed; awaiting hub to open PR + human-go merge.
+
+## 2026-07-02 (SR-HARDENING — 3 targeted fixes from #34/#35 gate)
+
+### Done
+- **Fix 1 — native_env value guard** (`adapters/remote.py`): env values containing
+  space/comma/semicolon/quote in `native_env: true` mode now raise a loud `ValueError`
+  before any argv is built. Expanded docstring names the comma-delimiter + injection risk
+  explicitly (was undersold as "spaces won't work").
+- **Fix 2 — container + native_env flag ordering** (`adapters/remote.py`): moved the
+  container wrap block to AFTER the native scheduler flags, so `--export`/`--chdir` land
+  before `apptainer exec img.sif` in the sbatch argv. SLURM was silently parsing them as
+  apptainer args when the container wrap was first.
+- **Fix 3a — slug-collision guard** (`config.py`): `Config.__init__` now rejects project
+  slugs matching any of the 9 OKF type names with a clear `ValueError` at config-load time.
+  Added `_OKF_RESERVED_SLUGS` constant (mirrors `note.OKF_TYPES`; no circular import since
+  note.py imports Config).
+- **Fix 3b — OKF_SHARED_TYPES self-consumption** (`note.py`): all 3 routing sites
+  (`cmd_new`, `cmd_list`, `cmd_check`) now use `in OKF_SHARED_TYPES` instead of
+  `== "datasets"`. Datasets-specific field checks (`location`/`hash`) remain under
+  `if t == "datasets":`. Behavior unchanged; correct when a 2nd shared type lands.
+- 28 new tests; 1307 suite total, 0 failures. CI green on SHA 34dec513.
+
+### Decisions
+- Used `_OKF_RESERVED_SLUGS` in config.py (not a lazy import of note.py) to avoid circular
+  import risk. Comment points to note.py as SSOT; config.py copy must stay in sync.
+- Value guard uses a dict `{char: label}` so the error message names the character class
+  ("comma", "space", "semicolon", "quote") not the raw character — more actionable.
+
+### note.py regions for #13 (SR-PLAN-2) rebase
+- **cmd_new** routing change at the `if note_type in OKF_SHARED_TYPES:` block (around
+  the old `if note_type == "datasets":` line in the original). The datasets-specific
+  template fields (`location`, `hash`) and body template remain as `if note_type == "datasets":`.
+- **cmd_list** routing change at `if t in OKF_SHARED_TYPES:` (around old line 368).
+- **cmd_check** routing changes:
+  - Outer branch: `if t in OKF_SHARED_TYPES:` (around old line 414).
+  - Inner type-consistency check: `if note_type != t:` (was `note_type != "datasets"`).
+  - Datasets field checks now nested under `if t == "datasets":` inside the shared branch.
+- All other note.py logic (experiments/figures/manuscript branches) is untouched.
+
+### Open / next
+- Hub to open PR for review; crew cannot self-approve.
 
 ## 2026-07-02 (SR-MS-2 — rubric wiring + calibration gate completion)
 

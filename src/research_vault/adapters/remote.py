@@ -321,7 +321,7 @@ class RemoteBackend:
             })
             ssh_argv = ["ssh", host, expanded]
         else:
-            # Standard mode: ssh <host> <submit_parts> [container_wrap] -- <cmd>
+            # Standard mode: ssh <host> <submit_parts> [native_flags] [container_wrap] -- <cmd>
             submit_str = submit_declared
             # Substitute known variables if present in the pattern
             for key, val in interp.items():
@@ -338,13 +338,6 @@ class RemoteBackend:
 
             ssh_argv = ["ssh", host] + shlex.split(submit_str)
 
-            # Container wrap (orthogonal modifier — honored for any archetype)
-            container = profile.get("container")
-            if container:
-                runtime = container.get("runtime", "apptainer")
-                image = container.get("image", "")
-                ssh_argv += [runtime, "exec", image]
-
             # Wire env and cwd into the command sent to the cluster.
             #
             # Two modes, selected by the manifest profile's ``native_env`` key
@@ -360,16 +353,39 @@ class RemoteBackend:
             #     when the scheduler's native mechanism is preferable:
             #       ssh+slurm → sbatch --export=KEY=val --chdir=<d>
             #       ssh+pbs   → qsub  -v KEY=val -d <d>
-            #     The scheduler-native flags are appended to ssh_argv (BEFORE
-            #     '--') and cmd is passed through unchanged (no sh -c wrap).
+            #     The native flags are injected immediately after the sbatch/qsub
+            #     base command, BEFORE any container wrap — otherwise SLURM parses
+            #     them as apptainer arguments and silently ignores them.
             #     Limitation: native_env only applies to ssh+slurm / ssh+pbs
             #     archetypes. For other archetypes it falls back to sh -c.
+            #     Value restriction: env values must not contain spaces, commas,
+            #     semicolons, or quotes. Commas corrupt SLURM's --export delimiter;
+            #     spaces split the value at word-boundary; semicolons are shell
+            #     separators on the remote; quotes break shlex parsing. A value
+            #     containing any of these characters is REJECTED with a loud error —
+            #     use native_env: false (sh -c mode) or encode the value (base64)
+            #     when the value must contain such characters.
             #
             # Without env/cwd, cmd passes through unchanged in both modes.
             native_env: bool = bool(profile.get("native_env", False))
             use_native = native_env and bool(env or cwd)
 
             if use_native:
+                # Guard: reject unsafe env values BEFORE building argv.
+                # Silent corruption is worse than a loud error — reject early.
+                _NATIVE_ENV_UNSAFE = {" ": "space", ",": "comma", ";": "semicolon",
+                                      "'": "quote", '"': "quote"}
+                for k, v in (env or {}).items():
+                    for char, label in _NATIVE_ENV_UNSAFE.items():
+                        if char in v:
+                            raise ValueError(
+                                f"native_env: env value for {k!r} contains a {label} "
+                                f"({char!r}), which corrupts the scheduler's --export "
+                                f"delimiter or enables injection on the remote side. "
+                                f"Use native_env: false (sh -c mode) or encode the "
+                                f"value (e.g. base64) to pass it safely."
+                            )
+
                 if archetype == "ssh+slurm":
                     if env:
                         export_val = ",".join(f"{k}={v}" for k, v in env.items())
@@ -386,6 +402,15 @@ class RemoteBackend:
                     # Unknown archetype: native_env has no defined mapping —
                     # fall back to sh -c so env/cwd still land on the remote.
                     use_native = False
+
+            # Container wrap (orthogonal modifier — honored for any archetype).
+            # Injected AFTER native scheduler flags so that --export/--chdir are
+            # parsed by sbatch/qsub, not handed to the container runtime as its args.
+            container = profile.get("container")
+            if container:
+                runtime = container.get("runtime", "apptainer")
+                image = container.get("image", "")
+                ssh_argv += [runtime, "exec", image]
 
             if not use_native and (env or cwd):
                 std_parts: list[str] = []
