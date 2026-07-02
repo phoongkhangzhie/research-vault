@@ -1,9 +1,16 @@
 """compile.py — exec-guarded LaTeX compile loop for manuscripts.
 
-Runs the standard academic compile sequence:
-  pdflatex main.tex → bibtex main → pdflatex main.tex × 2
+Runs the grounding-builders first, then the standard academic compile sequence:
+  build_refs_bib → inject_results → inject_appendix
+  → pdflatex main.tex → bibtex main → pdflatex main.tex × 2
 
 Then runs a bounded chktex fix-loop (max N iterations).
+
+Anti-fabrication contract (§5J.3/§5J.4):
+  - build_refs_bib is ALWAYS called before pdflatex — never render without a grounded .bib.
+  - inject_results is ALWAYS called — macros come from hash-verified artifacts only.
+  - An unmatched \\cite hard-fails the compile (never silently produce an ungrounded PDF).
+  - A results_hash mismatch hard-fails the compile (never silently proceed with wrong data).
 
 Exec-guard (§5J.5):
   ``pdflatex``, ``bibtex``, and ``chktex`` are SYSTEM PREREQUISITES
@@ -29,6 +36,46 @@ from typing import Any
 
 # Maximum iterations of the chktex fix-loop
 CHKTEX_MAX_ITERS = 3
+
+
+# ---------------------------------------------------------------------------
+# Grounding-builder helpers
+# ---------------------------------------------------------------------------
+
+def _resolve_experiment_notes(manuscript_note_path: Path) -> list[Path]:
+    """Resolve experiment note paths from the manuscript note's synthesized_okf field.
+
+    The ``synthesized_okf`` frontmatter field lists the OKF note ids scoped
+    to this manuscript (e.g. ``"experiments/exp-q1, findings/find-q1"``).
+    This function extracts the ``experiments/`` items and returns their note
+    paths relative to the project notes directory (parent.parent of the note).
+
+    Returns an empty list when synthesized_okf is unset or the experiment notes
+    do not exist — callers handle absence gracefully.
+    """
+    if not manuscript_note_path.exists():
+        return []
+    try:
+        from research_vault.note import _parse_frontmatter
+        text = manuscript_note_path.read_text(encoding="utf-8")
+        fields, _ = _parse_frontmatter(text)
+        scope_str = fields.get("synthesized_okf", "").strip()
+        if not scope_str:
+            return []
+        # manuscript note lives at: project_notes_dir/manuscript/<id>.md
+        # → parent.parent = project_notes_dir
+        project_notes_dir = manuscript_note_path.parent.parent
+        notes: list[Path] = []
+        for item in scope_str.split(","):
+            item = item.strip()
+            if item.startswith("experiments/"):
+                exp_name = item[len("experiments/"):]
+                candidate = project_notes_dir / "experiments" / f"{exp_name}.md"
+                if candidate.exists():
+                    notes.append(candidate)
+        return notes
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -201,13 +248,22 @@ def run_compile(
     manuscript_note_path: Path,
     tree_root: Path,
     *,
+    library_path: Path | None = None,
+    experiment_notes: list[Path] | None = None,
     chktex_max_iters: int = CHKTEX_MAX_ITERS,
     timeout: int = 120,
 ) -> dict[str, Any]:
-    """Run the exec-guarded LaTeX compile loop for a manuscript.
+    """Run the grounding-builders then the exec-guarded LaTeX compile loop.
 
     When to use: called by the ``compile`` DAG node and ``rv manuscript compile``.
-    Runs: pdflatex → bibtex → pdflatex × 2 + chktex fix-loop.
+
+    Execution order (anti-fabrication contract §5J.3/§5J.4):
+      1. build_refs_bib — exports closed .bib from library.json.
+         Hard-fails on any unmatched \\cite (never render an ungrounded PDF).
+      2. inject_results — writes hash-verified \\newcommand macros into results.tex.
+         Hard-fails on results_hash mismatch.
+      3. inject_appendix — machine-populates sections/appendix-repro.tex.
+      4. pdflatex → bibtex → pdflatex × 2 + chktex fix-loop.
 
     Exec-guard: if pdflatex or bibtex is absent, returns exit_code=1 with a
     friendly message (NEVER raises / crashes).
@@ -219,6 +275,12 @@ def run_compile(
     Args:
         manuscript_note_path: path to the manuscript/<id>.md OKF note.
         tree_root: path to manuscripts/<id>/ (contains main.tex).
+        library_path: path to library.json. When None, defaults to
+            manuscript_note_path.parent.parent / "library.json" (the standard
+            location set by ``rv project new``).
+        experiment_notes: list of experiments/ note paths to read results from.
+            When None, resolved automatically from the note's ``synthesized_okf``
+            field (recommended path — lets compile be called without pre-resolution).
         chktex_max_iters: max iterations of the chktex fix-loop.
         timeout: subprocess timeout in seconds per command.
 
@@ -229,6 +291,7 @@ def run_compile(
           "log": str (combined pdflatex output)
           "chktex": dict (fix-loop summary)
           "pdf_path": str | None (path to main.pdf if produced)
+          "builder_warnings": list[str] (non-fatal builder issues, e.g. missing library)
     """
     main_tex = tree_root / "main.tex"
     if not main_tex.exists():
@@ -238,7 +301,75 @@ def run_compile(
             "log": "",
             "chktex": {},
             "pdf_path": None,
+            "builder_warnings": [],
         }
+
+    # ── Phase 1: Grounding builders ─────────────────────────────────────────
+    # Must run BEFORE pdflatex — never render without grounded .bib and macros.
+    builder_warnings: list[str] = []
+
+    # Resolve library.json path (default: project_notes_dir/library.json)
+    if library_path is None:
+        library_path = manuscript_note_path.parent.parent / "library.json"
+
+    # Resolve experiment notes from synthesized_okf if not provided
+    if experiment_notes is None:
+        experiment_notes = _resolve_experiment_notes(manuscript_note_path)
+
+    # 1a. Build refs.bib — hard-fail on unmatched \cite
+    from research_vault.manuscript.bib import build_refs_bib
+    bib_errors, _bib_path = build_refs_bib(
+        tree_root,
+        library_path=library_path,
+        cite_tex_files=None,  # rglob all .tex under tree_root
+    )
+    if bib_errors:
+        unmatched = [
+            e for e in bib_errors
+            if "unmatched" in e.lower() and "cite" in e.lower()
+        ]
+        if unmatched:
+            return {
+                "exit_code": 1,
+                "message": (
+                    "rv manuscript compile: BLOCKED — unmatched \\cite commands.\n"
+                    "Rendering an ungrounded PDF is refused (§5J.4).\n"
+                    "Fix: run `rv cite add <doi>` then `rv cite sync` for each:\n  "
+                    + "\n  ".join(unmatched)
+                ),
+                "log": "",
+                "chktex": {},
+                "pdf_path": None,
+                "builder_warnings": [],
+            }
+        # Non-fatal bib errors (library.json missing, malformed) → warn, continue
+        builder_warnings.extend(bib_errors)
+
+    # 1b. Inject hash-verified results macros into results.tex
+    from research_vault.manuscript.results_inject import inject_results
+    try:
+        inj = inject_results(
+            manuscript_note_path=manuscript_note_path,
+            experiment_notes=experiment_notes,
+            tree_root=tree_root,
+        )
+        builder_warnings.extend(inj.get("errors", []))
+    except ValueError as exc:
+        # Hash mismatch — hard fail
+        return {
+            "exit_code": 1,
+            "message": (
+                f"rv manuscript compile: BLOCKED — results hash mismatch.\n{exc}"
+            ),
+            "log": "",
+            "chktex": {},
+            "pdf_path": None,
+            "builder_warnings": builder_warnings,
+        }
+
+    # 1c. Inject reproducibility appendix table
+    from research_vault.manuscript.appendix import inject_appendix
+    inject_appendix(tree_root=tree_root, experiment_notes=experiment_notes)
 
     # ── Exec-guard ─────────────────────────────────────────────────────────
     missing_tools: list[str] = []
@@ -258,6 +389,7 @@ def run_compile(
             "log": "",
             "chktex": {},
             "pdf_path": None,
+            "builder_warnings": builder_warnings,
         }
 
     # ── Compile sequence ───────────────────────────────────────────────────
@@ -305,6 +437,7 @@ def run_compile(
             "log": full_log,
             "chktex": chktex_result,
             "pdf_path": None,
+            "builder_warnings": builder_warnings,
         }
 
     # ── Update note fields ─────────────────────────────────────────────────
@@ -322,4 +455,5 @@ def run_compile(
         "log": full_log,
         "chktex": chktex_result,
         "pdf_path": str(pdf_path),
+        "builder_warnings": builder_warnings,
     }

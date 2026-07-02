@@ -727,16 +727,30 @@ def cmd_compile(
     *,
     config: Config | None = None,
 ) -> dict[str, Any]:
-    """Exec-guarded LaTeX compile loop for a manuscript.
+    """Run grounding-builders then the exec-guarded LaTeX compile loop.
 
-    When to use: ``rv manuscript compile <project> <id>`` to compile the
-    manuscript's main.tex into a PDF.
+    When to use: ``rv manuscript compile <project> <id>`` to produce a
+    grounded, machine-injected PDF from the manuscript's main.tex.
 
-    Runs: pdflatex → bibtex → pdflatex × 2 + chktex fix-loop.
+    Execution order (anti-fabrication contract §5J.3/§5J.4):
+      1. build_refs_bib — exports closed .bib from library.json.
+         Hard-fails on any unmatched \\cite (never render an ungrounded PDF).
+      2. inject_results — writes hash-verified \\newcommand macros into results.tex.
+         Hard-fails on results_hash mismatch.
+      3. inject_appendix — machine-populates sections/appendix-repro.tex.
+      4. pdflatex → bibtex → pdflatex × 2 + chktex fix-loop.
+
     If pdflatex/bibtex are absent: returns friendly message, exit_code=1.
 
+    Resolves library.json from the project's ``refs`` config key, falling back
+    to project_notes_dir/library.json (the default layout from ``rv project new``).
+
+    Resolves experiment notes automatically from the manuscript note's
+    ``synthesized_okf`` field (``experiments/<id>`` entries).
+
     Returns:
-        dict with "exit_code", "message", "log", "chktex", "pdf_path".
+        dict with "exit_code", "message", "log", "chktex", "pdf_path",
+        "builder_warnings" (non-fatal builder issues, e.g. missing library).
 
     sr: SR-MS-1b
     """
@@ -746,7 +760,22 @@ def cmd_compile(
     ms_dir = _manuscript_dir(project, cfg)
     note_path = ms_dir / f"{ms_id}.md"
     tree_root = _manuscripts_tree_root(project, ms_id, cfg)
-    return run_compile(note_path, tree_root)
+
+    # Resolve library_path from project config ("refs" key) or standard default.
+    library_path: Path | None = None
+    try:
+        proj_rec = cfg.project(project)
+        refs = proj_rec.get("refs")
+        if refs:
+            library_path = Path(refs).expanduser()
+    except (KeyError, Exception):
+        pass
+    if library_path is None:
+        # Standard default: project_notes_dir/library.json (set by rv project new)
+        library_path = cfg.project_notes_dir(project) / "library.json"
+
+    # experiment_notes: resolved automatically from synthesized_okf inside run_compile
+    return run_compile(note_path, tree_root, library_path=library_path)
 
 
 def cmd_check(
