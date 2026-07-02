@@ -9,6 +9,7 @@ Checks:
   2. ANTHROPIC_API_KEY — must be set in env or resolvable via keyring
   3. asta (optional) — the literature-search integration package
   4. Zotero / ZOTERO_KEY (optional) — for citation management
+  5. figures extra (optional) — matplotlib/seaborn/pandas for rv figure preview/render
 
 Exit codes:
   0 — all required prerequisites present (optional checks may warn)
@@ -112,6 +113,26 @@ def _check_zotero() -> tuple[bool, str, bool]:
     ), False
 
 
+def _check_figures() -> tuple[bool, str, bool]:
+    """Return (ok, message, required) for the [figures] optional extra check.
+
+    The figures extra (matplotlib/seaborn/pandas) is OPTIONAL — core loops
+    run without it; `rv figure preview/render` requires it.
+    SR-FIG: this is the first dependency-bearing capability in Research Vault.
+    """
+    try:
+        import matplotlib  # type: ignore[import]
+        import pandas  # type: ignore[import]
+        return True, "figures extra (matplotlib+pandas): found", False
+    except ImportError:
+        return False, (
+            "figures extra: NOT FOUND (optional)\n"
+            "  Install: pip install research-vault[figures]\n"
+            "  Required for `rv figure preview` and `rv figure render`.\n"
+            "  Includes: matplotlib>=3.8, seaborn>=0.13, pandas>=2.2"
+        ), False
+
+
 # ---------------------------------------------------------------------------
 # Main preflight runner
 # ---------------------------------------------------------------------------
@@ -125,6 +146,7 @@ def run_preflight() -> dict[str, Any]:
         "api_key": bool,
         "asta": bool,
         "zotero": bool,
+        "figures": bool,
         "all_required_ok": bool,
         "report": str,        human-readable multi-line report
       }
@@ -140,6 +162,7 @@ def run_preflight() -> dict[str, Any]:
     # Optional checks
     asta_ok, asta_msg, _ = _check_asta()
     zotero_ok, zotero_msg, _ = _check_zotero()
+    figures_ok, figures_msg, _ = _check_figures()
 
     all_required = claude_ok and apikey_ok
 
@@ -157,13 +180,15 @@ def run_preflight() -> dict[str, Any]:
     lines.append(f"  [{status}] {asta_msg}")
     status = "OK" if zotero_ok else "WARN"
     lines.append(f"  [{status}] {zotero_msg}")
+    status = "OK" if figures_ok else "WARN"
+    lines.append(f"  [{status}] {figures_msg}")
 
     # Summary
     lines.append("")
     if all_required:
         lines.append("Result: OK — all required prerequisites present.")
-        if not asta_ok or not zotero_ok:
-            lines.append("  (optional tools not found — literature/citation features limited)")
+        if not asta_ok or not zotero_ok or not figures_ok:
+            lines.append("  (optional tools not found — literature/citation/figures features limited)")
     else:
         lines.append("Result: FAIL — required prerequisites missing (see FAIL items above).")
 
@@ -174,6 +199,7 @@ def run_preflight() -> dict[str, Any]:
         "api_key": apikey_ok,
         "asta": asta_ok,
         "zotero": zotero_ok,
+        "figures": figures_ok,
         "all_required_ok": all_required,
         "report": report,
     }
@@ -189,13 +215,14 @@ def build_parser(
     """Build the argument parser for the ``check`` verb.
 
     When to use: ``rv check`` before running any research loop. Verifies that
-    the Claude CLI, API key, and optional tools (asta, Zotero) are available.
-    Fail-fast: reports all failures with clear install instructions.
+    the Claude CLI, API key, and optional tools (asta, Zotero, figures extra)
+    are available. Fail-fast: reports all failures with clear install instructions.
     """
     desc = (
         "Preflight check — verify Research Vault prerequisites. "
         "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
-        "asta (optional, for literature search), Zotero/ZOTERO_KEY (optional, for citations). "
+        "asta (optional, for literature search), Zotero/ZOTERO_KEY (optional, for citations), "
+        "figures extra (optional, for rv figure preview/render). "
         "Exit 0 if all required prerequisites are present; exit 1 if any are missing."
     )
     if parent is not None:
