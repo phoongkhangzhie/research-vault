@@ -27,6 +27,13 @@ SR-7 extended the profile schema with per-profile execution fields:
   status_cmd    — command to query job state (with {jobid} placeholder)
   status_parse  — regex to extract raw state from status_cmd stdout
   state_map     — maps raw scheduler states to Protocol states (PENDING/RUNNING/DONE/FAILED)
+  native_env    — (bool, default false) when true, use the scheduler's native
+                  env/cwd flags (SLURM --export=KEY=val --chdir=<d>, PBS -v KEY=val
+                  -d <d>) instead of the sh -c wrapper. Set this when your cmd
+                  already starts with a shell interpreter (avoids redundant sh -c
+                  nesting) or when the scheduler's native mechanism is preferred.
+                  Applies to ssh+slurm and ssh+pbs archetypes only; ignored for
+                  ssh / generic (falls back to sh -c so env/cwd still land).
 Built-in defaults for slurm/pbs/ssh archetypes mean adopters need not declare
 these fields unless overriding the defaults. SR-6 manifests without these fields
 remain valid — defaults are applied at runtime by RemoteBackend.
@@ -162,6 +169,8 @@ def cmd_show(cfg: Config) -> int:
         if "container" in prof:
             c = prof["container"]
             extra.append(f"container={c.get('runtime','?')}:{c.get('image','?')}")
+        if prof.get("native_env"):
+            extra.append("native_env=true")
         suffix = f"  ({', '.join(extra)})" if extra else ""
         lines.append(f"  {name}: archetype={archetype}{suffix}")
     lines.append("")
