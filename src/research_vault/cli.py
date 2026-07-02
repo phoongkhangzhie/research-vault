@@ -264,6 +264,23 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-5",
     },
+    # --- SR-WB ---
+    "wandb": {
+        "module": "research_vault.wandb_pull",
+        "when_to_use": (
+            "When an experiment logged to W&B and you need its final metrics, or when "
+            "you want to wait until a run finishes and attach metrics to the experiment "
+            "note. Use `rv wandb pull <run-id> --experiment <exp-id> --project <slug>` "
+            "to fetch over the stdlib public API and attach results→hash→run provenance "
+            "to the experiment note. "
+            "Anti-pattern: do NOT pip install wandb and script the SDK — and do NOT "
+            "hand-copy metrics into a finding. "
+            "Anti-pattern: do NOT use `wandb:` as a wait predicate and ignore the state "
+            "field — a failed/crashed run wakes the waiter with its specific state so "
+            "SR-RETRY can key retry off failure."
+        ),
+        "sr": "SR-WB",
+    },
     # --- SR-6 ---
     "compute": {
         "module": "research_vault.compute",

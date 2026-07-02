@@ -85,6 +85,51 @@ def _check_asta() -> tuple[bool, str, bool]:
         ), False
 
 
+def _check_wandb() -> tuple[bool, str, bool]:
+    """Return (ok, message, required) for the W&B SDK + key check.
+
+    W&B is a documented prerequisite for `rv wandb pull` (SR-WB) — not an optional
+    enhancement. Check two things: SDK importable AND WANDB_API_KEY is set.
+    If either fails, the W&B feature set is unavailable.
+    Not blocking `all_required_ok` (W&B features degrade gracefully for non-W&B workflows).
+    """
+    # 1. SDK importable?
+    try:
+        import wandb  # type: ignore[import]
+        wandb_ver = getattr(wandb, "__version__", "?")
+        sdk_ok = True
+        sdk_msg = f"wandb SDK: found (v{wandb_ver})"
+    except ImportError:
+        return False, (
+            "wandb SDK: NOT INSTALLED (required for `rv wandb`)\n"
+            "  Install: pip install wandb  or  uv add wandb\n"
+            "  Get a free account at: https://wandb.ai"
+        ), False
+
+    # 2. WANDB_API_KEY resolvable?
+    key = os.environ.get("WANDB_API_KEY", "").strip()
+    if key:
+        prefix = key[:8] + "…" if len(key) > 8 else "***"
+        return True, f"wandb: SDK ok (v{wandb_ver}), WANDB_API_KEY set ({prefix})", False
+
+    if not os.environ.get("VAULT_SKIP_KEYRING"):
+        try:
+            import keyring  # type: ignore[import]
+            val = keyring.get_password("research-vault", "wandb-api-key")
+            if val:
+                return True, f"wandb: SDK ok (v{wandb_ver}), WANDB_API_KEY found in keyring", False
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+    return False, (
+        f"wandb: SDK ok (v{wandb_ver}) but WANDB_API_KEY not set\n"
+        "  Set via: export WANDB_API_KEY=<your-wandb-api-key>\n"
+        "  Get a key at: https://wandb.ai/settings"
+    ), False
+
+
 def _check_zotero() -> tuple[bool, str, bool]:
     """Return (ok, message, required) for the Zotero key check.
 
@@ -140,6 +185,7 @@ def run_preflight() -> dict[str, Any]:
     # Optional checks
     asta_ok, asta_msg, _ = _check_asta()
     zotero_ok, zotero_msg, _ = _check_zotero()
+    wandb_ok, wandb_msg, _ = _check_wandb()
 
     all_required = claude_ok and apikey_ok
 
@@ -157,13 +203,16 @@ def run_preflight() -> dict[str, Any]:
     lines.append(f"  [{status}] {asta_msg}")
     status = "OK" if zotero_ok else "WARN"
     lines.append(f"  [{status}] {zotero_msg}")
+    status = "OK" if wandb_ok else "WARN"
+    lines.append(f"  [{status}] {wandb_msg}")
 
     # Summary
     lines.append("")
     if all_required:
         lines.append("Result: OK — all required prerequisites present.")
-        if not asta_ok or not zotero_ok:
-            lines.append("  (optional tools not found — literature/citation features limited)")
+        optional_missing = not asta_ok or not zotero_ok or not wandb_ok
+        if optional_missing:
+            lines.append("  (optional tools not found — some features limited)")
     else:
         lines.append("Result: FAIL — required prerequisites missing (see FAIL items above).")
 
@@ -174,6 +223,7 @@ def run_preflight() -> dict[str, Any]:
         "api_key": apikey_ok,
         "asta": asta_ok,
         "zotero": zotero_ok,
+        "wandb_key": wandb_ok,
         "all_required_ok": all_required,
         "report": report,
     }
