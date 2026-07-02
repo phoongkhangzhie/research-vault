@@ -12,7 +12,12 @@ grammar is importable and reusable (the DAG imports resolve_watch directly).
 Watch sources (resolver grammar):
   artifact:<path>+fresh    — file exists AND was written after registration
   artifact:<path>          — file exists
-  sacct:<jobid>            — SLURM job reaches a terminal state
+  sched:<backend>:<jobid>  — remote job reaches a terminal state via manifest-
+                             driven status (SR-7: slurm / pbs / ssh / generic).
+                             Use: submit → get handle → background
+                             ``rv wait-for sched:<backend>:<handle>``
+  sacct:<jobid>            — SLURM job terminal state (back-compat alias for
+                             sched:slurm:<jobid>; fully live sacct resolver)
   pr:<owner/repo>#<n>      — PR state reaches MERGED
   cmd:<shell-cmd>          — shell command exits 0
   url:<url>                — HTTP HEAD returns < 400
@@ -22,9 +27,9 @@ Verify modifiers (appended with '+'):
 
 Resolver grammar is importable by SR-3's DAG for afterok composition.
 
-Stdlib only. The resolver grammar is a subset of vault's pollers/resolver.py
-re-implemented portably (no SSH cluster reads — SLURM check is stubbed for
-portability; the full sacct resolver ships with the SLURM backend in a later SR).
+Stdlib only for core logic. The sched: resolver lazy-imports
+``research_vault.adapters.remote`` at resolution time (not at import) so this
+module stays importable on machines without ssh.
 """
 from __future__ import annotations
 
@@ -216,6 +221,113 @@ def check_dataset_provenance(
             )
 
     return issues
+
+
+# ---------------------------------------------------------------------------
+# sched: resolver helper (SR-7) — shared SSOT with RemoteBackend.status
+# ---------------------------------------------------------------------------
+
+def _resolve_sched(backend_name: str, job_id: str) -> dict[str, Any]:
+    """Resolve a sched:<backend>:<jobid> watch expression.
+
+    Lazy-imports research_vault.adapters.remote._run_status so this module
+    stays importable without ssh. Falls back to the built-in sacct path for
+    sched:slurm: when config cannot be loaded (zero-config back-compat).
+
+    Returns the standard resolve_watch dict:
+      {"ready": bool, "state": str, "artifact_path": None, "error": str|None}
+    where ready=True iff Protocol state is "DONE" or "FAILED" (terminal).
+    """
+    _TERMINAL = frozenset({"DONE", "FAILED"})
+    try:
+        from .adapters.remote import (
+            RemoteBackend,  # noqa: F401 — ensure module loads
+            _run_status,
+            _merge_profile_defaults,
+            _BACKEND_KEY_TO_ARCHETYPE,
+        )
+        from .config import load_config
+        from .compute import _load_manifest
+
+        cfg = load_config()
+        manifest = _load_manifest(cfg)
+        backends = manifest.get("backends", {})
+        profiles = backends.get("profiles", {})
+        active_list = backends.get("active", [])
+
+        # Find an active profile whose archetype matches backend_name
+        target_archetypes = _BACKEND_KEY_TO_ARCHETYPE.get(
+            backend_name, (backend_name,)
+        )
+        profile: dict[str, Any] = {}
+        for pname in active_list:
+            p = profiles.get(pname, {})
+            arch = p.get("archetype", "")
+            if arch in target_archetypes:
+                profile = p
+                break
+        if not profile and active_list:
+            # Fallback: first active profile regardless of archetype
+            profile = profiles.get(active_list[0], {})
+
+        proto_state = _run_status(job_id, profile)
+        ready = proto_state in _TERMINAL
+        return {
+            "ready": ready,
+            "state": proto_state,
+            "artifact_path": None,
+            "error": None,
+        }
+
+    except Exception as exc:
+        # Graceful degrade: config unavailable or remote module import failed.
+        # For sched:slurm: fall back to the built-in sacct path so this behaves
+        # identically to sacct:<jobid> (back-compat at zero-config).
+        if backend_name in ("slurm",):
+            alias = os.environ.get("RV_SSH_ALIAS", "sc")
+            try:
+                result = subprocess.run(
+                    ["ssh", alias, "sacct", "-j", str(job_id),
+                     "--format=JobID,State", "--noheader", "-P"],
+                    capture_output=True, text=True, timeout=15,
+                )
+                if result.returncode != 0:
+                    return {
+                        "ready": False, "state": "unknown",
+                        "artifact_path": None, "error": result.stderr[:200],
+                    }
+                terminal_slurm = frozenset({
+                    "COMPLETED", "FAILED", "CANCELLED", "TIMEOUT",
+                    "NODE_FAIL", "OUT_OF_MEMORY", "PREEMPTED", "BOOT_FAIL",
+                })
+                for line in result.stdout.splitlines():
+                    parts = line.strip().split("|")
+                    if len(parts) >= 2:
+                        job_col = parts[0].strip()
+                        state = parts[1].strip().upper().split()[0]
+                        if job_col.split(".")[0] == str(job_id) or job_col == str(job_id):
+                            terminal = state in terminal_slurm
+                            return {
+                                "ready": terminal, "state": state,
+                                "artifact_path": None, "error": None,
+                            }
+                return {"ready": False, "state": "pending", "artifact_path": None, "error": None}
+            except FileNotFoundError:
+                return {
+                    "ready": False, "state": "ssh-unavailable",
+                    "artifact_path": None, "error": "ssh not available for sacct",
+                }
+            except Exception as inner_exc:
+                return {
+                    "ready": False, "state": "error",
+                    "artifact_path": None, "error": str(inner_exc),
+                }
+        return {
+            "ready": False,
+            "state": "error",
+            "artifact_path": None,
+            "error": str(exc),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -425,7 +537,29 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
 
         return {"ready": True, "state": "exists", "artifact_path": rest, "error": None}
 
+    # ── sched:<backend>:<jobid> ───────────────────────────────────────────────
+    # Manifest-driven scheduler resolver (SR-7).  One predicate, all archetypes.
+    # Format: sched:slurm:12345 | sched:pbs:67890 | sched:ssh:99 | sched:generic:JOB-1
+    # The <backend> value matches the config key (slurm/pbs/ssh/generic).
+    # Shares _run_status with RemoteBackend.status — single SSOT, no duplicate parsers.
+    if watch.startswith("sched:"):
+        rest = watch[len("sched:"):]
+        # Split on first ":" only to allow job ids that themselves contain ":"
+        sep = rest.find(":")
+        if sep == -1:
+            return {
+                "ready": False,
+                "state": "error",
+                "artifact_path": None,
+                "error": f"sched: watch must be sched:<backend>:<jobid>, got: {watch!r}",
+            }
+        backend_name = rest[:sep]
+        job_id = rest[sep + 1:]
+        return _resolve_sched(backend_name, job_id)
+
     # ── sacct:<jobid> ─────────────────────────────────────────────────────────
+    # Back-compat alias: equivalent to sched:slurm:<jobid>.
+    # The resolver is fully live — not a stub.
     if watch.startswith("sacct:"):
         job_id = watch[len("sacct:"):]
         alias = os.environ.get("RV_SSH_ALIAS", "sc")
@@ -742,7 +876,7 @@ def run(args: argparse.Namespace) -> int:
     # as that would cause a synchronous side-effect before the background poller.
     # Only check that the watch prefix is recognized.
     _KNOWN_PREFIXES = (
-        "artifact:", "sacct:", "pr:", "cmd:", "url:",
+        "artifact:", "sched:", "sacct:", "pr:", "cmd:", "url:",
         "note:",      # OKF note resolver (notes_root-aware)
         "dataset:",   # SR-8: dataset provenance resolver (exists + hash + location)
     )

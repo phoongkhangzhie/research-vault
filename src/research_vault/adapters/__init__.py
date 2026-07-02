@@ -27,6 +27,7 @@ from .base import (
     EnvSecretStore,
     load_adapters,
 )
+from .remote import RemoteBackend
 
 __all__ = [
     "Notifier",
@@ -37,4 +38,5 @@ __all__ = [
     "LocalSubprocess",
     "EnvSecretStore",
     "load_adapters",
+    "RemoteBackend",
 ]

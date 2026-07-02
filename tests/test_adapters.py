@@ -258,9 +258,11 @@ def test_load_adapters_unknown_notifier_raises(cfg: Config) -> None:
 
 
 def test_load_adapters_unknown_backend_raises(cfg: Config) -> None:
-    cfg._raw["adapters"]["backend"] = "slurm"
+    # SR-7 added slurm/pbs/ssh/generic as known remote backends.
+    # Use a genuinely unknown name to test the error path.
+    cfg._raw["adapters"]["backend"] = "kubernetes"
     cfg.adapters = cfg._raw["adapters"]
-    with pytest.raises(ValueError, match="slurm"):
+    with pytest.raises(ValueError, match="kubernetes"):
         load_adapters(cfg)
 
 
