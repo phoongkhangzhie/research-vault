@@ -521,6 +521,12 @@ class TestCheckGates:
         main.write_text(existing.rstrip() + inject, encoding="utf-8")
 
     def _write_valid_refs_bib(self, tree_root: Path, citekey: str) -> None:
+        """Write a .bib entry that passes BOTH cite-resolution AND (B) provenance gates.
+
+        SR-MS-2 gate (B): every .bib entry backing a \\cite must carry a
+        well-formed DOI/arXiv/S2 id. A test exercising a 'valid' cite must
+        satisfy both gates.
+        """
         refs = tree_root / "refs.bib"
         refs.write_text(
             f"@article{{{citekey},\n"
@@ -528,6 +534,7 @@ class TestCheckGates:
             f"  title = {{A Paper}},\n"
             f"  journal = {{Test Journal}},\n"
             f"  year = {{2024}},\n"
+            f"  doi = {{10.1234/test.2024.001}},\n"
             f"}}\n",
             encoding="utf-8",
         )

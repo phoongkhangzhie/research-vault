@@ -870,7 +870,12 @@ def check_preregistration_completeness(
         if child_base in scope_str or child_id.lower() in scope_str:
             continue  # In scope — OK
         # Check inclusion ledger in the gather-scope section (best-effort text search)
-        gather_tex = (tree_root / "sections" / "gather-scope.tex") if tree_root else None
+        # Derive tree_root from note_path: manuscript/<id>.md → manuscripts/<id>/
+        _tree_root: Path | None = None
+        if note_path and note_path.exists():
+            _ms_id = note_path.stem
+            _tree_root = note_path.parent.parent / "manuscripts" / _ms_id
+        gather_tex = (_tree_root / "sections" / "gather-scope.tex") if _tree_root else None
         if gather_tex and gather_tex.exists():
             try:
                 gt = gather_tex.read_text(encoding="utf-8").lower()
