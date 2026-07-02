@@ -972,7 +972,7 @@ def run(args: argparse.Namespace) -> int:
         "artifact:", "sched:", "sacct:", "pr:", "cmd:", "url:",
         "note:",      # OKF note resolver (notes_root-aware)
         "dataset:",   # SR-8: dataset provenance resolver (exists + hash + location)
-        "wandb:",     # SR-WB: W&B run terminal-state resolver (stdlib GraphQL, no SDK)
+        "wandb:",     # SR-WB: W&B run terminal-state resolver (wandb SDK, import-guarded)
     )
     if not any(watch.startswith(p) for p in _KNOWN_PREFIXES):
         print(f"rv wait-for: unknown watch source: {watch!r}", file=sys.stderr)
