@@ -22,7 +22,11 @@ Run-id grammar:
   project/run-id         — entity from WANDB_ENTITY env
   entity/project/run-id  — fully qualified, no env vars needed
 
-SR-WB. No stdlib HTTP client needed — the SDK handles the REST/GraphQL transport.
+SR-WB + SR-EXP-REPRO.
+SR-WB: No stdlib HTTP client needed — the SDK handles the REST/GraphQL transport.
+SR-EXP-REPRO: fetch_run now returns dict(run.config) + run.metadata; wandb_pull
+  writes a Layer-1 config artifact + populates 22 flat repro_* scalars via the
+  alias table. Empty keys → sentinel "not-recorded-in-provenance" (never blank).
 """
 from __future__ import annotations
 
@@ -37,6 +41,35 @@ from typing import Any
 
 from .adapters.base import EnvSecretStore
 from .config import Config, load_config
+from .note import REPRO_SENTINEL
+
+
+# ---------------------------------------------------------------------------
+# SR-EXP-REPRO: alias table + metadata map
+# ---------------------------------------------------------------------------
+
+# Alias table: maps run.config keys (in priority order within each group) to
+# the promoted repro_* flat scalar. First matching key wins.
+# Format: list of (repro_field, [candidate_config_keys_in_priority_order])
+_REPRO_CONFIG_ALIAS_TABLE: list[tuple[str, list[str]]] = [
+    ("repro_seed",               ["seed", "random_seed"]),
+    ("repro_model_id",           ["model", "model_name", "pretrained"]),
+    ("repro_model_revision",     ["model_revision", "revision"]),
+    ("repro_decode_temperature", ["temperature"]),
+    ("repro_decode_top_p",       ["top_p"]),
+    ("repro_decode_max_tokens",  ["max_new_tokens", "max_tokens"]),
+    ("repro_num_fewshot",        ["num_fewshot", "n_shot", "num_shots"]),
+    ("repro_tokenizer",          ["tokenizer", "tokenizer_name"]),
+    ("repro_eval_harness",       ["harness_version", "lm_eval_version"]),
+]
+
+# Metadata map: maps run.metadata keys to repro_* fields.
+# For packages, the value may be a list; join with ";" for flat frontmatter.
+_REPRO_META_MAP: list[tuple[str, list[str]]] = [
+    ("repro_env_python",     ["python"]),
+    ("repro_env_packages",   ["packages"]),
+    ("repro_cost_gpu_hours", ["gpu_hours", "gpu_time_hours"]),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +150,7 @@ def parse_run_id(
 # ---------------------------------------------------------------------------
 
 def fetch_run(entity: str, project: str, run_name: str, api_key: str) -> dict[str, Any]:
-    """Fetch a W&B run's state, summary metrics, and commit via the wandb SDK.
+    """Fetch a W&B run's state, summary metrics, config, and metadata via the wandb SDK.
 
     Sets ``WANDB_API_KEY`` in env before constructing the API client, consistent
     with EnvSecretStore's cross-platform seam (env-first → keyring).
@@ -128,6 +161,8 @@ def fetch_run(entity: str, project: str, run_name: str, api_key: str) -> dict[st
       state         — 'running'/'finished'/'failed'/'crashed'/'killed'/'preempted'/…
       commit        — git SHA of the code that produced the run (or empty string)
       summaryMetrics — dict of metric-name → value (run.summary)
+      config        — dict(run.config): full hyperparameter/config snapshot (SR-EXP-REPRO)
+      metadata      — dict(run.metadata): env info (python version, packages, …) (SR-EXP-REPRO)
 
     Raises ImportError if the wandb SDK is not installed (friendly message).
     Raises ValueError if the project or run is not found.
@@ -149,12 +184,18 @@ def fetch_run(entity: str, project: str, run_name: str, api_key: str) -> dict[st
             raise ValueError(f"W&B run {path!r} not found (or API key lacks access).") from exc
         raise
 
+    # SR-EXP-REPRO: capture full config + metadata for Layer-1 artifact + alias map
+    run_config: dict[str, Any] = dict(run.config) if run.config else {}
+    run_metadata: dict[str, Any] = dict(run.metadata) if run.metadata else {}
+
     return {
         "name": run.name,
         "displayName": getattr(run, "display_name", "") or "",
         "state": run.state or "unknown",
         "commit": getattr(run, "commit", "") or "",
         "summaryMetrics": dict(run.summary),
+        "config": run_config,
+        "metadata": run_metadata,
     }
 
 
