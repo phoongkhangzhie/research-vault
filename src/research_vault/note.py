@@ -80,7 +80,8 @@ REPRO_AUTO_DATASET = ["repro_dataset_id", "repro_dataset_hash"]
 # Layer 2 — AUTO from results_commit (only if in-repo):
 REPRO_AUTO_HARNESS = ["repro_eval_harness"]
 # Layer 2 — MANUAL (fabrication-risk surface — flag LOUDLY):
-# Includes the cross-lingual trio (Khang's domain; absent from generic checklists):
+# Includes the cross-lingual trio (absent from generic checklists; critical for
+# multilingual/cross-lingual evaluation):
 #   repro_prompt_lang: BCP-47 code for instruction/exemplar language (≠ target lang)
 #   repro_translation_provenance: "human" or "MT:<engine@ver>"
 REPRO_MANUAL = [
@@ -566,7 +567,10 @@ def check_repro_sentinel_lint(exp_note_path: Path) -> list[str]:
     warnings: list[str] = []
     for field in REPRO_LINT_REQUIRED:
         val = fields.get(field, "").strip()
-        if val == REPRO_SENTINEL or not val:
+        # Only warn when the field is EXPLICITLY the sentinel — never on absent/empty fields.
+        # "Absence of the whole block is not a violation (optional, like results_*)".
+        # A visible sentinel is the honest hole left by cmd_new; it warns RIGHT AFTER the run.
+        if val == REPRO_SENTINEL:
             warnings.append(
                 f"[repro-lint] WARN: {exp_note_path.name}: "
                 f"results_hash is set but {field!r} is still the sentinel "

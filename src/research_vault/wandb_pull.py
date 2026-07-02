@@ -264,11 +264,54 @@ def _update_frontmatter(note_path: Path, updates: dict[str, str]) -> None:
 # High-level wandb_pull
 # ---------------------------------------------------------------------------
 
+def _resolve_repro_hw(cfg: Config) -> str:
+    """Read the active backend from the SR-6 compute manifest for repro_hw.
+
+    Returns the active backend name if the manifest file exists and specifies
+    a non-empty active list, otherwise the REPRO_SENTINEL.
+    Defers entirely to the manifest — never re-probes hardware. (§5J.14)
+    """
+    try:
+        from .compute import _load_manifest, _manifest_path
+        if not _manifest_path(cfg).exists():
+            return REPRO_SENTINEL
+        manifest = _load_manifest(cfg)
+        active = manifest.get("backends", {}).get("active", [])
+        if active:
+            return active[0]
+    except Exception:
+        pass
+    return REPRO_SENTINEL
+
+
+def _resolve_repro_dataset(
+    cfg: Config, dataset_id: str
+) -> tuple[str, str]:
+    """Read location and hash from an SR-8 dataset note.
+
+    Returns (repro_dataset_id, repro_dataset_hash).  If the note is not found
+    or is missing the hash field, returns (REPRO_SENTINEL, REPRO_SENTINEL).
+    Never re-enters data — links the existing note only. (§5J.14)
+    """
+    dataset_note = cfg.datasets_root / f"{dataset_id}.md"
+    if not dataset_note.exists():
+        return REPRO_SENTINEL, REPRO_SENTINEL
+    try:
+        from .note import _parse_frontmatter
+        ds_text = dataset_note.read_text(encoding="utf-8")
+        ds_fields, _ = _parse_frontmatter(ds_text)
+        hash_val = ds_fields.get("hash", "").strip() or REPRO_SENTINEL
+        return dataset_id, hash_val
+    except Exception:
+        return REPRO_SENTINEL, REPRO_SENTINEL
+
+
 def wandb_pull(
     run_id: str,
     *,
     experiment: str | None = None,
     project_slug: str | None = None,
+    dataset_id: str | None = None,
     config: Config | None = None,
     json_out: bool = False,
 ) -> dict[str, Any]:
@@ -278,6 +321,7 @@ def wandb_pull(
       run_id        — W&B run id (bare-id, project/run-id, or entity/project/run-id)
       experiment    — experiment note stem (e.g. 'exp-q1') to attach results to
       project_slug  — project slug; required when experiment is set
+      dataset_id    — SR-8 dataset note stem to link (fills repro_dataset_* fields)
       config        — resolved Config (or None to auto-load)
       json_out      — unused here; callers can choose output format
 
@@ -324,7 +368,47 @@ def wandb_pull(
         # Compute content hash (streaming, same hasher as SR-8)
         results_hash = _hash_file(results_path)
 
-        # Fill the experiment note's results_* frontmatter fields
+        # SR-EXP-REPRO: Layer-1 — dump full dict(run.config) to <exp>.config.json + hash it
+        run_config: dict[str, Any] = run_data.get("config", {})
+        config_path = exp_dir / f"{experiment}.config.json"
+        config_json = json.dumps(run_config, indent=2, sort_keys=True)
+        config_path.write_text(config_json, encoding="utf-8")
+        config_hash = _hash_file(config_path)
+
+        # Assemble all repro_* updates (sentinel is the safe default — anti-fabrication)
+        repro_updates: dict[str, str] = {
+            "repro_config_location": str(config_path),
+            "repro_config_hash": config_hash,
+        }
+
+        # SR-EXP-REPRO: Layer-2 auto scalars — apply alias table to run.config
+        for repro_field, candidate_keys in _REPRO_CONFIG_ALIAS_TABLE:
+            for key in candidate_keys:
+                if key in run_config:
+                    repro_updates[repro_field] = str(run_config[key])
+                    break
+
+        # SR-EXP-REPRO: Layer-2 auto scalars — apply metadata map to run.metadata
+        run_metadata: dict[str, Any] = run_data.get("metadata", {})
+        for repro_field, candidate_keys in _REPRO_META_MAP:
+            for key in candidate_keys:
+                if key in run_metadata:
+                    val = run_metadata[key]
+                    if isinstance(val, list):
+                        val = "; ".join(str(v) for v in val)
+                    repro_updates[repro_field] = str(val)
+                    break
+
+        # SR-EXP-REPRO: repro_hw — defer to SR-6 manifest (never re-probe)
+        repro_updates["repro_hw"] = _resolve_repro_hw(cfg)
+
+        # SR-EXP-REPRO: repro_dataset_* — link SR-8 dataset note (never re-enter)
+        if dataset_id:
+            ds_id, ds_hash = _resolve_repro_dataset(cfg, dataset_id)
+            repro_updates["repro_dataset_id"] = ds_id
+            repro_updates["repro_dataset_hash"] = ds_hash
+
+        # Fill the experiment note's results_* + repro_* frontmatter fields
         exp_note = exp_dir / f"{experiment}.md"
         if exp_note.exists():
             _update_frontmatter(exp_note, {
@@ -332,6 +416,7 @@ def wandb_pull(
                 "results_hash": results_hash,
                 "results_wandb_run": run_id,
                 "results_commit": run_data["commit"],
+                **repro_updates,
             })
 
         result.update({
@@ -405,6 +490,15 @@ def build_parser(
         help="Project slug (required when --experiment is set).",
     )
     pull_p.add_argument(
+        "--dataset",
+        default=None,
+        metavar="DATASET_ID",
+        help=(
+            "SR-8 dataset note stem (e.g. 'xnli-en') to link as repro_dataset_*. "
+            "Inherits the dataset note's hash — never re-enters data. (SR-EXP-REPRO)"
+        ),
+    )
+    pull_p.add_argument(
         "--json",
         dest="json_out",
         action="store_true",
@@ -428,6 +522,7 @@ def run(args: argparse.Namespace) -> int:
                 args.run_id,
                 experiment=args.experiment,
                 project_slug=args.project,
+                dataset_id=getattr(args, "dataset", None),
                 config=cfg,
                 json_out=args.json_out,
             )
