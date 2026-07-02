@@ -22,7 +22,11 @@ Run-id grammar:
   project/run-id         — entity from WANDB_ENTITY env
   entity/project/run-id  — fully qualified, no env vars needed
 
-SR-WB. No stdlib HTTP client needed — the SDK handles the REST/GraphQL transport.
+SR-WB + SR-EXP-REPRO.
+SR-WB: No stdlib HTTP client needed — the SDK handles the REST/GraphQL transport.
+SR-EXP-REPRO: fetch_run now returns dict(run.config) + run.metadata; wandb_pull
+  writes a Layer-1 config artifact + populates 22 flat repro_* scalars via the
+  alias table. Empty keys → sentinel "not-recorded-in-provenance" (never blank).
 """
 from __future__ import annotations
 
@@ -37,6 +41,35 @@ from typing import Any
 
 from .adapters.base import EnvSecretStore
 from .config import Config, load_config
+from .note import REPRO_SENTINEL
+
+
+# ---------------------------------------------------------------------------
+# SR-EXP-REPRO: alias table + metadata map
+# ---------------------------------------------------------------------------
+
+# Alias table: maps run.config keys (in priority order within each group) to
+# the promoted repro_* flat scalar. First matching key wins.
+# Format: list of (repro_field, [candidate_config_keys_in_priority_order])
+_REPRO_CONFIG_ALIAS_TABLE: list[tuple[str, list[str]]] = [
+    ("repro_seed",               ["seed", "random_seed"]),
+    ("repro_model_id",           ["model", "model_name", "pretrained"]),
+    ("repro_model_revision",     ["model_revision", "revision"]),
+    ("repro_decode_temperature", ["temperature"]),
+    ("repro_decode_top_p",       ["top_p"]),
+    ("repro_decode_max_tokens",  ["max_new_tokens", "max_tokens"]),
+    ("repro_num_fewshot",        ["num_fewshot", "n_shot", "num_shots"]),
+    ("repro_tokenizer",          ["tokenizer", "tokenizer_name"]),
+    ("repro_eval_harness",       ["harness_version", "lm_eval_version"]),
+]
+
+# Metadata map: maps run.metadata keys to repro_* fields.
+# For packages, the value may be a list; join with ";" for flat frontmatter.
+_REPRO_META_MAP: list[tuple[str, list[str]]] = [
+    ("repro_env_python",     ["python"]),
+    ("repro_env_packages",   ["packages"]),
+    ("repro_cost_gpu_hours", ["gpu_hours", "gpu_time_hours"]),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +150,7 @@ def parse_run_id(
 # ---------------------------------------------------------------------------
 
 def fetch_run(entity: str, project: str, run_name: str, api_key: str) -> dict[str, Any]:
-    """Fetch a W&B run's state, summary metrics, and commit via the wandb SDK.
+    """Fetch a W&B run's state, summary metrics, config, and metadata via the wandb SDK.
 
     Sets ``WANDB_API_KEY`` in env before constructing the API client, consistent
     with EnvSecretStore's cross-platform seam (env-first → keyring).
@@ -128,6 +161,8 @@ def fetch_run(entity: str, project: str, run_name: str, api_key: str) -> dict[st
       state         — 'running'/'finished'/'failed'/'crashed'/'killed'/'preempted'/…
       commit        — git SHA of the code that produced the run (or empty string)
       summaryMetrics — dict of metric-name → value (run.summary)
+      config        — dict(run.config): full hyperparameter/config snapshot (SR-EXP-REPRO)
+      metadata      — dict(run.metadata): env info (python version, packages, …) (SR-EXP-REPRO)
 
     Raises ImportError if the wandb SDK is not installed (friendly message).
     Raises ValueError if the project or run is not found.
@@ -149,12 +184,18 @@ def fetch_run(entity: str, project: str, run_name: str, api_key: str) -> dict[st
             raise ValueError(f"W&B run {path!r} not found (or API key lacks access).") from exc
         raise
 
+    # SR-EXP-REPRO: capture full config + metadata for Layer-1 artifact + alias map
+    run_config: dict[str, Any] = dict(run.config) if run.config else {}
+    run_metadata: dict[str, Any] = dict(run.metadata) if run.metadata else {}
+
     return {
         "name": run.name,
         "displayName": getattr(run, "display_name", "") or "",
         "state": run.state or "unknown",
         "commit": getattr(run, "commit", "") or "",
         "summaryMetrics": dict(run.summary),
+        "config": run_config,
+        "metadata": run_metadata,
     }
 
 
@@ -223,11 +264,54 @@ def _update_frontmatter(note_path: Path, updates: dict[str, str]) -> None:
 # High-level wandb_pull
 # ---------------------------------------------------------------------------
 
+def _resolve_repro_hw(cfg: Config) -> str:
+    """Read the active backend from the SR-6 compute manifest for repro_hw.
+
+    Returns the active backend name if the manifest file exists and specifies
+    a non-empty active list, otherwise the REPRO_SENTINEL.
+    Defers entirely to the manifest — never re-probes hardware. (§5J.14)
+    """
+    try:
+        from .compute import _load_manifest, _manifest_path
+        if not _manifest_path(cfg).exists():
+            return REPRO_SENTINEL
+        manifest = _load_manifest(cfg)
+        active = manifest.get("backends", {}).get("active", [])
+        if active:
+            return active[0]
+    except Exception:
+        pass
+    return REPRO_SENTINEL
+
+
+def _resolve_repro_dataset(
+    cfg: Config, dataset_id: str
+) -> tuple[str, str]:
+    """Read location and hash from an SR-8 dataset note.
+
+    Returns (repro_dataset_id, repro_dataset_hash).  If the note is not found
+    or is missing the hash field, returns (REPRO_SENTINEL, REPRO_SENTINEL).
+    Never re-enters data — links the existing note only. (§5J.14)
+    """
+    dataset_note = cfg.datasets_root / f"{dataset_id}.md"
+    if not dataset_note.exists():
+        return REPRO_SENTINEL, REPRO_SENTINEL
+    try:
+        from .note import _parse_frontmatter
+        ds_text = dataset_note.read_text(encoding="utf-8")
+        ds_fields, _ = _parse_frontmatter(ds_text)
+        hash_val = ds_fields.get("hash", "").strip() or REPRO_SENTINEL
+        return dataset_id, hash_val
+    except Exception:
+        return REPRO_SENTINEL, REPRO_SENTINEL
+
+
 def wandb_pull(
     run_id: str,
     *,
     experiment: str | None = None,
     project_slug: str | None = None,
+    dataset_id: str | None = None,
     config: Config | None = None,
     json_out: bool = False,
 ) -> dict[str, Any]:
@@ -237,6 +321,7 @@ def wandb_pull(
       run_id        — W&B run id (bare-id, project/run-id, or entity/project/run-id)
       experiment    — experiment note stem (e.g. 'exp-q1') to attach results to
       project_slug  — project slug; required when experiment is set
+      dataset_id    — SR-8 dataset note stem to link (fills repro_dataset_* fields)
       config        — resolved Config (or None to auto-load)
       json_out      — unused here; callers can choose output format
 
@@ -283,7 +368,47 @@ def wandb_pull(
         # Compute content hash (streaming, same hasher as SR-8)
         results_hash = _hash_file(results_path)
 
-        # Fill the experiment note's results_* frontmatter fields
+        # SR-EXP-REPRO: Layer-1 — dump full dict(run.config) to <exp>.config.json + hash it
+        run_config: dict[str, Any] = run_data.get("config", {})
+        config_path = exp_dir / f"{experiment}.config.json"
+        config_json = json.dumps(run_config, indent=2, sort_keys=True)
+        config_path.write_text(config_json, encoding="utf-8")
+        config_hash = _hash_file(config_path)
+
+        # Assemble all repro_* updates (sentinel is the safe default — anti-fabrication)
+        repro_updates: dict[str, str] = {
+            "repro_config_location": str(config_path),
+            "repro_config_hash": config_hash,
+        }
+
+        # SR-EXP-REPRO: Layer-2 auto scalars — apply alias table to run.config
+        for repro_field, candidate_keys in _REPRO_CONFIG_ALIAS_TABLE:
+            for key in candidate_keys:
+                if key in run_config:
+                    repro_updates[repro_field] = str(run_config[key])
+                    break
+
+        # SR-EXP-REPRO: Layer-2 auto scalars — apply metadata map to run.metadata
+        run_metadata: dict[str, Any] = run_data.get("metadata", {})
+        for repro_field, candidate_keys in _REPRO_META_MAP:
+            for key in candidate_keys:
+                if key in run_metadata:
+                    val = run_metadata[key]
+                    if isinstance(val, list):
+                        val = "; ".join(str(v) for v in val)
+                    repro_updates[repro_field] = str(val)
+                    break
+
+        # SR-EXP-REPRO: repro_hw — defer to SR-6 manifest (never re-probe)
+        repro_updates["repro_hw"] = _resolve_repro_hw(cfg)
+
+        # SR-EXP-REPRO: repro_dataset_* — link SR-8 dataset note (never re-enter)
+        if dataset_id:
+            ds_id, ds_hash = _resolve_repro_dataset(cfg, dataset_id)
+            repro_updates["repro_dataset_id"] = ds_id
+            repro_updates["repro_dataset_hash"] = ds_hash
+
+        # Fill the experiment note's results_* + repro_* frontmatter fields
         exp_note = exp_dir / f"{experiment}.md"
         if exp_note.exists():
             _update_frontmatter(exp_note, {
@@ -291,6 +416,7 @@ def wandb_pull(
                 "results_hash": results_hash,
                 "results_wandb_run": run_id,
                 "results_commit": run_data["commit"],
+                **repro_updates,
             })
 
         result.update({
@@ -364,6 +490,15 @@ def build_parser(
         help="Project slug (required when --experiment is set).",
     )
     pull_p.add_argument(
+        "--dataset",
+        default=None,
+        metavar="DATASET_ID",
+        help=(
+            "SR-8 dataset note stem (e.g. 'xnli-en') to link as repro_dataset_*. "
+            "Inherits the dataset note's hash — never re-enters data. (SR-EXP-REPRO)"
+        ),
+    )
+    pull_p.add_argument(
         "--json",
         dest="json_out",
         action="store_true",
@@ -387,6 +522,7 @@ def run(args: argparse.Namespace) -> int:
                 args.run_id,
                 experiment=args.experiment,
                 project_slug=args.project,
+                dataset_id=getattr(args, "dataset", None),
                 config=cfg,
                 json_out=args.json_out,
             )

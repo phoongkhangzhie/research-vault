@@ -40,6 +40,78 @@ OKF_TYPES = frozenset({
 # standard 6-type pattern.
 _FIGURES_REQUIRED_FIELDS = frozenset({"source_experiment", "experiment_results_hash"})
 
+# ---------------------------------------------------------------------------
+# SR-EXP-REPRO: experiment reproducibility schema
+# ---------------------------------------------------------------------------
+
+# Sentinel value for all repro_* fields that are not (yet) populated.
+# Anti-fabrication contract: NEVER write blank/guessed — write this visible hole.
+# Doctrine: "OKF frontmatter is flat ^(\w+): — to attach structured/nested data,
+# use a hashed artifact + promoted flat scalars, never inline JSON in frontmatter."
+REPRO_SENTINEL = "not-recorded-in-provenance"
+
+# Full ordered list of all repro_* fields (§5J.14 — 22 fields).
+# Layer 1: hashed full-config artifact (tamper-evident ground truth).
+REPRO_LAYER1 = [
+    "repro_config_location",   # path to <exp>.config.json (full dict(run.config) dump)
+    "repro_config_hash",       # sha256:<hex> of the config artifact
+]
+# Layer 2 — AUTO from run.config via alias table:
+REPRO_AUTO_CONFIG = [
+    "repro_seed",
+    "repro_model_id",
+    "repro_model_revision",
+    "repro_decode_temperature",
+    "repro_decode_top_p",
+    "repro_decode_max_tokens",
+    "repro_num_fewshot",
+    "repro_tokenizer",
+]
+# Layer 2 — AUTO from run.metadata:
+REPRO_AUTO_META = [
+    "repro_env_packages",
+    "repro_env_python",
+    "repro_cost_gpu_hours",
+]
+# Layer 2 — AUTO from SR-6 manifest (deferred — do NOT re-probe):
+REPRO_AUTO_HW = ["repro_hw"]
+# Layer 2 — AUTO from linked SR-8 dataset note (links note + inherits its hash):
+REPRO_AUTO_DATASET = ["repro_dataset_id", "repro_dataset_hash"]
+# Layer 2 — AUTO from results_commit (only if in-repo):
+REPRO_AUTO_HARNESS = ["repro_eval_harness"]
+# Layer 2 — MANUAL (fabrication-risk surface — flag LOUDLY):
+# Includes the cross-lingual trio (absent from generic checklists; critical for
+# multilingual/cross-lingual evaluation):
+#   repro_prompt_lang: BCP-47 code for instruction/exemplar language (≠ target lang)
+#   repro_translation_provenance: "human" or "MT:<engine@ver>"
+REPRO_MANUAL = [
+    "repro_prompt_lang",
+    "repro_translation_provenance",
+    "repro_prompt_version",
+    "repro_dataset_split",
+    "repro_metric",
+]
+
+# All 22 fields in canonical order:
+REPRO_ALL_FIELDS: list[str] = (
+    REPRO_LAYER1
+    + REPRO_AUTO_CONFIG
+    + REPRO_AUTO_META
+    + REPRO_AUTO_HW
+    + REPRO_AUTO_DATASET
+    + REPRO_AUTO_HARNESS
+    + REPRO_MANUAL
+)
+
+# Fields required for the lint (warn when results_hash is set but these are still sentinel):
+# All non-dataset fields (dataset linking is optional; hw deferral is acceptable).
+REPRO_LINT_REQUIRED: list[str] = (
+    REPRO_LAYER1
+    + REPRO_AUTO_CONFIG
+    + REPRO_AUTO_META
+    + REPRO_MANUAL
+)
+
 
 def scaffold_okf_dirs(base: Path) -> None:
     """Create OKF note-type subdirectories under *base*.
@@ -155,6 +227,13 @@ def cmd_new(project: str, note_type: str, title: str, *,
         fields["results_hash"] = ""       # sha256:<hex> of the artifact (for integrity)
         fields["results_wandb_run"] = ""  # W&B run id that produced these metrics
         fields["results_commit"] = ""     # git SHA of the code that produced the run
+        # SR-EXP-REPRO: reproducibility schema — 22 flat repro_* fields.
+        # Sentinel = "not-recorded-in-provenance" (NEVER blank, NEVER guessed).
+        # Layer 1 (auto via rv wandb pull): hashed full-config artifact.
+        # Layer 2 (auto via rv wandb pull alias table): promoted flat scalars.
+        # MANUAL fields: cross-lingual trio + eval params — fill by hand; sentinel = honest hole.
+        for repro_field in REPRO_ALL_FIELDS:
+            fields[repro_field] = REPRO_SENTINEL
 
     # SR-FIG: figures notes carry provenance-specific placeholder fields.
     # Use `rv figure new` for richer creation (fills source_experiment + experiment_results_hash).
@@ -189,10 +268,15 @@ def cmd_new(project: str, note_type: str, title: str, *,
     elif note_type == "experiments":
         body = (
             "\n"
-            "<!-- Experiments provenance note (SR-WB) -->\n"
+            "<!-- Experiments provenance note (SR-WB + SR-EXP-REPRO) -->\n"
             "<!-- Run `rv wandb pull <run-id> --experiment <id> --project <slug>` -->\n"
-            "<!-- to fill results_location/results_hash/results_wandb_run/results_commit. -->\n"
+            "<!-- to fill results_location/results_hash/results_wandb_run/results_commit, -->\n"
+            "<!-- plus all auto repro_* fields (Layer 1 + Layer 2 alias map). -->\n"
             "<!-- Or fill them by hand for CSV/manual fallback (results_hash = sha256:<hex>). -->\n"
+            "<!-- MANUAL repro_* fields: repro_prompt_lang (BCP-47), -->\n"
+            "<!--   repro_translation_provenance (human / MT:<engine@ver>), -->\n"
+            "<!--   repro_prompt_version, repro_dataset_split, repro_metric. -->\n"
+            "<!-- Anti-fabrication: use 'not-recorded-in-provenance' not blank/guessed. -->\n"
             "\n"
             "## Hypothesis\n\n"
             "<!-- What were you testing? -->\n\n"
@@ -331,6 +415,10 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # (empty = not yet pulled — not a violation)
                 result_issues = check_result_provenance(p)
                 violations.extend(result_issues)
+                # SR-EXP-REPRO: warn when results_hash is set but repro_* are still sentinel
+                # (surfaces manual gaps right after the run, not at paper-writing time)
+                repro_warnings = check_repro_sentinel_lint(p)
+                violations.extend(repro_warnings)
             elif t == "figures":
                 # SR-FIG: project-scoped type-dir contract + provenance fields required.
                 if note_type != "figures":
@@ -442,6 +530,57 @@ def check_result_provenance(exp_note_path: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# SR-EXP-REPRO: repro sentinel lint
+# ---------------------------------------------------------------------------
+
+def check_repro_sentinel_lint(exp_note_path: Path) -> list[str]:
+    """Warn when results_hash is set but required repro_* fields are still the sentinel.
+
+    When to use: called by cmd_check (rv note check) alongside check_result_provenance
+    for experiments notes. Surfaces manual gaps RIGHT AFTER the run, not at paper-writing
+    time — when the information is still fresh and accessible.
+
+    Lint fires only when:
+      - results_hash is non-empty AND not the sentinel (results exist)
+      - At least one REPRO_LINT_REQUIRED field is still the sentinel
+
+    Empty results_hash (experiment not yet run) → no lint (not a violation).
+
+    Returns a list of warning strings prefixed with "[repro-lint] WARN:" (empty = clean).
+    SR-EXP-REPRO. Anti-fabrication: the sentinel is an honest hole, not a guessed value.
+    """
+    if not exp_note_path.exists():
+        return []
+
+    try:
+        text = exp_note_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    fields, _ = _parse_frontmatter(text)
+    results_hash = fields.get("results_hash", "").strip()
+
+    # No results yet → lint does not fire
+    if not results_hash or results_hash == REPRO_SENTINEL:
+        return []
+
+    warnings: list[str] = []
+    for field in REPRO_LINT_REQUIRED:
+        val = fields.get(field, "").strip()
+        # Only warn when the field is EXPLICITLY the sentinel — never on absent/empty fields.
+        # "Absence of the whole block is not a violation (optional, like results_*)".
+        # A visible sentinel is the honest hole left by cmd_new; it warns RIGHT AFTER the run.
+        if val == REPRO_SENTINEL:
+            warnings.append(
+                f"[repro-lint] WARN: {exp_note_path.name}: "
+                f"results_hash is set but {field!r} is still the sentinel "
+                f"({REPRO_SENTINEL!r}) — fill or confirm not applicable"
+            )
+
+    return warnings
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -527,9 +666,15 @@ def run(args: argparse.Namespace) -> int:
             if not violations:
                 print(f"rv note check: OK — {args.project!r}")
                 return 0
-            for v in violations:
+            # Separate hard violations from repro-lint warnings (§5J.14).
+            # Warnings (prefixed "[repro-lint] WARN:") are shown but do not flip exit code.
+            hard = [v for v in violations if not v.startswith("[repro-lint]")]
+            warnings = [v for v in violations if v.startswith("[repro-lint]")]
+            for v in hard:
                 print(f"  VIOLATION: {v}")
-            return 1
+            for w in warnings:
+                print(f"  {w}")
+            return 1 if hard else 0
 
     except (ValueError, KeyError) as e:
         print(f"rv note: {e}", file=sys.stderr)
