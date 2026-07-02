@@ -203,10 +203,12 @@ class LocalSubprocess:
     ``submit`` forks the command in the background using subprocess.Popen and
     returns the PID as a string. ``status`` polls the process via ``os.kill(0)``.
 
-    For SLURM: a future adapter replaces this with sbatch + sacct.
+    For remote clusters: use a RemoteBackend adapter (slurm / pbs / ssh / generic).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, cfg: Any = None) -> None:
+        # cfg is accepted and ignored — matches the RemoteBackend call shape
+        # so load_adapters can call backend_cls(cfg) uniformly (D-SR7-5).
         # Track submitted PIDs → process objects (in-memory only, not persisted)
         self._procs: dict[str, subprocess.Popen] = {}  # type: ignore[type-arg]
 
@@ -348,8 +350,20 @@ _NOTIFIER_REGISTRY: dict[str, type] = {
     "file": FileNotifier,
 }
 
+def _remote_backend_cls() -> type:
+    """Lazily import RemoteBackend to keep base.py importable without ssh."""
+    from .remote import RemoteBackend
+    return RemoteBackend
+
+
 _BACKEND_REGISTRY: dict[str, type] = {
     "local": LocalSubprocess,
+    # SR-7: one RemoteBackend class registered under four archetype keys.
+    # Loaded lazily so the module stays importable on any machine.
+    "slurm":   None,  # populated in load_adapters via _remote_backend_cls()
+    "pbs":     None,
+    "ssh":     None,
+    "generic": None,
 }
 
 _SECRETS_REGISTRY: dict[str, type] = {
@@ -382,13 +396,17 @@ def load_adapters(cfg: Config) -> AdapterSet:
 
     # --- backend ---
     backend_name = adapter_cfg.get("backend", "local")
-    backend_cls = _BACKEND_REGISTRY.get(backend_name)
-    if backend_cls is None:
-        known = ", ".join(sorted(_BACKEND_REGISTRY))
+    if backend_name not in _BACKEND_REGISTRY:
+        known = ", ".join(sorted(_BACKEND_REGISTRY.keys()))
         raise ValueError(
             f"Unknown backend adapter {backend_name!r}. Known: {known}"
         )
-    backend: ComputeBackend = backend_cls()  # type: ignore[call-arg]
+    backend_cls = _BACKEND_REGISTRY[backend_name]
+    if backend_cls is None:
+        # Lazy-loaded remote backend (slurm / pbs / ssh / generic)
+        backend_cls = _remote_backend_cls()
+    # Pass cfg to backend_cls — LocalSubprocess ignores it; RemoteBackend uses it.
+    backend: ComputeBackend = backend_cls(cfg)  # type: ignore[call-arg]
 
     # --- secrets ---
     secrets_name = adapter_cfg.get("secrets", "env")

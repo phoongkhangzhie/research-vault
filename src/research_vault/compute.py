@@ -14,14 +14,22 @@ flimsy; this tooling makes it robust.
 The manifest is stored at ``<state_dir>/compute_manifest.json`` — the instance's
 state_dir, NOT ~/vault.  One manifest per Research Vault instance.
 
-Backend archetypes supported in the manifest (all are declaration-only — execution
-is SR-7):
-  local         — subprocess (zero-infra default)
-  ssh           — remote host, setsid/nohup or blocking
-  ssh+slurm     — sbatch/sacct/sinfo/scancel
-  ssh+pbs       — qsub/qstat/qdel
-  generic       — adopter-declared submit_pattern + probe_commands (escape hatch)
+Backend archetypes supported in the manifest:
+  local         — subprocess (zero-infra default; LocalSubprocess adapter)
+  ssh           — remote host, setsid/nohup background-run (RemoteBackend, SR-7)
+  ssh+slurm     — sbatch/sacct (RemoteBackend, SR-7)
+  ssh+pbs       — qsub/qstat (RemoteBackend, SR-7)
+  generic       — adopter-declared submit + jobid_parse + status + state_map (SR-7)
   container modifier — orthogonal ``container`` field on any profile (not a 5th row)
+
+SR-7 extended the profile schema with per-profile execution fields:
+  jobid_parse   — regex to extract job id from submit stdout
+  status_cmd    — command to query job state (with {jobid} placeholder)
+  status_parse  — regex to extract raw state from status_cmd stdout
+  state_map     — maps raw scheduler states to Protocol states (PENDING/RUNNING/DONE/FAILED)
+Built-in defaults for slurm/pbs/ssh archetypes mean adopters need not declare
+these fields unless overriding the defaults. SR-6 manifests without these fields
+remain valid — defaults are applied at runtime by RemoteBackend.
 
 Stdlib only.
 """
@@ -132,9 +140,22 @@ def cmd_show(cfg: Config) -> int:
         extra = []
         if "host" in prof:
             extra.append(f"host={prof['host']}")
-        if "submit_pattern" in prof:
-            extra.append(f"submit='{prof['submit_pattern'][:50]}…'" if len(prof["submit_pattern"]) > 50
-                         else f"submit='{prof['submit_pattern']}'")
+        submit_val = prof.get("submit_pattern") or prof.get("submit", "")
+        if submit_val:
+            truncated = submit_val[:50] + "…" if len(submit_val) > 50 else submit_val
+            extra.append(f"submit='{truncated}'")
+        if "jobid_parse" in prof:
+            jp = prof["jobid_parse"]
+            extra.append(f"jobid_parse='{jp[:40]}…'" if len(jp) > 40 else f"jobid_parse='{jp}'")
+        if "status_cmd" in prof:
+            sc = prof["status_cmd"]
+            extra.append(f"status_cmd='{sc[:40]}…'" if len(sc) > 40 else f"status_cmd='{sc}'")
+        if "status_parse" in prof:
+            sp = prof["status_parse"]
+            extra.append(f"status_parse='{sp[:40]}…'" if len(sp) > 40 else f"status_parse='{sp}'")
+        if "state_map" in prof:
+            sm = prof["state_map"]
+            extra.append(f"state_map({len(sm)} entries)")
         if "container" in prof:
             c = prof["container"]
             extra.append(f"container={c.get('runtime','?')}:{c.get('image','?')}")
