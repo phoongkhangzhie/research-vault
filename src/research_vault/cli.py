@@ -324,6 +324,23 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-6",
     },
+    # --- SR-FIG ---
+    "figure": {
+        "module": "research_vault.figure",
+        "when_to_use": (
+            "When you have a dataset/scores note (SR-8 datasets/) and need a "
+            "publication-quality plot with full provenance. Use `rv figure new` to declare "
+            "the figure spec (dataset OKF link + filter recipe + style preset), "
+            "`rv figure preview` to inspect the exact data frame before rendering, and "
+            "`rv figure render` to produce SVG+PNG images via the apply_style seam. "
+            "Requires pip install research-vault[figures] for preview/render. "
+            "Anti-pattern: do NOT hand-write a one-off matplotlib script and drop a PNG into "
+            "a finding — declare `rv figure new` against a `datasets/` note so the figure "
+            "carries dataset→filter→style provenance and afterok-able lineage. One-off scripts "
+            "break the reproducibility chain that makes figures structurally publishable."
+        ),
+        "sr": "SR-FIG",
+    },
 }
 
 

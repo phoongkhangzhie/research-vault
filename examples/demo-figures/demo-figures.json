@@ -1,0 +1,53 @@
+{
+  "run_id": "demo-figures-hfs-by-lang",
+  "name": "Demo figures loop — scores/dataset → publication figure",
+  "global_cap": 2,
+  "nodes": [
+    {
+      "id": "extract",
+      "type": "agent",
+      "label": "Extract + filter dataset frame (Mason/engineer)",
+      "role": "engineer",
+      "spec": "task://demo-figures#extract",
+      "reads": [
+        "notes/<proj>/datasets/hfs-run-007.md",
+        "notes/<proj>/figures/hfs-by-lang.md"
+      ],
+      "produces": {
+        "figure_view": "state/figures/hfs-by-lang-view.csv"
+      },
+      "needs": []
+    },
+    {
+      "id": "data-check",
+      "type": "human-go",
+      "label": "Review the exact data frame before rendering (operator gate)",
+      "needs": [
+        {
+          "from": "extract",
+          "edge": "afterok"
+        }
+      ]
+    },
+    {
+      "id": "render",
+      "type": "agent",
+      "label": "Render figure SVG+PNG via apply_style seam (Iris/designer)",
+      "role": "designer",
+      "spec": "task://demo-figures#render",
+      "reads": [
+        "state/figures/hfs-by-lang-view.csv",
+        "notes/<proj>/figures/hfs-by-lang.md"
+      ],
+      "produces": {
+        "figure": "notes/<proj>/figures/hfs-by-lang.md"
+      },
+      "needs": [
+        {
+          "from": "data-check",
+          "edge": "afterok"
+        }
+      ]
+    }
+  ]
+}
