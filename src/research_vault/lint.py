@@ -13,11 +13,18 @@ When to use: ``rv lint [--strict]`` to run the project linter. Checks:
   5. Unpinned-git-init rule (SR-LINT): flags ``git init`` WITHOUT
      ``--initial-branch`` in test files — an unpinned branch passes locally
      but fails on master-default CI runners.
-  6. Redefined-while-unused rule (F811): flags ``def``/``async def``/``class``
-     names that are shadowed in the same scope before first use — a silent
-     dead-code bug (duplicate ``check_manuscript`` shipped through SR-MS-2).
-     Exempts ``@overload`` / ``@typing.overload`` chains (intended typing
-     pattern). Scans src/research_vault/ (production code only).
+  6. Redefined-in-same-scope rule (F811): flags ``def``/``async def``/``class``
+     names that are shadowed in the same statement-list — a silent dead-code
+     bug (duplicate ``check_manuscript`` shipped through SR-MS-2).
+     Exempts ``@overload`` / ``@typing.overload`` chains, ``@property`` /
+     ``@x.setter`` / ``@x.deleter`` / ``@x.getter`` pairs, and
+     ``@singledispatch`` / ``@fn.register`` chains — all standard same-name
+     idioms.  Recurses into control-flow block bodies (if/for/while/with/try)
+     so in-branch duplicates are caught; try/except split-branch definitions
+     remain naturally exempt.  Scans src/research_vault/ (production code only).
+  7. Getsource-guard smell (SR-LINT): flags ``assert "X" in inspect.getsource(fn)``
+     (or bare ``getsource``) in test files — getsource returns comments and
+     docstrings, so the assertion passes even when the live code is broken.
 
 All path resolution goes through Config — zero hardcoded paths or codenames.
 Stdlib only.
@@ -155,24 +162,83 @@ def check_unpinned_git_init(
 
 
 # ---------------------------------------------------------------------------
-# F811 — redefined-while-unused (AST-based, rule 6)
+# F811 — redefined-in-same-scope (AST-based, rule 6)
 # ---------------------------------------------------------------------------
 
-def _is_overload_decorated(
+def _is_exempt_decorated(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
 ) -> bool:
-    """Return True if *node* carries an ``@overload`` or ``@typing.overload`` decorator.
+    """Return True if *node* carries an exemption decorator for same-name idioms.
 
-    Both the bare-name form ``@overload`` and the attribute form ``@typing.overload``
-    are recognised.  These are the standard ``typing`` patterns for function
-    overloads and must NOT be flagged as redefinitions.
+    Exempted decorator patterns (none of these are bugs when names repeat):
+
+    * ``@overload`` / ``@typing.overload`` — typing overload stubs.
+    * ``@property`` — bare-name form (``ast.Name``).
+    * ``@x.setter`` / ``@x.deleter`` / ``@x.getter`` — property descriptors
+      (``ast.Attribute`` with attr in {setter, deleter, getter}).
+    * ``@singledispatch`` — bare-name form (``ast.Name``).
+    * ``@functools.singledispatch`` — attribute form (``ast.Attribute``).
+    * ``@fn.register`` — singledispatch implementation registration
+      (``ast.Attribute`` with attr == "register").
+
+    Both the bare-name form and the dotted attribute form are recognised for
+    each pattern.
     """
+    _EXEMPT_NAMES = frozenset({"overload", "property", "singledispatch"})
+    _EXEMPT_ATTRS = frozenset({"overload", "setter", "deleter", "getter",
+                               "singledispatch", "register"})
     for dec in node.decorator_list:
-        if isinstance(dec, ast.Name) and dec.id == "overload":
+        if isinstance(dec, ast.Name) and dec.id in _EXEMPT_NAMES:
             return True
-        if isinstance(dec, ast.Attribute) and dec.attr == "overload":
+        if isinstance(dec, ast.Attribute) and dec.attr in _EXEMPT_ATTRS:
             return True
     return False
+
+
+def _get_compound_bodies(node: ast.stmt) -> list[list[ast.stmt]]:
+    """Return each immediate sub-statement-list of a compound statement.
+
+    Each returned list is checked **independently** for within-list duplicates.
+    This preserves the natural exemption for try/except split-branch definitions:
+    the try body and each handler body are separate lists and are never compared
+    against each other.
+
+    ``FunctionDef`` and ``ClassDef`` bodies are NOT returned here — those are
+    separate scopes already handled by the outer ``ast.walk`` in
+    ``check_redefined_while_unused``.
+    """
+    if isinstance(node, ast.If):
+        result: list[list[ast.stmt]] = [node.body]
+        if node.orelse:
+            result.append(node.orelse)
+        return result
+    if isinstance(node, (ast.For, ast.While, ast.AsyncFor)):
+        result = [node.body]
+        if node.orelse:
+            result.append(node.orelse)
+        return result
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        return [node.body]
+    if isinstance(node, ast.Try):
+        result = [node.body]
+        for handler in node.handlers:
+            result.append(handler.body)
+        if node.orelse:
+            result.append(node.orelse)
+        if node.finalbody:
+            result.append(node.finalbody)
+        return result
+    # Python 3.11+ TryStar (ExceptGroup)
+    if hasattr(ast, "TryStar") and isinstance(node, ast.TryStar):  # type: ignore[attr-defined]
+        result = [node.body]
+        for handler in node.handlers:
+            result.append(handler.body)
+        if node.orelse:
+            result.append(node.orelse)
+        if node.finalbody:
+            result.append(node.finalbody)
+        return result
+    return []
 
 
 def _check_scope_for_f811(
@@ -181,33 +247,32 @@ def _check_scope_for_f811(
     filepath: str,
     findings: list[tuple[str, int, str, int, str]],
 ) -> None:
-    """Walk one flat statement list and append any F811 finding to *findings*.
+    """Walk one statement-list and append any F811 finding to *findings*.
 
     Tracks ``def`` / ``async def`` / ``class`` names in *stmts*.  When the same
-    name appears a second time in the same scope, that is a redefined-while-unused
-    violation — the first definition is dead code.
+    name appears a second time in the same statement-list, that is a
+    redefined-in-same-scope violation — the first definition is dead code.
 
-    Exemption: if either the previous OR the current definition is decorated with
-    ``@overload`` / ``@typing.overload``, the pair is skipped — that is the
-    intended typing pattern where multiple overload stubs are followed by one
-    real implementation.
+    Exemptions: if either the previous OR the current definition is decorated
+    with any exemption recognised by ``_is_exempt_decorated`` (overload, property
+    descriptors, singledispatch/register), the pair is skipped.
 
-    Note: ``try/except`` fallbacks (``try: from foo import Bar / except: def Bar``)
-    are naturally exempt — the two definitions live in different branch statement
-    lists, not in *stmts* directly.
+    Compound statement bodies (if/for/while/with/try) are recursed into so that
+    in-branch duplicates are caught.  Each branch body is a separate list, so
+    try/except split-branch definitions remain naturally exempt.
     """
-    seen: dict[str, tuple[int, bool]] = {}  # name -> (first_lineno, is_overload)
+    seen: dict[str, tuple[int, bool]] = {}  # name -> (first_lineno, is_exempt)
     for node in stmts:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             name = node.name
-            is_ol = _is_overload_decorated(node)
+            is_ex = _is_exempt_decorated(node)
             if name in seen:
-                prev_lineno, prev_is_ol = seen[name]
-                if not (is_ol or prev_is_ol):
+                prev_lineno, prev_is_ex = seen[name]
+                if not (is_ex or prev_is_ex):
                     findings.append(
                         (filepath, node.lineno, name, prev_lineno, scope_name)
                     )
-            seen[name] = (node.lineno, is_ol)
+            seen[name] = (node.lineno, is_ex)
         elif isinstance(node, ast.ClassDef):
             name = node.name
             if name in seen:
@@ -216,26 +281,38 @@ def _check_scope_for_f811(
                     (filepath, node.lineno, name, prev_lineno, scope_name)
                 )
             seen[name] = (node.lineno, False)
+        else:
+            # Recurse into each branch body of compound statements separately.
+            # A fresh `seen` dict is used for each recursive call, so only
+            # within-list duplicates are flagged — never cross-branch ones.
+            for body in _get_compound_bodies(node):
+                _check_scope_for_f811(body, scope_name, filepath, findings)
 
 
 def check_redefined_while_unused(
     files: list[Path],
 ) -> list[tuple[str, int, str, int, str]]:
-    """Scan *files* for F811 — redefined-while-unused ``def``/``class`` names.
+    """Scan *files* for F811 — redefined-in-same-scope ``def``/``class`` names.
 
     For each file, walks every scope (module body, function body, class body) and
-    flags any ``def`` / ``async def`` / ``class`` name that is shadowed in the same
-    scope level before any use.  A shadowed definition is dead code — the first
-    definition is unreachable.
+    flags any ``def`` / ``async def`` / ``class`` name that is shadowed within the
+    same statement-list.  A shadowed definition is dead code — the first definition
+    is unreachable.  Note: the check is statement-list membership, not use-before-
+    redefine; the rule name "F811" is used for compatibility with the Flake8 code.
 
     The motivating bug: a duplicate ``check_manuscript`` function shipped in
     SR-MS-2 because ``rv lint`` had no AST-level scope check, and ``CI green``
     was recorded without this gate.
 
     Exemptions (never flagged):
-    - Functions decorated with ``@overload`` or ``@typing.overload``.
+    - Functions decorated with ``@overload`` / ``@typing.overload``.
+    - Functions decorated with ``@property`` / ``@x.setter`` / ``@x.deleter`` /
+      ``@x.getter`` — standard property descriptor pattern.
+    - Functions decorated with ``@singledispatch`` / ``@functools.singledispatch``
+      / ``@fn.register`` — standard functools dispatch pattern.
     - Definitions in different branches of a ``try/except`` block (naturally
-      excluded — they live in different statement lists).
+      excluded — they live in different statement-lists).
+    - Definitions in different branches of an ``if/else`` block (same reason).
 
     Returns a list of ``(file_path, lineno, name, prev_lineno, scope_name)``
     tuples, one per violation.  ``lineno`` is the *second* (shadow) definition;
@@ -435,20 +512,20 @@ def cmd_lint(cfg: Config, *, strict: bool = False) -> int:
         n = len(test_files)
         print(f"Unpinned-git-init rule: OK ({n} test file(s) checked)")
 
-    # 5. Redefined-while-unused rule (F811) — scoped to production src/
+    # 5. Redefined-in-same-scope rule (F811) — scoped to production src/
     src_files = _collect_src_files(_SRC_DIR)
     f811_findings = check_redefined_while_unused(src_files)
     if f811_findings:
         print(
-            f"\nRedefined-while-unused rule (F811): {len(f811_findings)} finding(s) "
-            f"(def/class name shadowed in same scope — first definition is dead code):"
+            f"\nRedefined-in-same-scope rule (F811): {len(f811_findings)} finding(s) "
+            f"(def/class name shadowed in same statement-list — first definition is dead code):"
         )
         for fpath, lineno, name, prev_lineno, scope in f811_findings:
             print(f"  {fpath}:{lineno}: [{scope}] {name!r} shadows definition at line {prev_lineno}")
         issues_total += len(f811_findings)
     else:
         n = len(src_files)
-        print(f"Redefined-while-unused rule (F811): OK ({n} source file(s) checked)")
+        print(f"Redefined-in-same-scope rule (F811): OK ({n} source file(s) checked)")
 
     if issues_total == 0:
         print("\nlint: PASS")

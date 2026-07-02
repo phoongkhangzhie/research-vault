@@ -605,6 +605,219 @@ class TestRedefinedWhileUnused:
         findings = check_redefined_while_unused([f])
         assert len(findings) == 0, findings
 
+    # ------------------------------------------------------------------
+    # Decorator exemptions: @property / @setter / @singledispatch (task #16)
+    # ------------------------------------------------------------------
+
+    def test_property_setter_pair_not_flagged(self, tmp_path: Path) -> None:
+        """@property + @x.setter on the same name must NOT be flagged.
+
+        This is the canonical Python property pattern and is NOT a bug.
+        """
+        f = tmp_path / "good.py"
+        f.write_text(
+            "class Config:\n"
+            "    @property\n"
+            "    def value(self):\n"
+            "        return self._value\n"
+            "\n"
+            "    @value.setter\n"
+            "    def value(self, v):\n"
+            "        self._value = v\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_property_deleter_pair_not_flagged(self, tmp_path: Path) -> None:
+        """@property + @x.deleter on the same name must NOT be flagged."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "class Config:\n"
+            "    @property\n"
+            "    def value(self):\n"
+            "        return self._value\n"
+            "\n"
+            "    @value.deleter\n"
+            "    def value(self):\n"
+            "        del self._value\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_property_getter_form_not_flagged(self, tmp_path: Path) -> None:
+        """@x.getter (unusual but valid) on same name must NOT be flagged."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "class Config:\n"
+            "    @property\n"
+            "    def value(self):\n"
+            "        return self._value\n"
+            "\n"
+            "    @value.getter\n"
+            "    def value(self):\n"
+            "        return self._value + 1\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_property_full_chain_not_flagged(self, tmp_path: Path) -> None:
+        """@property + @x.setter + @x.deleter three-def chain must NOT be flagged."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "class Config:\n"
+            "    @property\n"
+            "    def value(self):\n"
+            "        return self._value\n"
+            "\n"
+            "    @value.setter\n"
+            "    def value(self, v):\n"
+            "        self._value = v\n"
+            "\n"
+            "    @value.deleter\n"
+            "    def value(self):\n"
+            "        del self._value\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_singledispatch_register_chain_not_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """@singledispatch + @fn.register chain must NOT be flagged."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "from functools import singledispatch\n"
+            "\n"
+            "@singledispatch\n"
+            "def process(arg):\n"
+            "    raise NotImplementedError\n"
+            "\n"
+            "@process.register\n"
+            "def process(arg: int):\n"
+            "    return arg * 2\n"
+            "\n"
+            "@process.register\n"
+            "def process(arg: str):\n"
+            "    return arg.upper()\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_functools_singledispatch_attr_form_not_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """@functools.singledispatch (attribute form) + @fn.register not flagged."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "import functools\n"
+            "\n"
+            "@functools.singledispatch\n"
+            "def dispatch(arg):\n"
+            "    raise NotImplementedError\n"
+            "\n"
+            "@dispatch.register\n"
+            "def dispatch(arg: int):\n"
+            "    return arg + 1\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_genuine_dup_with_no_exempt_decorator_still_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """A plain duplicate def with NO exemption decorator is still flagged.
+
+        The new exemptions must not create a false-negative for real shadows.
+        """
+        f = tmp_path / "bad.py"
+        f.write_text(
+            "def render(path):\n"
+            "    return 'v1'\n"
+            "\n"
+            "def render(path):  # bare duplicate — no exemption decorator\n"
+            "    return 'v2'\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 1, findings
+        assert findings[0][2] == "render"
+
+    # ------------------------------------------------------------------
+    # Control-flow block recursion (task #16)
+    # ------------------------------------------------------------------
+
+    def test_dup_def_inside_single_if_branch_is_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """Two defs of the same name inside ONE if-branch must be flagged.
+
+        Both defs are in the same statement-list (the branch body), so this
+        IS a same-scope shadow even though it's nested in an if block.
+        """
+        f = tmp_path / "bad.py"
+        f.write_text(
+            "def outer():\n"
+            "    if condition:\n"
+            "        def helper():\n"
+            "            return 1\n"
+            "        def helper():  # duplicate in same branch body\n"
+            "            return 2\n"
+            "        return helper()\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 1, findings
+        assert findings[0][2] == "helper"
+
+    def test_try_except_fallback_still_not_flagged_after_recurse(
+        self, tmp_path: Path
+    ) -> None:
+        """try/except import-fallback with same name in different branches NOT flagged.
+
+        Regression guard: the block-body recursion must preserve this exemption —
+        the two defs are in DIFFERENT statement-lists (try.body vs handler.body).
+        """
+        f = tmp_path / "good.py"
+        f.write_text(
+            "try:\n"
+            "    from fast_lib import Bar\n"
+            "except ImportError:\n"
+            "    def Bar():\n"
+            "        pass\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_dup_def_inside_nested_compound_stmt_is_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """Duplicate def inside a nested for-loop body must be flagged."""
+        f = tmp_path / "bad.py"
+        f.write_text(
+            "for item in items:\n"
+            "    def process():\n"
+            "        return 1\n"
+            "    def process():  # duplicate within same for-body\n"
+            "        return 2\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 1, findings
+        assert findings[0][2] == "process"
+
+    def test_dup_def_split_across_if_else_not_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """Same name in if-branch vs else-branch is NOT flagged — different lists."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "if condition:\n"
+            "    def handler():\n"
+            "        return 'a'\n"
+            "else:\n"
+            "    def handler():\n"
+            "        return 'b'\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
 
 # ---------------------------------------------------------------------------
 # Integration: rv lint cmd_lint picks up F811 rule
