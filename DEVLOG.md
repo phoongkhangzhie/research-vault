@@ -12,7 +12,7 @@
 - Source swap confirmed (§5E.10 item 3): experiment results are primary. `datasets/` is comparison-only.
 
 ### Open / next
-- PR #18 rework needs reviewer-gate + Architect fit-check before Khang merges (human-go class).
+- PR #18 rework needs reviewer-gate + Architect fit-check before operator merges (human-go class).
 
 ## 2026-07-01 (SR-WB build)
 
