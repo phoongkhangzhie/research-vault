@@ -307,6 +307,25 @@ class TestSlugCollisionGuard:
         assert "my-research" in cfg.projects
         assert "eval-2024" in cfg.projects
 
+    def test_reserved_slugs_derived_from_note_ssot_not_hardcoded(self):
+        """config.py must NOT have a module-level _OKF_RESERVED_SLUGS constant
+        (a hardcoded fork of note.OKF_TYPES ∪ OKF_SHARED_TYPES).
+
+        The guard must consume the live SSOT via a call-time import inside
+        Config.__init__, so that a future 10th OKF type added to note.py is
+        automatically rejected — no drift possible.
+
+        Red: if _OKF_RESERVED_SLUGS still exists as a module attribute, this fails.
+        Green: after removing the constant and wiring the lazy import, it passes.
+        """
+        import research_vault.config as config_mod
+        assert not hasattr(config_mod, "_OKF_RESERVED_SLUGS"), (
+            "config._OKF_RESERVED_SLUGS must not exist as a module-level constant — "
+            "the slug guard must derive its reserved set from note.OKF_TYPES | "
+            "note.OKF_SHARED_TYPES via a call-time import in Config.__init__, "
+            "not from a hardcoded fork that can silently drift."
+        )
+
     def test_error_message_mentions_slug(self, tmp_path):
         """The ValueError names both the offending slug and says 'OKF type'."""
         raw: dict[str, Any] = {

@@ -19,29 +19,6 @@ from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# OKF reserved slug set (mirrors note.OKF_TYPES ∪ note.OKF_SHARED_TYPES)
-# ---------------------------------------------------------------------------
-# Keep in sync with note.py. Cannot import from note.py here — circular import
-# (note.py imports Config from this module). This constant is the config-plane
-# guard; note.py remains the canonical SSOT for OKF type semantics.
-#
-# Why: a project slug equal to an OKF type name silently shadows the routing
-# in cmd_new/cmd_list/cmd_check (e.g. slug="datasets" means the project's
-# notes live in the shared datasets_root instead of a per-project dir, and
-# every OKF verb misbehaves without any error). Reject at config-load time.
-_OKF_RESERVED_SLUGS: frozenset[str] = frozenset({
-    "literature",
-    "concepts",
-    "methods",
-    "experiments",
-    "findings",
-    "mocs",
-    "datasets",    # also OKF_SHARED_TYPES — extra routing sensitivity
-    "figures",
-    "manuscript",
-})
-
-# ---------------------------------------------------------------------------
 # Location resolution
 # ---------------------------------------------------------------------------
 
@@ -194,12 +171,20 @@ class Config:
         # SR-HARDENING: slug-collision guard — reject project slugs that collide
         # with OKF type names. Such slugs silently shadow note routing (the project
         # notes dir becomes indistinguishable from the shared OKF type root).
-        _colliding = [s for s in self.projects if s in _OKF_RESERVED_SLUGS]
+        #
+        # Call-time import (not module-level) avoids circular import: note.py imports
+        # Config from this module at module load, but Config.__init__ only runs after
+        # both modules are fully loaded — by then note.py is in sys.modules, so the
+        # import resolves without recursion. This makes the guard a TRUE SSOT consumer
+        # of note.OKF_TYPES | note.OKF_SHARED_TYPES — no hardcoded fork that can drift.
+        from .note import OKF_TYPES as _OKF_TYPES, OKF_SHARED_TYPES as _OKF_SHARED_TYPES  # call-time; see comment above
+        _reserved = _OKF_TYPES | _OKF_SHARED_TYPES
+        _colliding = [s for s in self.projects if s in _reserved]
         if _colliding:
             bad = ", ".join(repr(s) for s in sorted(_colliding))
             raise ValueError(
                 f"Project slug(s) {bad} collide with reserved OKF type names "
-                f"({sorted(_OKF_RESERVED_SLUGS)}). OKF type names are reserved "
+                f"({sorted(_reserved)}). OKF type names are reserved "
                 f"routing identifiers — choose a different project slug."
             )
 
