@@ -872,3 +872,575 @@ class TestVerbRegistry:
         assert choices is not None and "recommend" in choices, (
             f"'recommend' must be a figure sub-command; parser choices: {choices}"
         )
+
+
+# ============================================================================
+# Seam 9 — Descriptor-inference fix (ID-misfire bug) + integer-coded CM latent bug
+# ============================================================================
+
+class TestDescriptorInferenceFix:
+    """Ada's gold-case matrix for the dense-int-sequence reclassification rule.
+
+    Bug: card_fraction > 0.5 on small frames promoted numeric-coded IDs (model_id,
+    seed) to measure → infer_task saw "2 measures" → "relationship" → scatter over
+    a categorical ID (misleading).
+
+    Fix: dense-integer run (span / card <= 1.5) → dimension / ordinal BEFORE the
+    measure-promotion branch. Same fix reclassifies integer-coded CM labels to
+    ordinal, making detect_confusion_matrix_shape include them.
+    """
+
+    def test_model_id_integer_sequence_is_dimension_ordinal(self):
+        """model_id=[1..5] on 5 rows → dimension/ordinal (not measure).
+
+        card=5, span=5-1+1=5, 5 <= 5*1.5=7.5 → dense → dimension/ordinal.
+        """
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        df = pd.DataFrame({
+            "model_id": [1, 2, 3, 4, 5],
+            "accuracy": [0.90, 0.88, 0.85, 0.83, 0.86],
+        })
+        cols = infer_view(df)
+        mid = next(c for c in cols if c["name"] == "model_id")
+        assert mid["role"] == "dimension", (
+            f"model_id=[1..5] on 5 rows must be dimension (not measure); got role={mid['role']!r}"
+        )
+        assert mid["dtype"] == "ordinal", (
+            f"model_id integer sequence must be ordinal; got dtype={mid['dtype']!r}"
+        )
+
+    def test_seed_shifted_integer_sequence_is_dimension_ordinal(self):
+        """seed=[41..45] on 5 rows → dimension/ordinal.
+
+        card=5, span=45-41+1=5, 5 <= 7.5 → dense → dimension/ordinal.
+        The fix must handle non-zero-based sequences.
+        """
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        df = pd.DataFrame({
+            "model": ["gpt4"] * 5,
+            "seed": [41, 42, 43, 44, 45],
+            "f1": [0.90, 0.88, 0.85, 0.83, 0.89],
+        })
+        cols = infer_view(df)
+        seed_col = next(c for c in cols if c["name"] == "seed")
+        assert seed_col["role"] == "dimension", (
+            f"seed=[41..45] on 5 rows must be dimension; got role={seed_col['role']!r}"
+        )
+        assert seed_col["dtype"] == "ordinal", (
+            f"seed integer sequence must be ordinal; got dtype={seed_col['dtype']!r}"
+        )
+
+    def test_confusion_matrix_count_stays_measure(self):
+        """CM counts [50,2,1,3,45,2,1,4,48] on 9 rows → measure (detection survives).
+
+        span=50-1+1=50, card=7, 50 > 7*1.5=10.5 → NOT dense.
+        card_fraction=7/9=0.78 > 0.5 → measure.
+        """
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        labels = ["A", "B", "C"]
+        df = pd.DataFrame({
+            "true_label": labels * 3,
+            "pred_label": labels * 3,
+            "count": [50, 2, 1, 3, 45, 2, 1, 4, 48],
+        })
+        cols = infer_view(df)
+        count_col = next(c for c in cols if c["name"] == "count")
+        assert count_col["role"] == "measure", (
+            f"CM counts [50,2,1,3,45,2,1,4,48] must stay measure; "
+            f"got role={count_col['role']!r}"
+        )
+
+    def test_integer_coded_cm_labels_are_dimension_ordinal(self):
+        """Integer-coded CM labels [0,1,2] → dimension/ordinal (latent bug fix).
+
+        Before fix: dtype='quantitative' → dims filter excluded them → CM not detected.
+        After fix: span=3, card=3, 3 <= 4.5 → dense → dimension/ordinal → CM detected.
+        """
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        df = pd.DataFrame({
+            "true_label": [0, 0, 0, 1, 1, 1, 2, 2, 2],
+            "pred_label": [0, 1, 2, 0, 1, 2, 0, 1, 2],
+            "count": [10, 2, 0, 1, 9, 3, 0, 1, 8],
+        })
+        cols = infer_view(df)
+        for col_name in ("true_label", "pred_label"):
+            col = next(c for c in cols if c["name"] == col_name)
+            assert col["role"] == "dimension", (
+                f"Integer-coded CM label {col_name!r} must be dimension; "
+                f"got role={col['role']!r}"
+            )
+            assert col["dtype"] == "ordinal", (
+                f"Integer-coded CM label {col_name!r} must be ordinal; "
+                f"got dtype={col['dtype']!r}"
+            )
+
+    def test_integer_coded_cm_is_detected_after_fix(self):
+        """Integer-coded confusion matrix now triggers detect_confusion_matrix_shape.
+
+        Before fix: integer labels had dtype='quantitative' → excluded from dims filter
+        → detection returned False. After fix: dtype='ordinal' → included → True.
+        """
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view, detect_confusion_matrix_shape
+
+        df = pd.DataFrame({
+            "true_label": [0, 0, 0, 1, 1, 1, 2, 2, 2],
+            "pred_label": [0, 1, 2, 0, 1, 2, 0, 1, 2],
+            "count": [10, 2, 0, 1, 9, 3, 0, 1, 8],
+        })
+        cols = infer_view(df)
+        is_cm = detect_confusion_matrix_shape(cols, df)
+        assert is_cm, (
+            "Integer-coded confusion matrix (labels [0,1,2]) must be detected "
+            "after the dtype fix (ordinal → included in dims filter)"
+        )
+
+    def test_float_accuracy_stays_measure(self):
+        """Floating-point accuracy scores → measure (float path, not integer path).
+
+        Floats never hit is_integer → is_dense_int_sequence=False → regular measure check.
+        """
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        df = pd.DataFrame({
+            "model": ["a", "b", "c"],
+            "accuracy": [0.90, 0.85, 0.88],
+        })
+        cols = infer_view(df)
+        acc = next(c for c in cols if c["name"] == "accuracy")
+        assert acc["role"] == "measure", (
+            f"Float accuracy must be measure; got role={acc['role']!r}"
+        )
+        assert acc["dtype"] == "quantitative", (
+            f"Float accuracy must be quantitative; got dtype={acc['dtype']!r}"
+        )
+
+
+# ============================================================================
+# Seam 10 — Role override (escape valve)
+# ============================================================================
+
+class TestRoleOverride:
+    """role_overrides={col: "measure"|"dimension"} applied last, unconditionally, surfaced."""
+
+    def test_override_dimension_to_measure_changes_role(self):
+        """role_overrides={'count': 'measure'} on a dense-int column → measure."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        # count=[1,2,3,4] on 4 rows: dense-int → would be dimension/ordinal
+        df = pd.DataFrame({
+            "true_label": ["A", "A", "B", "B"],
+            "pred_label": ["A", "B", "A", "B"],
+            "count": [1, 2, 3, 4],
+        })
+        cols = infer_view(df, role_overrides={"count": "measure"})
+        count_col = next(c for c in cols if c["name"] == "count")
+        assert count_col["role"] == "measure", (
+            f"role_overrides={{'count':'measure'}} must set role=measure; "
+            f"got role={count_col['role']!r}"
+        )
+
+    def test_override_dtype_snapped_to_quantitative_for_measure(self):
+        """When override forces role=measure on an ordinal col, dtype snaps to quantitative."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        # count=[1,2,3,4] → would be dimension/ordinal without override
+        df = pd.DataFrame({
+            "true_label": ["A", "A", "B", "B"],
+            "pred_label": ["A", "B", "A", "B"],
+            "count": [1, 2, 3, 4],
+        })
+        cols = infer_view(df, role_overrides={"count": "measure"})
+        count_col = next(c for c in cols if c["name"] == "count")
+        assert count_col["dtype"] == "quantitative", (
+            f"Override to measure on ordinal col must snap dtype to quantitative; "
+            f"got dtype={count_col['dtype']!r}"
+        )
+
+    def test_override_measure_to_dimension_changes_role(self):
+        """role_overrides={'score': 'dimension'} forces a measure-inferred col to dimension."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        df = pd.DataFrame({"model": ["a"] * 20, "score": [float(i) / 20 for i in range(20)]})
+        # score: high-card float → would be measure; override to dimension
+        cols = infer_view(df, role_overrides={"score": "dimension"})
+        score_col = next(c for c in cols if c["name"] == "score")
+        assert score_col["role"] == "dimension", (
+            f"Override to dimension must override; got role={score_col['role']!r}"
+        )
+
+    def test_override_prints_surface_line_when_role_changes(self, capsys):
+        """When override changes role, prints 'role override: <col> → <new> (was inferred <old>)'."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        # count=[1,2,3,4] → dimension/ordinal (dense-int); override to measure → should print
+        df = pd.DataFrame({
+            "true_label": ["A", "A", "B", "B"],
+            "pred_label": ["A", "B", "A", "B"],
+            "count": [1, 2, 3, 4],
+        })
+        infer_view(df, role_overrides={"count": "measure"})
+        captured = capsys.readouterr()
+        assert "role override" in captured.out.lower(), (
+            f"Override that changes role must print surface line; got: {captured.out!r}"
+        )
+        assert "count" in captured.out, (
+            f"Surface line must name the column; got: {captured.out!r}"
+        )
+
+    def test_override_silent_when_role_unchanged(self, capsys):
+        """When override sets the same role that was inferred, no surface line printed."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        # accuracy is already a measure; override to measure → no print
+        df = pd.DataFrame({"model": ["a", "b", "c"], "accuracy": [0.9, 0.8, 0.85]})
+        # accuracy: 3 rows, 3 unique values → card_fraction=1.0>0.5 → measure
+        cols = infer_view(df, role_overrides={"accuracy": "measure"})
+        captured = capsys.readouterr()
+        assert "role override" not in captured.out.lower(), (
+            f"Override to same role must not print; got: {captured.out!r}"
+        )
+
+    def test_override_restores_cm_detection_for_dense_count(self):
+        """Edge (a): 2x2 dense-count CM: count=[1,2,3,4] demoted → --measure restores detection."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view, detect_confusion_matrix_shape
+
+        df = pd.DataFrame({
+            "true_label": ["A", "A", "B", "B"],
+            "pred_label": ["A", "B", "A", "B"],
+            "count": [1, 2, 3, 4],
+        })
+        # Without override: count gets demoted to dimension → CM not detected
+        cols_no_override = infer_view(df)
+        count_no_override = next(c for c in cols_no_override if c["name"] == "count")
+        assert count_no_override["role"] == "dimension", (
+            "count=[1,2,3,4] must be demoted to dimension without override "
+            "(dense-int-sequence path); this validates the test premise"
+        )
+        is_cm_no_override = detect_confusion_matrix_shape(cols_no_override, df)
+        assert not is_cm_no_override, (
+            "CM must NOT be detected when count is demoted (no measure col)"
+        )
+
+        # With override: count → measure → CM IS detected
+        cols_override = infer_view(df, role_overrides={"count": "measure"})
+        is_cm_override = detect_confusion_matrix_shape(cols_override, df)
+        assert is_cm_override, (
+            "CM must be detected after --measure count override restores count to measure"
+        )
+
+    def test_cli_new_subparser_has_dimension_and_measure_flags(self):
+        """rv figure new subparser has --dimension and --measure repeatable flags."""
+        from research_vault.figure import build_parser
+
+        p = build_parser()
+        # Find the 'new' subcommand
+        new_parser = None
+        for action in p._subparsers._actions:
+            if hasattr(action, 'choices') and action.choices and "new" in action.choices:
+                new_parser = action.choices["new"]
+                break
+        assert new_parser is not None, "Could not find 'new' subparser"
+
+        opts = {a.dest for a in new_parser._actions}
+        assert "dimension" in opts, f"'new' subparser must have --dimension flag; got {opts}"
+        assert "measure" in opts, f"'new' subparser must have --measure flag; got {opts}"
+
+    def test_cli_recommend_subparser_has_dimension_and_measure_flags(self):
+        """rv figure recommend subparser has --dimension and --measure repeatable flags."""
+        from research_vault.figure import build_parser
+
+        p = build_parser()
+        rec_parser = None
+        for action in p._subparsers._actions:
+            if hasattr(action, 'choices') and action.choices and "recommend" in action.choices:
+                rec_parser = action.choices["recommend"]
+                break
+        assert rec_parser is not None, "Could not find 'recommend' subparser"
+
+        opts = {a.dest for a in rec_parser._actions}
+        assert "dimension" in opts, f"'recommend' subparser must have --dimension flag; got {opts}"
+        assert "measure" in opts, f"'recommend' subparser must have --measure flag; got {opts}"
+
+
+# ============================================================================
+# Seam 11 — Residual edge cases
+# ============================================================================
+
+class TestResidualEdgeCases:
+    """Residual edge cases from Ada's matrix (b–d)."""
+
+    def test_likert_1_to_5_is_dimension_ordinal(self):
+        """Edge (b): Likert scale 1..5 → dimension/ordinal → bar/box not scatter.
+
+        span=5, card=5, 5 <= 7.5 → dense → dimension/ordinal.
+        Task inference with 1 nominal dim + 1 Likert dim → comparison, not relationship
+        (no '2 measures' path), so recommender picks bar/box over scatter.
+        """
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view, recommend
+
+        df = pd.DataFrame({
+            "item": ["Q1"] * 5,
+            "rating": [1, 2, 3, 4, 5],
+        })
+        cols = infer_view(df)
+        rating_col = next(c for c in cols if c["name"] == "rating")
+        assert rating_col["role"] == "dimension", (
+            f"Likert 1..5 must be dimension (not measure); got role={rating_col['role']!r}"
+        )
+        assert rating_col["dtype"] == "ordinal", (
+            f"Likert 1..5 must be ordinal; got dtype={rating_col['dtype']!r}"
+        )
+        # With Likert as dimension, infer_task should NOT return 'relationship'
+        # (no 2-measure path) → recommender should not return scatter as rank-1
+        suggestions = recommend(cols)
+        top = suggestions[0]
+        assert top["plot_type"] != "scatter", (
+            f"Likert 1..5 as dimension must not lead to scatter rank-1; "
+            f"got {top['plot_type']!r}. rating is a dimension, not a measure."
+        )
+
+    def test_integer_col_with_nan_coerces_to_float_takes_measure_path(self):
+        """Edge (c): integer col with NaN → pandas coerces to float → measure path (not surprise).
+
+        pandas converts int column with NaN to float64 → is_integer_dtype=False
+        → is_dense_int_sequence=False → falls to regular cardinality measure check.
+        This is a known limitation (not a bug), documented here as a fixture.
+        """
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view
+
+        # Mixed int/NaN coerces to float in pandas
+        df = pd.DataFrame({
+            "model_id": [1, 2, None, 4, 5],  # float64 after coercion
+            "score": [0.9, 0.8, 0.7, 0.6, 0.5],
+        })
+        cols = infer_view(df)
+        mid = next(c for c in cols if c["name"] == "model_id")
+        # After coercion to float, is_integer_dtype=False → not dense-int → regular measure check
+        # card=4 (1,2,4,5), nrows=5, card_fraction=0.8>0.5 → measure
+        # This is the known behaviour — document it, not fix it
+        assert mid["dtype"] == "quantitative", (
+            f"int+NaN coerces to float → quantitative dtype; got {mid['dtype']!r}"
+        )
+        # role: card=4, nrows=5, card_fraction=0.8>0.5 → measure (float path)
+        assert mid["role"] == "measure", (
+            f"int+NaN col with card_fraction>0.5 → measure via float path; "
+            f"got role={mid['role']!r}"
+        )
+
+    def test_no_pandas_fallback_dense_int_guard_is_noop(self):
+        """Edge (d): no-pandas fallback path — dense-int guard must be a no-op (no error).
+
+        The guard 'is_integer = pd.api.types.is_integer_dtype(series)' only runs
+        when pandas is importable. In the stdlib-only fallback, is_dense_int_sequence
+        stays False and the regular cardinality heuristic applies. This test mocks
+        a series that lacks pandas methods to verify no AttributeError is raised.
+        """
+        from research_vault.figures.recommend import infer_view
+
+        # Build a minimal duck-typed DataFrame that triggers the except ImportError path
+        # in infer_view. We monkey-patch by temporarily hiding pandas.
+        import sys
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _block_pandas(name, *args, **kwargs):
+            if name == "pandas":
+                raise ImportError("blocked for test")
+            return real_import(name, *args, **kwargs)
+
+        class _FakeSeries:
+            def __init__(self, values):
+                self._values = list(values)
+            def nunique(self): return len(set(v for v in self._values if v is not None))
+            def __len__(self): return len(self._values)
+            @property
+            def iloc(self):
+                class _IlocProxy:
+                    def __init__(self, vals): self._vals = vals
+                    def __getitem__(self, i): return self._vals[i]
+                return _IlocProxy(self._values)
+            def dropna(self): return self  # simplified
+
+        class _FakeDF:
+            def __init__(self, data):
+                self._data = data
+                self.columns = list(data.keys())
+            def __len__(self): return len(self._data[self.columns[0]])
+            def __getitem__(self, col): return self._data[col]
+
+        fake_df = _FakeDF({"model_id": _FakeSeries([1, 2, 3, 4, 5])})
+
+        # Temporarily block pandas import inside infer_view
+        builtins.__import__ = _block_pandas
+        try:
+            # Must not raise — the fallback path must handle missing pandas gracefully
+            result = infer_view(fake_df)
+            assert isinstance(result, list), "infer_view fallback must return a list"
+        except Exception as exc:
+            raise AssertionError(
+                f"infer_view fallback must not raise when pandas is absent; got: {exc}"
+            ) from exc
+        finally:
+            builtins.__import__ = real_import
+
+
+# ============================================================================
+# Seam 12 — Regression fixture (real research-eval frame shapes)
+# ============================================================================
+
+class TestRegressionFrameShapes:
+    """Gold-labeled set of real research-eval frame shapes.
+
+    These are the shapes this project actually produces — model×seed,
+    model×language, confusion_matrix (string + integer coded), sweep×metric.
+    Asserting recommended plot type here catches recommender regressions.
+    """
+
+    def test_model_by_seed_recommends_heatmap(self):
+        """model×seed frame → comparison → heatmap rank-1 (matrix-of-scores shape)."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view, recommend
+
+        # Typical eval: 3 models × 3 seeds, accuracy metric
+        rows = []
+        for model in ["gpt4", "llama3", "mistral"]:
+            for seed in [1, 2, 3]:
+                rows.append({"model": model, "seed": seed, "accuracy": 0.85})
+        df = pd.DataFrame(rows)
+
+        cols = infer_view(df)
+        # After fix: seed=[1,2,3] → dimension/ordinal; model → nominal/dimension
+        seed_col = next(c for c in cols if c["name"] == "seed")
+        assert seed_col["role"] == "dimension", (
+            f"seed must be dimension in model×seed frame; got {seed_col['role']!r}"
+        )
+        suggestions = recommend(cols, task="comparison")
+        top = suggestions[0]
+        assert top["plot_type"] in ("heatmap", "bar"), (
+            f"model×seed (2 dims + 1 measure) → heatmap or bar; got {top['plot_type']!r}"
+        )
+
+    def test_model_by_language_recommends_heatmap(self):
+        """model×language frame → comparison → heatmap rank-1 (matrix-of-scores shape)."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view, recommend
+
+        rows = []
+        for model in ["gpt4", "llama3"]:
+            for lang in ["en", "zh", "ar", "fr"]:
+                rows.append({"model": model, "language": lang, "f1": 0.80})
+        df = pd.DataFrame(rows)
+
+        cols = infer_view(df)
+        suggestions = recommend(cols, task="comparison")
+        top = suggestions[0]
+        assert top["plot_type"] in ("heatmap", "bar"), (
+            f"model×language → heatmap or bar; got {top['plot_type']!r}"
+        )
+
+    def test_string_coded_confusion_matrix_recommends_confusion_matrix(self):
+        """String-label CM → detect → recommend confusion_matrix or heatmap rank-1."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view, detect_confusion_matrix_shape, recommend
+
+        labels = ["A", "B", "C"]
+        df = pd.DataFrame({
+            "true_label": labels * 3,
+            "pred_label": labels * 3,
+            "count": [50, 2, 1, 3, 45, 2, 1, 4, 48],
+        })
+        cols = infer_view(df)
+        is_cm = detect_confusion_matrix_shape(cols, df)
+        assert is_cm, "String-label CM must be detected (baseline — was working before)"
+        suggestions = recommend(cols, task="lookup", is_confusion_matrix=is_cm)
+        plot_types = [s["plot_type"] for s in suggestions]
+        assert "confusion_matrix" in plot_types or "heatmap" in plot_types, (
+            f"String-label CM → confusion_matrix or heatmap in suggestions; got {plot_types}"
+        )
+
+    def test_integer_coded_confusion_matrix_recommends_confusion_matrix(self):
+        """Integer-label CM → detect (after fix) → recommend confusion_matrix or heatmap."""
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view, detect_confusion_matrix_shape, recommend
+
+        df = pd.DataFrame({
+            "true_label": [0, 0, 0, 1, 1, 1, 2, 2, 2],
+            "pred_label": [0, 1, 2, 0, 1, 2, 0, 1, 2],
+            "count": [10, 2, 0, 1, 9, 3, 0, 1, 8],
+        })
+        cols = infer_view(df)
+        is_cm = detect_confusion_matrix_shape(cols, df)
+        assert is_cm, (
+            "Integer-label CM must be detected after the dtype fix "
+            "(integer labels now ordinal → included in dims filter)"
+        )
+        suggestions = recommend(cols, task="lookup", is_confusion_matrix=is_cm)
+        plot_types = [s["plot_type"] for s in suggestions]
+        assert "confusion_matrix" in plot_types or "heatmap" in plot_types, (
+            f"Integer-label CM → confusion_matrix or heatmap; got {plot_types}"
+        )
+
+    def test_sweep_metric_frame_recommends_scatter_or_line(self):
+        """sweep×metric (dense epoch + 2 float measures) → relationship → scatter rank-1.
+
+        epoch=[0,1,2,3,4,5]: dense-int (span=6, card=6, 6<=9) → dimension/ordinal.
+        loss, accuracy: float → measure.
+        n_dims=1, n_measures=2 → relationship → scatter.
+        """
+        pytest.importorskip("pandas")
+        import pandas as pd
+        from research_vault.figures.recommend import infer_view, recommend
+
+        df = pd.DataFrame({
+            "epoch": [0, 1, 2, 3, 4, 5],
+            "loss": [2.5, 1.2, 0.8, 0.6, 0.5, 0.45],
+            "accuracy": [0.30, 0.60, 0.75, 0.82, 0.85, 0.87],
+        })
+        cols = infer_view(df)
+        epoch_col = next(c for c in cols if c["name"] == "epoch")
+        assert epoch_col["role"] == "dimension", (
+            f"Dense epoch=[0..5] must be dimension; got role={epoch_col['role']!r}"
+        )
+        # With 1 dim + 2 measures → relationship → scatter
+        suggestions = recommend(cols, task="relationship")
+        top = suggestions[0]
+        assert top["plot_type"] in ("scatter", "line"), (
+            f"sweep×metric → scatter or line; got {top['plot_type']!r}"
+        )

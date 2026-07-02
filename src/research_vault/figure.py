@@ -155,11 +155,31 @@ def _figure_note_path(project: str, fig_id: str, cfg: Config) -> Path:
 # Commands
 # ---------------------------------------------------------------------------
 
+def _build_role_overrides(
+    dimensions: list[str] | None,
+    measures: list[str] | None,
+) -> "dict[str, str] | None":
+    """Build a role_overrides dict from --dimension / --measure CLI flag lists.
+
+    The CLI parser enforces the allowed values structurally (choices or flag names),
+    so this is purely a merge helper.
+    """
+    overrides: dict[str, str] = {}
+    if dimensions:
+        for col in dimensions:
+            overrides[col] = "dimension"
+    if measures:
+        for col in measures:
+            overrides[col] = "measure"
+    return overrides or None
+
+
 def _auto_recommend_plot_type(
     exp_fields: dict[str, str],
     select: list[str] | None,
     filter_expr: str | None,
     task: str | None = None,
+    role_overrides: "dict[str, str] | None" = None,
 ) -> str:
     """Try to auto-recommend a plot type from the experiment's results frame.
 
@@ -207,7 +227,7 @@ def _auto_recommend_plot_type(
     if df.empty or len(df.columns) == 0:
         return "line"
 
-    cols = infer_view(df)
+    cols = infer_view(df, role_overrides=role_overrides)
     suggestions = recommend(cols, task=task)
     top = suggestions[0]
     chosen = top["plot_type"]
@@ -290,6 +310,7 @@ def cmd_new(
     plot_type: str | None = None,
     style: str = "publication",
     task: str | None = None,
+    role_overrides: "dict[str, str] | None" = None,
     config: Config | None = None,
 ) -> Path:
     """Create a figure-spec note (figures/<fig-id>.md) in the project's notes directory.
@@ -326,7 +347,9 @@ def cmd_new(
     # Resolve plot_type: None → call the recommender (SR-FIG-REC integration)
     explicit_type = plot_type is not None
     if not explicit_type:
-        plot_type = _auto_recommend_plot_type(exp_fields, select, filter_expr, task)
+        plot_type = _auto_recommend_plot_type(
+            exp_fields, select, filter_expr, task, role_overrides=role_overrides
+        )
 
     # Fire integrity WARNs regardless of who chose the type (explicit or auto)
     _fire_integrity_warns(plot_type, exp_fields, select, filter_expr)
@@ -389,6 +412,7 @@ def cmd_recommend(
     *,
     task: str | None = None,
     why: bool = False,
+    role_overrides: "dict[str, str] | None" = None,
     config: Config | None = None,
 ) -> int:
     """Print ranked plot-type suggestions for a data-view CSV artifact.
@@ -450,7 +474,7 @@ def cmd_recommend(
         print("rv figure recommend: view CSV is empty — cannot infer descriptor.", file=sys.stderr)
         return 1
 
-    cols = infer_view(df)
+    cols = infer_view(df, role_overrides=role_overrides)
     is_cm = detect_confusion_matrix_shape(cols, df)
 
     # Print descriptor summary
@@ -920,6 +944,22 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
         choices=["publication", "slide", "poster"],
         help="Style preset (default: publication).",
     )
+    new_p.add_argument(
+        "--dimension", dest="dimension", action="append", default=None, metavar="COL",
+        help=(
+            "Force COL to role=dimension (may be repeated: --dimension col1 --dimension col2). "
+            "Escape valve: overrides the recommender's inferred role, applied last. "
+            "Useful when a column the recommender classifies as measure is actually a key."
+        ),
+    )
+    new_p.add_argument(
+        "--measure", dest="measure", action="append", default=None, metavar="COL",
+        help=(
+            "Force COL to role=measure (may be repeated). "
+            "Escape valve: overrides the inferred role, applied last. "
+            "Example: --measure count when count=[1,2,3,4] is dense-int but IS a real measure."
+        ),
+    )
 
     # preview
     preview_p = sub.add_parser(
@@ -977,6 +1017,23 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
             "Default: print only the ranked type names."
         ),
     )
+    rec_p.add_argument(
+        "--dimension", dest="dimension", action="append", default=None, metavar="COL",
+        help=(
+            "Force COL to role=dimension (may be repeated). "
+            "Escape valve: overrides the inferred role, applied last. "
+            "Useful when an integer column the recommender classifies as measure is actually a key."
+        ),
+    )
+    rec_p.add_argument(
+        "--measure", dest="measure", action="append", default=None, metavar="COL",
+        help=(
+            "Force COL to role=measure (may be repeated). "
+            "Escape valve: overrides the inferred role, applied last. "
+            "Example: --measure count when count=[1,2,3,4] is dense-int but IS a real measure "
+            "(e.g. a 2x2 confusion matrix with small dense counts)."
+        ),
+    )
 
     return p
 
@@ -991,6 +1048,10 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         if args.figure_cmd == "new":
+            role_overrides = _build_role_overrides(
+                getattr(args, "dimension", None),
+                getattr(args, "measure", None),
+            )
             path = cmd_new(
                 args.project,
                 args.fig_id,
@@ -1001,6 +1062,7 @@ def run(args: argparse.Namespace) -> int:
                 plot_type=args.plot_type,  # None = use recommender
                 task=args.task,
                 style=args.style,
+                role_overrides=role_overrides,
                 config=cfg,
             )
             print(f"Created figure spec: {path}")
@@ -1028,11 +1090,16 @@ def run(args: argparse.Namespace) -> int:
             return 0
 
         elif args.figure_cmd == "recommend":
+            role_overrides = _build_role_overrides(
+                getattr(args, "dimension", None),
+                getattr(args, "measure", None),
+            )
             return cmd_recommend(
                 args.project,
                 args.view_csv,
                 task=args.task,
                 why=args.why,
+                role_overrides=role_overrides,
                 config=cfg,
             )
 

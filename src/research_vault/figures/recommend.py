@@ -60,7 +60,10 @@ _RAINBOW_CMAPS = frozenset({
 # Descriptor inference from a pandas DataFrame
 # ---------------------------------------------------------------------------
 
-def infer_view(df: Any) -> list[ViewColumn]:
+def infer_view(
+    df: Any,
+    role_overrides: "dict[str, str] | None" = None,
+) -> list[ViewColumn]:
     """Infer ViewColumn descriptors from a pandas DataFrame.
 
     Each column gets:
@@ -69,51 +72,87 @@ def infer_view(df: Any) -> list[ViewColumn]:
       - dtype:       "quantitative" | "ordinal" | "nominal" | "temporal"
       - cardinality: nunique()
 
-    Heuristic for role:
-      - numeric with cardinality > 10  → measure
-      - numeric with cardinality ≤ 10  → dimension (likely an ordinal/categorical code)
-      - nominal/object                 → dimension
-      - temporal                       → dimension (the time axis)
+    Role heuristic (in priority order):
+      1. Dense integer run (span/card <= 1.5): identifier/enumeration → dimension/ordinal.
+         Catches model_id=[1..5], seed=[41..45], epoch=[0..N], integer-coded CM labels.
+         Fires BEFORE the measure-promotion branch to avoid the ID-misfire bug.
+      2. quantitative with card > 10 or uniqueness fraction > 0.5 → measure.
+      3. Everything else → dimension (nominal/ordinal/temporal).
+
+    role_overrides: {col_name: "measure"|"dimension"} — applied LAST, unconditionally.
+      When an override changes the inferred role, prints to stdout:
+        "role override: <col> → <new> (was inferred <old>)"
+      When override forces role=measure on an ordinal col, dtype snaps to quantitative.
+      Validated to {"measure","dimension"} at the CLI boundary before being passed here.
     """
     cols: list[ViewColumn] = []
     for col in df.columns:
         series = df[col]
         card = int(series.nunique())
 
-        # dtype inference
+        # --- dtype inference ---
+        # Try pandas type checks; fall back to duck-typing when pandas absent.
+        is_integer = False  # used by dense-int-sequence check below
         try:
             import pandas as pd
             if pd.api.types.is_datetime64_any_dtype(series):
                 dtype = "temporal"
             elif pd.api.types.is_numeric_dtype(series):
                 dtype = "quantitative"
+                is_integer = pd.api.types.is_integer_dtype(series)
             elif hasattr(series, "cat"):  # CategoricalDtype
                 dtype = "ordinal"
             else:
                 dtype = "nominal"
         except ImportError:
-            # Fallback without pandas type checks
+            # Fallback without pandas type checks — is_integer stays False (guard is a no-op)
             try:
                 float(series.iloc[0])
                 dtype = "quantitative"
             except (ValueError, TypeError):
                 dtype = "nominal"
 
-        # role heuristic
+        # --- role heuristic ---
         # A quantitative column is a "measure" when:
         #   (a) absolute cardinality > 10 (many distinct values — clearly continuous), OR
-        #   (b) uniqueness fraction > 0.5 (>50% of rows are distinct — a small dataset
-        #       with numeric values like confusion-matrix counts rather than a group-ID).
-        # This handles small frames (e.g. 9-row confusion-matrix count col with card=7)
-        # that card > 10 alone misclassifies as dimension.
+        #   (b) uniqueness fraction > 0.5 (>50% of rows are distinct — e.g. 9-row CM count col).
+        # BUT: dense integer run (span/card <= 1.5) → identifier/enumeration → dimension/ordinal.
+        #   Fires FIRST to avoid the ID-misfire bug where model_id=[1..5] on 5 rows
+        #   triggers card_fraction=1.0 > 0.5 → measure (wrong — it's a categorical key).
+        #   The same fix reclassifies integer-coded CM labels ([0,1,2]) from 'quantitative'
+        #   to 'ordinal', making them visible to detect_confusion_matrix_shape.
         nrows = max(len(df), 1)
         card_fraction = card / nrows
-        if dtype == "quantitative" and (card > 10 or card_fraction > 0.5):
+
+        is_dense_int_sequence = (
+            is_integer and card > 1
+            and (int(series.max()) - int(series.min()) + 1) <= card * 1.5
+        )
+
+        if dtype == "quantitative" and is_dense_int_sequence:
+            # Dense integer run: index / seed / code / class-label → ordered key
+            role, dtype = "dimension", "ordinal"
+        elif dtype == "quantitative" and (card > 10 or card_fraction > 0.5):
             role = "measure"
         elif dtype == "temporal":
             role = "dimension"
         else:
             role = "dimension"
+            # Any remaining quantitative integer col (card<=10, fraction<=0.5, not dense-int)
+            # is also an ordered categorical → ordinal.
+            if is_integer and dtype == "quantitative":
+                dtype = "ordinal"
+
+        # --- role overrides (escape valve — applied LAST, unconditionally) ---
+        if role_overrides and col in role_overrides:
+            new_role = role_overrides[col]
+            if new_role != role:
+                print(f"role override: {col} → {new_role} (was inferred {role})")
+            role = new_role
+            # Forcing to measure a col inferred as ordinal: snap dtype to quantitative
+            # so detect_confusion_matrix_shape and infer_task treat it as a measure.
+            if role == "measure" and dtype == "ordinal":
+                dtype = "quantitative"
 
         cols.append({
             "name": col,
