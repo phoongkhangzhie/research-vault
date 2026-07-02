@@ -28,6 +28,34 @@
 ### Open / next
 - Hub to open PR against main (human-go class, crew cannot self-approve).
 - Ada's actual review_tips payload (if different from defaults) to be merged post-PR.
+## 2026-07-02 (SR-PLAN-2 — K-2 shape-lint promoted to non-optional gate)
+
+### Done
+- **K-2 promotion**: `_check_covers_ids` rule added to `plan/check.py` (rule c: covers: entries
+  must use bare IDs, not `experiments/`-prefixed IDs). All three rules now run in `check_plan`.
+- **Freeze gate wired**: `_run_freeze` in `plan/verbs.py` runs `check_plan` first; BLOCKs with
+  exit 1 and prints violations if any — hash is never stored for an ill-formed plan.
+- **covers: id convention locked**: bare IDs (e.g. `q1-main1`) is canonical per SR-PLAN-1 demo
+  plan and freeze.py's `notes_root / f"{child_id}.md"` resolution. Path-prefixed entries
+  (`experiments/q1-main1`) now BLOCK both `rv plan check` and `rv plan freeze`.
+- **15 new tests** in `tests/test_sr_plan2.py`: freeze blocks on TBD/empty/multi-component
+  violations; freeze blocks on bad plan_kind; freeze passes clean plan; covers: bare-id
+  convention (bare passes, prefixed fails, mixed flags only prefixed, empty/missing passes).
+- Full suite: 1130/1130 green. `rv lint` PASS. `rv help --check` OK. Leakage clean.
+
+### Decisions
+- **covers: convention**: bare IDs. The design doc (§5K.1) originally said `experiments/<id>`
+  but SR-PLAN-1 shipped with bare IDs and freeze.py resolves children as
+  `notes_root / f"{child_id}.md"` where `notes_root = cfg.notes_root / "experiments"`.
+  Locked at bare IDs to match what was shipped. The design doc is a historical artifact at this
+  point; the implementation is the authoritative record.
+- **Exhaustiveness-of-interpretation** stays critic-judged (not mechanized) per spec.
+- **covers:/stance link-validation** (the `note.py` integration from §5K.10) deferred — it
+  requires touching `note.py`'s experiments-elif and is marked "optional" in §5K.7. The K-2
+  promotion is the primary SR-PLAN-2 deliverable.
+
+### Open / next
+- Hub to open PR; `human-go` class (touches plan infrastructure, non-trivial behavior change).
 
 ## 2026-07-02 (SR-FIG-REC follow-up — descriptor-inference fix + role override)
 
