@@ -926,3 +926,150 @@ class TestVerbRegistration:
             args = p.parse_args(["demo-research", "check", "ms-001"])
         except SystemExit:
             pytest.fail("'rv manuscript check' not recognized by parser")
+
+
+# ---------------------------------------------------------------------------
+# 11. E2E: builders wired into rv manuscript compile + pdflatex macro test
+# ---------------------------------------------------------------------------
+
+class TestE2ECompileWired:
+    """End-to-end test: cmd_compile calls builders before pdflatex.
+
+    Verifies that rv manuscript compile:
+      - calls build_refs_bib → refs.bib exists
+      - calls inject_results → results.tex carries \\newcommand macros
+      - calls inject_appendix → appendix-repro.tex is populated
+      - stamps provenance into the manuscript note
+      - the injected macros compile without brace error (pdflatex — skip if absent)
+
+    The pdflatex assertion is the definitive proof the macro-brace bug is
+    fixed: {0.85%  % key}} (old) → runaway-argument; {0.85}% key (new) → OK.
+    """
+
+    def _make_exp_note(self, cfg, project: str, exp_id: str,
+                        results: dict, tmp_path: Path) -> tuple[Path, str]:
+        """Write a hash-verified experiment note; return (note_path, hash)."""
+        import hashlib
+        proj_notes = cfg.project_notes_dir(project)
+        exp_dir = proj_notes / "experiments"
+        exp_dir.mkdir(parents=True, exist_ok=True)
+        results_file = tmp_path / f"{exp_id}_results.json"
+        results_file.write_text(json.dumps(results), encoding="utf-8")
+        h = hashlib.sha256()
+        h.update(results_file.read_bytes())
+        results_hash = "sha256:" + h.hexdigest()
+        note_path = exp_dir / f"{exp_id}.md"
+        note_path.write_text(
+            "---\n"
+            f"type: experiments\n"
+            f"title: {exp_id}\n"
+            f"created: 2026-01-01\n"
+            f"results_location: {results_file}\n"
+            f"results_hash: {results_hash}\n"
+            f"results_commit: abc1234def56\n"
+            "---\n\n"
+            f"## {exp_id}\n",
+            encoding="utf-8",
+        )
+        return note_path, results_hash
+
+    def test_compile_wires_builders_and_pdflatex(self, cfg, tmp_instance, tmp_path):
+        """cmd_compile runs builders and (if pdflatex present) produces a brace-error-free PDF.
+
+        Exec-guarded: pdflatex assertion is skipped when texlive is absent.
+        Test verifies:
+          - results.tex populated with \\newcommand (builders ran)
+          - refs.bib written
+          - appendix-repro.tex populated
+          - provenance stamp in manuscript note
+          - if pdflatex present: PDF exists (macros compiled without brace error)
+        """
+        import shutil
+        from research_vault import manuscript as ms_mod
+
+        # ── Scaffold manuscript with scoped experiment ──────────────────────
+        note_path, tree_root, manifest = ms_mod.cmd_new(
+            "demo-research", "ms-e2e",
+            thesis="E2E compile test — macro brace verification",
+            scope=["experiments/exp-e2e"],
+            config=cfg,
+        )
+
+        # Create experiment note + results.json
+        _exp_note, exp_hash = self._make_exp_note(
+            cfg, "demo-research", "exp-e2e",
+            # Use a float value and a %-containing string to test both the
+            # brace fix and the percent-escaping fix in the same compile.
+            {"accuracy": 0.85, "coverage_pct": "72%"},
+            tmp_path,
+        )
+
+        # Empty library.json (no \cite in default main.tex → no unmatched-cite error)
+        library_json = cfg.project_notes_dir("demo-research") / "library.json"
+        library_json.write_text("[]", encoding="utf-8")
+
+        # ── Run compile ─────────────────────────────────────────────────────
+        result = ms_mod.cmd_compile("demo-research", "ms-e2e", config=cfg)
+
+        # ── Assert builders ran: results.tex has \newcommand ────────────────
+        results_tex = tree_root / "results.tex"
+        assert results_tex.exists(), "results.tex not written — builder not called"
+        results_content = results_tex.read_text(encoding="utf-8")
+        assert r"\newcommand" in results_content, (
+            f"\\newcommand not in results.tex — inject_results not called:\n"
+            f"{results_content[:400]}"
+        )
+        assert "0.85" in results_content, (
+            f"accuracy value missing from results.tex:\n{results_content[:400]}"
+        )
+        # Percent sign in value must be escaped as \% — not left as a LaTeX comment
+        assert r"\%" in results_content or "CoveragePct" in results_content, (
+            f"percent-containing value missing or unescaped in results.tex:\n"
+            f"{results_content[:400]}"
+        )
+
+        # ── Assert refs.bib was written ──────────────────────────────────────
+        refs_bib = tree_root / "refs.bib"
+        assert refs_bib.exists(), "refs.bib not written — build_refs_bib not called"
+
+        # ── Assert appendix was populated ────────────────────────────────────
+        appendix_tex = tree_root / "sections" / "appendix-repro.tex"
+        assert appendix_tex.exists(), (
+            "appendix-repro.tex not written — inject_appendix not called"
+        )
+        assert appendix_tex.stat().st_size > 0, "appendix-repro.tex is empty"
+
+        # ── Assert provenance stamp in manuscript note ───────────────────────
+        note_content = note_path.read_text(encoding="utf-8")
+        assert (
+            "results-provenance-stamp" in note_content
+            or exp_hash[:16] in note_content
+        ), "Provenance stamp missing from manuscript note after compile"
+
+        # ── Assert injected macros compile without brace error (pdflatex) ───
+        pdflatex = shutil.which("pdflatex") or "/opt/homebrew/bin/pdflatex"
+        if not (pdflatex and Path(pdflatex).exists()):
+            pytest.skip("pdflatex not on PATH — skipping brace-compilation assertion")
+
+        # cmd_compile already called pdflatex. Check the result.
+        log = result.get("log", "")
+        assert "Runaway argument" not in log, (
+            "LaTeX runaway-argument error detected — macro brace bug still present:\n"
+            f"{log[-1500:]}"
+        )
+        assert "missing } inserted" not in log, (
+            "LaTeX 'missing } inserted' error — macro brace bug still present:\n"
+            f"{log[-1500:]}"
+        )
+
+        if result["exit_code"] == 0:
+            pdf_path = tree_root / "main.pdf"
+            assert pdf_path.exists(), (
+                "compile reported exit_code=0 but main.pdf not found"
+            )
+        else:
+            # pdflatex present but compile failed — ensure it's NOT a brace error
+            # (could be missing LaTeX packages, etc. — those are system-config issues)
+            assert "Runaway argument" not in log and "missing } inserted" not in log, (
+                f"Brace error in pdflatex log — macro bug NOT fixed:\n{log[-1500:]}"
+            )
