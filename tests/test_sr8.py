@@ -138,18 +138,18 @@ class TestDatasetsOkfType:
         """'datasets' must be in the OKF_TYPES frozenset."""
         assert "datasets" in note_mod.OKF_TYPES
 
-    def test_okf_type_count_is_eight(self):
-        """OKF_TYPES now has exactly 8 types (SR-FIG adds figures as the 8th).
+    def test_okf_type_count_is_nine(self):
+        """OKF_TYPES now has exactly 9 types (SR-MS-1a adds manuscript as the 9th).
 
-        Updated from 7→8 when SR-FIG added the figures type. datasets is the
-        SHARED type (SR-8); figures is PROJECT-SCOPED (SR-FIG). The 6 other
+        Updated from 8→9 when SR-MS-1a added the manuscript type. datasets is the
+        SHARED type (SR-8); figures and manuscript are PROJECT-SCOPED. The 6 other
         types (literature, concepts, methods, experiments, findings, mocs) are
         also project-scoped.
         """
-        assert len(note_mod.OKF_TYPES) == 8
+        assert len(note_mod.OKF_TYPES) == 9
         expected = {
             "literature", "concepts", "methods", "experiments",
-            "findings", "mocs", "datasets", "figures",
+            "findings", "mocs", "datasets", "figures", "manuscript",
         }
         assert note_mod.OKF_TYPES == expected
 
