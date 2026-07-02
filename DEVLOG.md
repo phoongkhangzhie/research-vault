@@ -23,7 +23,7 @@
 - D-FIG-6 (human-go view nicety): DEFERRED.
 
 ### Open / next
-- PR #18 needs reviewer-gate + Architect fit-check before Khang merges (human-go class; engineer does not self-merge).
+- PR #18 needs reviewer-gate + Architect fit-check before operator merges (human-go class; engineer does not self-merge).
 - Iris aesthetic deliverable: plug real `figures/style.py` against the `apply_style(preset, skin)` seam.
 
 ## 2026-07-01 (SR-8 build + amendment)
