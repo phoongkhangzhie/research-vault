@@ -1,3 +1,36 @@
+## 2026-07-02 (SR-FIG-REC follow-up — descriptor-inference fix + role override)
+
+### Done
+- **`infer_view` fix (Concern A)**: dense-integer-run rule (span/card <= 1.5) fires BEFORE
+  the measure-promotion branch. model_id=[1..5], seed=[41..45] → dimension/ordinal. Handles
+  non-zero-based sequences (seed=[41..45]: span=5, card=5, 5<=7.5).
+- **Latent CM-detection fix**: integer-coded CM labels ([0,1,2]) previously kept
+  dtype="quantitative" → excluded from detect_confusion_matrix_shape's dims filter. Same
+  dense-int rule reclassifies them to ordinal → included → detected.
+- **`role_overrides` escape valve**: new param on `infer_view`, applied LAST. When override
+  changes the inferred role, prints "role override: <col> → <new> (was inferred <old>)".
+  Forcing to measure on an ordinal col snaps dtype to quantitative.
+- **CLI flags**: `--dimension COL` / `--measure COL` (both repeatable, both `action=append`)
+  added to `rv figure new` and `rv figure recommend` subparsers.
+- **22 new tests**: Ada's gold matrix (5 cases), 4 residual edges, role override seam,
+  regression fixture (model×seed, model×language, string/integer CM, sweep×metric).
+- Full suite: 1073/1073 green. `rv lint` PASS. `rv help --check` OK (26 verbs).
+- Branch `feat/sr-figrec-fix` pushed; CI in_progress at time of push.
+
+### Decisions
+- `1.5` slack is the correct boundary: tolerates ~50% gaps (seeds [1,2,4,5] → span/card=1.25).
+  Does NOT cap cardinality — epoch=[0..500] (dense) → dimension, which is the correct trend x-axis.
+- `is_integer` detection falls back to False (no-op) when pandas is absent — the fallback path
+  only does duck-typed float() → quantitative or nominal; dense-int guard is pandas-only.
+- `role_overrides` validated to {"measure","dimension"} structurally by the CLI parser (separate
+  subcommand flags); no runtime validation needed inside infer_view.
+- 2×2 CM with counts [1,2,3,4] IS correctly demoted to dimension (dense-int rule) — the user
+  must pass `--measure count` to restore CM detection. This is the documented edge case (a).
+
+### Open / next
+- PR needs hub to open (identity guard: crew cannot self-approve).
+- SR-MS-1b (manuscript .bib exporter + macros) is next in queue.
+
 ## 2026-07-02 (SR-LR-1 L-1 fix — rv research references backward snowball)
 
 ### Done
