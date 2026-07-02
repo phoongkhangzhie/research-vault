@@ -19,7 +19,7 @@
 - K-3 import failure degrades to WARN (surface but do not deadlock a run when the plan/ module is unavailable in unusual installs).
 
 ### Open / next
-- PR → reviewer + Architect fit → Khang merges (human-go class). NO self-merge.
+- PR → reviewer + Architect fit → operator merges (human-go class). NO self-merge.
 
 ## 2026-07-02 (SR-CIF REWORK — BLOCK-1 + BLOCK-2 fixed)
 
