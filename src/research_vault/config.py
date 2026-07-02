@@ -168,6 +168,25 @@ class Config:
             self.datasets_root = self.notes_root / "datasets"
         self.adapters: dict[str, str] = raw.get("adapters", {})
         self.projects: dict[str, dict[str, Any]] = raw.get("projects", {})
+        # SR-HARDENING: slug-collision guard — reject project slugs that collide
+        # with OKF type names. Such slugs silently shadow note routing (the project
+        # notes dir becomes indistinguishable from the shared OKF type root).
+        #
+        # Call-time import (not module-level) avoids circular import: note.py imports
+        # Config from this module at module load, but Config.__init__ only runs after
+        # both modules are fully loaded — by then note.py is in sys.modules, so the
+        # import resolves without recursion. This makes the guard a TRUE SSOT consumer
+        # of note.OKF_TYPES | note.OKF_SHARED_TYPES — no hardcoded fork that can drift.
+        from .note import OKF_TYPES as _OKF_TYPES, OKF_SHARED_TYPES as _OKF_SHARED_TYPES  # call-time; see comment above
+        _reserved = _OKF_TYPES | _OKF_SHARED_TYPES
+        _colliding = [s for s in self.projects if s in _reserved]
+        if _colliding:
+            bad = ", ".join(repr(s) for s in sorted(_colliding))
+            raise ValueError(
+                f"Project slug(s) {bad} collide with reserved OKF type names "
+                f"({sorted(_reserved)}). OKF type names are reserved "
+                f"routing identifiers — choose a different project slug."
+            )
 
     # --- project registry helpers ---
 
