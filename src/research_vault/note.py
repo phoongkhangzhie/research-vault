@@ -48,6 +48,12 @@ OKF_SHARED_TYPES: frozenset[str] = frozenset({"datasets"})
 # standard 6-type pattern.
 _FIGURES_REQUIRED_FIELDS = frozenset({"source_experiment", "experiment_results_hash"})
 
+# SR-PLAN-2: valid values for stance + plan_role on child experiment notes.
+_VALID_STANCE: frozenset[str] = frozenset({"confirmatory", "exploratory"})
+_VALID_PLAN_ROLE: frozenset[str] = frozenset({
+    "main", "supporting_ablation", "conditional_ablation"
+})
+
 # ---------------------------------------------------------------------------
 # SR-EXP-REPRO: experiment reproducibility schema
 # ---------------------------------------------------------------------------
@@ -407,6 +413,16 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
     manuscript_hash (the PDF-hash provenance branch; parallel to SR-WB's
     check_result_provenance). Empty pdf/hash fields are NOT violations (unfilled).
 
+    SR-PLAN-2 note: for experiments notes, cmd_check now also:
+    - (plan masters) resolves each covers: child, verifies it EXISTS at the
+      experiments/ directory, and checks it has valid stance (confirmatory|
+      exploratory) + valid plan_role (main|supporting_ablation|
+      conditional_ablation) — BLOCKS on any violation (§5K.7).
+    - (child notes) warns when plan_role is set but stance is missing; warns
+      when stance=confirmatory but the note is not in any plan master's covers:
+      (degrade-to-skip when no plan masters exist); warns when supports_main
+      points to a non-existent note.
+
     Returns a list of violation strings (empty = all clear).
     """
     cfg = config or load_config()
@@ -423,6 +439,23 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
             subdir = base / t
         if not subdir.exists():
             continue
+
+        # SR-PLAN-2: pre-pass for experiments — collect covered_ids from all plan
+        # masters so child notes can be checked for absent-from-covers (§5K.7).
+        # Skipped for non-experiments types (covered_ids stays empty → no checks).
+        covered_ids: set[str] = set()
+        if t == "experiments":
+            for _pre_p in sorted(subdir.glob("*.md")):
+                try:
+                    _pre_text = _pre_p.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                _pre_fields, _ = _parse_frontmatter(_pre_text)
+                if _pre_fields.get("plan_kind") == "preregistration":
+                    for _cid in _parse_covers_list(
+                        _pre_fields.get("covers", "")
+                    ):
+                        covered_ids.add(_cid)
 
         for p in sorted(subdir.glob("*.md")):
             text = p.read_text(encoding="utf-8")
@@ -474,6 +507,18 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # (surfaces manual gaps right after the run, not at paper-writing time)
                 repro_warnings = check_repro_sentinel_lint(p)
                 violations.extend(repro_warnings)
+                # SR-PLAN-2: covers: link-validation for plan master notes
+                # (plan_kind: preregistration); resolves each covers: child,
+                # checks stance ∈ {confirmatory, exploratory} and plan_role ∈
+                # {main, supporting_ablation, conditional_ablation} (§5K.7).
+                if fields.get("plan_kind") == "preregistration":
+                    covers_issues = check_covers_links(p, fields, subdir)
+                    violations.extend(covers_issues)
+                # SR-PLAN-2: child note checks — plan_role/stance presence +
+                # supports_main target existence + absent-from-covers warning
+                # (only for notes with plan_role set, §5K.7).
+                child_issues = check_plan_child_links(p, fields, subdir, covered_ids)
+                violations.extend(child_issues)
             elif t == "figures":
                 # SR-FIG: project-scoped type-dir contract + provenance fields required.
                 if note_type != "figures":
@@ -509,6 +554,166 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                     violations.append(
                         f"{p}: type={note_type!r} but file is in {t!r} directory"
                     )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# SR-PLAN-2: covers:/stance link-validation helpers
+# ---------------------------------------------------------------------------
+
+def _parse_covers_list(covers_str: str) -> list[str]:
+    """Parse a flat inline YAML list string like '[a, b, c]' into Python list.
+
+    Mirrors plan/freeze.py's _parse_covers_list — kept private to note.py so
+    plan/ stays note.py-free (§5K.10).  The two implementations are intentionally
+    independent; the SSOT for the list-format contract is the OKF flat-frontmatter
+    spec, not a shared function.
+    """
+    s = covers_str.strip()
+    if s.startswith("[") and s.endswith("]"):
+        s = s[1:-1]
+    return [item.strip() for item in s.split(",") if item.strip()]
+
+
+def check_covers_links(
+    plan_note_path: Path,
+    fields: dict[str, str],
+    notes_root: Path,
+) -> list[str]:
+    """SR-PLAN-2: validate that each covers: entry exists with valid stance + plan_role.
+
+    Called by cmd_check for experiments notes with ``plan_kind: preregistration``.
+
+    BLOCKs on:
+    - A child note referenced in covers: that cannot be found at notes_root/<child_id>.md
+    - A child note missing the ``stance`` field
+    - A child note with an invalid ``stance`` value (not confirmatory|exploratory)
+    - A child note missing the ``plan_role`` field
+    - A child note with an invalid ``plan_role``
+      (not main|supporting_ablation|conditional_ablation)
+
+    Args:
+        plan_note_path: path to the plan master note (for error messages).
+        fields:         frontmatter dict of the plan master note.
+        notes_root:     directory where child notes live (<child_id>.md files).
+
+    Returns:
+        list of violation strings.  Empty = all clear.
+    """
+    covers_str = fields.get("covers", "")
+    if not covers_str:
+        return []
+
+    child_ids = _parse_covers_list(covers_str)
+    violations: list[str] = []
+
+    for child_id in child_ids:
+        child_path = notes_root / f"{child_id}.md"
+        if not child_path.exists():
+            violations.append(
+                f"{plan_note_path}: covers: child {child_id!r} not found "
+                f"at {child_path} — create the experiment note or remove it "
+                f"from covers: (§5K.7 link-validation)"
+            )
+            continue
+
+        try:
+            child_text = child_path.read_text(encoding="utf-8")
+        except OSError as e:
+            violations.append(
+                f"{plan_note_path}: cannot read covers: child {child_id!r}: {e}"
+            )
+            continue
+
+        child_fields, _ = _parse_frontmatter(child_text)
+        stance = child_fields.get("stance", "").strip()
+        plan_role = child_fields.get("plan_role", "").strip()
+
+        if not stance:
+            violations.append(
+                f"{plan_note_path}: covers: child {child_id!r} is missing "
+                f"'stance' field — add stance: confirmatory or exploratory "
+                f"(§5K.1, §5K.7)"
+            )
+        elif stance not in _VALID_STANCE:
+            violations.append(
+                f"{plan_note_path}: covers: child {child_id!r} has "
+                f"invalid stance={stance!r} "
+                f"(expected: confirmatory or exploratory, §5K.1)"
+            )
+
+        if not plan_role:
+            violations.append(
+                f"{plan_note_path}: covers: child {child_id!r} is missing "
+                f"'plan_role' field "
+                f"(expected: main, supporting_ablation, or conditional_ablation, §5K.1)"
+            )
+        elif plan_role not in _VALID_PLAN_ROLE:
+            violations.append(
+                f"{plan_note_path}: covers: child {child_id!r} has "
+                f"invalid plan_role={plan_role!r} "
+                f"(expected: main, supporting_ablation, or conditional_ablation, §5K.1)"
+            )
+
+    return violations
+
+
+def check_plan_child_links(
+    exp_note_path: Path,
+    fields: dict[str, str],
+    notes_root: Path,
+    covered_ids: "set[str]",
+) -> list[str]:
+    """SR-PLAN-2: validate plan_role / stance / supports_main on a child note.
+
+    Checks performed only when ``plan_role`` is set (i.e., the note is a plan child):
+    - ``stance`` must be present (confirmatory or exploratory)
+    - If ``stance: confirmatory`` AND covered_ids is non-empty, the note's ID must
+      appear in at least one plan master's ``covers:`` list
+    - If ``supports_main`` is set, the target note must exist
+
+    The absent-from-covers check is *skipped* when covered_ids is empty (no plan
+    masters in this project) — degrade-to-skip, not degrade-to-block (§5K.7).
+
+    Args:
+        exp_note_path: path to the experiment note being checked.
+        fields:        frontmatter dict of the experiment note.
+        notes_root:    directory where experiment notes live (for supports_main
+                       resolution).
+        covered_ids:   set of child IDs mentioned in any plan master's covers: in
+                       this project.  Empty when no plan masters exist.
+
+    Returns:
+        list of violation strings.  Empty = all clear.
+    """
+    violations: list[str] = []
+    plan_role = fields.get("plan_role", "").strip()
+    stance = fields.get("stance", "").strip()
+    supports_main = fields.get("supports_main", "").strip()
+    note_id = exp_note_path.stem
+
+    if plan_role:
+        if not stance:
+            violations.append(
+                f"{exp_note_path}: plan_role={plan_role!r} is set but "
+                f"'stance' field is missing — "
+                f"add stance: confirmatory or stance: exploratory (§5K.1)"
+            )
+        elif stance == "confirmatory" and covered_ids and note_id not in covered_ids:
+            violations.append(
+                f"{exp_note_path}: stance=confirmatory but {note_id!r} "
+                f"is not in any plan master's covers: list — "
+                f"add it to the plan master or check for a typo (§5K.7)"
+            )
+
+    if supports_main:
+        target = notes_root / f"{supports_main}.md"
+        if not target.exists():
+            violations.append(
+                f"{exp_note_path}: supports_main={supports_main!r} target "
+                f"note not found at {target} (§5K.7)"
+            )
 
     return violations
 
