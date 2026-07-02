@@ -807,4 +807,4 @@ def cmd_check(
     ms_dir = _manuscript_dir(project, cfg)
     note_path = ms_dir / f"{ms_id}.md"
     tree_root = _manuscripts_tree_root(project, ms_id, cfg)
-    return check_manuscript(note_path, tree_root)
+    return check_manuscript(note_path, tree_root, config=cfg)

@@ -276,90 +276,6 @@ def check_availability_sentinel(
 
 
 # ---------------------------------------------------------------------------
-# Main gate runner
-# ---------------------------------------------------------------------------
-
-def check_manuscript(
-    note_path: Path,
-    tree_root: Path,
-    *,
-    experiment_notes: list[Path] | None = None,
-    tex_files: list[Path] | None = None,
-) -> dict[str, Any]:
-    """Run all structural gates for rv manuscript check.
-
-    When to use: ``rv manuscript check <id>`` — run the structural grounding
-    gates BEFORE the semantic ones (SR-MS-2). Structural gates are cheap,
-    binary, and do not require an LLM.
-
-    Args:
-        note_path: path to the manuscript/<id>.md OKF note.
-        tree_root: path to manuscripts/<id>/ artifact tree.
-        experiment_notes: list of scoped experiments/ note paths (for the
-            availability cross-check). When None, resolved from the note's
-            synthesized_okf field relative to the project notes dir.
-        tex_files: list of .tex files to scan. When None, rglob tree_root.
-
-    Returns:
-        dict with:
-          "errors": list of hard error strings (unmatched cite, missing figure)
-          "warnings": list of warning strings (availability cross-check)
-          "all_ok": bool (True iff errors is empty)
-    """
-    from research_vault.note import _parse_frontmatter
-    from research_vault.config import load_config
-
-    errors: list[str] = []
-    warnings: list[str] = []
-
-    # ── Resolve experiment notes if not provided ───────────────────────────
-    if experiment_notes is None:
-        experiment_notes = []
-        if note_path.exists():
-            text = note_path.read_text(encoding="utf-8")
-            fields, _ = _parse_frontmatter(text)
-            scope_str = fields.get("synthesized_okf", "").strip()
-            if scope_str:
-                try:
-                    cfg = load_config()
-                    # Extract project from note path (heuristic: manuscript/<id>.md
-                    # lives under project_notes_dir/<project>/manuscript/)
-                    # Walk up to find project_notes_dir
-                    for scope_item in scope_str.split(","):
-                        scope_item = scope_item.strip()
-                        if scope_item.startswith("experiments/"):
-                            exp_name = scope_item[len("experiments/"):]
-                            # Try to find the experiment note relative to the
-                            # manuscript note's project dir
-                            candidate = note_path.parent.parent / "experiments" / f"{exp_name}.md"
-                            if candidate.exists():
-                                experiment_notes.append(candidate)
-                except Exception:
-                    pass
-
-    if tex_files is None:
-        tex_files = list(tree_root.rglob("*.tex"))
-
-    # ── Gate 1: unmatched \\cite ───────────────────────────────────────────
-    errors.extend(check_cite_resolution(tree_root, tex_files))
-
-    # ── Gate 2: figure-file existence ─────────────────────────────────────
-    errors.extend(check_figure_existence(tree_root, tex_files))
-
-    # ── Gate 3: compile success (passive) ─────────────────────────────────
-    errors.extend(check_compile_success(note_path, tree_root))
-
-    # ── Gate 4: data-code-availability sentinel cross-check ───────────────
-    warnings.extend(check_availability_sentinel(tree_root, experiment_notes))
-
-    return {
-        "errors": errors,
-        "warnings": warnings,
-        "all_ok": len(errors) == 0,
-    }
-
-
-# ---------------------------------------------------------------------------
 # Gate 5: dedup — repeated \cite / duplicate .bib entry-keys (SR-MS-2)
 # ---------------------------------------------------------------------------
 
@@ -1502,6 +1418,9 @@ def check_manuscript(
     full semantic check (support-matcher, J-1, J-2, K-1, strength-monotonicity,
     critic), call build_approve_payload(). The honest boundary is documented in
     the module docstring and the rv manuscript check help text.
+    Citation integrity is structural for ``\\cite``+provenance and
+    assisted-plus-human for prose — this does NOT guarantee zero hallucinated
+    prose references.
 
     Gates run here:
       1. Unmatched \\cite resolution (SR-MS-1b)
