@@ -2,7 +2,7 @@
 
 SEAM CONTRACT
   ``get_review_tips(config=None)`` is the call-point for the review DAG nodes'
-  spec/prompt.  The shipped default is engineer-drafted, §5L-faithful prose (the
+  spec/prompt.  The shipped default is engineer-drafted, design-faithful prose (the
   saturation loop, counter-position/L-2 gate, disconfirming obligation) PENDING
   Ada's retrieval-grounded authored strings (follow-up);
   adopters override per lab/venue via the ``[review_style]`` section in
