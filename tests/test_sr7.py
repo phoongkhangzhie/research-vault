@@ -672,3 +672,215 @@ def test_rv_help_check_passes():
     from research_vault.cli import _check_verb_docstrings
     violations = _check_verb_docstrings()
     assert violations == [], f"rv help --check violations: {violations}"
+
+
+# ---------------------------------------------------------------------------
+# SR-7 cleanup: new tests for the 6 post-review findings
+# ---------------------------------------------------------------------------
+
+# Finding #1 — import-guard: importing research_vault.adapters for backend=local
+# must NOT pull in adapters.remote (ssh dependency).
+def test_import_guard_local_does_not_import_remote():
+    """Importing research_vault.adapters must NOT eagerly import adapters.remote.
+
+    Regression test for D-SR7 §6: local orchestration never carries the ssh
+    dependency. adapters/__init__.py must use __getattr__ (PEP 562 lazy export)
+    rather than an eager 'from .remote import RemoteBackend' at module level.
+    """
+    import importlib
+    import sys
+
+    # Evict all research_vault modules so we can re-test the import fresh.
+    # Prior tests may have already imported remote — eviction makes this hermetic.
+    saved: dict[str, Any] = {}
+    for key in list(sys.modules):
+        if "research_vault" in key:
+            saved[key] = sys.modules.pop(key)
+
+    remote_key = "research_vault.adapters.remote"
+    try:
+        import research_vault.adapters  # noqa: F401
+        assert remote_key not in sys.modules, (
+            "Importing research_vault.adapters imported adapters.remote — "
+            "the import-guard is broken. adapters/__init__.py must use "
+            "__getattr__ (PEP 562), not an eager top-level import."
+        )
+    finally:
+        # Restore so subsequent tests see the modules they expect.
+        sys.modules.update(saved)
+
+
+# Finding #2 — env/cwd wired into the ssh invocation for slurm archetype.
+def test_submit_slurm_wires_env_into_cmd(cfg_slurm):
+    """env= dict is propagated into the command sent to the remote cluster."""
+    from research_vault.adapters.remote import RemoteBackend
+    rb = RemoteBackend(cfg_slurm)
+    with patch(
+        "subprocess.run",
+        return_value=_mock_subprocess_run("Submitted batch job 55\n"),
+    ) as mock_run:
+        handle = rb.submit(
+            ["train.py", "--epochs", "10"],
+            env={"MY_ENV_VAR": "hello_world"},
+        )
+    assert handle == "55"
+    call_argv = mock_run.call_args[0][0]
+    dash_idx = call_argv.index("--")
+    after_dash = " ".join(call_argv[dash_idx + 1:])
+    assert "MY_ENV_VAR" in after_dash, (
+        f"env var missing from submit cmd after '--': {after_dash!r}"
+    )
+
+
+def test_submit_slurm_wires_cwd_into_cmd(cfg_slurm):
+    """cwd= is propagated into the command sent to the remote cluster."""
+    from research_vault.adapters.remote import RemoteBackend
+    rb = RemoteBackend(cfg_slurm)
+    with patch(
+        "subprocess.run",
+        return_value=_mock_subprocess_run("Submitted batch job 56\n"),
+    ) as mock_run:
+        rb.submit(
+            ["train.py"],
+            cwd="/remote/workdir",
+        )
+    call_argv = mock_run.call_args[0][0]
+    dash_idx = call_argv.index("--")
+    after_dash = " ".join(call_argv[dash_idx + 1:])
+    assert "/remote/workdir" in after_dash, (
+        f"cwd missing from submit cmd after '--': {after_dash!r}"
+    )
+
+
+def test_submit_ssh_archetype_wires_env_and_cwd(tmp_path):
+    """env= and cwd= appear in the shell string for ssh (background) archetype."""
+    from research_vault.adapters.remote import RemoteBackend
+    from research_vault.compute import MANIFEST_FILE
+
+    cfg = _make_cfg(tmp_path, backend="ssh")
+    ssh_manifest: dict[str, Any] = {
+        "backends": {
+            "active": ["my-ssh"],
+            "profiles": {
+                "my-ssh": {
+                    "archetype": "ssh",
+                    "host": "example-ssh-host",
+                },
+            },
+        },
+        "conda_envs": {}, "gpu_tiers": {}, "rules": [], "model_quirks": {}, "run_outcomes": [],
+    }
+    (cfg.state_dir / MANIFEST_FILE).write_text(
+        json.dumps(ssh_manifest, indent=2), encoding="utf-8"
+    )
+
+    rb = RemoteBackend(cfg)
+    with patch(
+        "subprocess.run",
+        return_value=_mock_subprocess_run("42\n"),
+    ) as mock_run:
+        handle = rb.submit(
+            ["run.py"],
+            env={"SSH_VAR": "testval"},
+            cwd="/ssh/workdir",
+        )
+
+    assert handle == "42"
+    # For ssh archetype: last arg to ssh is the shell template string
+    call_argv = mock_run.call_args[0][0]
+    shell_str = " ".join(call_argv)
+    assert "SSH_VAR" in shell_str, (
+        f"env var missing from ssh shell string: {shell_str!r}"
+    )
+    assert "/ssh/workdir" in shell_str, (
+        f"cwd missing from ssh shell string: {shell_str!r}"
+    )
+
+
+def test_submit_env_cwd_none_does_not_wrap(cfg_slurm):
+    """When env=None and cwd=None, cmd is passed through unchanged (no /bin/sh wrap)."""
+    from research_vault.adapters.remote import RemoteBackend
+    rb = RemoteBackend(cfg_slurm)
+    with patch(
+        "subprocess.run",
+        return_value=_mock_subprocess_run("Submitted batch job 57\n"),
+    ) as mock_run:
+        rb.submit(["train.py", "--flag"])
+    call_argv = mock_run.call_args[0][0]
+    dash_idx = call_argv.index("--")
+    after_dash = call_argv[dash_idx + 1:]
+    # Without env/cwd, cmd passes through directly — no /bin/sh wrapper
+    assert after_dash == ["train.py", "--flag"], (
+        f"Unexpected cmd wrapping when env=cwd=None: {after_dash!r}"
+    )
+
+
+# Finding #5 — cmd_show with status_cmd: null must not crash.
+def test_cmd_show_null_status_cmd_does_not_crash(tmp_path, capsys):
+    """cmd_show must not TypeError-crash when status_cmd is null in the manifest."""
+    cfg = _make_cfg(tmp_path, backend="ssh")
+    manifest: dict[str, Any] = {
+        "backends": {
+            "active": ["ssh-null-host"],
+            "profiles": {
+                "ssh-null-host": {
+                    "archetype": "ssh",
+                    "host": "example-host",
+                    "status_cmd": None,   # null — the crash trigger
+                },
+            },
+        },
+        "conda_envs": {}, "gpu_tiers": {}, "rules": [], "model_quirks": {}, "run_outcomes": [],
+    }
+    _write_manifest(cfg, manifest)
+
+    from research_vault.compute import cmd_show
+    rc = cmd_show(cfg)          # must not raise
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "ssh-null-host" in out
+    assert "status_cmd=null" in out
+
+
+def test_cmd_show_nonnull_status_cmd_still_renders(tmp_path, capsys):
+    """After the null-guard fix, non-null status_cmd still renders correctly."""
+    cfg = _make_cfg(tmp_path, backend="slurm")
+    manifest = _slurm_manifest()
+    manifest["backends"]["profiles"]["slurm-cluster"]["status_cmd"] = "sacct -j {jobid}"
+    _write_manifest(cfg, manifest)
+
+    from research_vault.compute import cmd_show
+    cmd_show(cfg)
+    out = capsys.readouterr().out
+    assert "sacct" in out
+
+
+# Finding #4 — _parse_sacct_state helper: verify it parses correctly.
+def test_parse_sacct_state_terminal():
+    """_parse_sacct_state maps COMPLETED → ready=True, state=COMPLETED."""
+    from research_vault.wait_for import _parse_sacct_state
+    result = _parse_sacct_state("12345|COMPLETED\n", "12345")
+    assert result["ready"] is True
+    assert result["state"] == "COMPLETED"
+
+
+def test_parse_sacct_state_running():
+    from research_vault.wait_for import _parse_sacct_state
+    result = _parse_sacct_state("12345|RUNNING\n", "12345")
+    assert result["ready"] is False
+    assert result["state"] == "RUNNING"
+
+
+def test_parse_sacct_state_not_found_returns_pending():
+    from research_vault.wait_for import _parse_sacct_state
+    result = _parse_sacct_state("", "99999")
+    assert result["ready"] is False
+    assert result["state"] == "pending"
+
+
+def test_parse_sacct_state_sub_job_matches_parent():
+    """Sub-jobs (12345.batch) must not shadow the parent (12345)."""
+    from research_vault.wait_for import _parse_sacct_state
+    stdout = "12345.batch|COMPLETED\n12345|COMPLETED\n"
+    result = _parse_sacct_state(stdout, "12345")
+    assert result["ready"] is True
