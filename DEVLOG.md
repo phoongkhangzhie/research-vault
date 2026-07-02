@@ -28,6 +28,34 @@
 ### Open / next
 - Hub to open PR against main (human-go class, crew cannot self-approve).
 - Ada's actual review_tips payload (if different from defaults) to be merged post-PR.
+## 2026-07-02 (SR-7 follow-on — native_env manifest key)
+
+### Done
+- **`native_env` manifest key** in `adapters/remote.py`: when `native_env: true` is set
+  on a profile, `RemoteBackend.submit` uses the scheduler's native env/cwd flags instead
+  of the `sh -c` wrapper. `ssh+slurm` → `--export=KEY=val --chdir=<d>`; `ssh+pbs` →
+  `-v KEY=val -d <d>`. Falls back to `sh -c` for `ssh`/`generic` archetypes (no scheduler
+  native mechanism). Default absent/false → `sh -c` wrap unchanged (backward-compatible).
+- **`compute.py`**: `native_env` documented in module docstring schema section; `cmd_show`
+  surfaces `native_env=true` when declared in the profile.
+- **6 new tests** (tests 20-25 in `test_sr7.py`): slurm native flags, PBS native flags,
+  backward-compat (no native_env → sh -c fires), no env/cwd edge case, ssh archetype
+  fallback (no crash), cmd_show display. Full suite: 1121 passed, 37 skipped.
+- Branch `feat/sr-7-native-env` pushed; hub to open PR.
+
+### Decisions
+- `native_env` is purely profile-level (not archetype-default) — opt-in seam, no implicit
+  behavior change for existing manifests.
+- Values in `--export=KEY=val` are comma-joined without shell-quoting; values with spaces
+  or special chars are documented as unsupported in native_env mode (the typical HPC use
+  case has simple env var values).
+- `ssh` and `generic` archetypes: `native_env` falls back to `sh -c` (no scheduler native
+  mechanism; env/cwd still land on the remote).
+
+### Open / next
+- Hub opens PR for review (human-go class — cross-project / stack convention).
+
+---
 ## 2026-07-02 (SR-PLAN-2 — K-2 shape-lint promoted to non-optional gate)
 
 ### Done
