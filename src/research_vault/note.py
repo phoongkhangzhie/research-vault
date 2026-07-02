@@ -11,6 +11,7 @@ Stdlib only.
 
 import argparse
 import datetime
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -132,6 +133,15 @@ def cmd_new(project: str, note_type: str, title: str, *,
         fields["location"] = ""   # fill in: path/URL/DOI of the data artifact
         fields["hash"] = ""       # fill in: sha256:<hex> content hash of the artifact
 
+    # SR-WB: experiments notes carry results provenance placeholder fields.
+    # These are the PRIMARY results source — populated by `rv wandb pull --experiment`.
+    # Flat prefixed fields (NOT nested block) — matches _parse_frontmatter contract.
+    if note_type == "experiments":
+        fields["results_location"] = ""   # path/URL of the metrics artifact
+        fields["results_hash"] = ""       # sha256:<hex> of the artifact (for integrity)
+        fields["results_wandb_run"] = ""  # W&B run id that produced these metrics
+        fields["results_commit"] = ""     # git SHA of the code that produced the run
+
     if tags:
         fields["tags"] = "[" + ", ".join(tags) + "]"
 
@@ -149,6 +159,21 @@ def cmd_new(project: str, note_type: str, title: str, *,
             "<!-- Which step/commit/input-datasets produced this? -->\n\n"
             "## Schema\n\n"
             "<!-- Column/field descriptions (optional — used for schema-shape validation). -->\n"
+        )
+    elif note_type == "experiments":
+        body = (
+            "\n"
+            "<!-- Experiments provenance note (SR-WB) -->\n"
+            "<!-- Run `rv wandb pull <run-id> --experiment <id> --project <slug>` -->\n"
+            "<!-- to fill results_location/results_hash/results_wandb_run/results_commit. -->\n"
+            "<!-- Or fill them by hand for CSV/manual fallback (results_hash = sha256:<hex>). -->\n"
+            "\n"
+            "## Hypothesis\n\n"
+            "<!-- What were you testing? -->\n\n"
+            "## Setup\n\n"
+            "<!-- Model, dataset, hyperparameters, cluster config. -->\n\n"
+            "## Analysis\n\n"
+            "<!-- What do the results mean? -->\n"
         )
     else:
         body = "\n<!-- Write your note here -->\n"
@@ -252,6 +277,16 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                         f"{p}: datasets note missing 'hash' field "
                         f"(content hash in sha256:<hex> format)"
                     )
+            elif t == "experiments":
+                # Standard OKF type-dir contract
+                if note_type != t:
+                    violations.append(
+                        f"{p}: type={note_type!r} but file is in {t!r} directory"
+                    )
+                # SR-WB: validate results_* provenance when results_hash is filled
+                # (empty = not yet pulled — not a violation)
+                result_issues = check_result_provenance(p)
+                violations.extend(result_issues)
             else:
                 # Standard OKF type-dir contract for the 6 project-scoped types
                 if note_type != t:
@@ -260,6 +295,89 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                     )
 
     return violations
+
+
+# ---------------------------------------------------------------------------
+# SR-WB: experiment-results provenance validation
+# ---------------------------------------------------------------------------
+
+def _is_local_results_path(location: str) -> bool:
+    """Return True if results_location looks like a local filesystem path (not URL)."""
+    lower = location.lower()
+    for prefix in ("http://", "https://", "ftp://", "s3://", "gs://", "doi:", "hdfs://"):
+        if lower.startswith(prefix):
+            return False
+    return True
+
+
+def check_result_provenance(exp_note_path: Path) -> list[str]:
+    """Validate the results_* frontmatter fields in an experiment note.
+
+    When to use: called by cmd_check (rv note check) and the DAG complete gate
+    to validate that a filled results attachment is hash-consistent.
+
+    Checks (only when results_hash is non-empty):
+      1. results_location is non-empty
+      2. For local file paths: the file exists AND sha256 matches results_hash
+
+    Empty fields (un-pulled, unfilled) are skipped — not a violation.
+    URL/remote results_location trusts the recorded hash (zero-infra, like dataset:).
+
+    Returns a list of violation strings (empty = OK, gate passes).
+    SR-WB. Reuses the streaming hash pattern from wait_for._verify_local_file_hash.
+    """
+    if not exp_note_path.exists():
+        return [f"experiment note does not exist: {exp_note_path}"]
+
+    try:
+        text = exp_note_path.read_text(encoding="utf-8")
+    except OSError as e:
+        return [f"cannot read experiment note {exp_note_path}: {e}"]
+
+    fields, _ = _parse_frontmatter(text)
+    results_hash = fields.get("results_hash", "").strip()
+    results_location = fields.get("results_location", "").strip()
+
+    # Empty hash → not yet filled, skip validation
+    if not results_hash:
+        return []
+
+    # Hash is set → location must also be set
+    if not results_location:
+        return [
+            f"{exp_note_path.name}: results_hash is set but results_location is empty"
+        ]
+
+    # For URL / DOI / remote: trust the recorded hash (zero-infra, no fetch)
+    if not _is_local_results_path(results_location):
+        return []
+
+    # Local file: verify existence + hash
+    artifact = Path(results_location)
+    if not artifact.exists():
+        return [
+            f"{exp_note_path.name}: results artifact not found: {results_location}"
+        ]
+
+    if results_hash.startswith("sha256:"):
+        expected_hex = results_hash[len("sha256:"):]
+        try:
+            h = hashlib.sha256()
+            with open(artifact, "rb") as fh:
+                while chunk := fh.read(1 << 20):  # streaming, 1 MiB chunks
+                    h.update(chunk)
+            actual_hex = h.hexdigest()
+        except OSError as e:
+            return [f"{exp_note_path.name}: cannot read results artifact: {e}"]
+
+        if actual_hex != expected_hex:
+            return [
+                f"{exp_note_path.name}: results hash mismatch "
+                f"(expected sha256:{expected_hex[:12]}…, "
+                f"actual sha256:{actual_hex[:12]}…)"
+            ]
+
+    return []
 
 
 # ---------------------------------------------------------------------------

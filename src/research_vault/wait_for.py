@@ -642,6 +642,99 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
         except Exception as exc:
             return {"ready": False, "state": "error", "artifact_path": None, "error": str(exc)}
 
+    # ── wandb:<run-id> — W&B run terminal-state resolver (SR-WB) ─────────────
+    # Uses the wandb SDK (import-guarded). If wandb is not installed, the
+    # predicate resolves to not-ready/error — it NEVER crashes the background
+    # poller with an ImportError traceback.
+    #
+    # Terminal states (ready=True — all wake the waiter, D-WB-4):
+    #   finished / failed / crashed / killed / preempted / preempting
+    # Non-terminal (ready=False): running / pending
+    #
+    # The state string is passed through in result["state"] so SR-RETRY can key
+    # retry off failure state without re-querying.
+    #
+    # Auth: EnvSecretStore.get("wandb-api-key") → WANDB_API_KEY env → keyring.
+    # Key exported to env so SDK picks it up via its native env-var path.
+    if watch.startswith("wandb:"):
+        run_id = watch[len("wandb:"):]
+        if not run_id.strip():
+            return {
+                "ready": False,
+                "state": "invalid-run-id",
+                "artifact_path": None,
+                "error": "wandb: watch requires a non-empty run id",
+            }
+
+        # SDK import guard — must NOT crash the background poller
+        try:
+            import wandb as _wandb  # type: ignore[import]
+        except ImportError:
+            return {
+                "ready": False,
+                "state": "sdk-unavailable",
+                "artifact_path": None,
+                "error": "wandb SDK not installed — pip install wandb",
+            }
+
+        # Auth — EnvSecretStore (env var first, then keyring, then KeyError)
+        try:
+            from .adapters.base import EnvSecretStore as _EnvSecretStore
+            _store = _EnvSecretStore()
+            api_key = _store.get("wandb-api-key")
+            # Export for the SDK (its native env-var path)
+            os.environ["WANDB_API_KEY"] = api_key
+        except KeyError as exc:
+            return {
+                "ready": False,
+                "state": "auth-error",
+                "artifact_path": None,
+                "error": str(exc),
+            }
+        except Exception as exc:
+            return {
+                "ready": False,
+                "state": "auth-error",
+                "artifact_path": None,
+                "error": f"cannot resolve W&B API key: {exc}",
+            }
+
+        # Parse run id into (entity, project, run_name)
+        try:
+            from .wandb_pull import parse_run_id as _parse_run_id
+            entity, project, run_name = _parse_run_id(run_id)
+        except ValueError as exc:
+            return {
+                "ready": False,
+                "state": "invalid-run-id",
+                "artifact_path": None,
+                "error": str(exc),
+            }
+
+        # Fetch run state via SDK
+        try:
+            _api = _wandb.Api()
+            _run = _api.run(f"{entity}/{project}/{run_name}")
+            state_str = (_run.state or "unknown").lower()
+        except Exception as exc:
+            return {
+                "ready": False,
+                "state": "error",
+                "artifact_path": None,
+                "error": f"W&B API error: {exc}",
+            }
+
+        _WANDB_TERMINAL = frozenset({
+            "finished", "failed", "crashed", "killed", "preempted", "preempting",
+        })
+        ready = state_str in _WANDB_TERMINAL
+        return {
+            "ready": ready,
+            "state": state_str,
+            "artifact_path": None,
+            "error": None,
+        }
+
     # ── unknown ───────────────────────────────────────────────────────────────
     return {
         "ready": False,
@@ -879,6 +972,7 @@ def run(args: argparse.Namespace) -> int:
         "artifact:", "sched:", "sacct:", "pr:", "cmd:", "url:",
         "note:",      # OKF note resolver (notes_root-aware)
         "dataset:",   # SR-8: dataset provenance resolver (exists + hash + location)
+        "wandb:",     # SR-WB: W&B run terminal-state resolver (wandb SDK, import-guarded)
     )
     if not any(watch.startswith(p) for p in _KNOWN_PREFIXES):
         print(f"rv wait-for: unknown watch source: {watch!r}", file=sys.stderr)
