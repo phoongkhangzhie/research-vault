@@ -1,11 +1,11 @@
-"""plan/check.py — shape-lint for pre-registered experiment plans (SR-PLAN-1, K-2).
+"""plan/check.py — shape-lint for pre-registered experiment plans (SR-PLAN-1/2, K-2).
 
 REJECTS-ONLY structural screen (charter §9): can only FAIL an ill-formed plan,
 never certify a good one.  The semantic completeness judgment (is the diagnosis
 table *sensible*?) stays with the plan-critic (Argus); this lint catches what
 does NOT need an LLM.
 
-Two rules (§5K.5.5):
+Three rules (§5K.5.5 + SR-PLAN-2):
   (a) BRANCH-PRESENCE — every diagnosis table in the plan master note has a
       named conclusion AND a committed action for every outcome row.  An empty
       cell, a "fallback" row, or a "TBD" cell is a lint FAIL.
@@ -14,6 +14,11 @@ Two rules (§5K.5.5):
       sections must not list more than one component being manipulated.  The
       lint looks for "Component manipulated:" lines; a multi-component statement
       (contains " and " or a comma-separated list with ≥2 items) is a FAIL.
+
+  (c) COVERS-ID CONVENTION (SR-PLAN-2) — every entry in the covers: field must
+      be a bare experiment ID (e.g. "q1-main1"), NOT a path-prefixed ID
+      (e.g. "experiments/q1-main1").  Path-prefixed entries break freeze.py's
+      child-note resolution and violate the SR-PLAN-1 bare-ID convention.
 
 Usage (programmatic):
     from research_vault.plan.check import check_plan
@@ -193,6 +198,40 @@ def _check_one_component(body: str, source: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Rule (c): covers: bare-id convention (SR-PLAN-2)
+# ---------------------------------------------------------------------------
+
+def _check_covers_ids(fields: dict[str, str], source: str) -> list[str]:
+    """Validate that every entry in covers: is a bare experiment ID.
+
+    The SR-PLAN-1 convention (grounded in the demo plan + freeze.py's child-note
+    resolution) is: covers: entries are BARE IDs such as "q1-main1",
+    NOT path-prefixed like "experiments/q1-main1".
+
+    freeze.py resolves children as ``notes_root / f"{child_id}.md"`` where
+    notes_root is the experiments directory.  A path-prefixed entry would look
+    for ``notes_root / "experiments" / "q1-main1.md"`` — one directory too deep.
+
+    Returns a list of violation strings.
+    """
+    covers_str = fields.get("covers", "")
+    if not covers_str:
+        return []
+
+    child_ids = _parse_covers(covers_str)
+    violations: list[str] = []
+    for child_id in child_ids:
+        if "/" in child_id:
+            violations.append(
+                f"{source}: covers: entry {child_id!r} is path-prefixed — "
+                f"use a bare ID (e.g. {child_id.split('/')[-1]!r}) instead.  "
+                f"freeze.py resolves children as <notes_root>/<id>.md where "
+                f"notes_root is the experiments directory (SR-PLAN-1 convention)."
+            )
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -245,5 +284,8 @@ def check_plan(plan_note_path: Path) -> list[str]:
 
     # Rule (b): one-component-per-ablation
     violations.extend(_check_one_component(body, source))
+
+    # Rule (c): covers: bare-id convention (SR-PLAN-2)
+    violations.extend(_check_covers_ids(fields, source))
 
     return violations
