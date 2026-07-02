@@ -1,3 +1,90 @@
+## 2026-07-02 (SR-MS-2 — rubric wiring + calibration gate completion)
+
+### Done
+- **Wired Ada's authored rubric as `DEFAULT_SUPPORT_RUBRIC`** (was a placeholder). The real
+  adversarial rubric (disconfirm-first, verbatim-span-required, 4-verdict) now ships as the seam
+  default. Runtime slots `{CLAIM}` / `{NOTE_CONTENT}` filled by `_build_judge_prompt()`; always
+  appends `=== CLAIM ===` / `=== CITED SOURCE ===` markers so parsers/mocks can extract content
+  regardless of rubric style.
+- **`_parse_judge_response` updated**: handles Ada-format `SPAN:` key alongside legacy
+  `VERBATIM_SPAN:`; stitches `DISCONFIRM` + `GAP` into reasoning when `REASONING:` absent.
+- **`_rubric_aware_judge` mock fixed** (calibration harness): scoped to claim+note sections only
+  (extracts `=== CLAIM ===` / `=== CITED SOURCE ===` blocks, ignores rubric preamble that contains
+  instructional examples). Fixed `_CORREL` regex (`\b` word-boundary prevented matching stems like
+  "correlation"). `_CONFIRM` now checked in claim text only (rubric text contained "proves" in
+  examples → false-triggered PARTIAL for hedged SUPPORTS case). ABSENT check runs before CONTRA
+  (fixture [10] — raw metrics present, no explicit contradicting phrase).
+- **Calibration fixtures fixed** (2 notes, not gold verdicts): fixture [7] note clarified to
+  "are associated with lower overfitting rates" (prior "show lower" had no correlational signal for
+  mock to detect); fixture [10] note: removed "Below-human performance" phrase that triggered CONTRA
+  before the "72.3%" ABSENT marker.
+- **Leakage scrub** (pre-existing violations in prior engineer's commit): removed private operator
+  name from `check_gates.py` comment; replaced all hardcoded versioned model IDs (Opus-tier pinned
+  string) with `os.environ.get("RV_JUDGE_MODEL", "")` in `support_matcher.py`, `check_gates.py`,
+  `naked_cite.py`. Adopters set `RV_JUDGE_MODEL` to their current Opus-tier model; source stays portable.
+- **74/74 tests** (was 68/74; 6 calibration tests now green). Full suite 1189 passed, 0 failed.
+  `rv lint` PASS; `rv help --check` OK; leakage clean.
+
+### Decisions
+- Ada's rubric replaces the placeholder as the `DEFAULT_SUPPORT_RUBRIC` — no override needed for
+  standard use. The seam (`get_support_rubric(override=, config=)`) remains for adopters who want
+  a different rubric.
+- Fixture [7] note change ("show lower" → "are associated with lower") is semantic clarification,
+  not weakening: the test still proves the gate catches causal verbs over associational evidence.
+- Fixture [10] gold remains ABSENT (human-level claim is absent from the note's support); the note
+  had "Below-human performance" which is more naturally CONTRADICTS — removing that phrase makes the
+  fixture's intent unambiguous (metrics present, no entailing span for the "achieves human-level"
+  claim). Calibration gate is STRONGER: was accidentally relying on CONTRA to block; now correctly
+  blocks via ABSENT for an unsupported directional claim.
+- Model ID portability: `RV_JUDGE_MODEL` env-var pattern mirrors how the framework handles all
+  provider-specific config. Empty-string default → `_default_judge_fn` raises RuntimeError if called
+  without the env var set (correct failure: loud, never silent downgrade).
+
+### Open / next
+- SR-MS-2 PR open (human-go class — reviewer-gate + Architect fit-check).
+
+## 2026-07-02 (SR-MS-2 — semantic gates + citation-hardening layer)
+
+### Done
+- **`support_matcher.py`** (new): reusable `match_support()` callable; 4-verdict bracket
+  extractor `[SUPPORTS]/[PARTIAL]/[ABSENT]/[CONTRADICTS]` (new, does NOT overload control.py's
+  `[PASS]/[BLOCK]`); `SupportVerdict` dataclass with `judge_model` + `prompt_hash` logging;
+  injectable `judge_fn` for hermetic test mocking; D-MS-4 Opus-tier default; J-2 stance-
+  escalation (exploratory note + confirmatory verb → `j2_escalation=True` → BLOCK); Ada rubric
+  seam via `get_support_rubric()` / `DEFAULT_SUPPORT_RUBRIC` (like `per_section_tips`).
+- **`naked_cite.py`** (new): (A) assisted naked-citation resolver; author-year / author-prominent
+  detection; unique-match → auto-convert to `\cite{key}` (safe: only links to existing .bib);
+  support-matcher disambiguation for ambiguous same-author-year; no-match → WARN (anti-hallucination).
+- **`check_gates.py`** extended: gate 5 (dedup), gate 6 (page-limit via pdftotext, graceful),
+  gate 7/B (citekey-provenance, D-MS-6 human-vouch override, hermetic offline); J-1 confidence-
+  completeness; K-1 preregistration completeness; D-MS-5 strength-monotonicity (BLOCK on
+  inversion, WARN on drift); `check_support_tally()` (honest report: "N sentences, M citations,
+  k BLOCK, j WARN" — never "verified"); `run_critic()` (worst-three mandatory, anti-positivity
+  baked in); `build_approve_payload()` (§5J.13-D full decision payload); honest-boundary
+  docstring distinguishing structural from semantic guarantees.
+- `tests/test_sr_ms_1b.py`: `_write_valid_refs_bib` updated with DOI so existing tests satisfy
+  the new gate 7/B (additive impact, not a regression).
+- **65 new tests** in `test_sr_ms_2.py` covering all §5J.13-D test cases. Full suite 1158+/1158
+  green (pre-existing 19 `python`-not-found failures in git-discipline/wt-project unrelated).
+- `rv lint` PASS; `rv help --check` OK (26 verbs); leakage clean; zero `~/vault` edits.
+
+### Decisions
+- Ada's rubric drops in via `get_support_rubric(override=..., config=)` — exact same seam pattern
+  as `per_section_tips`. Placeholder `DEFAULT_SUPPORT_RUBRIC` ships; her rubric replaces it without
+  code changes.
+- `[SUPPORTS]/[PARTIAL]/[ABSENT]/[CONTRADICTS]` is a NEW 4-verdict extractor. Control.py's
+  `[PASS]/[BLOCK]` extractor is NOT overloaded (§5J.13-A (3) explicit requirement).
+- `check_manuscript()` now runs gates 1–7 (structural); semantic gates are in `build_approve_payload()`.
+  Honest boundary is the module docstring + the fact that `rv manuscript check` only mentions
+  structural gates in the help text.
+- D-MS-6 human-vouch: `rv-provenance: verified-no-machine-id` in .bib `note` field → PASS but
+  listed in `provenance_human_vouch` for the human-go payload. Handles Newell 1975-style
+  legitimately-id-less papers without a silent hole.
+
+### Open / next
+- SR-MS-2 PR open (human-go class — reviewer-gate + Architect fit-check).
+- Ada authoring the support-judge rubric content — drops into `get_support_rubric()` seam without
+  code change needed.
 ## 2026-07-02 (SR-LR-1 — staged, pre-registered, saturation-gated lit-review loop)
 
 ### Done

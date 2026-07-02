@@ -142,7 +142,10 @@ def build_parser(
             "Run structural grounding gates: unmatched \\cite resolution, "
             "figure-file existence, compile-success, data-code-availability "
             "sentinel cross-check. Does NOT run semantic gates (SR-MS-2). "
-            "Hard-fails on any unmatched \\cite."
+            "Hard-fails on any unmatched \\cite. "
+            "Citation integrity is structural for \\cite+provenance and "
+            "assisted-plus-human for prose — this does NOT guarantee zero "
+            "hallucinated prose references."
         ),
     )
     check_p.add_argument(
