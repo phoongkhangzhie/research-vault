@@ -199,12 +199,14 @@ def cmd_new(project: str, note_type: str, title: str, *,
         )
     cfg = config or load_config()
 
-    # SR-8: datasets are SHARED cross-project — live in cfg.datasets_root, not
-    # in the project-scoped notes directory. A dataset note filed for one project
+    # SR-8: shared types (OKF_SHARED_TYPES) live in cfg.datasets_root, not in
+    # the project-scoped notes directory. A shared-type note filed for one project
     # is visible and lineage-gatable from any other project.
     # SR-FIG: figures are PROJECT-SCOPED — live in project_notes_dir(project)/figures/
     # like the standard 6 types. This is a deliberate divergence from SR-8's shared root.
-    if note_type == "datasets":
+    # SR-HARDENING (fix 3b): use OKF_SHARED_TYPES SSOT — not a hardcoded "datasets"
+    # string — so a 2nd shared type automatically routes correctly here.
+    if note_type in OKF_SHARED_TYPES:
         notes_dir = cfg.datasets_root
     else:
         notes_dir = cfg.project_notes_dir(project) / note_type
@@ -364,8 +366,10 @@ def cmd_list(project: str, note_type: str | None = None, *,
 
     notes = []
     for t in types_to_scan:
-        # SR-8: datasets live in the shared datasets_root, not project_notes_dir/datasets/
-        if t == "datasets":
+        # SR-8 / SR-HARDENING (fix 3b): shared types live in the shared root, not
+        # project_notes_dir/<type>/. Use OKF_SHARED_TYPES SSOT, not a hardcoded
+        # "datasets" string, so a 2nd shared type routes correctly automatically.
+        if t in OKF_SHARED_TYPES:
             subdir = cfg.datasets_root
         else:
             subdir = base / t
@@ -410,8 +414,10 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
     violations = []
 
     for t in OKF_TYPES:
-        # SR-8: datasets live in the shared datasets_root
-        if t == "datasets":
+        # SR-8 / SR-HARDENING (fix 3b): shared types live in the shared root.
+        # Use OKF_SHARED_TYPES SSOT — not a hardcoded "datasets" — so a 2nd
+        # shared type is handled automatically.
+        if t in OKF_SHARED_TYPES:
             subdir = cfg.datasets_root
         else:
             subdir = base / t
@@ -431,24 +437,29 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 violations.append(f"{p}: unknown type {note_type!r}")
                 continue
 
-            if t == "datasets":
-                # For the shared datasets type, check type == "datasets" (not type-dir
-                # match, since datasets_root may have any directory name).
-                if note_type != "datasets":
+            if t in OKF_SHARED_TYPES:
+                # For shared types, the directory name may differ from the type name
+                # (datasets_root can have any directory name) — check type == t.
+                # SR-HARDENING (fix 3b): use OKF_SHARED_TYPES SSOT + `t` for the
+                # inner check, so a 2nd shared type is handled automatically.
+                if note_type != t:
                     violations.append(
-                        f"{p}: expected type='datasets', got {note_type!r}"
+                        f"{p}: expected type={t!r}, got {note_type!r}"
                     )
-                # SR-8: datasets notes must have location and hash filled in
-                if not fields.get("location", "").strip():
-                    violations.append(
-                        f"{p}: datasets note missing 'location' field "
-                        f"(path/URL/DOI of the actual data artifact)"
-                    )
-                if not fields.get("hash", "").strip():
-                    violations.append(
-                        f"{p}: datasets note missing 'hash' field "
-                        f"(content hash in sha256:<hex> format)"
-                    )
+                # SR-8: datasets notes must have location and hash filled in.
+                # Nested under `if t == "datasets"` because these fields are
+                # datasets-specific; a future 2nd shared type has its own fields.
+                if t == "datasets":
+                    if not fields.get("location", "").strip():
+                        violations.append(
+                            f"{p}: datasets note missing 'location' field "
+                            f"(path/URL/DOI of the actual data artifact)"
+                        )
+                    if not fields.get("hash", "").strip():
+                        violations.append(
+                            f"{p}: datasets note missing 'hash' field "
+                            f"(content hash in sha256:<hex> format)"
+                        )
             elif t == "experiments":
                 # Standard OKF type-dir contract
                 if note_type != t:

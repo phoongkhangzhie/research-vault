@@ -19,6 +19,29 @@ from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
+# OKF reserved slug set (mirrors note.OKF_TYPES ∪ note.OKF_SHARED_TYPES)
+# ---------------------------------------------------------------------------
+# Keep in sync with note.py. Cannot import from note.py here — circular import
+# (note.py imports Config from this module). This constant is the config-plane
+# guard; note.py remains the canonical SSOT for OKF type semantics.
+#
+# Why: a project slug equal to an OKF type name silently shadows the routing
+# in cmd_new/cmd_list/cmd_check (e.g. slug="datasets" means the project's
+# notes live in the shared datasets_root instead of a per-project dir, and
+# every OKF verb misbehaves without any error). Reject at config-load time.
+_OKF_RESERVED_SLUGS: frozenset[str] = frozenset({
+    "literature",
+    "concepts",
+    "methods",
+    "experiments",
+    "findings",
+    "mocs",
+    "datasets",    # also OKF_SHARED_TYPES — extra routing sensitivity
+    "figures",
+    "manuscript",
+})
+
+# ---------------------------------------------------------------------------
 # Location resolution
 # ---------------------------------------------------------------------------
 
@@ -168,6 +191,17 @@ class Config:
             self.datasets_root = self.notes_root / "datasets"
         self.adapters: dict[str, str] = raw.get("adapters", {})
         self.projects: dict[str, dict[str, Any]] = raw.get("projects", {})
+        # SR-HARDENING: slug-collision guard — reject project slugs that collide
+        # with OKF type names. Such slugs silently shadow note routing (the project
+        # notes dir becomes indistinguishable from the shared OKF type root).
+        _colliding = [s for s in self.projects if s in _OKF_RESERVED_SLUGS]
+        if _colliding:
+            bad = ", ".join(repr(s) for s in sorted(_colliding))
+            raise ValueError(
+                f"Project slug(s) {bad} collide with reserved OKF type names "
+                f"({sorted(_OKF_RESERVED_SLUGS)}). OKF type names are reserved "
+                f"routing identifiers — choose a different project slug."
+            )
 
     # --- project registry helpers ---
 
