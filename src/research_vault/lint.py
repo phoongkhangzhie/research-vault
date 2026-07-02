@@ -13,6 +13,11 @@ When to use: ``rv lint [--strict]`` to run the project linter. Checks:
   5. Unpinned-git-init rule (SR-LINT): flags ``git init`` WITHOUT
      ``--initial-branch`` in test files — an unpinned branch passes locally
      but fails on master-default CI runners.
+  6. Redefined-while-unused rule (F811): flags ``def``/``async def``/``class``
+     names that are shadowed in the same scope before first use — a silent
+     dead-code bug (duplicate ``check_manuscript`` shipped through SR-MS-2).
+     Exempts ``@overload`` / ``@typing.overload`` chains (intended typing
+     pattern). Scans src/research_vault/ (production code only).
 
 All path resolution goes through Config — zero hardcoded paths or codenames.
 Stdlib only.
@@ -20,6 +25,7 @@ Stdlib only.
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
@@ -36,6 +42,8 @@ from .config import Config, load_config
 _FRAMEWORK_ROOT: Path = Path(__file__).parent.parent.parent
 # Default tests directory; monkeypatched by integration tests.
 _TESTS_DIR: Path = _FRAMEWORK_ROOT / "tests"
+# Default source directory for F811 scan; monkeypatched by integration tests.
+_SRC_DIR: Path = _FRAMEWORK_ROOT / "src" / "research_vault"
 
 # Vacuous-assertion patterns (rule 4 / SR-LINT).
 # Each entry is (compiled_pattern, human_label).
@@ -144,6 +152,135 @@ def check_unpinned_git_init(
             if _GIT_INIT_PAT.search(line) and not _INITIAL_BRANCH_PAT.search(line):
                 findings.append((str(f), lineno, line.rstrip()))
     return findings
+
+
+# ---------------------------------------------------------------------------
+# F811 — redefined-while-unused (AST-based, rule 6)
+# ---------------------------------------------------------------------------
+
+def _is_overload_decorated(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> bool:
+    """Return True if *node* carries an ``@overload`` or ``@typing.overload`` decorator.
+
+    Both the bare-name form ``@overload`` and the attribute form ``@typing.overload``
+    are recognised.  These are the standard ``typing`` patterns for function
+    overloads and must NOT be flagged as redefinitions.
+    """
+    for dec in node.decorator_list:
+        if isinstance(dec, ast.Name) and dec.id == "overload":
+            return True
+        if isinstance(dec, ast.Attribute) and dec.attr == "overload":
+            return True
+    return False
+
+
+def _check_scope_for_f811(
+    stmts: list[ast.stmt],
+    scope_name: str,
+    filepath: str,
+    findings: list[tuple[str, int, str, int, str]],
+) -> None:
+    """Walk one flat statement list and append any F811 finding to *findings*.
+
+    Tracks ``def`` / ``async def`` / ``class`` names in *stmts*.  When the same
+    name appears a second time in the same scope, that is a redefined-while-unused
+    violation — the first definition is dead code.
+
+    Exemption: if either the previous OR the current definition is decorated with
+    ``@overload`` / ``@typing.overload``, the pair is skipped — that is the
+    intended typing pattern where multiple overload stubs are followed by one
+    real implementation.
+
+    Note: ``try/except`` fallbacks (``try: from foo import Bar / except: def Bar``)
+    are naturally exempt — the two definitions live in different branch statement
+    lists, not in *stmts* directly.
+    """
+    seen: dict[str, tuple[int, bool]] = {}  # name -> (first_lineno, is_overload)
+    for node in stmts:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            name = node.name
+            is_ol = _is_overload_decorated(node)
+            if name in seen:
+                prev_lineno, prev_is_ol = seen[name]
+                if not (is_ol or prev_is_ol):
+                    findings.append(
+                        (filepath, node.lineno, name, prev_lineno, scope_name)
+                    )
+            seen[name] = (node.lineno, is_ol)
+        elif isinstance(node, ast.ClassDef):
+            name = node.name
+            if name in seen:
+                prev_lineno, _ = seen[name]
+                findings.append(
+                    (filepath, node.lineno, name, prev_lineno, scope_name)
+                )
+            seen[name] = (node.lineno, False)
+
+
+def check_redefined_while_unused(
+    files: list[Path],
+) -> list[tuple[str, int, str, int, str]]:
+    """Scan *files* for F811 — redefined-while-unused ``def``/``class`` names.
+
+    For each file, walks every scope (module body, function body, class body) and
+    flags any ``def`` / ``async def`` / ``class`` name that is shadowed in the same
+    scope level before any use.  A shadowed definition is dead code — the first
+    definition is unreachable.
+
+    The motivating bug: a duplicate ``check_manuscript`` function shipped in
+    SR-MS-2 because ``rv lint`` had no AST-level scope check, and ``CI green``
+    was recorded without this gate.
+
+    Exemptions (never flagged):
+    - Functions decorated with ``@overload`` or ``@typing.overload``.
+    - Definitions in different branches of a ``try/except`` block (naturally
+      excluded — they live in different statement lists).
+
+    Returns a list of ``(file_path, lineno, name, prev_lineno, scope_name)``
+    tuples, one per violation.  ``lineno`` is the *second* (shadow) definition;
+    ``prev_lineno`` is the first.
+    """
+    findings: list[tuple[str, int, str, int, str]] = []
+
+    for f in files:
+        try:
+            src = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        try:
+            tree = ast.parse(src, filename=str(f))
+        except SyntaxError:
+            continue
+
+        # Module scope
+        _check_scope_for_f811(tree.body, "<module>", str(f), findings)
+
+        # Every nested scope (function bodies, class bodies, async functions)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                _check_scope_for_f811(
+                    node.body, f"{node.name}()", str(f), findings
+                )
+            elif isinstance(node, ast.ClassDef):
+                _check_scope_for_f811(
+                    node.body, node.name, str(f), findings
+                )
+
+    return findings
+
+
+def _collect_src_files(
+    src_dir: Path,
+) -> list[Path]:
+    """Return all .py files under *src_dir*, excluding __pycache__ trees."""
+    if not src_dir.exists():
+        return []
+    return [
+        f
+        for f in src_dir.rglob("*.py")
+        if "__pycache__" not in f.parts
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +434,21 @@ def cmd_lint(cfg: Config, *, strict: bool = False) -> int:
     else:
         n = len(test_files)
         print(f"Unpinned-git-init rule: OK ({n} test file(s) checked)")
+
+    # 5. Redefined-while-unused rule (F811) — scoped to production src/
+    src_files = _collect_src_files(_SRC_DIR)
+    f811_findings = check_redefined_while_unused(src_files)
+    if f811_findings:
+        print(
+            f"\nRedefined-while-unused rule (F811): {len(f811_findings)} finding(s) "
+            f"(def/class name shadowed in same scope — first definition is dead code):"
+        )
+        for fpath, lineno, name, prev_lineno, scope in f811_findings:
+            print(f"  {fpath}:{lineno}: [{scope}] {name!r} shadows definition at line {prev_lineno}")
+        issues_total += len(f811_findings)
+    else:
+        n = len(src_files)
+        print(f"Redefined-while-unused rule (F811): OK ({n} source file(s) checked)")
 
     if issues_total == 0:
         print("\nlint: PASS")
