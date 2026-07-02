@@ -6,6 +6,16 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 
+# SR-FIG: the figures capability is the first dependency-bearing optional extra.
+# Core stays stdlib-only; figures needs matplotlib/seaborn/pandas behind the extra.
+# Install: pip install research-vault[figures]
+[project.optional-dependencies]
+figures = [
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "pandas>=2.2",
+]
+
 [project.scripts]
 rv = "research_vault.cli:main"
 

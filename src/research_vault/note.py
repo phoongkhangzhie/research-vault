@@ -3,7 +3,7 @@
 When to use: use `rv note <project> <type> …` to create or list OKF notes for a project.
 Notes follow the Open Knowledge Format: markdown + YAML frontmatter with a required `type` field.
 The type determines the subdirectory: literature/, concepts/, methods/, experiments/,
-findings/, mocs/, datasets/.
+findings/, mocs/, datasets/, figures/.
 
 Path resolution: always via Config — zero hardcoded paths.
 Stdlib only.
@@ -31,7 +31,14 @@ OKF_TYPES = frozenset({
     "findings",
     "mocs",
     "datasets",   # SR-8: provenance note for data artifacts (points to data, never contains it)
+    "figures",    # SR-FIG: provenance note for publication figures (points to image, never embeds)
 })
+
+# SR-FIG: figures are PROJECT-SCOPED — deliberately NOT a shared root like datasets.
+# A figures note for project A lives in project_notes_dir(A)/figures/, not in a shared root.
+# datasets/ is the sole exception to project scoping (see SR-8); figures follows the
+# standard 6-type pattern.
+_FIGURES_REQUIRED_FIELDS = frozenset({"source_experiment", "experiment_results_hash"})
 
 
 def scaffold_okf_dirs(base: Path) -> None:
@@ -73,7 +80,7 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     body = text[end + 4:].lstrip("\n")
     fields: dict[str, str] = {}
     for line in fm_block.splitlines():
-        m = re.match(r"^(\w+):\s*(.*)$", line)
+        m = re.match(r"^(\w[\w_-]*):\s*(.*)$", line)
         if m:
             key, val = m.group(1), m.group(2).strip()
             if val.startswith(("'", '"')) and val.endswith(val[0]):
@@ -100,6 +107,11 @@ def cmd_new(project: str, note_type: str, title: str, *,
       hash     — content hash in sha256:<hex> format (fill this in)
     Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
     provenance note and afterok on it, so lineage is structural.
+
+    SR-FIG: for note_type == 'figures', use `rv figure new` (richer arguments).
+    `rv note new figures` creates a skeleton note with placeholder fields.
+    figures are PROJECT-SCOPED (not shared like datasets).
+    The PRIMARY source is an experiments/ note (results_location/results_hash from SR-WB).
     """
     if note_type not in OKF_TYPES:
         raise ValueError(
@@ -110,6 +122,8 @@ def cmd_new(project: str, note_type: str, title: str, *,
     # SR-8: datasets are SHARED cross-project — live in cfg.datasets_root, not
     # in the project-scoped notes directory. A dataset note filed for one project
     # is visible and lineage-gatable from any other project.
+    # SR-FIG: figures are PROJECT-SCOPED — live in project_notes_dir(project)/figures/
+    # like the standard 6 types. This is a deliberate divergence from SR-8's shared root.
     if note_type == "datasets":
         notes_dir = cfg.datasets_root
     else:
@@ -141,6 +155,18 @@ def cmd_new(project: str, note_type: str, title: str, *,
         fields["results_hash"] = ""       # sha256:<hex> of the artifact (for integrity)
         fields["results_wandb_run"] = ""  # W&B run id that produced these metrics
         fields["results_commit"] = ""     # git SHA of the code that produced the run
+
+    # SR-FIG: figures notes carry provenance-specific placeholder fields.
+    # Use `rv figure new` for richer creation (fills source_experiment + experiment_results_hash).
+    if note_type == "figures":
+        fields["source_experiment"] = ""          # fill in: experiments/<id> OKF link
+        fields["experiment_results_hash"] = ""    # fill in: sha256:<hex> from experiment note
+        fields["benchmark_dataset"] = ""          # optional: datasets/<id> for comparison overlay
+        fields["select"] = ""                     # optional: comma-separated column list
+        fields["filter"] = ""                     # optional: filter expression
+        fields["plot_type"] = "line"              # default plot type
+        fields["style"] = "publication"           # style preset: publication | slide | poster
+        fields["rendered"] = "false"              # set to true after rv figure render
 
     if tags:
         fields["tags"] = "[" + ", ".join(tags) + "]"
@@ -175,6 +201,18 @@ def cmd_new(project: str, note_type: str, title: str, *,
             "## Analysis\n\n"
             "<!-- What do the results mean? -->\n"
         )
+    elif note_type == "figures":
+        body = (
+            "\n"
+            "<!-- Figures provenance note (SR-FIG) -->\n"
+            "<!-- Use `rv figure new <fig-id> --experiment <experiments/id>` for richer creation. -->\n"
+            "<!-- Fill in 'source_experiment' and 'experiment_results_hash' from the experiment note. -->\n"
+            "\n"
+            "## What this figure shows\n\n"
+            "<!-- Describe the figure: what it plots, the key message. -->\n\n"
+            "## Render lineage\n\n"
+            "<!-- Filled by `rv figure render` — rv version, timestamp, image paths. -->\n"
+        )
     else:
         body = "\n<!-- Write your note here -->\n"
 
@@ -191,6 +229,7 @@ def cmd_list(project: str, note_type: str | None = None, *,
 
     SR-8: datasets are SHARED — cmd_list for note_type='datasets' scans
     cfg.datasets_root rather than the project-scoped notes directory.
+    SR-FIG: figures are PROJECT-SCOPED — scanned from project_notes_dir/figures/.
     """
     cfg = config or load_config()
     base = cfg.project_notes_dir(project)
@@ -226,10 +265,15 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
     - SR-8: datasets notes (scanned from cfg.datasets_root) have non-empty
       `location` and `hash` fields. The type-dir check is skipped for datasets
       since datasets_root may have any directory name.
+    - SR-FIG: figures notes (scanned from project_notes_dir/figures/) have non-empty
+      `source_experiment` and `experiment_results_hash` fields (provenance required).
 
     SR-8 note: datasets are SHARED across projects. cmd_check scans
     cfg.datasets_root for the datasets type (same root for all projects);
-    the 6 other OKF types remain project-scoped in project_notes_dir.
+    the 7 other OKF types remain project-scoped in project_notes_dir.
+
+    SR-FIG note: figures are PROJECT-SCOPED (unlike datasets). Each project's
+    figures are scanned from project_notes_dir(project)/figures/ independently.
 
     Returns a list of violation strings (empty = all clear).
     """
@@ -287,8 +331,25 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # (empty = not yet pulled — not a violation)
                 result_issues = check_result_provenance(p)
                 violations.extend(result_issues)
+            elif t == "figures":
+                # SR-FIG: project-scoped type-dir contract + provenance fields required.
+                if note_type != "figures":
+                    violations.append(
+                        f"{p}: type={note_type!r} but file is in {t!r} directory"
+                    )
+                # figures notes must have source_experiment and experiment_results_hash filled in
+                if not fields.get("source_experiment", "").strip():
+                    violations.append(
+                        f"{p}: figures note missing 'source_experiment' field "
+                        f"(OKF link to the experiments note, e.g. 'experiments/run-007')"
+                    )
+                if not fields.get("experiment_results_hash", "").strip():
+                    violations.append(
+                        f"{p}: figures note missing 'experiment_results_hash' field "
+                        f"(content hash from the experiment results in sha256:<hex> format)"
+                    )
             else:
-                # Standard OKF type-dir contract for the 6 project-scoped types
+                # Standard OKF type-dir contract for the 6 other project-scoped types
                 if note_type != t:
                     violations.append(
                         f"{p}: type={note_type!r} but file is in {t!r} directory"
@@ -389,9 +450,11 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
 
     When to use: use `rv note <project> <subcommand>` to create or inspect OKF notes.
     Notes are typed markdown files (literature, concepts, methods, experiments, findings,
-    mocs, datasets) stored under the project's notes directory. The type field in
+    mocs, datasets, figures) stored under the project's notes directory. The type field in
     frontmatter is enforced. datasets notes are SR-8 provenance metadata — they POINT to
     data artifacts (path/URL/DOI + content-hash), never contain the data itself.
+    figures notes are SR-FIG provenance metadata — they POINT to image files, never embed them.
+    For figures, prefer `rv figure new` (richer arguments — experiment link + filter recipe).
     Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
     provenance note and afterok on it so lineage is structural.
     """
