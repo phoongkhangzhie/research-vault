@@ -22,7 +22,7 @@ THE INVESTIGATE-BOUNDARY:
   investigates. It does not ssh a cluster, count run outputs, or diagnose *why*
   something failed. Reading cheap LOCAL git state (branch names, recent commits)
   is fine. Reaching past the record into a live remote system is not.
-  NO `gh` calls in core. The PR/CI SignalSource is a tier-3 adapter (SR-9).
+  NO `gh` calls in core. The PR/CI SignalSource is a tier-3 adapter (SR-CIF).
 ──────────────────────────────────────────────────────────────────────────────
 
 Stdlib only. No gh. No network.
@@ -49,7 +49,7 @@ class SignalSource(Protocol):
 
     Core sources (local-git, task-board, DAG-run, artifact-freshness) ship
     zero-infra. A PR/CI SignalSource is contributed by the tier-3 vcs/github
-    adapter (SR-9) and is absent by default.
+    adapter (SR-CIF) and is absent by default.
 
     Methods return frozenset of normalized id tokens (lowercase).
     """
