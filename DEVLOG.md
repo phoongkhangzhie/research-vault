@@ -19,9 +19,9 @@
   mock to detect); fixture [10] note: removed "Below-human performance" phrase that triggered CONTRA
   before the "72.3%" ABSENT marker.
 - **Leakage scrub** (pre-existing violations in prior engineer's commit): removed private operator
-  name from `check_gates.py` comment; replaced all hardcoded versioned model IDs (`claude-opus-4-5`) with
-  `os.environ.get("RV_JUDGE_MODEL", "")` in `support_matcher.py`, `check_gates.py`, `naked_cite.py`.
-  Adopters set `RV_JUDGE_MODEL` to their current Opus-tier model; source stays portable.
+  name from `check_gates.py` comment; replaced all hardcoded versioned model IDs (Opus-tier pinned
+  string) with `os.environ.get("RV_JUDGE_MODEL", "")` in `support_matcher.py`, `check_gates.py`,
+  `naked_cite.py`. Adopters set `RV_JUDGE_MODEL` to their current Opus-tier model; source stays portable.
 - **74/74 tests** (was 68/74; 6 calibration tests now green). Full suite 1189 passed, 0 failed.
   `rv lint` PASS; `rv help --check` OK; leakage clean.
 
