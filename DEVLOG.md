@@ -1,3 +1,31 @@
+## 2026-07-02 (SR-FIG-REC — plot-type recommender, expressiveness→effectiveness)
+
+### Done
+- **`figures/recommend.py`**: static rule table (task × descriptor-shape → ranked encodings + principle strings), grounded in Cleveland–McGill (1984) accuracy ladder + Mackinlay (1986) expressiveness→effectiveness ordering.
+  - `infer_view(df)` — pandas-backed descriptor inference (role/dtype/cardinality per column); role heuristic uses `card > 10 OR card/nrows > 0.5` (fraction-based to handle small-frame measures like confusion-matrix count cols)
+  - `infer_task(cols)` — heuristic task inference from descriptor shape; returns (primary, alternates)
+  - `detect_confusion_matrix_shape(cols, df)` — same-label-set on both axes detection
+  - `recommend(cols, task=None, ...)` — ranked Suggestion list; prints "task inferred: ..." when task omitted
+  - `integrity_warns(...)` — 6 WARN checks (truncated baseline, stacked segments, pie>3, rainbow colormap, diverging-on-sequential, bar-of-means); never blocks, exit 0 always
+  - `colormap_class` seam: emit class (sequential/diverging/qualitative) only — no palette (Iris's job)
+- **`figure.py` updated** (SR-FIG-REC integration):
+  - `cmd_new` now accepts `plot_type=None` (the new default); when omitted, calls `_auto_recommend_plot_type()` which loads the results frame, infers descriptors, calls `recommend()`, prints rationale
+  - `--type` supplied → honored silently (recommend-not-mandate)
+  - Integrity WARNs fire via `_fire_integrity_warns()` regardless of who chose the type
+  - `cmd_recommend()` — the `rv figure recommend <view-csv>` verb
+  - Parser: `recommend` sub-verb + `--task` + `--why` on both `new` and `recommend`
+- **`cli.py`**: `figure` verb `when_to_use` updated to include `recommend` sub-verb + encoding anti-pattern; sr: SR-FIG, SR-FIG-REC
+- **Bug fix**: `infer_view` card > 10 threshold misclassified small-frame numeric columns (e.g. confusion-matrix `count` col with 7 unique values) as `role=dimension`. Fixed with fraction-based clause.
+
+### Decisions
+- `plot_type=None` is the new default in `cmd_new` (was `"line"`); the CLI `--type` default is also `None` (was `"line"`). When the [figures] extra is absent, falls back to `"line"` with a stderr message.
+- Role heuristic: `card > 10 OR card/nrows > 0.5` — the fraction guard handles small frames where absolute cardinality is low but the column is clearly a continuous measure (not a group-ID code).
+- D-FIGREC-1 (infer-and-surface): implemented as specified — inferred task announced, not buried.
+- D-FIGREC-2 (WARN-only integrity): WARNs are advisory; no integrity check blocks.
+
+### Open / next
+- PR #25 → reviewer + Architect fit → operator merges (human-go class). NO self-merge.
+
 ## 2026-07-02 (SR-MS-1a complete — manuscript structure half)
 
 ### Done
@@ -21,7 +49,6 @@
 
 ### Open / next
 - SR-MS-1b: .bib exporter + machine-injected results macros + exec-guarded compile + `rv manuscript compile/check` (the grounding-builders half).
-- PR → reviewer + Architect fit → operator merges (human-go class). NO self-merge.
 
 ## 2026-07-02 (SR-PLAN-1 complete — plan/freeze module, K-2 fix, K-3, demo upgrade)
 
