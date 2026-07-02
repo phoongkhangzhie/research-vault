@@ -1,3 +1,27 @@
+## 2026-07-02 (lint-f811 — F811 redefined-while-unused gate)
+
+### Done
+- Added `check_redefined_while_unused()` (AST-based F811) to `lint.py`: walks every scope
+  in `src/research_vault/` and flags `def`/`async def`/`class` names shadowed before first
+  use. Exempts `@overload`/`@typing.overload` chains and `try/except` fallbacks (naturally
+  excluded). `_SRC_DIR` module-level var mirrors `_TESTS_DIR`; monkeypatchable.
+- Wired as rule 6 in `cmd_lint`; 13 hermetic tests added to `test_lint_rules.py`.
+- Added `rv-lint` CI job — closes the gap where CI never ran `rv lint` at all.
+- Red-before-green proof: ImportError confirmed before implementation; probe file injection
+  confirmed FAIL/PASS; CI green on pushed head `a63f00d` (all 4 jobs).
+
+### Decisions
+- Scoped F811 scan to `src/research_vault/` only (production code). Tests are excluded: test
+  files can have legitimate redefinitions (fixture overrides) and are already covered by the
+  vacuous-assertion and unpinned-git-init rules.
+- Custom AST check, not ruff — ruff is not in the dep tree (stdlib-only core constraint).
+  F811 is simple enough to implement cleanly in ~50 lines of stdlib ast.
+- `@overload` exemption covers both `@overload` (bare Name) and `@typing.overload`
+  (Attribute form) — both forms appear in the codebase.
+
+### Open / next
+- PR `feat/lint-f811` pushed; awaiting hub to open PR + human-go merge.
+
 ## 2026-07-02 (SR-MS-2 — rubric wiring + calibration gate completion)
 
 ### Done
