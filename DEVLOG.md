@@ -1,3 +1,23 @@
+## 2026-07-02 (SR-LR-1 prereq — corpus-dedup annotation for rv research)
+
+### Done
+- **`_load_corpus_index(refs_path)`** in `research.py`: builds normalized DOI + ArXiv-id → citekey lookup from a Zotero `library.json`. Handles `citationKey` field and `Citation Key:` in `extra`. DOIs lowercased; ArXiv ids strip `arXiv:` prefix and `vN` version suffix.
+- **`_corpus_annotation(paper, corpus_index)`**: returns `[IN-CORPUS:<citekey>]` or `[NEW]` for a candidate S2 paper dict.
+- **`_print_candidates`**: extended with optional `corpus_index` parameter; each candidate now annotated inline.
+- **`cmd_find`**, **`cmd_cited_by`**, **`cmd_references`**: all three load config, resolve `--project` (falling back to `default_project`), load corpus index, and pass it to `_print_candidates`. Graceful when `--project` omitted (empty index → all `[NEW]`).
+- **`--project` help text** corrected on `find`, `cited-by`, and `references`: now accurately describes corpus-annotation behavior (no overpromise).
+- **24 TDD tests** in `tests/test_research_corpus_dedup.py`: all green. 1013 total passing.
+- `rv lint`: PASS. `rv help --check`: OK. Leakage scan: clean.
+
+### Decisions
+- Match on DOI first, then ArXiv id. DOI takes priority because it is more stable (fewer collisions than ArXiv ids with version noise).
+- `citationKey` field takes priority over `Citation Key:` in `extra` when both are present.
+- Graceful degradation: `_load_corpus_index(None)` returns `{}`, so callers without a project config never crash; they see `[NEW]` for everything.
+- All three verbs share the single `_load_corpus_index` + `_corpus_annotation` + `_print_candidates` path — no forking.
+
+### Open / next
+- SR-LR-1 full loop: saturation stopping rule (count `[NEW]` per round to detect convergence) is unblocked by this prereq.
+
 ## 2026-07-02 (SR-LR-1 L-1 fix — rv research references backward snowball)
 
 ### Done
