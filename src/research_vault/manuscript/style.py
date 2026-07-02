@@ -23,6 +23,8 @@ Stdlib only.
 """
 from __future__ import annotations
 
+from typing import Any
+
 # ---------------------------------------------------------------------------
 # Section config — canonical section keys with status markers.
 # Status: "required" | "optional" | "venue-optional"
@@ -180,22 +182,39 @@ They are not stylistic suggestions — they are anti-fabrication constraints.
 """
 
 
-def get_style_preamble(override: str | None = None) -> str:
+def get_style_preamble(
+    override: str | None = None,
+    config: "Any | None" = None,
+) -> str:
     """Return the manuscript_style_preamble string, optionally replaced by caller.
 
     When to use: the DAG scaffolder calls this to prepend the preamble to each
-    agent section node's spec string. Adopters customize by passing override=<str>
-    (complete replacement, not merge — the preamble is a coherent whole).
+    agent section node's spec string. Adopters customize per venue by:
+      (a) passing override=<str> directly (complete replacement), OR
+      (b) setting ``[manuscript_style] _preamble = "..."`` in research_vault.toml.
+
+    Priority: override arg > [manuscript_style]._preamble in config > default.
+    The preamble is treated as a coherent whole (complete replacement, not merge).
 
     Args:
         override: optional string to use in place of the default preamble.
-                  When None, returns the module-level manuscript_style_preamble.
+                  When None, falls through to config then default.
+        config: optional loaded Config instance. When provided and the config has
+                a ``[manuscript_style]`` section containing a ``_preamble`` key,
+                that value is used. Mirrors get_plan_tips(config=) seam in plan/style.py.
 
     Returns:
-        The preamble string (default or override).
+        The preamble string (override or config-preamble or default).
     """
     if override is not None:
         return override
+    if config is not None:
+        raw = getattr(config, "_raw", {})
+        ms_style = raw.get("manuscript_style", {})
+        if isinstance(ms_style, dict):
+            config_preamble = ms_style.get("_preamble")
+            if isinstance(config_preamble, str) and config_preamble.strip():
+                return config_preamble
     return manuscript_style_preamble
 
 
@@ -490,25 +509,45 @@ per_section_tips: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 def get_section_tips(
-    override: dict[str, str] | None = None,
+    override: "dict[str, str] | None" = None,
+    config: "Any | None" = None,
 ) -> dict[str, str]:
     """Return the per_section_tips dict, optionally merged with caller overrides.
 
     When to use: the DAG scaffolder calls this to embed per-section spec strings
-    into each agent node. Adopters customize per venue by passing override={}.
+    into each agent node. Adopters customize per venue by:
+      (a) passing override={} directly, OR
+      (b) setting ``[manuscript_style]`` section in research_vault.toml.
 
-    The default dict bakes Ada's grounding craft (§5J.3c); the override merges
-    on top of defaults — only the keys you specify are replaced. This is the
-    adopter-customizable seam directly parallel to figures' apply_style(preset, skin).
+    Priority: override arg overrides config overrides default (per-key merge).
+    Unknown keys from config or override are silently dropped (only SECTION_KEYS
+    keys are meaningful). This mirrors get_plan_tips(config=) in plan/style.py.
 
     Args:
         override: optional dict of section-key → tip string to merge on top of defaults.
-                  Keys not present in override retain their defaults.
+                  Keys not present in override retain their defaults (or config values).
+        config: optional loaded Config instance. When provided and the config has
+                a ``[manuscript_style]`` section, those key/value pairs are merged
+                over the default — only recognized section keys are accepted.
 
     Returns:
         A new dict (never mutates module-level per_section_tips).
     """
-    tips = dict(per_section_tips)
+    tips: dict[str, str] = dict(per_section_tips)
+
+    # Apply [manuscript_style] config overrides (mirrors get_plan_tips seam)
+    if config is not None:
+        raw = getattr(config, "_raw", {})
+        ms_style = raw.get("manuscript_style", {})
+        if isinstance(ms_style, dict):
+            for key, value in ms_style.items():
+                if key in SECTION_KEYS and isinstance(value, str):
+                    tips[key] = value
+
+    # Apply explicit override arg (highest priority)
     if override:
-        tips.update(override)
+        for key, value in override.items():
+            if key in SECTION_KEYS or key in tips:
+                tips[key] = value
+
     return tips

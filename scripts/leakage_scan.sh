@@ -65,10 +65,17 @@ SKIP_PATTERN='(leakage_scan\.sh|\.github/workflows/ci\.yml|tests/test_leakage_sc
 # In staged mode, build a filtered list of staged files to scan.
 STAGED_FILES=""
 if [ "$STAGED" -eq 1 ]; then
-    # Get staged paths; filter to tracked extensions
+    # Get staged paths; filter to tracked extensions.
+    # Exclude manuscripts/** — LaTeX .tex/.bib files use \cite{} form (NOT Pandoc [@key])
+    # and are intentionally not portable-doctrine artifacts. The .tex/.bib extensions
+    # are already excluded by the .md/.yml/.toml/.json/.py/.sh filter, but manuscript/
+    # notes (OKF metadata .md files) are also safe — they contain no [@key] patterns.
+    # Exclusion documented (SR-MS-1b §5J.3): "LaTeX \cite{}+.bib does NOT match
+    # Pandoc [@key] — safe-by-construction. Exclude manuscripts/** as belt-and-suspenders."
     STAGED_FILES=$(git diff --cached --name-only 2>/dev/null \
         | grep -E '\.(md|yml|yaml|toml|json|py|sh)$' \
         | grep -v '__pycache__' \
+        | grep -v '^.*/manuscripts/' \
         || true)
     if [ -z "$STAGED_FILES" ]; then
         echo "=== Leakage scan (staged): no matching staged files — OK ==="
