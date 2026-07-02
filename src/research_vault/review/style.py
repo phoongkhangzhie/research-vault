@@ -7,8 +7,8 @@ SEAM CONTRACT
   anchored to the systematic-review methodology it operationalizes (protocol
   pre-registration, both-direction snowballing, saturation-as-plateau, concept-centric
   synthesis).  Adopters override per lab/venue via the ``[review_style]`` section in
-  ``research_vault.toml``.  Method anchors named in the prose are attributed in the
-  framework's ``REFERENCES.md``.
+  ``research_vault.toml``.  Method anchors are attributed inline to their sources; a
+  consolidated design-references bibliography is compiled at publish.
 
   Shape:
     review_tips = {
