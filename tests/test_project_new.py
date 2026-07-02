@@ -245,12 +245,18 @@ class TestProjectNewCrew:
         assert (agents_dir / "engineer.md").exists(), "engineer.md hat must exist"
         assert (agents_dir / "reviewer.md").exists(), "reviewer.md hat must exist"
 
-    def test_empty_roster_no_agents(self, rv_instance: Path) -> None:
+    def test_empty_roster_no_agent_hats(self, rv_instance: Path) -> None:
         src = rv_instance / "projects" / "demo"
         cmd_new("demo", "dm", str(src), [])
         agents_dir = rv_instance / ".agents" / "demo"
-        assert not agents_dir.exists() or not list(agents_dir.glob("*.md")), \
-            "no agent hats should be created for empty roster"
+        # SR-CONTRACT: CONTRACT.md is always scaffolded (even for empty roster),
+        # so agents_dir WILL exist and contain CONTRACT.md.
+        # The invariant is: no ROLE hat files (engineer.md, reviewer.md, etc.) —
+        # not "no files at all".
+        if agents_dir.exists():
+            role_hats = [f for f in agents_dir.glob("*.md") if f.name != "CONTRACT.md"]
+            assert not role_hats, \
+                f"no role hat files should be created for empty roster, got: {role_hats}"
 
 
 # ---------------------------------------------------------------------------
