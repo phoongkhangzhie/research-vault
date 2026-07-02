@@ -106,6 +106,98 @@ def _default_project(cfg: Config) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Corpus-dedup index helpers (SR-LR-1 prerequisite)
+# ---------------------------------------------------------------------------
+
+def _normalize_doi(doi: str | None) -> str | None:
+    """Return a lowercase DOI suitable for corpus matching, or None."""
+    if not doi:
+        return None
+    return doi.strip().lower()
+
+
+def _normalize_arxiv(arxiv: str | None) -> str | None:
+    """Normalize an ArXiv id: strip 'arXiv:' prefix and version suffix.
+
+    Examples:
+      "arXiv:1706.03762"  → "1706.03762"
+      "1810.04805v2"      → "1810.04805"
+      None                → None
+    """
+    if not arxiv:
+        return None
+    s = re.sub(r"^arxiv:", "", arxiv.strip(), flags=re.IGNORECASE)
+    s = re.sub(r"v\d+$", "", s)
+    return s.lower() if s else None
+
+
+def _load_corpus_index(refs_path: str | None) -> dict[str, str]:
+    """Build a normalized-id → citekey lookup from a Zotero library.json.
+
+    Keys are lowercased DOIs and normalized ArXiv ids.  Returns an empty dict
+    when refs_path is None, missing, or malformed — callers treat that as
+    "no corpus, annotate everything [NEW]".
+    """
+    if not refs_path:
+        return {}
+    p = Path(refs_path)
+    if not p.exists():
+        return {}
+    try:
+        items = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(items, list):
+        return {}
+
+    index: dict[str, str] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        data = item.get("data", {})
+        if not isinstance(data, dict):
+            continue
+
+        # Resolve citekey: prefer citationKey field, fall back to "Citation Key:" in extra.
+        ck: str | None = data.get("citationKey") or None
+        if not ck:
+            m = re.search(r"Citation Key:\s*(\S+)", data.get("extra", ""))
+            if m:
+                ck = m.group(1)
+        if not ck:
+            continue  # no citekey → cannot annotate; skip
+
+        # Index DOI (lowercased)
+        doi = _normalize_doi(data.get("DOI") or None)
+        if doi:
+            index[doi] = ck
+
+        # Index ArXiv id from archiveID field (e.g. "arXiv:2005.14165")
+        arxiv = _normalize_arxiv(data.get("archiveID") or None)
+        if arxiv:
+            index[arxiv] = ck
+
+    return index
+
+
+def _corpus_annotation(paper: dict, corpus_index: dict[str, str]) -> str:
+    """Return [IN-CORPUS:<citekey>] or [NEW] for a candidate S2 paper dict."""
+    if not corpus_index:
+        return "[NEW]"
+    ext = paper.get("externalIds") or {}
+
+    doi = _normalize_doi(ext.get("DOI"))
+    if doi and doi in corpus_index:
+        return f"[IN-CORPUS:{corpus_index[doi]}]"
+
+    arxiv = _normalize_arxiv(ext.get("ArXiv"))
+    if arxiv and arxiv in corpus_index:
+        return f"[IN-CORPUS:{corpus_index[arxiv]}]"
+
+    return "[NEW]"
+
+
+# ---------------------------------------------------------------------------
 # S2 → cite matching adapter (reuses cite.py internals via import)
 # ---------------------------------------------------------------------------
 
@@ -130,8 +222,18 @@ def _normalize_author_name(authors_raw: Any) -> str:
     return ""
 
 
-def _print_candidates(papers: list[dict]) -> None:
-    """Print S2 paper candidates in a human-readable table."""
+def _print_candidates(
+    papers: list[dict],
+    corpus_index: dict[str, str] | None = None,
+) -> None:
+    """Print S2 paper candidates in a human-readable table.
+
+    When corpus_index is provided (loaded from the project's library.json),
+    each candidate is annotated [IN-CORPUS:<citekey>] or [NEW] so the
+    lit-review saturation stopping rule (SR-LR-1) can detect when a snowball
+    round adds no new papers.
+    """
+    idx = corpus_index or {}
     print(f"\n{len(papers)} candidate(s)\n")
     for p in papers:
         year = p.get("year", "")
@@ -141,7 +243,8 @@ def _print_candidates(papers: list[dict]) -> None:
         arxiv = ext.get("ArXiv", "")
         doi = ext.get("DOI", "")
         id_str = f"arXiv:{arxiv}" if arxiv else (f"DOI:{doi}" if doi else "")
-        print(f"  {first_author} {year}  {title}")
+        annotation = _corpus_annotation(p, idx)
+        print(f"  {annotation}  {first_author} {year}  {title}")
         if id_str:
             print(f"  {'':12}  {id_str}")
     print()
@@ -188,7 +291,9 @@ def cmd_find(args: argparse.Namespace) -> int:
         raw = json.loads(r.stdout)
         papers = raw.get("data") or []
 
-    _print_candidates(papers)
+    refs_path = _refs_path_for_project(project, cfg)
+    corpus_index = _load_corpus_index(refs_path)
+    _print_candidates(papers, corpus_index)
     return 0
 
 
@@ -199,6 +304,14 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
     See also: rv research references (backward snowball — what the seed itself cites).
     """
     _preflight_asta()
+    try:
+        cfg = load_config()
+    except Exception:
+        cfg = None
+    project = getattr(args, "project", None)
+    if cfg and not project:
+        project = _default_project(cfg)
+
     fields = "title,year,authors,externalIds,citationCount"
     cmd = [
         "asta", "papers", "citations", args.paper_id,
@@ -210,7 +323,10 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
         sys.exit(f"asta papers citations failed:\n{r.stderr}")
     raw = json.loads(r.stdout)
     papers = [item.get("citingPaper", item) for item in (raw.get("data") or [])]
-    _print_candidates(papers)
+
+    refs_path = _refs_path_for_project(project, cfg) if cfg else None
+    corpus_index = _load_corpus_index(refs_path)
+    _print_candidates(papers, corpus_index)
     return 0
 
 
@@ -223,6 +339,14 @@ def cmd_references(args: argparse.Namespace) -> int:
     Anti-pattern: do NOT hand-copy a bibliography — use this to fetch it programmatically.
     """
     _preflight_asta()
+    try:
+        cfg = load_config()
+    except Exception:
+        cfg = None
+    project = getattr(args, "project", None)
+    if cfg and not project:
+        project = _default_project(cfg)
+
     fields = (
         "references.title,references.year,references.authors,"
         "references.externalIds,references.citationCount"
@@ -237,7 +361,10 @@ def cmd_references(args: argparse.Namespace) -> int:
         sys.exit(f"asta papers get failed:\n{r.stderr}")
     raw = json.loads(r.stdout)
     papers = raw.get("references") or []
-    _print_candidates(papers)
+
+    refs_path = _refs_path_for_project(project, cfg) if cfg else None
+    corpus_index = _load_corpus_index(refs_path)
+    _print_candidates(papers, corpus_index)
     return 0
 
 
@@ -333,7 +460,13 @@ def build_parser(
     find_p.add_argument("query")
     find_p.add_argument("--deep", action="store_true", help="Deep literature review via asta literature find.")
     find_p.add_argument("--limit", type=int, default=10)
-    find_p.add_argument("--project", default=None, help="Project slug (from config registry).")
+    find_p.add_argument(
+        "--project", default=None,
+        help=(
+            "Project slug (from config registry). Annotates candidates "
+            "[IN-CORPUS:<citekey>] or [NEW] against the project's library.json corpus."
+        ),
+    )
 
     # cited-by (forward snowball)
     cb_p = sub.add_parser(
@@ -346,7 +479,13 @@ def build_parser(
     )
     cb_p.add_argument("paper_id", help="S2 paper id: ARXIV:xxx, DOI:xxx, CorpusId:xxx")
     cb_p.add_argument("--limit", type=int, default=20)
-    cb_p.add_argument("--project", default=None)
+    cb_p.add_argument(
+        "--project", default=None,
+        help=(
+            "Project slug (from config registry). Annotates candidates "
+            "[IN-CORPUS:<citekey>] or [NEW] against the project's library.json corpus."
+        ),
+    )
 
     # references (backward snowball)
     ref_p = sub.add_parser(
@@ -359,7 +498,15 @@ def build_parser(
         ),
     )
     ref_p.add_argument("paper_id", help="S2 paper id: ARXIV:xxx, DOI:xxx, CorpusId:xxx")
-    ref_p.add_argument("--project", default=None)
+    ref_p.add_argument(
+        "--project", default=None,
+        help=(
+            "Project slug (from config registry). When set, each candidate is "
+            "annotated [IN-CORPUS:<citekey>] or [NEW] by matching against the "
+            "project's library.json corpus — enabling the saturation stopping "
+            "rule for the lit-review loop (SR-LR-1)."
+        ),
+    )
 
     # add
     add_p = sub.add_parser("add", help="Add a paper (dedup gate + cite add).")
