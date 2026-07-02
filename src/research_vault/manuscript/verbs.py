@@ -119,13 +119,45 @@ def build_parser(
         help="List manuscript notes for the project.",
     )
 
+    # ── compile ──────────────────────────────────────────────────────────────
+    compile_p = sub.add_parser(
+        "compile",
+        help=(
+            "Exec-guarded LaTeX compile loop: build .bib from library.json, inject "
+            "results macros, run pdflatex→bibtex→pdflatex×2 + chktex fix-loop. "
+            "Requires texlive-full (system package, not pip-installable). "
+            "Exits cleanly with a friendly message if pdflatex is absent."
+        ),
+    )
+    compile_p.add_argument(
+        "ms_id",
+        metavar="id",
+        help="Manuscript identifier slug (e.g. 'ms-001').",
+    )
+
+    # ── check ─────────────────────────────────────────────────────────────────
+    check_p = sub.add_parser(
+        "check",
+        help=(
+            "Run structural grounding gates: unmatched \\cite resolution, "
+            "figure-file existence, compile-success, data-code-availability "
+            "sentinel cross-check. Does NOT run semantic gates (SR-MS-2). "
+            "Hard-fails on any unmatched \\cite."
+        ),
+    )
+    check_p.add_argument(
+        "ms_id",
+        metavar="id",
+        help="Manuscript identifier slug (e.g. 'ms-001').",
+    )
+
     return p
 
 
 def run(args: argparse.Namespace) -> int:
     """Dispatch manuscript subcommands. Returns exit code."""
     from research_vault.config import load_config
-    from research_vault.manuscript import cmd_new, cmd_list
+    from research_vault.manuscript import cmd_new, cmd_list, cmd_compile, cmd_check
 
     try:
         cfg = load_config()
@@ -166,6 +198,34 @@ def run(args: argparse.Namespace) -> int:
                 if dag_run:
                     print(f"    dag_run: {dag_run}")
             return 0
+
+        if args.manuscript_cmd == "compile":
+            result = cmd_compile(args.project, args.ms_id, config=cfg)
+            print(result.get("message", ""))
+            if result.get("exit_code", 1) != 0:
+                log = result.get("log", "")
+                if log:
+                    # Print the last 1000 chars of the log on failure
+                    print(f"\n--- LaTeX log (last 1000 chars) ---\n{log[-1000:]}", file=sys.stderr)
+            return result.get("exit_code", 1)
+
+        if args.manuscript_cmd == "check":
+            result = cmd_check(args.project, args.ms_id, config=cfg)
+            errors = result.get("errors", [])
+            warnings = result.get("warnings", [])
+            if errors:
+                print(f"rv manuscript check: FAIL — {len(errors)} error(s):", file=sys.stderr)
+                for e in errors:
+                    print(f"  ERROR: {e}", file=sys.stderr)
+            if warnings:
+                print(f"rv manuscript check: {len(warnings)} warning(s):")
+                for w in warnings:
+                    print(f"  WARN: {w}")
+            if not errors and not warnings:
+                print("rv manuscript check: OK — all structural gates passed.")
+            elif not errors:
+                print("rv manuscript check: OK — no hard errors (warnings above).")
+            return 0 if not errors else 1
 
         print(f"rv manuscript: unknown command: {args.manuscript_cmd!r}", file=sys.stderr)
         return 1
