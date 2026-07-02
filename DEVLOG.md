@@ -1,3 +1,44 @@
+## 2026-07-02 (SR-HARDENING — 3 targeted fixes from #34/#35 gate)
+
+### Done
+- **Fix 1 — native_env value guard** (`adapters/remote.py`): env values containing
+  space/comma/semicolon/quote in `native_env: true` mode now raise a loud `ValueError`
+  before any argv is built. Expanded docstring names the comma-delimiter + injection risk
+  explicitly (was undersold as "spaces won't work").
+- **Fix 2 — container + native_env flag ordering** (`adapters/remote.py`): moved the
+  container wrap block to AFTER the native scheduler flags, so `--export`/`--chdir` land
+  before `apptainer exec img.sif` in the sbatch argv. SLURM was silently parsing them as
+  apptainer args when the container wrap was first.
+- **Fix 3a — slug-collision guard** (`config.py`): `Config.__init__` now rejects project
+  slugs matching any of the 9 OKF type names with a clear `ValueError` at config-load time.
+  Added `_OKF_RESERVED_SLUGS` constant (mirrors `note.OKF_TYPES`; no circular import since
+  note.py imports Config).
+- **Fix 3b — OKF_SHARED_TYPES self-consumption** (`note.py`): all 3 routing sites
+  (`cmd_new`, `cmd_list`, `cmd_check`) now use `in OKF_SHARED_TYPES` instead of
+  `== "datasets"`. Datasets-specific field checks (`location`/`hash`) remain under
+  `if t == "datasets":`. Behavior unchanged; correct when a 2nd shared type lands.
+- 28 new tests; 1307 suite total, 0 failures. CI green on SHA 34dec513.
+
+### Decisions
+- Used `_OKF_RESERVED_SLUGS` in config.py (not a lazy import of note.py) to avoid circular
+  import risk. Comment points to note.py as SSOT; config.py copy must stay in sync.
+- Value guard uses a dict `{char: label}` so the error message names the character class
+  ("comma", "space", "semicolon", "quote") not the raw character — more actionable.
+
+### note.py regions for #13 (SR-PLAN-2) rebase
+- **cmd_new** routing change at the `if note_type in OKF_SHARED_TYPES:` block (around
+  the old `if note_type == "datasets":` line in the original). The datasets-specific
+  template fields (`location`, `hash`) and body template remain as `if note_type == "datasets":`.
+- **cmd_list** routing change at `if t in OKF_SHARED_TYPES:` (around old line 368).
+- **cmd_check** routing changes:
+  - Outer branch: `if t in OKF_SHARED_TYPES:` (around old line 414).
+  - Inner type-consistency check: `if note_type != t:` (was `note_type != "datasets"`).
+  - Datasets field checks now nested under `if t == "datasets":` inside the shared branch.
+- All other note.py logic (experiments/figures/manuscript branches) is untouched.
+
+### Open / next
+- Hub to open PR for review; crew cannot self-approve.
+
 ## 2026-07-02 (SR-MS-2 — rubric wiring + calibration gate completion)
 
 ### Done
