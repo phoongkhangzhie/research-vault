@@ -203,25 +203,54 @@ def _make_research_states(plan_status: str = "succeeded",
                            analyze_status: str = "pending",
                            human_go_findings_status: str = "pending",
                            methods_status: str = "pending") -> dict[str, dict]:
-    """Build node_states for the research loop."""
+    """Build node_states for the research loop.
+
+    Updated in SR-PLAN-1: the demo manifest is now multi-main (q1-main1-run,
+    q1-main2-run, ablations, conditionals, per-main gates).  All new nodes
+    default to 'pending' so tests exercising the early gates still work.
+    """
     return {
         "plan": {"status": plan_status},
         "plan-critic": {"status": "succeeded"},
         "human-go-plan": {"status": human_go_status},
-        "run": {"status": run_status},
-        "score": {"status": score_status},
-        "analyze": {"status": analyze_status},
+        # Main 1 + ablation A + conditional Y (all pending by default)
+        "q1-main1-run": {"status": run_status},
+        "q1-main1-score": {"status": score_status},
+        "q1-main1-analyze": {"status": analyze_status},
+        "q1-main1-abl-A-run": {"status": run_status},
+        "q1-main1-abl-A-score": {"status": score_status},
+        "q1-main1-abl-A-analyze": {"status": analyze_status},
+        "human-go-conditionals-main1": {"status": "pending"},
+        "q1-main1-cabl-Y-run": {"status": "pending"},
+        "q1-main1-cabl-Y-score": {"status": "pending"},
+        "q1-main1-cabl-Y-analyze": {"status": "pending"},
+        # Main 2 + ablation B + conditional Z (all pending by default)
+        "q1-main2-run": {"status": run_status},
+        "q1-main2-score": {"status": score_status},
+        "q1-main2-analyze": {"status": analyze_status},
+        "q1-main2-abl-B-run": {"status": run_status},
+        "q1-main2-abl-B-score": {"status": score_status},
+        "q1-main2-abl-B-analyze": {"status": analyze_status},
+        "human-go-conditionals-main2": {"status": "pending"},
+        "q1-main2-cabl-Z-run": {"status": "pending"},
+        "q1-main2-cabl-Z-score": {"status": "pending"},
+        "q1-main2-cabl-Z-analyze": {"status": "pending"},
+        # Final gates
         "human-go-findings": {"status": human_go_findings_status},
         "methods-update": {"status": methods_status},
     }
 
 
 def test_experiments_before_run_blocks_when_no_artifact(tmp_cfg):
-    """Pre-registration gate: run cannot dispatch when experiments note is absent."""
+    """Pre-registration gate: run cannot dispatch when experiments note is absent.
+
+    Updated in SR-PLAN-1: tests q1-main1-run (the first main) rather than the
+    old single 'run' node.
+    """
     cfg, tmp_path = tmp_cfg
     manifest = load_manifest(RESEARCH_LOOP_PATH)
 
-    # plan and plan-critic and human-go all succeeded, but NO experiments/exp-q1.md exists
+    # plan + human-go-plan succeeded, but NO child stubs exist
     node_states = _make_research_states(
         plan_status="succeeded",
         human_go_status="succeeded",
@@ -233,22 +262,26 @@ def test_experiments_before_run_blocks_when_no_artifact(tmp_cfg):
     frontier = compute_frontier(manifest, node_states, edge_registered_ts, global_cap=4)
     dispatch_ids = {f.node_id for f in frontier if f.action == "dispatch"}
 
-    assert "run" not in dispatch_ids, (
-        "run node must be BLOCKED when the experiments pre-registration note is absent. "
+    assert "q1-main1-run" not in dispatch_ids, (
+        "q1-main1-run must be BLOCKED when the experiments stub is absent. "
         f"Frontier dispatch: {dispatch_ids}"
     )
 
 
 def test_experiments_before_run_unblocks_when_artifact_present(tmp_cfg):
-    """Pre-registration gate: run dispatches after experiments note is filed fresh."""
+    """Pre-registration gate: run dispatches after experiments note is filed fresh.
+
+    Updated in SR-PLAN-1: tests q1-main1-run rather than the old 'run' node.
+    """
     cfg, tmp_path = tmp_cfg
     manifest = load_manifest(RESEARCH_LOOP_PATH)
 
-    # Write the experiments note with correct OKF frontmatter
-    exp_note = cfg.notes_root / "experiments" / "exp-q1.md"
+    # Write the q1-main1 stub note
+    exp_note = cfg.notes_root / "experiments" / "q1-main1.md"
     exp_note.parent.mkdir(parents=True, exist_ok=True)
     exp_note.write_text(
-        "---\ntype: experiments\ncitekey: exp-q1\ntitle: Q1 pre-registration\n---\n\n# Experiment Q1\n",
+        "---\ntype: experiments\ncitekey: q1-main1\ntitle: Q1 main 1\n"
+        "stance: confirmatory\nplan_role: main\n---\n\n# Exp 1 main 1\n",
         encoding="utf-8",
     )
 
@@ -259,20 +292,20 @@ def test_experiments_before_run_unblocks_when_artifact_present(tmp_cfg):
 
     # Provide edge timestamps in the past so the file (just created) is "fresh"
     reg_ts = time.time() - 3600  # registered 1 hour ago
-    # Find the run node's edge index for the plan→run afterok+watch edge
-    run_node = next(n for n in manifest["nodes"] if n["id"] == "run")
+    # Find the q1-main1-run node's edge index for the plan→run afterok+watch edge
+    run_node = next(n for n in manifest["nodes"] if n["id"] == "q1-main1-run")
     plan_watch_idx = next(
         i for i, need in enumerate(run_node.get("needs", []))
         if need.get("from") == "plan" and need.get("watch")
     )
-    edge_key = f"run:plan:{plan_watch_idx}"
+    edge_key = f"q1-main1-run:plan:{plan_watch_idx}"
     edge_registered_ts = {edge_key: reg_ts}
 
     frontier = compute_frontier(manifest, node_states, edge_registered_ts, global_cap=4)
     dispatch_ids = {f.node_id for f in frontier if f.action == "dispatch"}
 
-    assert "run" in dispatch_ids, (
-        "run node must be DISPATCHABLE after experiments note is filed fresh. "
+    assert "q1-main1-run" in dispatch_ids, (
+        "q1-main1-run must be DISPATCHABLE after its experiments stub is filed fresh. "
         f"Frontier dispatch: {dispatch_ids}"
     )
 

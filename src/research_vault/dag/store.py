@@ -78,6 +78,19 @@ class RunState:
     created_at: float = field(default_factory=time.time)
     node_states: dict[str, dict[str, Any]] = field(default_factory=dict)
     edge_registered_ts: dict[str, float] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
+    """Generic key-value metadata for the run.
+
+    Used by plan/freeze.py (K-3, SR-PLAN-1) to store the covers:-freeze-set hash
+    at human-go-plan approval time and re-verify at human-go-findings.
+
+    Known keys:
+      "plan_freeze": {
+          "covers_hash":  "<sha256-hex>",       — hash of sorted (child_id, stance, plan_role) tuples
+          "plan_note":    "<abs-path-str>",      — path to the plan master note that was frozen
+          "frozen_at":    <float>,               — Unix timestamp of freeze
+      }
+    """
 
     # ── Serialization ─────────────────────────────────────────────────────────
 
@@ -88,6 +101,7 @@ class RunState:
             "created_at": self.created_at,
             "node_states": self.node_states,
             "edge_registered_ts": self.edge_registered_ts,
+            "meta": self.meta,
         }
 
     @classmethod
@@ -98,6 +112,7 @@ class RunState:
             created_at=d.get("created_at", 0.0),
             node_states=d.get("node_states", {}),
             edge_registered_ts=d.get("edge_registered_ts", {}),
+            meta=d.get("meta", {}),
         )
 
     # ── Convenience helpers ───────────────────────────────────────────────────

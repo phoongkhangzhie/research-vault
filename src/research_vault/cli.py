@@ -344,6 +344,27 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-FIG",
     },
+    # --- SR-PLAN-1 ---
+    "plan": {
+        "module": "research_vault.plan.verbs",
+        "when_to_use": (
+            "When you need to lint a pre-registration plan note or inspect the plan_tips "
+            "prompt seam. "
+            "Use `rv plan check <experiments/<id>-plan.md>` to run the K-2 structural "
+            "shape-lint BEFORE the human-go-plan approval gate: checks branch-presence "
+            "(every diagnosis table row has a named conclusion + committed action — no "
+            "empty cells, no 'fallback', no 'TBD') and one-component-per-ablation "
+            "(each supporting ablation manipulates exactly ONE component). "
+            "Use `rv plan tips [--key <key>]` to inspect the plan_tips seam (Ada's "
+            "defaults or adopter override from [plan_style] in research_vault.toml). "
+            "Anti-pattern: do NOT skip plan check before human-go-plan — the shape-lint "
+            "is the rejects-only structural screen (charter §9); the plan-critic (Argus) "
+            "judges semantic completeness but cannot substitute for missing outcome rows. "
+            "This verb is note.py-FREE: plan fields (plan_kind/covers/plan_role/"
+            "supports_main/stance) are agent-authored content, not cmd_new templates."
+        ),
+        "sr": "SR-PLAN-1",
+    },
 }
 
 
