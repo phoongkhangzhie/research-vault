@@ -249,10 +249,15 @@ def inject_results(
             value_str = _format_value(value)
             if not value_str:
                 continue
+            # IMPORTANT: the comment MUST come AFTER the closing brace.
+            # Putting % inside the macro body (e.g. {0.85%  % comment})
+            # causes a LaTeX runaway-argument/brace error — the % comments
+            # out the closing } entirely.
+            # Also escape any % in the value itself (percent as data, e.g. "85%").
+            safe_value = value_str.replace("%", r"\%")
             macro_lines.append(
-                f"\\newcommand{{\\{full_macro}}}{{{value_str}%"
+                f"\\newcommand{{\\{full_macro}}}{{{safe_value}}}"
                 f"  % {exp_id}:{key}"
-                f"}}"
             )
             macros_emitted.append(full_macro)
 
