@@ -346,10 +346,48 @@ class RemoteBackend:
                 ssh_argv += [runtime, "exec", image]
 
             # Wire env and cwd into the command sent to the cluster.
-            # When either is provided, wrap cmd in 'sh -c' so both env exports
-            # and directory changes execute on the remote side before the
-            # workload starts.  Without env/cwd, cmd passes through unchanged.
-            if env or cwd:
+            #
+            # Two modes, selected by the manifest profile's ``native_env`` key
+            # (bool, default false):
+            #
+            #   native_env: false (default) — wrap cmd in 'sh -c' so both env
+            #     exports and directory changes execute on the remote side before
+            #     the workload starts (the existing sh -c approach).
+            #
+            #   native_env: true — use the scheduler's OWN env/cwd flags instead
+            #     of a shell wrapper.  This avoids a redundant nested sh -c when
+            #     the adopter's cmd already starts with a shell interpreter, or
+            #     when the scheduler's native mechanism is preferable:
+            #       ssh+slurm → sbatch --export=KEY=val --chdir=<d>
+            #       ssh+pbs   → qsub  -v KEY=val -d <d>
+            #     The scheduler-native flags are appended to ssh_argv (BEFORE
+            #     '--') and cmd is passed through unchanged (no sh -c wrap).
+            #     Limitation: native_env only applies to ssh+slurm / ssh+pbs
+            #     archetypes. For other archetypes it falls back to sh -c.
+            #
+            # Without env/cwd, cmd passes through unchanged in both modes.
+            native_env: bool = bool(profile.get("native_env", False))
+            use_native = native_env and bool(env or cwd)
+
+            if use_native:
+                if archetype == "ssh+slurm":
+                    if env:
+                        export_val = ",".join(f"{k}={v}" for k, v in env.items())
+                        ssh_argv.append(f"--export={export_val}")
+                    if cwd:
+                        ssh_argv.append(f"--chdir={cwd}")
+                elif archetype == "ssh+pbs":
+                    if env:
+                        v_val = ",".join(f"{k}={v}" for k, v in env.items())
+                        ssh_argv.extend(["-v", v_val])
+                    if cwd:
+                        ssh_argv.extend(["-d", cwd])
+                else:
+                    # Unknown archetype: native_env has no defined mapping —
+                    # fall back to sh -c so env/cwd still land on the remote.
+                    use_native = False
+
+            if not use_native and (env or cwd):
                 std_parts: list[str] = []
                 if cwd:
                     std_parts.append("cd " + shlex.quote(cwd))

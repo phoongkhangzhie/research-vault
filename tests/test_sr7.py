@@ -884,3 +884,225 @@ def test_parse_sacct_state_sub_job_matches_parent():
     stdout = "12345.batch|COMPLETED\n12345|COMPLETED\n"
     result = _parse_sacct_state(stdout, "12345")
     assert result["ready"] is True
+
+
+# ---------------------------------------------------------------------------
+# native_env manifest key (SR-7 follow-on, Wren fit-check on #30)
+# ---------------------------------------------------------------------------
+# Covers:
+#   20. native_env: true on ssh+slurm → --export/--chdir flags injected before
+#       '--'; command after '--' is cmd directly (no /bin/sh wrap).
+#   21. native_env: true on ssh+pbs → -v/-d flags; no /bin/sh wrap.
+#   22. native_env absent (default) on ssh+slurm with env/cwd → sh -c wrap fires
+#       (backward compat; existing #Finding-2 tests remain green).
+#   23. native_env: true with no env or cwd → cmd passes through unchanged
+#       (no spurious flags appended).
+#   24. native_env: true on ssh archetype (not a scheduler) → no crash; falls
+#       back to existing shell-template behaviour (no native scheduler flags).
+#   25. cmd_show surfaces native_env when declared in the profile.
+
+
+def _slurm_native_env_manifest(host: str = "example-cluster") -> dict[str, Any]:
+    """Slurm manifest with native_env: true."""
+    m = _slurm_manifest(host)
+    m["backends"]["profiles"]["slurm-cluster"]["native_env"] = True
+    return m
+
+
+def _pbs_native_env_manifest(host: str = "example-pbs") -> dict[str, Any]:
+    """PBS manifest with native_env: true."""
+    m = _pbs_manifest(host)
+    m["backends"]["profiles"]["pbs-cluster"]["native_env"] = True
+    return m
+
+
+# 20 — ssh+slurm + native_env: --export/--chdir, no sh -c wrap
+def test_submit_slurm_native_env_uses_scheduler_flags(tmp_path):
+    """native_env: true on ssh+slurm → --export/--chdir before '--'; cmd is raw after '--'."""
+    cfg = _make_cfg(tmp_path, backend="slurm")
+    _write_manifest(cfg, _slurm_native_env_manifest())
+
+    from research_vault.adapters.remote import RemoteBackend
+    rb = RemoteBackend(cfg)
+    with patch(
+        "subprocess.run",
+        return_value=_mock_subprocess_run("Submitted batch job 100\n"),
+    ) as mock_run:
+        handle = rb.submit(
+            ["python", "train.py"],
+            env={"MY_VAR": "hello"},
+            cwd="/remote/workdir",
+        )
+
+    assert handle == "100"
+    call_argv = mock_run.call_args[0][0]
+    dash_idx = call_argv.index("--")
+    before_dash = call_argv[:dash_idx]
+    after_dash = call_argv[dash_idx + 1:]
+    before_str = " ".join(before_dash)
+
+    # Scheduler-native flags must appear before '--'
+    assert any("--export=" in a and "MY_VAR=hello" in a for a in before_dash), (
+        f"--export=MY_VAR=hello missing before '--': {before_str!r}"
+    )
+    assert any("--chdir=" in a and "/remote/workdir" in a for a in before_dash), (
+        f"--chdir=/remote/workdir missing before '--': {before_str!r}"
+    )
+
+    # No /bin/sh wrapper after '--'
+    assert after_dash == ["python", "train.py"], (
+        f"Expected raw cmd after '--', got: {after_dash!r}"
+    )
+
+
+# 21 — ssh+pbs + native_env: -v/-d flags, no sh -c wrap
+def test_submit_pbs_native_env_uses_scheduler_flags(tmp_path):
+    """native_env: true on ssh+pbs → -v/-d before '--'; cmd is raw after '--'."""
+    cfg = _make_cfg(tmp_path, backend="pbs")
+    _write_manifest(cfg, _pbs_native_env_manifest())
+
+    from research_vault.adapters.remote import RemoteBackend
+    rb = RemoteBackend(cfg)
+    with patch(
+        "subprocess.run",
+        return_value=_mock_subprocess_run("11111.example-pbs\n"),
+    ) as mock_run:
+        handle = rb.submit(
+            ["myjob.sh"],
+            env={"PBS_VAR": "val"},
+            cwd="/pbs/workdir",
+        )
+
+    assert handle == "11111"
+    call_argv = mock_run.call_args[0][0]
+    dash_idx = call_argv.index("--")
+    before_dash = call_argv[:dash_idx]
+    after_dash = call_argv[dash_idx + 1:]
+    before_str = " ".join(before_dash)
+
+    # PBS -v flag for env vars
+    assert any("PBS_VAR=val" in a for a in before_dash), (
+        f"-v PBS_VAR=val missing before '--': {before_str!r}"
+    )
+    # PBS -d flag for workdir
+    assert any(a == "-d" for a in before_dash), (
+        f"-d flag missing before '--': {before_str!r}"
+    )
+    assert "/pbs/workdir" in before_dash, (
+        f"-d /pbs/workdir missing before '--': {before_str!r}"
+    )
+
+    # No /bin/sh wrapper after '--'
+    assert after_dash == ["myjob.sh"], (
+        f"Expected raw cmd after '--', got: {after_dash!r}"
+    )
+
+
+# 22 — native_env absent (default) → sh -c wrap fires (backward compat)
+def test_submit_slurm_no_native_env_still_sh_wraps(cfg_slurm):
+    """Without native_env, env/cwd still uses sh -c wrap (existing behavior unchanged)."""
+    from research_vault.adapters.remote import RemoteBackend
+    rb = RemoteBackend(cfg_slurm)
+    with patch(
+        "subprocess.run",
+        return_value=_mock_subprocess_run("Submitted batch job 200\n"),
+    ) as mock_run:
+        rb.submit(["train.py"], env={"KEY": "val"}, cwd="/work")
+
+    call_argv = mock_run.call_args[0][0]
+    dash_idx = call_argv.index("--")
+    after_dash = call_argv[dash_idx + 1:]
+    # Must still use /bin/sh wrap (current behavior)
+    assert after_dash[0] in ("/bin/sh", "sh"), (
+        f"Expected /bin/sh wrap, got: {after_dash!r}"
+    )
+    # And no --export or --chdir flags in the argv (they're inside the sh -c string)
+    before_dash = call_argv[:dash_idx]
+    assert not any("--export=" in a for a in before_dash), (
+        f"Unexpected --export flag (native_env not set): {before_dash!r}"
+    )
+
+
+# 23 — native_env: true but no env/cwd → cmd passes through unchanged
+def test_submit_slurm_native_env_no_env_cwd_no_extra_flags(tmp_path):
+    """native_env: true with no env/cwd → no extra flags; cmd passes straight through."""
+    cfg = _make_cfg(tmp_path, backend="slurm")
+    _write_manifest(cfg, _slurm_native_env_manifest())
+
+    from research_vault.adapters.remote import RemoteBackend
+    rb = RemoteBackend(cfg)
+    with patch(
+        "subprocess.run",
+        return_value=_mock_subprocess_run("Submitted batch job 101\n"),
+    ) as mock_run:
+        handle = rb.submit(["python", "run.py"])
+
+    assert handle == "101"
+    call_argv = mock_run.call_args[0][0]
+    dash_idx = call_argv.index("--")
+    after_dash = call_argv[dash_idx + 1:]
+    assert after_dash == ["python", "run.py"], (
+        f"Unexpected wrap or flags when env/cwd absent: {after_dash!r}"
+    )
+    # No --export or --chdir injected either
+    before_dash = call_argv[:dash_idx]
+    assert not any("--export=" in a or "--chdir=" in a for a in before_dash), (
+        f"Unexpected native_env flags when env/cwd absent: {before_dash!r}"
+    )
+
+
+# 24 — native_env: true on ssh archetype → no crash; shell-template path unchanged
+def test_submit_ssh_archetype_native_env_no_crash(tmp_path):
+    """native_env: true on ssh (not a scheduler) → no error; env/cwd still wired."""
+    from research_vault.adapters.remote import RemoteBackend
+    from research_vault.compute import MANIFEST_FILE
+
+    cfg = _make_cfg(tmp_path, backend="ssh")
+    ssh_manifest: dict[str, Any] = {
+        "backends": {
+            "active": ["my-ssh"],
+            "profiles": {
+                "my-ssh": {
+                    "archetype": "ssh",
+                    "host": "example-ssh-host",
+                    "native_env": True,  # no-op for ssh archetype; must not crash
+                },
+            },
+        },
+        "conda_envs": {}, "gpu_tiers": {}, "rules": [], "model_quirks": {}, "run_outcomes": [],
+    }
+    (cfg.state_dir / MANIFEST_FILE).write_text(
+        json.dumps(ssh_manifest, indent=2), encoding="utf-8"
+    )
+
+    rb = RemoteBackend(cfg)
+    with patch(
+        "subprocess.run",
+        return_value=_mock_subprocess_run("42\n"),
+    ) as mock_run:
+        handle = rb.submit(
+            ["run.py"],
+            env={"SSH_VAR": "testval"},
+            cwd="/ssh/workdir",
+        )
+
+    assert handle == "42"
+    # env and cwd must still appear in the shell string (ssh archetype path)
+    call_argv = mock_run.call_args[0][0]
+    shell_str = " ".join(call_argv)
+    assert "SSH_VAR" in shell_str, f"env var missing from ssh shell string: {shell_str!r}"
+    assert "/ssh/workdir" in shell_str, f"cwd missing from ssh shell string: {shell_str!r}"
+
+
+# 25 — cmd_show surfaces native_env when declared
+def test_cmd_show_renders_native_env(tmp_path, capsys):
+    """cmd_show must render native_env=true when the profile declares it."""
+    cfg = _make_cfg(tmp_path, backend="slurm")
+    _write_manifest(cfg, _slurm_native_env_manifest())
+
+    from research_vault.compute import cmd_show
+    cmd_show(cfg)
+    out = capsys.readouterr().out
+    assert "native_env" in out, (
+        f"cmd_show must surface native_env when declared; output was:\n{out}"
+    )
