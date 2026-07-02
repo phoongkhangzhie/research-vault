@@ -141,9 +141,13 @@ _VERB_REGISTRY: dict[str, dict] = {
         "when_to_use": (
             "When you want to run a research step (asta-backed), find papers, annotate "
             "candidates vs corpus, or add papers via the dedup gate. Requires asta + Zotero. "
-            "Takes default_project from config — never a compiled-in codename."
+            "Takes default_project from config — never a compiled-in codename. "
+            "Use 'rv research cited-by <id>' for forward snowball (who cites the seed). "
+            "Use 'rv research references <id>' for backward snowball (what the seed cites — "
+            "the seed's own reference list). "
+            "Anti-pattern: do NOT hand-copy a bibliography — use 'rv research references' instead."
         ),
-        "sr": "SR-2",
+        "sr": "SR-2, SR-LR-1",
     },
     "role": {
         "module": "research_vault.role",

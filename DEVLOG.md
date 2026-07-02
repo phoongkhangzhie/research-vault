@@ -1,3 +1,21 @@
+## 2026-07-02 (SR-LR-1 L-1 fix — rv research references backward snowball)
+
+### Done
+- **`cmd_references`** added to `src/research_vault/research.py`: backward snowball via `asta papers get --fields references.*`, extracting `raw["references"]`. Shared `_print_candidates` helper — no formatting fork.
+- **`build_parser()`** updated: `references` subcommand registered with cross-reference to `cited-by` in both directions (forward ↔ backward snowball).
+- **`run()`** dispatch updated: `research_cmd == "references"` routes to `cmd_references`.
+- **`_VERB_REGISTRY["research"]`** in `cli.py` updated: `when_to_use` now includes backward-snowball intent phrases, anti-pattern (do NOT hand-copy a bibliography), cross-ref to `references`; `sr` updated to `"SR-2, SR-LR-1"`.
+- **11 TDD tests** in `tests/test_research_references.py`: all green. 952 total passing (941 baseline + 11 new).
+- `rv lint`: PASS. `rv help --check`: 26 verbs OK. Leakage scan: clean.
+
+### Decisions
+- `asta papers get --fields references.*` is the confirmed backward call (not `asta papers references` which does not exist). Returns `raw["references"]` directly.
+- No `--limit` parameter on `references`: `asta papers get` returns the full reference list; limit is not accepted by that subcommand.
+- `_print_candidates` is reused as-is — consistent formatting between `cited-by` and `references` by design.
+
+### Open / next
+- SR-LR-1 full lit-review loop: needs both directions wired. This PR covers backward (L-1 fix); forward (`cited-by`) was already present.
+
 ## 2026-07-02 (SR-MS-1a complete — manuscript structure half)
 
 ### Done
