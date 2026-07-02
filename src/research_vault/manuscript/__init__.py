@@ -78,6 +78,7 @@ def _build_manifest(
     include_venue_optional: bool = False,
     section_tip_override: dict[str, str] | None = None,
     style_preamble_override: str | None = None,
+    config: "Any | None" = None,
 ) -> dict[str, Any]:
     """Build the drafting-DAG manifest (§5J.2 shape).
 
@@ -86,23 +87,34 @@ def _build_manifest(
     Node count by default: 16 (13 required agent sections + 3 human-go gates).
     Optional sections add nodes when enabled.
 
-    reads: pointers use absolute paths so resolution is independent of project_root
-    at run-time. The scaffolder ensures all pointed-to directories exist before
-    returning the manifest.
+    reads: pointers are project_root-RELATIVE (fold-in SR-MS-1b) for portability
+    and SR-SCOPE convention match. The resolver (reads.py:resolve_reads_pointer)
+    handles relative paths via project_root / file_part.
+    The scaffolder creates all pointed-to directories so they resolve immediately.
     """
     active_sections = get_active_sections(
         include_optional=include_optional,
         include_venue_optional=include_venue_optional,
     )
-    tips = get_section_tips(override=section_tip_override)
-    preamble = get_style_preamble(override=style_preamble_override)
+    # Wire config= to the style seam (fold-in SR-MS-1b — [manuscript_style] TOML override)
+    tips = get_section_tips(override=section_tip_override, config=config)
+    preamble = get_style_preamble(override=style_preamble_override, config=config)
 
-    # Absolute paths for reads: pointers — resolved at scaffolding time.
-    # All these dirs are created by scaffold_okf_dirs + the tree scaffolding.
-    sections_dir = tree_root / "sections"
+    # Project-root-relative paths for reads: pointers (fold-in SR-MS-1b).
+    # project_root for reads resolution = project_notes_dir.
+    # OKF type-dirs are directly under project_notes_dir → bare "findings" etc.
+    # sections/ dir is under manuscripts/<id>/ → "manuscripts/<id>/sections".
+    try:
+        sections_rel = str((tree_root / "sections").relative_to(project_notes_dir))
+        tree_rel = str(tree_root.relative_to(project_notes_dir))
+    except ValueError:
+        # Fallback: absolute paths if tree_root is outside project_notes_dir
+        sections_rel = str(tree_root / "sections")
+        tree_rel = str(tree_root)
 
-    def _abs(rel: str) -> str:
-        return str(project_notes_dir / rel)
+    def _rel(okf_type: str) -> str:
+        """Return project_root-relative path for an OKF type-dir."""
+        return okf_type  # e.g. "findings" resolves to project_notes_dir / "findings"
 
     def _spec(section_key: str) -> str:
         """Build the spec string: preamble + section tip."""
@@ -112,62 +124,62 @@ def _build_manifest(
     # ── Reads contracts by section ───────────────────────────────────────────
     # Per §5J.2 gotcha ruling: point at the OKF type-dir + sections/ dir,
     # NOT at specific unwritten .tex files. sections/ exists after scaffolding.
-    _sections = str(sections_dir)
+    _sections = sections_rel
 
     section_reads: dict[str, list[str]] = {
         "gather-scope": [
-            _abs("findings"),
-            _abs("experiments"),
-            _abs("methods"),
-            _abs("concepts"),
+            _rel("findings"),
+            _rel("experiments"),
+            _rel("methods"),
+            _rel("concepts"),
         ],
         "related-work": [
-            _abs("literature"),
+            _rel("literature"),
             _sections,
         ],
         "background": [
-            _abs("concepts"),
-            _abs("methods"),
+            _rel("concepts"),
+            _rel("methods"),
             _sections,
         ],
         "method": [
-            _abs("methods"),
+            _rel("methods"),
             _sections,
         ],
         "experimental-setup": [
-            _abs("experiments"),
-            _abs("datasets"),
+            _rel("experiments"),
+            _rel("datasets"),
             _sections,
         ],
         "results-discussion": [
-            _abs("experiments"),
-            _abs("findings"),
+            _rel("experiments"),
+            _rel("findings"),
             _sections,
         ],
         "limitations": [
-            _abs("findings"),
+            _rel("findings"),
             _sections,
         ],
         "ethics-impacts": [
-            _abs("findings"),
-            _abs("methods"),
+            _rel("findings"),
+            _rel("methods"),
             _sections,
         ],
         "conclusion": [_sections],
         "introduction": [_sections],
         "abstract": [_sections],
         "appendix-repro": [
-            _abs("experiments"),
+            _rel("experiments"),
             _sections,
         ],
         "data-code-availability": [
-            _abs("experiments"),
-            _abs("datasets"),
+            _rel("experiments"),
+            _rel("datasets"),
             _sections,
         ],
         "assemble": [_sections],
-        "compile": [str(tree_root)],
-        "critic": [str(tree_root)],
+        "compile": [tree_rel],
+        "critic": [tree_rel],
     }
 
     # ── Build nodes ──────────────────────────────────────────────────────────
@@ -543,6 +555,35 @@ def cmd_new(
             encoding="utf-8",
         )
 
+    # ── Section stub files ────────────────────────────────────────────────────
+    # Create a minimal LaTeX stub for each section that main.tex \input{}-s.
+    # Without these, pdflatex immediately aborts on "File not found."
+    # The stubs are intentionally empty content (single comment) — DAG agents
+    # overwrite them as part of the drafting loop.
+    _STUB_SECTIONS = [
+        "abstract",
+        "introduction",
+        "related-work",
+        "method",
+        "experimental-setup",
+        "results-discussion",
+        "limitations",
+        "conclusion",
+        "appendix-repro",
+        # Optional sections (created only if flags active — template has them commented out
+        # so they won't be \input-ed unless uncommented, but stubs don't hurt)
+        "background",
+        "ethics-impacts",
+        "data-code-availability",
+    ]
+    for stub_name in _STUB_SECTIONS:
+        stub_path = sections_dir / f"{stub_name}.tex"
+        if not stub_path.exists():
+            stub_path.write_text(
+                f"% {stub_name}.tex — populated by rv dag run.\n",
+                encoding="utf-8",
+            )
+
     # ── Build and save the drafting-DAG manifest ──────────────────────────────
     manifest = _build_manifest(
         project=project,
@@ -555,6 +596,7 @@ def cmd_new(
         include_venue_optional=include_venue_optional,
         section_tip_override=section_tip_override,
         style_preamble_override=style_preamble_override,
+        config=cfg,
     )
 
     manifest_path = tree_root / "drafting-dag.json"
@@ -630,13 +672,20 @@ def _minimal_main_tex(ms_id: str, thesis: str) -> str:
 
 
 def _update_note_field(note_path: Path, field: str, value: str) -> None:
-    """Update a single frontmatter field in an existing note file."""
+    """Update a single frontmatter field in an existing note file.
+
+    Uses ``[ \\t]*`` (NOT ``\\s*``) after the colon to avoid consuming the
+    trailing newline — which would eat the next frontmatter field into group 1
+    and silently delete it on substitution.
+    """
     if not note_path.exists():
         return
     text = note_path.read_text(encoding="utf-8")
-    # Replace the field line if it exists (flat frontmatter contract)
+    # Replace the field line if it exists (flat frontmatter contract).
+    # [ \t]* matches only horizontal whitespace — never eats the newline
+    # or the next YAML key (which \s* would silently consume).
     import re as _re
-    pattern = _re.compile(rf"^({_re.escape(field)}:\s*)(.*)$", _re.MULTILINE)
+    pattern = _re.compile(rf"^({_re.escape(field)}:[ \t]*)(.*)$", _re.MULTILINE)
     if pattern.search(text):
         text = pattern.sub(rf"\g<1>{value}", text, count=1)
         note_path.write_text(text, encoding="utf-8")
@@ -670,3 +719,92 @@ def cmd_list(
         if fields.get("type") == "manuscript":
             results.append({"path": p, "fields": fields})
     return results
+
+
+def cmd_compile(
+    project: str,
+    ms_id: str,
+    *,
+    config: Config | None = None,
+) -> dict[str, Any]:
+    """Run grounding-builders then the exec-guarded LaTeX compile loop.
+
+    When to use: ``rv manuscript compile <project> <id>`` to produce a
+    grounded, machine-injected PDF from the manuscript's main.tex.
+
+    Execution order (anti-fabrication contract §5J.3/§5J.4):
+      1. build_refs_bib — exports closed .bib from library.json.
+         Hard-fails on any unmatched \\cite (never render an ungrounded PDF).
+      2. inject_results — writes hash-verified \\newcommand macros into results.tex.
+         Hard-fails on results_hash mismatch.
+      3. inject_appendix — machine-populates sections/appendix-repro.tex.
+      4. pdflatex → bibtex → pdflatex × 2 + chktex fix-loop.
+
+    If pdflatex/bibtex are absent: returns friendly message, exit_code=1.
+
+    Resolves library.json from the project's ``refs`` config key, falling back
+    to project_notes_dir/library.json (the default layout from ``rv project new``).
+
+    Resolves experiment notes automatically from the manuscript note's
+    ``synthesized_okf`` field (``experiments/<id>`` entries).
+
+    Returns:
+        dict with "exit_code", "message", "log", "chktex", "pdf_path",
+        "builder_warnings" (non-fatal builder issues, e.g. missing library).
+
+    sr: SR-MS-1b
+    """
+    from research_vault.manuscript.compile import run_compile
+
+    cfg = config or load_config()
+    ms_dir = _manuscript_dir(project, cfg)
+    note_path = ms_dir / f"{ms_id}.md"
+    tree_root = _manuscripts_tree_root(project, ms_id, cfg)
+
+    # Resolve library_path from project config ("refs" key) or standard default.
+    library_path: Path | None = None
+    try:
+        proj_rec = cfg.project(project)
+        refs = proj_rec.get("refs")
+        if refs:
+            library_path = Path(refs).expanduser()
+    except (KeyError, Exception):
+        pass
+    if library_path is None:
+        # Standard default: project_notes_dir/library.json (set by rv project new)
+        library_path = cfg.project_notes_dir(project) / "library.json"
+
+    # experiment_notes: resolved automatically from synthesized_okf inside run_compile
+    return run_compile(note_path, tree_root, library_path=library_path)
+
+
+def cmd_check(
+    project: str,
+    ms_id: str,
+    *,
+    config: Config | None = None,
+) -> dict[str, Any]:
+    """Run structural gates for a manuscript (rv manuscript check <id>).
+
+    When to use: ``rv manuscript check <project> <id>`` to run the structural
+    grounding gates before DAG dispatch or the approve-manuscript gate:
+      - Unmatched \\cite resolution (against refs.bib)
+      - Figure-file existence (\\includegraphics → file exists)
+      - Compile-success (passive PDF existence check)
+      - Data-code-availability sentinel cross-check
+
+    Does NOT run support-matcher / critic / semantic gates (→ SR-MS-2).
+
+    Returns:
+        dict with "errors" (hard gate failures), "warnings" (soft flags),
+        and "all_ok" (True iff no errors).
+
+    sr: SR-MS-1b
+    """
+    from research_vault.manuscript.check_gates import check_manuscript
+
+    cfg = config or load_config()
+    ms_dir = _manuscript_dir(project, cfg)
+    note_path = ms_dir / f"{ms_id}.md"
+    tree_root = _manuscripts_tree_root(project, ms_id, cfg)
+    return check_manuscript(note_path, tree_root)
