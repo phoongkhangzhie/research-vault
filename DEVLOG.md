@@ -21,7 +21,7 @@
 - No new verb added (reuse-over-create): remote backend is selected via config; submit flows through existing `ComputeBackend.submit` seam + `rv wait-for sched:`.
 
 ### Open / next
-- PR awaiting human-go: reviewer-gate + Architect fit-check, then Khang merges.
+- PR awaiting human-go: reviewer-gate + Architect fit-check, then operator merges.
 
 ## 2026-07-01 (SR-8 build + amendment)
 
