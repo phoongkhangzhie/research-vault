@@ -149,7 +149,10 @@ def cmd_show(cfg: Config) -> int:
             extra.append(f"jobid_parse='{jp[:40]}…'" if len(jp) > 40 else f"jobid_parse='{jp}'")
         if "status_cmd" in prof:
             sc = prof["status_cmd"]
-            extra.append(f"status_cmd='{sc[:40]}…'" if len(sc) > 40 else f"status_cmd='{sc}'")
+            if sc is None:
+                extra.append("status_cmd=null")
+            else:
+                extra.append(f"status_cmd='{sc[:40]}…'" if len(sc) > 40 else f"status_cmd='{sc}'")
         if "status_parse" in prof:
             sp = prof["status_parse"]
             extra.append(f"status_parse='{sp[:40]}…'" if len(sp) > 40 else f"status_parse='{sp}'")
