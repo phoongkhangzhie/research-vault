@@ -28,9 +28,14 @@ sr: SR-MS-1b (structural gates 1–4); SR-MS-2 (gates 5–8, semantic gates, app
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any
+
+# Opus-tier model for semantic judgment gates (SR-MS-2 D-MS-4).
+# Resolved via RV_JUDGE_MODEL env var; never pinned to a versioned ID in source.
+_DEFAULT_JUDGE_MODEL: str = os.environ.get("RV_JUDGE_MODEL", "")
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +515,7 @@ _ARXIV_RE = re.compile(
 # Semantic Scholar corpus id (numeric, typically 9+ digits)
 _S2_RE = re.compile(r"^\d{8,}$")
 
-# Human-vouch marker in Zotero extra field (Khang's D-MS-6 refinement)
+# Human-vouch marker in Zotero extra field (D-MS-6: adopter-configurable vouch token)
 _HUMAN_VOUCH_RE = re.compile(
     r"rv-provenance:\s*verified-no-machine-id",
     re.IGNORECASE,
@@ -927,7 +932,7 @@ def check_strength_monotonicity(
     tree_root: Path,
     *,
     judge_fn: "Any | None" = None,
-    judge_model: str = "claude-opus-4-5",
+    judge_model: str = _DEFAULT_JUDGE_MODEL,
     config: "Any | None" = None,
 ) -> tuple[list[str], list[str]]:
     """Strength-monotonicity check (SR-MS-2 §5J.13-C).
@@ -1018,7 +1023,7 @@ def check_support_tally(
     *,
     notes_root: Path | None = None,
     judge_fn: "Any | None" = None,
-    judge_model: str = "claude-opus-4-5",
+    judge_model: str = _DEFAULT_JUDGE_MODEL,
     rubric_override: str | None = None,
     config: "Any | None" = None,
 ) -> "dict[str, Any]":
@@ -1159,7 +1164,7 @@ def run_critic(
     tree_root: Path,
     *,
     judge_fn: "Any | None" = None,
-    judge_model: str = "claude-opus-4-5",
+    judge_model: str = _DEFAULT_JUDGE_MODEL,
     config: "Any | None" = None,
 ) -> dict[str, Any]:
     """Critic node: worst-three anti-positivity review of the compiled manuscript.
@@ -1303,7 +1308,7 @@ def build_approve_payload(
     findings_notes: list[Path] | None = None,
     experiment_notes: list[Path] | None = None,
     judge_fn: "Any | None" = None,
-    judge_model: str = "claude-opus-4-5",
+    judge_model: str = _DEFAULT_JUDGE_MODEL,
     rubric_override: str | None = None,
     config: "Any | None" = None,
     page_limit: int | None = None,

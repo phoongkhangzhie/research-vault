@@ -37,14 +37,15 @@ Anti-positivity moves (baked into the rubric and enforced in build_prompt):
 
 RUBRIC SEAM
 ===========
-Ada is authoring the judge rubric prompt content in parallel. Build this module
-as a seam with a placeholder default that her rubric drops into — exactly like
-per_section_tips in style.py.
+Ada's authored adversarial rubric ships as DEFAULT_SUPPORT_RUBRIC — the seam
+default, exactly like per_section_tips in style.py (SR-MS-2 §5J.13-D).
 
   - get_support_rubric(override=None, config=None) — returns the active rubric.
   - The config key is [manuscript_support] in research_vault.toml.
-  - Ada's authored rubric replaces DEFAULT_SUPPORT_RUBRIC by passing override=
-    or setting [manuscript_support].rubric in the project TOML.
+  - Adopter-override: pass rubric_override="..." to match_support(), or set
+    [manuscript_support].rubric in the project TOML.
+  - Runtime slots {CLAIM} / {NOTE_CONTENT} are filled by _build_judge_prompt.
+  - {CANDIDATE_NOTES} is a disambiguation-mode slot; filled by the caller.
 
 LLM JUDGE CALL
 ==============
@@ -66,6 +67,7 @@ sr: SR-MS-2
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,7 +78,11 @@ from typing import Any, Callable
 # ---------------------------------------------------------------------------
 
 # D-MS-4 resolved: Opus-tier judge is the runtime model for the matcher.
-DEFAULT_JUDGE_MODEL = "claude-opus-4-5"
+# Resolved at import time from RV_JUDGE_MODEL env var; adopters set this to
+# their current Opus-tier model ID. Empty string → _default_judge_fn raises
+# RuntimeError, which is the correct failure mode (never silently downgrade tier).
+# Tests always pass judge_fn= (mock) so this value is never evaluated in test runs.
+DEFAULT_JUDGE_MODEL: str = os.environ.get("RV_JUDGE_MODEL", "")
 
 # Confirmatory-strength verbs that escalate exploratory findings to BLOCK
 # (D-MS-5: hedged/low-confidence finding stated as unhedged claim → BLOCK;
@@ -126,47 +132,132 @@ def _extract_support_verdict(verdict_val: str) -> str | None:
 # Rubric seam
 # ---------------------------------------------------------------------------
 
-# Placeholder default rubric — Ada's authored rubric drops in via override or config.
-# Structure: the rubric is the judge prompt body that instructs the LLM how to assess
-# whether a claim is backed by the structured fields of a literature note.
+# Ada-authored default rubric — the seam default (Ada, SR-MS-2 §5J.13-D).
+# Mirrors the get_style_preamble() pattern in style.py.
 #
-# Ada's rubric replaces this by:
-#   (a) passing rubric_override="..." to match_support(), OR
-#   (b) setting [manuscript_support].rubric in research_vault.toml
+# Runtime slots filled by _build_judge_prompt before the judge call:
+#   {CLAIM}   — the manuscript sentence carrying the \cite{} under test
+#   {NOTE_CONTENT} — the note's structured fields block
 #
-# This is the CONTENT of the judge prompt after the claim+note are injected.
+# Adopter-overridable via:
+#   (a) rubric_override="..." passed to match_support(), OR
+#   (b) [manuscript_support] rubric = "..." in research_vault.toml
+#
+# Design notes: disconfirm-first CAPS the verdict (anti-sycophancy);
+# "can't quote → [ABSENT]" makes null the safe default (no rubber-stamp path).
+# ALCE recall=verify verdict; ALCE precision=disambiguation selector.
 DEFAULT_SUPPORT_RUBRIC: str = """\
-You are a rigorous academic research integrity judge.
+SUPPORT-MATCHER JUDGE RUBRIC
 
-Your task: assess whether a CITED SOURCE backs a CLAIM from a manuscript.
+You verify whether a cited note actually supports a specific manuscript claim.
+You are an ADVERSARIAL checker, not a proofreader. Your default posture is
+doubt: a citation is guilty until a verbatim span proves it innocent. A judge
+that rubber-stamps is worse than no judge — it manufactures false confidence.
 
-ANTI-POSITIVITY MOVES (mandatory — follow in order):
-(1) DISCONFIRMING READ FIRST: before deciding the source supports the claim,
-    actively search for how the claim could be WRONG given the source. List at
-    least one way the claim could be falsified by the source content.
-(2) DO NOT USE THE PAPER'S OWN ABSTRACT/THESIS as evidence. Judge only against
-    the structured fields: TL;DR, metrics, findings, limitations.
-(3) TWO-SIDED RUBRIC: assess both supporting AND contradicting evidence before
-    settling on a verdict.
+────────────────────────────────────────────────────────────────────────
+INPUTS
+────────────────────────────────────────────────────────────────────────
+THE CLAIM (one manuscript sentence, carrying the \\cite{{}} under test):
+{CLAIM}
 
-VERDICT GUIDE:
-  [SUPPORTS]     — the source directly backs the claim with a quotable span from
-                   the note's structured fields. Quote the span verbatim.
-  [PARTIAL]      — the source is related but does not fully support the claim;
-                   or the claim overstates the finding's confidence/scope.
-  [ABSENT]       — no span in the note backs the claim; you cannot quote support.
-  [CONTRADICTS]  — the source's content opposes, refutes, or directly contradicts
-                   the claim.
+THE CITED NOTE (the literature/ OKF note's RECORDED content — its structured
+fields: TL;DR, findings, metrics, method, limitations. This is ALL the
+evidence you may use):
+{NOTE_CONTENT}
 
-POLARITY:
-  Report the source's overall stance toward the claim's direction:
-    positive / negative / neutral / mixed
+────────────────────────────────────────────────────────────────────────
+HARD CONSTRAINTS — read before you judge
+────────────────────────────────────────────────────────────────────────
+C1. NO SELF-ANCHORING. Judge the CLAIM against the NOTE's recorded content
+    ONLY. You are FORBIDDEN to use: the manuscript's own thesis/abstract, the
+    cited paper's title or abstract framing, or your background knowledge of
+    what "that paper is famous for." If a fact is not recorded in the NOTE
+    text above, it does not exist for this judgment — even if you are certain
+    the real paper says it. Attribution is defined relative to the identified
+    source, never relative to what the writer or you believe.
 
-OUTPUT FORMAT (strict — machine-parsed):
-  VERDICT: [SUPPORTS|PARTIAL|ABSENT|CONTRADICTS]
-  VERBATIM_SPAN: <exact quote from the note's structured fields, or "none">
-  POLARITY: <positive|negative|neutral|mixed>
-  REASONING: <1–3 sentence explanation>
+C2. VERBATIM SPAN OR IT DIDN'T HAPPEN. Any verdict other than [ABSENT] MUST
+    quote an EXACT, character-for-character span copied from the NOTE. No
+    paraphrase, no stitching two fragments, no ellipsis-bridging distant
+    clauses. If you find yourself wanting to paraphrase to make the fit work,
+    that is the tell that the support is a vibe, not a fact → emit [ABSENT].
+
+C3. DISCONFIRM BEFORE YOU CONFIRM. You may not look for supporting evidence
+    until you have first written the strongest DISCONFIRMING observation you
+    can construct (Step 1). Skipping this step invalidates the judgment.
+
+────────────────────────────────────────────────────────────────────────
+PROCEDURE (do the steps in order; show them in the output)
+────────────────────────────────────────────────────────────────────────
+STEP 0 — DECOMPOSE THE CLAIM. Restate the claim as its single checkable
+  proposition, and mark four attributes:
+    • POLARITY   — asserted / negated?
+    • STRENGTH   — universal ("always", "all"), typical ("generally"),
+                   existential ("can", "in some cases"), or hedged?
+    • MODALITY   — CAUSAL ("causes/drives/leads to/because") or
+                   ASSOCIATIONAL ("correlates/associated with/co-occurs")?
+    • SCOPE      — the population / setting / metric the claim is about.
+  If the sentence bundles several propositions, judge the ONE the \\cite{{}}
+  is attached to; name it explicitly.
+
+STEP 1 — DISCONFIRMING READ (mandatory, first). Scan the NOTE for the
+  strongest evidence AGAINST support, in this priority order:
+    (a) a span that asserts the OPPOSITE of the claim (→ points to CONTRADICTS);
+    (b) a span that NARROWS the claim — a boundary condition, a smaller
+        population, a weaker effect, a caveat/limitation field (→ PARTIAL);
+    (c) a MODALITY mismatch — the note reports a correlation/association but
+        the claim asserts causation (→ PARTIAL or CONTRADICTS);
+    (d) a STRENGTH mismatch — the note reports an existential/typical result
+        but the claim states it as universal/established (→ PARTIAL);
+    (e) SILENCE — the note simply never addresses this proposition (→ ABSENT).
+  Write the single strongest disconfirming observation you found, or state
+  "no disconfirming evidence found in the note."
+
+STEP 2 — SUPPORTING READ. Only now, find the single strongest span that
+  would BACK the claim. Copy it VERBATIM. Ask the entailment question: does
+  this span, on its own, ENTAIL the decomposed proposition (Step 0) at the
+  claim's polarity, strength, modality, and scope? Entailment — not topical
+  relatedness — is the bar. "Same subject area" is not support.
+
+STEP 3 — ADJUDICATE. Weigh Step 1 against Step 2 using the criteria table.
+  When a disconfirming finding and a supporting span BOTH exist, the
+  disconfirming one caps the verdict (support that survives a caveat is at
+  best [PARTIAL]; support contradicted outright is [CONTRADICTS]). Never let
+  a strong-sounding Step-2 span overwrite a real Step-1 mismatch.
+
+────────────────────────────────────────────────────────────────────────
+VERDICT CRITERIA (symmetric — [SUPPORTS] is NOT the default)
+────────────────────────────────────────────────────────────────────────
+[SUPPORTS]     The quoted span ENTAILS the claim at its exact polarity,
+               strength, modality, and scope. No narrowing, no caveat that
+               undercuts it, no modality gap. If you removed this span from
+               the note, the claim would lose its backing (necessity).
+
+[PARTIAL]      The span backs a WEAKER or NARROWER version of the claim, OR
+               backs it only under a caveat. Includes: claim stronger than
+               span ("establishes" vs a span saying "suggests"); claim
+               universal, span existential; claim causal, span merely
+               associational; claim about population A, span about subset A'.
+               REQUIRES a verbatim span AND a one-line statement of the GAP.
+
+[ABSENT]       No span in the note entails or addresses the claim's
+               proposition. The note is silent, or only topically adjacent.
+               You CANNOT quote a supporting span → this verdict is mandatory.
+               (Being unable to quote is itself the evidence.)
+
+[CONTRADICTS]  A verbatim span asserts something incompatible with the claim
+               — opposite direction, refuted effect, or a causal claim the
+               note explicitly attributes to confound/non-causal. REQUIRES
+               the contradicting span quoted.
+
+────────────────────────────────────────────────────────────────────────
+OUTPUT (machine-parseable; one block)
+────────────────────────────────────────────────────────────────────────
+VERDICT: [SUPPORTS|PARTIAL|ABSENT|CONTRADICTS]
+SPAN: "<verbatim span from the note, or NONE for ABSENT>"
+CLAIM_CORE: <the decomposed proposition from Step 0, with its 4 attributes>
+DISCONFIRM: <the Step-1 observation>
+GAP: <for PARTIAL/CONTRADICTS: the specific mismatch; else "—">
 """
 
 
@@ -336,6 +427,11 @@ def _build_judge_prompt(
     fields, not the paper's own abstract or thesis argument.
 
     J-2 stance context is injected when stance is not None/MISSING.
+
+    If the rubric uses Ada-style {CLAIM}/{NOTE_CONTENT} slots, they are filled
+    by substitution before appending the structured blocks. The structured
+    === CLAIM === / === CITED SOURCE === markers are ALWAYS appended so the
+    parser and test mocks can reliably locate claim + note content.
     """
     fields_block = "\n".join(
         f"  {k}: {v[:400]}" for k, v in sorted(note_fields.items()) if v
@@ -350,13 +446,24 @@ def _build_judge_prompt(
         if plan_role and plan_role not in ("MISSING", "", "none"):
             stance_block += f" and plan_role: {plan_role!r}"
         stance_block += (
-            "\n  If the claim uses confirmatory-strength language (e.g. 'we show',"
-            " 'establishes', 'proves') but the source is exploratory/tentative,"
+            "\n  If the claim uses confirmatory-strength language"
+            " but the source is exploratory/tentative,"
             " that is evidence for [PARTIAL] or [CONTRADICTS].\n"
         )
 
+    # Fill Ada-style slots if present (non-destructive — old rubrics without slots pass through)
+    filled_rubric = rubric
+    if "{CLAIM}" in filled_rubric:
+        filled_rubric = filled_rubric.replace("{CLAIM}", claim)
+    if "{NOTE_CONTENT}" in filled_rubric:
+        filled_rubric = filled_rubric.replace("{NOTE_CONTENT}", fields_block)
+    # {CANDIDATE_NOTES} is a disambiguation-mode slot; leave as literal for normal calls
+    # (the judge reads it as "N/A — single note mode")
+
+    # Always append === markers so response parsers and test mocks can reliably extract
+    # claim and source sections regardless of rubric style.
     return (
-        f"{rubric}\n\n"
+        f"{filled_rubric}\n\n"
         f"=== CLAIM (from manuscript) ===\n{claim}\n\n"
         f"=== CITED SOURCE: {citekey} ===\n"
         f"Structured fields (judge ONLY against these — NOT the paper's own abstract):\n"
@@ -389,24 +496,38 @@ def _parse_judge_response(raw: str) -> tuple[str, str | None, str, str]:
         if extracted:
             verdict = extracted
 
-    # Extract VERBATIM_SPAN: ...
-    m = re.search(r"VERBATIM_SPAN:\s*(.+?)(?=\nPOLARITY:|$)", raw, re.IGNORECASE | re.DOTALL)
+    # Extract VERBATIM_SPAN: or SPAN: (Ada's rubric uses SPAN:)
+    m = re.search(
+        r"(?:VERBATIM_SPAN|SPAN):\s*(.+?)(?=\n(?:POLARITY|CLAIM_CORE|DISCONFIRM|GAP):|$)",
+        raw, re.IGNORECASE | re.DOTALL,
+    )
     if m:
-        span = m.group(1).strip()
+        span = m.group(1).strip().strip('"')
         if span.lower() not in ("none", "n/a", "no quote", ""):
             verbatim_span = span[:500]
 
-    # Extract POLARITY: ...
+    # Extract POLARITY: (legacy rubric) — Ada's rubric does not emit POLARITY
     m = re.search(r"POLARITY:\s*(\w+)", raw, re.IGNORECASE)
     if m:
         pol = m.group(1).lower()
         if pol in ("positive", "negative", "neutral", "mixed"):
             polarity = pol
 
-    # Extract REASONING: ...
+    # Extract REASONING: (legacy) or synthesise from Ada-style DISCONFIRM + GAP fields
     m = re.search(r"REASONING:\s*(.+)", raw, re.IGNORECASE | re.DOTALL)
     if m:
         reasoning = m.group(1).strip()[:500]
+    else:
+        # Ada-style: stitch DISCONFIRM + GAP into reasoning field
+        parts = []
+        md = re.search(r"DISCONFIRM:\s*(.+?)(?=\nGAP:|\Z)", raw, re.IGNORECASE | re.DOTALL)
+        if md:
+            parts.append(md.group(1).strip())
+        mg = re.search(r"GAP:\s*(.+)", raw, re.IGNORECASE | re.DOTALL)
+        if mg and mg.group(1).strip() not in ("—", "-", ""):
+            parts.append(f"Gap: {mg.group(1).strip()}")
+        if parts:
+            reasoning = " | ".join(parts)[:500]
 
     # If ABSENT but a span was returned, ignore the span (can't quote + ABSENT is contradictory)
     if verdict == "ABSENT":

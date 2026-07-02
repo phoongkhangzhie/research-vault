@@ -1257,7 +1257,7 @@ _ADVERSARIAL_FIXTURES: list[tuple[str, dict, str, str, str | None]] = [
     ),
     (
         "Regularization drives the reduction in overfitting observed.",
-        {"findings": "Models with regularization show lower overfitting rates in our study."},
+        {"findings": "Models with regularization are associated with lower overfitting rates in our study."},
         "PARTIAL",
         "CAUSAL-VERB over association ('drives') → PARTIAL",
         None,
@@ -1281,7 +1281,7 @@ _ADVERSARIAL_FIXTURES: list[tuple[str, dict, str, str, str | None]] = [
     ),
     (
         "The method achieves human-level performance on the benchmark.",
-        {"findings": "Below-human performance on the test set.",
+        {"findings": "The model achieved 72.3% accuracy on the benchmark.",
          "metrics": "Accuracy: 72.3%, human accuracy: 89.1%"},
         "ABSENT",
         "Human-level claim absent (below-human per metrics) → ABSENT",
@@ -1336,72 +1336,125 @@ def _rubric_aware_judge(prompt: str) -> str:
 
     Returns structured VERDICT/VERBATIM_SPAN/POLARITY/REASONING output.
     This mirrors what the real judge rubric would extract — we test that the
-    pipeline routes the output correctly.
-    """
-    import re as _re
+    PIPELINE routes judge output correctly, not that an LLM does citation matching.
 
+    SCOPING RULE: detection operates on the extracted === CLAIM === and
+    === CITED SOURCE === sections only, NOT on the rubric preamble. This
+    prevents rubric text (which may contain instructional examples like
+    "e.g. 'establishes', 'proves'") from accidentally triggering verdict
+    signals. The claim+source markers are always present in the prompt
+    regardless of rubric style (see _build_judge_prompt).
+    """
+    # ── Extract claim and source sections (ignore rubric text) ──────────────
+    claim_m = re.search(
+        r"=== CLAIM \(from manuscript\) ===\n(.*?)(?=\n===|\Z)",
+        prompt, re.DOTALL,
+    )
+    source_m = re.search(
+        r"=== CITED SOURCE:.*?===\n(.*?)(?=\n\nNow give|\Z)",
+        prompt, re.DOTALL,
+    )
+    claim_text = claim_m.group(1).strip() if claim_m else prompt
+    source_text = source_m.group(1).strip() if source_m else prompt
+
+    # ── Signal detectors ────────────────────────────────────────────────────
+    # Hedging language (search note/source side)
     _HEDGE = re.compile(
         r"\b(suggests?|may\s+indicate|may\s+be|is\s+consistent\s+with|"
         r"appears?\s+to|tentative|might|could\s+be|observe[sd]?\s+a\s+trend|"
         r"preliminary|consistent\s+with)\b",
         re.IGNORECASE,
     )
+    # Confirmatory-strength verbs (search claim side ONLY — rubric uses these as examples)
     _CONFIRM = re.compile(
         r"\b(establishes?|proves?|confirms?|definitively|we\s+show|unambiguously|"
         r"we\s+demonstrate|we\s+prove)\b",
         re.IGNORECASE,
     )
+    # Causal verbs (search claim side)
     _CAUSAL = re.compile(
         r"\b(causes?|drives?|leads\s+to|results?\s+in)\b",
         re.IGNORECASE,
     )
+    # Correlational/associational language (search source side)
+    # Use \w* (not \b after stem) so "correlation", "correlates" etc. all match.
     _CORREL = re.compile(
-        r"\b(correlat|associat|cooccur|co-occur)\b",
+        r"\b(correlat\w*|associat\w*|cooccur\w*|co-occur\w*)",
         re.IGNORECASE,
     )
+    # Explicit contradicting evidence (search source side)
     _CONTRA = re.compile(
         r"\b(underperforms?|does\s+not\s+eliminate|does\s+not\s+improve|"
-        r"diminishing\s+returns|reduces\s+but\s+does\s+not|below.human|"
+        r"diminishing\s+returns|reduces\s+but\s+does\s+not|"
         r"does\s+not\s+reliably)\b",
         re.IGNORECASE,
     )
+    # Absent markers — specific tokens baked into fixture notes to signal absence
     _ABSENT_MARKERS = ["future work", "theoretical guarantees are left", "72.3%"]
 
-    if _CONTRA.search(prompt):
-        return (
-            "VERDICT: [CONTRADICTS]\n"
-            "VERBATIM_SPAN: note directly contradicts the claim\n"
-            "POLARITY: negative\n"
-            "REASONING: Note opposes the manuscript claim.\n"
-        )
-    if any(m in prompt.lower() for m in _ABSENT_MARKERS):
+    # ── Decision cascade (order matters) ────────────────────────────────────
+
+    # 1. ABSENT check FIRST — some absent fixtures have metrics that unambiguously
+    #    show absence without explicit contradiction (e.g. "72.3%" signals the
+    #    human-level claim is absent, not that the note contradicts it).
+    if any(m in source_text.lower() for m in _ABSENT_MARKERS):
         return (
             "VERDICT: [ABSENT]\n"
             "VERBATIM_SPAN: none\n"
             "POLARITY: neutral\n"
             "REASONING: Claim not backed by note.\n"
         )
-    if _HEDGE.search(prompt) and _CONFIRM.search(prompt):
+
+    # 2. ABSENT: claim topic entirely missing from source (speed/timing claim vs
+    #    accuracy-only note — the note simply never addresses speed).
+    if (
+        re.search(r"\b(faster|speed|timing)\b", claim_text, re.IGNORECASE)
+        and not re.search(r"\b(faster|speed|timing)\b", source_text, re.IGNORECASE)
+    ):
+        return (
+            "VERDICT: [ABSENT]\n"
+            "VERBATIM_SPAN: none\n"
+            "POLARITY: neutral\n"
+            "REASONING: Claim topic (speed/timing) entirely absent from note.\n"
+        )
+
+    # 3. CONTRADICTS: explicit opposing evidence in source
+    if _CONTRA.search(source_text):
+        return (
+            "VERDICT: [CONTRADICTS]\n"
+            "VERBATIM_SPAN: note directly contradicts the claim\n"
+            "POLARITY: negative\n"
+            "REASONING: Note opposes the manuscript claim.\n"
+        )
+
+    # 4. PARTIAL: strength-inflation — hedged note + confirmatory-strength claim
+    if _HEDGE.search(source_text) and _CONFIRM.search(claim_text):
         return (
             "VERDICT: [PARTIAL]\n"
             "VERBATIM_SPAN: note hedges the claim\n"
             "POLARITY: mixed\n"
             "REASONING: Strength-inflation detected.\n"
         )
-    if _CAUSAL.search(prompt) and _CORREL.search(prompt):
+
+    # 5. PARTIAL: modality-flip — causal claim over correlational/associational note
+    if _CAUSAL.search(claim_text) and _CORREL.search(source_text):
         return (
             "VERDICT: [PARTIAL]\n"
             "VERBATIM_SPAN: note shows correlation only\n"
             "POLARITY: mixed\n"
             "REASONING: Modality-flip: causal claim over correlational note.\n"
         )
-    if "universally" in prompt.lower() and "limited" in prompt.lower():
+
+    # 6. PARTIAL: scope overclaim — "universally" in claim vs "limited" in note
+    if "universally" in claim_text.lower() and "limited" in source_text.lower():
         return (
             "VERDICT: [PARTIAL]\n"
             "VERBATIM_SPAN: limited, controlled conditions\n"
             "POLARITY: mixed\n"
             "REASONING: Scope overclaim detected.\n"
         )
+
+    # 7. Default: note backs the claim
     return (
         "VERDICT: [SUPPORTS]\n"
         "VERBATIM_SPAN: directly backs the claim\n"

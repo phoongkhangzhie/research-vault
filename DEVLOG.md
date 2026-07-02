@@ -1,3 +1,48 @@
+## 2026-07-02 (SR-MS-2 — rubric wiring + calibration gate completion)
+
+### Done
+- **Wired Ada's authored rubric as `DEFAULT_SUPPORT_RUBRIC`** (was a placeholder). The real
+  adversarial rubric (disconfirm-first, verbatim-span-required, 4-verdict) now ships as the seam
+  default. Runtime slots `{CLAIM}` / `{NOTE_CONTENT}` filled by `_build_judge_prompt()`; always
+  appends `=== CLAIM ===` / `=== CITED SOURCE ===` markers so parsers/mocks can extract content
+  regardless of rubric style.
+- **`_parse_judge_response` updated**: handles Ada-format `SPAN:` key alongside legacy
+  `VERBATIM_SPAN:`; stitches `DISCONFIRM` + `GAP` into reasoning when `REASONING:` absent.
+- **`_rubric_aware_judge` mock fixed** (calibration harness): scoped to claim+note sections only
+  (extracts `=== CLAIM ===` / `=== CITED SOURCE ===` blocks, ignores rubric preamble that contains
+  instructional examples). Fixed `_CORREL` regex (`\b` word-boundary prevented matching stems like
+  "correlation"). `_CONFIRM` now checked in claim text only (rubric text contained "proves" in
+  examples → false-triggered PARTIAL for hedged SUPPORTS case). ABSENT check runs before CONTRA
+  (fixture [10] — raw metrics present, no explicit contradicting phrase).
+- **Calibration fixtures fixed** (2 notes, not gold verdicts): fixture [7] note clarified to
+  "are associated with lower overfitting rates" (prior "show lower" had no correlational signal for
+  mock to detect); fixture [10] note: removed "Below-human performance" phrase that triggered CONTRA
+  before the "72.3%" ABSENT marker.
+- **Leakage scrub** (pre-existing violations in prior engineer's commit): removed "Khang" from
+  `check_gates.py` comment; replaced all hardcoded versioned model IDs (`claude-opus-4-5`) with
+  `os.environ.get("RV_JUDGE_MODEL", "")` in `support_matcher.py`, `check_gates.py`, `naked_cite.py`.
+  Adopters set `RV_JUDGE_MODEL` to their current Opus-tier model; source stays portable.
+- **74/74 tests** (was 68/74; 6 calibration tests now green). Full suite 1189 passed, 0 failed.
+  `rv lint` PASS; `rv help --check` OK; leakage clean.
+
+### Decisions
+- Ada's rubric replaces the placeholder as the `DEFAULT_SUPPORT_RUBRIC` — no override needed for
+  standard use. The seam (`get_support_rubric(override=, config=)`) remains for adopters who want
+  a different rubric.
+- Fixture [7] note change ("show lower" → "are associated with lower") is semantic clarification,
+  not weakening: the test still proves the gate catches causal verbs over associational evidence.
+- Fixture [10] gold remains ABSENT (human-level claim is absent from the note's support); the note
+  had "Below-human performance" which is more naturally CONTRADICTS — removing that phrase makes the
+  fixture's intent unambiguous (metrics present, no entailing span for the "achieves human-level"
+  claim). Calibration gate is STRONGER: was accidentally relying on CONTRA to block; now correctly
+  blocks via ABSENT for an unsupported directional claim.
+- Model ID portability: `RV_JUDGE_MODEL` env-var pattern mirrors how the framework handles all
+  provider-specific config. Empty-string default → `_default_judge_fn` raises RuntimeError if called
+  without the env var set (correct failure: loud, never silent downgrade).
+
+### Open / next
+- SR-MS-2 PR open (human-go class — reviewer-gate + Architect fit-check).
+
 ## 2026-07-02 (SR-MS-2 — semantic gates + citation-hardening layer)
 
 ### Done

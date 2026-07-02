@@ -41,10 +41,15 @@ sr: SR-MS-2
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+
+# Opus-tier model for semantic judgment (SR-MS-2 D-MS-4).
+# Resolved via RV_JUDGE_MODEL env var; never pinned to a versioned ID in source.
+_DEFAULT_JUDGE_MODEL: str = os.environ.get("RV_JUDGE_MODEL", "")
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +320,7 @@ def resolve_naked_citations(
     *,
     notes_root: Path | None = None,
     judge_fn: Callable[[str], str] | None = None,
-    judge_model: str = "claude-opus-4-5",
+    judge_model: str = _DEFAULT_JUDGE_MODEL,
     rubric_override: str | None = None,
     config: Any | None = None,
 ) -> list[NakedCiteResult]:
