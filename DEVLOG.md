@@ -1,3 +1,34 @@
+## 2026-07-02 (f811-exemptions — task #16 F811 hardening + rule 7 getsource-guard)
+
+### Done
+- Extended F811 exemption set: `@property`/`@x.setter`/`@x.deleter`/`@x.getter` and
+  `@singledispatch`/`@functools.singledispatch`/`@fn.register` now exempt (both `ast.Name`
+  and `ast.Attribute` forms). Private helper renamed `_is_overload_decorated` →
+  `_is_exempt_decorated`.
+- Added block-body recursion to `_check_scope_for_f811` via `_get_compound_bodies`:
+  descends into each branch of if/for/while/with/try independently; in-branch duplicates
+  now caught; try/except split-branch remains naturally exempt.
+- Renamed rule label from "redefined-while-unused" to "redefined-in-same-scope" in
+  docstrings, module docstring, and `cmd_lint` output — the check is statement-list
+  membership, not use-before-redefine.
+- Added rule 7 (getsource-guard smell): AST-scans test files for
+  `assert X in inspect.getsource(fn)` / bare `getsource`. Reports location + fix hint
+  (assert the negative / strip comments via AST). Motivated by #39.
+- TDD: 11 new F811 tests + 12 new rule 7 tests; red-before-green verified for all.
+  Full suite: 1318 passed, 37 skipped. `rv lint` clean repo-wide (60 src files, 45 test
+  files). CI green on head `ebadb9c` (conclusion: success).
+
+### Decisions
+- Property/singledispatch exemptions fire on decorator `attr` name only (not the object
+  being decorated) — `@x.setter` matches any `x`, which is the right rule since any
+  property accessor on any property name is valid.
+- Block-body recursion uses a fresh `seen` dict per recursive call — each branch body is
+  independent, preserving cross-branch non-flagging.
+- Rule 7 is report-only (smell, not proof of vacuity) since getsource presence in a comment
+  is not detectable statically; the flag surfaces the smell for human judgment.
+
+### Open / next
+- Hub to open PR for review (human-go class — cross-project linter gate change).
 ## 2026-07-02 (SR-HARDENING — Argus + Wren BLOCK fixes: de-vacuousing + SSOT lazy import)
 
 ### Done
