@@ -1,3 +1,34 @@
+## 2026-07-02 (SR-LR-1 — staged, pre-registered, saturation-gated lit-review loop)
+
+### Done
+- **`review/style.py`**: `review_tips` config seam (6 keys, §5L.6); mirrors plan/style.py.
+  Ada's default payload drives all six node specs (scope, search, snowball, relate,
+  synthesize, critic). Adopter override via `[review_style]` in research_vault.toml.
+- **`review/__init__.py`**: `cmd_new` (Phase-1 DAG), `cmd_list`, `cmd_expand` (Phase-2).
+  Phase-1: review-scope → [HG:approve-protocol] → review-search → review-snowball →
+  [HG:coverage-gate]. Phase-2: relate-<key>* → review-synthesize → review-coverage-critic →
+  [HG:approve-review]. Zero new DAG mechanism — pure afterok/artifact-watch.
+- **`review/verbs.py`**: `rv review new/expand/list/tips` dispatcher.
+- **cli.py**: `review` verb registered in `_VERB_REGISTRY` (sr: SR-LR-1).
+- **L-2 counter-position gate**: review-scope spec requires counter-position in _protocol.md;
+  review-coverage-critic [BLOCK]s on absent/unsought counter-position (§5L.3/§5L.5).
+- **Anti-fishing structural**: review-search artifact-watch-gated on _protocol.md+fresh.
+- **Saturation ruling**: internal loop inside review-snowball, not a DAG cycle (§5L.2).
+- **Two-phase fan-out**: coverage-gate is the phase boundary; rv review expand → Phase-2 (§5L.4).
+- **Corpus helper import**: _load_corpus_index/_corpus_annotation from research.py directly.
+- **37 new tests**: all green. Full suite 1152 passed, 37 skipped. rv lint PASS. rv help --check OK (27 verbs).
+- Branch `feat/sr-lr-1` pushed; awaiting hub to open PR (human-go class).
+
+### Decisions
+- `produces` dict uses filename as key (e.g. `{"_protocol.md": abs_path}`) — schema
+  ignores unknown keys; key is the discovery surface for tests and watch expressions.
+  This is the cleanest schema-compatible multi-artifact produces format.
+- Phase-1 global_cap=1 (sequential); Phase-2 global_cap=4 (relate nodes parallel, D-LR-3a).
+
+### Open / next
+- Hub to open PR against main (human-go class, crew cannot self-approve).
+- Ada's actual review_tips payload (if different from defaults) to be merged post-PR.
+
 ## 2026-07-02 (SR-FIG-REC follow-up — descriptor-inference fix + role override)
 
 ### Done
