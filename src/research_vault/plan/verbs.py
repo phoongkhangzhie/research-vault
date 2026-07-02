@@ -1,15 +1,19 @@
-"""plan/verbs.py — rv plan subcommand dispatcher (SR-PLAN-1).
+"""plan/verbs.py — rv plan subcommand dispatcher (SR-PLAN-1/SR-PLAN-2).
 
 When to use: use ``rv plan check <plan-note>`` to run the K-2 shape-lint on a
 pre-registration plan note before the ``human-go-plan`` approval gate.
+The K-2 lint is also run automatically (NON-OPTIONAL) inside ``rv plan freeze``
+(SR-PLAN-2 promotion) — freeze is refused if any violations are present.
 
 Subcommands:
   rv plan check <plan-note-path>
-      Run the structural shape-lint (K-2, §5K.5.5):
+      Run the structural shape-lint (K-2, §5K.5.5 + SR-PLAN-2):
         - branch-presence: every diagnosis table row has a named conclusion +
           committed action (no empty cells, no 'fallback', no 'TBD').
         - one-component-per-ablation: 'Component manipulated:' lines must not
           list multiple components.
+        - covers-id convention: covers: entries must be bare IDs, not
+          path-prefixed (e.g. 'q1-main1', not 'experiments/q1-main1').
       Exit 0 on pass; exit 1 with violations printed on fail.
       This is a REJECTS-ONLY screen (charter §9): pass does NOT certify the plan;
       the plan-critic (Argus) judges semantic completeness.
@@ -22,6 +26,8 @@ Subcommands:
   rv plan freeze <run-id> <plan-note-path> [--notes-root <dir>]
       K-3 (§5K.5.1): hash the frozen covers:-set into the DAG run state.
       Run immediately after ``rv dag approve <run-id> human-go-plan``.
+      SR-PLAN-2: the K-2 shape-lint runs automatically first — freeze is
+      BLOCKED if any violations are present (non-optional gate).
       Stores SHA-256 of (sorted child_id, stance, plan_role) tuples in
       run_state.meta["plan_freeze"]; checked at human-go-findings by ``rv dag approve``.
 
@@ -204,13 +210,38 @@ def _run_freeze(args: argparse.Namespace) -> int:
     """K-3: hash covers:-freeze-set into the DAG run state (§5K.5.1).
 
     Run immediately after ``rv dag approve <run_id> human-go-plan``.
+
+    SR-PLAN-2: the K-2 shape-lint (check_plan) is NON-OPTIONAL here.  Freeze
+    BLOCKs if check_plan reports any violations — you cannot freeze a plan that
+    fails the structural screen.
     """
+    from .check import check_plan, PlanCheckError
     from .freeze import store_freeze_hash
 
     run_id = args.run_id
     plan_note = Path(args.plan_note)
     notes_root_arg = getattr(args, "notes_root", None)
     notes_root = Path(notes_root_arg) if notes_root_arg else None
+
+    # --- K-2 gate (non-optional, SR-PLAN-2) ---
+    # Run the structural shape-lint before storing the hash.  A violation here
+    # means the plan is structurally incomplete; the freeze is refused until
+    # the plan is fixed and rv plan freeze is re-run.
+    try:
+        violations = check_plan(plan_note)
+    except PlanCheckError as e:
+        print(f"rv plan freeze: K-2 lint error — {e}", file=sys.stderr)
+        return 1
+
+    if violations:
+        print(
+            f"rv plan freeze: BLOCKED — K-2 shape-lint has {len(violations)} violation(s). "
+            f"Fix the plan and re-run rv plan freeze.",
+            file=sys.stderr,
+        )
+        for v in violations:
+            print(f"  - {v}", file=sys.stderr)
+        return 1
 
     # Resolve notes_root from config if not given
     if notes_root is None:

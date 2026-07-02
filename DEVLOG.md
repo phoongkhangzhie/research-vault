@@ -85,6 +85,95 @@
 - SR-MS-2 PR open (human-go class — reviewer-gate + Architect fit-check).
 - Ada authoring the support-judge rubric content — drops into `get_support_rubric()` seam without
   code change needed.
+## 2026-07-02 (SR-RESOLVE-SCOPE — project-aware DAG note: / produces resolver)
+
+### Done
+- **Root cause confirmed**: `note:` resolver used `cfg.notes_root / rest` unconditionally —
+  so `note:myproject/experiments/exp-001.md` looked up `notes_root/myproject/experiments/…`
+  rather than `project_notes_dir("myproject")/experiments/…`. Same bug in `produces.note`
+  (passed `cfg.notes_root` to `_check_okf_note_type`).
+- **`OKF_SHARED_TYPES` in `note.py`**: new constant (`frozenset({"datasets"})`). Single SSOT
+  for the project-scoped-vs-shared split. Imported by `wait_for` and `dag/verbs`.
+- **`wait_for.py` `note:` resolver**: three-way dispatch on first path segment:
+  registered project slug → `project_notes_dir`; shared OKF type → `datasets_root`;
+  otherwise → `notes_root` (legacy backward compat). +fresh works on all three.
+- **`dag/schema.py`**: new typed `produces` subkeys: `result`, `figure`, `manuscript` —
+  each requires `"<project>/<id>"` format (slash required; ManifestError otherwise).
+- **`dag/verbs.py`**: `_PRODUCES_KEY_TO_OKF_DIR` constant maps subkey → OKF type dir;
+  `_check_project_scoped_note` resolves via `project_notes_dir`; wired into `cmd_complete`.
+- **32 new tests** in `tests/test_sr_resolve_scope.py`: project-scoped resolve (red path +
+  green path), legacy fallback, datasets_root routing, +fresh, schema validation, complete-gate
+  for result/figure/manuscript, unit coverage of `_check_project_scoped_note`.
+- Full suite: 1147 passed, 37 skipped. Leakage scan clean.
+
+### Decisions
+- Disambiguation rule for `note:`: first path segment checked against `cfg.projects` BEFORE
+  checking `OKF_SHARED_TYPES`. If a project slug collides with an OKF type name (e.g. a
+  project named "datasets"), the project wins. Documented in resolver docstring.
+- `produces.result` maps to `experiments/` (not "results/") — consistent with OKF type names.
+  A hypothetical `produces.results` would be confusing; "result" is the semantic alias.
+- Backward compat preserved for `produces.note` (still resolves against `notes_root` when
+  passed a relative path). New project-scoped work should use `produces.result/figure/manuscript`.
+
+### Open / next
+- SR-MS-1b is in-flight; its `dag run` manifests should use `produces.manuscript` for
+  project-scoped manuscript notes going forward.
+## 2026-07-02 (SR-7 follow-on — native_env manifest key)
+
+### Done
+- **`native_env` manifest key** in `adapters/remote.py`: when `native_env: true` is set
+  on a profile, `RemoteBackend.submit` uses the scheduler's native env/cwd flags instead
+  of the `sh -c` wrapper. `ssh+slurm` → `--export=KEY=val --chdir=<d>`; `ssh+pbs` →
+  `-v KEY=val -d <d>`. Falls back to `sh -c` for `ssh`/`generic` archetypes (no scheduler
+  native mechanism). Default absent/false → `sh -c` wrap unchanged (backward-compatible).
+- **`compute.py`**: `native_env` documented in module docstring schema section; `cmd_show`
+  surfaces `native_env=true` when declared in the profile.
+- **6 new tests** (tests 20-25 in `test_sr7.py`): slurm native flags, PBS native flags,
+  backward-compat (no native_env → sh -c fires), no env/cwd edge case, ssh archetype
+  fallback (no crash), cmd_show display. Full suite: 1121 passed, 37 skipped.
+- Branch `feat/sr-7-native-env` pushed; hub to open PR.
+
+### Decisions
+- `native_env` is purely profile-level (not archetype-default) — opt-in seam, no implicit
+  behavior change for existing manifests.
+- Values in `--export=KEY=val` are comma-joined without shell-quoting; values with spaces
+  or special chars are documented as unsupported in native_env mode (the typical HPC use
+  case has simple env var values).
+- `ssh` and `generic` archetypes: `native_env` falls back to `sh -c` (no scheduler native
+  mechanism; env/cwd still land on the remote).
+
+### Open / next
+- Hub opens PR for review (human-go class — cross-project / stack convention).
+
+---
+## 2026-07-02 (SR-PLAN-2 — K-2 shape-lint promoted to non-optional gate)
+
+### Done
+- **K-2 promotion**: `_check_covers_ids` rule added to `plan/check.py` (rule c: covers: entries
+  must use bare IDs, not `experiments/`-prefixed IDs). All three rules now run in `check_plan`.
+- **Freeze gate wired**: `_run_freeze` in `plan/verbs.py` runs `check_plan` first; BLOCKs with
+  exit 1 and prints violations if any — hash is never stored for an ill-formed plan.
+- **covers: id convention locked**: bare IDs (e.g. `q1-main1`) is canonical per SR-PLAN-1 demo
+  plan and freeze.py's `notes_root / f"{child_id}.md"` resolution. Path-prefixed entries
+  (`experiments/q1-main1`) now BLOCK both `rv plan check` and `rv plan freeze`.
+- **15 new tests** in `tests/test_sr_plan2.py`: freeze blocks on TBD/empty/multi-component
+  violations; freeze blocks on bad plan_kind; freeze passes clean plan; covers: bare-id
+  convention (bare passes, prefixed fails, mixed flags only prefixed, empty/missing passes).
+- Full suite: 1130/1130 green. `rv lint` PASS. `rv help --check` OK. Leakage clean.
+
+### Decisions
+- **covers: convention**: bare IDs. The design doc (§5K.1) originally said `experiments/<id>`
+  but SR-PLAN-1 shipped with bare IDs and freeze.py resolves children as
+  `notes_root / f"{child_id}.md"` where `notes_root = cfg.notes_root / "experiments"`.
+  Locked at bare IDs to match what was shipped. The design doc is a historical artifact at this
+  point; the implementation is the authoritative record.
+- **Exhaustiveness-of-interpretation** stays critic-judged (not mechanized) per spec.
+- **covers:/stance link-validation** (the `note.py` integration from §5K.10) deferred — it
+  requires touching `note.py`'s experiments-elif and is marked "optional" in §5K.7. The K-2
+  promotion is the primary SR-PLAN-2 deliverable.
+
+### Open / next
+- Hub to open PR; `human-go` class (touches plan infrastructure, non-trivial behavior change).
 
 ## 2026-07-02 (SR-FIG-REC follow-up — descriptor-inference fix + role override)
 
