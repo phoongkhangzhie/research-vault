@@ -1,3 +1,35 @@
+## 2026-07-02 (SR-HARDENING — Argus + Wren BLOCK fixes: de-vacuousing + SSOT lazy import)
+
+### Done
+- **Fix 1 (Argus BLOCK) — de-vacuoused routing guard test** (`tests/test_sr_hardening.py`):
+  Replaced `test_okf_shared_types_is_not_hardcoded_string` (vacuous: asserted presence of
+  "OKF_SHARED_TYPES" in raw `inspect.getsource()` — passed even with reverted routing because
+  comments contain the string) with `test_routing_condition_uses_membership_not_equality`.
+  New test uses `ast.get_source_segment` to extract comment-free condition source for each
+  `if X: <var> = cfg.datasets_root` block in cmd_new/cmd_list/cmd_check, then asserts ABSENCE
+  of `'== "datasets"'`. Red-before-green proven: reverted cmd_new routing to `== "datasets"` →
+  new test FAILED; old vacuous test still PASSED; restored → both green.
+- **Fix 2 (Wren BLOCK) — SSOT lazy import in Config.__init__** (`config.py`):
+  Removed `_OKF_RESERVED_SLUGS` module-level frozenset (hardcoded 9-string fork of
+  `note.OKF_TYPES ∪ OKF_SHARED_TYPES`, could silently drift). Replaced with call-time import
+  inside `Config.__init__`: `from .note import OKF_TYPES, OKF_SHARED_TYPES; _reserved = OKF_TYPES | OKF_SHARED_TYPES`.
+  Added `test_reserved_slugs_derived_from_note_ssot_not_hardcoded` — asserts no module-level
+  `_OKF_RESERVED_SLUGS` attribute. Red-before-green proven: test FAILED on old constant; PASSES
+  after lazy-import fix. All 12 slug-guard functional tests still green.
+- 1324 tests, 37 skipped; `rv lint` PASS; `rv help --check` OK; leakage clean.
+
+### Decisions
+- **Lazy import chosen over drift-guard test**: the lazy import inside `__init__` eliminates
+  the fork entirely — a future 10th OKF type is automatically rejected, no sync required.
+  Drift-guard tests are defensive; removing the thing that can drift is stronger. Call-time
+  import is safe: Config.__init__ runs after both modules are fully loaded (note.py's
+  module-level import of Config completes before any Config() call).
+- Removed `# noqa: PLC0415` comment from the import line — our linter is AST-based, not
+  ruff/pylint; the comment was misleading rather than functional.
+
+### Open / next
+- Hub to push for Argus + Wren re-review; crew cannot self-approve.
+
 ## 2026-07-02 (lint-f811 — F811 redefined-while-unused gate)
 
 ### Done
