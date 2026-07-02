@@ -77,14 +77,16 @@ _VERB_REGISTRY: dict[str, dict] = {
         "module": "research_vault.note",
         "when_to_use": (
             "When you need to create or inspect OKF notes (literature, concepts, methods, "
-            "experiments, findings, mocs, datasets) for a project. Enforces the "
-            "type↔directory contract. "
+            "experiments, findings, mocs, datasets, figures, manuscript) for a project. "
+            "Enforces the type↔directory contract. "
             "SR-8 datasets notes are provenance metadata — they POINT to the data artifact "
             "(path/URL/DOI + content-hash), never contain the data itself. "
+            "SR-MS-1a manuscript notes are LaTeX-native POINTER notes — use `rv manuscript new` "
+            "for richer creation (scaffolds the DAG + artifact tree). "
             "Anti-pattern: do NOT hand-copy a data path into a finding — file a "
             "datasets/ provenance note and afterok on it so data lineage is structural."
         ),
-        "sr": "SR-1, SR-8",
+        "sr": "SR-1, SR-8, SR-MS-1a",
     },
     "control": {
         "module": "research_vault.control",
@@ -323,6 +325,23 @@ _VERB_REGISTRY: dict[str, dict] = {
             "adapters are wired — rv plugins list already shows the registry."
         ),
         "sr": "SR-6",
+    },
+    # --- SR-MS-1a ---
+    "manuscript": {
+        "module": "research_vault.manuscript.verbs",
+        "when_to_use": (
+            "When you need to scaffold a grounded manuscript draft from a project's "
+            "verified OKF graph. Use `rv manuscript new <project> <id> --thesis '...'` "
+            "to create the manuscript OKF note + manuscripts/<id>/ LaTeX tree + the "
+            "16-node drafting-DAG manifest (§5J.2). Drive the loop with `rv dag run`. "
+            "Anti-pattern: do NOT hand-write a .tex and hand-type citations/numbers — "
+            "run `rv manuscript new --thesis` so the draft carries a closed .bib from "
+            "your `literature/` notes, machine-injected results, and structural "
+            "\\cite→source verification. A hand-typed number or an uncited claim is "
+            "exactly the fabrication this prevents. Use `rv manuscript list` to "
+            "enumerate all manuscript notes for a project."
+        ),
+        "sr": "SR-MS-1a",
     },
     # --- SR-FIG ---
     "figure": {
