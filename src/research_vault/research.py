@@ -15,9 +15,13 @@ Commands:
     --deep                        deep literature review (asta literature find)
     --limit N                     result count (default 10)
     --project NAME                match candidates against this project's corpus
-  rv research cited-by <paper-id> papers citing this paper
+  rv research cited-by <paper-id> forward snowball — papers that cite this paper
     --limit N                     result count (default 20)
     --project NAME                match against project's corpus
+    (see also: rv research references — backward snowball)
+  rv research references <paper-id> backward snowball — papers in this paper's reference list
+    --project NAME                match against project's corpus
+    (see also: rv research cited-by — forward snowball)
   rv research add <doi|arxiv>     add a paper (dedup gate → cite add)
     --project NAME                target project/collection
     --force                       bypass dedup gate (logs loudly)
@@ -189,7 +193,11 @@ def cmd_find(args: argparse.Namespace) -> int:
 
 
 def cmd_cited_by(args: argparse.Namespace) -> int:
-    """cited-by: papers that cite this paper."""
+    """cited-by: forward snowball — papers that cite this paper.
+
+    Use this to discover who has cited the seed paper after it was published.
+    See also: rv research references (backward snowball — what the seed itself cites).
+    """
     _preflight_asta()
     fields = "title,year,authors,externalIds,citationCount"
     cmd = [
@@ -202,6 +210,33 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
         sys.exit(f"asta papers citations failed:\n{r.stderr}")
     raw = json.loads(r.stdout)
     papers = [item.get("citingPaper", item) for item in (raw.get("data") or [])]
+    _print_candidates(papers)
+    return 0
+
+
+def cmd_references(args: argparse.Namespace) -> int:
+    """references: backward snowball — papers in this paper's own reference list.
+
+    Use this to discover what the seed paper itself cites (backward citation chase).
+    See also: rv research cited-by (forward snowball — who cites the seed paper).
+
+    Anti-pattern: do NOT hand-copy a bibliography — use this to fetch it programmatically.
+    """
+    _preflight_asta()
+    fields = (
+        "references.title,references.year,references.authors,"
+        "references.externalIds,references.citationCount"
+    )
+    cmd = [
+        "asta", "papers", "get", args.paper_id,
+        "--fields", fields,
+        "--format", "json",
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"asta papers get failed:\n{r.stderr}")
+    raw = json.loads(r.stdout)
+    papers = raw.get("references") or []
     _print_candidates(papers)
     return 0
 
@@ -300,11 +335,31 @@ def build_parser(
     find_p.add_argument("--limit", type=int, default=10)
     find_p.add_argument("--project", default=None, help="Project slug (from config registry).")
 
-    # cited-by
-    cb_p = sub.add_parser("cited-by", help="Papers citing a paper (annotated vs corpus).")
+    # cited-by (forward snowball)
+    cb_p = sub.add_parser(
+        "cited-by",
+        help="Forward snowball: papers that cite this paper (annotated vs corpus).",
+        description=(
+            "Forward snowball — discover who has cited the seed paper after publication. "
+            "See also: rv research references (backward snowball — what the seed itself cites)."
+        ),
+    )
     cb_p.add_argument("paper_id", help="S2 paper id: ARXIV:xxx, DOI:xxx, CorpusId:xxx")
     cb_p.add_argument("--limit", type=int, default=20)
     cb_p.add_argument("--project", default=None)
+
+    # references (backward snowball)
+    ref_p = sub.add_parser(
+        "references",
+        help="Backward snowball: papers in this paper's own reference list.",
+        description=(
+            "Backward snowball — fetch what the seed paper itself cites. "
+            "See also: rv research cited-by (forward snowball — who cites the seed paper). "
+            "Anti-pattern: do NOT hand-copy a bibliography — use this command instead."
+        ),
+    )
+    ref_p.add_argument("paper_id", help="S2 paper id: ARXIV:xxx, DOI:xxx, CorpusId:xxx")
+    ref_p.add_argument("--project", default=None)
 
     # add
     add_p = sub.add_parser("add", help="Add a paper (dedup gate + cite add).")
@@ -340,6 +395,8 @@ def run(args: argparse.Namespace) -> int:
             return cmd_find(args)
         elif cmd == "cited-by":
             return cmd_cited_by(args)
+        elif cmd == "references":
+            return cmd_references(args)
         elif cmd == "add":
             return cmd_add(args)
         elif cmd == "corroborate":
