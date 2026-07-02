@@ -1,0 +1,587 @@
+"""review — SR-LR-1: staged, pre-registered, saturation-gated literature review loop.
+
+The review loop is the manuscript loop's sibling — it composes SR-3 (DAG) with zero
+new walker/schema mechanism.  The saturation stopping rule lives INSIDE the
+``review-snowball`` node (an internal loop, like the manuscript compile fix-loop —
+§5L.2 ruling).  The fan-out over a runtime-discovered corpus is resolved at the
+``coverage-gate`` phase boundary via a second manifest emitted by ``rv review expand``
+(§5L.4 ruling).
+
+Provides:
+  - cmd_new:    scaffold a review OKF note + reviews/<scope>/ dir + Phase-1 DAG manifest
+  - cmd_list:   list review notes for a project
+  - cmd_expand: emit Phase-2 manifest from a frozen _corpus.md (post coverage-gate)
+
+The ``review_tips`` config seam (§5L.6, ``review/style.py``) is the content socket:
+six keys (review_scope_tips, review_search_tips, review_snowball_tips,
+per_paper_relate_tips, review_synthesize_tips, review_critic_tips) drive each node's
+spec string.  Adopters override via ``[review_style]`` in research_vault.toml.
+
+Corpus helpers (_load_corpus_index, _corpus_annotation) are imported directly from
+research_vault.research — NOT scraped from stdout (§5L.11 prereq-composition rule).
+
+Stdlib only.
+sr: SR-LR-1
+"""
+from __future__ import annotations
+
+import datetime
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+from research_vault.config import Config, load_config
+from research_vault.note import (
+    OKF_TYPES,
+    _parse_frontmatter,
+    _render_frontmatter,
+    scaffold_okf_dirs,
+)
+from research_vault.review.style import (
+    get_review_tips,
+    get_review_style_preamble,
+)
+
+# Corpus helpers imported directly (not scraping stdout — §5L.11)
+from research_vault.research import (
+    _load_corpus_index,  # noqa: F401 (re-exported for saturation node use)
+    _corpus_annotation,  # noqa: F401
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _today() -> str:
+    return datetime.date.today().isoformat()
+
+
+def _review_note_dir(project: str, cfg: Config) -> Path:
+    """OKF note directory for review notes: project_notes_dir/reviews/."""
+    return cfg.project_notes_dir(project) / "reviews"
+
+
+def _review_artifact_dir(project: str, scope_id: str, cfg: Config) -> Path:
+    """Artifact working dir for a review: project_notes_dir/reviews/<scope>/."""
+    return cfg.project_notes_dir(project) / "reviews" / scope_id
+
+
+# ---------------------------------------------------------------------------
+# Phase-1 DAG manifest builder
+# ---------------------------------------------------------------------------
+
+def _build_phase1_manifest(
+    project: str,
+    scope_id: str,
+    question: str,
+    review_dir: Path,
+    project_notes_dir: Path,
+    *,
+    tip_override: dict[str, str] | None = None,
+    config: Any = None,
+) -> dict[str, Any]:
+    """Build the Phase-1 DAG manifest (§5L.1 shape).
+
+    Phase-1 nodes (5):
+      review-scope → [HG:approve-protocol] → review-search → review-snowball
+          → [HG:coverage-gate]
+
+    Topology:
+      - review-scope: agent; produces _protocol.md
+      - approve-protocol: human-go (Gate 1 — cheap screen before expensive search)
+      - review-search: agent; needs afterok+watch on _protocol.md (anti-fishing gate)
+      - review-snowball: agent; produces _corpus.md + _saturation.md (internal loop)
+      - coverage-gate: human-go (phase boundary — Phase-2 static fan-out authorized here)
+
+    The artifact-watch on _protocol.md makes the anti-fishing structural: search
+    physically cannot fire until the protocol note is filed (§5L.3 ruling).
+
+    Zero new walker/schema mechanism — all edges are standard afterok/artifact-watch.
+
+    sr: SR-LR-1
+    """
+    tips = get_review_tips(config=config)
+    preamble = get_review_style_preamble(config=config)
+
+    def _spec(key: str) -> str:
+        tip = tips.get(key, f"Execute the {key} step.")
+        return preamble.rstrip() + "\n\n---\n\n" + tip
+
+    def _afterok(from_id: str) -> dict[str, Any]:
+        return {"from": from_id, "edge": "afterok"}
+
+    # Project-root-relative OKF type-dir pointers (SR-SCOPE convention)
+    def _rel(okf_type: str) -> str:
+        return okf_type  # resolves under project_notes_dir
+
+    # Absolute path to review artifact dir (for produces: and watch: expressions)
+    protocol_path = str(review_dir / "_protocol.md")
+    corpus_path = str(review_dir / "_corpus.md")
+    saturation_path = str(review_dir / "_saturation.md")
+
+    nodes: list[dict[str, Any]] = []
+
+    # 1. review-scope — freeze question + seed queries + inclusion/exclusion +
+    #    coverage claim + REQUIRED counter-position (L-2 gate) before any search.
+    # produces: uses filename as key (schema ignores unknown keys; key is the
+    # discovery surface for tests + the walker's artifact-watch resolver).
+    nodes.append({
+        "id": "review-scope",
+        "type": "agent",
+        "label": f"Freeze review protocol (question + seeds + counter-position): {question[:60]}",
+        "spec": _spec("review_scope_tips"),
+        "reads": [
+            _rel("concepts"),
+            _rel("findings"),
+            _rel("mocs"),
+            _rel("literature"),
+        ],
+        "produces": {"_protocol.md": protocol_path},
+        "needs": [],
+    })
+
+    # 2. approve-protocol — human-go Gate 1 (cheap screen before expensive search)
+    nodes.append({
+        "id": "approve-protocol",
+        "type": "human-go",
+        "label": "Gate 1: Approve review protocol (question + counter-position frozen)",
+        "needs": [_afterok("review-scope")],
+    })
+
+    # 3. review-search — gated by afterok AND artifact-watch on _protocol.md
+    #    The watch makes it structural: search cannot fire without a fresh protocol.
+    nodes.append({
+        "id": "review-search",
+        "type": "agent",
+        "label": "Search Semantic Scholar (protocol-gated; rv research find)",
+        "spec": _spec("review_search_tips"),
+        "reads": [
+            _rel("literature"),
+            protocol_path,
+        ],
+        "needs": [
+            {
+                "from": "approve-protocol",
+                "edge": "afterok",
+                "watch": f"artifact:{protocol_path}+fresh",
+            }
+        ],
+    })
+
+    # 4. review-snowball — internal saturation loop (both directions, §5L.2)
+    #    Produces _corpus.md (frozen citekey list) + _saturation.md (plateau curve).
+    #    Both keys in produces dict so artifact-watch in coverage-gate can reference them.
+    nodes.append({
+        "id": "review-snowball",
+        "type": "agent",
+        "label": "Snowball (forward cited-by + backward references; internal saturation loop)",
+        "spec": _spec("review_snowball_tips"),
+        "reads": [
+            _rel("literature"),
+            _rel("concepts"),
+            _rel("mocs"),
+            protocol_path,
+        ],
+        "produces": {"_corpus.md": corpus_path, "_saturation.md": saturation_path},
+        "needs": [_afterok("review-search")],
+    })
+
+    # 5. coverage-gate — human-go Phase BOUNDARY (§5L.4)
+    #    Operator confirms "these are the papers" before N parallel relates dispatch.
+    #    On approval → rv review expand emits Phase-2.
+    nodes.append({
+        "id": "coverage-gate",
+        "type": "human-go",
+        "label": (
+            "Gate 2: Approve discovered corpus (_corpus.md + _saturation.md); "
+            "assert every [NEW] citekey has a relate slot or is recorded MENTION-ONLY. "
+            "Then run: rv review expand <project> <scope> to emit Phase-2."
+        ),
+        "needs": [_afterok("review-snowball")],
+    })
+
+    manifest: dict[str, Any] = {
+        "run_id": f"review-{scope_id}-phase1",
+        "name": (
+            f"Lit-review Phase-1 ({scope_id}): "
+            f"{question[:60]}{'...' if len(question) > 60 else ''}"
+        ),
+        "global_cap": 1,  # Phase-1 is sequential by design
+        "nodes": nodes,
+    }
+    return manifest
+
+
+# ---------------------------------------------------------------------------
+# Phase-2 DAG manifest builder
+# ---------------------------------------------------------------------------
+
+def _parse_new_citekeys(corpus_path: Path) -> list[str]:
+    """Parse _corpus.md and return citekeys annotated [NEW] (not [IN-CORPUS:*]).
+
+    The corpus table format (written by review-snowball):
+      | [NEW] | citekey | title |
+      | [IN-CORPUS:old2019] | old2019 | ... |
+
+    Only rows with annotation exactly ``[NEW]`` are returned as citekeys for
+    the Phase-2 fan-out.
+
+    sr: SR-LR-1
+    """
+    text = corpus_path.read_text(encoding="utf-8")
+    citekeys: list[str] = []
+    for line in text.splitlines():
+        # Match table rows starting with | [NEW] |
+        # The annotation column is the first column; citekey is the second.
+        m = re.match(
+            r"\|\s*\[NEW\]\s*\|\s*([A-Za-z0-9_:\-\.]+)\s*\|",
+            line.strip(),
+        )
+        if m:
+            citekeys.append(m.group(1))
+    return citekeys
+
+
+def _build_phase2_manifest(
+    project: str,
+    scope_id: str,
+    new_citekeys: list[str],
+    project_notes_dir: Path,
+    review_dir: Path,
+    *,
+    tip_override: dict[str, str] | None = None,
+    config: Any = None,
+) -> dict[str, Any]:
+    """Build the Phase-2 DAG manifest (§5L.4 two-phase fan-out ruling).
+
+    Phase-2 nodes:
+      relate-<key1> ─┐
+      relate-<key2> ─┤ → review-synthesize → review-coverage-critic → [HG:approve-review]
+      ...            ─┘
+
+    Each relate-<key> is a static node over the frozen corpus approved at coverage-gate.
+    The parallelism cut is (a) two-phase parallel fan-out (D-LR-3 recommended option).
+
+    The coverage-critic (§5L.5) is a REJECTS-ONLY agent: [PASS]/[BLOCK] convention.
+    It enforces L-2 (counter-position): [BLOCK] on missing/empty counter-position
+    OR corpus that ignored the declared opposing sub-literature.
+
+    sr: SR-LR-1
+    """
+    tips = get_review_tips(config=config)
+    preamble = get_review_style_preamble(config=config)
+
+    def _spec(key: str) -> str:
+        tip = tips.get(key, f"Execute the {key} step.")
+        return preamble.rstrip() + "\n\n---\n\n" + tip
+
+    def _afterok(from_id: str) -> dict[str, Any]:
+        return {"from": from_id, "edge": "afterok"}
+
+    def _rel(okf_type: str) -> str:
+        return okf_type
+
+    protocol_path = str(review_dir / "_protocol.md")
+
+    nodes: list[dict[str, Any]] = []
+
+    # One relate-<key> node per [NEW] citekey from the approved corpus
+    relate_ids: list[str] = []
+    for citekey in new_citekeys:
+        node_id = f"relate-{citekey}"
+        relate_ids.append(node_id)
+        lit_note_path = str(
+            (project_notes_dir / "literature" / f"{citekey}.md")
+        )
+        nodes.append({
+            "id": node_id,
+            "type": "agent",
+            "label": f"Relate {citekey}: distill into literature/ OKF note + verified edges",
+            "spec": _spec("per_paper_relate_tips"),
+            "reads": [
+                _rel("literature"),
+                _rel("concepts"),
+                _rel("mocs"),
+            ],
+            "produces": {"note": f"literature/{citekey}.md"},
+            "needs": [],  # all parallel; no upstream within Phase-2
+        })
+
+    # review-synthesize — joins all relate- nodes
+    synthesize_needs = [_afterok(rid) for rid in relate_ids] if relate_ids else []
+    nodes.append({
+        "id": "review-synthesize",
+        "type": "agent",
+        "label": "Synthesize corpus: update concepts/ + mocs/ (soft-coupled; orphans flagged)",
+        "spec": _spec("review_synthesize_tips"),
+        "reads": [
+            _rel("literature"),
+            _rel("concepts"),
+            _rel("mocs"),
+            protocol_path,
+        ],
+        "needs": synthesize_needs,
+    })
+
+    # review-coverage-critic — rejects-only, Argus role (§5L.5)
+    # Judges: saturation-real vs premature, orphan concepts, protocol-adherence,
+    # AND L-2 counter-position PRESENT and SOUGHT (hard [BLOCK] if absent or ignored).
+    nodes.append({
+        "id": "review-coverage-critic",
+        "type": "agent",
+        "label": (
+            "Coverage critic (rejects-only): plateau-reality + protocol-adherence + "
+            "counter-position present-and-sought (L-2) → [PASS]/[BLOCK]"
+        ),
+        "spec": _spec("review_critic_tips"),
+        "reads": [
+            _rel("literature"),
+            _rel("concepts"),
+            _rel("mocs"),
+            str(review_dir / "_saturation.md"),
+            protocol_path,
+        ],
+        "needs": [_afterok("review-synthesize")],
+    })
+
+    # approve-review — terminal human-go gate
+    nodes.append({
+        "id": "approve-review",
+        "type": "human-go",
+        "label": "Gate 3: Approve review — [BLOCK] count + counter-position verdict",
+        "needs": [_afterok("review-coverage-critic")],
+    })
+
+    # Handle empty corpus gracefully (no [NEW] papers → direct path to synthesize)
+    manifest: dict[str, Any] = {
+        "run_id": f"review-{scope_id}-phase2",
+        "name": (
+            f"Lit-review Phase-2 ({scope_id}): "
+            f"{len(new_citekeys)} paper(s) → relate fan-out + synthesize + critic"
+        ),
+        "global_cap": 4,  # relate- nodes run in parallel (D-LR-3a)
+        "nodes": nodes,
+    }
+    return manifest
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def cmd_new(
+    project: str,
+    scope_id: str,
+    *,
+    question: str,
+    config: Config | None = None,
+    tip_override: dict[str, str] | None = None,
+) -> tuple[Path, Path, dict[str, Any]]:
+    """Scaffold a review OKF note + reviews/<scope>/ dir + Phase-1 DAG manifest.
+
+    When to use: use ``rv review new <project> <scope> --question '...'`` to
+    start a pre-registered, saturation-gated literature review.
+
+    This is the ONLY path that creates the protocol-freeze + saturation-curve +
+    coverage-critic framework. A hand-run literature scan gets no ``_protocol.md``
+    freeze, no saturation curve, and no rejects-only critic.
+
+    Anti-pattern: do NOT hand-collect papers and hand-write a literature section —
+    run ``rv review new`` so every paper traces to the corpus index, the saturation
+    is measured, and the coverage gate is structural.
+
+    Args:
+        project:     project slug (must be registered in config).
+        scope_id:    review identifier slug (e.g. 'scope-llm-eval').
+        question:    the review research question (frozen in _protocol.md).
+        config:      optional Config (loaded if None).
+        tip_override: optional per-key tip override (testing / venue customization).
+
+    Returns:
+        (note_path, review_dir, manifest) where:
+          note_path:  path to the OKF review note (reviews/<scope>.md)
+          review_dir: path to the review artifact directory (reviews/<scope>/)
+          manifest:   the Phase-1 DAG manifest dict (also saved as phase1-dag.json)
+
+    sr: SR-LR-1
+    """
+    cfg = config or load_config()
+    project_notes_dir = cfg.project_notes_dir(project)
+
+    # Ensure OKF type dirs exist (idempotent)
+    scaffold_okf_dirs(project_notes_dir)
+
+    # Create the review artifact directory
+    review_dir = _review_artifact_dir(project, scope_id, cfg)
+    review_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write the OKF review note (type: "literature" note repurposed as a
+    # review pointer — the review itself lives in reviews/<scope>/)
+    note_dir = _review_note_dir(project, cfg)
+    note_dir.mkdir(parents=True, exist_ok=True)
+
+    note_path = note_dir / f"{scope_id}.md"
+    if note_path.exists():
+        note_path = note_dir / f"{scope_id}-{_today()}.md"
+
+    fields: dict[str, str] = {
+        "type": "literature",  # closest OKF type for a review pointer note
+        "title": f"Review: {question[:100]}",
+        "created": _today(),
+        "review_scope": scope_id,
+        "review_question": question,
+        "review_dir": str(review_dir),
+        "dag_run": f"review-{scope_id}-phase1",
+    }
+
+    body = (
+        "\n"
+        "<!-- Literature review pointer note (SR-LR-1) -->\n"
+        "<!-- Use `rv review new <project> <scope> --question '...'` for creation. -->\n"
+        "<!-- The review artifacts live in reviews/<scope>/: -->\n"
+        "<!--   _protocol.md  — frozen search protocol (pre-registration) -->\n"
+        "<!--   _corpus.md    — discovered [NEW] citekey list (snowball output) -->\n"
+        "<!--   _saturation.md — saturation curve (rounds × new citekeys) -->\n"
+        "<!-- Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json -->\n"
+        "<!-- After coverage-gate: rv review expand <project> <scope> → Phase-2 -->\n"
+        "\n"
+        "## Review question\n\n"
+        f"<!-- {question} -->\n\n"
+        "## Protocol\n\n"
+        f"<!-- Pre-registration: {review_dir}/_protocol.md -->\n\n"
+        "## Phase-2 manifest\n\n"
+        "<!-- Emitted by rv review expand after coverage-gate approval. -->\n"
+        "<!-- phase2-dag.json path set here after expand runs. -->\n"
+    )
+
+    note_path.write_text(_render_frontmatter(fields) + "\n" + body, encoding="utf-8")
+
+    # Build and save the Phase-1 manifest
+    manifest = _build_phase1_manifest(
+        project=project,
+        scope_id=scope_id,
+        question=question,
+        review_dir=review_dir,
+        project_notes_dir=project_notes_dir,
+        tip_override=tip_override,
+        config=cfg,
+    )
+
+    manifest_path = review_dir / "phase1-dag.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    return note_path, review_dir, manifest
+
+
+def cmd_list(
+    project: str,
+    *,
+    config: Config | None = None,
+) -> list[dict[str, Any]]:
+    """List review notes for the given project.
+
+    When to use: ``rv review list <project>`` to enumerate all staged reviews.
+
+    Returns:
+        List of dicts with keys: scope, question, review_dir, dag_run, path.
+        Empty list when no review notes exist.
+
+    sr: SR-LR-1
+    """
+    cfg = config or load_config()
+    note_dir = _review_note_dir(project, cfg)
+    if not note_dir.exists():
+        return []
+
+    results: list[dict[str, Any]] = []
+    for p in sorted(note_dir.glob("*.md")):
+        text = p.read_text(encoding="utf-8")
+        fields, _ = _parse_frontmatter(text)
+        # Only review pointer notes (have review_scope frontmatter field)
+        scope = fields.get("review_scope")
+        if scope:
+            results.append({
+                "scope": scope,
+                "question": fields.get("review_question", ""),
+                "review_dir": fields.get("review_dir", ""),
+                "dag_run": fields.get("dag_run", ""),
+                "path": p,
+                "fields": fields,
+            })
+    return results
+
+
+def cmd_expand(
+    project: str,
+    scope_id: str,
+    *,
+    corpus_path: Path | None = None,
+    config: Config | None = None,
+    tip_override: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Emit the Phase-2 DAG manifest from the frozen _corpus.md.
+
+    Run after the ``coverage-gate`` human-go approval.  Parses ``_corpus.md`` for
+    ``[NEW]`` citekeys and emits one ``relate-<key>`` node per paper, joining into
+    ``review-synthesize → review-coverage-critic → [HG:approve-review]``.
+
+    When to use: ``rv review expand <project> <scope>`` immediately after the
+    operator approves the coverage-gate.  The Phase-2 manifest is saved as
+    ``reviews/<scope>/phase2-dag.json``.
+
+    Anti-pattern: do NOT hand-write a Phase-2 manifest — the ``[NEW]`` citekeys
+    come from the snowball output; hand-writing would miss papers or mis-annotate them.
+
+    Args:
+        project:     project slug.
+        scope_id:    review scope identifier (same as passed to cmd_new).
+        corpus_path: path to ``_corpus.md`` (default: reviews/<scope>/_corpus.md).
+        config:      optional Config (loaded if None).
+        tip_override: optional per-key tip override.
+
+    Returns:
+        The Phase-2 manifest dict (also saved as phase2-dag.json).
+
+    sr: SR-LR-1
+    """
+    cfg = config or load_config()
+    project_notes_dir = cfg.project_notes_dir(project)
+    review_dir = _review_artifact_dir(project, scope_id, cfg)
+
+    if corpus_path is None:
+        corpus_path = review_dir / "_corpus.md"
+
+    if not corpus_path.exists():
+        raise FileNotFoundError(
+            f"rv review expand: _corpus.md not found at {corpus_path}. "
+            f"Run the Phase-1 review-snowball node first, then approve coverage-gate."
+        )
+
+    new_citekeys = _parse_new_citekeys(corpus_path)
+
+    manifest = _build_phase2_manifest(
+        project=project,
+        scope_id=scope_id,
+        new_citekeys=new_citekeys,
+        project_notes_dir=project_notes_dir,
+        review_dir=review_dir,
+        tip_override=tip_override,
+        config=cfg,
+    )
+
+    # Ensure review_dir exists (cmd_expand may be called without a prior cmd_new
+    # in tests that provide corpus_path directly)
+    review_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_path = review_dir / "phase2-dag.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    return manifest
