@@ -35,6 +35,13 @@ OKF_TYPES = frozenset({
     "manuscript",  # SR-MS-1a: LaTeX-native POINTER note (metadata+provenance; points to manuscripts/<id>/)
 })
 
+# SR-RESOLVE-SCOPE: the sole SHARED (cross-project) OKF type — lives in cfg.datasets_root.
+# All other OKF types are PROJECT-SCOPED (cfg.project_notes_dir / type_dir).
+# SSOT for the project-scoped-vs-shared split.
+# Consumed by: wait_for (note: resolver), dag/verbs (_check_project_scoped_note).
+# Do NOT duplicate this — import from here.
+OKF_SHARED_TYPES: frozenset[str] = frozenset({"datasets"})
+
 # SR-FIG: figures are PROJECT-SCOPED — deliberately NOT a shared root like datasets.
 # A figures note for project A lives in project_notes_dir(A)/figures/, not in a shared root.
 # datasets/ is the sole exception to project scoping (see SR-8); figures follows the

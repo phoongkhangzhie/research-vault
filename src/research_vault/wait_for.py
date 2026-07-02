@@ -386,10 +386,19 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
     """
     watch = (watch or "").strip()
 
-    # ── note:<type>/<id>[+fresh] — notes_root-aware OKF note watch ───────────
-    # Resolves the note path relative to load_config().notes_root.
-    # Use this form in DAG manifests for portable OKF note watches.
-    # Example: "note:experiments/exp-q1.md+fresh"
+    # ── note:<path>[+fresh] — project-aware OKF note watch ───────────────────
+    # SR-RESOLVE-SCOPE: three-way resolution based on first path segment:
+    #
+    #   note:<project>/<type>/<id>  — first segment is a registered project slug
+    #                                  → project_notes_dir(project) / "<type>/<id>"
+    #   note:datasets/<id>          — first segment is a shared OKF type (datasets)
+    #                                  → cfg.datasets_root / "<id>"
+    #   note:<type>/<id>  (legacy)  — first segment is NOT a project slug
+    #                                  → cfg.notes_root / path  (backward compat)
+    #
+    # This mirrors note.py's cmd_new routing (SSOT: OKF_SHARED_TYPES).
+    # +fresh modifier applies to all three forms.
+    # Example: "note:my-project/experiments/exp-001.md+fresh"
     if watch.startswith("note:"):
         rest = watch[len("note:"):]
         check_fresh = False
@@ -399,14 +408,29 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
 
         try:
             from .config import load_config as _load_config
+            from .note import OKF_SHARED_TYPES
             _cfg = _load_config()
-            p = _cfg.notes_root / rest
+
+            # Determine resolution root from first path segment.
+            parts = rest.split("/", 1)
+            first_seg = parts[0]
+            rest_after_first = parts[1] if len(parts) > 1 else ""
+
+            if first_seg in _cfg.projects:
+                # Project-scoped: note:<project>/<type>/<id>
+                p = _cfg.project_notes_dir(first_seg) / rest_after_first
+            elif first_seg in OKF_SHARED_TYPES:
+                # Shared OKF type (currently only "datasets"): route to datasets_root
+                p = _cfg.datasets_root / rest_after_first
+            else:
+                # Legacy / fallback: resolve relative to notes_root
+                p = _cfg.notes_root / rest
         except Exception as e:
             return {
                 "ready": False,
                 "state": "config-error",
                 "artifact_path": rest,
-                "error": f"cannot resolve notes_root for note: watch: {e}",
+                "error": f"cannot resolve note: watch: {e}",
             }
 
         exists = p.exists()

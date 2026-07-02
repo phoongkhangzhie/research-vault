@@ -1,3 +1,36 @@
+## 2026-07-02 (SR-RESOLVE-SCOPE — project-aware DAG note: / produces resolver)
+
+### Done
+- **Root cause confirmed**: `note:` resolver used `cfg.notes_root / rest` unconditionally —
+  so `note:myproject/experiments/exp-001.md` looked up `notes_root/myproject/experiments/…`
+  rather than `project_notes_dir("myproject")/experiments/…`. Same bug in `produces.note`
+  (passed `cfg.notes_root` to `_check_okf_note_type`).
+- **`OKF_SHARED_TYPES` in `note.py`**: new constant (`frozenset({"datasets"})`). Single SSOT
+  for the project-scoped-vs-shared split. Imported by `wait_for` and `dag/verbs`.
+- **`wait_for.py` `note:` resolver**: three-way dispatch on first path segment:
+  registered project slug → `project_notes_dir`; shared OKF type → `datasets_root`;
+  otherwise → `notes_root` (legacy backward compat). +fresh works on all three.
+- **`dag/schema.py`**: new typed `produces` subkeys: `result`, `figure`, `manuscript` —
+  each requires `"<project>/<id>"` format (slash required; ManifestError otherwise).
+- **`dag/verbs.py`**: `_PRODUCES_KEY_TO_OKF_DIR` constant maps subkey → OKF type dir;
+  `_check_project_scoped_note` resolves via `project_notes_dir`; wired into `cmd_complete`.
+- **32 new tests** in `tests/test_sr_resolve_scope.py`: project-scoped resolve (red path +
+  green path), legacy fallback, datasets_root routing, +fresh, schema validation, complete-gate
+  for result/figure/manuscript, unit coverage of `_check_project_scoped_note`.
+- Full suite: 1147 passed, 37 skipped. Leakage scan clean.
+
+### Decisions
+- Disambiguation rule for `note:`: first path segment checked against `cfg.projects` BEFORE
+  checking `OKF_SHARED_TYPES`. If a project slug collides with an OKF type name (e.g. a
+  project named "datasets"), the project wins. Documented in resolver docstring.
+- `produces.result` maps to `experiments/` (not "results/") — consistent with OKF type names.
+  A hypothetical `produces.results` would be confusing; "result" is the semantic alias.
+- Backward compat preserved for `produces.note` (still resolves against `notes_root` when
+  passed a relative path). New project-scoped work should use `produces.result/figure/manuscript`.
+
+### Open / next
+- SR-MS-1b is in-flight; its `dag run` manifests should use `produces.manuscript` for
+  project-scoped manuscript notes going forward.
 ## 2026-07-02 (SR-7 follow-on — native_env manifest key)
 
 ### Done
