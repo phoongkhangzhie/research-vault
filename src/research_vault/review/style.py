@@ -2,11 +2,13 @@
 
 SEAM CONTRACT
   ``get_review_tips(config=None)`` is the call-point for the review DAG nodes'
-  spec/prompt.  The shipped default is engineer-drafted, design-faithful prose (the
-  saturation loop, counter-position/L-2 gate, disconfirming obligation) PENDING
-  Ada's retrieval-grounded authored strings (follow-up);
-  adopters override per lab/venue via the ``[review_style]`` section in
-  ``research_vault.toml``.
+  spec/prompt.  The shipped default is Ada's retrieval-grounded section 5L.6 prose:
+  the saturation loop, counter-position/L-2 gate, and disconfirming obligation, each
+  anchored to the systematic-review methodology it operationalizes (protocol
+  pre-registration, both-direction snowballing, saturation-as-plateau, concept-centric
+  synthesis).  Adopters override per lab/venue via the ``[review_style]`` section in
+  ``research_vault.toml``.  Method anchors are attributed inline to their sources; a
+  consolidated design-references bibliography is compiled at publish.
 
   Shape:
     review_tips = {
@@ -29,7 +31,7 @@ SEAM CONTRACT
 
 Two halves independently mergeable:
   - Engineer ships this module (SR-LR-1 plumbing).
-  - Ada replaces the default payload with her retrieval-grounded section 5L.6 strings (follow-up).
+  - Ada owns the default payload — the retrieval-grounded section 5L.6 strings.
   Keep ``get_review_tips`` / ``get_review_style_preamble`` signatures stable.
 
 Stdlib only.
@@ -79,6 +81,13 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
     "review_scope_tips": (
         "Freeze the review question, seed queries, inclusion/exclusion criteria, "
         "coverage claim, AND the counter-position BEFORE any search.\n\n"
+        "WHY (methodology): this is protocol pre-registration for a systematic review — "
+        "the PRISMA-P discipline (Shamseer, Moher et al., 2015): the eligibility "
+        "criteria and search strategy are registered and frozen BEFORE records are "
+        "screened, so the corpus can't be reverse-engineered to fit a conclusion. "
+        "A protocol deviation is LOGGED (new run + new gate), never silent. The "
+        "`counter-position` field is this protocol's falsification clause: it names, "
+        "in advance, the literature that would refute the coverage claim.\n\n"
         "Required `_protocol.md` fields (all REQUIRED — absence blocks search):\n"
         "  - `question`: the exact research question in one sentence.\n"
         "  - `seed_queries`: 3–8 Semantic Scholar query strings covering the question.\n"
@@ -98,6 +107,11 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
     "review_search_tips": (
         "Execute search using the frozen protocol from `_protocol.md`. "
         "Do not modify the inclusion/exclusion criteria seen in the protocol.\n\n"
+        "WHY (methodology): reconstructible search reporting — the PRISMA 2020 "
+        "flow-diagram discipline (Page et al., 2021): record every query, the count "
+        "of records each returned, and every exclusion WITH the criterion that "
+        "excluded it, so a third party can reconstruct exactly how the corpus was "
+        "assembled. The audit trail IS the deliverable, not a by-product.\n\n"
         "Search discipline:\n"
         "  - Run each seed query from the protocol's `seed_queries` list via "
         "`rv research find <query>` (or `--deep` for a richer result set).\n"
@@ -114,6 +128,15 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "Run the saturation loop INSIDE this node (section 5L.2). "
         "The loop is INTERNAL — do NOT create new DAG nodes per round; "
         "this is a bounded walk over the citation graph, not a DAG cycle.\n\n"
+        "WHY (methodology): two named disciplines drive this node.\n"
+        "  - Both-direction snowballing (Wohlin, 2014): systematically follow BOTH "
+        "backward references (what a paper cites) and forward citations (who cites "
+        "it). A database keyword search alone misses the citation neighbourhood; "
+        "snowballing in one direction only is a known coverage hole.\n"
+        "  - Saturation-as-plateau: theoretical saturation (Glaser & Strauss, 1967) "
+        "operationalized as a MEASURABLE stopping rule (Saunders et al., 2018) — the "
+        "stop threshold is fixed a priori (below) and read off the saturation curve, "
+        "never eyeballed. 'No new papers this round' is a datum, not a vibe.\n\n"
         "Each round:\n"
         "  1. Take the frontier of accepted `[NEW]` citekeys from the previous round "
         "(seed: the accepted papers from `review-search`).\n"
@@ -144,6 +167,12 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
     ),
     "per_paper_relate_tips": (
         "Distill this paper into an OKF `literature/<citekey>.md` note.\n\n"
+        "WHY (methodology): a review is concept-centric, NOT author-centric "
+        "(Webster & Watson, 2002). The note's job is to RELATE the paper into the "
+        "corpus's concept structure — the `stance` field and the verified "
+        "concept-edges below are the paper's row in the review's concept matrix. "
+        "A per-paper prose summary that draws no edges is COLLECTION, not review: "
+        "relate, don't collect.\n\n"
         "Required note fields (flat frontmatter):\n"
         "  - `type`: literature\n"
         "  - `citekey`: the paper's citekey (matches corpus)\n"
@@ -174,6 +203,11 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
     "review_synthesize_tips": (
         "Synthesize the full corpus (all `literature/<key>.md` notes from Phase-2) "
         "into the review's conceptual map.\n\n"
+        "WHY (methodology): organize by CONCEPT across papers, not paper-by-paper "
+        "(Webster & Watson, 2002). The `concepts/` and `mocs/` notes are the concept "
+        "matrix made durable — concepts are the rows, papers the cells. If your "
+        "synthesis reads as a sequence of paper summaries, you have transcribed the "
+        "corpus, not synthesized it.\n\n"
         "Outputs:\n"
         "  1. `concepts/<c>.md` updates — for each concept touched by 2+ papers, "
         "ensure a concept note exists and its incoming-edge list is current. "
@@ -192,6 +226,14 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
     "review_critic_tips": (
         "You are the coverage critic (Argus role). You are a REJECTS-ONLY reviewer: "
         "a `[PASS]` does NOT certify coverage, it only fails to find a blocking hole.\n\n"
+        "WHY (methodology): your two hardest axes have named backing. Axis 1 tests "
+        "whether the plateau meets theoretical-saturation criteria (Glaser & Strauss, "
+        "1967) as operationalized into a measurable stopping rule (Saunders et al., "
+        "2018) — a plateau that is direction-starved (one snowball direction dry; cf. "
+        "Wohlin, 2014) or tag-under-counted is PREMATURE, not saturated. Axis 4 "
+        "enforces the disconfirming obligation: a review that only confirms is "
+        "fishing, so the pre-registered counter-position must be sought, not merely "
+        "declared.\n\n"
         "Judge FOUR axes (each can independently issue `[BLOCK]`):\n\n"
         "1. SATURATION PLATEAU — is it real or premature? (section 5L.2)\n"
         "   Read the `_saturation.md` curve. Check:\n"
