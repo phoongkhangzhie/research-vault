@@ -384,29 +384,61 @@ class TestOKFSharedTypesSelfConsumption:
         expected_parent = cfg.project_notes_dir("demo-research") / "findings"
         assert path.parent == expected_parent
 
-    def test_okf_shared_types_is_not_hardcoded_string(self):
-        """Routing code imports OKF_SHARED_TYPES, not string-comparing 'datasets' directly.
+    def test_routing_condition_uses_membership_not_equality(self):
+        """The if-condition that routes notes to cfg.datasets_root must use
+        `in OKF_SHARED_TYPES`, never `== "datasets"` (a hardcoded string comparison).
 
-        Inspect the source of cmd_new/cmd_list/cmd_check: the routing branch
-        must use 'in OKF_SHARED_TYPES' rather than '== "datasets"'.
+        Strategy: parse each function with AST, find every `if X: <var> = cfg.datasets_root`
+        node, extract ONLY the condition source via ast.get_source_segment (comment-free by
+        definition — AST nodes carry no comment text), then assert the hardcoded equality
+        pattern is absent.
+
+        Non-vacuousness: this test FAILS if any routing branch is reverted to
+        `== "datasets"` — comments containing 'OKF_SHARED_TYPES' cannot rescue it
+        because we assert the NEGATIVE on the comment-free condition segment, not the
+        positive on raw getsource (which was the previous vacuous approach).
         """
+        import ast
         import inspect
+        import textwrap
         from research_vault import note as note_mod
-        src = inspect.getsource(note_mod.cmd_new)
-        # The routing line should NOT hard-code == "datasets"
-        # (template/body lines may still have "datasets" in string literals — that is fine)
-        # We look at the routing assignments specifically
-        # The source must contain 'OKF_SHARED_TYPES' somewhere in the routing branch
-        assert "OKF_SHARED_TYPES" in src, (
-            "cmd_new routing must reference OKF_SHARED_TYPES (not hardcoded 'datasets')"
-        )
 
-        src_list = inspect.getsource(note_mod.cmd_list)
-        assert "OKF_SHARED_TYPES" in src_list, (
-            "cmd_list routing must reference OKF_SHARED_TYPES (not hardcoded 'datasets')"
-        )
+        def _routing_if_conditions(func):
+            """Return comment-free source segments of if-conditions that route to
+            cfg.datasets_root (i.e. `if X: <something> = cfg.datasets_root`)."""
+            src = inspect.getsource(func)
+            src = textwrap.dedent(src)
+            tree = ast.parse(src)
+            found = []
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.If):
+                    continue
+                for stmt in node.body:
+                    if not isinstance(stmt, ast.Assign):
+                        continue
+                    val = stmt.value
+                    if (
+                        isinstance(val, ast.Attribute)
+                        and val.attr == "datasets_root"
+                        and isinstance(val.value, ast.Name)
+                        and val.value.id == "cfg"
+                    ):
+                        cond_src = ast.get_source_segment(src, node.test) or ""
+                        found.append(cond_src)
+            return found
 
-        src_check = inspect.getsource(note_mod.cmd_check)
-        assert "OKF_SHARED_TYPES" in src_check, (
-            "cmd_check routing must reference OKF_SHARED_TYPES (not hardcoded 'datasets')"
-        )
+        for func_name, func in [
+            ("cmd_new", note_mod.cmd_new),
+            ("cmd_list", note_mod.cmd_list),
+            ("cmd_check", note_mod.cmd_check),
+        ]:
+            conditions = _routing_if_conditions(func)
+            assert conditions, (
+                f"{func_name}: no routing if-condition found — expected at least one "
+                f"`if X: <var> = cfg.datasets_root` block"
+            )
+            for cond in conditions:
+                assert '== "datasets"' not in cond and "== 'datasets'" not in cond, (
+                    f"{func_name}: routing condition {cond!r} uses a hardcoded string "
+                    f"comparison — must use `in OKF_SHARED_TYPES` instead"
+                )
