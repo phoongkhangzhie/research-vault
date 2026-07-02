@@ -127,12 +127,12 @@ class TestFiguresOkfType:
         """'figures' must be in the OKF_TYPES frozenset."""
         assert "figures" in note_mod.OKF_TYPES
 
-    def test_okf_type_count_is_eight(self):
-        """OKF_TYPES now has exactly 8 types (SR-FIG adds figures)."""
-        assert len(note_mod.OKF_TYPES) == 8
+    def test_okf_type_count_is_nine(self):
+        """OKF_TYPES now has exactly 9 types (SR-MS-1a adds manuscript as the 9th)."""
+        assert len(note_mod.OKF_TYPES) == 9
         expected = {
             "literature", "concepts", "methods", "experiments",
-            "findings", "mocs", "datasets", "figures",
+            "findings", "mocs", "datasets", "figures", "manuscript",
         }
         assert note_mod.OKF_TYPES == expected
 

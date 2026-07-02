@@ -3,7 +3,7 @@
 When to use: use `rv note <project> <type> …` to create or list OKF notes for a project.
 Notes follow the Open Knowledge Format: markdown + YAML frontmatter with a required `type` field.
 The type determines the subdirectory: literature/, concepts/, methods/, experiments/,
-findings/, mocs/, datasets/, figures/.
+findings/, mocs/, datasets/, figures/, manuscript/.
 
 Path resolution: always via Config — zero hardcoded paths.
 Stdlib only.
@@ -30,8 +30,9 @@ OKF_TYPES = frozenset({
     "experiments",
     "findings",
     "mocs",
-    "datasets",   # SR-8: provenance note for data artifacts (points to data, never contains it)
-    "figures",    # SR-FIG: provenance note for publication figures (points to image, never embeds)
+    "datasets",    # SR-8: provenance note for data artifacts (points to data, never contains it)
+    "figures",     # SR-FIG: provenance note for publication figures (points to image, never embeds)
+    "manuscript",  # SR-MS-1a: LaTeX-native POINTER note (metadata+provenance; points to manuscripts/<id>/)
 })
 
 # SR-FIG: figures are PROJECT-SCOPED — deliberately NOT a shared root like datasets.
@@ -247,6 +248,19 @@ def cmd_new(project: str, note_type: str, title: str, *,
         fields["style"] = "publication"           # style preset: publication | slide | poster
         fields["rendered"] = "false"              # set to true after rv figure render
 
+    # SR-MS-1a: manuscript notes are LaTeX-native POINTER notes — metadata + provenance.
+    # Prose lives in .tex files; this note records lineage and points to the artifacts.
+    # Use `rv manuscript new` for richer creation (scaffolds the DAG + tree).
+    # All fields are FLAT prefixed — matches _parse_frontmatter contract (note.py:76).
+    if note_type == "manuscript":
+        fields["manuscript_location"] = ""  # fill in: path to manuscripts/<id>/main.tex
+        fields["manuscript_pdf"] = ""       # fill in: path to compiled <id>.pdf (set by compile)
+        fields["manuscript_hash"] = ""      # fill in: sha256:<hex> of the compiled PDF
+        fields["thesis"] = ""              # fill in: one-sentence claim the paper argues
+        fields["synthesized_okf"] = ""     # fill in: comma-list of OKF note ids synthesized
+        fields["section_outline"] = ""     # fill in: ordered section ids (DAG section nodes)
+        fields["dag_run"] = ""             # fill in: drafting-DAG run_id (provenance)
+
     if tags:
         fields["tags"] = "[" + ", ".join(tags) + "]"
 
@@ -296,6 +310,24 @@ def cmd_new(project: str, note_type: str, title: str, *,
             "<!-- Describe the figure: what it plots, the key message. -->\n\n"
             "## Render lineage\n\n"
             "<!-- Filled by `rv figure render` — rv version, timestamp, image paths. -->\n"
+        )
+    elif note_type == "manuscript":
+        body = (
+            "\n"
+            "<!-- Manuscript provenance note (SR-MS-1a) -->\n"
+            "<!-- Use `rv manuscript new <project> <id> --thesis '...'` for richer creation. -->\n"
+            "<!-- That command also scaffolds manuscripts/<id>/{main.tex,sections/,refs.bib,results.tex} -->\n"
+            "<!-- and emits the drafting-DAG manifest — use `rv dag run` to drive the loop. -->\n"
+            "<!-- NEVER hand-type citations or results numbers — use the closed .bib + results macros. -->\n"
+            "\n"
+            "## Thesis\n\n"
+            "<!-- The one-sentence claim this paper argues (set by --thesis). -->\n\n"
+            "## Scope\n\n"
+            "<!-- OKF notes synthesized: findings/, experiments/, methods/, concepts/ notes. -->\n"
+            "<!-- Fill synthesized_okf above with comma-separated ids. -->\n\n"
+            "## Provenance\n\n"
+            "<!-- Filled by rv manuscript compile: manuscript_hash = sha256 of the compiled PDF. -->\n"
+            "<!-- dag_run = the drafting-DAG run_id whose afterok lineage produced the sections. -->\n"
         )
     else:
         body = "\n<!-- Write your note here -->\n"
@@ -354,10 +386,15 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
 
     SR-8 note: datasets are SHARED across projects. cmd_check scans
     cfg.datasets_root for the datasets type (same root for all projects);
-    the 7 other OKF types remain project-scoped in project_notes_dir.
+    the 8 other OKF types remain project-scoped in project_notes_dir.
 
     SR-FIG note: figures are PROJECT-SCOPED (unlike datasets). Each project's
     figures are scanned from project_notes_dir(project)/figures/ independently.
+
+    SR-MS-1a note: manuscript notes are PROJECT-SCOPED. When manuscript_pdf is
+    non-empty, cmd_check verifies the PDF exists and its sha256 matches
+    manuscript_hash (the PDF-hash provenance branch; parallel to SR-WB's
+    check_result_provenance). Empty pdf/hash fields are NOT violations (unfilled).
 
     Returns a list of violation strings (empty = all clear).
     """
@@ -436,8 +473,20 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                         f"{p}: figures note missing 'experiment_results_hash' field "
                         f"(content hash from the experiment results in sha256:<hex> format)"
                     )
+            elif t == "manuscript":
+                # SR-MS-1a: project-scoped type-dir contract.
+                # Provenance fields (manuscript_pdf + manuscript_hash) are OPTIONAL at creation
+                # time (filled by rv manuscript compile) — not required to be non-empty.
+                # OPTIONAL check: when manuscript_pdf is filled in, verify the PDF exists
+                # and its sha256 matches manuscript_hash (the PDF-hash provenance branch).
+                if note_type != "manuscript":
+                    violations.append(
+                        f"{p}: type={note_type!r} but file is in {t!r} directory"
+                    )
+                manuscript_issues = _check_manuscript_pdf_hash(p, fields)
+                violations.extend(manuscript_issues)
             else:
-                # Standard OKF type-dir contract for the 6 other project-scoped types
+                # Standard OKF type-dir contract for the other project-scoped types
                 if note_type != t:
                     violations.append(
                         f"{p}: type={note_type!r} but file is in {t!r} directory"
@@ -578,6 +627,72 @@ def check_repro_sentinel_lint(exp_note_path: Path) -> list[str]:
             )
 
     return warnings
+
+
+# ---------------------------------------------------------------------------
+# SR-MS-1a: manuscript PDF-hash provenance check
+# ---------------------------------------------------------------------------
+
+def _check_manuscript_pdf_hash(note_path: Path, fields: dict[str, str]) -> list[str]:
+    """Validate the manuscript PDF-hash provenance (optional branch).
+
+    When to use: called by cmd_check for each manuscript note. Parallel to
+    check_result_provenance for experiment notes — reuses the streaming hash pattern.
+
+    Checks (ONLY when manuscript_pdf is non-empty):
+      1. manuscript_hash is also non-empty
+      2. The PDF file exists on disk
+      3. sha256 of the PDF matches manuscript_hash
+
+    Empty manuscript_pdf (not yet compiled) → SKIP, not a violation.
+    URL / remote paths → trust the recorded hash (zero-infra).
+
+    Returns a list of violation strings (empty = OK).
+    SR-MS-1a.
+    """
+    pdf_path_str = fields.get("manuscript_pdf", "").strip()
+    if not pdf_path_str:
+        # Not yet compiled — skip (empty fields are NOT a violation)
+        return []
+
+    ms_hash = fields.get("manuscript_hash", "").strip()
+    if not ms_hash:
+        return [
+            f"{note_path.name}: manuscript_pdf is set but manuscript_hash is empty "
+            f"(run `rv manuscript compile` to fill the hash)"
+        ]
+
+    # URL / remote — trust the recorded hash
+    lower = pdf_path_str.lower()
+    for prefix in ("http://", "https://", "ftp://", "s3://", "gs://"):
+        if lower.startswith(prefix):
+            return []
+
+    pdf = Path(pdf_path_str)
+    if not pdf.exists():
+        return [
+            f"{note_path.name}: manuscript_pdf not found: {pdf_path_str}"
+        ]
+
+    if ms_hash.startswith("sha256:"):
+        expected_hex = ms_hash[len("sha256:"):]
+        try:
+            h = hashlib.sha256()
+            with open(pdf, "rb") as fh:
+                while chunk := fh.read(1 << 20):
+                    h.update(chunk)
+            actual_hex = h.hexdigest()
+        except OSError as e:
+            return [f"{note_path.name}: cannot read manuscript PDF: {e}"]
+
+        if actual_hex != expected_hex:
+            return [
+                f"{note_path.name}: manuscript_hash mismatch "
+                f"(expected sha256:{expected_hex[:12]}…, "
+                f"actual sha256:{actual_hex[:12]}…)"
+            ]
+
+    return []
 
 
 # ---------------------------------------------------------------------------
