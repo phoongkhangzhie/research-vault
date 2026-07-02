@@ -115,10 +115,19 @@ def _check_diagnosis_tables(body: str, source: str) -> list[str]:
                     separator_seen = True
                     continue
 
-            # Data row — check cells
-            cells = [c.strip() for c in stripped.split("|")]
-            # Remove leading/trailing empty strings from split artefacts
-            cells = [c for c in cells if c != ""]  # may still be truly empty
+            # Data row — check cells.
+            # Split on '|' and strip only the leading/trailing split artefacts
+            # (the empty strings before the first '|' and after the last '|').
+            # Do NOT pre-strip cell content before the empty-cell check — a cell
+            # consisting only of whitespace is an empty cell and must be flagged.
+            raw_cells = stripped.split("|")
+            # Remove the leading '' before the first '|'
+            if raw_cells and raw_cells[0] == "":
+                raw_cells = raw_cells[1:]
+            # Remove the trailing '' after the last '|'
+            if raw_cells and raw_cells[-1] == "":
+                raw_cells = raw_cells[:-1]
+            cells = raw_cells
 
             row_index += 1
             for col_idx, cell in enumerate(cells, 1):

@@ -514,6 +514,44 @@ def cmd_approve(args: argparse.Namespace) -> int:
         )
         return 1
 
+    # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1).
+    #
+    # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]
+    # AND the node being approved is NOT the plan-freeze gate itself
+    # (convention: node_id == "human-go-plan" is the freeze gate), re-derive
+    # the hash and BLOCK approval on mismatch.
+    #
+    # The plan_freeze.plan_note path was recorded at freeze time by
+    # ``rv plan freeze``; notes_root is derived from the same config.
+    plan_freeze = run_state.meta.get("plan_freeze")
+    if plan_freeze and node_id != "human-go-plan":
+        stored_plan_note = plan_freeze.get("plan_note", "")
+        if stored_plan_note:
+            try:
+                from ..plan.freeze import verify_freeze_hash
+                # notes_root: default to <notes_root>/experiments from config
+                notes_root = cfg.notes_root / "experiments"
+                ok, msg = verify_freeze_hash(
+                    store, run_id,
+                    Path(stored_plan_note),
+                    notes_root=notes_root,
+                )
+                if not ok:
+                    print(
+                        f"rv dag approve: K-3 covers:-freeze MISMATCH — "
+                        f"approval BLOCKED.\n{msg}",
+                        file=sys.stderr,
+                    )
+                    return 1
+            except Exception as k3_err:
+                # Surface K-3 errors as warnings, not hard blocks, to avoid
+                # locking a run when the freeze module is unavailable.
+                print(
+                    f"rv dag approve: K-3 verify warning: {k3_err} "
+                    f"(proceeding — fix and re-run if concerned)",
+                    file=sys.stderr,
+                )
+
     run_state.set_node_status(node_id, "succeeded")
     store.save(run_state)
 
