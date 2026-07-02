@@ -2,7 +2,9 @@
 
 SEAM CONTRACT
   ``get_review_tips(config=None)`` is the call-point for the review DAG nodes'
-  spec/prompt.  The shipped default is Ada's review-prompt content (ยง5L.6);
+  spec/prompt.  The shipped default is engineer-drafted, ง5L-faithful prose (the
+  saturation loop, counter-position/L-2 gate, disconfirming obligation) PENDING
+  Ada's retrieval-grounded authored strings (follow-up);
   adopters override per lab/venue via the ``[review_style]`` section in
   ``research_vault.toml``.
 
@@ -27,7 +29,7 @@ SEAM CONTRACT
 
 Two halves independently mergeable:
   - Engineer ships this module (SR-LR-1 plumbing).
-  - Ada's content is the default payload (ยง5L.6).
+  - Ada replaces the default payload with her retrieval-grounded ง5L.6 strings (follow-up).
   Keep ``get_review_tips`` / ``get_review_style_preamble`` signatures stable.
 
 Stdlib only.
