@@ -375,6 +375,23 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-FIG, SR-FIG-REC",
     },
+    # --- SR-PLAN-2 ---
+    "result": {
+        "module": "research_vault.result",
+        "when_to_use": (
+            "When you need to assert a numeric predicate holds against a hash-verified "
+            "experiment note's results — for the conditional-ablation watch:cmd: trigger "
+            "in a pre-registered DAG (§5K.7). "
+            "Use: rv result assert <experiments/<id>.md> --metric M --op gt --value V. "
+            "Exit 0 = predicate TRUE (conditional fires); exit 1 = FALSE or error. "
+            "Optional: --run-id / --node-id logs the predicate string + SHA-256 hash + "
+            "evaluated result into DAG run state meta (§5K.5.4 tamper-evident audit). "
+            "Anti-pattern: do NOT hand-read results files and hard-code a threshold in "
+            "a shell one-liner — use rv result assert so the predicate is hash-verified "
+            "against the recorded results_hash and logged to run state for reproducibility."
+        ),
+        "sr": "SR-PLAN-2",
+    },
     # --- SR-PLAN-1 ---
     "plan": {
         "module": "research_vault.plan.verbs",
