@@ -396,6 +396,34 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-PLAN-1",
     },
+    # --- SR-LR-1 ---
+    "review": {
+        "module": "research_vault.review.verbs",
+        "when_to_use": (
+            "When you need to conduct a structured, pre-registered, saturation-gated "
+            "literature review. Use `rv review new <project> <scope> --question '...'` "
+            "to scaffold the Phase-1 DAG (review-scope → [HG:approve-protocol] → "
+            "review-search → review-snowball → [HG:coverage-gate]) with protocol-freeze, "
+            "internal saturation loop (both forward cited-by + backward references), and "
+            "coverage-critic gates. "
+            "The `review-scope` node MUST file a `_protocol.md` with a non-empty "
+            "`counter-position` field (L-2 gate, §5L.3) — the anti-fishing structural "
+            "obligation. "
+            "After `coverage-gate` approval: run `rv review expand <project> <scope>` "
+            "to emit the Phase-2 fan-out (one `relate-<key>` node per [NEW] citekey → "
+            "`review-synthesize` → `review-coverage-critic` → `[HG:approve-review]`). "
+            "Use `rv review list <project>` to enumerate all reviews. "
+            "Use `rv review tips [--key <key>]` to inspect the review_tips seam. "
+            "Anti-pattern: do NOT hand-collect papers without `rv review new` — the "
+            "hand-run path has no `_protocol.md` freeze, no saturation curve, and no "
+            "rejects-only coverage critic (the coverage gate cannot fire without the "
+            "artifacts `rv review new` scaffolds). "
+            "Anti-pattern: do NOT call `rv research` stdout and scrape it for saturation "
+            "counts — import `_load_corpus_index` and `_corpus_annotation` from "
+            "`research_vault.research` directly (the corpus-helper import rule, §5L.11)."
+        ),
+        "sr": "SR-LR-1",
+    },
 }
 
 
