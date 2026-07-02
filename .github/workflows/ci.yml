@@ -84,3 +84,29 @@ jobs:
 
       - name: Verify all verbs have when_to_use docstrings
         run: uv run rv help --check
+
+  # ── rv lint gate ────────────────────────────────────────────────────────────
+  # Runs the project linter over the whole repo: leakage scan + config schema +
+  # verb docstring gate + test-hygiene rules (vacuous assertions, unpinned git
+  # init) + F811 redefined-while-unused check (catches shadowed def/class names
+  # in src/research_vault/ — the SR-MS-2 duplicate check_manuscript gap).
+  rv-lint:
+    name: rv lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install package
+        run: uv sync --all-extras
+
+      - name: Run rv lint (full repo)
+        run: uv run rv lint
