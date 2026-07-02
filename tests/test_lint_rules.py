@@ -31,6 +31,7 @@ from research_vault.lint import (
     check_vacuous_assertions,
     check_unpinned_git_init,
     check_redefined_while_unused,
+    check_getsource_guard,
 )
 
 
@@ -605,6 +606,219 @@ class TestRedefinedWhileUnused:
         findings = check_redefined_while_unused([f])
         assert len(findings) == 0, findings
 
+    # ------------------------------------------------------------------
+    # Decorator exemptions: @property / @setter / @singledispatch (task #16)
+    # ------------------------------------------------------------------
+
+    def test_property_setter_pair_not_flagged(self, tmp_path: Path) -> None:
+        """@property + @x.setter on the same name must NOT be flagged.
+
+        This is the canonical Python property pattern and is NOT a bug.
+        """
+        f = tmp_path / "good.py"
+        f.write_text(
+            "class Config:\n"
+            "    @property\n"
+            "    def value(self):\n"
+            "        return self._value\n"
+            "\n"
+            "    @value.setter\n"
+            "    def value(self, v):\n"
+            "        self._value = v\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_property_deleter_pair_not_flagged(self, tmp_path: Path) -> None:
+        """@property + @x.deleter on the same name must NOT be flagged."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "class Config:\n"
+            "    @property\n"
+            "    def value(self):\n"
+            "        return self._value\n"
+            "\n"
+            "    @value.deleter\n"
+            "    def value(self):\n"
+            "        del self._value\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_property_getter_form_not_flagged(self, tmp_path: Path) -> None:
+        """@x.getter (unusual but valid) on same name must NOT be flagged."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "class Config:\n"
+            "    @property\n"
+            "    def value(self):\n"
+            "        return self._value\n"
+            "\n"
+            "    @value.getter\n"
+            "    def value(self):\n"
+            "        return self._value + 1\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_property_full_chain_not_flagged(self, tmp_path: Path) -> None:
+        """@property + @x.setter + @x.deleter three-def chain must NOT be flagged."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "class Config:\n"
+            "    @property\n"
+            "    def value(self):\n"
+            "        return self._value\n"
+            "\n"
+            "    @value.setter\n"
+            "    def value(self, v):\n"
+            "        self._value = v\n"
+            "\n"
+            "    @value.deleter\n"
+            "    def value(self):\n"
+            "        del self._value\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_singledispatch_register_chain_not_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """@singledispatch + @fn.register chain must NOT be flagged."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "from functools import singledispatch\n"
+            "\n"
+            "@singledispatch\n"
+            "def process(arg):\n"
+            "    raise NotImplementedError\n"
+            "\n"
+            "@process.register\n"
+            "def process(arg: int):\n"
+            "    return arg * 2\n"
+            "\n"
+            "@process.register\n"
+            "def process(arg: str):\n"
+            "    return arg.upper()\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_functools_singledispatch_attr_form_not_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """@functools.singledispatch (attribute form) + @fn.register not flagged."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "import functools\n"
+            "\n"
+            "@functools.singledispatch\n"
+            "def dispatch(arg):\n"
+            "    raise NotImplementedError\n"
+            "\n"
+            "@dispatch.register\n"
+            "def dispatch(arg: int):\n"
+            "    return arg + 1\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_genuine_dup_with_no_exempt_decorator_still_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """A plain duplicate def with NO exemption decorator is still flagged.
+
+        The new exemptions must not create a false-negative for real shadows.
+        """
+        f = tmp_path / "bad.py"
+        f.write_text(
+            "def render(path):\n"
+            "    return 'v1'\n"
+            "\n"
+            "def render(path):  # bare duplicate — no exemption decorator\n"
+            "    return 'v2'\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 1, findings
+        assert findings[0][2] == "render"
+
+    # ------------------------------------------------------------------
+    # Control-flow block recursion (task #16)
+    # ------------------------------------------------------------------
+
+    def test_dup_def_inside_single_if_branch_is_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """Two defs of the same name inside ONE if-branch must be flagged.
+
+        Both defs are in the same statement-list (the branch body), so this
+        IS a same-scope shadow even though it's nested in an if block.
+        """
+        f = tmp_path / "bad.py"
+        f.write_text(
+            "def outer():\n"
+            "    if condition:\n"
+            "        def helper():\n"
+            "            return 1\n"
+            "        def helper():  # duplicate in same branch body\n"
+            "            return 2\n"
+            "        return helper()\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 1, findings
+        assert findings[0][2] == "helper"
+
+    def test_try_except_fallback_still_not_flagged_after_recurse(
+        self, tmp_path: Path
+    ) -> None:
+        """try/except import-fallback with same name in different branches NOT flagged.
+
+        Regression guard: the block-body recursion must preserve this exemption —
+        the two defs are in DIFFERENT statement-lists (try.body vs handler.body).
+        """
+        f = tmp_path / "good.py"
+        f.write_text(
+            "try:\n"
+            "    from fast_lib import Bar\n"
+            "except ImportError:\n"
+            "    def Bar():\n"
+            "        pass\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
+    def test_dup_def_inside_nested_compound_stmt_is_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """Duplicate def inside a nested for-loop body must be flagged."""
+        f = tmp_path / "bad.py"
+        f.write_text(
+            "for item in items:\n"
+            "    def process():\n"
+            "        return 1\n"
+            "    def process():  # duplicate within same for-body\n"
+            "        return 2\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 1, findings
+        assert findings[0][2] == "process"
+
+    def test_dup_def_split_across_if_else_not_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """Same name in if-branch vs else-branch is NOT flagged — different lists."""
+        f = tmp_path / "good.py"
+        f.write_text(
+            "if condition:\n"
+            "    def handler():\n"
+            "        return 'a'\n"
+            "else:\n"
+            "    def handler():\n"
+            "        return 'b'\n"
+        )
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, findings
+
 
 # ---------------------------------------------------------------------------
 # Integration: rv lint cmd_lint picks up F811 rule
@@ -657,6 +871,191 @@ class TestCmdLintF811Integration:
         empty_tests = tmp_path / "tests"
         empty_tests.mkdir()
         monkeypatch.setattr(lint_mod, "_TESTS_DIR", empty_tests)
+
+        cfg = _make_minimal_config(tmp_path)
+        rc = cmd_lint(cfg)
+        assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# Rule 7 — Getsource-guard smell (SR-LINT)
+# ---------------------------------------------------------------------------
+
+
+class TestGetsourceGuard:
+    """check_getsource_guard flags 'assert X in inspect.getsource(fn)' in tests.
+
+    getsource() returns comments and docstrings, not just live code, so an
+    assertion like ``assert "foo" in inspect.getsource(bar)`` passes even when
+    the live code path is dead — the string may appear in a comment.  This is
+    a smell, not a proof of vacuity, so the rule reports-and-hints rather than
+    claiming the test is always-passing.
+
+    The motivating incident: a #39 test asserted on getsource and stayed green
+    after Argus reverted the live code, because the string survived in a comment.
+    """
+
+    def test_inspect_getsource_in_assert_is_flagged(self, tmp_path: Path) -> None:
+        """assert 'X' in inspect.getsource(fn) must be flagged."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "import inspect\n"
+            "def test_check():\n"
+            '    assert "foo" in inspect.getsource(bar)\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 1, findings
+
+    def test_bare_getsource_in_assert_is_flagged(self, tmp_path: Path) -> None:
+        """assert 'X' in getsource(fn) (bare import) must be flagged."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "from inspect import getsource\n"
+            "def test_check():\n"
+            '    assert "bar" in getsource(fn)\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 1, findings
+
+    def test_getsource_not_in_assert_not_flagged(self, tmp_path: Path) -> None:
+        """getsource() outside of an assert is NOT flagged (may be legitimate use)."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "import inspect\n"
+            "def test_check():\n"
+            "    src = inspect.getsource(fn)\n"
+            "    # just reading the source for something else\n"
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 0, findings
+
+    def test_assert_without_getsource_not_flagged(self, tmp_path: Path) -> None:
+        """A normal assert with 'in' but no getsource is not flagged."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "def test_check():\n"
+            '    assert "foo" in result\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 0, findings
+
+    def test_multiple_getsource_asserts_all_reported(
+        self, tmp_path: Path
+    ) -> None:
+        """Every getsource-in-assert line in a file is reported."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "import inspect\n"
+            "def test_a():\n"
+            '    assert "x" in inspect.getsource(fn1)\n'
+            "def test_b():\n"
+            '    assert "y" in inspect.getsource(fn2)\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 2, findings
+
+    def test_multiple_files_all_scanned(self, tmp_path: Path) -> None:
+        """Findings are collected across all provided files."""
+        f1 = tmp_path / "test_a.py"
+        f1.write_text(
+            "import inspect\n"
+            'def test_x():\n    assert "a" in inspect.getsource(f)\n'
+        )
+        f2 = tmp_path / "test_b.py"
+        f2.write_text(
+            "from inspect import getsource\n"
+            'def test_y():\n    assert "b" in getsource(g)\n'
+        )
+        findings = check_getsource_guard([f1, f2])
+        assert len(findings) == 2, findings
+
+    def test_empty_file_list_passes(self) -> None:
+        """An empty file list yields no findings."""
+        findings = check_getsource_guard([])
+        assert len(findings) == 0, findings
+
+    def test_empty_file_passes(self, tmp_path: Path) -> None:
+        """An empty file has no findings."""
+        f = tmp_path / "test_empty.py"
+        f.write_text("")
+        findings = check_getsource_guard([f])
+        assert len(findings) == 0, findings
+
+    def test_findings_include_file_lineno_and_hint(
+        self, tmp_path: Path
+    ) -> None:
+        """Each finding is a (file_path, lineno, matching_line) tuple."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "import inspect\n"
+            "# line 2 comment\n"
+            'def test_x():\n    assert "z" in inspect.getsource(fn)  # line 4\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 1
+        fpath, lineno, line_text = findings[0]
+        assert str(f) in fpath
+        assert lineno == 4
+        assert "getsource" in line_text
+
+    def test_syntax_error_file_skipped_gracefully(
+        self, tmp_path: Path
+    ) -> None:
+        """A file with a SyntaxError is skipped without raising."""
+        f = tmp_path / "test_broken.py"
+        f.write_text("assert 'x' in inspect.getsource(\n")  # incomplete
+        # Should not raise
+        findings = check_getsource_guard([f])
+        assert isinstance(findings, list)
+
+
+# ---------------------------------------------------------------------------
+# Integration: rv lint cmd_lint picks up getsource-guard rule
+# ---------------------------------------------------------------------------
+
+
+class TestCmdLintGetsourceIntegration:
+    """cmd_lint runs the getsource-guard check over test files."""
+
+    def test_cmd_lint_fails_on_getsource_guard_in_tests(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cmd_lint exits 1 when a test file contains a getsource-in-assert smell."""
+        from research_vault.lint import cmd_lint
+        import research_vault.lint as lint_mod
+
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_bad.py").write_text(
+            "import inspect\n"
+            "def test_x():\n"
+            '    assert "foo" in inspect.getsource(bar)\n'
+        )
+        monkeypatch.setattr(lint_mod, "_TESTS_DIR", tests_dir)
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        monkeypatch.setattr(lint_mod, "_SRC_DIR", src_dir)
+
+        cfg = _make_minimal_config(tmp_path)
+        rc = cmd_lint(cfg)
+        assert rc == 1
+
+    def test_cmd_lint_passes_when_no_getsource_guard(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cmd_lint exits 0 when test files contain no getsource-in-assert."""
+        from research_vault.lint import cmd_lint
+        import research_vault.lint as lint_mod
+
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_good.py").write_text(
+            "def test_x():\n    assert result == expected\n"
+        )
+        monkeypatch.setattr(lint_mod, "_TESTS_DIR", tests_dir)
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        monkeypatch.setattr(lint_mod, "_SRC_DIR", src_dir)
 
         cfg = _make_minimal_config(tmp_path)
         rc = cmd_lint(cfg)
