@@ -36,6 +36,32 @@
 ### Open / next
 - Hub to open PR for `feat/sr-ccb` (human-go class: harness binding, publish-critical).
 
+## 2026-07-03 (fix/sr-ccb-wren-block — remove fabricated rv verbs; harden init post-build)
+
+### Done
+- **Wren BLOCK resolved (`b7b5233`)**: Audited ALL `rv <verb>` patterns across 9 shipped data
+  doc files (CLAUDE.md.tmpl, doctrine/roles/*.md, doctrine/*.md). Found 30+ fabricated
+  references to vault-OS tools not in the OSS package (`rv identity`, `rv gh`, `rv launch`,
+  `rv poll`, `rv approve`, `rv route`, `rv guard-engineer`, `rv hub-guard`, `rv selfcheck`,
+  `rv memory`, `rv heal`, `rv crew` as string literal, `rv devlog-check`).
+- **Fix**: replaced every fabricated pattern with a real package verb or prose rewrite that
+  avoids the `rv <verb>` form. Real package verbs used: `rv git-discipline`, `rv wt`,
+  `rv devlog check`, `rv build-agents`, `rv check`; vault-tier sections rewritten to
+  describe sbatch/gh patterns directly or conceptually.
+- **`TestShippedDocVerbAudit`** (non-vacuous): greps all `data/**/*.md` for `rv <verb>`,
+  asserts each is in `_VERB_REGISTRY | {"help"}`. Was RED (30 hits), GREEN after fixes.
+- **Argus hardening**: added post-build assertion in `rv init` that verifies exactly 6
+  `.claude/agents/*.md` files exist after auto-build. Silent zero-exit with 0 files now
+  becomes `return 1` with a loud error message.
+- CI: both new runs (push + PR) green on `b7b5233`. 48 SR-CCB tests pass.
+
+### Decisions
+- Scope of doc fixes: every `rv <verb>` in a shipped file must resolve to a real package verb
+  — not just the headline-named ones. The structural test enforces this as a CI gate.
+- Doctrine files with vault-tier sections: rewrote to describe the underlying principle +
+  the OSS-available equivalent; removed vault-OS command forms. The "Identity & rv gh" section
+  in tooling.md is now the "Identity and separation of duties" section with prose + gh examples.
+
 ## 2026-07-03 (fix/sr-ccb-cache — bypass stale _CACHE bug in rv init auto-build)
 
 ### Done
