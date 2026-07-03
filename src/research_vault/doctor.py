@@ -1,4 +1,4 @@
-"""doctor.py — `rv doctor` — capability probe: DECLARE → DISCOVER.
+"""doctor.py — `rv doctor` — principled DISCOVER → PROPOSE → CONFIRM → LEARN.
 
 When to use: ``rv doctor`` to probe and cache which capabilities are available
 in this environment — iterating each DECLARED backend from the compute manifest.
@@ -10,8 +10,28 @@ WHERE your compute is — local + optional remote cluster), THEN run ``rv doctor
 (discover WHAT is available, per declared backend). Declaration tells doctor
 where to look; doctor cannot see a cluster you haven't declared.
 
+Four-stage principled model (SR-DOCTOR-PRINCIPLED):
+  DISCOVER — inventory (what exists) + permissions (what you're ALLOWED).
+             Scheduler-clusters (ssh+slurm/ssh+pbs) get both probes.
+             Single-box (local/ssh) get direct GPU probe, no permissions probe.
+  PROPOSE  — pure deterministic ``inventory ∩ permissions → tier→partition``.
+             Cheapest-that-fits each tier; each row with a rationale string.
+             Written to ``doctor_cache.json`` under ``proposed_tiers`` (read-only suggestion).
+  CONFIRM  — ``rv doctor --propose`` writes quarantined ``tiers_proposed`` block
+             to the compute manifest (NOT the live ``tiers`` — never a silent write).
+             ``rv doctor --accept`` promotes ``tiers_proposed`` → live ``tiers``
+             only on explicit human action.
+  LEARN    — recorded ``run_outcomes`` feed back into the proposal (down-rank
+             or annotate pairings contradicted by OOM/FAILED evidence).
+
 Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what
 env/tier to use — ``rv compute show`` / ``rv doctor`` already declare it.
+
+Load-bearing principle (state this plainly):
+  ``rv doctor`` discovers facts and proposes; the human decides; outcomes teach.
+  Doctor separates what EXISTS (inventory) from what you're ALLOWED (permissions),
+  derives a SUGGESTED tier→partition mapping, and STOPS — writing a proposed block
+  the human reviews and accepts into the manifest. Never silently selects a partition.
 
 The doctor cache is stored at ``<state_dir>/doctor_cache.json`` in the
 per-backend shape: ``{backend_name: {ts, capabilities}}``. Back-compat:
@@ -19,22 +39,22 @@ flat legacy cache shape (written before SR-CO) is readable as local caps.
 NEVER written to ~/vault — only the instance state_dir.
 
 Graceful degradation: rv doctor NEVER raises a traceback when cluster CLIs
-(sinfo, sbatch, qsub, qstat, hf) are absent. It reports "not available" for
-each missing tool and exits 0. A keyless, cluster-less adopter on backend=local
-gets a fully working doctor that reports "slurm: not available".
+(sinfo, sbatch, qsub, qstat, sacctmgr, hf) are absent. It reports "not
+available" for each missing tool and exits 0. sacctmgr absent → permissions
+not available → falls back to inventory-only proposal with an honest banner.
 
 Backend archetype probes (per declared backend):
-  local       — always available; nvidia-smi for GPU detection (today's full probe)
-  ssh+slurm   — ssh probe via sinfo (scheduler-aware GPU discovery, BatchMode fail-fast)
-  ssh+pbs     — ssh probe via pbsnodes (BatchMode fail-fast)
-  ssh         — ssh probe (connectivity + uptime check, BatchMode fail-fast)
+  local       — always available; nvidia-smi for GPU detection (SR-6 probe)
+  ssh+slurm   — ssh probe via sinfo (scheduler inventory), sacctmgr/scontrol
+                (permissions probe, SLURM-first); no login-node nvidia-smi (trap)
+  ssh+pbs     — ssh probe via pbsnodes (inventory); PBS permission seam (best-effort)
+  ssh         — direct nvidia-smi over ssh (flat topology — correct for this arch);
+                NO sacctmgr (no scheduler — permissions = ssh-reachable + GPU-visible)
   generic     — runs declared probe_commands from the manifest profile (local only)
 
-Remote probe design (SR-CO-REMOTE):
-  GPU discovery uses the SCHEDULER (sinfo/pbsnodes), NOT login-node nvidia-smi.
-  Login nodes on HPC clusters typically have no GPU — nvidia-smi would false-negative.
-  BatchMode=yes + ConnectTimeout=N on every probe call ensures the probe never hangs
-  on an auth prompt or unreachable host.
+StrictHostKeyChecking=accept-new: accepts new hosts on first connect; REJECTS
+if a known host's key changes (the real MITM signal). Safer than ``no`` (which
+silently accepts key changes). Still non-interactive — automated probes never hang.
 
 Stdlib only.
 """
@@ -51,7 +71,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, load_config
-from .compute import _load_manifest
+from .compute import _load_manifest, _save_manifest
 
 # ---------------------------------------------------------------------------
 # Cache constants
@@ -192,16 +212,90 @@ def _probe_generic(probe_commands: list[str]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 # SSH options that make the probe fail-fast rather than hang:
-#   BatchMode=yes   — never prompt for password/passphrase (returns exit 255)
-#   ConnectTimeout  — bail out quickly on unreachable hosts
+#   BatchMode=yes        — never prompt for password/passphrase (returns exit 255)
+#   ConnectTimeout       — bail out quickly on unreachable hosts
+#   StrictHostKeyChecking=accept-new — accepts new hosts on first connect BUT
+#     REJECTS if a known host's key changes (the real MITM signal). Safer
+#     than "no" (which silently accepts any key change). Still non-interactive
+#     for automated probes — the probe never hangs waiting for user input.
 _SSH_PROBE_OPTS: list[str] = [
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=10",
-    "-o", "StrictHostKeyChecking=no",
+    "-o", "StrictHostKeyChecking=accept-new",
 ]
 
 # Archetypes that are remote (require an ssh connection to probe meaningfully).
 _REMOTE_ARCHETYPES = frozenset({"ssh", "ssh+slurm", "ssh+pbs"})
+
+
+def _ssh_probe_call(
+    host: str,
+    argv: list[str],
+    archetype: str,
+    *,
+    timeout: int = 20,
+) -> "subprocess.CompletedProcess[str] | dict[str, Any]":
+    """Run an ssh probe call, handling the shared error ladder.
+
+    This is the single SSOT for the ssh-error handling in all remote probers
+    (prereq refactor — SR-DOCTOR-PRINCIPLED). Routes the common
+    FileNotFoundError / TimeoutExpired / OSError / exit-255 → unreachable-caps
+    ladder so each prober calls this once and checks the return type.
+
+    Returns:
+      ``subprocess.CompletedProcess`` on successful TCP connection (caller
+        must still check ``returncode`` for scheduler-level errors).
+      ``dict`` with ``probe_status="unreachable"`` on connection failure —
+        the caller should return this dict directly.
+
+    Never raises — all errors are captured and reported as unreachable.
+    """
+    from .adapters.remote import _ssh_exec
+    try:
+        result = _ssh_exec(host, argv, timeout=timeout)
+    except FileNotFoundError:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": "ssh binary not found — install openssh-client",
+            "host": host,
+            "archetype": archetype,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": (
+                f"ssh to '{host}' timed out — "
+                "check your ~/.ssh/config / host alias or network connectivity"
+            ),
+            "host": host,
+            "archetype": archetype,
+        }
+    except OSError as exc:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": str(exc),
+            "host": host,
+            "archetype": archetype,
+        }
+
+    # ssh exit 255 = connection refused / auth failure (before scheduler runs)
+    if result.returncode == 255:
+        stderr_snip = (result.stderr or "")[:200]
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": (
+                f"ssh to '{host}' failed (exit 255 — likely auth or connection refused): "
+                f"{stderr_snip}"
+            ),
+            "host": host,
+            "archetype": archetype,
+        }
+
+    return result
 
 
 def _parse_sinfo_output(stdout: str) -> dict[str, Any]:
@@ -257,65 +351,421 @@ def _parse_sinfo_output(stdout: str) -> dict[str, Any]:
     }
 
 
-def _probe_remote_slurm(host: str, backend_name: str) -> dict[str, Any]:
-    """Probe an ssh+slurm backend via ``sinfo``.
+# ---------------------------------------------------------------------------
+# Permissions parse helpers (Stage 1b — SLURM)
+# ---------------------------------------------------------------------------
 
-    Uses BatchMode=yes + ConnectTimeout so the probe never hangs on an
-    unconfigured host or auth prompt.  GPU discovery goes through the
-    scheduler (sinfo GRES), NOT login-node nvidia-smi — login nodes on
-    HPC clusters are typically GPU-less, so nvidia-smi would false-negative.
+def _parse_sacctmgr_assoc(stdout: str) -> list[dict[str, str]]:
+    """Parse ``sacctmgr -P show assoc`` parsable2 output.
+
+    The parsable2 format (``-P``) uses ``|`` as delimiter, first line = header.
+    Returns a list of dicts mapping column names to values.
+    Never raises — bad lines are skipped.
+    """
+    lines = [ln for ln in stdout.splitlines() if ln.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split("|")]
+    result: list[dict[str, str]] = []
+    for line in lines[1:]:
+        values = [v.strip() for v in line.split("|")]
+        if len(values) < len(header):
+            # Pad to header length
+            values += [""] * (len(header) - len(values))
+        result.append(dict(zip(header, values)))
+    return result
+
+
+def _parse_sacctmgr_qos(stdout: str) -> dict[str, dict[str, str]]:
+    """Parse ``sacctmgr -P show qos`` parsable2 output.
+
+    Returns ``{qos_name: {MaxWall, MaxTRESPU, MaxJobsPU, MaxSubmitPU, ...}}``.
+    """
+    rows = _parse_sacctmgr_assoc(stdout)  # same parsable2 format
+    return {r.get("Name", ""): r for r in rows if r.get("Name")}
+
+
+def _parse_scontrol_partitions(stdout: str) -> dict[str, dict[str, str]]:
+    """Parse ``scontrol show partition`` output into a per-partition dict.
+
+    Each partition block starts with ``PartitionName=<name>``.
+    Extracts ``AllowAccounts``, ``AllowQos``, ``DenyQos``, ``MaxTime``.
+    Returns ``{partition_name: {AllowAccounts, AllowQos, DenyQos, MaxTime}}``.
+    """
+    result: dict[str, dict[str, str]] = {}
+    current: dict[str, str] = {}
+    current_name: str = ""
+
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            if current_name:
+                result[current_name] = current
+            current = {}
+            current_name = ""
+            continue
+        # Each token is key=value; multiple tokens per line
+        for token in line.split():
+            if "=" not in token:
+                continue
+            k, _, v = token.partition("=")
+            k = k.strip()
+            v = v.strip()
+            if k == "PartitionName":
+                if current_name:
+                    result[current_name] = current
+                current_name = v
+                current = {}
+            elif k in ("AllowAccounts", "AllowQos", "DenyQos", "MaxTime", "DefaultTime"):
+                current[k] = v
+
+    # Flush last block
+    if current_name:
+        result[current_name] = current
+
+    return result
+
+
+def _probe_permissions_slurm(host: str) -> dict[str, Any]:
+    """Probe SLURM permissions: sacctmgr (associations + QOS) + scontrol show partition.
+
+    Rides the same ``_ssh_probe_call`` / ``_SSH_PROBE_OPTS`` SSOT as the
+    inventory probe. Graceful degrade: sacctmgr absent / accounting not
+    configured → ``{"available": False, "reason": "..."}`` → caller falls back
+    to inventory-only proposal with an explicit banner (charter §2).
+
+    Returns a permissions block::
+
+        {
+            "available": True,
+            "associations": [...],        # per sacctmgr show assoc
+            "qos": {...},                 # per sacctmgr show qos
+            "partition_acls": {...},      # per scontrol show partition
+            "allowed_partitions": [...],  # partitions user can submit to
+            "forbidden_partitions": [...] # partitions discovered but access denied
+        }
+
+    or on failure::
+
+        {"available": False, "reason": "<why>"}
+    """
+    import os
+    user = os.environ.get("USER", os.environ.get("LOGNAME", ""))
+
+    # 1. sacctmgr show assoc
+    assoc_argv = _SSH_PROBE_OPTS + [
+        "sacctmgr", "-P", "show", "assoc",
+        f"user={user}",
+        "format=Account,Partition,QOS,GrpTRES,MaxWall,MaxTRES",
+    ]
+    assoc_result = _ssh_probe_call(host, assoc_argv, "ssh+slurm", timeout=20)
+    if isinstance(assoc_result, dict):
+        # Connection failed (already caught by inventory probe, but handle defensively)
+        return {"available": False, "reason": f"ssh failed: {assoc_result.get('reason', '?')}"}
+
+    if assoc_result.returncode != 0:
+        stderr_snip = (assoc_result.stderr or "")[:200]
+        return {
+            "available": False,
+            "reason": (
+                f"sacctmgr returned exit {assoc_result.returncode}: {stderr_snip} — "
+                "accounting may not be configured; proposal is inventory-only"
+            ),
+        }
+
+    associations = _parse_sacctmgr_assoc(assoc_result.stdout or "")
+
+    # 2. sacctmgr show qos
+    qos_argv = _SSH_PROBE_OPTS + [
+        "sacctmgr", "-P", "show", "qos",
+        "format=Name,MaxWall,MaxTRESPU,MaxJobsPU,MaxSubmitPU",
+    ]
+    qos_result = _ssh_probe_call(host, qos_argv, "ssh+slurm", timeout=20)
+    qos_map: dict[str, dict[str, str]] = {}
+    if not isinstance(qos_result, dict) and qos_result.returncode == 0:
+        qos_map = _parse_sacctmgr_qos(qos_result.stdout or "")
+
+    # 3. scontrol show partition
+    scontrol_argv = _SSH_PROBE_OPTS + ["scontrol", "show", "partition"]
+    scontrol_result = _ssh_probe_call(host, scontrol_argv, "ssh+slurm", timeout=20)
+    partition_acls: dict[str, dict[str, str]] = {}
+    if not isinstance(scontrol_result, dict) and scontrol_result.returncode == 0:
+        partition_acls = _parse_scontrol_partitions(scontrol_result.stdout or "")
+
+    # Build allowed / forbidden sets from associations + ACL cross-check
+    # A partition is ALLOWED if the user's account/QOS appears in AllowAccounts/AllowQos
+    # (or AllowAccounts=ALL). A partition not in associations is not proposed.
+    assoc_partitions: set[str] = {
+        a.get("Partition", "") for a in associations if a.get("Partition")
+    }
+    assoc_accounts: set[str] = {
+        a.get("Account", "") for a in associations if a.get("Account")
+    }
+
+    allowed_partitions: list[str] = []
+    forbidden_partitions: list[dict[str, str]] = []
+
+    for part_name, acl in partition_acls.items():
+        allow_accounts = acl.get("AllowAccounts", "ALL")
+        if allow_accounts in ("ALL", ""):
+            # Partition allows all accounts — user is allowed if they have an assoc
+            if part_name in assoc_partitions or not assoc_partitions:
+                allowed_partitions.append(part_name)
+            else:
+                forbidden_partitions.append({
+                    "partition": part_name,
+                    "reason": f"not in user associations (assoc partitions: {sorted(assoc_partitions)})",
+                })
+        else:
+            # Partition restricts to specific accounts
+            acl_accts = {a.strip() for a in allow_accounts.split(",")}
+            if assoc_accounts & acl_accts:
+                allowed_partitions.append(part_name)
+            else:
+                forbidden_partitions.append({
+                    "partition": part_name,
+                    "reason": (
+                        f"AllowAccounts={allow_accounts} excludes user accounts "
+                        f"{sorted(assoc_accounts) or ['(none found)']}"
+                    ),
+                })
+
+    # Partitions in assoc but NOT in scontrol output — still allowed per sacctmgr
+    scontrol_parts = set(partition_acls.keys())
+    for p in assoc_partitions:
+        if p and p not in scontrol_parts and p not in allowed_partitions:
+            allowed_partitions.append(p)
+
+    return {
+        "available": True,
+        "associations": associations,
+        "qos": qos_map,
+        "partition_acls": partition_acls,
+        "allowed_partitions": sorted(set(allowed_partitions)),
+        "forbidden_partitions": forbidden_partitions,
+    }
+
+
+# ---------------------------------------------------------------------------
+# PROPOSE — Stage 2: inventory ∩ permissions → tier→partition (pure function)
+# ---------------------------------------------------------------------------
+
+def _gres_gpu_count(gpu_gres: str) -> int:
+    """Extract GPU count from a GRES string like ``gpu:a100:4`` or ``gpu:2``.
+
+    Returns 0 for ``(null)`` or unparseable GRES.
+    """
+    if not gpu_gres or gpu_gres == "(null)" or not gpu_gres.startswith("gpu:"):
+        return 0
+    parts = gpu_gres.split(":")
+    # gpu:<type>:<count>  or  gpu:<count>
+    try:
+        return int(parts[-1])
+    except (ValueError, IndexError):
+        return 0
+
+
+def _propose_tiers(
+    partitions: list[dict[str, Any]],
+    permissions: dict[str, Any] | None,
+    gpu_tiers: dict[str, Any],
+    run_outcomes: list[dict[str, Any]],
+    lessons: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Pure deterministic function: inventory ∩ permissions → tier→partition proposal.
+
+    Cheapest-that-fits: for each tier, pick the allowed partition with the
+    smallest GPU count that meets the tier's GPU requirement. Never picks
+    a forbidden partition. Surfaces unmapped tiers with a reason.
+
+    LEARN integration: run_outcomes annotate contradicted pairings (OOM/FAILED).
+    lesson rules surface inline when their trigger matches a proposed partition.
+
+    Args:
+      partitions: list of partition dicts from sinfo parse (inventory).
+      permissions: dict from _probe_permissions_slurm, or None if unavailable.
+      gpu_tiers: from compute manifest (e.g. {"tp1": {"gpus": 1, ...}}).
+      run_outcomes: from compute manifest (e.g. [{"tier": "tp1", "result": "OOM", ...}]).
+      lessons: from compute manifest rules (e.g. [{"trigger": "...", "fix": "..."}]).
+
+    Returns::
+
+        {
+            "mapping": {
+                "tp1": {
+                    "partition": "gpu-short",
+                    "rationale": "gpu-short [A100×4 GRES · ...",
+                    "warnings": []   # OOM/FAILED outcomes or lesson matches
+                },
+                "tp2": {
+                    "partition": None,
+                    "rationale": "no allowed partition has ≥2 GPUs; nearest is gpu-priority (forbidden)",
+                    "warnings": []
+                }
+            },
+            "permissions_available": True,
+            "inventory_only": False   # True when falling back to inventory-only
+        }
+    """
+    # Determine allowed partitions
+    permissions_available = False
+    inventory_only = False
+    allowed_set: set[str] | None = None  # None = no filter (inventory-only fallback)
+
+    if permissions and permissions.get("available"):
+        permissions_available = True
+        allowed_set = set(permissions.get("allowed_partitions", []))
+    else:
+        inventory_only = True  # sacctmgr absent or unavailable
+
+    # Build OOM index: {(tier, partition): ["OOM on <ts>", ...]}
+    oom_index: dict[tuple[str, str], list[str]] = {}
+    for outcome in run_outcomes:
+        tier_k = outcome.get("tier", "")
+        part_k = outcome.get("partition", "")
+        res = outcome.get("result", "")
+        if res in ("OOM", "FAILED") and tier_k and part_k:
+            key = (tier_k, part_k)
+            oom_index.setdefault(key, [])
+            ts = outcome.get("ts", "")
+            oom_index[key].append(f"{res} on {ts}" if ts else res)
+
+    # Sort partitions by GPU count ascending (cheapest-first)
+    def _sort_key(p: dict[str, Any]) -> int:
+        return _gres_gpu_count(p.get("gpu_gres", "(null)"))
+
+    sorted_parts = sorted(partitions, key=_sort_key)
+
+    mapping: dict[str, Any] = {}
+
+    for tier_name, tier_info in gpu_tiers.items():
+        required_gpus: int = tier_info.get("gpus", 0)
+        models: list[str] = tier_info.get("models", [])
+        models_str = ", ".join(models) if models else "?"
+
+        # Find cheapest allowed partition that meets GPU requirement
+        best_partition: str | None = None
+        best_gres: str = ""
+        best_count: int = 0
+
+        # Also track nearest forbidden partition for unmapped reason
+        nearest_forbidden: str | None = None
+        nearest_forbidden_gres: str = ""
+
+        for p in sorted_parts:
+            pname = p.get("partition", "")
+            gres = p.get("gpu_gres", "(null)")
+            gpu_count = _gres_gpu_count(gres)
+            if gpu_count < required_gpus:
+                continue
+            # Meets GPU requirement — check allowed
+            if allowed_set is not None and pname not in allowed_set:
+                # Track nearest forbidden
+                if nearest_forbidden is None:
+                    nearest_forbidden = pname
+                    nearest_forbidden_gres = gres
+                continue
+            # This partition fits and is allowed
+            best_partition = pname
+            best_gres = gres
+            best_count = gpu_count
+            break
+
+        warnings: list[str] = []
+
+        if best_partition is None:
+            # No allowed partition fits
+            if nearest_forbidden:
+                reason = (
+                    f"no allowed partition has ≥{required_gpus} GPU(s); "
+                    f"nearest is {nearest_forbidden} [{nearest_forbidden_gres}] — forbidden"
+                )
+            elif required_gpus == 0:
+                reason = "tier has gpus=0 — no GPU partition needed (CPU-only tier?)"
+            else:
+                reason = (
+                    f"no partition found with ≥{required_gpus} GPU(s) in inventory"
+                )
+            mapping[tier_name] = {
+                "partition": None,
+                "rationale": reason,
+                "warnings": warnings,
+            }
+            continue
+
+        # Build rationale
+        assoc_info = ""
+        if permissions_available and permissions:
+            # Find matching association for this partition
+            assoc_list = permissions.get("associations", [])
+            matching = [
+                a for a in assoc_list
+                if a.get("Partition") == best_partition or a.get("Partition") == ""
+            ]
+            if matching:
+                a = matching[0]
+                acct = a.get("Account", "")
+                qos = a.get("QOS", "")
+                maxwall = a.get("MaxWall", "")
+                assoc_info = f" · account {acct}/qos {qos}"
+                if maxwall:
+                    assoc_info += f" · MaxWall {maxwall}"
+            elif not assoc_info:
+                assoc_info = " · (allowed per AllowAccounts/AllowQos)"
+
+        rationale = (
+            f"{best_partition} [{best_gres}×{best_count} · {models_str}{assoc_info}]"
+        )
+
+        # LEARN: check outcomes for OOM/FAILED on this pairing
+        outcome_warns = oom_index.get((tier_name, best_partition), [])
+        for ow in outcome_warns:
+            warnings.append(
+                f"⚠ {best_partition} had {ow} for {tier_name} — consider a larger partition"
+            )
+
+        # LEARN: check lesson rules for trigger matches
+        for lesson in lessons:
+            trigger = lesson.get("trigger", "")
+            fix = lesson.get("fix", "")
+            if trigger and best_partition and trigger.lower() in best_partition.lower():
+                warnings.append(f"lesson: {trigger} → {fix}")
+
+        mapping[tier_name] = {
+            "partition": best_partition,
+            "rationale": rationale,
+            "warnings": warnings,
+        }
+
+    return {
+        "mapping": mapping,
+        "permissions_available": permissions_available,
+        "inventory_only": inventory_only,
+    }
+
+
+def _probe_remote_slurm(host: str, backend_name: str) -> dict[str, Any]:
+    """Probe an ssh+slurm backend: inventory (sinfo) + permissions (sacctmgr/scontrol).
+
+    Uses BatchMode=yes + ConnectTimeout (via _ssh_probe_call) so the probe
+    never hangs. GPU discovery goes through the scheduler (sinfo GRES), NOT
+    login-node nvidia-smi — login nodes on HPC clusters are typically GPU-less.
+
+    DISCOVER bifurcation (scheduler-cluster path):
+      1a. Inventory: sinfo --format=%P %G %D  (what partitions/GPUs EXIST)
+      1b. Permissions: sacctmgr + scontrol    (what you're ALLOWED to submit)
 
     Returns a capabilities dict with one of:
-      probe_status="ok"             — reachable, sinfo ran
-      probe_status="scheduler_error"— reachable but sinfo returned non-zero
-      probe_status="unreachable"    — ssh failed (timeout, auth, not found)
+      probe_status="ok"              — reachable, sinfo ran; permissions sub-block present
+      probe_status="scheduler_error" — reachable but sinfo returned non-zero
+      probe_status="unreachable"     — ssh failed (timeout, auth, not found)
     """
-    from .adapters.remote import _ssh_exec
-
     sinfo_argv = _SSH_PROBE_OPTS + ["sinfo", "--format=%P %G %D", "--noheader"]
-    try:
-        result = _ssh_exec(host, sinfo_argv, timeout=20)
-    except FileNotFoundError:
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": "ssh binary not found — install openssh-client",
-            "host": host,
-            "archetype": "ssh+slurm",
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": (
-                f"ssh to '{host}' timed out — "
-                "check your ~/.ssh/config / host alias or network connectivity"
-            ),
-            "host": host,
-            "archetype": "ssh+slurm",
-        }
-    except OSError as exc:
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": str(exc),
-            "host": host,
-            "archetype": "ssh+slurm",
-        }
+    result = _ssh_probe_call(host, sinfo_argv, "ssh+slurm", timeout=20)
 
-    # ssh exit 255 = connection refused / auth failure
-    if result.returncode == 255:
-        stderr_snip = (result.stderr or "")[:200]
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": (
-                f"ssh to '{host}' failed (exit 255 — likely auth or connection refused): "
-                f"{stderr_snip}"
-            ),
-            "host": host,
-            "archetype": "ssh+slurm",
-        }
+    # Connection failure — return the unreachable dict directly
+    if isinstance(result, dict):
+        return result
 
     if result.returncode != 0:
         stderr_snip = (result.stderr or "")[:200]
@@ -330,7 +780,8 @@ def _probe_remote_slurm(host: str, backend_name: str) -> dict[str, Any]:
         }
 
     parsed = _parse_sinfo_output(result.stdout or "")
-    return {
+
+    caps: dict[str, Any] = {
         "probe_status": "ok",
         "reachable": True,
         "host": host,
@@ -339,59 +790,30 @@ def _probe_remote_slurm(host: str, backend_name: str) -> dict[str, Any]:
         "gpu_types": parsed["gpu_types"],
     }
 
+    # 1b — Permissions probe (SLURM-first; best-effort — graceful degrade on absence)
+    caps["permissions"] = _probe_permissions_slurm(host)
+
+    return caps
+
 
 def _probe_remote_pbs(host: str, backend_name: str) -> dict[str, Any]:
     """Probe an ssh+pbs backend via ``pbsnodes -a``.
 
-    Uses BatchMode=yes + ConnectTimeout so the probe never hangs.
-    Returns a capabilities dict with probe_status in
+    Uses BatchMode=yes + ConnectTimeout (via _ssh_probe_call) so the probe
+    never hangs. Returns a capabilities dict with probe_status in
     ("ok", "scheduler_error", "unreachable").
+
+    PBS permission probe seam: qstat -Qf + qmgr are designed but not yet
+    implemented. The permissions block is set to
+    {"available": False, "reason": "PBS permission probe: not yet implemented"}.
+    PBS clusters get inventory-only proposals until the seam is filled.
     """
-    from .adapters.remote import _ssh_exec
-
     pbs_argv = _SSH_PROBE_OPTS + ["pbsnodes", "-a"]
-    try:
-        result = _ssh_exec(host, pbs_argv, timeout=20)
-    except FileNotFoundError:
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": "ssh binary not found — install openssh-client",
-            "host": host,
-            "archetype": "ssh+pbs",
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": (
-                f"ssh to '{host}' timed out — "
-                "check your ~/.ssh/config / host alias or network connectivity"
-            ),
-            "host": host,
-            "archetype": "ssh+pbs",
-        }
-    except OSError as exc:
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": str(exc),
-            "host": host,
-            "archetype": "ssh+pbs",
-        }
+    result = _ssh_probe_call(host, pbs_argv, "ssh+pbs", timeout=20)
 
-    if result.returncode == 255:
-        stderr_snip = (result.stderr or "")[:200]
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": (
-                f"ssh to '{host}' failed (exit 255 — likely auth or connection refused): "
-                f"{stderr_snip}"
-            ),
-            "host": host,
-            "archetype": "ssh+pbs",
-        }
+    # Connection failure — return the unreachable dict directly
+    if isinstance(result, dict):
+        return result
 
     if result.returncode != 0:
         stderr_snip = (result.stderr or "")[:200]
@@ -410,46 +832,35 @@ def _probe_remote_pbs(host: str, backend_name: str) -> dict[str, Any]:
         "host": host,
         "archetype": "ssh+pbs",
         "raw_output": (result.stdout or "")[:1000],
+        # PBS permission probe seam — qstat -Qf / qmgr acl_users: not yet implemented.
+        # PBS clusters get inventory-only proposals. Fill this seam to enable full
+        # permissions-aware proposals for PBS (SLURM-first per §5DOC boundary).
+        "permissions": {
+            "available": False,
+            "reason": "PBS permission probe: not yet implemented",
+        },
     }
 
 
 def _probe_remote_ssh(host: str, backend_name: str) -> dict[str, Any]:
-    """Probe a plain ssh backend (connectivity check via 'true').
+    """Probe a plain ssh (single-box) backend: connectivity + direct nvidia-smi.
 
-    Uses BatchMode=yes + ConnectTimeout so the probe never hangs.
+    Uses BatchMode=yes + ConnectTimeout (via _ssh_probe_call) so the probe
+    never hangs. This archetype is FLAT TOPOLOGY — the box you ssh into IS
+    the compute node; direct nvidia-smi over ssh is CORRECT here (no trap).
+
+    Correctness guard: this archetype must NOT run sacctmgr/scontrol (there is
+    no scheduler on a single ssh box). Permissions = ssh-reachable + GPU-visible.
+    The login-node nvidia-smi avoidance rule is slurm/pbs-specific; it must NOT
+    leak to this archetype.
     """
-    from .adapters.remote import _ssh_exec
-
+    # Step 1: connectivity check
     check_argv = _SSH_PROBE_OPTS + ["true"]
-    try:
-        result = _ssh_exec(host, check_argv, timeout=15)
-    except FileNotFoundError:
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": "ssh binary not found — install openssh-client",
-            "host": host,
-            "archetype": "ssh",
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": (
-                f"ssh to '{host}' timed out — "
-                "check your ~/.ssh/config / host alias or network connectivity"
-            ),
-            "host": host,
-            "archetype": "ssh",
-        }
-    except OSError as exc:
-        return {
-            "probe_status": "unreachable",
-            "reachable": False,
-            "reason": str(exc),
-            "host": host,
-            "archetype": "ssh",
-        }
+    result = _ssh_probe_call(host, check_argv, "ssh", timeout=15)
+
+    # Connection failure — return the unreachable dict directly
+    if isinstance(result, dict):
+        return result
 
     if result.returncode != 0:
         stderr_snip = (result.stderr or "")[:200]
@@ -461,11 +872,29 @@ def _probe_remote_ssh(host: str, backend_name: str) -> dict[str, Any]:
             "archetype": "ssh",
         }
 
+    # Step 2: direct nvidia-smi over ssh (correct for flat single-box topology)
+    # NOT sacctmgr — there is no scheduler; permissions = GPU-visible
+    nvidia_argv = _SSH_PROBE_OPTS + [
+        "nvidia-smi", "--query-gpu=name", "--format=csv,noheader"
+    ]
+    nvidia_result = _ssh_probe_call(host, nvidia_argv, "ssh", timeout=15)
+
+    gpu_info: dict[str, Any] = {"available": False, "reason": "nvidia-smi probe failed"}
+    if not isinstance(nvidia_result, dict) and nvidia_result.returncode == 0:
+        gpus = [g.strip() for g in (nvidia_result.stdout or "").splitlines() if g.strip()]
+        gpu_info = {"available": True, "count": len(gpus), "names": gpus}
+    elif not isinstance(nvidia_result, dict):
+        gpu_info = {
+            "available": False,
+            "reason": f"nvidia-smi exited {nvidia_result.returncode}",
+        }
+
     return {
         "probe_status": "ok",
         "reachable": True,
         "host": host,
         "archetype": "ssh",
+        "gpu_info": gpu_info,
     }
 
 
@@ -907,19 +1336,261 @@ def _format_remote_caps(backend_name: str, caps: dict[str, Any]) -> list[str]:
             lines.append(f"  GPU types (via sinfo): {', '.join(gpu_types)}")
         else:
             lines.append("  GPU types: none found in sinfo (CPU-only cluster or no GPU GRES)")
+        # Permissions summary
+        perms = caps.get("permissions", {})
+        if perms.get("available"):
+            allowed = perms.get("allowed_partitions", [])
+            forbidden = perms.get("forbidden_partitions", [])
+            lines.append(f"  Permissions: {len(allowed)} allowed partition(s), "
+                         f"{len(forbidden)} forbidden")
+            for ap in allowed[:6]:
+                lines.append(f"    [allowed] {ap}")
+            if len(allowed) > 6:
+                lines.append(f"    ... ({len(allowed) - 6} more)")
+            for fp in forbidden[:4]:
+                pname = fp.get("partition", "?")
+                reason = fp.get("reason", "?")
+                lines.append(f"    [forbidden] {pname}: {reason}")
+        else:
+            reason = perms.get("reason", "sacctmgr not available")
+            lines.append(f"  Permissions: not available — {reason}")
+            lines.append(
+                "  WARNING: proposal is inventory-only — verify access before submitting"
+            )
     elif archetype == "ssh+pbs":
         lines.append("  PBS/Torque: reachable (pbsnodes successful)")
         raw = caps.get("raw_output", "")
         if raw:
             preview = raw[:200].replace("\n", " ")
             lines.append(f"  pbsnodes preview: {preview}")
+        lines.append("  Permissions: PBS permission probe not yet implemented (inventory-only)")
     elif archetype == "ssh":
         lines.append("  Plain ssh: connectivity confirmed")
+        gpu_info = caps.get("gpu_info", {})
+        if gpu_info.get("available"):
+            count = gpu_info.get("count", 0)
+            names = ", ".join(gpu_info.get("names", [])[:3])
+            lines.append(f"  GPU (nvidia-smi over ssh): {count} device(s) — {names}")
+        else:
+            reason = gpu_info.get("reason", "nvidia-smi not found")
+            lines.append(f"  GPU (nvidia-smi over ssh): not available — {reason}")
     else:
         # Generic remote archetype — just confirm reachable
-        lines.append(f"  Remote probe: reachable")
+        lines.append("  Remote probe: reachable")
 
     return lines
+
+
+# ---------------------------------------------------------------------------
+# CONFIRM — Stage 3: quarantined tiers_proposed + --accept promotion
+# ---------------------------------------------------------------------------
+
+def _build_proposal(cfg: Config) -> dict[str, Any] | None:
+    """Build a tier-partition proposal from the current doctor cache + manifest.
+
+    Returns a proposal dict (from ``_propose_tiers``) or None if no suitable
+    scheduler-cluster backend is found or no inventory data available.
+
+    Reads: doctor cache (inventory + permissions), compute manifest (gpu_tiers,
+    run_outcomes, rules).
+    """
+    cache = _read_cache(cfg)
+    if cache is None:
+        return None
+
+    manifest = _load_manifest(cfg)
+    gpu_tiers: dict[str, Any] = manifest.get("gpu_tiers", {})
+    if not gpu_tiers:
+        return None
+
+    run_outcomes: list[dict[str, Any]] = manifest.get("run_outcomes", [])
+    lessons: list[dict[str, Any]] = manifest.get("rules", [])
+
+    # Find the first ssh+slurm backend with a successful probe
+    backends = cache.get("backends", {})
+    for _backend_name, entry in backends.items():
+        caps = entry.get("capabilities", entry)
+        if (
+            caps.get("probe_status") == "ok"
+            and caps.get("archetype") == "ssh+slurm"
+        ):
+            partitions = caps.get("partitions", [])
+            permissions = caps.get("permissions")
+            return _propose_tiers(
+                partitions=partitions,
+                permissions=permissions,
+                gpu_tiers=gpu_tiers,
+                run_outcomes=run_outcomes,
+                lessons=lessons,
+            )
+
+    return None
+
+
+def format_proposal_report(proposal: dict[str, Any]) -> str:
+    """Format a proposal from ``_propose_tiers`` into a human-readable string.
+
+    Includes rationale and warnings (OOM/lesson matches) for each tier.
+    """
+    lines: list[str] = ["=== rv doctor — proposed tier mapping ===", ""]
+
+    inventory_only = proposal.get("inventory_only", False)
+    if inventory_only:
+        lines.append(
+            "  WARNING: permissions not available (sacctmgr absent or no accounting DB)."
+        )
+        lines.append(
+            "  Proposal is INVENTORY-ONLY — verify access before submitting."
+        )
+        lines.append("")
+
+    mapping = proposal.get("mapping", {})
+    if not mapping:
+        lines.append("  No GPU tiers declared in compute manifest — nothing to propose.")
+        lines.append("  Run `rv compute init` and declare gpu_tiers first.")
+        lines.append("")
+        return "\n".join(lines)
+
+    for tier_name, row in mapping.items():
+        partition = row.get("partition")
+        rationale = row.get("rationale", "")
+        warnings = row.get("warnings", [])
+        if partition:
+            lines.append(f"  {tier_name} -> {partition}")
+            lines.append(f"    rationale: {rationale}")
+        else:
+            lines.append(f"  {tier_name} -> UNMAPPED")
+            lines.append(f"    reason: {rationale}")
+        for w in warnings:
+            lines.append(f"    {w}")
+
+    lines.append("")
+    lines.append(
+        "  Run `rv doctor --propose` to write this as a reviewable draft "
+        "(tiers_proposed in the manifest)."
+    )
+    lines.append(
+        "  Then edit as needed and run `rv doctor --accept` to make it live."
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def cmd_doctor_propose(cfg: Config) -> int:
+    """Stage 3 -- write quarantined tiers_proposed block to the compute manifest.
+
+    This is the ``rv doctor --propose`` action. The proposal is written under
+    ``tiers_proposed`` in the compute manifest (NOT the live ``tiers``).
+    Never silently touches ``tiers`` -- the live mapping requires ``--accept``.
+
+    Non-TTY-safe: no blocking prompt.
+    """
+    proposal = _build_proposal(cfg)
+    if proposal is None:
+        print(
+            "rv doctor --propose: no scheduler-cluster backend with probe data found.\n"
+            "Run `rv doctor --refresh` first to discover inventory + permissions.",
+            file=sys.stderr,
+        )
+        return 1
+
+    ts = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+    manifest = _load_manifest(cfg)
+
+    proposed_block: dict[str, Any] = {
+        "status": "proposed",
+        "source": f"rv doctor --propose {ts}",
+        "mapping": proposal.get("mapping", {}),
+        "inventory_only": proposal.get("inventory_only", False),
+        "permissions_available": proposal.get("permissions_available", False),
+    }
+    manifest["tiers_proposed"] = proposed_block
+    _save_manifest(cfg, manifest)
+
+    print("Proposed tier mapping written to `tiers_proposed` in the compute manifest.")
+    print("Review it, edit as needed, then run `rv doctor --accept` to make it live.")
+    print("")
+    print(format_proposal_report(proposal))
+    return 0
+
+
+def cmd_doctor_accept(cfg: Config) -> int:
+    """Stage 3 -- promote tiers_proposed to live tiers in the compute manifest.
+
+    This is the ``rv doctor --accept`` action. Shows a diff of what will change,
+    then promotes ``tiers_proposed`` -> ``tiers``, stamps accepted, clears proposed.
+
+    Non-TTY-safe: no blocking prompt. Only path by which a discovered mapping
+    becomes live -- never auto-called by plain ``rv doctor``.
+    """
+    manifest = _load_manifest(cfg)
+    proposed = manifest.get("tiers_proposed")
+
+    if not proposed:
+        print(
+            "rv doctor --accept: no tiers_proposed found in the compute manifest.\n"
+            "Run `rv doctor --propose` first to create a draft.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if proposed.get("status") == "accepted":
+        print("rv doctor --accept: tiers_proposed is already accepted. Nothing to do.")
+        return 0
+
+    mapping: dict[str, Any] = proposed.get("mapping", {})
+    if not mapping:
+        print(
+            "rv doctor --accept: tiers_proposed.mapping is empty -- nothing to accept.",
+            file=sys.stderr,
+        )
+        return 1
+
+    existing_tiers = manifest.get("tiers", {})
+
+    # Show diff
+    print("=== rv doctor --accept: diff ===")
+    print("")
+    for tier_name, row in mapping.items():
+        partition = row.get("partition")
+        old_partition = existing_tiers.get(tier_name, {}).get("partition")
+        if partition:
+            if old_partition and old_partition != partition:
+                print(f"  {tier_name}: {old_partition} -> {partition}  (changed)")
+            elif old_partition == partition:
+                print(f"  {tier_name}: {partition}  (unchanged)")
+            else:
+                print(f"  {tier_name}: (new) -> {partition}")
+        else:
+            print(f"  {tier_name}: UNMAPPED -- skipping")
+    print("")
+
+    # Promote: build the live tiers dict from the accepted mapping
+    ts = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+    new_tiers: dict[str, Any] = dict(existing_tiers)
+    for tier_name, row in mapping.items():
+        partition = row.get("partition")
+        if partition:
+            new_tiers[tier_name] = {
+                "partition": partition,
+                "rationale": row.get("rationale", ""),
+                "source": f"rv doctor --accept {ts}",
+            }
+
+    manifest["tiers"] = new_tiers
+
+    # Stamp the proposed block as accepted and clear the mapping
+    manifest["tiers_proposed"] = {
+        "status": "accepted",
+        "accepted_ts": ts,
+        "source": proposed.get("source", ""),
+    }
+
+    _save_manifest(cfg, manifest)
+
+    print(f"Tier mapping accepted and written to `tiers` in the compute manifest ({ts}).")
+    print("Run `rv compute show` to verify the live configuration.")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -929,22 +1600,40 @@ def _format_remote_caps(backend_name: str, caps: dict[str, Any]) -> list[str]:
 def build_parser(
     parent: "argparse._SubParsersAction | None" = None,  # type: ignore[type-arg]
 ) -> argparse.ArgumentParser:
-    """Build the argument parser for the ``doctor`` verb."""
+    """Build the argument parser for the ``doctor`` verb.
+
+    When to use ``rv doctor``:
+      - After ``rv compute init`` to discover what's available and what you're allowed.
+      - After environment changes (new allocation, QOS change) — use ``--refresh``.
+      - ``rv doctor --propose`` to draft a tier-to-partition mapping for review.
+      - ``rv doctor --accept`` to promote the reviewed draft into the live config.
+
+    Anti-pattern: do NOT run ``rv doctor --accept`` without reviewing the
+    ``tiers_proposed`` block first — the proposal is a starting point, not a decision.
+    Do NOT try to bypass ``--accept`` by hand-editing ``tiers_proposed`` status to
+    "accepted" — use the verb so the diff is shown and the timestamp is stamped.
+    """
     desc = (
-        "Probe and cache compute environment capabilities — per declared backend. "
+        "Principled DISCOVER -> PROPOSE -> CONFIRM -> LEARN for compute environments. "
         "Run AFTER `rv compute init` (which declares WHERE your compute is). "
-        "Local backend: full probe (conda envs, GPU, SLURM/PBS CLIs, hf/uv). "
-        "Remote backends (ssh+slurm/ssh+pbs/ssh): probed via ssh using "
-        "BatchMode=yes + ConnectTimeout (fail-fast). GPU discovery uses sinfo "
-        "GRES (scheduler-aware, not login-node nvidia-smi). "
+        "DISCOVER: probes inventory (sinfo GRES) + permissions (sacctmgr/scontrol) "
+        "for ssh+slurm backends; direct nvidia-smi for ssh single-box backends. "
+        "GPU discovery uses sinfo GRES (scheduler-aware, not login-node nvidia-smi). "
+        "PROPOSE: prints a tentative tier-to-partition mapping (cheapest-that-fits) "
+        "with rationale; never auto-applies it. "
+        "CONFIRM: --propose writes a quarantined tiers_proposed block (not live tiers); "
+        "--accept promotes tiers_proposed -> tiers on explicit human action. "
+        "LEARN: recorded run_outcomes (rv compute outcome add) annotate the proposal. "
         "Second call reads cache (no re-probe). Use --refresh to force a fresh probe. "
-        "Degrades gracefully when cluster is unreachable — reports reason, "
-        "exits 0, never a traceback."
+        "Degrades gracefully when cluster is unreachable or sacctmgr is absent."
     )
     if parent is not None:
         p = parent.add_parser(
             "doctor",
-            help="Probe + cache compute capabilities (conda, SLURM, PBS, GPU).",
+            help=(
+                "Probe compute capabilities + propose tier mapping "
+                "(DISCOVER -> PROPOSE -> CONFIRM -> LEARN)."
+            ),
             description=desc,
         )
     else:
@@ -956,14 +1645,51 @@ def build_parser(
         default=False,
         help="Force a fresh probe even if the cache is present.",
     )
+    p.add_argument(
+        "--propose",
+        action="store_true",
+        default=False,
+        help=(
+            "Write the proposed tier mapping to `tiers_proposed` in the compute manifest "
+            "(NOT the live `tiers`). Review and edit before running --accept."
+        ),
+    )
+    p.add_argument(
+        "--accept",
+        action="store_true",
+        default=False,
+        help=(
+            "Promote `tiers_proposed` -> live `tiers` in the compute manifest. "
+            "Shows a diff first. This is the only path that writes the live tier mapping. "
+            "Requires a prior `rv doctor --propose` run."
+        ),
+    )
 
     return p
 
 
 def run(args: argparse.Namespace) -> int:
-    """Dispatch: rv doctor [--refresh]."""
+    """Dispatch: rv doctor [--refresh] [--propose] [--accept]."""
     cfg: Config = getattr(args, "_cfg", None) or load_config()
 
+    propose = getattr(args, "propose", False)
+    accept = getattr(args, "accept", False)
+
+    # --accept: promote tiers_proposed -> live tiers (no probe needed)
+    if accept:
+        return cmd_doctor_accept(cfg)
+
+    # --propose: probe (or use cache), build proposal, write tiers_proposed
+    if propose:
+        # Ensure we have fresh probe data
+        try:
+            cmd_doctor(cfg, refresh=getattr(args, "refresh", False))
+        except Exception as exc:  # pragma: no cover — safety net only
+            print(f"rv doctor --propose: probe error: {exc}", file=sys.stderr)
+            return 1
+        return cmd_doctor_propose(cfg)
+
+    # Default: probe + report + print proposal call-to-action (no manifest write)
     try:
         result = cmd_doctor(cfg, refresh=getattr(args, "refresh", False))
     except Exception as exc:  # pragma: no cover — safety net only
@@ -972,4 +1698,10 @@ def run(args: argparse.Namespace) -> int:
 
     report = format_report(result)
     print(report)
+
+    # Print proposal if we have one (LEARN-informed)
+    proposal = _build_proposal(cfg)
+    if proposal is not None:
+        print(format_proposal_report(proposal))
+
     return 0
