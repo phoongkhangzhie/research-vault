@@ -433,3 +433,95 @@ class TestCliPrepOnly:
         # Parse 'compile' without --prep-only
         args = parser.parse_args(["demo-research", "compile", "ms-001"])
         assert getattr(args, "prep_only", False) is False
+
+
+# ---------------------------------------------------------------------------
+# 8. Single-orchestration: run_prep and run_compile both route through
+#    _run_grounding_builders (charter §6 — the anti-fabrication contract lives
+#    in ONE place, not duplicated across two maintenance sites).
+# ---------------------------------------------------------------------------
+
+class TestSingleOrchestration:
+    """Prove _run_grounding_builders is the sole anti-fabrication contract site.
+
+    A future copy of the builder-orchestration block in run_compile would
+    break these tests — catching silent divergence.
+    """
+
+    def test_shared_helper_exists(self):
+        """_run_grounding_builders is defined in compile.py (the shared contract)."""
+        from research_vault.manuscript import compile as compile_mod
+        assert hasattr(compile_mod, "_run_grounding_builders"), (
+            "_run_grounding_builders must exist in compile.py — "
+            "it is the single anti-fabrication contract site"
+        )
+
+    def test_run_prep_calls_shared_helper(self):
+        """run_prep calls _run_grounding_builders (AST-verified, comment-free)."""
+        import ast
+        import inspect
+        import textwrap
+        from research_vault.manuscript import compile as compile_mod
+
+        src = textwrap.dedent(inspect.getsource(compile_mod.run_prep))
+        tree = ast.parse(src)
+        calls = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert "_run_grounding_builders" in calls, (
+            "run_prep must call _run_grounding_builders — "
+            "builder-orchestration must not be duplicated inside run_prep"
+        )
+
+    def test_run_compile_calls_shared_helper(self):
+        """run_compile calls _run_grounding_builders (AST-verified, comment-free)."""
+        import ast
+        import inspect
+        import textwrap
+        from research_vault.manuscript import compile as compile_mod
+
+        src = textwrap.dedent(inspect.getsource(compile_mod.run_compile))
+        tree = ast.parse(src)
+        calls = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert "_run_grounding_builders" in calls, (
+            "run_compile must call _run_grounding_builders — "
+            "builder-orchestration must not be duplicated inside run_compile"
+        )
+
+    def test_unmatched_cite_hard_fails_run_prep(self, manuscript_tree, tmp_instance):
+        r"""Unmatched \cite hard-fails run_prep (anti-fabrication, both paths)."""
+        from research_vault.manuscript.compile import run_prep
+        note_path, tree_root, _cfg = manuscript_tree
+
+        lib = _make_library_json(tmp_instance, [])  # empty: no entries
+        tex = tree_root / "sections" / "results-discussion.tex"
+        tex.write_text(r"\cite{unresolved2024}", encoding="utf-8")
+
+        result = run_prep(note_path, tree_root, library_path=lib)
+
+        assert result["exit_code"] == 1, "run_prep must fail on unmatched \\cite"
+        assert "BLOCKED" in result["message"]
+        assert "--prep-only" in result["message"], \
+            "prep error message must carry the --prep-only label"
+
+    def test_unmatched_cite_hard_fails_run_compile(self, manuscript_tree, tmp_instance):
+        r"""Unmatched \cite hard-fails run_compile with §5J.4 wording (both paths)."""
+        from research_vault.manuscript.compile import run_compile
+        note_path, tree_root, _cfg = manuscript_tree
+
+        lib = _make_library_json(tmp_instance, [])  # empty: no entries
+        tex = tree_root / "sections" / "results-discussion.tex"
+        tex.write_text(r"\cite{unresolved2024}", encoding="utf-8")
+
+        result = run_compile(note_path, tree_root, library_path=lib)
+
+        assert result["exit_code"] == 1, "run_compile must fail on unmatched \\cite"
+        assert "BLOCKED" in result["message"]
+        assert "§5J.4" in result["message"], \
+            "compile error message must carry the §5J.4 anti-fabrication citation"

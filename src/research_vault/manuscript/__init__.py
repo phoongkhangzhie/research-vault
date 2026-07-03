@@ -768,7 +768,7 @@ def cmd_prep(
         refs = proj_rec.get("refs")
         if refs:
             library_path = Path(refs).expanduser()
-    except (KeyError, Exception):
+    except (KeyError, TypeError):
         pass
     if library_path is None:
         library_path = cfg.project_notes_dir(project) / "library.json"
@@ -823,7 +823,7 @@ def cmd_compile(
         refs = proj_rec.get("refs")
         if refs:
             library_path = Path(refs).expanduser()
-    except (KeyError, Exception):
+    except (KeyError, TypeError):
         pass
     if library_path is None:
         # Standard default: project_notes_dir/library.json (set by rv project new)
