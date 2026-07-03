@@ -249,37 +249,33 @@ class TestScipyAnalysisExtra:
         )
 
     def test_scipy_in_analysis_extra_not_core(self):
-        """scipy must appear in the [analysis] extra, NOT in the core [project] dependencies."""
+        """scipy must appear in the [analysis] extra block in [project.optional-dependencies]."""
         pyproject = Path(__file__).parent.parent / "pyproject.toml"
         text = pyproject.read_text(encoding="utf-8")
 
-        # Locate the analysis extra section and the core deps section
-        # Check that scipy appears under [project.optional-dependencies] analysis, not [project] dependencies
         assert "scipy" in text, "scipy must appear somewhere in pyproject.toml"
 
-        # Parse to verify placement: scipy should be in the analysis block
-        in_analysis = False
+        # Scan line-by-line: track when we enter the 'analysis = [' block under optional-deps.
+        # A section header ("[...")  other than [project.optional-dependencies] resets tracking.
+        in_optional_deps = False
+        in_analysis_block = False
         scipy_in_analysis = False
-        scipy_in_core = False
-        lines = text.splitlines()
-        in_optional = False
-        in_analysis_section = False
-        in_core_deps = False
 
-        for line in lines:
+        for line in text.splitlines():
             stripped = line.strip()
-            if stripped.startswith("[project.optional-dependencies]"):
-                in_optional = True
-                in_core_deps = False
-                in_analysis_section = False
-            elif stripped.startswith("[project]") or (stripped.startswith("[") and not stripped.startswith("[project.optional")):
-                if "optional" not in stripped:
-                    in_core_deps = "dependencies" in text.splitlines()[lines.index(line):lines.index(line)+5] or True
-                in_optional = False
-                in_analysis_section = False
-            if in_optional and stripped.startswith("analysis"):
-                in_analysis_section = True
-            if in_analysis_section and "scipy" in stripped.lower() and not stripped.startswith("#"):
+            # A new TOML section header resets which block we're in
+            if stripped.startswith("["):
+                in_optional_deps = stripped.startswith("[project.optional-dependencies]")
+                in_analysis_block = False
+                continue
+            if in_optional_deps:
+                # The 'analysis = [' key starts the analysis block
+                if stripped.startswith("analysis") and "=" in stripped:
+                    in_analysis_block = True
+                elif stripped.startswith("[") or (stripped and not stripped.startswith('"') and "=" in stripped and not stripped.startswith(" ")):
+                    # A new key in the same section resets the analysis-block tracker
+                    in_analysis_block = False
+            if in_analysis_block and "scipy" in stripped.lower() and not stripped.startswith("#"):
                 scipy_in_analysis = True
 
         assert scipy_in_analysis, (
