@@ -49,12 +49,22 @@ PUBLIC API
       -> str (64-char hex)
       manifest_nodes=None → byte-identical to pre-extension behavior.
   store_freeze_hash(run_store, run_id, plan_note_path, notes_root=None) -> None
-  verify_freeze_hash(run_store, run_id, plan_note_path, notes_root=None)
+      Stores {covers_hash, plan_note, notes_root (abs), frozen_at} in meta.
+  verify_freeze_hash(run_store, run_id, plan_note_path, notes_root=None,
+                     require_frozen=True)
       -> tuple[bool, str | None]
-      Returns (True, None) on match or when no freeze is stored.
-      Returns (False, error_message) on mismatch.
+      Returns (True, None) on hash match.
+      Returns (False, error_message) on mismatch OR when no freeze is stored
+        (when require_frozen=True, the default — FAIL CLOSED).
+      require_frozen=False: absence of a freeze returns (True, None) — the
+        no-op escape-hatch for callers that gate on presence themselves.
+      The stored notes_root pin is used for re-derivation; the caller's
+        notes_root arg is used ONLY as an explicit re-pin override when the
+        stored pin is absent (legacy meta back-compat).
+      When the stored notes_root does not exist on disk: FAIL LOUD with a
+        re-pin instruction, never silently fall back to the caller's config.
       The error message distinguishes a retry-ceiling drift (covers block
-      matches but retries block differs) from a covers-set edit.
+        matches but retries block differs) from a covers-set edit.
 
 note.py-FREE (§5K.10): reads notes by path/frontmatter; does NOT import note.py.
 Stdlib only.
@@ -269,14 +279,18 @@ def store_freeze_hash(
       {
         "covers_hash": "<sha256-hex>",   — covers + retries block hash
         "plan_note":   "<abs-path-str>",
+        "notes_root":  "<abs-path-str>", — resolution input (caller-invariant pin)
         "frozen_at":   <unix-timestamp>,
       }
+
+    The notes_root is stored as an absolute path so verify_freeze_hash can
+    re-derive with the SAME resolution inputs regardless of caller/cwd.
 
     Args:
         run_store:      the RunStore for this instance.
         run_id:         the DAG run id.
         plan_note_path: path to the plan master note to freeze.
-        notes_root:     directory where child notes live.
+        notes_root:     directory where child notes live.  Stored as absolute.
     """
     run_state = run_store.load(run_id)
     manifest_nodes = _load_manifest_nodes(run_state.manifest_path)
@@ -288,6 +302,7 @@ def store_freeze_hash(
     run_state.meta["plan_freeze"] = {
         "covers_hash": covers_hash,
         "plan_note": str(Path(plan_note_path).resolve()),
+        "notes_root": str(Path(notes_root).resolve()) if notes_root is not None else None,
         "frozen_at": time.time(),
     }
     run_store.save(run_state)
@@ -298,6 +313,8 @@ def verify_freeze_hash(
     run_id: str,
     plan_note_path: Path,
     notes_root: Path | None = None,
+    *,
+    require_frozen: bool = True,
 ) -> tuple[bool, str | None]:
     """Re-derive the covers:-freeze-set hash and compare to the stored value.
 
@@ -305,32 +322,98 @@ def verify_freeze_hash(
     Reads manifest_nodes from run_state.manifest_path automatically; an
     unreadable/absent manifest_path is treated as no nodes (graceful fallback).
 
+    FAIL CLOSED (SR-FREEZE-FIX hole a):
+        When no freeze is stored AND require_frozen=True (the default), returns
+        (False, "…not frozen…") — NEVER (True, None).  A never-frozen run must
+        NOT pass the K-3 gate silently.
+        Pass require_frozen=False only if the caller already gates on presence
+        (e.g. rv dag approve checks plan_freeze presence before calling here).
+
+    CALLER-INVARIANT (SR-FREEZE-FIX hole b):
+        Uses the STORED notes_root pin for re-derivation, NOT the caller's arg.
+        The caller's notes_root is accepted ONLY as an explicit re-pin override
+        when the stored pin is absent (legacy meta back-compat path).
+        When the stored notes_root does not exist: FAIL LOUD with a re-pin
+        instruction — never silently fall back to the caller's config.
+
     Returns:
-        (True, None)  — hash matches, or no freeze was stored (no-op).
-        (False, msg)  — hash MISMATCH; msg describes the failure.
+        (True, None)  — hash matches.
+        (False, msg)  — hash MISMATCH, run not frozen (require_frozen=True),
+                        or stored notes_root missing/unreachable.
                         The message distinguishes a retry-ceiling drift (covers
                         block matches but retries block differs) from a covers-
-                        set edit.
+                        set edit, and flags relocation vs normal mismatch.
 
     Args:
-        run_store:      the RunStore for this instance.
-        run_id:         the DAG run id.
-        plan_note_path: path to the plan master note to re-derive from.
-        notes_root:     directory where child notes live.
+        run_store:       the RunStore for this instance.
+        run_id:          the DAG run id.
+        plan_note_path:  path to the plan master note to re-derive from.
+        notes_root:      explicit re-pin override (only used when the stored pin
+                         is absent — legacy meta back-compat or relocation).
+        require_frozen:  if True (default), absent freeze → (False, "not frozen").
+                         if False, absent freeze → (True, None) — no-op.
     """
+    import warnings
+
     run_state = run_store.load(run_id)
     plan_freeze = run_state.meta.get("plan_freeze")
 
     if not plan_freeze:
-        # No freeze hash stored — no-op (plan freeze is optional; runs without
-        # a plan master do not require K-3 verification).
+        # SR-FREEZE-FIX hole (a): fail CLOSED on absent freeze.
+        if require_frozen:
+            return False, (
+                f"run {run_id!r} not frozen — run `rv plan freeze {run_id} "
+                f"<plan-note>` first to establish the K-3 pre-registration hash."
+            )
+        # Escape-hatch for callers that already gate on presence.
         return True, None
 
     stored_hash = plan_freeze.get("covers_hash", "")
+    stored_notes_root_str = plan_freeze.get("notes_root")  # may be absent (legacy)
+
+    # --- Resolve the notes_root to use for re-derivation (SR-FREEZE-FIX hole b) ---
+    if stored_notes_root_str is not None:
+        # New format: use the STORED pin.
+        stored_notes_root = Path(stored_notes_root_str)
+        if not stored_notes_root.exists():
+            # Stored pin no longer on disk — FAIL LOUD, never silent fallback.
+            return False, (
+                f"frozen notes_root {str(stored_notes_root)!r} not found on disk — "
+                f"the notes tree may have been relocated.  Pass --notes-root to "
+                f"re-pin against the moved tree, then re-run freeze before verifying."
+            )
+        # Caller's notes_root is IGNORED when the stored pin is present and valid.
+        effective_notes_root = stored_notes_root
+    else:
+        # Legacy meta: no notes_root field.  Require explicit caller arg; never guess.
+        if notes_root is None:
+            warnings.warn(
+                f"plan_freeze for run {run_id!r} has no stored notes_root "
+                f"(legacy format).  Pass --notes-root explicitly to re-pin "
+                f"the verification against the correct notes directory.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return False, (
+                f"run {run_id!r} has a legacy plan_freeze with no stored "
+                f"notes_root — cannot verify caller-invariantly without it.  "
+                f"Pass --notes-root explicitly to re-pin the verification."
+            )
+        # Explicit caller arg provided: use it as the re-pin (with a notice).
+        warnings.warn(
+            f"Using caller-supplied --notes-root as a re-pin for legacy "
+            f"plan_freeze (run {run_id!r}).  The stored hash was computed at an "
+            f"unknown notes_root; this verification assumes the supplied path "
+            f"matches the original freeze-time tree.",
+            UserWarning,
+            stacklevel=2,
+        )
+        effective_notes_root = Path(notes_root)
+
     manifest_nodes = _load_manifest_nodes(run_state.manifest_path)
     current_hash = compute_covers_hash(
         plan_note_path,
-        notes_root=notes_root,
+        notes_root=effective_notes_root,
         manifest_nodes=manifest_nodes,
     )
 
