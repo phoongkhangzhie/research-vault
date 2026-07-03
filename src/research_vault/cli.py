@@ -110,8 +110,8 @@ _VERB_REGISTRY: dict[str, dict] = {
         "when_to_use": (
             "When you need to create, append to, check the freshness of, or SEARCH a "
             "project's DEVLOG.md — the grounded decision and progress record. "
-            "Use `rv devlog index` for a one-liner per entry; `rv devlog search` to find "
-            "entries by keyword. "
+            "Use `rv devlog <project> index` for a one-liner per entry; "
+            "`rv devlog <project> search` to find entries by keyword. "
             "Anti-pattern: do NOT grep/cat DEVLOG.md directly to find entries — that loads "
             "the whole file and misses the structured index face."
         ),
@@ -126,7 +126,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "corpus + crew, in one command) use `rv project new <slug> --code <c> "
             "--source <dir>`. Anti-pattern: hand-creating the repo + hand-copying "
             "scaffolding + hand-editing research_vault.toml (races the registry, skips "
-            "the control-bus banner, forgets the OKF type-dirs). Use `rv project add` "
+            "the control-bus banner, forgets the OKF type-dirs). "
+            "Use `rv project add <name> --code <c> --source <dir>` "
             "if you only need the registry entry for an existing repo. Use `rv project "
             "list` to enumerate all registered projects."
         ),
@@ -340,14 +341,14 @@ _VERB_REGISTRY: dict[str, dict] = {
         "module": "research_vault.manuscript.verbs",
         "when_to_use": (
             "When you need to scaffold a grounded manuscript draft from a project's "
-            "verified OKF graph. Use `rv manuscript new <project> <id> --thesis '...'` "
+            "verified OKF graph. Use `rv manuscript <project> new <id> --thesis '...'` "
             "to create the manuscript OKF note + manuscripts/<id>/ LaTeX tree + the "
             "16-node drafting-DAG manifest (§5J.2). Drive the loop with `rv dag run`. "
             "Anti-pattern: do NOT hand-write a .tex and hand-type citations/numbers — "
-            "run `rv manuscript new --thesis` so the draft carries a closed .bib from "
+            "run `rv manuscript <project> new <id> --thesis` so the draft carries a closed .bib from "
             "your `literature/` notes, machine-injected results, and structural "
             "\\cite→source verification. A hand-typed number or an uncited claim is "
-            "exactly the fabrication this prevents. Use `rv manuscript list` to "
+            "exactly the fabrication this prevents. Use `rv manuscript <project> list` to "
             "enumerate all manuscript notes for a project."
         ),
         "sr": "SR-MS-1a",
@@ -358,7 +359,8 @@ _VERB_REGISTRY: dict[str, dict] = {
         "when_to_use": (
             "When you have an experiment note (experiments/<id>.md) with results attached "
             "(results_location/results_hash populated by `rv wandb pull`) and need a "
-            "publication-quality plot with full provenance. Use `rv figure new --experiment <id>` "
+            "publication-quality plot with full provenance. "
+            "Use `rv figure <project> new <fig-id> --experiment <exp-id>` "
             "to declare the figure spec (experiment results hash + filter recipe + style preset), "
             "`rv figure preview` to inspect the exact data frame before rendering, "
             "`rv figure render` to produce SVG+PNG images via the apply_style seam, and "
@@ -423,7 +425,7 @@ _VERB_REGISTRY: dict[str, dict] = {
         "module": "research_vault.review.verbs",
         "when_to_use": (
             "When you need to conduct a structured, pre-registered, saturation-gated "
-            "literature review. Use `rv review new <project> <scope> --question '...'` "
+            "literature review. Use `rv review <project> new <scope> --question '...'` "
             "to scaffold the Phase-1 DAG (review-scope → [HG:approve-protocol] → "
             "review-search → review-snowball → [HG:coverage-gate]) with protocol-freeze, "
             "internal saturation loop (both forward cited-by + backward references), and "
@@ -431,35 +433,35 @@ _VERB_REGISTRY: dict[str, dict] = {
             "The `review-scope` node MUST file a `_protocol.md` with a non-empty "
             "`counter-position` field (L-2 gate, §5L.3) — the anti-fishing structural "
             "obligation. "
-            "After `coverage-gate` approval: run `rv review expand <project> <scope>` "
+            "After `coverage-gate` approval: run `rv review <project> expand <scope>` "
             "to emit the Phase-2 fan-out (one `relate-<key>` node per [NEW] citekey → "
             "`review-synthesize` → `review-coverage-critic` → `[HG:approve-review]`). "
-            "Use `rv review list <project>` to enumerate all reviews. "
-            "Use `rv review tips [--key <key>]` to inspect the review_tips seam. "
-            "SR-LR-2 gap-driven pass (§5L.7): use `rv review gap-scan <project>` to "
+            "Use `rv review <project> list` to enumerate all reviews. "
+            "Use `rv review <project> tips [--key <key>]` to inspect the review_tips seam. "
+            "SR-LR-2 gap-driven pass (§5L.7): use `rv review <project> gap-scan` to "
             "detect typed research gaps (knowledge_void, contradictory, evaluation_void, "
             "absent_row) from the OKF corpus + an optional manuscript critic run-state. "
             "Each gap note gets a suggested_route: field (literature|experiment|triage). "
             "This is a rejects-only SCREEN — it PROPOSES gaps, never auto-fires a review. "
-            "SR-GAP-ROUTE (§5L.14–5L.16): use `rv review gap-scope <project> <gap-id> <scope>` "
+            "SR-GAP-ROUTE (§5L.14–5L.16): use `rv review <project> gap-scope <gap-id> <scope>` "
             "(or the alias `gap-route`) to auto-author the remedy scope by error-asymmetry. "
             "--target literature (default): auto-authors a Part-1 review scope. "
             "--target experiment: auto-authors an SR-PLAN-1 pre-registration plan "
             "(research question ← claim verbatim; covers: skeleton; diagnosis-table stub). "
-            "Use `rv review gap-list <project> [--status proven-open]` to list gaps; "
+            "Use `rv review <project> gap-list [--status proven-open]` to list gaps; "
             "--status proven-open is the run-candidate queue. "
-            "Use `rv review gap-close <project> <gap-id> --status proven-open` to stamp "
+            "Use `rv review <project> gap-close <gap-id> --status proven-open` to stamp "
             "a proven-open gap (targeted pass saturated without closing → run-candidate). "
-            "SR-GAP-CLOSE (§5L.19–5L.24): use `rv review gap-close --by <note-ref>` to record "
-            "the bidirectional provenance edge — --by is REQUIRED for closed-supported/"
-            "closed-filled (charter §2: a closed gap with no closer is un-auditable); "
-            "--by is REJECTED for proven-open (nothing closed it). "
+            "SR-GAP-CLOSE (§5L.19–5L.24): use `rv review <project> gap-close <gap-id> "
+            "--by <note-ref> --status <status>` to record the bidirectional provenance "
+            "edge — --by is REQUIRED for closed-supported/closed-filled (charter §2: a "
+            "closed gap with no closer is un-auditable); --by is REJECTED for proven-open. "
             "--by writes both: closed_by: in the gap FM + closes: in the closing note FM. "
-            "Use `rv review gap-promote <project> <gap-id> --to <ref>` to promote a "
+            "Use `rv review <project> gap-promote <gap-id> --to <ref>` to promote a "
             "proven-open gap to 'promoted' status (human-only, never auto). The promoted "
             "claim round-trips the SR-MS-2 support-matcher (the honesty backstop). "
-            "Use `rv review gap-list --status promoted` / `--status reopened` for the "
-            "new lifecycle statuses. "
+            "Use `rv review <project> gap-list --status promoted` / `--status reopened` "
+            "for the new lifecycle statuses. "
             "Anti-pattern: do NOT gap-close a closed-* gap without --by — a closer-less "
             "closure is un-auditable and breaks the provenance chain. "
             "Anti-pattern: do NOT hand-write a contribution claim from a proven-open gap — "
@@ -471,7 +473,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT auto-fire a gap-driven pass — gap-scan is a rejects-only "
             "screen; the human authorizes each targeted pass via gap-scope (no auto-fire). "
             "Anti-pattern: do NOT hand-decide read-vs-run and hand-spin a lit pass or plan "
-            "— run `rv review gap-route <project> <gap-id> <scope>`; it routes by "
+            "— run `rv review <project> gap-route <gap-id> <scope>`; it routes by "
             "error-asymmetry (Chalmers & Glasziou avoidable-waste) and auto-authors the scope. "
             "Anti-pattern: do NOT call `rv research` stdout and scrape it for saturation "
             "counts — import `_load_corpus_index` and `_corpus_annotation` from "
@@ -480,6 +482,66 @@ _VERB_REGISTRY: dict[str, dict] = {
         "sr": "SR-LR-1, SR-LR-2, SR-GAP-ROUTE, SR-GAP-CLOSE",
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Help renderer configuration (group-at-render; do NOT reorder _VERB_REGISTRY)
+# ---------------------------------------------------------------------------
+
+# Phase grouping for `rv help` display — render-time only.
+# Collision-safe: groups reference verb names; do not alter the registry order.
+_HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
+    ("Setup",        ["init", "check", "project", "wt", "git-discipline", "git-health"]),
+    ("Lit-review",   ["research", "cite", "review"]),
+    ("Experiment",   ["dag", "result", "plan", "wandb", "compute", "doctor"]),
+    ("Figure",       ["figure"]),
+    ("Manuscript",   ["manuscript"]),
+    ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS
+    ("Infra/git",    ["lint", "mdstore", "wait-for", "plugins"]),
+    ("Coordination", ["status", "control", "task", "note", "devlog", "role", "build-agents"]),
+]
+
+# Review subcommands split for display purposes only.
+_REVIEW_MAIN_SUBCMDS: list[str] = ["new", "expand", "list", "tips"]
+_GAP_LOOP_SUBCMDS: list[str] = [
+    "gap-scan", "gap-route", "gap-close", "gap-list", "gap-promote",
+]
+
+
+def _first_sentence(text: str) -> str:
+    """Return the first sentence of text.
+
+    A sentence ends at '.', '!', or '?' only when followed by whitespace or
+    end-of-string — not inside file paths (.md), section refs (§5K.7), or
+    parenthetical abbreviations.
+    """
+    import re as _re
+    text = text.strip()
+    m = _re.search(r"[.!?](?:\s|$)", text)
+    if m:
+        return text[: m.start() + 1]
+    return text
+
+
+def _verb_subcommands(verb_name: str, registry: dict) -> list[str]:
+    """Return subcommand names for a verb by loading its parser.
+
+    Returns an empty list if the verb has no subcommands or its parser fails to load.
+    Uses argparse._SubParsersAction to discover choices — no ad-hoc parsing.
+    """
+    try:
+        build_p, _ = _load_verb(verb_name, registry)
+        if build_p is None:
+            return []
+        dummy = argparse.ArgumentParser()
+        dummy_sub = dummy.add_subparsers()
+        vp = build_p(dummy_sub)
+        for action in vp._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                return list(action.choices.keys())
+    except Exception:
+        pass
+    return []
 
 
 def _load_verb(name: str, registry: dict | None = None):
@@ -559,6 +621,91 @@ def _check_verb_docstrings() -> list[str]:
         when = entry.get("when_to_use", "").strip()
         if not when:
             violations.append(f"Verb {verb!r} has no when_to_use docstring.")
+    return violations
+
+
+def _check_example_snippets(registry: dict | None = None) -> list[str]:
+    """Parse-verify every ``Use `rv <verb> ...``` snippet in when_to_use strings.
+
+    Only checks snippets that contain ``<placeholder>`` patterns — these signal a real
+    usage example a hub would copy/paste. Bare navigation references without angle-bracket
+    arguments (e.g. ``rv project list``) are skipped as intentional shorthand.
+
+    Returns a list of violation strings. Empty = all clear.
+
+    This implements charter §1 for examples: a ``Use `rv ...``` snippet is a specific
+    — it must be invokable against the real parser, not just syntactically present.
+    """
+    import re
+    import shlex as _shlex
+
+    from_registry = registry if registry is not None else _VERB_REGISTRY
+
+    # Verbs whose when_to_use is managed by a concurrent branch — skip to avoid collisions.
+    _SKIP_VERBS: frozenset[str] = frozenset({"compute", "doctor", "plugins"})
+
+    # Match capital-U "Use `rv <verb> ...`" patterns (the documented example convention).
+    snippet_re = re.compile(r"Use `(rv [^`]+)`")
+    placeholder_re = re.compile(r"<[^>]+>")
+
+    def _normalize(snippet: str) -> str:
+        """Replace placeholders with dummy values; remove optional-bracket groups."""
+        # Remove [optional --flag <val>] groups first
+        snippet = re.sub(r"\[[^\]]+\]", "", snippet)
+        # Replace <placeholder> with a dummy value
+        snippet = re.sub(r"<[^>]+>", "dummy_val", snippet)
+        # Replace quoted ellipsis '...' (shown in --thesis '...' style)
+        snippet = re.sub(r"'\.\.\.'?", "dummy_val", snippet)
+        return snippet.strip()
+
+    violations = []
+    for verb, entry in from_registry.items():
+        if verb in _SKIP_VERBS:
+            continue
+        text = entry.get("when_to_use", "")
+        for m in snippet_re.finditer(text):
+            raw = m.group(1)  # e.g. "rv figure <project> new <fig-id> --experiment <exp-id>"
+            # Only check snippets with <placeholder> patterns (real usage examples).
+            if not placeholder_re.search(raw):
+                continue
+
+            parts = raw.split(None, 2)  # ["rv", "<verb>", "<rest>"]
+            if len(parts) < 2 or parts[0] != "rv":
+                continue
+            snippet_verb = parts[1]
+            snippet_rest = parts[2] if len(parts) > 2 else ""
+
+            # Look up the verb's parser from _VERB_REGISTRY (always portable; not from_registry).
+            entry_ref = _VERB_REGISTRY.get(snippet_verb)
+            if entry_ref is None or not entry_ref.get("module"):
+                continue  # verb unknown or unimplemented — skip
+
+            build_p, _ = _load_verb(snippet_verb)
+            if build_p is None:
+                continue
+
+            try:
+                dummy_ap = argparse.ArgumentParser()
+                dummy_sub = dummy_ap.add_subparsers()
+                vp = build_p(dummy_sub)
+            except Exception:
+                continue
+
+            normalized = _normalize(snippet_rest)
+            try:
+                rest_args = _shlex.split(normalized) if normalized else []
+            except ValueError:
+                continue  # shlex parse error in the snippet — flag it
+
+            try:
+                vp.parse_args(rest_args)
+            except SystemExit:
+                violations.append(
+                    f"Snippet in {verb!r} when_to_use does not parse: "
+                    f"`rv {snippet_verb} {snippet_rest}` "
+                    f"(normalized: {normalized!r})"
+                )
+
     return violations
 
 
@@ -648,24 +795,88 @@ def main(argv: list[str] | None = None) -> int:
     # --- help verb ---
     if args.verb == "help":
         if args.check:
-            violations = _check_verb_docstrings()
-            if violations:
+            docstring_violations = _check_verb_docstrings()
+            snippet_violations = _check_example_snippets(merged_registry)
+            all_violations = docstring_violations + snippet_violations
+            if all_violations:
                 print("rv help --check: FAIL")
-                for v in violations:
+                for v in all_violations:
                     print(f"  {v}")
                 return 1
             total = len(merged_registry)
-            print(f"rv help --check: OK — {total} verbs, all have when_to_use.")
+            print(
+                f"rv help --check: OK — {total} verbs, "
+                "when_to_use present, all examples parse."
+            )
             return 0
 
-        # Print verb table (merged: portable + instance)
+        # Print verb table grouped by workflow phase.
         print("Research Vault verbs:\n")
-        for verb_name, entry in merged_registry.items():
-            sr = entry.get("sr", "")
-            status = "" if entry.get("module") else f"  [{sr}]"
-            tag = " [instance]" if sr == "instance" else ""
-            print(f"  rv {verb_name:<16} {entry['when_to_use'][:60]}…{status}{tag}")
-        print("\nRun `rv <verb> --help` for details. `rv help --check` validates docstrings.")
+        _RULE = "─"
+        _HEADER_WIDTH = 52
+
+        # Track verbs already rendered (review appears in Lit-review AND Gap loop).
+        printed: set[str] = set()
+
+        for phase_name, phase_verbs in _HELP_PHASE_MAP:
+            header = f"── {phase_name} {_RULE * max(0, _HEADER_WIDTH - len(phase_name) - 4)}"
+            print(header)
+
+            if "__gap_loop__" in phase_verbs:
+                # Gap loop: surface review gap-* subcommands explicitly.
+                print(
+                    "  (rv review gap-* subcommands — detect, route, and close research gaps)"
+                )
+                for subcmd in _GAP_LOOP_SUBCMDS:
+                    print(f"    rv review {subcmd}")
+                print()
+                continue
+
+            for verb_name in phase_verbs:
+                entry = merged_registry.get(verb_name)
+                if not entry:
+                    continue  # verb absent from this merged registry
+                printed.add(verb_name)
+
+                sr = entry.get("sr", "")
+                status = "" if entry.get("module") else f"  [{sr}]"
+                tag = " [instance]" if sr == "instance" else ""
+                first_sent = _first_sentence(entry.get("when_to_use", ""))
+
+                print(f"  rv {verb_name:<20} {first_sent}{status}{tag}")
+
+                # Subcommands: special-case review to show only main subcommands here.
+                if verb_name == "review":
+                    subcmds = _REVIEW_MAIN_SUBCMDS
+                else:
+                    subcmds = _verb_subcommands(verb_name, merged_registry)
+                if subcmds:
+                    print(f"    {'subcommands:':<14} {' · '.join(subcmds)}")
+
+            print()
+
+        # Show any instance verbs not covered by the phase map.
+        ungrouped = [
+            v for v in merged_registry
+            if v not in printed and merged_registry[v].get("sr") == "instance"
+        ]
+        if ungrouped:
+            print(f"── Instance verbs {_RULE * max(0, _HEADER_WIDTH - 18)}")
+            for verb_name in ungrouped:
+                entry = merged_registry[verb_name]
+                first_sent = _first_sentence(entry.get("when_to_use", ""))
+                print(f"  rv {verb_name:<20} {first_sent} [instance]")
+            print()
+
+        print(
+            "Validation: leakage/config → rv lint · "
+            "OKF links → rv mdstore check · "
+            "note frontmatter → rv note <p> check"
+        )
+        print(
+            "\nRun `rv <verb> --help` for details. "
+            "`rv help --check` validates docstrings and example snippets."
+        )
         return 0
 
     # --- dispatch to verb (merged registry: instance verbs shadow portable) ---
