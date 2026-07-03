@@ -40,6 +40,59 @@
 
 ---
 
+## 2026-07-03 (SR-MS-1c — Architect block fix: _run_grounding_builders refactor)
+
+### Done
+- Extracted `_run_grounding_builders(... label, extra_unmatched_msg)` as the SINGLE
+  anti-fabrication contract site (§5J.4) in `manuscript/compile.py`.
+- Refactored `run_prep` and `run_compile` to CALL `_run_grounding_builders` — no
+  remaining copy of the builder-orchestration or hard-fail blocks in either function.
+- `label` parametrises message wording ("--prep-only:" vs "compile:" + §5J.4 line);
+  distinct wording preserved while the contract lives in one place.
+- Fixed `except (KeyError, Exception)` → `except (KeyError, TypeError)` in
+  `cmd_prep` and `cmd_compile` (Argus nit: Exception subsumed KeyError, over-broad).
+- Added 5 `TestSingleOrchestration` tests: structural AST check both functions call
+  the helper; behavioral check unmatched-cite hard-fails both paths with label-
+  appropriate messages. Full suite: 1485 passed, 37 skipped.
+- CI green on `fd1982a` (push + PR runs).
+
+### Decisions
+- Return signature of `_run_grounding_builders` is `(exit_code, failure_base | None,
+  builder_warnings)`: callers merge in path-specific keys (log/chktex/pdf_path) before
+  returning, so failure dicts remain byte-identical to original (compile tests unchanged).
+- AST-based structural test (not `getsource` string membership) — immune to rule-7
+  lint, comment-free, will catch any future copy of the builder block.
+
+### Open / next
+- PR #53 awaiting human-go merge.
+
+## 2026-07-02 (SR-MS-1c — draft-time macro-visibility prep seam)
+
+### Done
+- Added `run_prep()` to `manuscript/compile.py`: runs grounding-builders (build_refs_bib
+  → inject_results → inject_appendix) without pdflatex. No texlive required.
+- Added `cmd_prep()` to `manuscript/__init__.py`: public API with same library_path
+  resolution as cmd_compile (project refs key or standard default).
+- Added `--prep-only` flag to `rv manuscript compile`: dispatches to cmd_prep when set;
+  default False (normal compile when omitted).
+- 19 new SR-MS-1c tests in `tests/test_sr_ms_1c.py`:
+  - run_prep populates refs.bib, results.tex, appendix-repro.tex without producing PDF
+  - Idempotency: prep→prep→compile identical to compile-alone (builders overwrite, never append)
+  - run_prep exits 0 even when pdflatex absent (monkeypatched _find_tool)
+  - CLI --prep-only flag dispatches correctly and defaults to False
+
+### Decisions
+- Surface: `rv manuscript compile --prep-only` (flag on existing verb) rather than a
+  separate `rv manuscript prep` subcommand. Keeps the compile/prep relationship explicit
+  and avoids proliferating verb surface area.
+- Idempotency is structural: all three builders use write_text (overwrite), so
+  prep→prep→compile produces identical output as compile alone.
+- The DAG spec for results-discussion and assemble nodes can instruct the agent to run
+  `rv manuscript compile --prep-only <project> <id>` first — no new DAG mechanism needed.
+
+### Open / next
+- SR-MS-2 (semantic gates + support-matcher): gated on D-MS-4 (judge model) + Ada.
+- SR-EXP-REPRO: extends wandb_pull.py + experiment note repro_* fields.
 ## 2026-07-02 (task-22-pt2 — wheel __file__ audit)
 
 ### Done
