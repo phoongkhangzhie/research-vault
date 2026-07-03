@@ -1,3 +1,18 @@
+## 2026-07-02 (sr-retry-counter-fix — cosmetic attempt counter overshoot)
+
+### Done
+- Fixed two display-only bugs in `cmd_status` and `cmd_complete` (task #21).
+- `cmd_status`: gated `[attempt k/N+1]` counter on `status == "pending"` — terminal nodes no longer show an overshooting counter (e.g. `[attempt 2/1]` for N=0, `[attempt 4/3]` for exhausted N=2).
+- `cmd_complete`: gated "retries exhausted: k/N attempts" detail on `max_retries > 0` — N=0 plain failures now print a plain terminal message with no nonsensical `1/0` ratio.
+- State machine, terminality, and retry behavior are entirely unchanged.
+- Added `TestAttemptCounterDisplay` (5 tests, red-before-green verified). Full suite: 1448 passed.
+- `rv lint` clean, `rv help --check` OK. Pushed `feat/sr-retry-counter-fix` @ `985bc18`.
+
+### Decisions
+- Counter gated on `status == "pending"` (not just `attempts > 0`): simplest correct condition — a pending node with attempts>0 is by definition retry-queued; any terminal node should not show a live counter.
+
+---
+
 ## 2026-07-02 (sr-pkg — packaging-data fix, the publish blocker)
 
 ### Done
