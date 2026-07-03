@@ -23,7 +23,7 @@
 - boolean check in _validate_max_retries: bool is a subtype of int in Python, rejected.
 
 ### Open / next
-- Hub to open PR + request Architect fit-check, then Khang's human-go merge.
+- Hub to open PR + request Architect fit-check, then operator human-go merge.
 
 ---
 
