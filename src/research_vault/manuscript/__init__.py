@@ -147,6 +147,8 @@ def _build_manifest(
             _rel("methods"),
             _sections,
         ],
+        # SR-MS-AUDIENCE: title node reads abstract + sections (body is known)
+        "title": [_sections],
         "experimental-setup": [
             _rel("experiments"),
             _rel("datasets"),
@@ -181,6 +183,8 @@ def _build_manifest(
         "assemble": [_sections],
         "compile": [tree_rel],
         "critic": [tree_rel],
+        # SR-MS-AUDIENCE: cold-read reads the compiled tree (needs rendered .tex)
+        "cold-read": [tree_rel],
     }
 
     # ── Build nodes ──────────────────────────────────────────────────────────
@@ -357,8 +361,22 @@ def _build_manifest(
     else:
         prev_abstract = prev_body
 
-    # 15. assemble (joins abstract + appendix-repro)
-    assemble_needs: list[dict[str, str]] = [_afterok(prev_abstract)]
+    # 15a. title (SR-MS-AUDIENCE §5J.16.4 — afterok abstract, before assemble)
+    if "title" in active_sections:
+        nodes.append({
+            "id": "title",
+            "type": "agent",
+            "label": "Title — 3–5 reader-facing candidates (editorial, not run-id)",
+            "spec": _spec("title"),
+            "reads": section_reads["title"],
+            "needs": [_afterok(prev_abstract)],
+        })
+        prev_title = "title"
+    else:
+        prev_title = prev_abstract
+
+    # 15. assemble (joins abstract + title + appendix-repro)
+    assemble_needs: list[dict[str, str]] = [_afterok(prev_title)]
     if "appendix-repro" in active_sections:
         assemble_needs.append(_afterok("appendix-repro"))
 
@@ -415,12 +433,27 @@ def _build_manifest(
     else:
         prev_gate3 = prev_critic
 
-    # 18. Gate 3: approve-manuscript (final human-go)
+    # 17b. cold-read (SR-MS-AUDIENCE §5J.16.3 Layer-1 — afterok compile, parallel to critic)
+    # Runs the deterministic body leak-scan before approve-manuscript.
+    # Layer-2 LLM judge is SR-MS-COLDREAD (separate SR, separate node).
+    gate3_needs: list[dict[str, str]] = [_afterok(prev_gate3)]
+    if "cold-read" in active_sections:
+        nodes.append({
+            "id": "cold-read",
+            "type": "agent",
+            "label": "Cold-read Layer-1 — deterministic body leak-scan (no LLM)",
+            "spec": _spec("cold-read"),
+            "reads": section_reads["cold-read"],
+            "needs": [_afterok(prev_critic)],  # afterok compile (same as critic)
+        })
+        gate3_needs.append(_afterok("cold-read"))
+
+    # 18. Gate 3: approve-manuscript (final human-go — needs BOTH critic AND cold-read)
     nodes.append({
         "id": "approve-manuscript",
         "type": "human-go",
-        "label": "Gate 3: Approve manuscript — BLOCK/WARN counts + worst-three",
-        "needs": [_afterok(prev_gate3)],
+        "label": "Gate 3: Approve manuscript — BLOCK/WARN counts + worst-three + body-clean",
+        "needs": gate3_needs,
     })
 
     manifest: dict[str, Any] = {

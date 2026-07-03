@@ -11,6 +11,11 @@ HONEST BOUNDARY (from §5J.13-B):
     7. (B) Citekey-provenance — every .bib entry backed by \\cite must carry
        a well-formed DOI/arXiv/S2 id (BLOCK) or be human-vouched (PASS, listed).
     8. Hash-drift re-verify — re-checks stamped results_hash at approve-manuscript.
+    9. (SR-MS-AUDIENCE) Body leak-scan — body sections must contain zero internal
+       provenance (sha256 hashes, artifact paths, DAG-internal ids, sentinel text).
+       Excludes appendix-repro.tex and data-code-availability.tex (zone-2, legitimate).
+    9b. (SR-MS-AUDIENCE) Title guard — \\title{} must not equal ms_id/dag_run or
+       match a run-id shape (ms-...-draft, slug-with-hash).
 
   SEMANTIC (LLM-judged, via support_matcher.py):
     J-1 — low-confidence completeness (confidence: low findings in limitations).
@@ -25,6 +30,7 @@ HONEST BOUNDARY (from §5J.13-B):
 
 Stdlib only.
 sr: SR-MS-1b (structural gates 1–4); SR-MS-2 (gates 5–8, semantic gates, approve payload)
+    SR-MS-AUDIENCE (gate 9: body leak-scan + title guard)
 """
 from __future__ import annotations
 
@@ -617,6 +623,227 @@ def check_hash_drift(
                 f"hash-drift at approve-manuscript: {v} — "
                 f"results artifact has changed since compile; run `rv manuscript compile` again."
             )
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Gate 9: body leak-scan + title guard (SR-MS-AUDIENCE §5J.16)
+# ---------------------------------------------------------------------------
+
+# Zone-2 filenames: provenance is LEGITIMATE in these sections (ACM-badging model).
+# The body leak-scan excludes them — their content should NOT be flagged.
+_ZONE2_FILENAMES: frozenset[str] = frozenset({
+    "appendix-repro",
+    "data-code-availability",
+})
+
+# Patterns that constitute a provenance leak in the manuscript BODY.
+# Any match in a non-zone-2 .tex file → BLOCK.
+
+# sha256: prefix followed by hex chars
+_SHA256_PREFIX_RE = re.compile(r"\bsha256:[0-9a-fA-F]{8,}", re.IGNORECASE)
+
+# Bare 64-char hex run (no prefix) — a typical sha256 hash value
+_BARE_HEX64_RE = re.compile(r"\b[0-9a-fA-F]{64}\b")
+
+# DAG-internal id tokens that must not appear in body prose
+_INTERNAL_TOKEN_RE = re.compile(
+    r"\b(covers_hash|results_hash|run_id|dag_run)\b"
+)
+
+# The explicit sentinel string from note.py REPRO_SENTINEL
+_REPRO_SENTINEL_RE = re.compile(r"not-recorded-in-provenance", re.IGNORECASE)
+
+# Artifact-path shapes: results/*.csv or *.json (relative artifact paths)
+_ARTIFACT_PATH_RE = re.compile(
+    r"\bresults/[^\s,\"'<>]+\.(?:csv|json)\b",
+    re.IGNORECASE,
+)
+
+# Absolute filesystem paths: /Users/, /home/, ~/
+_ABS_PATH_RE = re.compile(
+    r"(?<![\\])(?:/Users/|/home/|~/)[^\s,\"'<>]{3,}",
+)
+
+# Run-id shape: ms-...-draft, or a hyphen-delimited slug ending with a short hash
+# Matches: ms-foo-draft, ms-bar-123abc-draft, my-paper-a3b (slug-with-short-hex-suffix)
+_RUN_ID_SHAPE_RE = re.compile(
+    r"^ms-[\w-]+-draft$|^[\w]+-[\w-]+-[0-9a-f]{3,8}$",
+    re.IGNORECASE,
+)
+
+# Matches \title{...} in a .tex file (single-line, non-greedy)
+_TITLE_CMD_RE = re.compile(r"\\title\{([^}]*)\}")
+
+
+def _extract_title_value(tex_text: str) -> str | None:
+    """Extract the value of \\title{...} from a .tex file, or None if absent."""
+    m = _TITLE_CMD_RE.search(tex_text)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def check_body_leakage(
+    tree_root: Path,
+    tex_files: list[Path] | None = None,
+    *,
+    note_path: Path | None = None,
+) -> list[str]:
+    """Gate 9: hermetic body leak-scan (SR-MS-AUDIENCE §5J.16.3 Layer-1).
+
+    Scans the manuscript BODY sections for internal-provenance patterns that
+    must never appear in the public PDF. Excludes zone-2 files (appendix-repro.tex,
+    data-code-availability.tex) where provenance is legitimate (ACM-badging model).
+
+    Also runs the structural title guard (§5J.16.4): \\title{} must not equal the
+    ms_id, dag_run, or match a run-id shape (ms-...-draft, slug-with-hash).
+
+    Leak patterns detected (all → BLOCK):
+      - sha256:<hex> prefix — internal hash stamp
+      - Bare 64-char hex run — sha256 hash value
+      - covers_hash / results_hash / run_id / dag_run token — DAG-internal ids
+      - not-recorded-in-provenance sentinel — should not appear in body prose
+      - results/*.csv or results/*.json — artifact-path shapes
+      - Absolute /Users/ or /home/ or ~/ paths — local machine paths
+
+    Title guard (main.tex only):
+      - \\title{} value matches ms-...-draft pattern → BLOCK
+      - \\title{} value is a bare slug-with-hash (e.g. my-paper-a3b) → BLOCK
+      - \\title{} value matches dag_run frontmatter field value → BLOCK (when note_path given)
+
+    Args:
+        tree_root: path to the manuscript artifact tree (manuscripts/<id>/).
+        tex_files: list of .tex files to scan. When None, rglob tree_root.
+        note_path: optional path to the OKF manuscript note (for dag_run guard).
+
+    Returns:
+        List of BLOCK-level error strings, each naming the offending file and pattern.
+        Empty list = no leaks detected.
+
+    HERMETIC: no LLM, no network, stdlib only.
+    sr: SR-MS-AUDIENCE
+    """
+    if tex_files is None:
+        tex_files = list(tree_root.rglob("*.tex"))
+
+    errors: list[str] = []
+
+    # Read dag_run from note_path for the title guard (if available)
+    dag_run_value: str | None = None
+    ms_id_value: str | None = None
+    if note_path is not None and note_path.exists():
+        try:
+            from research_vault.note import _parse_frontmatter as _pfm
+            ntext = note_path.read_text(encoding="utf-8")
+            nfields, _ = _pfm(ntext)
+            dag_run_value = nfields.get("dag_run", "").strip() or None
+        except Exception:
+            pass
+    # Also attempt to infer ms_id from tree_root name
+    ms_id_value = tree_root.name  # e.g. "ms-test"
+
+    for tex in tex_files:
+        if not tex.exists():
+            continue
+        # Determine zone
+        stem = tex.stem  # filename without extension
+        if stem in _ZONE2_FILENAMES:
+            continue  # Zone-2: provenance is legitimate here, skip
+
+        try:
+            text = tex.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        text_no_comments = _strip_comments(text)
+        rel = tex.relative_to(tree_root) if tex.is_relative_to(tree_root) else tex
+
+        # ── sha256: prefix ──────────────────────────────────────────────────
+        for m in _SHA256_PREFIX_RE.finditer(text_no_comments):
+            errors.append(
+                f"body-leakage [sha256-prefix]: {rel} line "
+                f"{text_no_comments[:m.start()].count(chr(10)) + 1}: "
+                f"internal hash stamp '{m.group()[:30]}...' must not appear in "
+                f"body sections (zone-1). Move to appendix-repro.tex (zone-2)."
+            )
+
+        # ── Bare 64-char hex ────────────────────────────────────────────────
+        for m in _BARE_HEX64_RE.finditer(text_no_comments):
+            errors.append(
+                f"body-leakage [bare-hex64]: {rel} line "
+                f"{text_no_comments[:m.start()].count(chr(10)) + 1}: "
+                f"bare 64-char hex '{m.group()[:16]}...' looks like a hash value — "
+                f"must not appear in body sections."
+            )
+
+        # ── DAG-internal tokens ─────────────────────────────────────────────
+        for m in _INTERNAL_TOKEN_RE.finditer(text_no_comments):
+            errors.append(
+                f"body-leakage [internal-token]: {rel} line "
+                f"{text_no_comments[:m.start()].count(chr(10)) + 1}: "
+                f"DAG-internal id '{m.group()}' must not appear in body sections. "
+                f"Internal provenance stays in the OKF note; it never enters .tex."
+            )
+
+        # ── Sentinel text ────────────────────────────────────────────────────
+        for m in _REPRO_SENTINEL_RE.finditer(text_no_comments):
+            errors.append(
+                f"body-leakage [sentinel]: {rel} line "
+                f"{text_no_comments[:m.start()].count(chr(10)) + 1}: "
+                f"'not-recorded-in-provenance' sentinel must not appear in body prose. "
+                f"In a proxy/no-run study, use rv manuscript compile (inject_appendix "
+                f"emits a reframe paragraph instead of a sentinel wall)."
+            )
+
+        # ── Artifact paths ───────────────────────────────────────────────────
+        for m in _ARTIFACT_PATH_RE.finditer(text_no_comments):
+            errors.append(
+                f"body-leakage [artifact-path]: {rel} line "
+                f"{text_no_comments[:m.start()].count(chr(10)) + 1}: "
+                f"artifact path '{m.group()}' must not appear in body sections. "
+                f"Use stable identifiers (dataset_id, DOI) in the appendix instead."
+            )
+
+        # ── Absolute machine paths ───────────────────────────────────────────
+        for m in _ABS_PATH_RE.finditer(text_no_comments):
+            errors.append(
+                f"body-leakage [abs-path]: {rel} line "
+                f"{text_no_comments[:m.start()].count(chr(10)) + 1}: "
+                f"absolute machine path '{m.group()[:40]}' must not appear in body. "
+                f"A stranger cannot resolve a local path from the PDF."
+            )
+
+    # ── Title guard (main.tex only) ──────────────────────────────────────────
+    main_tex = tree_root / "main.tex"
+    if main_tex.exists():
+        try:
+            main_text = main_tex.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            main_text = ""
+        title_val = _extract_title_value(main_text)
+        if title_val is not None:
+            # Guard 1: matches ms-...-draft run-id shape
+            if _RUN_ID_SHAPE_RE.match(title_val):
+                errors.append(
+                    f"title-guard: \\title{{{title_val!r}}} matches a run-id shape "
+                    f"(ms-...-draft or slug-with-hash). The title must be a curated "
+                    f"reader-facing thesis, not the internal manuscript id. "
+                    f"A title agent proposes candidates at the 'title' DAG node."
+                )
+            # Guard 2: matches dag_run value from note
+            if dag_run_value and title_val == dag_run_value:
+                errors.append(
+                    f"title-guard: \\title{{{title_val!r}}} equals the dag_run value "
+                    f"'{dag_run_value}'. The title must be editorial, not the DAG run id."
+                )
+            # Guard 3: matches ms_id exactly (the tree_root name)
+            if ms_id_value and title_val == ms_id_value:
+                errors.append(
+                    f"title-guard: \\title{{{title_val!r}}} equals the manuscript id. "
+                    f"Use a curated reader-facing title instead."
+                )
 
     return errors
 
@@ -1344,6 +1571,10 @@ def build_approve_payload(
     drift_errors = check_hash_drift(note_path, tree_root, experiment_notes)
     errors.extend(drift_errors)
 
+    # Gate 9: body leak-scan (SR-MS-AUDIENCE)
+    leak_errors = check_body_leakage(tree_root, tex_files, note_path=note_path)
+    errors.extend(leak_errors)
+
     # ── Semantic gates ────────────────────────────────────────────────────────
 
     # J-1: confidence-completeness
@@ -1447,6 +1678,10 @@ def build_approve_payload(
         "j1_k1_blocks": j1_errors + k1_errors,
         # Human-vouch list (§5J.13-D, D-MS-6)
         "provenance_human_vouch": vouch_list,
+        # §5J.16 — SR-MS-AUDIENCE 7th section: body leak-scan results
+        "body_leakage": leak_errors,
+        # §5J.16 — SR-MS-AUDIENCE 8th section: title candidates from note
+        "title_candidates": _read_title_candidates(note_path),
         # Meta
         "errors": errors,
         "warnings": warnings,
@@ -1458,6 +1693,44 @@ def build_approve_payload(
         } or {},
     }
     return payload
+
+
+def _read_title_candidates(note_path: Path | None) -> list[str]:
+    """Read title candidates from the manuscript note body (SR-MS-AUDIENCE §5J.16.4).
+
+    The 'title' DAG agent writes 3-5 candidate reader-facing titles into the
+    manuscript note body under a '## Title Candidates' heading. This reader
+    extracts them for the approve-manuscript payload (8th section).
+
+    Returns a list of candidate strings (empty list if none written yet or note absent).
+    """
+    if note_path is None or not note_path.exists():
+        return []
+    try:
+        text = note_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    # Look for a "## Title Candidates" section in the note body
+    candidates: list[str] = []
+    in_section = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("## title candidates"):
+            in_section = True
+            continue
+        if in_section:
+            if stripped.startswith("##"):
+                break  # Next section started
+            # Each candidate is a list item or a non-empty line
+            if stripped.startswith("- ") or stripped.startswith("* "):
+                candidate = stripped[2:].strip()
+                if candidate:
+                    candidates.append(candidate)
+            elif stripped and not stripped.startswith("<!--"):
+                candidates.append(stripped)
+
+    return candidates
 
 
 # ---------------------------------------------------------------------------
@@ -1579,6 +1852,10 @@ def check_manuscript(
     # ── Gate 7 (B): cite provenance (SR-MS-2) ─────────────────────────────
     prov_errors, vouch_list = check_cite_provenance(tree_root, tex_files)
     errors.extend(prov_errors)
+
+    # ── Gate 9: body leak-scan (SR-MS-AUDIENCE) ───────────────────────────
+    leak_errors = check_body_leakage(tree_root, tex_files, note_path=note_path)
+    errors.extend(leak_errors)
 
     return {
         "errors": errors,
