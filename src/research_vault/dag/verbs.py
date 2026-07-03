@@ -615,10 +615,17 @@ def cmd_complete(args: argparse.Namespace) -> int:
             # failures[] is retained for the human diagnostician
             run_state.set_node_status(node_id, status)
             store.save(run_state)
-            print(
-                f"Node {node_id!r} → {status} "
-                f"(retries exhausted: {attempts_after}/{max_retries} attempts)"
-            )
+            # SR-RETRY cosmetic fix: only mention "retries exhausted" when there were
+            # retries to exhaust (max_retries > 0).  When max_retries == 0 the node is
+            # just a plain terminal failure — printing "retries exhausted: 1/0 attempts"
+            # is a nonsensical ratio and confusing to the operator.
+            if max_retries > 0:
+                exhaustion_detail = (
+                    f" (retries exhausted: {attempts_after}/{max_retries} attempts)"
+                )
+            else:
+                exhaustion_detail = ""
+            print(f"Node {node_id!r} → {status}{exhaustion_detail}")
             frontier = _recompute_awaiting_go(run_state, manifest, store)
             print("Frontier:")
             _print_frontier(frontier, run_id, node_states=run_state.node_states)
@@ -1021,10 +1028,16 @@ def cmd_status(args: argparse.Namespace) -> int:
         ns = run_state.node_states.get(nid, {})
         err = ns.get("error", "")
         err_str = f" [{err}]" if err else ""
-        # SR-RETRY: show attempt progress on pending nodes with prior failures
+        # SR-RETRY: show attempt progress only on genuinely retry-queued (pending) nodes.
+        # Terminal nodes (failed/succeeded) must NOT show a live attempt counter — it
+        # overshoots (e.g. "[attempt 2/1]" for N=0, "[attempt 4/3]" for exhausted N=2).
         attempts = ns.get("attempts", 0)
         max_retries = node.get("max_retries", 0)
-        retry_str = f" [attempt {attempts + 1}/{max_retries + 1}]" if attempts > 0 else ""
+        retry_str = (
+            f" [attempt {attempts + 1}/{max_retries + 1}]"
+            if status == "pending" and attempts > 0
+            else ""
+        )
         print(f"  {sym} {nid}  ({status}){err_str}{retry_str}")
         if node.get("type") != "human-go" and label != nid:
             print(f"      {label}")
