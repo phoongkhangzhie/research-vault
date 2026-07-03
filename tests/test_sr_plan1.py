@@ -397,6 +397,297 @@ class TestFreeze:
 
 
 # ===========================================================================
+# 3b. plan/freeze.py — SR-PLAN-FREEZE-RETRY (#23)
+#     max_retries folded into the covers:-freeze-set hash
+# ===========================================================================
+
+def _manifest_json(tmp_path: Path, nodes: list[dict], *, filename: str = "manifest.json") -> Path:
+    """Write a minimal manifest JSON with the given node dicts and return its path."""
+    import json as _json
+    p = tmp_path / filename
+    manifest = {"run_id": "test-run", "nodes": nodes}
+    p.write_text(_json.dumps(manifest), encoding="utf-8")
+    return p
+
+
+def _node(node_id: str, max_retries: int | None = None) -> dict:
+    """Build a minimal manifest node dict, optionally with max_retries."""
+    n: dict = {"id": node_id, "type": "agent", "cmd": ["echo", "ok"]}
+    if max_retries is not None:
+        n["max_retries"] = max_retries
+    return n
+
+
+class TestPlanFreezeRetry:
+    """SR-PLAN-FREEZE-RETRY (#23) — max_retries folded into the covers:-freeze hash.
+
+    All tests use the NEW signature:
+      compute_covers_hash(plan_note_path, notes_root=None, manifest_nodes=None)
+
+    Back-compat rule: manifest_nodes=None → byte-identical to pre-extension code.
+    """
+
+    def _import_freeze(self):
+        from research_vault.plan import freeze as freeze_mod
+        return freeze_mod
+
+    # ------------------------------------------------------------------
+    # R1  back-compat: all-default manifest → hash == covers-only hash
+    # ------------------------------------------------------------------
+
+    def test_all_default_manifest_hash_equals_covers_only(self, tmp_path):
+        """BYTE-IDENTICAL: all-default nodes (no max_retries) == manifest_nodes=None."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        p = _plan_note(tmp_path, covers="[q1-main1]")
+
+        # All nodes have no max_retries field (effective 0)
+        nodes = [_node("q1-main1")]
+
+        hash_no_manifest = freeze.compute_covers_hash(p, notes_root=notes_dir,
+                                                      manifest_nodes=None)
+        hash_all_default = freeze.compute_covers_hash(p, notes_root=notes_dir,
+                                                      manifest_nodes=nodes)
+        assert hash_no_manifest == hash_all_default, (
+            "All-default manifest must yield byte-identical hash to covers-only "
+            "(manifest_nodes=None) — back-compat requires no re-freeze."
+        )
+
+    def test_explicit_zero_retries_treated_as_default(self, tmp_path):
+        """max_retries=0 is the default — must NOT appear in retries block, hash unchanged."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        p = _plan_note(tmp_path, covers="[q1-main1]")
+
+        nodes_no_field = [_node("q1-main1")]
+        nodes_explicit_zero = [_node("q1-main1", max_retries=0)]
+
+        h_none = freeze.compute_covers_hash(p, notes_root=notes_dir, manifest_nodes=None)
+        h_no_field = freeze.compute_covers_hash(p, notes_root=notes_dir,
+                                                manifest_nodes=nodes_no_field)
+        h_zero = freeze.compute_covers_hash(p, notes_root=notes_dir,
+                                            manifest_nodes=nodes_explicit_zero)
+        assert h_none == h_no_field == h_zero, (
+            "Explicit max_retries=0 must be treated as the default — omit from hash."
+        )
+
+    # ------------------------------------------------------------------
+    # R2  a non-zero ceiling IS included — adding one post-freeze BLOCKs
+    # ------------------------------------------------------------------
+
+    def test_nonzero_retries_changes_hash(self, tmp_path):
+        """A node with max_retries=2 must produce a DIFFERENT hash than default."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        p = _plan_note(tmp_path, covers="[q1-main1]")
+
+        h_default = freeze.compute_covers_hash(p, notes_root=notes_dir, manifest_nodes=None)
+        h_retries = freeze.compute_covers_hash(p, notes_root=notes_dir,
+                                               manifest_nodes=[_node("q1-main1", max_retries=2)])
+        assert h_default != h_retries, (
+            "A node with max_retries=2 must change the hash vs default (tamper-evident)."
+        )
+
+    # ------------------------------------------------------------------
+    # R3–R6  four tamper directions (all must BLOCK via verify_freeze_hash)
+    # ------------------------------------------------------------------
+
+    def _setup_store(self, tmp_path, *, run_id: str, manifest_path: str):
+        from research_vault.dag.store import RunState, RunStore
+        state_dir = tmp_path / "state"
+        store = RunStore(state_dir)
+        run_state = RunState(run_id=run_id, manifest_path=manifest_path)
+        store.create(run_state)
+        return store
+
+    def test_raise_ceiling_post_freeze_blocks(self, tmp_path):
+        """Tamper R3: raise max_retries 2→8 post-freeze → verify BLOCKs."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        p = _plan_note(tmp_path, covers="[q1-main1]")
+
+        # Write initial manifest with max_retries=2
+        m_path = _manifest_json(tmp_path, [_node("q1-main1", max_retries=2)])
+        store = self._setup_store(tmp_path, run_id="run-raise", manifest_path=str(m_path))
+        freeze.store_freeze_hash(store, "run-raise", p, notes_root=notes_dir)
+
+        # Tamper: raise ceiling to 8
+        import json as _json
+        manifest = _json.loads(m_path.read_text())
+        manifest["nodes"][0]["max_retries"] = 8
+        m_path.write_text(_json.dumps(manifest))
+
+        ok, msg = freeze.verify_freeze_hash(store, "run-raise", p, notes_root=notes_dir)
+        assert ok is False, "Raising max_retries post-freeze must BLOCK."
+        assert msg is not None
+
+    def test_add_retry_post_freeze_blocks(self, tmp_path):
+        """Tamper R4: add max_retries (absent→3) post-freeze → verify BLOCKs."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        p = _plan_note(tmp_path, covers="[q1-main1]")
+
+        # Initial manifest: no max_retries field
+        m_path = _manifest_json(tmp_path, [_node("q1-main1")])
+        store = self._setup_store(tmp_path, run_id="run-add", manifest_path=str(m_path))
+        freeze.store_freeze_hash(store, "run-add", p, notes_root=notes_dir)
+
+        # Tamper: add max_retries=3
+        import json as _json
+        manifest = _json.loads(m_path.read_text())
+        manifest["nodes"][0]["max_retries"] = 3
+        m_path.write_text(_json.dumps(manifest))
+
+        ok, msg = freeze.verify_freeze_hash(store, "run-add", p, notes_root=notes_dir)
+        assert ok is False, "Adding max_retries (absent→3) post-freeze must BLOCK."
+        assert msg is not None
+
+    def test_remove_retry_post_freeze_blocks(self, tmp_path):
+        """Tamper R5: remove max_retries (2→absent) post-freeze → verify BLOCKs."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        p = _plan_note(tmp_path, covers="[q1-main1]")
+
+        # Initial manifest: max_retries=2
+        m_path = _manifest_json(tmp_path, [_node("q1-main1", max_retries=2)])
+        store = self._setup_store(tmp_path, run_id="run-remove", manifest_path=str(m_path))
+        freeze.store_freeze_hash(store, "run-remove", p, notes_root=notes_dir)
+
+        # Tamper: remove max_retries field
+        import json as _json
+        manifest = _json.loads(m_path.read_text())
+        del manifest["nodes"][0]["max_retries"]
+        m_path.write_text(_json.dumps(manifest))
+
+        ok, msg = freeze.verify_freeze_hash(store, "run-remove", p, notes_root=notes_dir)
+        assert ok is False, "Removing max_retries (2→absent) post-freeze must BLOCK."
+        assert msg is not None
+
+    def test_lower_retry_post_freeze_blocks(self, tmp_path):
+        """Tamper R6: lower max_retries 5→2 post-freeze → verify BLOCKs."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        p = _plan_note(tmp_path, covers="[q1-main1]")
+
+        # Initial manifest: max_retries=5
+        m_path = _manifest_json(tmp_path, [_node("q1-main1", max_retries=5)])
+        store = self._setup_store(tmp_path, run_id="run-lower", manifest_path=str(m_path))
+        freeze.store_freeze_hash(store, "run-lower", p, notes_root=notes_dir)
+
+        # Tamper: lower to 2
+        import json as _json
+        manifest = _json.loads(m_path.read_text())
+        manifest["nodes"][0]["max_retries"] = 2
+        m_path.write_text(_json.dumps(manifest))
+
+        ok, msg = freeze.verify_freeze_hash(store, "run-lower", p, notes_root=notes_dir)
+        assert ok is False, "Lowering max_retries (5→2) post-freeze must BLOCK."
+        assert msg is not None
+
+    # ------------------------------------------------------------------
+    # R7  retry-drift mismatch message distinguishes retry vs covers edit
+    # ------------------------------------------------------------------
+
+    def test_retry_drift_message_distinguishes_from_covers_edit(self, tmp_path):
+        """Mismatch message names 'ceiling' / 'max_retries' for a retry-only drift."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        p = _plan_note(tmp_path, covers="[q1-main1]")
+
+        # Freeze with max_retries=2 so the covers block is unchanged post-tamper
+        m_path = _manifest_json(tmp_path, [_node("q1-main1", max_retries=2)])
+        store = self._setup_store(tmp_path, run_id="run-msg", manifest_path=str(m_path))
+        freeze.store_freeze_hash(store, "run-msg", p, notes_root=notes_dir)
+
+        # Tamper ONLY the retries (covers: unchanged)
+        import json as _json
+        manifest = _json.loads(m_path.read_text())
+        manifest["nodes"][0]["max_retries"] = 8
+        m_path.write_text(_json.dumps(manifest))
+
+        ok, msg = freeze.verify_freeze_hash(store, "run-msg", p, notes_root=notes_dir)
+        assert ok is False
+        assert msg is not None
+        # Message must name a ceiling/retry change, not just "covers: set was edited"
+        msg_lower = msg.lower()
+        assert "ceiling" in msg_lower or "max_retries" in msg_lower or "retry" in msg_lower, (
+            f"Retry-drift mismatch message must name the ceiling change, got: {msg!r}"
+        )
+
+    # ------------------------------------------------------------------
+    # R8  graceful fallback: unreadable manifest_path → covers-only hash
+    # ------------------------------------------------------------------
+
+    def test_unreadable_manifest_path_graceful_fallback(self, tmp_path):
+        """Unreadable manifest_path → graceful covers-only hash (no crash)."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        p = _plan_note(tmp_path, covers="[q1-main1]")
+
+        # store_freeze_hash with a nonexistent manifest path
+        from research_vault.dag.store import RunState, RunStore
+        state_dir = tmp_path / "state"
+        store = RunStore(state_dir)
+        run_state = RunState(run_id="run-nograce", manifest_path=str(tmp_path / "ghost.json"))
+        store.create(run_state)
+
+        # Must not raise; should produce same hash as manifest_nodes=None
+        freeze.store_freeze_hash(store, "run-nograce", p, notes_root=notes_dir)
+        ok, msg = freeze.verify_freeze_hash(store, "run-nograce", p, notes_root=notes_dir)
+        assert ok is True, f"Unreadable manifest must not cause mismatch: {msg}"
+
+    # ------------------------------------------------------------------
+    # R9  back-compat: existing 281–393 tests must remain green UNCHANGED
+    #     (verified by running the full TestPlanFreezeHash class)
+    # ------------------------------------------------------------------
+
+    def test_round_trip_with_real_manifest(self, tmp_path):
+        """Full round-trip: freeze with real manifest, verify identical manifest → pass."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        _child_note(notes_dir, "q1-main1-abl-A", stance="confirmatory", plan_role="supporting_ablation")
+        p = _plan_note(tmp_path, covers="[q1-main1, q1-main1-abl-A]")
+
+        m_path = _manifest_json(tmp_path, [
+            _node("q1-main1", max_retries=3),
+            _node("q1-main1-abl-A"),
+        ])
+        from research_vault.dag.store import RunState, RunStore
+        state_dir = tmp_path / "state"
+        store = RunStore(state_dir)
+        run_state = RunState(run_id="run-rt", manifest_path=str(m_path))
+        store.create(run_state)
+
+        freeze.store_freeze_hash(store, "run-rt", p, notes_root=notes_dir)
+        ok, msg = freeze.verify_freeze_hash(store, "run-rt", p, notes_root=notes_dir)
+        assert ok is True, f"Unchanged manifest must verify OK: {msg}"
+
+    def test_sorted_node_order_is_deterministic(self, tmp_path):
+        """Retries block is sorted by node_id — order of nodes list doesn't matter."""
+        freeze = self._import_freeze()
+        notes_dir = tmp_path / "notes"
+        _child_note(notes_dir, "q1-main1", stance="confirmatory", plan_role="main")
+        p = _plan_note(tmp_path, covers="[q1-main1]")
+
+        nodes_ab = [_node("aaa", max_retries=2), _node("zzz", max_retries=5)]
+        nodes_ba = [_node("zzz", max_retries=5), _node("aaa", max_retries=2)]
+
+        h_ab = freeze.compute_covers_hash(p, notes_root=notes_dir, manifest_nodes=nodes_ab)
+        h_ba = freeze.compute_covers_hash(p, notes_root=notes_dir, manifest_nodes=nodes_ba)
+        assert h_ab == h_ba, "Retries block hash must be order-independent (sorted)."
+
+
+# ===========================================================================
 # 4. dag/store.py — RunState.meta round-trips
 # ===========================================================================
 
