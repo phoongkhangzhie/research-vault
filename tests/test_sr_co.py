@@ -107,14 +107,19 @@ class TestComputeInit:
         assert wandb["project"].startswith(_FILL_PREFIX)
 
     def test_init_scaffold_has_cluster_profile(self, cfg: Config) -> None:
-        """Scaffold includes a 'cluster' backend profile (inactive by default)."""
+        """Scaffold includes a remote backend profile (compute-node) inactive by default.
+
+        SR-EP-ROLE renamed the primary remote profile from 'cluster' to 'compute-node'
+        to better reflect its role (submit node vs a generic cluster name).
+        """
         from research_vault.compute import cmd_init
         cmd_init(cfg)
         from research_vault.compute import _manifest_path
         data = json.loads(_manifest_path(cfg).read_text(encoding="utf-8"))
         profiles = data["backends"]["profiles"]
-        assert "cluster" in profiles
-        cluster = profiles["cluster"]
+        # Profile is now called 'compute-node' (SR-EP-ROLE)
+        assert "compute-node" in profiles
+        cluster = profiles["compute-node"]
         assert "archetype" in cluster
         assert "host" in cluster
         # host must be a FILL value (not a real host)
@@ -171,18 +176,18 @@ class TestComputeInit:
             )
 
     def test_init_detects_sbatch_locally(self, cfg: Config) -> None:
-        """When sbatch is found locally, cluster profile uses ssh+slurm archetype."""
+        """When sbatch is found locally, compute-node profile uses ssh+slurm archetype."""
         from research_vault.compute import cmd_init, _manifest_path
 
         with patch("shutil.which", side_effect=lambda cmd: "/usr/bin/sbatch" if cmd == "sbatch" else None):
             cmd_init(cfg, force=True)
 
         data = json.loads(_manifest_path(cfg).read_text(encoding="utf-8"))
-        cluster = data["backends"]["profiles"]["cluster"]
+        cluster = data["backends"]["profiles"]["compute-node"]
         assert cluster["archetype"] == "ssh+slurm"
 
     def test_init_detects_qsub_locally(self, cfg: Config) -> None:
-        """When qsub is found locally (no sbatch), cluster profile uses ssh+pbs."""
+        """When qsub is found locally (no sbatch), compute-node profile uses ssh+pbs."""
         from research_vault.compute import cmd_init, _manifest_path
 
         def fake_which(cmd: str):
@@ -194,7 +199,7 @@ class TestComputeInit:
             cmd_init(cfg, force=True)
 
         data = json.loads(_manifest_path(cfg).read_text(encoding="utf-8"))
-        cluster = data["backends"]["profiles"]["cluster"]
+        cluster = data["backends"]["profiles"]["compute-node"]
         assert cluster["archetype"] == "ssh+pbs"
 
     def test_init_no_scheduler_defaults_to_slurm_template(self, cfg: Config) -> None:
@@ -205,7 +210,7 @@ class TestComputeInit:
             cmd_init(cfg, force=True)
 
         data = json.loads(_manifest_path(cfg).read_text(encoding="utf-8"))
-        cluster = data["backends"]["profiles"]["cluster"]
+        cluster = data["backends"]["profiles"]["compute-node"]
         assert cluster["archetype"] == "ssh+slurm"
 
     def test_init_active_remains_local_by_default(self, cfg: Config) -> None:

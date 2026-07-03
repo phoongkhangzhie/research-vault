@@ -149,6 +149,12 @@ def _scaffold_manifest(*, has_scheduler: str | None = None) -> dict[str, Any]:
     fills host + submit convention). When none is detected, the cluster profile
     is still included (inactive) — the user edits it when they have a cluster.
 
+    SR-EP-ROLE: each profile now carries an optional ``when_to_use`` (role +
+    inline anti-pattern, mirroring the verb registry) and an optional
+    ``host_group`` annotation (shared underlying cluster/filesystem). The local
+    backend gets a seeded self-evident value; remote profiles get FILL strings.
+    A commented transfer-node example demonstrates the compute-node vs DTN pattern.
+
     The manifest is always valid JSON. FILL values are strings starting with
     ``_FILL_PREFIX`` and are treated as "not yet configured" by consumers.
     """
@@ -164,21 +170,58 @@ def _scaffold_manifest(*, has_scheduler: str | None = None) -> dict[str, Any]:
 
     return {
         "backends": {
-            # active: ["local"] — flip to ["cluster"] after filling the profile
+            # active: ["local"] — flip to ["compute-node"] after filling the profile.
+            # If you also have a data-transfer node (DTN), flip to ["compute-node", "transfer-node"].
             "active": ["local"],
             "profiles": {
-                "local": {"archetype": "local"},
-                # === DECLARE: fill host + submit_pattern then flip active to ["cluster"] ===
+                "local": {
+                    "archetype": "local",
+                    # Local backend role is self-evident — no when_to_use authoring needed.
+                    "when_to_use": "Local subprocess runs (zero-infra default).",
+                },
+                # === DECLARE: fill host + submit_pattern, then flip active to ["compute-node"] ===
                 # Credentials: ssh auth via ~/.ssh/config (never put keys here)
-                "cluster": {
+                "compute-node": {
                     "archetype": cluster_archetype,
                     "host": (
-                        "FILL — ssh host alias (e.g. login.mycluster.edu); "
-                        "must resolve via your ~/.ssh/config"
+                        "FILL — ssh host alias for the login/submit node "
+                        "(e.g. your-cluster-login); must resolve via your ~/.ssh/config"
                     ),
                     "submit_pattern": submit_placeholder,
+                    # host_group: optional annotation — set to the same value on your
+                    # data-transfer node if you have one sharing the same filesystem.
+                    # Endpoints sharing a host_group are shown together in rv compute show.
+                    "host_group": "FILL — e.g. 'mycluster' (shared with transfer-node if applicable)",
+                    # when_to_use: describe this endpoint's role (+ optional anti-pattern).
+                    "when_to_use": (
+                        "FILL — what is this endpoint for? "
+                        "e.g. 'Submit training/eval JOBS here (sbatch). "
+                        "The compute/login node for mycluster.' "
+                        "Add an anti-pattern if a sibling endpoint shares the host."
+                    ),
                     # Built-in defaults (jobid_parse/status_cmd/status_parse/state_map)
                     # auto-apply from remote.py — omit unless overriding
+                },
+                # === OPTIONAL: data-transfer node (DTN) — same filesystem as compute-node ===
+                # A DTN is archetype: ssh (plain ssh — no scheduler); use it for big downloads
+                # and dataset/checkpoint staging. The compute-node shares the same filesystem,
+                # so files staged here are visible there at the same path.
+                # Set host_group to the SAME value as compute-node above.
+                # To activate: fill in host + host_group + when_to_use, then add "transfer-node"
+                # to the active list: "active": ["compute-node", "transfer-node"]
+                "transfer-node": {
+                    "archetype": "ssh",
+                    "host": (
+                        "FILL — ssh host alias for the data-transfer node (DTN); "
+                        "must resolve via your ~/.ssh/config"
+                    ),
+                    "host_group": "FILL — same value as compute-node's host_group",
+                    "when_to_use": (
+                        "FILL — e.g. 'Big downloads + dataset/checkpoint STAGING here "
+                        "(plain ssh; high-bandwidth DTN). Same filesystem as compute-node. "
+                        "Anti-pattern: do NOT submit jobs on the DTN — there is no scheduler "
+                        "here; submit on compute-node.'"
+                    ),
                 },
             },
         },
@@ -246,16 +289,26 @@ def cmd_init(cfg: Config, *, force: bool = False) -> int:
 
     print(f"[OK] Compute manifest written: {p}")
     print()
-    print("Next: edit the FILL values in the 'cluster' profile + 'results.wandb' block:")
+    print("Next: edit the FILL values in the 'compute-node' profile + 'results.wandb' block:")
     print(f"  {p}")
     print()
     print("Fill in:")
-    print("  backends.profiles.cluster.host  — your ssh host alias (from ~/.ssh/config)")
-    print("  backends.profiles.cluster.submit_pattern  — sbatch/qsub flags for your account")
+    print("  backends.profiles.compute-node.host  — your ssh host alias (from ~/.ssh/config)")
+    print("  backends.profiles.compute-node.submit_pattern  — sbatch/qsub flags for your account")
+    print("  backends.profiles.compute-node.when_to_use  — describe this endpoint's role")
+    print("    (e.g. 'Submit training/eval JOBS here (sbatch). The compute/login node.')")
     print("  results.wandb.entity   — your W&B username or team")
     print("  results.wandb.project  — your default W&B project")
     print()
-    print("Then flip backends.active to [\"cluster\"] when ready to use it.")
+    print("If you have a data-transfer node (DTN), uncomment and fill 'transfer-node':")
+    print("  backends.profiles.transfer-node.host  — your DTN host alias")
+    print("  backends.profiles.transfer-node.host_group  — same value as compute-node's host_group")
+    print("    (marks them as sharing a filesystem; staged files are visible on compute-node)")
+    print("  backends.profiles.transfer-node.when_to_use  — describe each endpoint's role,")
+    print("    especially if two endpoints reach the same cluster (compute node vs transfer node).")
+    print()
+    print("Then flip backends.active to [\"compute-node\"] when ready to use it.")
+    print("  (Add 'transfer-node' to the list if you have a DTN.)")
     print()
     print("Then run: rv doctor  (discover capabilities per declared backend)")
     print("Then run: rv compute show  (verify the merged declared+discovered recipe)")
@@ -263,12 +316,12 @@ def cmd_init(cfg: Config, *, force: bool = False) -> int:
     if detected_cli:
         print(
             f"Note: '{detected_cli}' found locally — "
-            f"cluster profile pre-set to archetype={detected_archetype!r}."
+            f"compute-node profile pre-set to archetype={detected_archetype!r}."
         )
     else:
         print(
             "No scheduler CLI found locally (sbatch/qsub). "
-            "Cluster profile defaults to archetype='ssh+slurm' — "
+            "Compute-node profile defaults to archetype='ssh+slurm' — "
             "change to 'ssh+pbs' for PBS clusters."
         )
     print()
@@ -306,7 +359,24 @@ def cmd_show(cfg: Config) -> int:
     profiles = backends.get("profiles", {})
     lines.append("Backends:")
     lines.append(f"  active: {', '.join(active) or '(none)'}")
-    for name, prof in profiles.items():
+
+    # Group profiles by host_group for visual co-location.
+    # Profiles without host_group are rendered ungrouped.
+    # Build: {host_group: [name, ...]} (ordered) + ungrouped list
+    _host_group_order: list[str] = []
+    _host_group_map: dict[str, list[str]] = {}
+    _ungrouped: list[str] = []
+    for name in profiles:
+        hg = profiles[name].get("host_group")
+        if hg:
+            if hg not in _host_group_map:
+                _host_group_map[hg] = []
+                _host_group_order.append(hg)
+            _host_group_map[hg].append(name)
+        else:
+            _ungrouped.append(name)
+
+    def _render_profile(name: str, prof: dict[str, Any]) -> None:
         archetype = prof.get("archetype", "?")
         extra = []
         if "host" in prof:
@@ -337,7 +407,64 @@ def cmd_show(cfg: Config) -> int:
             extra.append("native_env=true")
         suffix = f"  ({', '.join(extra)})" if extra else ""
         lines.append(f"  {name}: archetype={archetype}{suffix}")
+        wtu = prof.get("when_to_use", "")
+        if wtu:
+            # Truncate long values for display; trim FILL sentinel label for readability
+            wtu_display = wtu[:120] + "…" if len(wtu) > 120 else wtu
+            lines.append(f"    role: {wtu_display}")
+
+    # Render grouped profiles first, then ungrouped
+    for hg in _host_group_order:
+        lines.append(f"  [host_group: {hg}]")
+        for name in _host_group_map[hg]:
+            _render_profile(name, profiles[name])
+    for name in _ungrouped:
+        _render_profile(name, profiles[name])
     lines.append("")
+
+    # --- Soft WARN: ambiguity condition (SR-EP-ROLE §ROLE.4) ---
+    # Fire when ≥2 active profiles share a host_group (or ≥2 active non-local remote
+    # profiles absent a host_group) AND any of them lacks a when_to_use.
+    _active_profiles = {n: profiles[n] for n in active if n in profiles}
+    _active_non_local = {
+        n: p for n, p in _active_profiles.items()
+        if p.get("archetype", "local") != "local"
+    }
+    _warn_names: list[str] = []
+
+    if len(_active_non_local) >= 2:
+        # Check host_group-based ambiguity: ≥2 active profiles share a host_group
+        # and any of those lacks when_to_use.
+        _active_by_hg: dict[str, list[str]] = {}
+        for n, p in _active_non_local.items():
+            hg = p.get("host_group", "")
+            if hg:
+                if hg not in _active_by_hg:
+                    _active_by_hg[hg] = []
+                _active_by_hg[hg].append(n)
+        for hg, members in _active_by_hg.items():
+            if len(members) >= 2:
+                missing = [n for n in members if not _active_non_local[n].get("when_to_use")]
+                if missing:
+                    _warn_names.extend(members)
+
+        # Also check: ≥2 active remote profiles with NO host_group, any lacking when_to_use.
+        _no_hg = {n: p for n, p in _active_non_local.items() if not p.get("host_group")}
+        if len(_no_hg) >= 2:
+            missing_no_hg = [n for n, p in _no_hg.items() if not p.get("when_to_use")]
+            if missing_no_hg:
+                _warn_names.extend(list(_no_hg.keys()))
+
+    if _warn_names:
+        _unique_warn = list(dict.fromkeys(_warn_names))
+        lines.append(
+            f"[WARN] Endpoint ambiguity: profiles {_unique_warn} are co-located "
+            "(shared host_group or ≥2 active remote endpoints) but some lack a "
+            "when_to_use — the crew cannot tell which endpoint to use for which step. "
+            "Add a when_to_use to each endpoint describing its role "
+            "(see `rv compute init` for examples)."
+        )
+        lines.append("")
 
     # --- Conda envs ---
     conda_envs = m.get("conda_envs", {})
@@ -463,12 +590,15 @@ def cmd_explain(cfg: Config, job: str) -> dict[str, Any] | None:
     if tier_name and tier_name in gpu_tiers:
         resolved["gpus"] = gpu_tiers[tier_name].get("gpus")
 
-    # Resolve submit_flags from active backend profile
+    # Resolve submit_flags and when_to_use from active backend profile
     active_name = resolved["backend"]
     profile = profiles.get(active_name, {})
     submit_pattern = profile.get("submit_pattern")
     if submit_pattern:
         resolved["submit_flags"] = submit_pattern
+    wtu = profile.get("when_to_use")
+    if wtu:
+        resolved["when_to_use"] = wtu
 
     return resolved
 

@@ -309,9 +309,14 @@ _VERB_REGISTRY: dict[str, dict] = {
             "`rv doctor` (discover WHAT per backend) → `rv compute show` (verify). "
             "Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what "
             "env/tier to use — rv compute show / rv doctor already declare it. "
-            "Do NOT hand-edit compute_manifest.json from scratch — use rv compute init."
+            "Do NOT hand-edit compute_manifest.json from scratch — use rv compute init. "
+            "Anti-pattern (SR-EP-ROLE): do NOT declare a data-transfer node (DTN) as a "
+            "compute backend and hope the crew guesses its role — give each endpoint a "
+            "when_to_use so the run node knows which endpoint to stage data on vs submit "
+            "jobs on. Use a shared host_group tag to express that a compute node and a "
+            "transfer node reach the same underlying cluster/filesystem."
         ),
-        "sr": "SR-6, SR-CO",
+        "sr": "SR-6, SR-CO, SR-EP-ROLE",
     },
     "doctor": {
         "module": "research_vault.doctor",
