@@ -479,9 +479,10 @@ def test_review_in_verb_registry():
 
 
 def test_review_verb_sr_is_sr_lr_1():
-    """The review verb is tagged sr: SR-LR-1."""
+    """The review verb is tagged sr: SR-LR-1 (and SR-LR-2 after gap-driven pass added)."""
     from research_vault.cli import _VERB_REGISTRY
-    assert _VERB_REGISTRY["review"].get("sr") == "SR-LR-1"
+    sr_value = _VERB_REGISTRY["review"].get("sr", "")
+    assert "SR-LR-1" in sr_value
 
 
 def test_rv_help_check_passes(tmp_instance):

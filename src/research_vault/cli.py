@@ -418,7 +418,7 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-PLAN-1",
     },
-    # --- SR-LR-1 ---
+    # --- SR-LR-1 + SR-LR-2 ---
     "review": {
         "module": "research_vault.review.verbs",
         "when_to_use": (
@@ -436,15 +436,26 @@ _VERB_REGISTRY: dict[str, dict] = {
             "`review-synthesize` → `review-coverage-critic` → `[HG:approve-review]`). "
             "Use `rv review list <project>` to enumerate all reviews. "
             "Use `rv review tips [--key <key>]` to inspect the review_tips seam. "
+            "SR-LR-2 gap-driven pass (§5L.7): use `rv review gap-scan <project>` to "
+            "detect typed research gaps (knowledge_void, contradictory, evaluation_void, "
+            "absent_row) from the OKF corpus + an optional manuscript critic report. "
+            "This is a rejects-only SCREEN — it PROPOSES gaps, never auto-fires a review. "
+            "Use `rv review gap-scope <project> <gap-id> <scope>` to auto-author a "
+            "targeted Part-1 scope from the gap record (question ← claim verbatim; "
+            "seed_queries ← per-type templates; snowball_seeds ← anchor citekeys). "
+            "Use `rv review gap-close <project> <gap-id> --status <status>` to stamp "
+            "closure (proven-open = gap is a candidate research contribution). "
             "Anti-pattern: do NOT hand-collect papers without `rv review new` — the "
             "hand-run path has no `_protocol.md` freeze, no saturation curve, and no "
             "rejects-only coverage critic (the coverage gate cannot fire without the "
             "artifacts `rv review new` scaffolds). "
+            "Anti-pattern: do NOT auto-fire a gap-driven pass — gap-scan is a rejects-only "
+            "screen; the human authorizes each targeted pass via gap-scope (no auto-fire). "
             "Anti-pattern: do NOT call `rv research` stdout and scrape it for saturation "
             "counts — import `_load_corpus_index` and `_corpus_annotation` from "
             "`research_vault.research` directly (the corpus-helper import rule, §5L.11)."
         ),
-        "sr": "SR-LR-1",
+        "sr": "SR-LR-1, SR-LR-2",
     },
 }
 

@@ -139,17 +139,17 @@ class TestDatasetsOkfType:
         assert "datasets" in note_mod.OKF_TYPES
 
     def test_okf_type_count_is_nine(self):
-        """OKF_TYPES now has exactly 9 types (SR-MS-1a adds manuscript as the 9th).
+        """OKF_TYPES now has exactly 10 types (SR-LR-2 adds 'gaps' as the 10th).
 
-        Updated from 8→9 when SR-MS-1a added the manuscript type. datasets is the
-        SHARED type (SR-8); figures and manuscript are PROJECT-SCOPED. The 6 other
-        types (literature, concepts, methods, experiments, findings, mocs) are
-        also project-scoped.
+        Updated 8→9 when SR-MS-1a added manuscript; updated 9→10 when SR-LR-2 added
+        gaps. datasets is the SHARED type (SR-8); figures, manuscript, and gaps are
+        PROJECT-SCOPED. The 6 base types (literature, concepts, methods, experiments,
+        findings, mocs) are also project-scoped.
         """
-        assert len(note_mod.OKF_TYPES) == 9
+        assert len(note_mod.OKF_TYPES) == 10
         expected = {
             "literature", "concepts", "methods", "experiments",
-            "findings", "mocs", "datasets", "figures", "manuscript",
+            "findings", "mocs", "datasets", "figures", "manuscript", "gaps",
         }
         assert note_mod.OKF_TYPES == expected
 

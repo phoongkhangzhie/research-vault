@@ -1,3 +1,45 @@
+## 2026-07-02 (sr-lr-2 block-fix — D-GAP-3 structured binding, attribution fix)
+
+### Done
+- **D-GAP-3 structured binding** (Architect BLOCK resolved): rewired `_detect_absent_rows`
+  to consume `RunState.meta['support_matcher']['verdicts']` structured `SupportVerdict` records
+  instead of grepping prose with a bespoke `FINDING_RE` (which never matched real matcher output
+  and silently returned `[]` — charter §2 violation on the load-bearing loop-closer gate).
+  New signature: `_detect_absent_rows(matcher_meta: dict, run_id: str)`. Filters
+  `.verdict in {ABSENT, CONTRADICTS}` or `j2_escalation=True`; builds `GapRecord` from
+  `.claim_snippet` + `.citekey`.
+- **Charter §2 guard**: if meta is non-empty but `verdicts` key is absent, emits
+  `warnings.warn` — never silently returns `[]`.
+- **API change**: `cmd_gap_scan(matcher_meta=dict|None, run_id=str)` replaces
+  `critic_report=Path|None`. CLI: `--critic-report <path>` → `--run-state <path>` (loads
+  run-state JSON, extracts `meta.support_matcher`).
+- **Parser convergence (STOP decision)**: Wren requested extending `note._parse_frontmatter`
+  to handle list values. Verified that extension breaks `check_gates.py:synthesized_okf`,
+  `review/__init__.py`, `manuscript/__init__.py` callers doing `.strip()` on expected-scalar
+  fields. Per Wren's own escape hatch ("STOP and report if risks can't be cleanly verified"):
+  reverted. `_parse_frontmatter_simple` renamed to `_parse_frontmatter_gap` with honest
+  docstring. Canonical parser annotated with STOP decision rationale.
+- **Attribution fix** (Ada retrieval-verified, coordinator relay): all 7 attribution strings
+  in `gap_scan.py` corrected — type names AND procedure from Müller-Bloch & Kranz (2015, ICIS);
+  Miles (2017) and Robinson et al. (2011) as related secondary taxonomies (was inverted).
+- **Tests**: 7 tests (6a-6e) rewritten to structured dict API; 4 new tests (6f-6i for
+  citekey anchor, j2 escalation, §2 guard, silent-all-SUPPORTS); 6j cmd_gap_scan matcher_meta;
+  gap parser list test; canonical scalar guard. 48 SR-LR-2 tests pass.
+- Rebased on main (post-#49/#51/#52). DEVLOG union. Full suite: 1482 passed, 37 skipped.
+
+### Decisions
+- D-GAP-3 re-resolved: absent_row detector binds to STRUCTURED `SupportVerdict` records,
+  not a prose file. The prior resolution (grep FINDING_RE) was never correct — it matched a
+  format the matcher never emitted. The structured binding is the only correct fix.
+- Parser convergence deferred: see STOP decision above. Requires a separate PR that updates
+  all `.strip()` callers across check_gates/review/manuscript — touching in-flight SR-MS-1c.
+
+### Open / next
+- Push `feat/sr-lr-2` and update PR #50 (hub handles; human-go class).
+- Verify CI green on pushed HEAD SHA (post-rebase).
+
+---
+
 ## 2026-07-03 (SR-MS-1c — Architect block fix: _run_grounding_builders refactor)
 
 ### Done

@@ -40,8 +40,9 @@ def test_manuscript_type_in_okf_types():
 
 
 def test_okf_types_is_nine():
-    """OKF_TYPES has exactly 9 members after manuscript addition."""
-    assert len(note_mod.OKF_TYPES) == 9
+    """OKF_TYPES has exactly 10 members after SR-LR-2 added 'gaps' as the 10th."""
+    assert len(note_mod.OKF_TYPES) == 10
+    assert "gaps" in note_mod.OKF_TYPES
 
 
 # ---------------------------------------------------------------------------
