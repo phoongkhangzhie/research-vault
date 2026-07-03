@@ -1,3 +1,46 @@
+## 2026-07-02 (task-22-pt2 — wheel __file__ audit)
+
+### Done
+- Audited every `__file__`-repo-root usage in `lint.py`, `git_discipline.py`,
+  `wait_for.py` (Wren's SR-PKG/#46 flag). Verdict per site:
+  - `lint.py _FRAMEWORK_ROOT/_TESTS_DIR/_SRC_DIR` — DEV-ONLY. Rules 4/5 scan the
+    framework's own `tests/` and `src/research_vault/`. In a wheel context these
+    paths don't exist → 0 files → silent no-op. Annotated with dev-repo note.
+  - `lint.py cmd_lint src_dir = Path(__file__).parent` — DEV-ONLY. Leakage scan
+    targets framework source (CI gate for framework devs). Wheel users typically
+    don't configure `forbidden_patterns`; if they do, scan runs on installed source
+    (harmless, meaningless). Annotated.
+  - `git_discipline.py scripts/leakage_scan.sh` — DEV-ONLY. Graceful fallback chain
+    already handles wheel (fails-open when script not found). Comments already describe
+    dev vs installed intent. Annotated with task #22 note.
+  - `wait_for.py _launch_background_poller package_path` — USER-REACHABLE, WRONG.
+    `rv wait-for` is a user verb. The background poller subprocess needs
+    `sys.path.insert(0, package_path)` to `import research_vault.wait_for`.
+    Old code: `.parent.parent.parent` (repo root in dev, `lib/python3.x/` in wheel —
+    neither is a valid sys.path entry for the package). Comment said "src/ dir" but
+    was factually wrong.
+    FIX: extracted `_get_package_path()` returning `.parent.parent` (`src/` in dev,
+    `site-packages/` in wheel — both contain `research_vault/`). Works in practice
+    before the fix only because the package is already installed in the env.
+- 2 new tests in `test_task22_wheel_audit.py`: red-before-green verified.
+  - `test_poller_package_path_contains_research_vault`: FAILED before fix (ImportError
+    for non-existent `_get_package_path`), PASSED after.
+  - `test_old_three_parent_path_does_not_contain_research_vault`: confirms the old
+    calculation was wrong (repo root does not contain `research_vault/`).
+- Full suite: 1458 passed, 37 skipped. `rv lint`: PASS. `rv help --check`: OK.
+  Leakage scan: clean.
+
+### Decisions
+- Fix only the user-reachable site (`wait_for.py`); leave dev-only sites annotated.
+  The annotation pattern is the right outcome for confirmed-dev-only tooling (§3 of
+  the task brief: "a valid finding — document it").
+- Extracted `_get_package_path()` (not inline in `_launch_background_poller`) so
+  the path logic is testable in isolation — clean TDD red-green.
+- `.parent.parent` is correct in BOTH dev and wheel: `src/` and `site-packages/`
+  are symmetric — both are the parent directory containing `research_vault/`.
+
+### Open / next
+- PR: hub opens (crew-cannot-self-approve; task #22 architectural PR).
 ## 2026-07-02 (sr-cif-terminal-fix — gate terminal-set on MERGED, not just CI green)
 
 ### Done
