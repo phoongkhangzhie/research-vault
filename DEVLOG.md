@@ -1,3 +1,30 @@
+## 2026-07-03 (SR-EP-ROLE: per-endpoint when_to_use + host_group)
+
+### Done
+- **`when_to_use` field on each backend profile**: optional free-text (purpose + inline
+  anti-pattern), mirroring the verb registry. Rendered by `rv compute show`/`explain`.
+- **`host_group` annotation**: optional string; endpoints sharing a value are the same
+  underlying cluster/filesystem. `cmd_show` groups co-located endpoints visually.
+- **Scaffold extended** (`_scaffold_manifest`): primary remote profile renamed `cluster` →
+  `compute-node`; local gets seeded value; remote profiles get FILL; inactive `transfer-node`
+  example (plain-ssh DTN, staging `when_to_use`, shared `host_group`). Generic names only —
+  leakage-clean by construction.
+- **`cmd_init` next-steps**: names `when_to_use` authoring + explains `host_group` / DTN pattern.
+- **Soft WARN** (non-fatal, non-blocking): fires when ≥2 active profiles share `host_group`
+  (or ≥2 active remote profiles lack it) and any lacks `when_to_use`. Exit code always 0.
+- **Verb anti-pattern** (`cli.py`): compute `when_to_use` gains DTN shoehorn anti-pattern.
+- **26 new tests** (`test_sr_ep_role.py`); `test_sr_co.py` updated for compute-node rename.
+- `rv lint` PASS; `rv help --check` OK; leakage scan clean; 1910 suite-wide pass.
+
+### Decisions
+- Flat profiles + `host_group` (not nested clusters): zero-new-mechanism; probe loop unchanged.
+- `archetype: ssh` + `when_to_use` for DTN (not a new `ssh-transfer` archetype): archetype =
+  transport, `when_to_use` = role; `_probe_remote_ssh` connectivity check already correct.
+- Soft WARN (not a hard gate): adopter-authored profiles; `local` needs no role prose.
+
+### Open / next
+- PR open, awaiting human-go merge.
+
 ## 2026-07-03 (SR-FREEZE-FIX: fail-closed + notes_root pin + approve hardening)
 
 ### Done
