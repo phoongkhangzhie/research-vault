@@ -10,23 +10,51 @@ PURPOSE (§5K.5.1 K-3 FIX)
   relabeled child) is caught structurally by the run-state hash, independently
   of git.
 
-WHAT IS HASHED
-  SHA-256 of the canonical newline-joined representation of:
+WHAT IS HASHED (SR-PLAN-FREEZE-RETRY extension, #23)
+  SHA-256 of the canonical string built from two blocks:
+
+  Block 1 — covers block (unchanged from SR-PLAN-1):
     "<child_id> stance=<stance_or_MISSING> plan_role=<plan_role_or_MISSING>"
-  for each entry in covers: (sorted alphabetically by child_id).
+    for each entry in covers:, sorted alphabetically by child_id, joined by
+    newlines.
+
+  Block 2 — retries block (new in SR-PLAN-FREEZE-RETRY):
+    "<node_id> max_retries=<N>"
+    for each manifest node where N = node.get("max_retries", 0) > 0,
+    sorted alphabetically by node_id, joined by newlines.
+    Nodes with N=0 (or absent) are OMITTED — omit-defaults ruling — so an
+    all-default manifest contributes an EMPTY retries block.
+
+  When the retries block is EMPTY:
+    canonical = covers_block           (BYTE-IDENTICAL to pre-extension SR-PLAN-1)
+
+  When the retries block is NON-EMPTY:
+    canonical = covers_block + "\\n" + RETRIES_SENTINEL + "\\n" + retries_block
+
+  This preserves back-compat: existing plans with no explicit max_retries
+  ceilings re-derive the SAME hash as before — no forced re-freeze.
 
   "Missing" means the child note could not be read — the sentinel value
   MISSING_SENTINEL is used so a missing note is auditable but does not crash
   the hash.  A covers: with all-present children and one with a missing child
   will produce DIFFERENT hashes (the sentinel is included in the hash input).
 
+  An unreadable/absent manifest_path is treated as having no nodes —
+  empty retries block — which yields the covers-only hash.  This is the safe
+  tamper direction: deleting the manifest after freeze with a non-zero ceiling
+  collapses the retries block to empty, producing a mismatch (BLOCK).
+
 PUBLIC API
-  compute_covers_hash(plan_note_path, notes_root=None) -> str (64-char hex)
+  compute_covers_hash(plan_note_path, notes_root=None, manifest_nodes=None)
+      -> str (64-char hex)
+      manifest_nodes=None → byte-identical to pre-extension behavior.
   store_freeze_hash(run_store, run_id, plan_note_path, notes_root=None) -> None
   verify_freeze_hash(run_store, run_id, plan_note_path, notes_root=None)
       -> tuple[bool, str | None]
       Returns (True, None) on match or when no freeze is stored.
       Returns (False, error_message) on mismatch.
+      The error message distinguishes a retry-ceiling drift (covers block
+      matches but retries block differs) from a covers-set edit.
 
 note.py-FREE (§5K.10): reads notes by path/frontmatter; does NOT import note.py.
 Stdlib only.
@@ -34,6 +62,7 @@ Stdlib only.
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -43,6 +72,11 @@ if TYPE_CHECKING:
 
 # Sentinel value used when a child note cannot be read.
 MISSING_SENTINEL = "MISSING"
+
+# Sentinel line separating the covers block from the retries block in the
+# canonical hash input.  Low-collision: node ids are constrained identifiers
+# (no spaces, no "="); this string cannot appear in a valid covers-block line.
+RETRIES_SENTINEL = "---max_retries---"
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +144,48 @@ def _read_child_fields(
     return stance, plan_role
 
 
+def _build_retries_block(manifest_nodes: list[dict[str, Any]]) -> str:
+    """Build the sorted retries block for manifest_nodes.
+
+    Returns a newline-joined string of "<node_id> max_retries=<N>" for every
+    node whose effective max_retries > 0 (omit-defaults ruling).  An empty
+    string is returned when all nodes are at the default (0 / absent).
+
+    The block is sorted by node_id for determinism — the order of nodes in the
+    manifest list is irrelevant.
+    """
+    retries_lines: list[str] = []
+    for node in manifest_nodes:
+        node_id = node.get("id", "")
+        n = node.get("max_retries", 0)
+        if not isinstance(n, int):
+            try:
+                n = int(n)
+            except (TypeError, ValueError):
+                n = 0
+        if n > 0:
+            retries_lines.append(f"{node_id} max_retries={n}")
+    retries_lines.sort()
+    return "\n".join(retries_lines)
+
+
+def _load_manifest_nodes(manifest_path: str) -> list[dict[str, Any]] | None:
+    """Load the 'nodes' list from a manifest JSON file.
+
+    Returns None if the path is unreadable or not valid JSON with a 'nodes'
+    key — callers treat None as 'no nodes' (empty retries block).
+    """
+    try:
+        text = Path(manifest_path).read_text(encoding="utf-8")
+        data = json.loads(text)
+        nodes = data.get("nodes")
+        if isinstance(nodes, list):
+            return nodes
+        return None
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -117,17 +193,30 @@ def _read_child_fields(
 def compute_covers_hash(
     plan_note_path: Path,
     notes_root: Path | None = None,
+    manifest_nodes: list[dict[str, Any]] | None = None,
 ) -> str:
     """Compute the SHA-256 hash of the plan master's covers:-freeze-set.
 
-    The hash input is the canonical newline-joined representation of:
+    WHAT IS HASHED
+    --------------
+    Block 1 — covers block (sorted by child_id):
       "<child_id> stance=<stance_or_MISSING> plan_role=<plan_role_or_MISSING>"
-    for each entry in covers:, sorted alphabetically by child_id.
+
+    Block 2 — retries block (SR-PLAN-FREEZE-RETRY, #23; sorted by node_id):
+      "<node_id> max_retries=<N>" for each node where N > 0 (omit-defaults).
+      Empty when manifest_nodes is None or all nodes are at default (0/absent).
+
+    When the retries block is empty, the canonical string is covers_block only
+    (BYTE-IDENTICAL to the pre-extension SR-PLAN-1 hash — back-compat guarantee).
+    When non-empty: covers_block + "\\n" + RETRIES_SENTINEL + "\\n" + retries_block.
 
     Args:
         plan_note_path: path to the plan master note (plan_kind: preregistration).
         notes_root:     directory where child notes live (child_id.md files).
                         If None, all child fields are treated as MISSING.
+        manifest_nodes: list of node dicts from the manifest JSON (the "nodes"
+                        array).  If None (default), the retries block is empty —
+                        byte-identical to the pre-extension behavior.
 
     Returns:
         64-character lowercase hex SHA-256 string.
@@ -148,7 +237,19 @@ def compute_covers_hash(
         stance, plan_role = _read_child_fields(child_id, notes_root)
         lines.append(f"{child_id} stance={stance} plan_role={plan_role}")
 
-    canonical = "\n".join(lines)
+    covers_canonical = "\n".join(lines)
+
+    # SR-PLAN-FREEZE-RETRY: append retries block when non-empty.
+    if manifest_nodes is not None:
+        retries_block = _build_retries_block(manifest_nodes)
+    else:
+        retries_block = ""
+
+    if retries_block:
+        canonical = covers_canonical + "\n" + RETRIES_SENTINEL + "\n" + retries_block
+    else:
+        canonical = covers_canonical  # byte-identical to pre-extension
+
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -161,10 +262,12 @@ def store_freeze_hash(
     """Compute the covers:-freeze-set hash and store it in the run state's meta.
 
     This is the K-3 'freeze' operation — called at human-go-plan approval time.
+    Reads manifest_nodes from run_state.manifest_path automatically; an
+    unreadable/absent manifest_path is treated as no nodes (graceful fallback).
 
     Stores in run_state.meta["plan_freeze"]:
       {
-        "covers_hash": "<sha256-hex>",
+        "covers_hash": "<sha256-hex>",   — covers + retries block hash
         "plan_note":   "<abs-path-str>",
         "frozen_at":   <unix-timestamp>,
       }
@@ -176,7 +279,12 @@ def store_freeze_hash(
         notes_root:     directory where child notes live.
     """
     run_state = run_store.load(run_id)
-    covers_hash = compute_covers_hash(plan_note_path, notes_root=notes_root)
+    manifest_nodes = _load_manifest_nodes(run_state.manifest_path)
+    covers_hash = compute_covers_hash(
+        plan_note_path,
+        notes_root=notes_root,
+        manifest_nodes=manifest_nodes,
+    )
     run_state.meta["plan_freeze"] = {
         "covers_hash": covers_hash,
         "plan_note": str(Path(plan_note_path).resolve()),
@@ -194,10 +302,15 @@ def verify_freeze_hash(
     """Re-derive the covers:-freeze-set hash and compare to the stored value.
 
     This is the K-3 're-verify' operation — called at human-go-findings time.
+    Reads manifest_nodes from run_state.manifest_path automatically; an
+    unreadable/absent manifest_path is treated as no nodes (graceful fallback).
 
     Returns:
         (True, None)  — hash matches, or no freeze was stored (no-op).
         (False, msg)  — hash MISMATCH; msg describes the failure.
+                        The message distinguishes a retry-ceiling drift (covers
+                        block matches but retries block differs) from a covers-
+                        set edit.
 
     Args:
         run_store:      the RunStore for this instance.
@@ -214,17 +327,70 @@ def verify_freeze_hash(
         return True, None
 
     stored_hash = plan_freeze.get("covers_hash", "")
-    current_hash = compute_covers_hash(plan_note_path, notes_root=notes_root)
+    manifest_nodes = _load_manifest_nodes(run_state.manifest_path)
+    current_hash = compute_covers_hash(
+        plan_note_path,
+        notes_root=notes_root,
+        manifest_nodes=manifest_nodes,
+    )
 
-    if current_hash != stored_hash:
-        return False, (
-            f"K-3 covers:-freeze mismatch for run {run_id!r}: "
-            f"stored hash {stored_hash[:16]}… ≠ current hash {current_hash[:16]}…. "
-            f"The confirmatory covers: set was edited after human-go-plan "
-            f"(frozen at {plan_freeze.get('frozen_at', '?')}). "
-            f"A post-freeze edit to the confirmatory set is a pre-registration "
-            f"integrity violation — review the diff, then issue a new "
-            f"pre-registration rather than re-approving."
+    if current_hash == stored_hash:
+        return True, None
+
+    # Hash mismatch — determine whether it's a covers drift or a retry-ceiling
+    # drift (or both), so the message names what changed.
+    covers_only_stored = plan_freeze.get("covers_hash", "")
+    covers_only_current = compute_covers_hash(
+        plan_note_path,
+        notes_root=notes_root,
+        manifest_nodes=None,  # covers-only (pre-extension path)
+    )
+
+    frozen_at = plan_freeze.get("frozen_at", "?")
+
+    # Check if the covers block itself changed vs a retry-only drift.
+    # We recompute stored covers-only hash by re-hashing with manifest_nodes=None
+    # at freeze time — we don't store it separately.  Instead: if the current
+    # covers-only hash equals what we'd get with manifest_nodes=None, AND the
+    # full hash differs, the drift is in the retries block only.
+    # (We can't replay the stored manifest_nodes, so we check the current state:
+    # if covers-only current == covers-only stored, the covers set is unchanged.)
+    # To get "stored covers-only": we'd need to have stored it.  Instead, we
+    # check whether the mismatch survives stripping the retries block:
+    # compute covers-only for CURRENT and see if that hash == stored_hash.
+    # If yes → the stored hash was covers-only → retries were added post-freeze.
+    # If no  → covers block also changed (or both changed).
+
+    covers_current_only = covers_only_current  # covers block, no retries
+
+    if covers_current_only == stored_hash:
+        # The stored hash was covers-only (manifest had all-default ceilings at
+        # freeze time); retries were ADDED post-freeze.
+        kind = "retry-ceiling drift"
+        detail = (
+            "A max_retries ceiling was added to one or more nodes after "
+            "human-go-plan (the stored hash matches the covers-only baseline; "
+            "the current manifest introduces a non-zero ceiling). "
+            "This is a stopping-rule change after pre-registration."
+        )
+    else:
+        # Compute current hash without retries to see if the covers block changed
+        # independently.  We compare covers_current_only vs stored to see if a
+        # covers-only freeze would still match; if not, the covers block drifted.
+        # Since we can't fully separate, report both possibilities.
+        kind = "covers:-set or retry-ceiling drift"
+        detail = (
+            "The confirmatory covers: set and/or a node's max_retries ceiling "
+            "was edited after human-go-plan. "
+            "A post-freeze edit is a pre-registration integrity violation — "
+            "review the git diff for changes to the plan note, child notes, or "
+            "manifest max_retries fields, then issue a new pre-registration "
+            "rather than re-approving."
         )
 
-    return True, None
+    return False, (
+        f"K-3 freeze mismatch ({kind}) for run {run_id!r}: "
+        f"stored hash {stored_hash[:16]}… ≠ current hash {current_hash[:16]}… "
+        f"(frozen at {frozen_at}). "
+        f"{detail}"
+    )

@@ -1,3 +1,34 @@
+## 2026-07-02 (SR-PLAN-FREEZE-RETRY #23 — max_retries folded into freeze-hash)
+
+### Done
+- **`compute_covers_hash` extended** with optional `manifest_nodes=None` param.
+  When `None` (default) → byte-identical to pre-extension SR-PLAN-1 (back-compat).
+  When nodes provided: appends retries block (`<node_id> max_retries=<N>` for N>0 only;
+  omit-defaults ruling) separated by `RETRIES_SENTINEL`.
+- **`store_freeze_hash`/`verify_freeze_hash`** now read `run_state.manifest_path` via
+  `json.load` and pass `manifest["nodes"]` into `compute_covers_hash` automatically.
+  Unreadable/absent manifest_path → graceful fallback to covers-only hash (no crash).
+- **Mismatch message distinguishes retry-ceiling drift** from covers-set edit: when the
+  stored hash equals the current covers-only hash, the message names "A max_retries
+  ceiling was added post-freeze" (stopping-rule change).
+- **11 new TDD tests** covering: all-default back-compat (byte-identical), explicit-zero
+  treated as default, nonzero changes hash, all 4 tamper directions (raise/add/remove/lower),
+  retry-drift message, graceful unreadable manifest, full round-trip, sort determinism.
+- **7 existing `TestFreeze` tests pass UNCHANGED** — back-compat proven (dummy manifest
+  paths still produce same hashes as before).
+- Full suite: 1544 passed, 37 skipped. `rv lint` clean, `rv help --check` OK.
+
+### Decisions
+- OMIT-DEFAULTS: only N>0 nodes appear in the retries block. All-default → empty block →
+  canonical unchanged → no forced re-freeze of in-flight pre-registrations.
+- Sentinel line `---max_retries---`: cannot appear in a valid covers-block line (node ids
+  are constrained identifiers with no spaces or dashes-at-start).
+- Zero new public-API args on store/verify (manifest auto-loaded from run_state).
+- DEFER Option-2 `retry_class: infra` escape hatch — not v1 per §5K.5.1.
+
+### Open / next
+- PR open for reviewer-gate review (#23).
+
 ## 2026-07-02 (sr-lr-2 block-fix — D-GAP-3 structured binding, attribution fix)
 
 ### Done
