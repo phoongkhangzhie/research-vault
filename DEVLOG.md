@@ -1,3 +1,34 @@
+## 2026-07-02 (sr-cif-activation — rv control reconcile --gh-pr N)
+
+### Done
+- Added CLI activation path for SR-CIF (deferred from the SR-CIF merge):
+  `rv control reconcile --gh-pr N [--repo owner/repo]` constructs a
+  `GitHubActionsSource` and passes it via the existing `extra_sources` seam —
+  no new plumbing, composes the merged `cmd_reconcile` directly.
+- Added `get_ci_advisory()` on `GitHubActionsSource`: human-facing CI summary
+  line (`CI: GREEN/RED/PENDING/UNVERIFIED (PR #N)`) printed before drift findings.
+- Added instance-level caching to `_fetch_pr_info()` / `_fetch_checks()` —
+  avoids duplicate gh subprocess calls when advisory + reconcile run together.
+- Added `_detect_github_repo()` in `control.py`: auto-detects `owner/repo`
+  from `git remote get-url origin` (stdlib; no gh; covers HTTPS + SSH remotes).
+  `--repo owner/repo` explicit flag overrides; missing repo → exits 1 with message.
+- Updated `cli.py` control `when_to_use` with `--gh-pr N` trigger and anti-pattern.
+- 8 new hermetic tests (15–22): advisory surface green/red/pending/unverified,
+  CLI activation, no-repo exit, and fetch caching — all red-before-green verified.
+- Full suite: 1451 passed, 37 skipped. `rv help --check`: OK. `rv lint`: PASS.
+
+### Decisions
+- EXTEND `rv control reconcile` (not a new verb) — spec D-CIF-2 recommendation,
+  reuse-over-create. The advisory CI line appears where the human already reads.
+- Caching: simple instance-variable cache, no functools — avoids pulling in
+  lru_cache on a mutable method.
+- Auto-detect repo from `git remote get-url origin` (stdlib, not `gh api`):
+  respects zero-`~/vault` and no-gh-as-core-dep rules; works for HTTPS + SSH.
+- Hard boundary preserved: no approve/write/[PASS] path added anywhere.
+
+### Open / next
+- PR needs hub to open (crew-cannot-self-approve; human-go class for gate-touching seam).
+- Architect fit-check before merge (per §5G deliverable note).
 ## 2026-07-02 (sr-retry-counter-fix — cosmetic attempt counter overshoot)
 
 ### Done

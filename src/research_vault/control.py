@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,56 @@ def _slugify(s: str) -> str:
     slug = re.sub(r"[\s_]+", "-", slug)
     slug = re.sub(r"-+", "-", slug).strip("-")
     return slug[:40] or "entry"
+
+
+# ---------------------------------------------------------------------------
+# GitHub repo detection (SR-CIF CLI activation helper)
+# ---------------------------------------------------------------------------
+
+def _parse_github_slug(url: str) -> str | None:
+    """Extract 'owner/repo' from a GitHub remote URL.
+
+    Handles:
+      https://github.com/owner/repo.git
+      https://github.com/owner/repo
+      git@github.com:owner/repo.git
+      git@github.com:owner/repo
+    """
+    m = re.search(r"github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$", url)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _detect_github_repo(repo_arg: str | None, cwd: Path | None = None) -> str | None:
+    """Return a GitHub repo slug ('owner/repo') from arg or git remote.
+
+    Resolution order:
+      1. ``repo_arg`` if provided (explicit wins)
+      2. ``git remote get-url origin`` in ``cwd`` (or process cwd if None), parsed
+         via _parse_github_slug — covers both HTTPS and SSH remotes.
+      3. None — caller must surface an error.
+
+    No gh calls here; plain git — works without authentication or a GitHub token.
+    The owner/repo must NEVER be hardcoded; it is always runtime-derived (leakage rule).
+    """
+    if repo_arg:
+        return repo_arg
+
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            cwd=str(cwd) if cwd else None,
+        )
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            return _parse_github_slug(url)
+    except (FileNotFoundError, OSError):
+        pass
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -947,6 +998,29 @@ def build_parser(
     )
     rec_p.add_argument("--archive", action="store_true",
                         help="Auto-archive entries whose id maps to a terminal live signal.")
+    rec_p.add_argument(
+        "--gh-pr",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Tier-3: fetch GitHub Actions CI state for PR #N and include in reconcile. "
+            "Constructs a GitHubActionsSource and passes it via extra_sources. "
+            "Anti-pattern: do NOT hand-type 'CI green' into a merge decision — "
+            "use --gh-pr so rv reconcile fetches the Actions state and the gate "
+            "refuses to record a pass on red/unverified CI."
+        ),
+    )
+    rec_p.add_argument(
+        "--repo",
+        default=None,
+        metavar="OWNER/REPO",
+        help=(
+            "GitHub repo slug (e.g. 'owner/repo'). Required with --gh-pr if "
+            "auto-detection from git remote origin fails. Never hardcoded — "
+            "always runtime-derived from the adopter's repo."
+        ),
+    )
 
     # post
     post_p = sub.add_parser("post", help="Append a bullet entry to a section.")
@@ -1041,7 +1115,33 @@ def run(args: argparse.Namespace) -> int:
             return 0
 
         elif cmd == "reconcile":
-            findings = cmd_reconcile(args.project, config=cfg, archive=args.archive)
+            # SR-CIF tier-3 activation: --gh-pr N [--repo owner/repo]
+            extra_sources = None
+            gh_pr = getattr(args, "gh_pr", None)
+            if gh_pr is not None:
+                repo = _detect_github_repo(
+                    getattr(args, "repo", None),
+                    cwd=cfg.instance_root if hasattr(cfg, "instance_root") else None,
+                )
+                if repo is None:
+                    print(
+                        "rv control reconcile: --gh-pr requires a repo slug. "
+                        "Pass --repo owner/repo or ensure git remote origin points "
+                        "to a GitHub repository.",
+                        file=sys.stderr,
+                    )
+                    return 1
+                from .adapters.github_ci import GitHubActionsSource
+                src = GitHubActionsSource(repo=repo, pr_number=gh_pr)
+                extra_sources = [src]
+                # Advisory line: human-facing CI truth (never used for gate logic)
+                advisory = src.get_ci_advisory()
+                print(advisory)
+
+            findings = cmd_reconcile(
+                args.project, config=cfg, archive=args.archive,
+                extra_sources=extra_sources,
+            )
             if not findings:
                 print(f"rv control reconcile: OK — {args.project!r} (no drift detected)")
                 return 0

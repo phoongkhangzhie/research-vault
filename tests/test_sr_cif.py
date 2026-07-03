@@ -499,3 +499,255 @@ def test_signal_source_docstring_names_sr_cif_not_sr9():
     assert "SR-CIF" in doc, (
         "SignalSource docstring must reference SR-CIF (the actual contributor)"
     )
+
+
+# ===========================================================================
+# SR-CIF ACTIVATION — CLI tests (tests 15–21)
+# Tests for the ``rv control reconcile --gh-pr N [--repo owner/repo]`` surface.
+# All mocked; zero live GitHub calls.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Test 15: get_ci_advisory() — green PR returns CI: GREEN string
+# ---------------------------------------------------------------------------
+
+def test_get_ci_advisory_green(cfg, monkeypatch):
+    """get_ci_advisory() returns 'CI: GREEN (PR #N)' when all checks pass."""
+    runner = _make_runner(
+        view=_view_json(state="OPEN", branch="feat/sr-cif"),
+        checks=_checks_json([
+            {"name": "tests",  "bucket": "pass"},
+            {"name": "lint",   "bucket": "pass"},
+        ]),
+    )
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    src = GitHubActionsSource(repo="owner/repo", pr_number=99)
+    advisory = src.get_ci_advisory()
+
+    assert advisory.startswith("CI: GREEN"), (
+        f"Expected advisory to start with 'CI: GREEN', got: {advisory!r}"
+    )
+    assert "PR #99" in advisory, f"Advisory must include PR number; got {advisory!r}"
+
+
+# ---------------------------------------------------------------------------
+# Test 16: get_ci_advisory() — red PR returns CI: RED string with failing name
+# ---------------------------------------------------------------------------
+
+def test_get_ci_advisory_red(cfg, monkeypatch):
+    """get_ci_advisory() returns 'CI: RED (PR #N — <check-name>)' when a check fails."""
+    runner = _make_runner(
+        view=_view_json(state="OPEN", branch="feat/sr-cif"),
+        checks=_checks_json([
+            {"name": "tests",        "bucket": "pass"},
+            {"name": "leakage-scan", "bucket": "fail", "state": "FAILURE"},
+        ]),
+    )
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    src = GitHubActionsSource(repo="owner/repo", pr_number=99)
+    advisory = src.get_ci_advisory()
+
+    assert advisory.startswith("CI: RED"), (
+        f"Expected advisory to start with 'CI: RED', got: {advisory!r}"
+    )
+    assert "leakage-scan" in advisory, (
+        f"Advisory must name the failing check; got {advisory!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 17: get_ci_advisory() — pending PR returns CI: PENDING
+# ---------------------------------------------------------------------------
+
+def test_get_ci_advisory_pending(cfg, monkeypatch):
+    """get_ci_advisory() returns 'CI: PENDING' when a check is still running."""
+    runner = _make_runner(
+        view=_view_json(state="OPEN", branch="feat/sr-cif"),
+        checks=_checks_json([
+            {"name": "tests", "bucket": "pending", "state": "IN_PROGRESS"},
+        ]),
+    )
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    src = GitHubActionsSource(repo="owner/repo", pr_number=99)
+    advisory = src.get_ci_advisory()
+
+    assert "PENDING" in advisory, (
+        f"Expected 'PENDING' in advisory for pending check; got {advisory!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 18: get_ci_advisory() — gh error returns CI: UNVERIFIED (no crash)
+# ---------------------------------------------------------------------------
+
+def test_get_ci_advisory_unverified_on_error(cfg, monkeypatch):
+    """get_ci_advisory() returns 'CI: UNVERIFIED' on gh error (no crash)."""
+
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 1
+        r.stdout = ""
+        r.stderr = "gh: API error 401"
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    src = GitHubActionsSource(repo="owner/repo", pr_number=99)
+    advisory = src.get_ci_advisory()
+
+    assert "UNVERIFIED" in advisory, (
+        f"Expected 'UNVERIFIED' in advisory on gh error; got {advisory!r}"
+    )
+    assert "PR #99" in advisory, f"Advisory must include PR number; got {advisory!r}"
+
+
+# ---------------------------------------------------------------------------
+# Test 19: CLI activation — rv control reconcile --gh-pr N --repo owner/repo
+#   green PR → advisory line CI: GREEN printed to stdout
+# ---------------------------------------------------------------------------
+
+def test_cli_reconcile_gh_pr_green_advisory(cfg, ctl_file, monkeypatch, capsys):
+    """rv control reconcile --gh-pr N --repo owner/repo prints CI: GREEN advisory."""
+    runner = _make_runner(
+        view=_view_json(state="OPEN", branch="feat/sr-cif"),
+        checks=_checks_json([
+            {"name": "tests", "bucket": "pass"},
+            {"name": "lint",  "bucket": "pass"},
+        ]),
+    )
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    from research_vault import cli as cli_mod
+    exit_code = cli_mod.main([
+        "control", "demo-research", "reconcile",
+        "--gh-pr", "99", "--repo", "owner/repo",
+    ])
+
+    captured = capsys.readouterr()
+    assert "CI: GREEN" in captured.out, (
+        f"Expected 'CI: GREEN' in stdout; got {captured.out!r}"
+    )
+    assert "PR #99" in captured.out, f"Expected PR number in output; got {captured.out!r}"
+
+
+# ---------------------------------------------------------------------------
+# Test 20: CLI activation — red PR → advisory line CI: RED printed
+# ---------------------------------------------------------------------------
+
+def test_cli_reconcile_gh_pr_red_advisory(cfg, ctl_file, monkeypatch, capsys):
+    """rv control reconcile --gh-pr N --repo owner/repo prints CI: RED advisory."""
+    runner = _make_runner(
+        view=_view_json(state="OPEN", branch="feat/sr-cif"),
+        checks=_checks_json([
+            {"name": "tests",        "bucket": "pass"},
+            {"name": "leakage-scan", "bucket": "fail", "state": "FAILURE"},
+        ]),
+    )
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    from research_vault import cli as cli_mod
+    cli_mod.main([
+        "control", "demo-research", "reconcile",
+        "--gh-pr", "99", "--repo", "owner/repo",
+    ])
+
+    captured = capsys.readouterr()
+    assert "CI: RED" in captured.out, (
+        f"Expected 'CI: RED' in stdout; got {captured.out!r}"
+    )
+    assert "leakage-scan" in captured.out, (
+        f"Expected failing check name in output; got {captured.out!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 21: CLI activation — --gh-pr without --repo, no git remote → exits 1
+# ---------------------------------------------------------------------------
+
+def test_cli_reconcile_gh_pr_no_repo_no_remote_exits_1(cfg, ctl_file, monkeypatch, capsys):
+    """rv control reconcile --gh-pr N without --repo exits 1 when no git remote found.
+
+    The source requires a repo slug. Without --repo and with no detectable git
+    remote, the command must exit non-zero with a useful error message.
+    """
+    # Make git remote get-url origin fail (no remote configured)
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        # Distinguish git remote calls from gh calls
+        if cmd[0] == "git":
+            r.returncode = 1
+            r.stdout = ""
+            r.stderr = "fatal: no such remote 'origin'"
+        else:
+            # gh calls should not be reached — but if they are, fail loudly
+            r.returncode = 1
+            r.stdout = ""
+            r.stderr = "should not call gh without a repo"
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    from research_vault import cli as cli_mod
+    exit_code = cli_mod.main([
+        "control", "demo-research", "reconcile",
+        "--gh-pr", "99",
+    ])
+
+    assert exit_code != 0, (
+        "Expected non-zero exit when --gh-pr given but no --repo and no git remote"
+    )
+    captured = capsys.readouterr()
+    assert "repo" in captured.err.lower() or "repo" in captured.out.lower(), (
+        f"Expected error mentioning 'repo'; got stderr={captured.err!r}, stdout={captured.out!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 22: get_ci_advisory() result cached — subprocess called only once per fetch
+# ---------------------------------------------------------------------------
+
+def test_get_ci_advisory_caches_results(cfg, monkeypatch):
+    """get_ci_advisory() + get_terminal_set() together call gh subprocess only ONCE per endpoint.
+
+    Caching: after advisory is fetched, get_terminal_set() reuses the cached
+    pr_info and checks — total subprocess calls = 2 (one view, one checks),
+    not 4 (two view + two checks for each method).
+    """
+    call_log: list[str] = []
+
+    def fake_run(cmd, **kwargs):
+        # Record "checks" or "view" sub-command
+        call_log.append(cmd[2] if len(cmd) > 2 else str(cmd))
+        r = MagicMock()
+        r.returncode = 0
+        r.stderr = ""
+        if len(cmd) > 2 and cmd[2] == "checks":
+            r.stdout = _checks_json([{"name": "tests", "bucket": "pass"}])
+        else:
+            r.stdout = _view_json(state="OPEN", branch="feat/sr-cif")
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    src = GitHubActionsSource(repo="owner/repo", pr_number=99)
+
+    # Call advisory first — triggers 2 subprocess calls (view + checks)
+    advisory = src.get_ci_advisory()
+    after_advisory = len(call_log)
+    assert after_advisory == 2, (
+        f"get_ci_advisory() must issue exactly 2 subprocess calls (view + checks); "
+        f"got {after_advisory}: {call_log!r}"
+    )
+
+    # Call get_terminal_set — should reuse cached results, no new subprocess calls
+    src.get_terminal_set(cfg, "demo-research")
+    after_terminal = len(call_log)
+
+    assert after_terminal == after_advisory, (
+        f"get_terminal_set() must reuse cached fetch results — "
+        f"subprocess was called {after_terminal - after_advisory} extra time(s): "
+        f"{call_log[after_advisory:]!r}"
+    )
