@@ -1132,11 +1132,21 @@ def _append_closes_to_note(note_path: Path, gap_id: str) -> None:
     Implements Ada ruling 2 (W3C PROV + Gotel & Finkelstein): the failure mode
     is the MISSING backward link — write both edges, never just the forward one.
 
-    If the note file does not exist, silently skips (the note reference may be
-    to a note that will be created separately; the gap record retains the forward
-    edge for audit).
+    If the note file does not exist, emits a UserWarning (charter §2: surface,
+    never silently drop) so the operator knows the backward ``closes:`` edge was
+    skipped.  The forward ``closed_by:`` edge is already written in the gap note;
+    the audit trail is partially intact but the back-edge is missing until the
+    closer note is created/corrected.  #29.
     """
     if not note_path.exists():
+        warnings.warn(
+            f"--by target {note_path!r} not found; forward closed_by: written but "
+            f"backward closes: edge skipped — verify the closer ref and re-run "
+            f"gap-close once the note exists, or create {note_path.name} first. "
+            f"Gap ID: {gap_id!r}  §5L.21(1) / #29.",
+            UserWarning,
+            stacklevel=3,
+        )
         return
     text = note_path.read_text(encoding="utf-8")
     new_text = _stamp_frontmatter_field(text, "closes", gap_id)

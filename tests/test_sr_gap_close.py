@@ -1415,6 +1415,86 @@ def test_reopened_contradictory_on_machine_closed_still_reopens(tmp_instance):
 
 
 # ---------------------------------------------------------------------------
+# 2-new. Item #29 — _append_closes_to_note: warn on missing --by target
+# ---------------------------------------------------------------------------
+
+def test_gap_close_by_nonexistent_note_warns(tmp_instance):
+    """#29/Item4: --by a nonexistent note → UserWarning + forward closed_by: edge still lands.
+
+    Charter §2: a silent skip is the failure mode (the operator typed a typo'd ref and
+    has no signal that the backward closes: edge was dropped).  The fix: emit a
+    UserWarning on the skip path while still writing the forward closed_by: edge.
+    """
+    import warnings
+    from research_vault.config import load_config
+    from research_vault.review.gap_scan import cmd_gap_close
+
+    cfg = load_config()
+    pnd = cfg.project_notes_dir("demo-research")
+    _make_gap_note(pnd, "gap-by-missing", "knowledge_void", "Gap with typo'd closer")
+
+    # --by references a note that does NOT exist
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        gap_path = cmd_gap_close(
+            "demo-research", "gap-by-missing", "closed-supported",
+            closer_ref="literature/nonexistent2099",
+            config=cfg,
+        )
+
+    # Forward edge MUST be written (gap record retains closed_by:)
+    fm = _parse_fm(gap_path)
+    assert fm.get("closed_by") == "literature/nonexistent2099", (
+        "Forward closed_by: edge must be written even when the closer note doesn't exist"
+    )
+    assert fm.get("status") == "closed-supported"
+
+    # A UserWarning MUST be emitted for the missing back-edge (charter §2)
+    warn_texts = " ".join(str(warning.message) for warning in w
+                          if issubclass(warning.category, UserWarning))
+    assert "nonexistent2099" in warn_texts or "closes" in warn_texts.lower(), (
+        f"Expected UserWarning mentioning the missing ref or back-edge, got: {warn_texts!r}"
+    )
+
+
+def test_gap_close_by_existing_note_no_warn(tmp_instance):
+    """#29/Item4 negative-control: --by an EXISTING note → no warning, both edges written.
+
+    Confirms the warning is only emitted on the skip path (missing note), not on normal close.
+    """
+    import warnings
+    from research_vault.config import load_config
+    from research_vault.review.gap_scan import cmd_gap_close
+
+    cfg = load_config()
+    pnd = cfg.project_notes_dir("demo-research")
+    _make_gap_note(pnd, "gap-by-exists", "knowledge_void", "Gap with valid closer")
+    _make_literature_note(pnd, "valid-closer2024")
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        gap_path = cmd_gap_close(
+            "demo-research", "gap-by-exists", "closed-supported",
+            closer_ref="literature/valid-closer2024",
+            config=cfg,
+        )
+
+    # Both edges must be written
+    fm = _parse_fm(gap_path)
+    assert fm.get("status") == "closed-supported"
+    assert fm.get("closed_by") == "literature/valid-closer2024"
+
+    closer_note = pnd / "literature" / "valid-closer2024.md"
+    closer_fm = _parse_fm(closer_note)
+    assert closer_fm.get("closes") == "gap-by-exists"
+
+    # No UserWarning when the note exists
+    assert not any(issubclass(warning.category, UserWarning) for warning in w), (
+        "No UserWarning expected when the closer note exists and both edges are written"
+    )
+
+
+# ---------------------------------------------------------------------------
 # 9. Zero ~/vault edits (all hermetic)
 # ---------------------------------------------------------------------------
 
