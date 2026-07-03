@@ -158,6 +158,22 @@ def _render_frontmatter(fields: dict[str, str]) -> str:
 
 
 def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Parse YAML-like frontmatter between --- delimiters.
+
+    Scalar-only: returns ``dict[str, str]`` for all fields.  Empty-valued keys
+    (e.g. ``key:`` with no inline value) return ``""`` — YAML list items
+    (``  - item``) are NOT collected here.
+
+    This is intentional: many callers do ``.strip()`` on expected-scalar fields.
+    Extending this function to return ``list[str]`` for list-valued fields would
+    break those callers (verified: ``check_gates.py:synthesized_okf``,
+    ``review/__init__.py``, ``manuscript/__init__.py`` and others — SR-LR-2
+    STOP decision documented in gap_scan._parse_frontmatter_gap docstring).
+
+    Use ``gap_scan._parse_frontmatter_gap`` when YAML list values are needed.
+
+    Return: (fields_dict, body_text)
+    """
     if not text.startswith("---"):
         return {}, text
     end = text.find("\n---", 3)

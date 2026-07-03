@@ -6,7 +6,7 @@ AUTO-AUTHORED from a detected gap record — no new DAG mechanism.
 Architecture:
   - gap-detect = a rejects-only SCREEN (no auto-fire; human authorizes each pass).
   - ``rv review gap-scan`` is the surface: a cheap OKF graph query over findings/,
-    concepts/, mocs/, and an optional manuscript critic report.
+    concepts/, mocs/, and an optional support_matcher meta dict.
   - The screen emits typed ``gaps/<id>.md`` notes (first-class OKF type,
     SR-LR-2 §5L.8 D-GAP-1).
   - ``rv review gap-scope <gap-id> <scope>`` auto-authors the Part-1 scope protocol
@@ -16,12 +16,13 @@ Architecture:
   - ``rv status`` surfaces the OPEN gap count (D-GAP-4); records are never
     written inline into the control bus.
 
-Four gap types (§5L.7 — attribution: type names from Miles 2017 and
-Robinson et al. 2011; identification procedure from Müller-Bloch & Kranz 2015):
+Four gap types (§5L.7 — attribution: type names AND identification procedure from
+Müller-Bloch & Kranz (2015, ICIS) six-gap framework; Miles (2017) and
+Robinson et al. (2011) as related secondary taxonomies):
   knowledge_void    — finding with support-degree < threshold (D-GAP-2)
   contradictory     — concept with both supported_by AND contradicted_by edges
   evaluation_void   — finding asserting an effect with no comparator edge
-  absent_row        — manuscript critic report [ABSENT]/[CONTRADICTS] row
+  absent_row        — support_matcher [ABSENT]/[CONTRADICTS] verdict
                       (the loop-closer that makes manuscript↔lit-review a cycle, §5L.10)
 
 Support-degree (D-GAP-2): count of entries in a finding's ``backed_by:`` frontmatter
@@ -42,6 +43,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -50,8 +52,9 @@ from typing import Any
 # Constants
 # ---------------------------------------------------------------------------
 
-# Gap type tokens (§5L.7 — Miles 2017 + Robinson et al. 2011 type names;
-# Müller-Bloch & Kranz 2015 identification procedure).
+# Gap type tokens (§5L.7 — type names AND identification procedure from
+# Müller-Bloch & Kranz (2015, ICIS) six-gap framework; Miles (2017) and
+# Robinson et al. (2011) are related secondary taxonomies).
 GAP_TYPE_KNOWLEDGE_VOID = "knowledge_void"
 GAP_TYPE_CONTRADICTORY = "contradictory"
 GAP_TYPE_EVALUATION_VOID = "evaluation_void"
@@ -76,13 +79,8 @@ GAP_STATUSES: frozenset[str] = frozenset({
 DEFAULT_SUPPORT_THRESHOLD = 1
 
 # Bracketed verdict tokens that trigger absent_row detection (§5L.10)
+# These are the BLOCK-class verdicts from SupportVerdict.verdict.
 _ABSENT_ROW_TOKENS = frozenset({"ABSENT", "CONTRADICTS"})
-
-# Regex for critic report findings: FINDING N: [TOKEN] — description
-_FINDING_RE = re.compile(
-    r"FINDING\s+\d+\s*:\s*\[(?P<token>[A-Z]+)\]\s*[—\-]+\s*(?P<desc>.+?)(?=FINDING\s+\d+\s*:|SUMMARY\s*:|$)",
-    re.DOTALL | re.IGNORECASE,
-)
 
 # Seed query templates per gap type (§5L.7 — targeted frontier)
 _SEED_QUERY_TEMPLATES: dict[str, list[str]] = {
@@ -146,11 +144,21 @@ class GapRecord:
 # Gap detectors (cheap OKF graph queries — §5L.7)
 # ---------------------------------------------------------------------------
 
-def _parse_frontmatter_simple(text: str) -> dict[str, Any]:
-    """Parse YAML-like frontmatter between --- delimiters.
+def _parse_frontmatter_gap(text: str) -> dict[str, Any]:
+    """Parse YAML-like frontmatter between --- delimiters for gap_scan.
 
-    Simplified parser for gap_scan: handles scalar and list values.
-    Avoids importing note._parse_frontmatter to keep this module standalone.
+    Handles both scalar and YAML list values (``  - item`` lines).  This is a
+    LOCAL list-aware parser because ``note._parse_frontmatter`` is deliberately
+    scalar-only: extending it to return lists would break numerous callers that
+    do ``.strip()`` on expected-scalar fields (e.g. ``check_gates.py:synthesized_okf``,
+    ``review/__init__.py``, ``manuscript/__init__.py``).  The convergence fix (§6)
+    would require updating all those callers — deferred; this local parser is the
+    justified fork, documented in ``note._parse_frontmatter``'s docstring.
+
+    gap_scan specifically needs list support for: ``backed_by:`` (finding notes),
+    ``supported_by:`` / ``contradicted_by:`` (concept notes).
+
+    Returns: fields dict only (body is discarded — gap_scan callers don't need it).
     """
     lines = text.splitlines()
     in_block = False
@@ -165,9 +173,9 @@ def _parse_frontmatter_simple(text: str) -> dict[str, Any]:
         elif ln.strip() == "---":
             break
         else:
-            # List continuation
+            # List continuation: "  - item" lines
             if ln.startswith("  - "):
-                if current_list_key:
+                if current_list_key is not None:
                     fm[current_list_key].append(ln[4:].strip())
                 i += 1
                 continue
@@ -177,13 +185,12 @@ def _parse_frontmatter_simple(text: str) -> dict[str, Any]:
                 key = key.strip()
                 val = val.strip()
                 if val == "":
-                    # Possibly a list follows
+                    # Empty value: start collecting YAML list items
                     current_list_key = key
                     fm[key] = []
                 else:
-                    # Strip inline comments (# ...)
+                    # Strip inline comments (# ...) and quotes
                     val = val.split(" #")[0].strip() if " #" in val else val
-                    # Strip quotes
                     if val.startswith('"') and val.endswith('"'):
                         val = val[1:-1]
                     elif val.startswith("'") and val.endswith("'"):
@@ -211,7 +218,7 @@ def _scan_notes_dir(notes_dir: Path, note_type: str) -> list[tuple[Path, dict[st
     for p in sorted(type_dir.glob("*.md")):
         try:
             text = p.read_text(encoding="utf-8")
-            fm = _parse_frontmatter_simple(text)
+            fm = _parse_frontmatter_gap(text)
             results.append((p, fm))
         except OSError:
             continue
@@ -228,8 +235,9 @@ def _detect_knowledge_void(
     field (the citekeys of literature/ notes that support this finding).
     Default threshold = 1 (a finding with zero backing literature is a void).
 
-    Reference: Miles (2017) — Knowledge Void gap type.
-    Identification procedure: Müller-Bloch & Kranz (2015).
+    Reference: Müller-Bloch & Kranz (2015, ICIS) — Knowledge Void gap type and
+    identification procedure; Miles (2017) and Robinson et al. (2011) as
+    related secondary taxonomies.
     """
     gaps: list[GapRecord] = []
     for p, fm in _scan_notes_dir(notes_dir, "findings"):
@@ -268,8 +276,9 @@ def _detect_contradictory(notes_dir: Path) -> list[GapRecord]:
     notes signals a contested evidential state — the gap-detector proposes a targeted
     review to resolve the contradiction.
 
-    Reference: Robinson et al. (2011) — Contradictory Evidence gap type.
-    Identification procedure: Müller-Bloch & Kranz (2015).
+    Reference: Müller-Bloch & Kranz (2015, ICIS) — Contradictory Evidence gap
+    type and identification procedure; Miles (2017) and Robinson et al. (2011)
+    as related secondary taxonomies.
     """
     gaps: list[GapRecord] = []
     for p, fm in _scan_notes_dir(notes_dir, "concepts"):
@@ -303,8 +312,9 @@ def _detect_evaluation_void(notes_dir: Path) -> list[GapRecord]:
     records no ``comparator:`` baseline is an evaluation void — no comparison was
     made and the claimed improvement cannot be assessed.
 
-    Reference: Miles (2017) — Evaluation Void gap type.
-    Identification procedure: Müller-Bloch & Kranz (2015).
+    Reference: Müller-Bloch & Kranz (2015, ICIS) — Evaluation Void gap type and
+    identification procedure; Miles (2017) and Robinson et al. (2011) as
+    related secondary taxonomies.
     """
     gaps: list[GapRecord] = []
     for p, fm in _scan_notes_dir(notes_dir, "findings"):
@@ -329,45 +339,71 @@ def _detect_evaluation_void(notes_dir: Path) -> list[GapRecord]:
     return gaps
 
 
-def _detect_absent_rows(critic_report_path: Path) -> list[GapRecord]:
-    """Detect Absent Row gaps from a manuscript critic report (the loop-closer, §5L.10).
+def _detect_absent_rows(
+    matcher_meta: dict[str, Any],
+    *,
+    run_id: str = "",
+) -> list[GapRecord]:
+    """Detect Absent Row gaps from the support_matcher structured verdicts (the loop-closer, §5L.10).
 
-    Greps the report for FINDING lines bearing [ABSENT] or [CONTRADICTS] verdicts —
-    a drafted manuscript claim with no backing literature note is exactly the
-    loop-closer gap that makes manuscript↔lit-review a cycle.
+    Consumes ``RunState.meta['support_matcher']`` — the structured output of
+    ``SupportMatchSummary.meta_dict()`` — instead of grepping prose (D-GAP-3 fix).
 
-    Only [ABSENT] and [CONTRADICTS] trigger gaps (BLOCK-class verdicts).
-    [PARTIAL] is WARN-only and is NOT surfaced as a gap by this detector.
+    Filters verdicts where:
+      - ``verdict`` in {ABSENT, CONTRADICTS}  (BLOCK-class), OR
+      - ``j2_escalation`` is True (J-2 stance-mismatch BLOCK)
 
-    Uses the same \\[(.+?)\\] extractor convention that SR-CI and SR-MS-2 use (D-GAP-3).
+    Builds each GapRecord from:
+      - ``claim``   ← verdict['claim_snippet']  (the guaranteed field)
+      - ``anchor``  ← ``literature/<citekey>``  (the cited note reference)
+      - ``citekey`` ← verdict['citekey']
+
+    [PARTIAL] without j2_escalation is WARN-only — NOT surfaced as a gap here.
+
+    Charter §2 guard: if the meta dict is non-empty but the ``verdicts`` key is
+    absent or None (indicating a missing or incomplete matcher run), emits a
+    ``warnings.warn`` at UserWarning level so the operator knows the gate may
+    have fired without data — never silently returns [] in that case.
     """
-    if not critic_report_path.exists():
+    verdicts_raw = matcher_meta.get("verdicts")
+
+    # §2 guard: non-empty meta but no verdicts list → likely an incomplete run
+    if verdicts_raw is None:
+        # The meta came from somewhere (caller passed it) but verdicts are absent.
+        k_block = matcher_meta.get("k_block", 0)
+        run_label = f" (run: {run_id!r})" if run_id else ""
+        warnings.warn(
+            f"support_matcher meta has no 'verdicts' key{run_label}; "
+            f"k_block={k_block} in meta — did the manuscript critic node complete? "
+            f"absent_row detection is skipped; review the run-state manually.",
+            UserWarning,
+            stacklevel=2,
+        )
         return []
-    try:
-        text = critic_report_path.read_text(encoding="utf-8")
-    except OSError:
-        return []
+
     gaps: list[GapRecord] = []
-    for m in _FINDING_RE.finditer(text):
-        token = m.group("token").strip().upper()
-        if token not in _ABSENT_ROW_TOKENS:
+    for v in verdicts_raw:
+        verdict_str = str(v.get("verdict", "")).upper()
+        j2 = bool(v.get("j2_escalation", False))
+        blocks = verdict_str in _ABSENT_ROW_TOKENS or j2
+        if not blocks:
             continue
-        desc = m.group("desc").strip()
-        # Extract the claim text from the description (strip trailing newlines/spaces)
-        desc = re.sub(r"\s+", " ", desc).strip()
-        # Strip a trailing SUMMARY fragment if regex was greedy
-        desc = re.sub(r"\s*(SUMMARY\s*:.*)$", "", desc, flags=re.IGNORECASE).strip()
+        claim_snippet = v.get("claim_snippet", "").strip()
+        citekey = v.get("citekey", "unknown")
+        anchor = f"literature/{citekey}"
+        run_label = f" run={run_id!r}" if run_id else ""
         gaps.append(GapRecord(
             type=GAP_TYPE_ABSENT_ROW,
-            anchor=str(critic_report_path),
-            claim=desc,
+            anchor=anchor,
+            claim=claim_snippet or f"[no claim_snippet; citekey={citekey}]",
             why=(
-                f"manuscript critic report: FINDING [{token}] — "
-                f"drafted claim has no backing literature/ note "
+                f"support_matcher verdict [{verdict_str}] on citekey={citekey!r}"
+                + (f" (J-2 escalation)" if j2 and verdict_str not in _ABSENT_ROW_TOKENS else "")
+                + f"{run_label} — drafted claim has no backing literature/ note "
                 f"(the loop-closer gap, §5L.10)"
             ),
             status="open",
-            _meta={"verdict": token, "report": str(critic_report_path)},
+            _meta={"verdict": verdict_str, "citekey": citekey, "j2_escalation": j2, "run_id": run_id},
         ))
     return gaps
 
@@ -468,9 +504,9 @@ def _render_gap_note(rec: GapRecord, gap_id: str) -> str:
     lines.append("")
     lines.append(
         "## Attribution\n\n"
-        "Gap *types* (Knowledge Void, Evaluation Void, Contradictory Evidence): "
-        "Miles (2017); Robinson et al. (2011). "
-        "Gap identification *procedure*: Müller-Bloch & Kranz (2015)."
+        "Gap types AND identification procedure: Müller-Bloch & Kranz (2015, ICIS) "
+        "six-gap framework. Related secondary taxonomies: Miles (2017); "
+        "Robinson et al. (2011)."
     )
     return "\n".join(lines)
 
@@ -491,7 +527,7 @@ def _existing_gap_ids(project_notes_dir: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     for p in gaps_dir.glob("*.md"):
         try:
-            fm = _parse_frontmatter_simple(p.read_text(encoding="utf-8"))
+            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
             result[p.stem] = fm.get("status", "open")
         except OSError:
             result[p.stem] = "open"
@@ -507,7 +543,8 @@ def cmd_gap_scan(
     *,
     config: Any = None,
     threshold: int = DEFAULT_SUPPORT_THRESHOLD,
-    critic_report: Path | None = None,
+    matcher_meta: dict[str, Any] | None = None,
+    run_id: str = "",
 ) -> list[GapRecord]:
     """Scan the project's OKF corpus for typed research gaps.
 
@@ -515,7 +552,13 @@ def cmd_gap_scan(
       1. Knowledge Void: findings with support-degree < threshold
       2. Contradictory Evidence: concepts with both supported_by + contradicted_by
       3. Evaluation Void: findings with effect but no comparator
-      4. Absent Row: manuscript critic report [ABSENT]/[CONTRADICTS] rows
+      4. Absent Row: support_matcher structured verdicts [ABSENT]/[CONTRADICTS]
+                     (the loop-closer gap, §5L.10; D-GAP-3 structured binding)
+
+    The ``matcher_meta`` parameter accepts ``RunState.meta['support_matcher']`` —
+    the structured output of ``SupportMatchSummary.meta_dict()``.  It is NOT a
+    prose file path (the old --critic-report pattern was removed because it silently
+    returned [] on real matcher output — charter §2 violation).
 
     Writes gaps/<id>.md for each *new* gap found (idempotent: existing gaps
     with the same anchor+claim are NOT re-created; closed gaps are preserved).
@@ -535,8 +578,8 @@ def cmd_gap_scan(
     all_gaps.extend(_detect_knowledge_void(pnd, threshold=threshold))
     all_gaps.extend(_detect_contradictory(pnd))
     all_gaps.extend(_detect_evaluation_void(pnd))
-    if critic_report is not None:
-        all_gaps.extend(_detect_absent_rows(critic_report))
+    if matcher_meta is not None:
+        all_gaps.extend(_detect_absent_rows(matcher_meta, run_id=run_id))
 
     existing = _existing_gap_ids(pnd)
 
@@ -579,7 +622,7 @@ def cmd_gap_scope(
     gap_path = _gap_note_path(pnd, gap_id)
     if not gap_path.exists():
         raise FileNotFoundError(f"Gap note not found: {gap_path}")
-    fm = _parse_frontmatter_simple(gap_path.read_text(encoding="utf-8"))
+    fm = _parse_frontmatter_gap(gap_path.read_text(encoding="utf-8"))
     gap_type = fm.get("gap_type", "knowledge_void")
     claim = fm.get("claim", "").strip().strip('"\'')
     anchor = fm.get("anchor", "")
@@ -592,7 +635,7 @@ def cmd_gap_scope(
     anchor_path = pnd / anchor if not Path(anchor).is_absolute() else Path(anchor)
     if anchor_path.exists():
         try:
-            a_fm = _parse_frontmatter_simple(anchor_path.read_text(encoding="utf-8"))
+            a_fm = _parse_frontmatter_gap(anchor_path.read_text(encoding="utf-8"))
             for fkey in ("backed_by", "supported_by", "contradicted_by"):
                 vals = a_fm.get(fkey, [])
                 if isinstance(vals, list):
@@ -652,8 +695,9 @@ def cmd_gap_scope(
     context_lines.append("")
     context_lines.append(
         "## Attribution\n\n"
-        "Gap types: Miles (2017); Robinson et al. (2011). "
-        "Identification procedure: Müller-Bloch & Kranz (2015)."
+        "Gap types AND identification procedure: Müller-Bloch & Kranz (2015, ICIS) "
+        "six-gap framework. Related secondary taxonomies: Miles (2017); "
+        "Robinson et al. (2011)."
     )
     context_path = review_dir / "_gap-context.md"
     context_path.write_text("\n".join(context_lines), encoding="utf-8")
@@ -692,7 +736,7 @@ def cmd_gap_close(
         raise FileNotFoundError(f"Gap note not found: {gap_path}")
 
     text = gap_path.read_text(encoding="utf-8")
-    fm = _parse_frontmatter_simple(text)
+    fm = _parse_frontmatter_gap(text)
     old_status = fm.get("status", "open")
 
     # Rewrite the status: line in the frontmatter block
@@ -736,7 +780,7 @@ def cmd_gap_list(
     results: list[dict[str, str]] = []
     for p in sorted(gaps_dir.glob("*.md")):
         try:
-            fm = _parse_frontmatter_simple(p.read_text(encoding="utf-8"))
+            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
         except OSError:
             continue
         s = fm.get("status", "open")
@@ -768,7 +812,7 @@ def open_gap_count(project: str, *, config: Any = None) -> int:
     count = 0
     for p in gaps_dir.glob("*.md"):
         try:
-            fm = _parse_frontmatter_simple(p.read_text(encoding="utf-8"))
+            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
             if fm.get("status", "open") == "open":
                 count += 1
         except OSError:

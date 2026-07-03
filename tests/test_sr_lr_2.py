@@ -117,11 +117,51 @@ def _make_concept(project_notes_dir: Path, cid: str, **frontmatter) -> Path:
     return p
 
 
-def _make_critic_report(tmp_path: Path, findings_text: str) -> Path:
-    """Write a mock critic report file."""
-    p = tmp_path / "_critic-report.md"
-    p.write_text(findings_text, encoding="utf-8")
-    return p
+def _make_support_matcher_meta(
+    verdicts: "list[dict[str, Any]] | None" = None,
+) -> "dict[str, Any]":
+    """Build a minimal support_matcher meta dict (mirrors SupportMatchSummary.meta_dict()).
+
+    Used by tests for _detect_absent_rows structured binding (D-GAP-3 fix).
+    """
+    vlist = verdicts or []
+    k_block = sum(
+        1 for v in vlist
+        if v.get("verdict") in ("ABSENT", "CONTRADICTS") or v.get("j2_escalation")
+    )
+    j_warn = sum(
+        1 for v in vlist
+        if v.get("verdict") == "PARTIAL" and not v.get("j2_escalation")
+    )
+    return {
+        "n_sentences": len(vlist),
+        "m_citations": len(vlist),
+        "k_block": k_block,
+        "j_warn": j_warn,
+        "judge_model": "mock-model",
+        "prompt_hashes": [],
+        "verdicts": vlist,
+    }
+
+
+def _make_verdict(
+    verdict: str,
+    claim_snippet: str = "Test claim",
+    citekey: str = "mock2023",
+    j2_escalation: bool = False,
+) -> "dict[str, Any]":
+    """Build a minimal SupportVerdict meta dict (mirrors SupportVerdict.to_meta_dict())."""
+    return {
+        "verdict": verdict,
+        "verbatim_span": None,
+        "polarity": "neutral",
+        "claim_snippet": claim_snippet,
+        "citekey": citekey,
+        "note_path": f"literature/{citekey}.md",
+        "judge_model": "mock-model",
+        "prompt_hash": "abc123",
+        "j2_escalation": j2_escalation,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -315,77 +355,148 @@ def test_evaluation_void_no_effect(tmp_path):
 
 # ---------------------------------------------------------------------------
 # 6. Absent Row detector (the loop-closer, §5L.10)
+#    D-GAP-3 fix: _detect_absent_rows consumes RunState.meta['support_matcher']
+#    structured verdicts — NOT a bespoke prose regex.
+#    Red-before-green: these tests FAIL on the old prose-grep implementation.
 # ---------------------------------------------------------------------------
 
-def test_absent_row_finding_absent(tmp_path):
-    """6a. Critic report with FINDING: [ABSENT] → absent_row gap detected."""
+def test_absent_row_finding_absent():
+    """6a. Matcher meta with ABSENT verdict → absent_row gap detected.
+
+    Binds to RunState.meta['support_matcher']['verdicts'] structured record.
+    Old code: expected a Path (prose file) and returned [] on any dict input.
+    """
     from research_vault.review.gap_scan import _detect_absent_rows
 
-    report = _make_critic_report(
-        tmp_path,
-        "FINDING 1: [ABSENT] — The claim 'LLMs generalize cross-lingually' has no backing source.\n"
-        "SUMMARY: weak",
-    )
-    gaps = _detect_absent_rows(report)
+    meta = _make_support_matcher_meta(verdicts=[
+        _make_verdict(
+            "ABSENT",
+            claim_snippet="LLMs generalize cross-lingually",
+            citekey="smith2022",
+        )
+    ])
+    gaps = _detect_absent_rows(meta)
     assert len(gaps) == 1
     assert gaps[0].type == "absent_row"
     assert "LLMs generalize cross-lingually" in gaps[0].claim
 
 
-def test_absent_row_finding_contradicts(tmp_path):
-    """6b. Critic report with FINDING: [CONTRADICTS] → absent_row gap detected."""
+def test_absent_row_finding_contradicts():
+    """6b. Matcher meta with CONTRADICTS verdict → absent_row gap detected."""
     from research_vault.review.gap_scan import _detect_absent_rows
 
-    report = _make_critic_report(
-        tmp_path,
-        "FINDING 2: [CONTRADICTS] — The claim 'high accuracy on MultiNLI' conflicts with smith2022.\n"
-        "SUMMARY: found contradiction",
-    )
-    gaps = _detect_absent_rows(report)
+    meta = _make_support_matcher_meta(verdicts=[
+        _make_verdict(
+            "CONTRADICTS",
+            claim_snippet="high accuracy on MultiNLI",
+            citekey="jones2023",
+        )
+    ])
+    gaps = _detect_absent_rows(meta)
     assert len(gaps) == 1
     assert gaps[0].type == "absent_row"
     assert "high accuracy on MultiNLI" in gaps[0].claim
 
 
-def test_absent_row_partial_not_gap(tmp_path):
-    """6c. [PARTIAL] row is NOT an absent_row gap (PARTIAL is WARN, not BLOCK)."""
+def test_absent_row_partial_not_gap():
+    """6c. PARTIAL verdict is NOT an absent_row gap (PARTIAL is WARN, not BLOCK)."""
     from research_vault.review.gap_scan import _detect_absent_rows
 
-    report = _make_critic_report(
-        tmp_path,
-        "FINDING 1: [PARTIAL] — The claim is weakly supported.\n"
-        "SUMMARY: partial",
-    )
-    gaps = _detect_absent_rows(report)
+    meta = _make_support_matcher_meta(verdicts=[
+        _make_verdict("PARTIAL", claim_snippet="Weakly supported claim", citekey="weak2022")
+    ])
+    gaps = _detect_absent_rows(meta)
     assert len(gaps) == 0
 
 
-def test_absent_row_supports_not_gap(tmp_path):
-    """6d. [SUPPORTS] row is NOT an absent_row gap."""
+def test_absent_row_supports_not_gap():
+    """6d. SUPPORTS verdict is NOT an absent_row gap."""
     from research_vault.review.gap_scan import _detect_absent_rows
 
-    report = _make_critic_report(
-        tmp_path,
-        "FINDING 1: [SUPPORTS] — The claim is well backed.\n"
-        "SUMMARY: ok",
-    )
-    gaps = _detect_absent_rows(report)
+    meta = _make_support_matcher_meta(verdicts=[
+        _make_verdict("SUPPORTS", claim_snippet="Well-backed claim", citekey="good2022")
+    ])
+    gaps = _detect_absent_rows(meta)
     assert len(gaps) == 0
 
 
-def test_absent_row_claim_text(tmp_path):
-    """6e. Extracted claim text is the FINDING description, not the bracket token."""
+def test_absent_row_claim_from_verdict_not_bracket():
+    """6e. Gap claim comes from verdict.claim_snippet, not the raw bracket token."""
     from research_vault.review.gap_scan import _detect_absent_rows
 
-    report = _make_critic_report(
-        tmp_path,
-        "FINDING 1: [ABSENT] — The claim 'model X achieves SOTA on benchmark Y' is unsupported.\n"
-        "SUMMARY: missing source",
-    )
-    gaps = _detect_absent_rows(report)
+    meta = _make_support_matcher_meta(verdicts=[
+        _make_verdict(
+            "ABSENT",
+            claim_snippet="model X achieves SOTA on benchmark Y",
+            citekey="sota2023",
+        )
+    ])
+    gaps = _detect_absent_rows(meta)
     assert len(gaps) == 1
     assert "[ABSENT]" not in gaps[0].claim
     assert "model X achieves SOTA" in gaps[0].claim
+
+
+def test_absent_row_citekey_in_anchor():
+    """6f. Gap anchor references the citekey from the structured verdict."""
+    from research_vault.review.gap_scan import _detect_absent_rows
+
+    meta = _make_support_matcher_meta(verdicts=[
+        _make_verdict("ABSENT", claim_snippet="Claim C", citekey="ref2024")
+    ])
+    gaps = _detect_absent_rows(meta)
+    assert len(gaps) == 1
+    assert "ref2024" in gaps[0].anchor
+
+
+def test_absent_row_j2_escalation_blocks():
+    """6g. j2_escalation=True (J-2 stance-mismatch BLOCK) also triggers absent_row gap."""
+    from research_vault.review.gap_scan import _detect_absent_rows
+
+    meta = _make_support_matcher_meta(verdicts=[
+        _make_verdict("PARTIAL", claim_snippet="Escalated claim", citekey="esc2023",
+                      j2_escalation=True)
+    ])
+    gaps = _detect_absent_rows(meta)
+    assert len(gaps) == 1
+    assert gaps[0].type == "absent_row"
+
+
+def test_absent_row_empty_meta_warns(capsys):
+    """6h. §2 guard: empty/missing verdicts in non-empty meta → warns, doesn't silent-no-op."""
+    from research_vault.review.gap_scan import _detect_absent_rows
+    import warnings
+
+    # Meta with k_block > 0 but verdicts list absent → §2 must warn
+    meta = {"n_sentences": 5, "m_citations": 5, "k_block": 2, "j_warn": 0}
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        gaps = _detect_absent_rows(meta, run_id="test-run-01")
+    assert len(gaps) == 0
+    assert any("support_matcher" in str(w.message).lower() or
+               "verdicts" in str(w.message).lower() or
+               "no" in str(w.message).lower()
+               for w in caught), (
+        "§2 guard: missing/empty verdicts in non-empty meta must emit a warning"
+    )
+
+
+def test_absent_row_empty_verdicts_list_no_warn():
+    """6i. Empty verdicts list (k_block=0) is silent — no gaps, no warning (legitimate no-gaps)."""
+    from research_vault.review.gap_scan import _detect_absent_rows
+    import warnings
+
+    meta = _make_support_matcher_meta(verdicts=[
+        _make_verdict("SUPPORTS", claim_snippet="Good claim", citekey="good2023")
+    ])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        gaps = _detect_absent_rows(meta)
+    assert len(gaps) == 0
+    # No warning expected when all verdicts are SUPPORTS
+    rv_warns = [w for w in caught if "support_matcher" in str(w.message).lower()
+                or "verdicts" in str(w.message).lower()]
+    assert len(rv_warns) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -737,6 +848,94 @@ def test_status_no_gaps_no_mention(tmp_instance):
     lines_lower = [ln.lower() for ln in status_output.splitlines()]
     gap_attention_lines = [ln for ln in lines_lower if "open gap" in ln]
     assert len(gap_attention_lines) == 0
+
+
+# ---------------------------------------------------------------------------
+# 6j. cmd_gap_scan with matcher_meta (structured binding, §5L.10)
+# ---------------------------------------------------------------------------
+
+def test_gap_scan_with_matcher_meta(tmp_instance):
+    """6j. cmd_gap_scan accepts matcher_meta dict and detects absent_row gaps."""
+    from research_vault.config import load_config
+    from research_vault.review.gap_scan import cmd_gap_scan
+
+    cfg = load_config()
+    meta = _make_support_matcher_meta(verdicts=[
+        _make_verdict("ABSENT", claim_snippet="Claim with no lit backing", citekey="absent2023"),
+        _make_verdict("SUPPORTS", claim_snippet="Well-backed claim", citekey="good2022"),
+    ])
+    new_gaps = cmd_gap_scan("demo-research", config=cfg, matcher_meta=meta)
+    absent_types = [g.type for g in new_gaps]
+    assert "absent_row" in absent_types
+
+
+def test_gap_scan_parser_handles_list_values():
+    """_parse_frontmatter_gap correctly parses YAML list fields (backed_by, supported_by).
+
+    This is the LOCAL list-aware parser for gap_scan — separate from the canonical
+    note._parse_frontmatter (scalar-only by design; see SR-LR-2 STOP decision in
+    note._parse_frontmatter and gap_scan._parse_frontmatter_gap docstrings).
+    """
+    from research_vault.review.gap_scan import _parse_frontmatter_gap
+
+    note_text = (
+        "---\n"
+        "type: findings\n"
+        "id: f-001\n"
+        "claim: LLMs outperform humans\n"
+        "backed_by:\n"
+        "  - smith2022\n"
+        "  - jones2023\n"
+        "---\n"
+        "Body text.\n"
+    )
+    fields = _parse_frontmatter_gap(note_text)
+    assert fields["type"] == "findings"
+    assert fields["claim"] == "LLMs outperform humans"
+    backed_by = fields.get("backed_by")
+    assert isinstance(backed_by, list), (
+        "_parse_frontmatter_gap must return list for YAML list fields; "
+        f"got {type(backed_by).__name__!r}"
+    )
+    assert "smith2022" in backed_by
+    assert "jones2023" in backed_by
+
+
+def test_canonical_parser_scalar_only():
+    """note._parse_frontmatter is SCALAR-ONLY — list-valued key lines return empty string.
+
+    Guard test: documents the intentional design. If this test breaks, someone
+    extended the canonical parser without updating all .strip() callers.
+    The SR-LR-2 STOP decision (see note._parse_frontmatter docstring) must not
+    be silently undone.
+    """
+    from research_vault.note import _parse_frontmatter
+
+    note_text = (
+        "---\n"
+        "type: experiments\n"
+        "stance: confirmatory\n"
+        "plan_role: main\n"
+        "backed_by:\n"
+        "  - smith2022\n"
+        "results_hash: sha256:abc123\n"
+        "---\n"
+        "Body.\n"
+    )
+    fields, body = _parse_frontmatter(note_text)
+    # Scalar callers must still get strings
+    assert fields["type"] == "experiments"
+    assert fields["stance"] == "confirmatory"
+    assert fields["plan_role"] == "main"
+    assert fields["results_hash"] == "sha256:abc123"
+    # .strip() must not fail on any returned value
+    assert fields["stance"].strip() == "confirmatory"
+    # backed_by is empty-string (list items are skipped by scalar-only parser)
+    backed_by = fields.get("backed_by", "")
+    assert isinstance(backed_by, str), (
+        "canonical parser must return str (not list) — "
+        "see SR-LR-2 STOP decision in note._parse_frontmatter docstring"
+    )
 
 
 # ---------------------------------------------------------------------------
