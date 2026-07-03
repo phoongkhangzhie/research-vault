@@ -264,6 +264,30 @@ def _update_frontmatter(note_path: Path, updates: dict[str, str]) -> None:
 # High-level wandb_pull
 # ---------------------------------------------------------------------------
 
+def _resolve_wandb_from_manifest(cfg: Config) -> tuple[str, str]:
+    """Read W&B entity + project from the compute manifest (SR-CO results.wandb block).
+
+    Returns (entity, project) strings — empty string when not set or manifest absent.
+    Env vars (WANDB_ENTITY / WANDB_PROJECT) take priority over the manifest; this
+    function reads raw manifest values. Callers must apply env-over-manifest.
+
+    Values starting with "FILL" are treated as unconfigured and returned as "".
+    """
+    try:
+        from .compute import _load_manifest, _manifest_path, _FILL_PREFIX
+        if not _manifest_path(cfg).exists():
+            return "", ""
+        manifest = _load_manifest(cfg)
+        wandb_block = manifest.get("results", {}).get("wandb", {})
+        entity_raw = wandb_block.get("entity", "").strip()
+        project_raw = wandb_block.get("project", "").strip()
+        entity = "" if entity_raw.startswith(_FILL_PREFIX) else entity_raw
+        project = "" if project_raw.startswith(_FILL_PREFIX) else project_raw
+        return entity, project
+    except Exception:
+        return "", ""
+
+
 def _resolve_repro_hw(cfg: Config) -> str:
     """Read the active backend from the SR-6 compute manifest for repro_hw.
 
@@ -336,7 +360,19 @@ def wandb_pull(
     store = EnvSecretStore()
     api_key = store.get("wandb-api-key")
 
-    entity, project, run_name = parse_run_id(run_id)
+    # Resolve entity/project from env (primary) → manifest (fallback, SR-CO).
+    # parse_run_id applies env-over-param naturally via os.environ.get; we only
+    # inject manifest values when the env var is NOT set (env wins when set).
+    manifest_entity, manifest_project = _resolve_wandb_from_manifest(cfg)
+    # Use manifest value only when env var is absent (env-over-config rule).
+    fallback_entity = manifest_entity if not os.environ.get("WANDB_ENTITY", "").strip() else None
+    fallback_project = manifest_project if not os.environ.get("WANDB_PROJECT", "").strip() else None
+
+    entity, project, run_name = parse_run_id(
+        run_id,
+        entity=fallback_entity,
+        project=fallback_project,
+    )
     run_data = fetch_run(entity, project, run_name, api_key)
 
     result: dict[str, Any] = {

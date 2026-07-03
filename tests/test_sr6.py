@@ -150,10 +150,11 @@ class TestComputeShow:
 
 class TestDoctor:
     def test_doctor_runs_and_caches(self, cfg: Config) -> None:
-        """First rv doctor call probes capabilities and writes cache."""
+        """First rv doctor call probes capabilities and writes cache (per-backend shape)."""
         from research_vault.doctor import cmd_doctor, _CACHE_FILE
         result = cmd_doctor(cfg, refresh=True)
-        assert "capabilities" in result
+        # SR-CO: result uses per-backend shape ("backends" key, not flat "capabilities")
+        assert "backends" in result
         assert result.get("from_cache") is False
         # Cache file should now exist
         cache_path = cfg.state_dir / _CACHE_FILE
@@ -179,11 +180,14 @@ class TestDoctor:
         assert r2.get("from_cache") is False
 
     def test_doctor_capabilities_have_expected_keys(self, cfg: Config) -> None:
-        """Doctor capabilities dict has the expected probe keys."""
+        """Doctor capabilities dict has the expected probe keys (per-backend shape)."""
         from research_vault.doctor import cmd_doctor
         result = cmd_doctor(cfg, refresh=True)
-        caps = result["capabilities"]
-        # Always-present keys
+        # SR-CO: per-backend shape; local caps are under backends["local"]["capabilities"]
+        backends = result["backends"]
+        assert "local" in backends
+        caps = backends["local"]["capabilities"]
+        # Always-present keys (local backend)
         assert "sbatch" in caps
         assert "sinfo" in caps
         assert "qsub" in caps
@@ -193,10 +197,12 @@ class TestDoctor:
         assert "conda_envs" in caps
 
     def test_doctor_local_always_available(self, cfg: Config) -> None:
-        """local backend is always available — doctor reports it."""
+        """local backend is always available — doctor reports it under backends['local']."""
         from research_vault.doctor import cmd_doctor
         result = cmd_doctor(cfg, refresh=True)
-        caps = result["capabilities"]
+        backends = result["backends"]
+        assert "local" in backends
+        caps = backends["local"]["capabilities"]
         # local archetype: always available
         assert caps.get("local_available") is True
 
@@ -218,9 +224,12 @@ class TestDoctorDegrade:
         with patch("shutil.which", side_effect=fake_which):
             result = cmd_doctor(cfg, refresh=True)
 
-        # No traceback — result is a dict
+        # No traceback — result is a dict with per-backend shape
         assert isinstance(result, dict)
-        caps = result["capabilities"]
+        # SR-CO: local caps are under backends["local"]["capabilities"]
+        backends = result["backends"]
+        assert "local" in backends
+        caps = backends["local"]["capabilities"]
         assert caps["sbatch"] is False
         assert caps["sinfo"] is False
         assert caps["qsub"] is False
@@ -611,6 +620,8 @@ class TestDoctorGenericProbe:
         # Doctor should not raise and should include generic probe results
         result = cmd_doctor(cfg, refresh=True)
         assert isinstance(result, dict)
-        # generic_probes key should be present in capabilities
-        caps = result["capabilities"]
+        # SR-CO: per-backend shape; generic caps under backends["my-custom"]["capabilities"]
+        backends = result["backends"]
+        assert "my-custom" in backends
+        caps = backends["my-custom"]["capabilities"]
         assert "generic_probes" in caps

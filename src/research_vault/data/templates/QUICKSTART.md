@@ -9,6 +9,29 @@ Run `rv check` first to verify your prerequisites.
 - **ANTHROPIC_API_KEY** — your API key (or use keyring)
 - **asta** (optional) — for literature search integration
 - **Zotero + ZOTERO_KEY** (optional) — for citation management
+- **wandb** (optional) — for experiment results (`rv wandb pull`); `pip install wandb`
+
+## Compute onboarding — DECLARE → DISCOVER
+
+Before running experiments, declare your compute environment in the correct order:
+
+```bash
+rv compute init          # 1. DECLARE: scaffold compute_manifest.json
+#  → edit FILL values:  host, submit_pattern (for remote), W&B entity/project
+rv doctor                # 2. DISCOVER: probe each declared backend
+rv compute show          # 3. VERIFY: merged declared-where + discovered-what
+```
+
+`rv doctor` cannot see a cluster you have not declared. Declare first, then discover.
+
+**W&B results:** `compute_manifest.json` stores your W&B entity/project (config, not
+secrets). W&B API key stays in the system keyring (see SETUP instructions). Env vars
+`WANDB_ENTITY` / `WANDB_PROJECT` always win over the manifest when set.
+
+**Remote cluster:** fill `backends.profiles.cluster.host` (your ssh alias from
+`~/.ssh/config`) and `submit_pattern` (your partition/account flags). No keys in the
+manifest — SSH auth is via your `~/.ssh/config` + ssh-agent.
+The actual remote probe (ssh-based capability discovery) ships in SR-CO-REMOTE.
 
 ## Two runnable example loops
 
