@@ -1,3 +1,33 @@
+## 2026-07-03 (lit-review loop hardening: Fix #34 reads:-gate + Fix #32 corpus-dedup)
+
+### Done
+- **Fix #34 — reads: grounding gate was silently dead for review loops**: `_rel()` in
+  `review/__init__.py` emitted bare OKF type names (e.g. "literature"). The resolver uses
+  `manifest_path.parent` as project_root — for review manifests that's `reviews/<scope>/`,
+  not the project root. Every OKF-dir reads: pointer failed (6+ reads-scope ERRORs per run),
+  AND the gate was effectively off (all reads were unresolvable). Fix: `_rel()` now returns
+  `str(project_notes_dir / okf_type)` — absolute paths that resolve correctly. Covers both
+  Phase-1 and Phase-2 manifests. 3 new tests in `test_sr_lr_1.py` (green after fix).
+- **Fix #32 — corpus-dedup blind to filed literature notes**: `_corpus_annotation` only
+  checked `library.json` (Zotero). Freshly-filed `literature/<citekey>.md` notes showed
+  `[NEW]` because Zotero sync is async. Fix: added `_load_notes_index(literature_dir)` that
+  scans `literature/*.md` for `doi:` and `arxiv_id:` frontmatter fields; `_corpus_annotation`
+  gets a `notes_index` kwarg (checked after corpus_index); all three cmd_ call sites load and
+  pass it. Also added `doi`/`arxiv_id` placeholder fields to literature note template so
+  researchers can populate them immediately. 14 new tests in `test_research_corpus_dedup.py`.
+
+### Decisions
+- Fix #34 approach: fix the manifest GENERATOR (emit absolute paths) rather than the resolver
+  (add project-root override logic). Less invasive — non-review DAGs unaffected; resolver
+  unchanged.
+- Fix #32 approach: separate `notes_index` param on `_corpus_annotation` (not merged into
+  corpus_index inline) keeps the two sources auditable and the library.json path first.
+  literature note template gets doi/arxiv_id as optional placeholders (empty by default) —
+  same pattern as datasets/location+hash; doesn't break any existing tests.
+
+### Open / next
+- Push branch; hub to open PR (human-go class — loop correctness, two-gate CI).
+
 ## 2026-07-03 (SR-CCB fast-follow: doc-verb audit covers .tmpl files)
 
 ### Done
