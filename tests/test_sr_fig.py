@@ -846,10 +846,14 @@ class TestDemoFiguresLoop:
     """
 
     def _load_demo_figures_manifest(self) -> dict:
-        """Load the demo-figures manifest from examples/."""
+        """Load the demo-figures manifest from package data.
+
+        SR-PKG: examples/ moved to src/research_vault/data/examples/.
+        """
         manifest_path = (
             Path(__file__).parent.parent
-            / "examples" / "demo-figures" / "demo-figures.json"
+            / "src" / "research_vault" / "data" / "examples"
+            / "demo-figures" / "demo-figures.json"
         )
         assert manifest_path.exists(), f"demo-figures manifest not found at {manifest_path}"
         return json.loads(manifest_path.read_text())

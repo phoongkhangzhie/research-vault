@@ -478,9 +478,12 @@ def test_rv_help_check_passes_with_manuscript(tmp_instance):
 # ---------------------------------------------------------------------------
 
 def test_latex_template_exists():
-    """The neutral LaTeX template file is present in the templates directory."""
+    """The neutral LaTeX template file is present in the package data directory.
+
+    SR-PKG: templates/ moved to src/research_vault/data/templates/.
+    """
     src_root = Path(__file__).parent.parent / "src" / "research_vault"
-    template_path = src_root / "templates" / "manuscript.tex"
+    template_path = src_root / "data" / "templates" / "manuscript.tex"
     assert template_path.exists(), f"LaTeX template not found at {template_path}"
     content = template_path.read_text()
     assert "\\documentclass" in content, "Template must contain \\documentclass"

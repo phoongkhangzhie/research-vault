@@ -76,9 +76,10 @@ class TestContractTemplate:
 
     def _load_template(self) -> str:
         import importlib.resources
-        pkg = importlib.resources.files("research_vault")
-        tmpl_path = Path(str(pkg)) / "templates" / "CONTRACT.md.tmpl"
-        return tmpl_path.read_text(encoding="utf-8")
+        # SR-PKG: templates/ relocated to data/templates/ inside the wheel.
+        pkg_data = importlib.resources.files("research_vault") / "data"
+        with importlib.resources.as_file(pkg_data / "templates" / "CONTRACT.md.tmpl") as p:
+            return p.read_text(encoding="utf-8")
 
     def test_template_exists(self) -> None:
         text = self._load_template()
@@ -285,8 +286,10 @@ class TestBuildAgentsComposesContract:
     def test_stub_contract_embeds_stub_banner(self, rv_instance: Path) -> None:
         """Stub CONTRACT → stub banner in the hat."""
         import importlib.resources
-        pkg = importlib.resources.files("research_vault")
-        stub_tmpl = (Path(str(pkg)) / "templates" / "CONTRACT.md.tmpl").read_text()
+        # SR-PKG: templates/ relocated to data/templates/ inside the wheel.
+        pkg_data = importlib.resources.files("research_vault") / "data"
+        with importlib.resources.as_file(pkg_data / "templates" / "CONTRACT.md.tmpl") as p:
+            stub_tmpl = p.read_text()
         # Interpolate but leave FILL markers (like a freshly scaffolded contract)
         stub_text = stub_tmpl.format(
             slug="demo", code="dm", source_dir="/src/demo",
@@ -539,8 +542,10 @@ class TestRollbackCleansAgentsDir:
 class TestIsContractStub:
     def test_raw_template_is_stub(self) -> None:
         import importlib.resources
-        pkg = importlib.resources.files("research_vault")
-        tmpl = (Path(str(pkg)) / "templates" / "CONTRACT.md.tmpl").read_text()
+        # SR-PKG: templates/ relocated to data/templates/ inside the wheel.
+        pkg_data = importlib.resources.files("research_vault") / "data"
+        with importlib.resources.as_file(pkg_data / "templates" / "CONTRACT.md.tmpl") as p:
+            tmpl = p.read_text()
         assert _is_contract_stub(tmpl)
 
     def test_interpolated_but_unfilled_is_stub(self) -> None:
@@ -607,10 +612,13 @@ class TestLoadContractText:
 
 class TestLeakageScan:
     def test_template_leakage_clean(self) -> None:
-        """Belt-and-suspenders: directly scan the on-disk template for private markers."""
+        """Belt-and-suspenders: directly scan the on-disk template for private markers.
+
+        SR-PKG: CONTRACT.md.tmpl moved to src/research_vault/data/templates/.
+        """
         tmpl_path = (
             Path(__file__).parent.parent
-            / "src" / "research_vault" / "templates" / "CONTRACT.md.tmpl"
+            / "src" / "research_vault" / "data" / "templates" / "CONTRACT.md.tmpl"
         )
         assert tmpl_path.exists(), "CONTRACT.md.tmpl must exist on disk"
         text = tmpl_path.read_text(encoding="utf-8")

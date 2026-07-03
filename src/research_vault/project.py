@@ -280,9 +280,11 @@ def _render_contract_template(
     {roster}, {date}.  Every editorial field remains a <!-- FILL --> placeholder.
     Template is loaded from the package data (templates/CONTRACT.md.tmpl).
     """
-    pkg = importlib.resources.files("research_vault")
-    tmpl_path = Path(str(pkg)) / "templates" / "CONTRACT.md.tmpl"
-    template = tmpl_path.read_text(encoding="utf-8")
+    # SR-PKG: templates/ relocated into the wheel at data/templates/.
+    # Use as_file() for zipimport safety.
+    pkg_data = importlib.resources.files("research_vault") / "data"
+    with importlib.resources.as_file(pkg_data / "templates" / "CONTRACT.md.tmpl") as tmpl_path:
+        template = tmpl_path.read_text(encoding="utf-8")
     roster_str = " · ".join(roster) if roster else "(no roster defined)"
     today = _date.today().isoformat()
     return template.format(

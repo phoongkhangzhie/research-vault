@@ -6,12 +6,20 @@ root with config, control files, task dirs, doctrine, notes root (OKF type dirs)
 and the two canned demo projects (demo-research + demo-litreview).
 
 Multi-repo topology note:
-  The `examples/` demo projects are IN-REPO subdirs for zero-setup demonstration.
-  Their source_dir points in-repo for the demo. A REAL project is a separate git
-  repo at an external source_dir, registered by `rv project add`.
-  `rv init` scaffolds the INSTANCE ROOT — it does NOT scaffold new projects as
-  subdirs (that would re-introduce the monorepo pattern; use `rv project add` +
-  the deferred `rv project new` capstone for real projects).
+  The `examples/` demo projects are shipped inside the package under
+  ``src/research_vault/data/examples/`` and copied on ``rv init``.
+  A REAL project is a separate git repo at an external source_dir, registered
+  by ``rv project add``.
+  ``rv init`` scaffolds the INSTANCE ROOT — it does NOT scaffold new projects as
+  subdirs (that would re-introduce the monorepo pattern; use ``rv project add`` +
+  the deferred ``rv project new`` capstone for real projects).
+
+Package data layout (SR-PKG):
+  All files copied by ``rv init`` live under ``src/research_vault/data/`` inside
+  the wheel.  They are loaded via ``importlib.resources`` + ``as_file()`` so the
+  copy works from a regular wheel install AND from a zipped wheel (zipimport-safe).
+  There are NO ``__file__``-based fallbacks — a missing data file is a HARD ERROR,
+  not a silent skeleton (charter §2: surface, never silently degrade).
 
 Stdlib only. No external deps.
 """
@@ -19,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import importlib.resources
-import json
 import shutil
 import sys
 from pathlib import Path
@@ -199,30 +206,14 @@ note (enforced by `rv dag complete`'s produces check).
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _package_template_dir() -> Path:
-    """Return the path to the package templates/ directory."""
-    pkg = importlib.resources.files("research_vault")
-    return Path(str(pkg)) / "templates"
+def _pkg_data() -> "importlib.resources.abc.Traversable":
+    """Return the package data root Traversable (src/research_vault/data/).
 
-
-def _package_doctrine_dir() -> Path:
-    """Return the path to the installed package's doctrine/ directory.
-
-    We cannot ship doctrine/ inside src/research_vault/ (it's a repo-level
-    directory), so we copy from the repo root during init. At install time,
-    doctrine/ is NOT part of the wheel — init copies it from the repo if
-    available, otherwise skips gracefully.
+    Using ``importlib.resources.files()`` makes the lookup package-relative,
+    so it works correctly from a wheel install, an editable install, or a
+    zipimport — there is no ``__file__``-based repo-root path.
     """
-    # When running from the repo (editable install or direct), doctrine/
-    # is two levels up from this file: src/research_vault/init.py → src/ → repo_root/
-    repo_root = Path(__file__).parent.parent.parent
-    return repo_root / "doctrine"
-
-
-def _package_examples_dir() -> Path:
-    """Return the path to the repo's examples/ directory."""
-    repo_root = Path(__file__).parent.parent.parent
-    return repo_root / "examples"
+    return importlib.resources.files("research_vault") / "data"
 
 
 # ---------------------------------------------------------------------------
@@ -319,55 +310,47 @@ def cmd_init_in_dir(target_dir: str) -> int:
         (control_dir / f"{project}.md").write_text(ctrl_text, encoding="utf-8")
         print(f"  created: control/{project}.md")
 
-    # ── Copy QUICKSTART.md from package templates ────────────────────────────
-    tmpl_dir = _package_template_dir()
-    quickstart_src = tmpl_dir / "QUICKSTART.md"
+    # ── Copy QUICKSTART.md from package data (zipimport-safe) ───────────────
+    pkg_data = _pkg_data()
     quickstart_dst = target / "QUICKSTART.md"
-    if quickstart_src.exists():
-        shutil.copy2(quickstart_src, quickstart_dst)
-        print(f"  created: QUICKSTART.md")
-    else:
-        # Fallback: write a minimal quickstart
-        quickstart_dst.write_text(
-            "# Research Vault\n\nRun `rv check` to verify prerequisites.\n"
-            "Run `rv help` to see all verbs.\n",
-            encoding="utf-8",
-        )
-        print(f"  created: QUICKSTART.md (minimal fallback)")
+    with importlib.resources.as_file(pkg_data / "templates" / "QUICKSTART.md") as qs_src:
+        if not qs_src.is_file():
+            raise RuntimeError(
+                "Package data missing: data/templates/QUICKSTART.md. "
+                "The wheel is incomplete — reinstall research-vault."
+            )
+        shutil.copy2(qs_src, quickstart_dst)
+    print(f"  created: QUICKSTART.md")
 
-    # ── Copy doctrine/ from repo ─────────────────────────────────────────────
-    doctrine_src = _package_doctrine_dir()
+    # ── Copy doctrine/ from package data ─────────────────────────────────────
     doctrine_dst = target / "doctrine"
-    if doctrine_src.exists() and doctrine_src.is_dir():
+    with importlib.resources.as_file(pkg_data / "doctrine") as doctrine_src:
+        if not doctrine_src.is_dir():
+            raise RuntimeError(
+                "Package data missing: data/doctrine/. "
+                "The wheel is incomplete — reinstall research-vault."
+            )
         shutil.copytree(str(doctrine_src), str(doctrine_dst), dirs_exist_ok=True)
-        print(f"  created: doctrine/ ({_count_files(doctrine_dst)} files)")
-    else:
-        doctrine_dst.mkdir(exist_ok=True)
-        (doctrine_dst / "README.md").write_text(
-            "# doctrine/\n\nDoctor files will be placed here. "
-            "Run `rv build-agents` to generate agent hats.\n",
-            encoding="utf-8",
-        )
-        print(f"  created: doctrine/ (skeleton — doctrine source not found at {doctrine_src})")
+    print(f"  created: doctrine/ ({_count_files(doctrine_dst)} files)")
 
-    # ── Copy example loop manifests ──────────────────────────────────────────
-    examples_src = _package_examples_dir()
-    if examples_src.exists() and examples_src.is_dir():
-        _copy_demo_project(
-            examples_src / "demo-research",
-            demo_research_dir,
-            "demo-research",
-        )
-        _copy_demo_project(
-            examples_src / "demo-litreview",
-            demo_litreview_dir,
-            "demo-litreview",
-        )
-    else:
-        # Fallback: write placeholder manifests
-        _write_placeholder_manifest(demo_research_dir, "research-loop-q1", "demo-research")
-        _write_placeholder_manifest(demo_litreview_dir, "lit-review-loop-topic", "demo-litreview")
-        print(f"  created: examples/ (placeholder manifests — source not found at {examples_src})")
+    # ── Copy example loop manifests from package data ────────────────────────
+    with importlib.resources.as_file(pkg_data / "examples" / "demo-research") as dr_src:
+        if not dr_src.is_dir():
+            raise RuntimeError(
+                "Package data missing: data/examples/demo-research/. "
+                "The wheel is incomplete — reinstall research-vault."
+            )
+        shutil.copytree(str(dr_src), str(demo_research_dir), dirs_exist_ok=True)
+    print(f"  created: examples/demo-research/ ({_count_files(demo_research_dir)} files)")
+
+    with importlib.resources.as_file(pkg_data / "examples" / "demo-litreview") as dl_src:
+        if not dl_src.is_dir():
+            raise RuntimeError(
+                "Package data missing: data/examples/demo-litreview/. "
+                "The wheel is incomplete — reinstall research-vault."
+            )
+        shutil.copytree(str(dl_src), str(demo_litreview_dir), dirs_exist_ok=True)
+    print(f"  created: examples/demo-litreview/ ({_count_files(demo_litreview_dir)} files)")
 
     print()
     print("Research Vault instance initialised.")
@@ -380,37 +363,6 @@ def cmd_init_in_dir(target_dir: str) -> int:
     print()
     print("See QUICKSTART.md for a full walkthrough.")
     return 0
-
-
-def _copy_demo_project(src: Path, dst: Path, name: str) -> None:
-    """Copy a demo project directory to the new instance."""
-    if src.exists() and src.is_dir():
-        shutil.copytree(str(src), str(dst), dirs_exist_ok=True)
-        n = _count_files(dst)
-        print(f"  created: examples/{name}/ ({n} files)")
-    else:
-        dst.mkdir(exist_ok=True)
-        print(f"  created: examples/{name}/ (empty — source not found)")
-
-
-def _write_placeholder_manifest(project_dir: Path, run_id: str, name: str) -> None:
-    """Write a minimal placeholder manifest for a demo project."""
-    manifest = {
-        "run_id": run_id,
-        "name": f"{name} (placeholder — re-init from a full install)",
-        "global_cap": 2,
-        "nodes": [
-            {
-                "id": "placeholder",
-                "type": "agent",
-                "label": "Placeholder node",
-                "spec": f"task://{name}#placeholder",
-                "needs": [],
-            }
-        ],
-    }
-    manifest_path = project_dir / f"{'research-loop' if 'research' in name else 'lit-review-loop'}.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def _count_files(path: Path) -> int:

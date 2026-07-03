@@ -18,6 +18,7 @@ sr: SR-MS-1a
 from __future__ import annotations
 
 import datetime
+import importlib.resources
 import json
 import re
 from pathlib import Path
@@ -616,16 +617,18 @@ def _write_main_tex(tree_root: Path, ms_id: str, thesis: str) -> None:
     main_tex = tree_root / "main.tex"
     if main_tex.exists():
         return  # idempotent — don't overwrite existing
-    # Load from templates if available, else generate a minimal stub.
-    # The template is the one-time template; per-section prose goes in sections/.
-    src_root = Path(__file__).parent.parent
-    template_path = src_root / "templates" / "manuscript.tex"
-    if template_path.exists():
-        content = template_path.read_text(encoding="utf-8")
-        content = content.replace("{{MS_ID}}", ms_id)
-        content = content.replace("{{THESIS}}", thesis)
-    else:
-        content = _minimal_main_tex(ms_id, thesis)
+    # SR-PKG: templates/ relocated to data/templates/ inside the wheel.
+    # Use importlib.resources + as_file() for zipimport safety.
+    pkg_data = importlib.resources.files("research_vault") / "data"
+    with importlib.resources.as_file(pkg_data / "templates" / "manuscript.tex") as tmpl_path:
+        if not tmpl_path.is_file():
+            raise RuntimeError(
+                "Package data missing: data/templates/manuscript.tex. "
+                "The wheel is incomplete — reinstall research-vault."
+            )
+        content = tmpl_path.read_text(encoding="utf-8")
+    content = content.replace("{{MS_ID}}", ms_id)
+    content = content.replace("{{THESIS}}", thesis)
     main_tex.write_text(content, encoding="utf-8")
 
 

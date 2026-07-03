@@ -1,3 +1,43 @@
+## 2026-07-02 (sr-pkg — packaging-data fix, the publish blocker)
+
+### Done
+- Identified the root bug: `_package_doctrine_dir()` / `_package_examples_dir()` /
+  `_package_template_dir()` all used `Path(__file__).parent.parent.parent/{name}`
+  — resolves fine in dev/editable but misses the wheel at install time. Fallbacks
+  silently produced skeleton doctrine (1 README.md) and placeholder loop DAGs.
+- Relocated all data into the wheel (single home, no drift):
+  - `doctrine/` → `src/research_vault/data/doctrine/`
+  - `examples/` → `src/research_vault/data/examples/`
+  - `src/research_vault/templates/` → `src/research_vault/data/templates/`
+- Rewrote all loaders in `init.py`, `project.py`, `manuscript/__init__.py` to use
+  `importlib.resources.files("research_vault") / "data" / ...` + `as_file()`
+  (zipimport-safe, no __file__ anywhere).
+- Deleted `_write_placeholder_manifest()`, `_copy_demo_project()`, and all silent
+  fallback branches — missing data is now a hard `RuntimeError`.
+- Broadened CI leakage scan: doctrine re-pointed, examples/ added, root public-bound
+  files (README.md, architecture.md, QUICKSTART.md) added. tooling.md included via
+  rename from doctrine/ (PR #44 added it, SR-PKG relocation lands it in wheel).
+- TDD red→green proven: isolated wheel smoke test fails pre-fix (skeleton doctrine),
+  passes post-fix (16 doctrine files incl. tooling.md, 18 example files, 3 templates in wheel).
+- Full suite: 1438 tests pass; rv lint clean; rv help --check OK; CI green on SHA
+  293fbffbefa0f7ad9b0d4b55f9495a180deca4c5.
+
+### Decisions
+- Single data home under `src/research_vault/data/` — dev + CI reference the same
+  package path, no separate repo-root copies. Eliminates the drift risk.
+- Fallbacks DELETED not just disabled — silent degradation is worse than a loud error
+  (charter §2). A broken install surfaces immediately rather than shipping bad content.
+- `as_file()` used even for regular wheel installs — marginal overhead, future-proof
+  for zip-backed installs.
+- ci.yml conflict (SR-PKG vs #44 architecture.md step): SR-PKG loop supersedes — it
+  covers architecture.md once (in the for-loop over root public-bound files) plus
+  README/QUICKSTART/REFERENCES/SETUP. No double-scan.
+
+### Open / next
+- PR feat/sr-pkg → needs hub to open + Architect fit-check + human-go merge.
+- SR-SETUP next (the setup flow + rv setup verb + doctor extension + keyring fix).
+
+---
 ## 2026-07-02 (SR-RETRY — DAG node-level diagnose-before-retry, §5I)
 
 ### Done
