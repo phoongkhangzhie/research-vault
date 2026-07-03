@@ -831,6 +831,16 @@ def cmd_gap_scope(
         target = ROUTE_LITERATURE  # back-compat default
 
     if target == ROUTE_EXPERIMENT:
+        # #28: warn if the caller passed a non-empty scope arg for the experiment arm —
+        # the plan is named <gap_id>-plan.md (gap-scoped), not after the scope arg.
+        if scope:
+            warnings.warn(
+                f"gap-scope: scope arg {scope!r} is ignored for --target experiment; "
+                f"the plan is named '{gap_id}-plan.md' (gap-scoped, not scope-scoped). "
+                f"Use gap-scope without a scope arg for experiment routes.",
+                UserWarning,
+                stacklevel=2,
+            )
         return _cmd_gap_scope_experiment(
             project=project,
             gap_id=gap_id,
@@ -1070,7 +1080,8 @@ def _cmd_gap_scope_experiment(
         "six-gap framework. Related secondary taxonomies: Miles (2017); "
         "Robinson et al. (2011).",
     ]
-    context_path = exp_dir / "_gap-context.md"
+    # #28: gap-scoped filename mirrors <gap_id>-plan.md — prevents overwrite on 2nd gap
+    context_path = exp_dir / f"{gap_id}-gap-context.md"
     context_path.write_text("\n".join(context_lines), encoding="utf-8")
 
     return {"plan_note_path": str(plan_path), "gap_context_path": str(context_path)}

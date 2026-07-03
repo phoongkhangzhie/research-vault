@@ -532,7 +532,8 @@ def test_gap_scope_experiment_covers_skeleton(tmp_instance):
 
 
 def test_gap_scope_experiment_gap_context_written(tmp_instance):
-    """4f. _gap-context.md written adjacent to plan note."""
+    """4f. <gap_id>-gap-context.md written adjacent to plan note (#28: gap-scoped name)."""
+    import warnings
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_scan, cmd_gap_scope
 
@@ -550,17 +551,20 @@ def test_gap_scope_experiment_gap_context_written(tmp_instance):
             break
     assert gid
 
-    result = cmd_gap_scope("demo-research", gid, "scope-exp-06", config=cfg,
-                           target="experiment")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = cmd_gap_scope("demo-research", gid, "scope-exp-06", config=cfg,
+                               target="experiment")
     plan_path = Path(result["plan_note_path"])
 
-    # _gap-context.md should be adjacent to the plan note
-    context_path = plan_path.parent / "_gap-context.md"
-    assert context_path.exists(), f"_gap-context.md not found at {context_path}"
+    # #28: gap-scoped filename <gap_id>-gap-context.md (not fixed _gap-context.md)
+    context_path = plan_path.parent / f"{gid}-gap-context.md"
+    assert context_path.exists(), f"{gid}-gap-context.md not found at {context_path}"
 
 
 def test_gap_scope_experiment_context_has_plan_chain(tmp_instance):
-    """4g. _gap-context.md contains SR-PLAN-1 next-step chain."""
+    """4g. <gap_id>-gap-context.md contains SR-PLAN-1 next-step chain (#28: gap-scoped name)."""
+    import warnings
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_scan, cmd_gap_scope
 
@@ -578,16 +582,135 @@ def test_gap_scope_experiment_context_has_plan_chain(tmp_instance):
             break
     assert gid
 
-    result = cmd_gap_scope("demo-research", gid, "scope-exp-07", config=cfg,
-                           target="experiment")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = cmd_gap_scope("demo-research", gid, "scope-exp-07", config=cfg,
+                               target="experiment")
     plan_path = Path(result["plan_note_path"])
-    context_path = plan_path.parent / "_gap-context.md"
+    # #28: gap-scoped filename
+    context_path = plan_path.parent / f"{gid}-gap-context.md"
     context = context_path.read_text(encoding="utf-8")
 
     # Must reference the SR-PLAN-1 chain steps
     assert "rv plan check" in context
     assert "human-go-plan" in context
     assert "rv plan freeze" in context
+
+
+# ---------------------------------------------------------------------------
+# 4-new. Item #28 — SR-GAP-ROUTE polish: gap-scoped context filename + scope warning
+# ---------------------------------------------------------------------------
+
+def test_gap_scope_experiment_context_file_gap_scoped(tmp_instance):
+    """#28/Item3: experiment gap-context is named <gap_id>-gap-context.md, not _gap-context.md.
+
+    _gap-context.md is a fixed name — a second experiment-routed gap silently overwrites
+    the first's context file.  The fix: use <gap_id>-gap-context.md (mirrors the uniquely
+    named <gap_id>-plan.md).  This test checks that the context file uses the gap ID.
+    """
+    from research_vault.config import load_config
+    from research_vault.review.gap_scan import cmd_gap_scan, cmd_gap_scope, _gap_id
+
+    cfg = load_config()
+    pnd = cfg.project_notes_dir("demo-research")
+    _make_finding(pnd, "f-ev-item28-a", title="Item28 gap context test",
+                  effect="reduces variance")
+
+    new_gaps = cmd_gap_scan("demo-research", config=cfg)
+    gid = None
+    for gap in new_gaps:
+        if gap.type == "evaluation_void":
+            gid = _gap_id(gap.type, gap.anchor, gap.claim)
+            break
+    assert gid
+
+    result = cmd_gap_scope("demo-research", gid, "scope-item28", config=cfg,
+                           target="experiment")
+
+    # Context file must be <gap_id>-gap-context.md, NOT _gap-context.md
+    exp_dir = pnd / "experiments"
+    scoped_ctx = exp_dir / f"{gid}-gap-context.md"
+    fixed_ctx = exp_dir / "_gap-context.md"
+
+    assert scoped_ctx.exists(), (
+        f"Expected {scoped_ctx} to exist (gap-scoped context file); not found. "
+        f"result={result}"
+    )
+    assert not fixed_ctx.exists(), (
+        f"Fixed-name '_gap-context.md' should NOT exist after #28 fix; still found at {fixed_ctx}"
+    )
+
+
+def test_gap_scope_experiment_two_gaps_distinct_context_files(tmp_instance):
+    """#28/Item3: two experiment-routed gaps produce two DISTINCT context files (no overwrite).
+
+    This is the root bug: _gap-context.md is fixed → gap B silently overwrites gap A's context.
+    With <gap_id>-gap-context.md, both survive independently.
+    """
+    import warnings
+    from research_vault.config import load_config
+    from research_vault.review.gap_scan import cmd_gap_scan, cmd_gap_scope, _gap_id
+
+    cfg = load_config()
+    pnd = cfg.project_notes_dir("demo-research")
+    # Two evaluation_void gaps → both route to experiment
+    _make_finding(pnd, "f-ev-2ctx-a", title="First eval finding", effect="improves A")
+    _make_finding(pnd, "f-ev-2ctx-b", title="Second eval finding", effect="improves B")
+
+    new_gaps = cmd_gap_scan("demo-research", config=cfg)
+    ev_gaps = [(g, _gap_id(g.type, g.anchor, g.claim))
+               for g in new_gaps if g.type == "evaluation_void"]
+    assert len(ev_gaps) >= 2, f"Need at least 2 evaluation_void gaps; got {len(ev_gaps)}"
+
+    gid_a = ev_gaps[0][1]
+    gid_b = ev_gaps[1][1]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        cmd_gap_scope("demo-research", gid_a, "scope-2ctx-a", config=cfg, target="experiment")
+        cmd_gap_scope("demo-research", gid_b, "scope-2ctx-b", config=cfg, target="experiment")
+
+    exp_dir = pnd / "experiments"
+    ctx_a = exp_dir / f"{gid_a}-gap-context.md"
+    ctx_b = exp_dir / f"{gid_b}-gap-context.md"
+
+    assert ctx_a.exists(), f"Context for gap A not found: {ctx_a}"
+    assert ctx_b.exists(), f"Context for gap B not found: {ctx_b}"
+    assert ctx_a != ctx_b, "Gap A and B context paths must be distinct"
+
+
+def test_gap_scope_experiment_scope_ignored_warns(tmp_instance):
+    """#28/Item3: cmd_gap_scope with --target experiment warns that 'scope' arg is ignored.
+
+    The plan is named <gap_id>-plan.md, not after the scope arg.  A user passing a scope
+    name would be confused if no warning is emitted.  The fix: a one-line UserWarning.
+    """
+    import warnings
+    from research_vault.config import load_config
+    from research_vault.review.gap_scan import cmd_gap_scan, cmd_gap_scope, _gap_id
+
+    cfg = load_config()
+    pnd = cfg.project_notes_dir("demo-research")
+    _make_finding(pnd, "f-ev-scopewarn", title="Scope warn test", effect="boosts precision")
+
+    new_gaps = cmd_gap_scan("demo-research", config=cfg)
+    gid = None
+    for gap in new_gaps:
+        if gap.type == "evaluation_void":
+            gid = _gap_id(gap.type, gap.anchor, gap.claim)
+            break
+    assert gid
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cmd_gap_scope("demo-research", gid, "my-custom-scope", config=cfg, target="experiment")
+
+    warn_texts = " ".join(str(warning.message) for warning in w
+                          if issubclass(warning.category, UserWarning))
+    assert "scope" in warn_texts.lower() or "ignored" in warn_texts.lower(), (
+        f"Expected a UserWarning mentioning scope/ignored for --target experiment, "
+        f"got warnings: {warn_texts!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
