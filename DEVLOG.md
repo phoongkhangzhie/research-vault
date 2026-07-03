@@ -1,3 +1,17 @@
+## 2026-07-03 (feat/default-roster — canonical default crew, --roster removed)
+
+### Done
+- **DEFAULT-ROSTER (`feat/default-roster`, commit `8762ca7`)**: Every project registered via `rv project add` or `rv project new` now automatically gets `DEFAULT_ROSTER = [manager, engineer, researcher, designer, reviewer]`. The `--roster` CLI option is removed from both verbs. Belt-and-suspenders: `build-agents` and `role list` treat any empty/missing roster in the registry as DEFAULT_ROSTER, so legacy projects with `roster = []` also get the full crew. QUICKSTART.md fixed from the stale positional-arg form to `--code/--source`. 12 new tests (TestDefaultRosterConstant, TestProjectAddDefaultRoster, TestEmptyRosterFallback, TestBuildAgentsDefaultRoster); 7 existing tests updated for new semantics. Full suite 1677 passed; `rv lint` clean; `rv help --check` green.
+
+### Decisions
+- **Hub (alfred) and architect (wren) excluded from DEFAULT_ROSTER**: hub is the sole spawner (vault-level), architect is cross-project stack coherence (vault-level). All other named-crew roles (manager/engineer/researcher/designer/reviewer) are project-scoped and appear per-project.
+- **Slug convention = functional role name**: `manager`, `engineer`, etc. (not personal names atlas/mason). Matches pre-existing test convention and avoids confusion between role doc filenames and roster entries.
+- **`cmd_new` Python API preserved with `roster or DEFAULT_ROSTER`**: internal Python callers passing `roster=[]` get the default too; the function signature is backward-compatible.
+- **No vault-level vs project-level role distinction in code**: the code models this purely via `DEFAULT_ROSTER` (excludes hub/architect). A future explicit role-tier field is a possible follow-up but not needed for this deliverable.
+
+### Open / next
+- Hub to open PR for `feat/default-roster` (reviewer-gate class).
+
 ## 2026-07-02 (SR-GAP-HYGIENE — vanished-anchor check)
 
 ### Done
