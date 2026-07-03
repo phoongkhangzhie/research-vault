@@ -1091,3 +1091,73 @@ def test_n_hardcap_3(tmp_path):
     assert rc.get("max_rounds") <= 3, (
         f"max_rounds must be clamped to hard-cap 3; got {rc.get('max_rounds')}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 29: RUN-LEVEL fail-closed — unparseable judge → cleared=False, scores=zeros
+# ---------------------------------------------------------------------------
+
+def test_run_level_fail_closed_unparseable_judge(tmp_path):
+    """Full-path fail-closed guard: _unparseable_judge through run_review_board.
+
+    This test guards the CONSUMER (run_reviewer_node L374/L377), not just the
+    extractor. The extractor test (test 2) only checks _extract_review_scores
+    returns None — it leaves the consumer's default (0) untested on the full path.
+
+    Mutation guard (pre-registered):
+      Mutate run_reviewer_node consumer defaults 0→5 (fail-OPEN):
+        scores = {dim: 5 for dim in _ALL_DIMS}         # L374 (None branch)
+        scores = {dim: extracted.get(dim, 5) ...}       # L377 (partial branch)
+      This test MUST go RED on that mutation — if it stays green, the guard is vacuous.
+
+    The test is red-before-green verified against the 0→5 mutation:
+      pre-mutation:  cleared=True  (all-5 scores pass floor=3) → assert fails (RED)
+      post-restore:  cleared=False (all-0 scores fail floor=3) → assert passes (GREEN)
+    """
+    from research_vault.manuscript.review_board import run_review_board
+
+    note_path, tree_root, project_root = _make_ms_tree(tmp_path)
+    _write_bib(tree_root)
+
+    result = run_review_board(
+        pdf_text="Test paper with no bracketed scores in the response.",
+        tree_root=tree_root,
+        N=1,
+        K=1,
+        floor_dims=["SOUND", "REPRO"],
+        floor_value=3,
+        judge_fn=_unparseable_judge,  # returns garbage, no [DIM:N] tokens
+        judge_model="mock-model",
+        notes_root=project_root,
+    )
+
+    # Gate 1: the board must NOT be cleared (fail-closed)
+    assert result["cleared"] is False, (
+        "Unparseable judge output MUST fail-close the board (cleared=False). "
+        "If this fails after mutating consumer defaults 0→5, the mutation is working correctly — "
+        "restore defaults to 0."
+    )
+    assert result["cleared_at"] is None
+
+    # Gate 2: reviewer scores must be all-zero (the consumer's None→zeros mapping)
+    rounds = result.get("rounds", [])
+    assert len(rounds) == 1, "N=1 → exactly 1 round"
+    r1 = rounds[0]
+    reviewers = r1.get("reviewers", [])
+    assert len(reviewers) == 1, "K=1 → 1 reviewer per round"
+
+    rv_scores = reviewers[0].get("scores", {})
+    assert len(rv_scores) > 0, "Reviewer scores dict must be populated (even on parse failure)"
+    for dim, score in rv_scores.items():
+        assert score == 0, (
+            f"Unparseable output must map ALL dims to 0 (fail-closed); "
+            f"got {dim}={score}. Mutating consumer default 0→5 causes this to fail."
+        )
+
+    # Gate 3: the NOT-CLEARED payload must be present (fail-closed, not silent)
+    assert isinstance(result.get("not_cleared"), dict), (
+        "NOT-CLEARED must produce a first-class not_cleared payload, not None/silent"
+    )
+    assert "approved" not in result.get("honest_report", "").lower(), (
+        "honest_report must never say 'approved' on NOT-CLEARED"
+    )
