@@ -13,20 +13,24 @@ not the deprecated tab-delimited format (which caused the original BLOCK-2).
 
 Test map:
   1.  GitHubActionsSource satisfies the SignalSource Protocol
-  2.  Green PR (all bucket==pass) → sr-* ids from headRefName in terminal set
+  2.  Green-MERGED PR → sr-* ids from headRefName in terminal set
   3.  Red PR (a bucket==fail) → sr-* NOT in terminal set
   4.  Pending PR (bucket==pending) → sr-* NOT in terminal set
   5.  gh errors → source raises → combined-set emits warning, no terminal id
   6.  gh absent (FileNotFoundError) → degrades cleanly, no crash
-  7.  Skipping check is non-blocking (does not prevent green)
+  7.  Skipping check is non-blocking (does not prevent green), MERGED PR
   8.  build_live_set: open PR contributes sr-* from headRefName, NOT pr-N
   9.  No auto-approve path: structural boundary assertion
- 10.  FUNCTIONAL PROOF: green vs red PR produce different reconcile output
-       (this is the gap the double-[BLOCK] caught — pr-* was inert, sr-* is not)
- 11.  Combined terminal set includes sr-* ids from a green PR's branch
+ 10.  FUNCTIONAL PROOF: green-MERGED vs green-OPEN produce different reconcile output
+       (MERGED fires R4, OPEN does NOT — that is the normal human-go-crew state)
+ 11.  Combined terminal set: green-MERGED contributes sr-*, green-OPEN does NOT
  12.  No-checks-at-all → conservative: empty terminal set (not accidentally green)
  13.  Constructor with repo slug (smoke)
  14.  Docstring fix: SR-9 → SR-CIF in status.py
+ 23.  BUG GUARD: green-but-OPEN PR → ids NOT in terminal (false STALE bug)
+ 24.  Green-MERGED PR → ids ARE in terminal (correct merged behavior)
+ 25.  FUNCTIONAL PROOF: green-OPEN reconcile must NOT emit [R4] STALE
+ 26.  Red-before-green: reverting merged gate makes green-OPEN test fail
 
 All tests are hermetic: ``gh`` is mocked via monkeypatch / subprocess side-effect.
 Zero ~/vault reads or writes. No live GitHub calls.
@@ -121,13 +125,17 @@ def test_github_actions_source_satisfies_signal_source_protocol():
 # ---------------------------------------------------------------------------
 
 def test_green_pr_branch_ids_in_terminal_set(cfg, monkeypatch):
-    """A PR whose ALL checks have bucket==pass contributes its sr-* branch ids to terminal.
+    """A MERGED PR whose ALL checks have bucket==pass contributes sr-* branch ids to terminal.
 
     The branch 'feat/sr-7' yields 'sr-7' via _ID_TOKEN_RE — NOT 'pr-7'.
     'sr-7' is what _check_r4 and extract_id_tokens actually join on.
+
+    Note: state must be "MERGED" — a green-but-OPEN PR is the normal
+    awaiting-human-go state and must NOT contribute to the terminal set
+    (see test_green_open_pr_not_in_terminal_set for that guard).
     """
     runner = _make_runner(
-        view=_view_json(state="OPEN", branch="feat/sr-7"),
+        view=_view_json(state="MERGED", branch="feat/sr-7"),
         checks=_checks_json([
             {"name": "tests", "bucket": "pass"},
             {"name": "lint",  "bucket": "pass"},
@@ -263,11 +271,14 @@ def test_gh_absent_degrades_cleanly(cfg, monkeypatch):
 def test_skipping_check_is_non_blocking(cfg, monkeypatch):
     """A check with bucket==skipping is treated as non-blocking (pass-through).
 
-    A PR green on all non-skipping checks is still green even if some skip.
+    A MERGED PR green on all non-skipping checks is still green even if some skip.
     This is the revised D-CIF-4 semantics (bucket-based, no required/optional).
+
+    Note: state must be "MERGED" — skipping semantics only apply once the PR is
+    actually merged; a green-OPEN PR is not terminal regardless of skip status.
     """
     runner = _make_runner(
-        view=_view_json(state="OPEN", branch="feat/sr-7"),
+        view=_view_json(state="MERGED", branch="feat/sr-7"),
         checks=_checks_json([
             {"name": "tests",          "bucket": "pass"},
             {"name": "code-coverage",  "bucket": "skipping"},  # no-op, non-blocking
@@ -278,7 +289,7 @@ def test_skipping_check_is_non_blocking(cfg, monkeypatch):
     src = GitHubActionsSource(repo="owner/repo", pr_number=7)
     terminal = src.get_terminal_set(cfg, "demo-research")
     assert "sr-7" in terminal, (
-        f"PR with skipping check must still be green if all others pass; got {terminal!r}"
+        f"MERGED PR with skipping check must still be green if all others pass; got {terminal!r}"
     )
 
 
@@ -354,11 +365,15 @@ def test_no_auto_approve_path_in_github_actions_source():
 # ---------------------------------------------------------------------------
 
 def test_functional_proof_green_vs_red_differ(cfg, ctl_file, monkeypatch):
-    """GREEN vs RED CI for the same PR produce DIFFERENT reconcile output.
+    """GREEN-MERGED vs RED-MERGED CI for the same PR produce DIFFERENT reconcile output.
 
     This is the functional test that proves the source is not inert:
-    - A green PR's sr-7 id reaches _check_r4 → R4 fires (found in Handshakes)
-    - A red PR's sr-7 id is withheld → R4 does NOT fire
+    - A green MERGED PR's sr-7 id reaches _check_r4 → R4 fires (found in Handshakes)
+    - A red MERGED PR's sr-7 id is withheld (CI not green) → R4 does NOT fire
+
+    Both runs use state="MERGED" to isolate the CI-state difference.
+    The OPEN-vs-MERGED gate is separately covered by test 25
+    (test_green_open_reconcile_does_not_emit_r4).
 
     The old pr-* ids never reached _check_r4 because _ID_TOKEN_RE only matches
     sr-[a-z0-9]+ tokens (controllib.py:123). This test is the regression guard.
@@ -371,9 +386,9 @@ def test_functional_proof_green_vs_red_differ(cfg, ctl_file, monkeypatch):
         config=cfg,
     )
 
-    # --- GREEN run: all checks pass → sr-7 in terminal → R4 fires ---
+    # --- GREEN run: MERGED + all checks pass → sr-7 in terminal → R4 fires ---
     green_runner = _make_runner(
-        view=_view_json(state="OPEN", branch="feat/sr-7"),
+        view=_view_json(state="MERGED", branch="feat/sr-7"),
         checks=_checks_json([
             {"name": "tests",  "bucket": "pass"},
             {"name": "lint",   "bucket": "pass"},
@@ -386,17 +401,17 @@ def test_functional_proof_green_vs_red_differ(cfg, ctl_file, monkeypatch):
         "demo-research", config=cfg, extra_sources=[src_green]
     )
 
-    # R4 must fire: sr-7 is in terminal (green CI) AND in Handshakes
+    # R4 must fire: sr-7 is terminal (MERGED + green CI) AND in Handshakes
     r4_in_green = [f for f in green_findings if "[R4]" in f]
     assert r4_in_green, (
-        f"GREEN CI: R4 must fire when sr-7 is terminal and in Handshakes, "
+        f"GREEN-MERGED CI: R4 must fire when sr-7 is terminal and in Handshakes, "
         f"but findings were: {green_findings!r}. "
         f"If sr-7 did not reach _check_r4, the source is still inert."
     )
 
-    # --- RED run: a check fails → sr-7 withheld → R4 does NOT fire ---
+    # --- RED run: MERGED + a check fails → sr-7 withheld (CI not green) → R4 does NOT fire ---
     red_runner = _make_runner(
-        view=_view_json(state="OPEN", branch="feat/sr-7"),
+        view=_view_json(state="MERGED", branch="feat/sr-7"),
         checks=_checks_json([
             {"name": "tests",  "bucket": "pass"},
             {"name": "lint",   "bucket": "fail", "state": "FAILURE"},
@@ -411,13 +426,13 @@ def test_functional_proof_green_vs_red_differ(cfg, ctl_file, monkeypatch):
 
     r4_in_red = [f for f in red_findings if "[R4]" in f]
     assert not r4_in_red, (
-        f"RED CI: R4 must NOT fire when sr-7 is withheld (checks failing), "
+        f"RED-MERGED CI: R4 must NOT fire when sr-7 is withheld (checks failing), "
         f"but findings were: {red_findings!r}"
     )
 
     # The key assertion: the two reconcile outputs DIFFER
     assert green_findings != red_findings, (
-        "GREEN and RED CI must produce different reconcile outputs — "
+        "GREEN-MERGED and RED-MERGED CI must produce different reconcile outputs — "
         "the source was inert (pr-* never reached any consumer) before this fix."
     )
 
@@ -427,10 +442,13 @@ def test_functional_proof_green_vs_red_differ(cfg, ctl_file, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_combined_terminal_set_includes_green_branch_ids(cfg, ctl_file, monkeypatch):
-    """When GitHubActionsSource is in extra_sources, a green PR's sr-* id appears
-    in the combined terminal set returned by _build_combined_terminal_set."""
+    """When GitHubActionsSource is in extra_sources, a green MERGED PR's sr-* id
+    appears in the combined terminal set returned by _build_combined_terminal_set.
+
+    Uses state="MERGED" — a green-OPEN PR must NOT contribute (see test 23).
+    """
     runner = _make_runner(
-        view=_view_json(state="OPEN", branch="feat/sr-7"),
+        view=_view_json(state="MERGED", branch="feat/sr-7"),
         checks=_checks_json([
             {"name": "tests", "bucket": "pass"},
             {"name": "lint",  "bucket": "pass"},
@@ -445,7 +463,7 @@ def test_combined_terminal_set_includes_green_branch_ids(cfg, ctl_file, monkeypa
     )
 
     assert "sr-7" in terminal, (
-        f"Green PR (feat/sr-7) must contribute 'sr-7' to combined terminal set; got {terminal!r}"
+        f"Green MERGED PR (feat/sr-7) must contribute 'sr-7' to combined terminal set; got {terminal!r}"
     )
     assert "pr-7" not in terminal, (
         f"'pr-7' must NOT appear in terminal set — that token is inert; got {terminal!r}"
@@ -750,4 +768,147 @@ def test_get_ci_advisory_caches_results(cfg, monkeypatch):
         f"get_terminal_set() must reuse cached fetch results — "
         f"subprocess was called {after_terminal - after_advisory} extra time(s): "
         f"{call_log[after_advisory:]!r}"
+    )
+
+
+# ===========================================================================
+# SR-CIF-TERMINAL-FIX — Tests 23–26
+# Gate: terminal-set contribution requires state==MERGED, not just CI green.
+# A green-but-OPEN PR is the NORMAL human-go-crew state; it must NOT be
+# marked terminal (which triggers false [R4] STALE on every reconcile).
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Test 23: BUG GUARD — green-but-OPEN PR must NOT contribute to terminal set
+# ---------------------------------------------------------------------------
+
+def test_green_open_pr_not_in_terminal_set(cfg, monkeypatch):
+    """BUG GUARD (task #24): a green PR that is still OPEN must NOT contribute
+    to the terminal set.
+
+    In a human-go crew, the PR is green-but-open while awaiting the operator
+    merge.  Before this fix, get_terminal_set() returned branch ids for any
+    green PR regardless of state — causing false [R4] STALE on every reconcile
+    for a perfectly healthy, awaiting-human-go handshake.
+
+    Red-before-green: revert the state==MERGED gate in get_terminal_set →
+    this test fails (sr-7 reappears in terminal for OPEN PR).
+    """
+    runner = _make_runner(
+        view=_view_json(state="OPEN", branch="feat/sr-7"),
+        checks=_checks_json([
+            {"name": "tests", "bucket": "pass"},
+            {"name": "lint",  "bucket": "pass"},
+        ]),
+    )
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    src = GitHubActionsSource(repo="owner/repo", pr_number=7)
+    terminal = src.get_terminal_set(cfg, "demo-research")
+
+    assert "sr-7" not in terminal, (
+        f"BUG: green-but-OPEN PR must NOT contribute 'sr-7' to terminal set "
+        f"(triggers false [R4] STALE on every reconcile); got {terminal!r}. "
+        "The terminal-set gate must require state==MERGED, not just CI green."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 24: Green-MERGED PR → ids ARE in terminal (correct merged behavior)
+# ---------------------------------------------------------------------------
+
+def test_green_merged_pr_in_terminal_set(cfg, monkeypatch):
+    """A green PR that has actually been MERGED must contribute sr-* to terminal.
+
+    This is the correct merged/done path: CI green + state==MERGED → terminal.
+    """
+    runner = _make_runner(
+        view=_view_json(state="MERGED", branch="feat/sr-7"),
+        checks=_checks_json([
+            {"name": "tests", "bucket": "pass"},
+            {"name": "lint",  "bucket": "pass"},
+        ]),
+    )
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    src = GitHubActionsSource(repo="owner/repo", pr_number=7)
+    terminal = src.get_terminal_set(cfg, "demo-research")
+
+    assert "sr-7" in terminal, (
+        f"A green MERGED PR must contribute 'sr-7' to the terminal set; "
+        f"got {terminal!r}. The fix must allow MERGED PRs through."
+    )
+    assert "pr-7" not in terminal, (
+        f"'pr-7' must NOT appear in terminal (inert token); got {terminal!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 25: Functional proof — green-OPEN reconcile does NOT emit [R4] STALE
+# ---------------------------------------------------------------------------
+
+def test_green_open_reconcile_does_not_emit_r4(cfg, ctl_file, monkeypatch):
+    """FUNCTIONAL PROOF: reconcile with a green-but-OPEN PR must NOT emit [R4] STALE.
+
+    [R4] fires when an id is in BOTH the terminal set and a Handshakes entry.
+    If green-OPEN erroneously lands in terminal (the bug), [R4] fires on every
+    reconcile while the crew waits for the human-go merge — a false STALE alarm.
+
+    After the fix, green-OPEN → not terminal → no [R4].
+    Green-MERGED → terminal → [R4] fires correctly (tested below).
+    """
+    # Post sr-7 into Handshakes — the normal awaiting-merge state
+    control_mod.cmd_post(
+        "demo-research",
+        section="Handshakes",
+        title="sr-7: feat/sr-7 green, awaiting human-go merge",
+        config=cfg,
+    )
+
+    # Green CI but PR is still OPEN (human hasn't merged yet)
+    green_open_runner = _make_runner(
+        view=_view_json(state="OPEN", branch="feat/sr-7"),
+        checks=_checks_json([
+            {"name": "tests", "bucket": "pass"},
+            {"name": "lint",  "bucket": "pass"},
+        ]),
+    )
+    monkeypatch.setattr(subprocess, "run", green_open_runner)
+
+    src_open = GitHubActionsSource(repo="owner/repo", pr_number=7)
+    findings_open = control_mod.cmd_reconcile(
+        "demo-research", config=cfg, extra_sources=[src_open]
+    )
+
+    r4_open = [f for f in findings_open if "[R4]" in f]
+    assert not r4_open, (
+        f"BUG: green-OPEN PR must NOT emit [R4] STALE "
+        f"(normal awaiting-merge state); findings: {findings_open!r}"
+    )
+
+    # Now simulate the merge: same checks, state becomes MERGED
+    green_merged_runner = _make_runner(
+        view=_view_json(state="MERGED", branch="feat/sr-7"),
+        checks=_checks_json([
+            {"name": "tests", "bucket": "pass"},
+            {"name": "lint",  "bucket": "pass"},
+        ]),
+    )
+    monkeypatch.setattr(subprocess, "run", green_merged_runner)
+
+    src_merged = GitHubActionsSource(repo="owner/repo", pr_number=7)
+    findings_merged = control_mod.cmd_reconcile(
+        "demo-research", config=cfg, extra_sources=[src_merged]
+    )
+
+    r4_merged = [f for f in findings_merged if "[R4]" in f]
+    assert r4_merged, (
+        f"Green-MERGED PR must emit [R4] STALE when sr-7 is still in Handshakes; "
+        f"findings: {findings_merged!r}"
+    )
+
+    # The two states must produce different output
+    assert findings_open != findings_merged, (
+        "OPEN vs MERGED reconcile must differ — OPEN should not trigger R4, MERGED should"
     )
