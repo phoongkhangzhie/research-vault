@@ -659,6 +659,107 @@ class TestFigurePreview:
 
 
 # ============================================================================
+# Seam 3b: rv figure render — FIGURE MINIMALISM (SR-FIG-MINIMAL, §5J.16.5)
+# The raster is PLOT-ONLY: the internal fig_id is NEVER baked as a title, and no
+# title appears unless the operator explicitly opts in via --title.
+# ============================================================================
+
+class TestFigureRenderMinimalism:
+    """The rendered raster is plot-only — no baked fig_id title (SR-FIG-MINIMAL)."""
+
+    def _create_figure_spec(
+        self, tmp_instance, cfg, fig_id: str, exp_id: str,
+        *, results_data: bytes = b"metric,value\nacc,0.92\nf1,0.88\n",
+    ) -> Path:
+        project_notes_dir = cfg.project_notes_dir("demo-research")
+        _write_experiment_note_and_results(
+            Path(tmp_instance), project_notes_dir, exp_id, results_data=results_data,
+        )
+        from research_vault.figure import cmd_new as fig_cmd_new
+        return fig_cmd_new("demo-research", fig_id, experiment_id=exp_id, config=cfg)
+
+    def test_render_does_not_bake_fig_id_title(self, tmp_instance):
+        """The internal fig_id must NOT be set as the axes title (plot-only raster).
+
+        Non-vacuous: the fig_id is a distinctive sentinel slug. We render, then read
+        the SVG back and assert the slug does NOT appear as text in the image. Before
+        SR-FIG-MINIMAL, `ax.set_title(fig_id)` burned it into both SVG and PNG.
+        """
+        pytest.importorskip("matplotlib")
+        pytest.importorskip("pandas")
+        cfg = load_config(reload=True)
+        fig_id = "sentinel-figid-xyzzy"
+        self._create_figure_spec(tmp_instance, cfg, fig_id, "run-minimal")
+
+        from research_vault.figure import cmd_render
+        rc = cmd_render("demo-research", fig_id, config=cfg)
+        assert rc == 0, f"render must return 0; got {rc}"
+
+        svg_path = cfg.state_dir / "figures" / f"{fig_id}.svg"
+        assert svg_path.exists(), f"SVG must be rendered at {svg_path}"
+        svg_text = svg_path.read_text(encoding="utf-8")
+        # The fig_id slug must not appear as rendered text in the raster.
+        # SVG renders text glyph-by-glyph; check the distinctive 'xyzzy' token.
+        assert "xyzzy" not in svg_text.lower(), (
+            "the internal fig_id must NOT be baked into the raster (plot-only). "
+            "Found the fig_id slug in the rendered SVG text."
+        )
+
+    def test_render_title_opt_in_appears(self, tmp_instance):
+        """An explicit --title IS drawn (opt-in for slide/poster decks)."""
+        pytest.importorskip("matplotlib")
+        pytest.importorskip("pandas")
+        cfg = load_config(reload=True)
+        fig_id = "opt-in-title-fig"
+        self._create_figure_spec(tmp_instance, cfg, fig_id, "run-title")
+
+        from research_vault.figure import cmd_render
+        rc = cmd_render(
+            "demo-research", fig_id, title="Accuracy by metric", config=cfg,
+        )
+        assert rc == 0
+        svg_path = cfg.state_dir / "figures" / f"{fig_id}.svg"
+        svg_text = svg_path.read_text(encoding="utf-8")
+        # The explicit title text should be present (matplotlib emits the words).
+        assert "Accuracy" in svg_text, (
+            "an explicit --title must be rendered into the raster"
+        )
+
+    def test_render_default_is_plot_only_no_title(self, tmp_instance, capsys):
+        """With no --title, no title text is drawn AND no WARN fires (plot-only default)."""
+        pytest.importorskip("matplotlib")
+        pytest.importorskip("pandas")
+        cfg = load_config(reload=True)
+        fig_id = "no-title-default"
+        self._create_figure_spec(tmp_instance, cfg, fig_id, "run-notitle")
+
+        from research_vault.figure import cmd_render
+        cmd_render("demo-research", fig_id, config=cfg)
+        captured = capsys.readouterr()
+        # No publication-title WARN when no title is supplied.
+        assert "WARN" not in captured.err, (
+            f"no --title should not fire a title WARN; got stderr: {captured.err!r}"
+        )
+
+    def test_render_title_on_publication_warns(self, tmp_instance, capsys):
+        """--title on the publication preset is honored but emits an advisory WARN."""
+        pytest.importorskip("matplotlib")
+        pytest.importorskip("pandas")
+        cfg = load_config(reload=True)
+        fig_id = "pub-title-warn"
+        # default style is 'publication'
+        self._create_figure_spec(tmp_instance, cfg, fig_id, "run-pubwarn")
+
+        from research_vault.figure import cmd_render
+        cmd_render("demo-research", fig_id, title="Some title", config=cfg)
+        captured = capsys.readouterr()
+        assert "WARN" in captured.err and "publication" in captured.err, (
+            f"--title on publication must warn (steer text to \\caption); "
+            f"got stderr: {captured.err!r}"
+        )
+
+
+# ============================================================================
 # Seam 4: rv figure list — lists figure notes for a project
 # ============================================================================
 

@@ -17,6 +17,11 @@ and *adversarial* (critique what's off).
   hand.
 - **Figures carry provenance and reproduce.** A figure you can't regenerate from a tracked script
   (script · data · SHA · date) is a rumour. A finding's figure is part of the finding.
+- **Figures are plot-only; text lives in the caption.** The raster carries data, axes, legend,
+  essential annotations — nothing else. Title/descriptive caption → the LaTeX `\caption`;
+  provenance → the `figures/<id>` note; **never baked into the PNG/SVG.** A title states *what is
+  plotted*, never the paper's claim; a reported delta is a one-directional floor, not a symmetric
+  point estimate. This is standing doctrine — see `doctrine/figure-minimalism.md`.
 
 ## Consistency within, distinctiveness across
 
