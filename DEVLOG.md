@@ -30,6 +30,35 @@
 
 ### Open / next
 - PR to hub for review + merge (human-go class: stack/cross-project change).
+## 2026-07-02 (SR-PLAN-2-remainder — §5K.7 deferred items: covers:/stance link-validation + rv result assert)
+
+### Done
+- **Item 1 — covers:/stance link-validation (note.py touch):** Added
+  `check_covers_links()` and `check_plan_child_links()` helpers to `note.py`.
+  Wired into `cmd_check` experiments elif via a pre-pass (collects covered_ids
+  from plan masters) + per-note calls. Plan master BLOCKS on missing covers:
+  child, invalid/missing stance or plan_role. Child notes warn on missing stance,
+  absent-from-covers (confirmatory only; degrade-to-skip when no plan masters),
+  broken supports_main target. 17 tests in `test_sr_plan2_remainder.py`.
+- **Items 2+3 — rv result assert + predicate-hash-into-run-state (§5K.5.4):**
+  New `result.py` module with `rv result assert <exp-note> --metric M --op OP --value V`.
+  Hash-verifies results_location; extracts metric from JSON/JSONL (flat or dot-path);
+  evaluates predicate; exits 0 on TRUE, 1 on FALSE. With `--run-id/--node-id`,
+  logs predicate string + sha256 hash + result to `run_state.meta["predicate_log"]`
+  (tamper-evident §5K.5.4 audit). Registered as `result` verb (sr=SR-PLAN-2).
+  19 tests. Full suite 1360 passed, 37 skipped; rv lint PASS; rv help --check OK.
+
+### Decisions
+- All three §5K.7 items are IN SCOPE and confirmed by spec (§5K.7 text + §5K.5.4).
+  No items skipped. All built per spec.
+- BLOCK behavior for item 1: missing child / invalid stance / invalid plan_role
+  all produce violations (BLOCKs in cmd_check). Child-note stance-missing also
+  produces a violation. Absent-from-covers degrades to skip when no plan masters.
+- predicate-hash logging is non-fatal: log failure prints WARNING but does not
+  override the predicate result (DAG watch still resolves on exit code).
+
+### Open / next
+- Push + hub opens PR (human-go class, crew cannot self-approve).
 
 ## 2026-07-02 (f811-exemptions — task #16 F811 hardening + rule 7 getsource-guard)
 
