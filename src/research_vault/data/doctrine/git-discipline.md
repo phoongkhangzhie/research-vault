@@ -81,7 +81,7 @@ rv wt add <task> --as mason
 ```
 
 This sets `git config user.email = mason@<crew-domain>` and
-`git config user.name = Mason (rv crew)` in the new worktree — by construction,
+`git config user.name = Mason` in the new worktree — by construction,
 not by a separate "activate" step that can be forgotten.
 
 The crew domain is configured in `research_vault.toml` under `[crew]

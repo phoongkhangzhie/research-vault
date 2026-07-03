@@ -128,7 +128,7 @@ are made — not in bulk at the end of a session. The DEVLOG is a decision recor
 report: `### Done` / `### Decisions` / `### Open / next`, newest entry on top, one dated `## YYYY-MM-DD`
 heading per working day.
 
-**Run `rv devlog-check <project>` before every report-up.** A MISSING or STALE result is a
+**Run `rv devlog check <project>` before every report-up.** A MISSING or STALE result is a
 blocker — do not surface findings to the hub with a stale DEVLOG, because the hub's read of your
 project state depends on it. Fix the DEVLOG, then report.
 
@@ -156,13 +156,13 @@ help." It answers two parties: the hub (so it allocates well) and the agent (so 
   existing role, or the lens you authored for a specialist) · `hat` (the **exact agent type** — see
   below) · `scope` (the bounded task — *and what's explicitly out*) · `deliverable` (what to produce:
   a finding / critique / figure / verdict).
-- **`hat` — fill it from `rv route <repo> <role>`'s output; do not hand-recall it.** The hat is
-  *computed*, not remembered: run **`rv route <repo> <role>`** (the repo *is* the project tag — a
-  PR in a project with `role=reviewer` → `<project>-reviewer`; cross-project work → a
-  `hub-<role>` hat, e.g. `hub-architect`) and use its output verbatim as the canonical source.
-  `rv route` reads the build-agents roster as its single source of truth, so the named hat can't
-  drift from the actual hat set. The hub *executes* the named hat — it does not re-route. Never
-  name a bare `claude` / `general-purpose` for substantive work.
+- **`hat` — derive it from the build-agents roster; do not hand-recall it.** The hat is
+  *computed*, not remembered: the subagent name in `.claude/agents/<role>.md` (produced by
+  `rv build-agents --target claude-code`) IS the canonical hat name — a PR in a project with
+  `role=reviewer` → `<project>-reviewer`; cross-project work → a `hub-<role>` hat, e.g.
+  `hub-architect`. The roster is the single source of truth; hand-recalled hats drift.
+  The hub *executes* the named hat — it does not re-route. Never name a bare `claude` /
+  `general-purpose` for substantive work.
 - **Sharpeners:** `recommended-form` (reuse a role / ephemeral / propose standing — you recommend,
   the hub decides) · `priority` + `dependencies` (so it can sequence or defer) · `inputs` (the
   *specific* artifacts to read) · `done-when` (the success criterion) · `tier` (recommended model —
@@ -180,7 +180,7 @@ Emit it as this recognizable block:
 ```text
 ⟦SPAWN REQUEST⟧
   role/lens:   <existing role | the lens you authored>
-  hat:         <exact agent type, derived from rv route — e.g. myproject-reviewer; hub executes, does not re-derive>
+  hat:         <exact agent type, derived from build-agents roster — e.g. myproject-reviewer; hub executes, does not re-derive>
   task:        <card slug — stamp 'task:<slug>' on the Agent description so return is attributed without hub memory>
   why:         <grounded trigger>
   goal:        <what "done" looks like>

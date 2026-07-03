@@ -95,10 +95,10 @@ system and a constitution.
 
 ## Routing
 
-**Routing is computed, not recalled.** The manager fills its spawn-request `hat` from
-`rv route <repo> <role>` (the repo *is* the project tag), and the hub *executes* the named hat
-without re-deriving. `rv route` reads the build-agents roster as its single source of truth, so
-the computed hat can't drift from the actual hat set — no hand-recall, no stale registry.
+**Routing is computed, not recalled.** The manager fills its spawn-request `hat` from the
+build-agents roster (the subagent name in `.claude/agents/<role>.md` IS the canonical hat),
+and the hub *executes* the named hat without re-deriving. The roster is the single source of
+truth, so the computed hat can't drift — no hand-recall, no stale registry.
 
 ## Verify, don't relay
 

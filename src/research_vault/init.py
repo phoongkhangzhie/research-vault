@@ -5,6 +5,19 @@ instance in the given directory (or the current directory). Creates the instance
 root with config, control files, task dirs, doctrine, notes root (OKF type dirs),
 and the two canned demo projects (demo-research + demo-litreview).
 
+SR-CCB additions:
+  ``rv init`` also scaffolds the Claude Code binding so a bare
+  ``rv init && claude`` boots Alfred + the full crew:
+    1. Writes ``CLAUDE.md`` at the instance root (the hub-bootstrap: tells a
+       fresh ``claude`` session that it IS Alfred, the hub).
+    2. Creates an empty ``.claude/agents/`` dir (CC's session-start requirement:
+       the watcher only registers dirs that exist before the session opens).
+    3. Auto-runs ``build-agents --target claude-code`` to populate
+       ``.claude/agents/<role>.md`` with CC-format subagent files for the
+       DEFAULT_ROSTER (5 roles) + architect = 6 files.
+  Demo CONTRACTs (``.agents/<demo>/CONTRACT.md``) are also written so the
+  demo crew composes project-aware from the first session.
+
 Multi-repo topology note:
   The `examples/` demo projects are shipped inside the package under
   ``src/research_vault/data/examples/`` and copied on ``rv init``.
@@ -352,8 +365,116 @@ def cmd_init_in_dir(target_dir: str) -> int:
         shutil.copytree(str(dl_src), str(demo_litreview_dir), dirs_exist_ok=True)
     print(f"  created: examples/demo-litreview/ ({_count_files(demo_litreview_dir)} files)")
 
+    # ── SR-CCB: Write demo CONTRACTs ─────────────────────────────────────────
+    # The demo CONTRACTs ship as package data alongside the loop manifests.
+    # They are pre-filled (no FILL stubs) so the demo crew composes project-aware
+    # from the first session, without any adopter authoring.
+    for demo_slug, demo_examples_dir in (
+        ("demo-research", demo_research_dir),
+        ("demo-litreview", demo_litreview_dir),
+    ):
+        src_contract = demo_examples_dir / "CONTRACT.md"
+        dst_contract_dir = agents_dir / demo_slug
+        dst_contract_dir.mkdir(parents=True, exist_ok=True)
+        dst_contract = dst_contract_dir / "CONTRACT.md"
+        if src_contract.is_file():
+            shutil.copy2(str(src_contract), str(dst_contract))
+            print(f"  created: .agents/{demo_slug}/CONTRACT.md")
+        else:
+            # Hard error — the wheel is incomplete (charter §2: surface, never drop)
+            raise RuntimeError(
+                f"Package data missing: data/examples/{demo_slug}/CONTRACT.md. "
+                "The wheel is incomplete — reinstall research-vault."
+            )
+
+    # ── SR-CCB: Scaffold CLAUDE.md (the Alfred hub-bootstrap) ────────────────
+    # Makes a fresh `claude` session become Alfred, the hub.
+    # Loaded via importlib.resources (zipimport-safe, same pattern as QUICKSTART).
+    claude_md_dst = target / "CLAUDE.md"
+    with importlib.resources.as_file(pkg_data / "templates" / "CLAUDE.md.tmpl") as tmpl_src:
+        if not tmpl_src.is_file():
+            raise RuntimeError(
+                "Package data missing: data/templates/CLAUDE.md.tmpl. "
+                "The wheel is incomplete — reinstall research-vault."
+            )
+        shutil.copy2(str(tmpl_src), str(claude_md_dst))
+    print(f"  created: CLAUDE.md")
+
+    # ── SR-CCB: Create .claude/agents/ dir (CC session-start requirement) ────
+    # CC's file watcher registers .claude/agents/ only if it exists when the
+    # session opens.  Create it now (even before populating) so a bare
+    # `rv init && claude` works without a manual restart.
+    dot_claude_agents = target / ".claude" / "agents"
+    dot_claude_agents.mkdir(parents=True, exist_ok=True)
+    print(f"  created: .claude/agents/")
+
+    # ── SR-CCB: Auto-run build-agents --target claude-code ───────────────────
+    # Populate .claude/agents/<role>.md with CC-format subagent files so the
+    # crew is discoverable immediately (zero extra commands for the adopter).
+    #
+    # IMPORTANT — why we do NOT use load_config() here:
+    #   The rv CLI calls load_config() at dispatch time (cli.py: cfg = load_config())
+    #   to resolve instance-level plugin verbs.  That call populates the module-level
+    #   _CACHE with a stale config — typically the default (no projects, CWD as
+    #   instance_root) because `rv init myvault` is run from the PARENT directory
+    #   before the new research_vault.toml even exists.  A subsequent load_config()
+    #   call here would hit that stale cache regardless of any env-var override, and
+    #   the auto-build would write files to the WRONG instance_root.
+    #
+    #   Fix: construct Config directly from the TOML we just wrote, bypassing the
+    #   module-level cache entirely.  This is immune to cache state and always reads
+    #   exactly what we persisted above.
+    from .config import (
+        Config, _load_toml, _expand_paths, _default_config, _merge, reset_config_cache,
+    )
+    from .build_agents import cmd_build as _cmd_build_agents
+    try:
+        _defaults = _default_config()
+        _raw = _load_toml(config_path)
+        _merged = _merge(_defaults, _raw)
+        # instance_root is written as an absolute path in the TOML by _CONFIG_TEMPLATE;
+        # fall back to `target` if somehow absent.
+        _instance_root = Path(_merged.get("instance_root", str(target)))
+        _merged = _expand_paths(_merged, _instance_root)
+        _cfg = Config(_merged, config_file=config_path)
+        # Reset the module-level cache so subsequent rv commands in the same process
+        # reload from the new instance's config rather than any stale pre-init cache.
+        reset_config_cache()
+
+        _rc = _cmd_build_agents(project_slug=None, cfg=_cfg, target="claude-code")
+        if _rc != 0:
+            print(
+                "rv init: WARNING — build-agents --target claude-code returned non-zero. "
+                "Run `rv build-agents --target claude-code` manually to populate .claude/agents/.",
+                file=sys.stderr,
+            )
+        # Post-build assertion (Argus hardening): verify the expected agent files actually
+        # exist.  A silent zero-exit with 0 files is more dangerous than a loud failure.
+        _agents_dir = _instance_root / ".claude" / "agents"
+        _present = list(_agents_dir.glob("*.md")) if _agents_dir.is_dir() else []
+        _expected_count = 6  # DEFAULT_ROSTER (5) + architect
+        if len(_present) < _expected_count:
+            _missing = _expected_count - len(_present)
+            print(
+                f"rv init: ERROR — build-agents wrote {len(_present)} agent file(s) but "
+                f"{_expected_count} were expected ({_missing} missing). "
+                "The crew is incomplete. "
+                "Run `rv build-agents --target claude-code` manually to investigate.",
+                file=sys.stderr,
+            )
+            return 1
+    except Exception as exc:
+        print(
+            f"rv init: WARNING — could not auto-run build-agents (claude-code): {exc}. "
+            "Run `rv build-agents --target claude-code` manually to populate .claude/agents/.",
+            file=sys.stderr,
+        )
+
     print()
     print("Research Vault instance initialised.")
+    print()
+    print("Open `claude` in this directory to start — you'll be Alfred, the hub.")
+    print("The crew is stood up as subagents in .claude/agents/")
     print()
     print("Next steps:")
     print("  1. rv check                     — verify prerequisites")

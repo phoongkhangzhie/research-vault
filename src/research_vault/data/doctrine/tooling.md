@@ -80,49 +80,29 @@ a violation — if it can't, it is not a check.
 
 #### Capstone
 
-An `rv selfcheck` command that runs all tool/skill suites in one pass. The toolchain asserts
+A meta-runner command that runs all tool/skill suites in one pass — the toolchain asserting
 itself. Not yet built — the target state.
 
 ---
 
-## Identity & `rv gh` — separation of duties
+## Identity and separation of duties
 
-Every engineer or reviewer session must activate the role-specific identity **before any git or `gh`
-command.** The mechanism closes a persistent enforcement hole and enables structural separation of
-duties.
+In the OSS package, use `gh` and `git` directly with your own credentials. The separation-of-
+duties principle still applies: **the reviewer must not be the PR's author.** Enforce this
+manually: before posting an approval, run `gh pr view <pr> --json author` and confirm the
+author is not you.
 
-> **Note (v1 scope):** `rv identity`, `rv approve`, and `rv gh` are **tier-3 adapter tooling** —
-> they are planned for a later increment and are not part of the v1 release. The design below is
-> the intended target state; a v1 adopter should fall back to plain `gh` with role-specific tokens
-> until the tier-3 adapter ships. See [mason.md](./roles/mason.md) and [argus.md](./roles/argus.md)
-> for the session-opening sequence.
+The principle behind the design (for future tier-3 adapter tooling): the enforcement hole is
+that a single shell session can silently use the owner keyring even when a different role token
+is intended. A role-specific identity system (planned for a later increment) closes this by:
 
-**Why the two-step matters.** `eval "$(rv identity build-env <role>)"` sets env vars only in the
-*current shell invocation* — those vars do **not** persist across separate Bash tool calls. A later
-bare `gh` command would silently fall back to the owner keyring and could authorize PRs it was
-never meant to touch — for example, the owner approving their own infrastructure defeats the
-`require_code_owner_review` gate. The two-step closes this:
+1. Persisting the active role across tool-call boundaries (not just the current shell invocation).
+2. Wrapping `gh` to inject the role-specific `GH_TOKEN` at every call, fail-closed.
+3. Adding a structural self-vs-author guard on PR-write subcommands.
 
-1. `rv identity activate <role>` — writes the role to `~/.config/rv/active-role`; **persists
-   across tool-call boundaries**.
-2. `rv gh <args>` — reads the active role at each call, resolves `GH_TOKEN` from the keychain,
-   and injects it. **Fail-closed**: if no role is activated, it refuses rather than falling back.
-
-After activation, **always use `rv gh <args>` instead of bare `gh`**. For raw `git` commands,
-`eval "$(rv identity build-env <role>)"` must be run once per shell to set `GIT_AUTHOR_NAME` etc.
-
-**`--as <role>` one-call override:** `rv gh --as <role> <args>` resolves that role's token
-directly for a single call, ignoring the active-role file.
-
-**Self-vs-author guard (structural):** `rv gh` carries a built-in guard on PR-write subcommands
-(`pr review --approve`, `pr merge`, `pr comment`). Immediately before posting, it fetches the PR's
-author and **refuses loudly** if `author.login == acting role's gh_login`. This catches "approve your
-own PR" at the tool layer — regardless of file state, regardless of which role is active.
-
-**Separation of duties.** The engineer's account authors; the reviewer's account reviews — neither
-can approve their own work because they are structurally different GitHub accounts. Each role's
-session opener invokes the role-appropriate `rv identity activate` call; see
-[mason.md](./roles/mason.md) and [argus.md](./roles/argus.md) for the per-role session sequence.
+Until that adapter ships, use plain `gh` with a role-specific token and enforce the grounding
+gate manually — see [mason.md](./roles/mason.md) and [argus.md](./roles/argus.md) for the
+per-role session sequence.
 
 ---
 
@@ -176,7 +156,7 @@ a discovery/habit layer (see below and the [Adopt section](#adopt--skip-from-ski
 **The rv-cli discovery skill (unbuilt — the target state).** The rv-cli discovery skill is the
 single place that fires whenever a model is about to hand-roll something an `rv` verb can do. Its
 entries are structured to trigger on **task intent**, not just discovery intent — the critical
-distinction: a trigger that fires only on "what rv command does X" is useless; it must fire when
+distinction: a trigger that fires only on "which command does X" is useless; it must fire when
 the model is already reaching for `gh pr view …` directly.
 
 Each entry in the rv-cli skill carries:
@@ -253,7 +233,7 @@ For a **CLI tool** (`rv` subcommand — deterministic + verifiable):
 - [ ] Build the structural linter for skills (`quick_validate`-style) + wire as an `rv check`
   subcommand and pre-push gate.
 - [ ] Wire `rv help --check` into CI (the echo-drift + staleness gate).
-- [ ] Build `rv selfcheck` — the capstone meta-runner.
+- [ ] Build the meta-runner (selfcheck) — runs all tool/skill suites in one pass.
 - [ ] Codify the non-discriminating-assertion rule as a linting step in the test suite template.
 - [ ] Build the `rv-cli` discovery skill with `replaces:` entries for all existing subcommands.
 

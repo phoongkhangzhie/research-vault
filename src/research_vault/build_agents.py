@@ -1,7 +1,21 @@
 """build_agents.py — agent hat file generation for Research Vault.
 
-When to use: ``rv build-agents [--project <slug>]`` to regenerate agent hat
-files from the role registry and role-doc templates.
+When to use: ``rv build-agents [--project <slug>] [--target {agents-dir,claude-code}]``
+to regenerate agent hat files from the role registry and role-doc templates.
+
+``--target agents-dir`` (default) writes prose hat files to
+``agents_dir/<project>/<role>.md`` — the target-neutral, harness-agnostic
+source-of-record.
+
+``--target claude-code`` writes Claude Code subagent files to
+``.claude/agents/<role>.md`` at the instance root (CC YAML frontmatter +
+composed hat body). Run this to make a fresh ``claude`` session discover
+Alfred's crew as subagents.
+
+Both targets can coexist: ``.agents/`` is the neutral source;
+``.claude/agents/`` is the CC-rendered projection.  When codex/cursor/generic
+backends arrive (v1.1), they render from the same ``.agents/`` source — see the
+AgentBackend seam below for where they slot in.
 
 All path resolution goes through Config — zero hardcoded paths or codenames.
 Stdlib only.
@@ -11,9 +25,13 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .config import Config, load_config
 from .project import DEFAULT_ROSTER
+
+if TYPE_CHECKING:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -110,25 +128,208 @@ def _hat_header(
     )
 
 
+# ---------------------------------------------------------------------------
+# AgentBackend seam
+#
+# A minimal strategy with one method:
+#   render(role, composed_body, project) -> list[tuple[str, str]]
+#
+# Returns a list of (relpath_from_instance_root, file_contents) pairs.
+# The caller writes each pair to the filesystem.
+#
+# Two backends ship in v1:
+#   agents-dir    → today's behaviour (default)
+#   claude-code   → CC subagent format (.claude/agents/<role>.md)
+#
+# v1.1 slot: add "codex", "cursor", "generic" backends here — each renders
+# from the same composed_body, only the output path + format differ.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Claude Code tool-grant policy (PUB-CCB.2 — least-privilege, principled)
+#
+# coordinator-class: no Bash (structural, not disciplinary)
+# doer-class: Bash + role-specific tools
+# reviewer: read-only verify — no Write/Edit
+# researcher: WebSearch + WebFetch for retrieval-backed citations; opus baseline
+# ---------------------------------------------------------------------------
+
+_CC_ROLE_DESCRIPTIONS: dict[str, str] = {
+    "manager": (
+        "Planning, scoping, and coordination. Delegate for task cards, "
+        "CONTROL bus updates, and coordinating the crew across a project."
+    ),
+    "engineer": (
+        "Code, tests, and CI. Delegate for feature implementation, bug fixes, "
+        "refactoring, and running the authorized merge."
+    ),
+    "researcher": (
+        "Methodology, lit-review synthesis, and retrieval-backed citations. "
+        "Delegate for experiment design, literature distillation, and any "
+        "research-methodology judgement."
+    ),
+    "designer": (
+        "Visual figures, surfaces, and deploy-and-judge-live. Delegate for "
+        "plot design, figure DAG runs, and any visual-quality work."
+    ),
+    "reviewer": (
+        "Independent verification. Delegate for adversarial code review, "
+        "test-suite audits, and gate verdicts before merges."
+    ),
+    "architect": (
+        "Stack coherence and architecture. Delegate for stack-fit reads, "
+        "new-dependency assessments, and cross-project design questions."
+    ),
+}
+
+# (tools_string, model_alias)
+# Model alias only — never a full versioned ID (leakage class-6).
+_CC_GRANTS: dict[str, tuple[str, str]] = {
+    "manager":    ("Read, Write, Edit, Glob, Grep",                             "sonnet"),
+    "engineer":   ("Read, Write, Edit, Bash, Glob, Grep",                      "sonnet"),
+    "researcher": ("Read, Write, Edit, Bash, WebSearch, WebFetch, Glob, Grep", "opus"),
+    "designer":   ("Read, Write, Edit, Bash, Glob, Grep",                      "sonnet"),
+    "reviewer":   ("Read, Bash, Grep, Glob",                                    "opus"),
+    "architect":  ("Read, Write, Edit, Glob, Grep",                             "sonnet"),
+}
+
+
+class ClaudeCodeBackend:
+    """Emit CC-format subagent files to .claude/agents/<role>.md.
+
+    Output: YAML frontmatter (name / description / tools / model) followed by
+    the composed hat body verbatim.  The body IS the subagent system prompt.
+
+    Tool-grant policy from PUB-CCB.2 (coordinator-class vs doer-class split).
+    Model values are aliases only (sonnet/opus/haiku) — never versioned IDs.
+    """
+
+    def render(
+        self,
+        role: str,
+        composed_body: str,
+        project: str,
+    ) -> list[tuple[str, str]]:
+        """Render one CC subagent file.
+
+        Returns:
+            [(relpath, contents)] where relpath is relative to the instance root
+            (always ``.claude/agents/<role>.md``).
+        """
+        tools, model = _CC_GRANTS.get(
+            role,
+            ("Read, Write, Edit, Glob, Grep", "sonnet"),  # safe default
+        )
+        description = _CC_ROLE_DESCRIPTIONS.get(role, f"Research Vault {role} agent.")
+        contents = (
+            f"---\n"
+            f"name: {role}\n"
+            f"description: {description}\n"
+            f"tools: {tools}\n"
+            f"model: {model}\n"
+            f"---\n"
+            f"\n"
+            f"{composed_body}"
+        )
+        relpath = f".claude/agents/{role}.md"
+        return [(relpath, contents)]
+
+
+class AgentsDirBackend:
+    """Emit prose hat files to agents_dir/<project>/<role>.md (today's default).
+
+    This is the target-neutral, harness-agnostic source-of-record.
+    Future backends (codex/cursor/generic — v1.1) render from this same source.
+    """
+
+    def render(
+        self,
+        role: str,
+        composed_body: str,
+        project: str,
+    ) -> list[tuple[str, str]]:
+        """Render one prose hat file.
+
+        Returns:
+            [(relpath, contents)] where relpath is relative to agents_dir
+            (``<project>/<role>.md``).
+        """
+        relpath = f"{project}/{role}.md"
+        return [(relpath, composed_body)]
+
+
+# Registry: the two v1 backends.
+# v1.1 slot: add "codex", "cursor", "generic" entries here.
+_BACKENDS: dict[str, AgentsDirBackend | ClaudeCodeBackend] = {
+    "agents-dir":  AgentsDirBackend(),
+    "claude-code": ClaudeCodeBackend(),
+}
+
+# The 6 roles emitted for the claude-code target:
+# DEFAULT_ROSTER (5 project roles) + architect (vault-level coordinator).
+_CC_ROLES = list(DEFAULT_ROSTER) + ["architect"]
+
+
+# ---------------------------------------------------------------------------
+# Core build logic
+# ---------------------------------------------------------------------------
+
+
 def cmd_build(
     project_slug: str | None,
     cfg: Config,
     *,
     agents_dir: Path | None = None,
     dry_run: bool = False,
+    target: str = "agents-dir",
 ) -> int:
     """Generate agent hat files from the config registry.
 
     If project_slug is given, only generates hats for that project.
     If None, generates hats for all registered projects.
 
-    Hat files are written to ``cfg.agents_dir/<project>/<role>.md``
-    (or the override agents_dir if provided).
+    target:
+      ``agents-dir`` (default) — write prose hats to
+        ``cfg.agents_dir/<project>/<role>.md`` (today's behaviour).
+      ``claude-code`` — write CC subagent files to
+        ``.claude/agents/<role>.md`` at the instance root.
+
+    For ``claude-code``, the 6 files are the DEFAULT_ROSTER roles + architect.
+    The hat body is composed from the first available project's CONTRACT
+    (or a generic hat if no project is registered).
 
     CONTRACT composing: reads cfg.agents_dir/<slug>/CONTRACT.md and embeds it
     in each hat.  Missing -> WARN loudly on stderr + NO-CONTRACT banner in hat.
     Stub (unfilled) -> nudge WARN on stderr + stub banner in hat.
     """
+    if target not in _BACKENDS:
+        print(
+            f"rv build-agents: unknown target {target!r}. "
+            f"Valid targets: {sorted(_BACKENDS)}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if target == "claude-code":
+        return _cmd_build_cc(cfg, dry_run=dry_run)
+
+    # agents-dir target (default)
+    return _cmd_build_agents_dir(
+        project_slug=project_slug,
+        cfg=cfg,
+        agents_dir=agents_dir,
+        dry_run=dry_run,
+    )
+
+
+def _cmd_build_agents_dir(
+    project_slug: str | None,
+    cfg: Config,
+    agents_dir: Path | None,
+    dry_run: bool,
+) -> int:
+    """Write prose hat files to agents_dir/<project>/<role>.md."""
+    backend = _BACKENDS["agents-dir"]
     target_dir = agents_dir or cfg.agents_dir
 
     slugs = [project_slug] if project_slug else cfg.all_project_slugs()
@@ -145,9 +346,6 @@ def cmd_build(
             return 1
 
         roster = proj.get("roster", []) or DEFAULT_ROSTER
-        # An empty/missing roster is treated as DEFAULT_ROSTER (belt-and-suspenders
-        # for legacy projects that pre-date the default-roster rule).
-
         source_dir = proj.get("source_dir", str(cfg.notes_root / slug))
         proj_dir = target_dir / slug
         if not dry_run:
@@ -173,17 +371,76 @@ def cmd_build(
             )
 
         for role in roster:
-            hat_path = proj_dir / f"{role}.md"
-            content = _hat_header(slug, role, source_dir, contract_text=contract_text)
-            if dry_run:
-                print(f"  (dry-run) would write: {hat_path}")
-            else:
-                hat_path.write_text(content, encoding="utf-8")
-                print(f"  Written: {hat_path}")
-            generated += 1
+            composed_body = _hat_header(slug, role, source_dir, contract_text=contract_text)
+            pairs = backend.render(role, composed_body, slug)
+            for relpath, contents in pairs:
+                hat_path = target_dir / relpath
+                if dry_run:
+                    print(f"  (dry-run) would write: {hat_path}")
+                else:
+                    hat_path.write_text(contents, encoding="utf-8")
+                    print(f"  Written: {hat_path}")
+                generated += 1
 
     verb = "would generate" if dry_run else "generated"
     print(f"\nbuild-agents: {verb} {generated} hat file(s).")
+    return 0
+
+
+def _cmd_build_cc(cfg: Config, dry_run: bool) -> int:
+    """Write CC subagent files to .claude/agents/<role>.md at the instance root.
+
+    Emits the 6 CC roles (DEFAULT_ROSTER + architect).  Hat bodies are composed
+    from the first registered project's CONTRACT.md when available.
+    """
+    backend = _BACKENDS["claude-code"]
+    cc_dir = cfg.instance_root / ".claude" / "agents"
+
+    if not dry_run:
+        cc_dir.mkdir(parents=True, exist_ok=True)
+
+    # Find a project to use for the CONTRACT / source_dir context.
+    # For multi-project: the first slug's contract is used.  Last-writer-wins
+    # when multiple projects share a role name (flat .claude/agents/ dir).
+    slugs = cfg.all_project_slugs()
+    first_slug: str | None = slugs[0] if slugs else None
+    contract_text: str | None = None
+    source_dir = str(cfg.notes_root)
+
+    if first_slug:
+        try:
+            proj = cfg.project(first_slug)
+            source_dir = proj.get("source_dir", str(cfg.notes_root / first_slug))
+        except KeyError:
+            pass
+        proj_agents_dir = cfg.agents_dir / first_slug
+        contract_text = _load_contract_text(proj_agents_dir)
+
+    generated = 0
+    for role in _CC_ROLES:
+        if role == "architect":
+            # Vault-level coordinator — hat body identifies it as vault-level
+            project_label = "(vault-level)"
+            src = str(cfg.instance_root)
+            ctext = None  # No single-project CONTRACT for the vault-level architect
+        else:
+            project_label = first_slug or "demo"
+            src = source_dir
+            ctext = contract_text
+
+        composed_body = _hat_header(project_label, role, src, contract_text=ctext)
+        pairs = backend.render(role, composed_body, project_label)
+        for relpath, contents in pairs:
+            out_path = cfg.instance_root / relpath
+            if dry_run:
+                print(f"  (dry-run) would write: {out_path}")
+            else:
+                out_path.write_text(contents, encoding="utf-8")
+                print(f"  Written: {out_path}")
+            generated += 1
+
+    verb = "would generate" if dry_run else "generated"
+    print(f"\nbuild-agents (claude-code): {verb} {generated} subagent file(s).")
     return 0
 
 
@@ -196,12 +453,21 @@ def build_parser(
 ) -> argparse.ArgumentParser:
     """Build the argument parser for the ``build-agents`` verb.
 
-    When to use: ``rv build-agents`` to regenerate agent hat files from the
-    role registry and role-doc templates. Reads the config for project rosters.
+    When to use: ``rv build-agents [--target {agents-dir,claude-code}]`` to
+    regenerate agent hat files from the role registry and role-doc templates.
+    Use ``--target agents-dir`` (default) for the prose source-of-record hats.
+    Use ``--target claude-code`` to emit CC subagent files to ``.claude/agents/``.
+
+    Anti-pattern: do not use ``--target claude-code`` if you haven't run
+    ``rv init`` first — the ``.claude/agents/`` dir is created by ``rv init``
+    to satisfy Claude Code's session-start requirement.
     """
     desc = (
         "Regenerate agent hat files from the role registry. "
-        "Hat files are written to agents_dir/<project>/<role>.md."
+        "Default (--target agents-dir): writes to agents_dir/<project>/<role>.md "
+        "(prose hat, target-neutral source-of-record). "
+        "With --target claude-code: writes CC subagent files to "
+        ".claude/agents/<role>.md at the instance root."
     )
     if parent is not None:
         p = parent.add_parser("build-agents", help="Regenerate agent hat files.", description=desc)
@@ -210,11 +476,21 @@ def build_parser(
 
     p.add_argument(
         "--project", default=None,
-        help="Project slug (regenerate hats for this project only).",
+        help="Project slug (regenerate hats for this project only; agents-dir target only).",
     )
     p.add_argument(
         "--dry-run", action="store_true",
         help="Preview what would be written without writing.",
+    )
+    p.add_argument(
+        "--target",
+        default="agents-dir",
+        choices=["agents-dir", "claude-code"],
+        help=(
+            "Output target (default: agents-dir). "
+            "'agents-dir' writes prose hats to agents_dir/<project>/<role>.md. "
+            "'claude-code' writes CC subagent files to .claude/agents/<role>.md."
+        ),
     )
 
     return p
@@ -232,4 +508,5 @@ def run(args: argparse.Namespace) -> int:
         project_slug=args.project,
         cfg=cfg,
         dry_run=args.dry_run,
+        target=getattr(args, "target", "agents-dir"),
     )

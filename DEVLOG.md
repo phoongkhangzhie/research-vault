@@ -1,3 +1,88 @@
+## 2026-07-03 (SR-CCB — Claude Code binding: rv init boots Alfred + crew)
+
+### Done
+- **SR-CCB (`feat/sr-ccb`)**: The min-viable Claude Code binding. `rv init` now
+  scaffolds `CLAUDE.md` (Alfred hub-bootstrap), creates `.claude/agents/` dir (CC
+  session-start requirement), and auto-runs `build-agents --target claude-code` to
+  populate `.claude/agents/{manager,engineer,researcher,designer,reviewer,architect}.md`
+  with CC-format subagent files. A bare `rv init myvault && cd myvault && claude`
+  now boots Alfred + a discoverable 6-agent crew with zero extra commands.
+- **AgentBackend seam** in `build_agents.py`: `--target {agents-dir,claude-code}` flag;
+  `ClaudeCodeBackend` emits YAML frontmatter (name/description/tools/model) + hat body;
+  `AgentsDirBackend` preserves today's default; v1.1 slot commented for codex/cursor/generic.
+- **Tool-grant policy** (PUB-CCB.2): coordinator-class (manager/architect) no Bash;
+  reviewer no Write/Edit; researcher WebSearch+WebFetch; all model values as aliases
+  (sonnet/opus/haiku), never versioned IDs.
+- **`CLAUDE.md.tmpl`**: Hub-bootstrap with correct role-boundary table (human/Alfred/crew
+  separation, per coordinator note). Alfred runs control-plane verbs; crew runs
+  role-appropriate rv verbs from their hat bodies.
+- **Demo CONTRACTs** shipped as package data: pre-filled (no FILL stubs) for demo-research
+  and demo-litreview so the demo crew composes project-aware from the first session.
+- **CI**: added leakage scan step for `data/templates/` (publish-bound).
+- 45 SR-CCB acceptance tests (all RED before, all GREEN after). Full suite: 1722 passed.
+
+### Decisions
+- `.agents/` stays as the target-neutral source-of-record; `.claude/agents/` is the
+  CC-rendered projection. Both coexist — deprecating `.agents/` would break future
+  codex/cursor backends that render from the same source.
+- Default `--target` stays `agents-dir` (non-breaking); `rv init` passes `claude-code`
+  explicitly.
+- Architect emitted as a subagent (`.claude/agents/architect.md`) — vault-level coordinator,
+  Alfred delegates coherence reads to it.
+- `_CC_ROLES = DEFAULT_ROSTER + ["architect"]` = 6 files total.
+- Demo CONTRACTs written from `data/examples/<demo>/CONTRACT.md` (shipped alongside the
+  loop manifests) to `.agents/<demo>/CONTRACT.md` at init time.
+
+### Open / next
+- Hub to open PR for `feat/sr-ccb` (human-go class: harness binding, publish-critical).
+
+## 2026-07-03 (fix/sr-ccb-wren-block — remove fabricated rv verbs; harden init post-build)
+
+### Done
+- **Wren BLOCK resolved (`b7b5233`)**: Audited ALL `rv <verb>` patterns across 9 shipped data
+  doc files (CLAUDE.md.tmpl, doctrine/roles/*.md, doctrine/*.md). Found 30+ fabricated
+  references to vault-OS tools not in the OSS package (`rv identity`, `rv gh`, `rv launch`,
+  `rv poll`, `rv approve`, `rv route`, `rv guard-engineer`, `rv hub-guard`, `rv selfcheck`,
+  `rv memory`, `rv heal`, `rv crew` as string literal, `rv devlog-check`).
+- **Fix**: replaced every fabricated pattern with a real package verb or prose rewrite that
+  avoids the `rv <verb>` form. Real package verbs used: `rv git-discipline`, `rv wt`,
+  `rv devlog check`, `rv build-agents`, `rv check`; vault-tier sections rewritten to
+  describe sbatch/gh patterns directly or conceptually.
+- **`TestShippedDocVerbAudit`** (non-vacuous): greps all `data/**/*.md` for `rv <verb>`,
+  asserts each is in `_VERB_REGISTRY | {"help"}`. Was RED (30 hits), GREEN after fixes.
+- **Argus hardening**: added post-build assertion in `rv init` that verifies exactly 6
+  `.claude/agents/*.md` files exist after auto-build. Silent zero-exit with 0 files now
+  becomes `return 1` with a loud error message.
+- CI: both new runs (push + PR) green on `b7b5233`. 48 SR-CCB tests pass.
+
+### Decisions
+- Scope of doc fixes: every `rv <verb>` in a shipped file must resolve to a real package verb
+  — not just the headline-named ones. The structural test enforces this as a CI gate.
+- Doctrine files with vault-tier sections: rewrote to describe the underlying principle +
+  the OSS-available equivalent; removed vault-OS command forms. The "Identity & rv gh" section
+  in tooling.md is now the "Identity and separation of duties" section with prose + gh examples.
+
+## 2026-07-03 (fix/sr-ccb-cache — bypass stale _CACHE bug in rv init auto-build)
+
+### Done
+- **SR-CCB cache fix (`cc5758e`)**: Coordinator hands-on wheel verification found `.claude/agents/`
+  EMPTY after `rv init`. Root cause: `cli.py` calls `load_config()` at dispatch time (line 519)
+  to load instance verbs, populating `_CACHE` with a stale default config (no projects, wrong
+  `instance_root=CWD`). The auto-build's `load_config()` call hit the cache → files written to
+  WRONG root. The conftest `autouse=True` `reset_config_cache` fixture masked this in tests.
+- **Fix**: replaced `load_config()` with direct Config construction from the just-written TOML
+  (`_load_toml` + `_merge` + `_expand_paths`), bypassing the cache. `reset_config_cache()` called
+  after to clear any stale pre-init cache for subsequent commands in the same process.
+- **Non-vacuous RED test** (`TestInitColdPathCacheResistance`): injects stale `_CACHE` with wrong
+  `instance_root` before `cmd_init_in_dir`; asserts 6 files appear in the CORRECT instance.
+  Was RED before fix (empty agents dir), GREEN after. 47/47 SR-CCB tests pass; 1724 full suite.
+- CI: all 5 jobs green on `cc5758e`.
+
+### Decisions
+- Direct TOML construction (not `load_config(reload=True)`) is the right pattern for any verb
+  that constructs a Config for a NEW instance: no cache side effects during construction,
+  explicit `reset_config_cache()` clears stale state for subsequent commands.
+
 ## 2026-07-03 (feat/default-roster — canonical default crew, --roster removed)
 
 ### Done
