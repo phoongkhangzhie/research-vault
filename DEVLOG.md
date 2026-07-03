@@ -41,6 +41,30 @@
 
 ### Open / next
 - PR: hub opens (crew-cannot-self-approve; task #22 architectural PR).
+## 2026-07-02 (sr-cif-terminal-fix — gate terminal-set on MERGED, not just CI green)
+
+### Done
+- Fixed `GitHubActionsSource.get_terminal_set`: added Gate 1 — `state == "merged"` —
+  before the existing CI-green gate.  A green-but-OPEN PR (the normal awaiting-human-go
+  state) no longer contributes to the terminal set, eliminating the false `[R4] STALE`
+  alarm emitted on every reconcile while waiting for the operator merge.
+- Updated test 2, 7, 10, 11 in `test_sr_cif.py` to use `state="MERGED"` for the
+  positive (terminal) cases — the old tests were inadvertently validating the bug.
+- Added tests 23–25 (bug guard, merged positive, functional proof open-vs-merged).
+
+### Decisions
+- Placed the state gate FIRST in `get_terminal_set` (before the branch-id and CI-check
+  gates) so that OPEN/CLOSED PRs short-circuit without ever calling `_fetch_checks()`.
+  This avoids one unnecessary `gh pr checks` subprocess call for non-merged PRs and
+  makes the control-flow intent explicit: merge state is the primary gate.
+- Advisory (`get_ci_advisory`) is unchanged — it correctly reports CI state regardless
+  of PR merge state.  The [R4] wording "terminal (merged/done)" is now correct by
+  construction since `get_terminal_set` only fires for genuinely merged PRs.
+- Hard boundary preserved: `get_terminal_set` returns `frozenset[str]` only; no write,
+  approve, or verdict path added.
+
+### Open / next
+- Hub to open PR; Argus review gate.
 
 ## 2026-07-02 (sr-cif-activation — rv control reconcile --gh-pr N)
 

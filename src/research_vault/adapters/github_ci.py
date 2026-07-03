@@ -106,14 +106,31 @@ class GitHubActionsSource:
         return frozenset()
 
     def get_terminal_set(self, config: "Config", project: str) -> frozenset[str]:
-        """Return sr-* ids from headRefName ONLY when ALL checks concluded success.
+        """Return sr-* ids from headRefName ONLY when the PR is MERGED and all checks pass.
+
+        Two gates must both be satisfied:
+          1. state == "merged" — the PR has actually been merged by a human.
+             A green-but-OPEN PR is the normal awaiting-human-go state in this
+             crew; it is NOT terminal.  Without this gate, every reconcile while
+             a PR waits for the operator merge produces a false [R4] STALE alarm.
+          2. All non-skipping checks have bucket=="pass" (CI green).
 
         D-CIF-1 hard-refuse: any fail/pending/cancel check, or zero checks →
         contributes NOTHING.  bucket=="skipping" is non-blocking (pass-through).
         On fetch error, raises so the combined-set builder emits its
         "false GREEN possible" warning (control.py:300-311) and skips.
+
+        HARD BOUNDARY: this method returns frozenset[str] only.  No write,
+        approve, or verdict path exists here — the boundary is unchanged.
         """
-        _, branch_ids = self._fetch_pr_info()
+        state, branch_ids = self._fetch_pr_info()
+
+        # Gate 1: PR must be actually merged — not merely green.
+        # A green-but-open PR is awaiting the human-go operator merge; it is
+        # the NORMAL state for this crew and must not be marked terminal.
+        if state != "merged":
+            return frozenset()
+
         if not branch_ids:
             # No sr-* tokens in branch name — nothing to contribute
             return frozenset()
@@ -124,7 +141,7 @@ class GitHubActionsSource:
             # Zero checks → conservative: cannot confirm green
             return frozenset()
 
-        # Non-skipping checks must all be "pass"
+        # Gate 2: non-skipping checks must all be "pass"
         non_skipping = [c for c in checks if c.get("bucket") != "skipping"]
         if not non_skipping:
             # All checks are skipping — conservative: cannot confirm green
