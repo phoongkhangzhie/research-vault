@@ -672,6 +672,7 @@ def cmd_render(
     project: str,
     fig_id: str,
     *,
+    title: str | None = None,
     config: Config | None = None,
 ) -> int:
     """Render the figure spec to SVG+PNG images.
@@ -682,6 +683,14 @@ def cmd_render(
       state/figures/<fig-id>.png
 
     Updates the figure spec note with render_timestamp + rv_version.
+
+    FIGURE MINIMALISM (SR-FIG-MINIMAL, §5J.16.5): the raster is PLOT-ONLY. The
+    internal fig_id is NEVER burned into the image, and no title/caption/provenance
+    is baked into the PNG/SVG — descriptive text belongs in the LaTeX ``\\caption``
+    and the lineage in the figures/<id> OKF note. A title is drawn ONLY when the
+    operator explicitly opts in via ``title`` (intended for slide/poster decks); the
+    ``publication`` preset stays plot-only by default. See the figure-minimalism
+    doctrine (doctrine/figure-minimalism.md) for the caption-honesty rules.
 
     Requires the [figures] optional extra (matplotlib + seaborn + pandas).
     Returns 0 on success, 1 on error or missing extra.
@@ -764,7 +773,20 @@ def cmd_render(
             ax=ax,
             kind="line" if plot_type not in ("bar", "scatter", "hist", "box") else plot_type,
         )
-    ax.set_title(fig_id)
+    # FIGURE MINIMALISM (SR-FIG-MINIMAL, §5J.16.5): plot-only raster.
+    # The internal fig_id is NEVER baked as a title — that is provenance, and
+    # provenance lives in the figures/<id> note, not in pixels. A title is drawn
+    # ONLY on explicit --title opt-in (slide/poster decks); publication stays plot-only.
+    if title:
+        if preset == "publication":
+            print(
+                "rv figure render: WARN — --title on the `publication` preset. "
+                "Publication figures are plot-only; descriptive text belongs in the "
+                "LaTeX \\caption{…}, not the raster. Rendering the title as an explicit "
+                "override (see doctrine/figure-minimalism.md).",
+                file=sys.stderr,
+            )
+        ax.set_title(title)
     ax.set_xlabel("")
 
     # Write images
@@ -974,9 +996,23 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     # render
     render_p = sub.add_parser(
         "render",
-        help="Render the figure spec to SVG+PNG. Requires [figures] extra.",
+        help=(
+            "Render the figure spec to a PLOT-ONLY SVG+PNG (figure minimalism: no baked "
+            "title/caption/provenance — those live in the LaTeX \\caption + the figures/<id> "
+            "note). Requires [figures] extra."
+        ),
     )
     render_p.add_argument("fig_id", metavar="fig-id", help="Figure identifier (slug).")
+    render_p.add_argument(
+        "--title", dest="title", default=None, metavar="TEXT",
+        help=(
+            "OPT-IN in-raster title (intended for slide/poster decks). OMIT for the "
+            "`publication` preset — publication figures are PLOT-ONLY; descriptive text "
+            "belongs in the LaTeX \\caption, never burned into the image. The internal "
+            "fig-id is never used as a title. A title must state WHAT IS PLOTTED, not the "
+            "paper's claim (see doctrine/figure-minimalism.md)."
+        ),
+    )
 
     # list
     sub.add_parser("list", help="List figure specs for the project.")
@@ -1072,7 +1108,11 @@ def run(args: argparse.Namespace) -> int:
             return cmd_preview(args.project, args.fig_id, config=cfg)
 
         elif args.figure_cmd == "render":
-            return cmd_render(args.project, args.fig_id, config=cfg)
+            return cmd_render(
+                args.project, args.fig_id,
+                title=getattr(args, "title", None),
+                config=cfg,
+            )
 
         elif args.figure_cmd == "list":
             results = cmd_list(args.project, config=cfg)
