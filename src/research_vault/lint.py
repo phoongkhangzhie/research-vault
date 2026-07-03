@@ -22,9 +22,15 @@ When to use: ``rv lint [--strict]`` to run the project linter. Checks:
      idioms.  Recurses into control-flow block bodies (if/for/while/with/try)
      so in-branch duplicates are caught; try/except split-branch definitions
      remain naturally exempt.  Scans src/research_vault/ (production code only).
-  7. Getsource-guard smell (SR-LINT): flags ``assert "X" in inspect.getsource(fn)``
-     (or bare ``getsource``) in test files — getsource returns comments and
-     docstrings, so the assertion passes even when the live code is broken.
+  7. Getsource-guard smell (SR-LINT): flags two forms in test files —
+     (a) DIRECT: ``assert "X" in inspect.getsource(fn)`` (or bare ``getsource``);
+     (b) INDIRECTED: ``src = inspect.getsource(fn); assert "X" in src``
+     (intra-function taint: a name directly assigned from a getsource call,
+     later used as the RHS of a positive ``in`` comparison inside an assert
+     in the same function scope).
+     Both forms are smells because getsource returns comments and docstrings
+     as well as live code — the assertion may pass even when the live code is
+     broken (the symbol survives in a comment).
 
 All path resolution goes through Config — zero hardcoded paths or codenames.
 Stdlib only.
@@ -188,19 +194,85 @@ def _assert_contains_getsource_in(assert_node: ast.Assert) -> bool:
     return False
 
 
+def _assert_contains_tainted_in(
+    assert_node: ast.Assert,
+    tainted: set[str],
+) -> bool:
+    """Return True if *assert_node* has an ``X in <tainted_name>`` comparison.
+
+    Scans the assert's test sub-tree for ``Compare`` nodes where the operator
+    is ``In`` (positive containment, not ``NotIn``) and the comparator is a
+    ``Name`` that belongs to *tainted*.
+    """
+    for node in ast.walk(assert_node.test):
+        if not isinstance(node, ast.Compare):
+            continue
+        for op, comparator in zip(node.ops, node.comparators):
+            if isinstance(op, ast.In) and isinstance(comparator, ast.Name):
+                if comparator.id in tainted:
+                    return True
+    return False
+
+
+def _collect_fn_scope_taint_and_asserts(
+    stmts: list[ast.stmt],
+    tainted: set[str],
+    assert_nodes: list[ast.Assert],
+) -> None:
+    """Walk *stmts* collecting getsource-tainted names and ``Assert`` nodes.
+
+    A name is tainted if it is **directly** assigned from a getsource call —
+    i.e. ``name = inspect.getsource(fn)`` or ``name = getsource(fn)``.  Once
+    tainted, the name remains tainted for the remainder of the scan (even if
+    later reassigned).  This is conservative: well-written AST-based rewrites
+    use a *different* variable for the final assertion, so no false positives.
+
+    Does NOT recurse into nested ``FunctionDef`` / ``AsyncFunctionDef`` /
+    ``ClassDef`` bodies — those are separate scopes with their own taint sets,
+    handled by the outer ``ast.walk`` in ``check_getsource_guard``.
+
+    Recurses into compound statement sub-bodies (if/for/while/with/try/match)
+    via :func:`_get_compound_bodies` so in-body indirect assignments are caught.
+    """
+    for stmt in stmts:
+        # Separate scopes — don't bleed taint into/from nested defs/classes.
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if isinstance(stmt, ast.Assign) and _is_getsource_call(stmt.value):
+            for target in stmt.targets:
+                if isinstance(target, ast.Name):
+                    tainted.add(target.id)
+        if isinstance(stmt, ast.Assert):
+            assert_nodes.append(stmt)
+        # Recurse into compound statement sub-bodies (forward ref to
+        # _get_compound_bodies is fine: Python resolves at call time).
+        for body_list in _get_compound_bodies(stmt):
+            _collect_fn_scope_taint_and_asserts(body_list, tainted, assert_nodes)
+
+
 def check_getsource_guard(
     files: list[Path],
 ) -> list[tuple[str, int, str]]:
     """Scan *files* for the getsource-guard smell (rule 7 / SR-LINT).
 
-    Flags any ``assert … in inspect.getsource(fn)`` (or bare ``getsource``)
-    assertion in test files.  ``inspect.getsource`` returns comments and
-    docstrings as well as live code, so the assertion passes even when the
-    guarded code path is dead — the string may survive in a comment.
+    Detects two forms:
+
+    **Direct form** — ``assert "X" in inspect.getsource(fn)`` (or bare
+    ``getsource``): the getsource call is the comparator inline in the assert.
+
+    **Indirected form** — intra-function taint:
+    ``src = inspect.getsource(fn); …; assert "X" in src``.  The name assigned
+    directly from a getsource call is later used as the RHS of a positive ``in``
+    comparison inside an assert in the *same function scope*.
+
+    Both forms are smells: ``inspect.getsource`` returns comments and docstrings
+    as well as live code, so the assertion may pass even when the guarded code
+    path is dead — the asserted string may survive in a comment.
 
     This is a **smell flag**, not a proof of vacuity.  The rule reports the
-    location and suggests the fix: assert on the negative (the bad pattern is
-    *absent*) or strip comments via AST before comparing.
+    assert location and suggests the fix: assert the bad pattern is *absent*
+    (``not in``), or use AST-based inspection (``ast.get_source_segment`` on
+    a specific node) which is comment-free by construction.
 
     Returns a list of ``(file_path, lineno, matching_line)`` tuples.
     Files with SyntaxErrors are skipped gracefully.
@@ -216,11 +288,36 @@ def check_getsource_guard(
         except SyntaxError:
             continue
         lines = src.splitlines()
+
+        # ── Direct form: assert X in getsource(fn) ───────────────────────────
         for node in ast.walk(tree):
             if isinstance(node, ast.Assert) and _assert_contains_getsource_in(node):
                 lineno = node.lineno
                 line_text = lines[lineno - 1].rstrip() if lineno <= len(lines) else ""
                 findings.append((str(f), lineno, line_text))
+
+        # ── Indirected form: src = getsource(fn); assert X in src ────────────
+        # Walk each function scope independently so taint doesn't cross
+        # function boundaries.
+        for fn_node in ast.walk(tree):
+            if not isinstance(fn_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            tainted: set[str] = set()
+            assert_nodes: list[ast.Assert] = []
+            _collect_fn_scope_taint_and_asserts(fn_node.body, tainted, assert_nodes)
+            if not tainted:
+                continue
+            for assert_node in assert_nodes:
+                if _assert_contains_tainted_in(assert_node, tainted):
+                    lineno = assert_node.lineno
+                    line_text = (
+                        lines[lineno - 1].rstrip() if lineno <= len(lines) else ""
+                    )
+                    # Avoid duplicating a finding already reported by the direct form.
+                    entry = (str(f), lineno, line_text)
+                    if entry not in findings:
+                        findings.append(entry)
+
     return findings
 
 
@@ -262,13 +359,23 @@ def _get_compound_bodies(node: ast.stmt) -> list[list[ast.stmt]]:
     """Return each immediate sub-statement-list of a compound statement.
 
     Each returned list is checked **independently** for within-list duplicates.
-    This preserves the natural exemption for try/except split-branch definitions:
-    the try body and each handler body are separate lists and are never compared
-    against each other.
+    This preserves the natural exemption for split-branch definitions (e.g.
+    try/except, if/else, match/case): the two bodies are separate lists and
+    are never compared against each other.
+
+    Covered compound statements:
+      - ``if`` / ``else`` — body and orelse are separate lists.
+      - ``for`` / ``while`` / ``async for`` — body and (optional) orelse.
+      - ``with`` / ``async with`` — body only.
+      - ``try`` — body, each handler body, orelse, finalbody (all separate).
+      - ``TryStar`` (Python 3.11+ ExceptGroup) — same as try.
+      - ``match`` (Python 3.10+) — each ``case`` body is its own list, so
+        duplicates within one case arm are flagged but the same name in two
+        different case arms is NOT flagged (different statement-lists).
 
     ``FunctionDef`` and ``ClassDef`` bodies are NOT returned here — those are
     separate scopes already handled by the outer ``ast.walk`` in
-    ``check_redefined_while_unused``.
+    ``check_redefined_while_unused`` and ``_collect_fn_scope_taint_and_asserts``.
     """
     if isinstance(node, ast.If):
         result: list[list[ast.stmt]] = [node.body]
@@ -301,6 +408,11 @@ def _get_compound_bodies(node: ast.stmt) -> list[list[ast.stmt]]:
         if node.finalbody:
             result.append(node.finalbody)
         return result
+    # Python 3.10+ match/case — each case body is a separate statement-list.
+    # Duplicates within one case arm are flagged; the same name in two different
+    # case arms is NOT flagged (different lists, like if/else branches).
+    if hasattr(ast, "Match") and isinstance(node, ast.Match):  # type: ignore[attr-defined]
+        return [case.body for case in node.cases]
     return []
 
 

@@ -1,3 +1,35 @@
+## 2026-07-02 (lint-rule7-indirected — task #18 rule-7 indirected + F811 ast.Match)
+
+### Done
+- AUDIT: all 6 live indirected getsource guards checked. Guards 1–3 (test_sr8.py)
+  are SOUND (symbols only in live code, not comments/docstrings of inspected
+  functions) but use `assert X in src` pattern so rewritten. Guards 4–5
+  (test_sr_cif.py, test_sr_cp.py) are NEGATIVE-only (`not in`) — not flagged by
+  extended rule 7, left as-is. Guard 6 (test_sr_hardening.py) already uses AST
+  approach (ast.get_source_segment) — not a getsource guard, left as-is.
+- De-vacuoused test_sr8.py guards: 3 tests rewritten to AST inspection.
+  test_dataset_in_known_prefixes + test_note_prefix_in_known_prefixes now walk the
+  `run()` AST to find `_KNOWN_PREFIXES` tuple literal values. test_streaming_hash
+  uses_chunked_read now detects the while-walrus-.read() pattern structurally.
+- Implemented rule-7 indirected extension in lint.py: _assert_contains_tainted_in,
+  _collect_fn_scope_taint_and_asserts (scope-isolated, recurses via
+  _get_compound_bodies, forward ref safe in Python). check_getsource_guard now runs
+  both direct + indirected passes per file; deduplicates findings.
+- Implemented F811 ast.Match recursion in _get_compound_bodies: each case.body is a
+  separate list (dup within a case arm → flagged; same name across arms → not flagged,
+  like if/else). Guarded with hasattr(ast, "Match") for <3.10 compatibility.
+- 6 RED tests committed first; all 10 new tests GREEN after implementation.
+  Full suite: 1357 passed, 37 skipped. `rv lint` PASS (46 test files, 60 src files).
+
+### Decisions
+- Conservative taint (never un-taint once assigned from getsource): correct for the
+  real cases; well-written AST rewrites use a different variable for the assertion.
+- Rule flags only positive `in` form, not `not in`: the two forms have different
+  failure modes — positive `in` is vacuously true when symbol in a comment; `not in`
+  can false-fail but not false-pass.
+
+### Open / next
+- PR to hub for review + merge (human-go class: stack/cross-project change).
 ## 2026-07-02 (SR-PLAN-2-remainder — §5K.7 deferred items: covers:/stance link-validation + rv result assert)
 
 ### Done

@@ -1063,6 +1063,224 @@ class TestCmdLintGetsourceIntegration:
 
 
 # ---------------------------------------------------------------------------
+# Rule 7 — Indirected getsource-guard form (SR-LINT extension)
+# ---------------------------------------------------------------------------
+
+
+class TestGetsourceGuardIndirected:
+    """check_getsource_guard flags the INDIRECTED form: src = getsource(fn); assert X in src.
+
+    The direct form ``assert X in inspect.getsource(fn)`` was caught by rule 7
+    in #40.  This extension catches the two-step assignment form, which was
+    present live in test_sr8.py and others and escaped the original rule.
+
+    The rule detects intra-function taint: a name directly assigned from a
+    getsource call, later used as the RHS of an ``in`` comparison inside an
+    assert in the same function scope.
+    """
+
+    def test_indirected_inspect_getsource_in_assert_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """src = inspect.getsource(fn); assert 'X' in src — must be flagged."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "import inspect\n"
+            "def test_check(fn):\n"
+            "    src = inspect.getsource(fn)\n"
+            '    assert "foo" in src\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 1, f"expected 1 finding, got: {findings}"
+
+    def test_indirected_bare_getsource_in_assert_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """src = getsource(fn); assert 'X' in src (bare import) — must be flagged."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "from inspect import getsource\n"
+            "def test_check(fn):\n"
+            "    src = getsource(fn)\n"
+            '    assert "bar" in src\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 1, f"expected 1 finding, got: {findings}"
+
+    def test_indirected_getsource_not_in_assert_not_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """src = getsource(fn); assert 'X' NOT in src — must NOT be flagged.
+
+        The ``not in`` form checks ABSENCE, not presence, so it cannot be vacuously
+        satisfied by a comment containing the pattern (that would be a false failure,
+        not a silent pass).  Rule 7 targets only the positive ``in`` form.
+        """
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "import inspect\n"
+            "def test_check(fn):\n"
+            "    src = inspect.getsource(fn)\n"
+            '    assert "bad_call()" not in src\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 0, f"expected 0 findings, got: {findings}"
+
+    def test_indirected_getsource_different_var_not_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """src = getsource(fn); assert X in OTHER — must NOT be flagged.
+
+        Only the getsource-tainted name itself triggers the rule.  A derived
+        variable (result of AST analysis, a list comprehension, etc.) does not.
+        """
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "import inspect\n"
+            "def test_check(fn):\n"
+            "    src = inspect.getsource(fn)\n"
+            "    items = src.split()\n"
+            '    assert "foo" in items\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 0, f"expected 0 findings, got: {findings}"
+
+    def test_indirected_getsource_taint_scoped_to_function(
+        self, tmp_path: Path
+    ) -> None:
+        """Taint does not cross function boundaries: assign in A, assert in B."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "import inspect\n"
+            "def setup(fn):\n"
+            "    src = inspect.getsource(fn)\n"
+            "    return src\n"
+            "def test_check(fn):\n"
+            "    src = setup(fn)\n"   # src here is NOT from a getsource call
+            '    assert "foo" in src\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 0, f"expected 0 findings, got: {findings}"
+
+    def test_indirected_getsource_or_expression_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """assert X in src or Y in src2 — flagged when any operand uses tainted name."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "import inspect\n"
+            "def test_check(fn):\n"
+            "    src = inspect.getsource(fn)\n"
+            '    assert "read(" in src or "1 <<" in src\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 1, f"expected 1 finding, got: {findings}"
+
+    def test_indirected_multiple_tainted_vars_all_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """Two separate tainted names, two separate asserts — both flagged."""
+        f = tmp_path / "test_foo.py"
+        f.write_text(
+            "import inspect\n"
+            "def test_check(fn, gn):\n"
+            "    src_a = inspect.getsource(fn)\n"
+            "    src_b = inspect.getsource(gn)\n"
+            '    assert "x" in src_a\n'
+            '    assert "y" in src_b\n'
+        )
+        findings = check_getsource_guard([f])
+        assert len(findings) == 2, f"expected 2 findings, got: {findings}"
+
+
+# ---------------------------------------------------------------------------
+# F811 — ast.Match / match-case recursion
+# ---------------------------------------------------------------------------
+
+
+class TestF811MatchCaseRecursion:
+    """_get_compound_bodies must recurse into ast.Match case bodies.
+
+    Before this fix, a duplicate ``def`` inside a ``match`` block escaped F811
+    because ``_get_compound_bodies`` returned [] for ast.Match nodes.
+
+    Each ``case`` body is a separate statement-list (like if/else branches),
+    so:
+      - Duplicates WITHIN the same case body → flagged.
+      - Same name in DIFFERENT case arms → NOT flagged (different lists).
+    """
+
+    @pytest.mark.skipif(
+        not hasattr(__import__("ast"), "Match"),
+        reason="ast.Match not available (Python < 3.10)",
+    )
+    def test_dup_def_in_same_case_body_flagged(self, tmp_path: Path) -> None:
+        """Two defs of the same name in one case body — must be flagged."""
+        import textwrap
+        f = tmp_path / "bad.py"
+        f.write_text(textwrap.dedent('''\
+            def outer(x):
+                match x:
+                    case "a":
+                        def helper():
+                            return 1
+                        def helper():
+                            return 2
+        '''))
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 1, f"expected 1 finding, got: {findings}"
+        assert findings[0][2] == "helper"
+
+    @pytest.mark.skipif(
+        not hasattr(__import__("ast"), "Match"),
+        reason="ast.Match not available (Python < 3.10)",
+    )
+    def test_same_def_in_different_case_arms_not_flagged(
+        self, tmp_path: Path
+    ) -> None:
+        """Same def name in different case arms — must NOT be flagged.
+
+        Different case bodies are different statement-lists, so they get fresh
+        ``seen`` dicts and are never compared against each other — matching the
+        if/else and try/except exemptions.
+        """
+        import textwrap
+        f = tmp_path / "good.py"
+        f.write_text(textwrap.dedent('''\
+            def outer(x):
+                match x:
+                    case "a":
+                        def helper():
+                            return 1
+                    case "b":
+                        def helper():
+                            return 2
+        '''))
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 0, f"expected 0 findings, got: {findings}"
+
+    @pytest.mark.skipif(
+        not hasattr(__import__("ast"), "Match"),
+        reason="ast.Match not available (Python < 3.10)",
+    )
+    def test_dup_def_at_module_level_match_flagged(self, tmp_path: Path) -> None:
+        """Dup def in a match at module level is also flagged."""
+        import textwrap
+        f = tmp_path / "bad.py"
+        f.write_text(textwrap.dedent('''\
+            match command:
+                case "start":
+                    def _handle():
+                        pass
+                    def _handle():
+                        pass
+        '''))
+        findings = check_redefined_while_unused([f])
+        assert len(findings) == 1, f"expected 1 finding, got: {findings}"
+        assert findings[0][2] == "_handle"
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
