@@ -52,6 +52,9 @@ jobs:
       - name: Run leakage scanner over DEVLOG.md
         run: bash scripts/leakage_scan.sh DEVLOG.md
 
+      - name: Run leakage scanner over architecture.md
+        run: bash scripts/leakage_scan.sh architecture.md
+
       - name: Check for hardcoded private paths in src/
         run: |
           echo "=== Hardcoded path scan (src/) ==="
