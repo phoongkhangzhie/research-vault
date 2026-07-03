@@ -32,6 +32,13 @@ review passes. Each manager contract restates these; a project's profile decides
   a better harness. No stale or orphaned harnesses — one test covering code that no longer exists
   is worse than none.
   → Review audits coverage gaps · stale harnesses · stress-test gaps.
+- **Grep all callsites before extending a widely-used signature.** Before adding a REQUIRED
+  parameter to an existing function or command, grep all callsites first — they are predictable
+  and will break silently if missed. Before widening a return type (e.g. scalar → list), count
+  the callers that assume the old shape: a `.strip()` call on an expected-scalar field throws
+  when it receives a list. The callsite audit is a pre-condition, not an afterthought. A safe
+  pattern: add the new parameter with a default first (backward-compatible), land it, then
+  update callers in a follow-up.
 
 ## Test discipline (code profile)
 
@@ -42,9 +49,10 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   the repo squash-merges exclusively ships a dead path behind a green suite.
 - **Non-vacuous assertions.** A tautological assertion (`assert X or True`, `assert True`) lets a headline
   path ship unverified. Every test asserts a condition that can *fail*.
-  → `rv lint` flags `or True` / `assert True` in tests (shipped). **Candidate extension:** the `... in
-  inspect.getsource(...)` guard-smell is AST-detectable (same machinery as the F811 rule) — a report-only
-  pattern flag, not a vacuity *proof* (the linter can't know a comment happens to satisfy the string).
+  → `rv lint` flags `or True` / `assert True` in tests (shipped). The `... in inspect.getsource(...)`
+  guard-smell is also AST-detected (rule 7, shipped alongside the F811 rule) — a report-only flag, not a
+  vacuity *proof* (the linter cannot know a comment happens to satisfy the string; see the source-introspection
+  guard rule below for the AST-based remedy).
 - **Hermetic fixtures pin their environment assumptions.** "Passes locally, fails CI" is the signature of
   an unpinned assumption. A fixture that `git init`s without pinning the initial branch inherits the
   runner's default and breaks on a different one — pin it. An environment-sensitive check declares its
@@ -88,6 +96,37 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   produced. SR-MS-1b shipped two green-but-empty defects — a macro-brace bug *and* the orphaned
   `.bib` / results builders — precisely because no test ran `pdflatex`. Exec-guard so CI without the
   toolchain skips cleanly; never let the string-only assertion be the sole gate.
+- **A packaging SR requires an isolated-install acceptance test.** Any SR that ships data files,
+  doctrine, or resources inside the wheel MUST carry a test that (a) builds the wheel, (b) installs
+  it into a fresh venv, (c) runs the command from OUTSIDE the repo tree, and (d) asserts real content
+  is returned — not a skeleton or placeholder. This test must provably FAIL on the unfixed code. An
+  editable / in-repo test silently passes on broken loaders: `__file__`-relative paths resolve in
+  dev but not in a wheel, so the loader is dead while CI stays green. The SR-PKG silent-skeleton bug
+  (doctrines shipped as empty skeletons while in-repo tests stayed green) arose exactly here. Companion
+  rule: use `importlib.resources.files(pkg) / "data" / ...` with an `as_file()` context — never
+  `__file__` or repo-root paths — and remove any skeleton-dir fallback that would mask a load miss
+  (charter §2: a silent degradation is worse than a loud failure).
+- **Consumers bind to structured contracts, never prose renders.** When a module consumes another
+  module's output, it MUST read the producer's structured contract (dataclass fields, meta-dict keys,
+  JSON schema) — never re-grep the human-readable prose render. A regex extractor over free-form text
+  breaks on format drift and silently green-and-empties (charter §2): the input is non-empty, the parse
+  returns zero results, and nothing warns. Two corollaries:
+  - **Non-empty-input guard.** Any extractor that reads structured data MUST emit a loud warning when
+    the input is non-empty but the parse returns zero records. Zero-from-non-empty is almost never
+    correct and is the signature of a missed connection.
+  - **Verbatim field names.** When binding a producer's structured contract, read the producer's
+    serializer field names VERBATIM. A structured contract is only as good as both sides agreeing on the
+    exact keys. Verification move: grep the producer's serializer field names against the consumer's
+    reads before shipping. (SR-LR-2: the absent-row detector re-grepped the prose render and silently
+    returned `[]` on all real inputs because it named fields that existed in the prose format, not in the
+    upstream dataclass contract.)
+- **An extracted helper is only done when the pre-existing caller uses it.** An SR whose deliverable
+  is "extract Phase-X as a reusable function" is incomplete if the pre-existing path still contains a
+  parallel copy of the same logic. An extracted-but-uncalled copy is a silent charter-§6 regression CI
+  stays green through — both copies are currently correct, so no test fails — but the duplication is
+  live and will diverge. This is worse when the duplicated block is a safety contract. Review fit-check
+  probe: confirm the pre-existing caller now CALLS the new helper; an independent copy is a failed
+  extraction regardless of how clean the new function is.
 
 ## How it's enforced
 
