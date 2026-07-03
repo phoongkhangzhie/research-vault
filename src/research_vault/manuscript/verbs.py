@@ -200,8 +200,31 @@ def build_parser(
             "from the paper alone. Runs the bidirectional canary before trusting any verdict. "
             "BLOCK on [DANGLING]; WARN on [NEEDS-CONTEXT]. "
             "Layer-2 requires RV_JUDGE_MODEL + ANTHROPIC_API_KEY — FAILS LOUD if absent. "
-            "Plain 'rv manuscript check' stays hermetic (Layer-1 only via check_manuscript)."
+            "Plain 'rv manuscript check' stays hermetic (Layer-1 only via check_manuscript). "
+            "Anti-pattern: do NOT eyeball scientific merit — run 'rv manuscript review' for "
+            "the adversarial review board (fresh critics, bounded revise loop, provenance-bound floors)."
         ),
+    )
+
+    # ── review ───────────────────────────────────────────────────────────────
+    review_p = sub.add_parser(
+        "review",
+        help=(
+            "Run the adversarial review-board gate (SR-MS-REVIEW-a): "
+            "N rounds of K fresh independent reviewers + MIN-floor threshold + honest-failure "
+            "surface. The scientific-merit layer ABOVE the honesty gates (support-matcher + "
+            "cold-read). Requires RV_JUDGE_MODEL and ANTHROPIC_API_KEY — FAILS LOUD if absent. "
+            "Anti-pattern: do NOT eyeball scientific merit or use a single self-review — "
+            "the multi-round adversarial board with provenance-bound floors (Soundness ↔ "
+            "support-grounding, Reproducibility ↔ freeze-hashes) iterates toward quality, "
+            "not toward a number. This is the AI-Scientist differentiator (§5J.17.7): "
+            "fresh adversarial critics + per-dimension floors + re-fire honesty gates + human-go accept."
+        ),
+    )
+    review_p.add_argument(
+        "ms_id",
+        metavar="id",
+        help="Manuscript identifier slug (e.g. 'ms-001').",
     )
 
     return p
@@ -397,6 +420,108 @@ def run(args: argparse.Namespace) -> int:
             elif not errors:
                 print("rv manuscript check: OK — no hard errors (warnings above).")
             return 0 if not errors else 1
+
+        if args.manuscript_cmd == "review":
+            # SR-MS-REVIEW-a: adversarial review-board gate.
+            # Requires RV_JUDGE_MODEL + ANTHROPIC_API_KEY — FAILS LOUD if absent
+            # (never a silent pass; mirrors --semantic / --cold-read guard pattern).
+            import os as _os_rb
+            _rb_judge_model = _os_rb.environ.get("RV_JUDGE_MODEL", "").strip()
+            _rb_api_key = _os_rb.environ.get("ANTHROPIC_API_KEY", "").strip()
+            if not _rb_judge_model or not _rb_api_key:
+                missing = []
+                if not _rb_judge_model:
+                    missing.append("RV_JUDGE_MODEL")
+                if not _rb_api_key:
+                    missing.append("ANTHROPIC_API_KEY")
+                print(
+                    f"rv manuscript review: FAIL — "
+                    f"env var(s) required but absent: {', '.join(missing)}. "
+                    f"Set RV_JUDGE_MODEL to your Opus-tier model ID and ANTHROPIC_API_KEY "
+                    f"to your API key before running the adversarial review board. "
+                    f"The review board requires a live LLM judge (Opus-tier D-REV-8).",
+                    file=sys.stderr,
+                )
+                return 1
+
+            from research_vault.manuscript.support_matcher import _default_judge_fn
+            from research_vault.manuscript.review_board import run_review_board, get_review_config
+
+            ms_id = args.ms_id
+            _ms_dir = cfg.project_notes_dir(args.project) / "manuscript"
+            _tree_root = cfg.project_notes_dir(args.project) / "manuscripts" / ms_id
+
+            if not _tree_root.exists():
+                print(
+                    f"rv manuscript review: manuscript tree not found: {_tree_root}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            _rb_cfg = get_review_config(cfg)
+            print(
+                f"rv manuscript review: running adversarial review board "
+                f"(N={_rb_cfg['max_rounds']} rounds, K={_rb_cfg['reviewers_per_round']} reviewers/round, "
+                f"floors: {'+'.join(_rb_cfg['floor_dimensions'])}≥{_rb_cfg['floor_value']})…"
+            )
+
+            # Extract PDF text (pdftotext or fallback to .tex)
+            import shutil
+            import subprocess
+            _pdf_text: str | None = None
+            _pdf_files = list(_tree_root.glob("*.pdf"))
+            if _pdf_files and shutil.which("pdftotext"):
+                try:
+                    _r = subprocess.run(
+                        ["pdftotext", str(_pdf_files[0]), "-"],
+                        capture_output=True, text=True, timeout=60,
+                    )
+                    if _r.returncode == 0 and _r.stdout.strip():
+                        _pdf_text = _r.stdout
+                except (subprocess.TimeoutExpired, OSError):
+                    pass
+            if _pdf_text is None:
+                _main_tex = _tree_root / "main.tex"
+                if _main_tex.exists():
+                    _pdf_text = _main_tex.read_text(encoding="utf-8", errors="replace")[:8000]
+                else:
+                    _pdf_text = ""
+                print(
+                    "rv manuscript review: WARN — could not extract PDF text; "
+                    "falling back to main.tex (compile first for accurate review)."
+                )
+
+            _rb_result = run_review_board(
+                pdf_text=_pdf_text or "",
+                tree_root=_tree_root,
+                N=_rb_cfg["max_rounds"],
+                K=_rb_cfg["reviewers_per_round"],
+                floor_dims=_rb_cfg["floor_dimensions"],
+                floor_value=_rb_cfg["floor_value"],
+                venue_scale=_rb_cfg["venue_scale"],
+                judge_fn=lambda prompt: _default_judge_fn(prompt, model=_rb_judge_model),
+                judge_model=_rb_judge_model,
+                config=cfg,
+                notes_root=cfg.project_notes_dir(args.project),
+            )
+
+            print(f"rv manuscript review: {_rb_result['honest_report']}")
+            if _rb_result["cleared"]:
+                print(
+                    f"  Cleared at round {_rb_result['cleared_at']}. "
+                    f"Human meta-decision required at approve-manuscript "
+                    f"(crew-cannot-self-approve: the threshold gates when-to-surface, not accept)."
+                )
+            else:
+                not_cleared = _rb_result.get("not_cleared", {})
+                print(
+                    f"  NOT CLEARED — persistent weakness: "
+                    f"{not_cleared.get('persistent_weakness', 'see meta-reviews above')}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            return 0
 
         print(f"rv manuscript: unknown command: {args.manuscript_cmd!r}", file=sys.stderr)
         return 1

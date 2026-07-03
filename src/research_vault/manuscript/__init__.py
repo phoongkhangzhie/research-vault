@@ -448,11 +448,125 @@ def _build_manifest(
         })
         gate3_needs.append(_afterok("cold-read"))
 
-    # 18. Gate 3: approve-manuscript (final human-go — needs BOTH critic AND cold-read)
+    # 17c. Review-board round blocks (SR-MS-REVIEW-a §5J.17.2)
+    # N pre-declared round-blocks chained afterok (bounded acyclic unroll):
+    #   per round r: K reviewer-r-L{k} nodes (afterok prior gate) →
+    #                meta-review-r (afterok K reviewers) →
+    #                [r<N] revise-r (afterok meta-review-r)
+    # "Cleared" skip short-circuit = node-level check on RunState.meta["review_board"]
+    # (zero new walker mechanism — the existing inject_results early-return pattern).
+    # N and K are FROZEN at scaffold time (stopping rule — see review_config in manifest).
+    from research_vault.manuscript.review_board import get_review_config
+
+    review_cfg = get_review_config(config)
+    _N = review_cfg["max_rounds"]
+    _K = review_cfg["reviewers_per_round"]
+
+    # reads: for reviewer nodes = only the compiled tree (the rendered PDF text).
+    # ANTI-ANCHORING: reviewer nodes do NOT read the thesis, the ms_id note, or prior
+    # round reviews/rebuttals. This is the fresh-by-construction boundary — the reads:
+    # list is the ONLY channel available; excluding those paths enforces the invariant.
+    reviewer_reads = [tree_rel]
+
+    # Previous gate before first review round = cold-read OR critic (whichever is last)
+    prev_review_gate: str = "cold-read" if "cold-read" in active_sections else prev_gate3
+
+    for r in range(1, _N + 1):
+        # K parallel reviewer nodes (fan-out)
+        reviewer_ids: list[str] = []
+        for k in range(1, _K + 1):
+            reviewer_id = f"reviewer-{r}-L{k}"
+            reviewer_ids.append(reviewer_id)
+
+            # Which node gates this reviewer?
+            if r == 1:
+                reviewer_upstream = prev_review_gate
+            else:
+                # Round r+1 is gated on revise-(r-1), NOT on meta-review-(r-1).
+                # This enforces fresh-by-construction: round r+1 reviewers cannot
+                # see round r's meta-review or the prior rebuttal (they depend only
+                # on revise-(r-1) completing, which writes a new compiled draft).
+                reviewer_upstream = f"revise-{r - 1}"
+
+            tip_key = f"reviewer-round-{r}-L{k}"
+            reviewer_spec = (
+                f"[REVIEW-BOARD ROUND {r} / LENS {k}]\n\n"
+                f"You are a FRESH, INDEPENDENT adversarial reviewer. You have NOT seen any "
+                f"prior review or rebuttal — you see ONLY the compiled paper text. "
+                f"Score all 7 dimensions using the rubric and emit machine-parseable bracket "
+                f"tokens: [SOUND:N] [CONTRIB:N] [CLARITY:N] [ORIG:N] [LIMIT:N] [REPRO:N] [ETHICS:N]. "
+                f"Every score must be justified in text (ARR rule). "
+                f"Node-level short-circuit: first check RunState.meta['review_board']['cleared_at'] "
+                f"— if set, emit [SKIPPED] and exit immediately (no LLM call needed). "
+                f"Reads: only the compiled PDF (tree_root) — NOT the thesis note, NOT prior reviews."
+            )
+
+            nodes.append({
+                "id": reviewer_id,
+                "type": "agent",
+                "label": f"Review-board round {r}, lens {k} — adversarial fresh reviewer",
+                "spec": reviewer_spec,
+                "reads": reviewer_reads,
+                "needs": [_afterok(reviewer_upstream)],
+            })
+
+        # Meta-review join (fan-in afterok all K reviewers)
+        meta_review_id = f"meta-review-{r}"
+        meta_review_spec = (
+            f"[META-REVIEW {r}]\n\n"
+            f"Aggregate the {_K} reviewer scores by MIN (worst reviewer gates — one strong "
+            f"objection is never averaged away). Evaluate the floor predicate: "
+            f"cleared ⟺ MIN(SOUND)≥{review_cfg['floor_value']} AND MIN(REPRO)≥{review_cfg['floor_value']}. "
+            f"If cleared: write RunState.meta['review_board']['cleared_at'] = {r}. "
+            f"Synthesize worst-three findings. Run the canary scaffold. "
+            f"Node-level skip: if cleared_at already set → NO-OP."
+        )
+        nodes.append({
+            "id": meta_review_id,
+            "type": "agent",
+            "label": f"Meta-review round {r} — MIN aggregation + threshold predicate",
+            "spec": meta_review_spec,
+            "reads": reviewer_reads,  # reads same as reviewers (tree only; no prior-round data)
+            "needs": [_afterok(rid) for rid in reviewer_ids],
+        })
+
+        # Revise node (only for non-last rounds — no revise after the last review)
+        if r < _N:
+            revise_id = f"revise-{r}"
+            revise_spec = (
+                f"[REVISE {r}]\n\n"
+                f"(a) Record the author's rebuttal to meta-review-{r} (artifact, not verdict). "
+                f"(b) Re-draft ONLY the sections identified as failing in meta-review-{r}. "
+                f"(c) Recompile via rv manuscript compile. "
+                f"(d) RE-FIRE support-matcher (SR-MS-2) + cold-read (SR-MS-COLDREAD) on the "
+                f"revised draft — POSTCONDITION: revised draft STILL passes both honesty gates. "
+                f"If re-fire BLOCKs (un-grounded or re-leaked) → reject the revision and "
+                f"surface the conflict: a revision CANNOT un-ground to please a reviewer. "
+                f"Node-level skip: if RunState.meta['review_board']['cleared_at'] set → NO-OP."
+            )
+            nodes.append({
+                "id": revise_id,
+                "type": "agent",
+                "label": f"Revise round {r} — re-fire honesty gates (anti-gaming c)",
+                "spec": revise_spec,
+                "reads": [tree_rel],
+                "needs": [_afterok(meta_review_id)],
+            })
+
+    # gate3_needs: approve-manuscript needs the last round's meta-review
+    last_meta_review_id = f"meta-review-{_N}"
+    # Also still needs the honesty-gate nodes (critic, cold-read)
+    # gate3_needs already has critic + cold-read; add the final meta-review
+    gate3_needs.append(_afterok(last_meta_review_id))
+
+    # 18. Gate 3: approve-manuscript (final human-go — needs BOTH honesty gates AND review board)
     nodes.append({
         "id": "approve-manuscript",
         "type": "human-go",
-        "label": "Gate 3: Approve manuscript — BLOCK/WARN counts + worst-three + body-clean",
+        "label": (
+            "Gate 3: Approve manuscript — BLOCK/WARN counts + worst-three + body-clean "
+            "+ review-board verdict (NOT-CLEARED or cleared at round r)"
+        ),
         "needs": gate3_needs,
     })
 
@@ -461,6 +575,8 @@ def _build_manifest(
         "name": f"Manuscript drafting: {ms_id} — {thesis[:60]}{'…' if len(thesis) > 60 else ''}",
         "global_cap": 1,  # sections are sequential by design (DAG enforces order)
         "nodes": nodes,
+        # SR-MS-REVIEW-a: N and K frozen at scaffold (stopping rule — §5J.17.6)
+        "review_config": review_cfg,
     }
     return manifest
 

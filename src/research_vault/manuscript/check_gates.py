@@ -1697,8 +1697,14 @@ def build_approve_payload(
     cold_read_judge_fn: "Any | None" = None,
     cold_read_rubric_override: str | None = None,
     cold_read_pdf_text: str | None = None,
+    # SR-MS-REVIEW-a: review-board gate (§5J.17.6)
+    review_board_judge_fn: "Any | None" = None,
+    review_board_rubric_override: str | None = None,
+    review_board_pdf_text: str | None = None,
+    review_board_n: int | None = None,
+    review_board_k: int | None = None,
 ) -> dict[str, Any]:
-    """Assemble the full approve-manuscript human-go DECISION payload (§5J.13-D).
+    """Assemble the full approve-manuscript human-go DECISION payload (§5J.13-D + §5J.17.6).
 
     This is the gate that presents a DECISION, not a diff. It runs:
       1. Support-matcher tally (§5J.13-D.1)
@@ -1707,6 +1713,7 @@ def build_approve_payload(
       4. Naked-citation candidates: auto-links + surfaced (§5J.13-D.4)
       5. Strength-monotonicity flags (§5J.13-D.5)
       6. J-1 / K-1 completeness (§5J.13-D.6)
+      7. Review-board section (§5J.17.6, SR-MS-REVIEW-a) — when review_board_judge_fn provided.
 
     Also runs the structural extension gates (dedup, page-limit, cite-provenance).
 
@@ -1716,7 +1723,7 @@ def build_approve_payload(
     The machine spotlights + tallies; the human judges.
     crew-cannot-self-approve: a green payload still requires the human's explicit go.
 
-    sr: SR-MS-2
+    sr: SR-MS-2, SR-MS-REVIEW-a
     """
     from research_vault.manuscript.naked_cite import resolve_naked_citations
 
@@ -1839,6 +1846,40 @@ def build_approve_payload(
     errors.extend(cr_tally["errors"])
     warnings.extend(cr_tally["warnings"])
 
+    # ── Gate 11: review-board (SR-MS-REVIEW-a §5J.17.6) ──────────────────────
+    # Runs when review_board_judge_fn is provided; skipped in plain check (hermetic).
+    rb_result: "dict[str, Any] | None" = None
+    review_board_report: str = "review-board: not run (no review_board_judge_fn provided)"
+    if review_board_judge_fn is not None:
+        from research_vault.manuscript.review_board import run_review_board, get_review_config
+
+        _rb_cfg = get_review_config(config)
+        _rb_n = review_board_n if review_board_n is not None else _rb_cfg["max_rounds"]
+        _rb_k = review_board_k if review_board_k is not None else _rb_cfg["reviewers_per_round"]
+        _rb_pdf = review_board_pdf_text or cold_read_pdf_text or ""
+
+        rb_result = run_review_board(
+            pdf_text=_rb_pdf,
+            tree_root=tree_root,
+            N=_rb_n,
+            K=_rb_k,
+            floor_dims=_rb_cfg["floor_dimensions"],
+            floor_value=_rb_cfg["floor_value"],
+            venue_scale=_rb_cfg["venue_scale"],
+            judge_fn=review_board_judge_fn,
+            judge_model=judge_model,
+            rubric_override=review_board_rubric_override,
+            config=config,
+            notes_root=notes_root,
+        )
+        review_board_report = rb_result["honest_report"]
+        # NOT-CLEARED is surfaced as a warning (the human adjudicates)
+        if not rb_result["cleared"] and rb_result.get("not_cleared"):
+            warnings.append(
+                f"review-board: NOT CLEARED after {_rb_n} round(s). "
+                + rb_result["not_cleared"].get("persistent_weakness", "")
+            )
+
     # ── Assemble payload ──────────────────────────────────────────────────────
     payload: dict[str, Any] = {
         # §5J.13-D.1
@@ -1880,6 +1921,11 @@ def build_approve_payload(
         "cold_read_flags": cr_tally["flags"],
         "cold_read_flag_a": cr_tally["flag_a_hits"],
         "cold_read_report": cr_tally["honest_report"],
+        # §5J.17.6 — SR-MS-REVIEW-a 10th section: review-board scientific-merit gate
+        # crew-cannot-self-approve: a green payload STILL requires the human's explicit go.
+        # Never says "reviewers approved" — only "cleared at r" or "NOT cleared".
+        "review_board": rb_result,
+        "review_board_report": review_board_report,
         # Meta
         "errors": errors,
         "warnings": warnings,
