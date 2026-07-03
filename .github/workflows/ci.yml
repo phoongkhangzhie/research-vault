@@ -32,13 +32,17 @@ jobs:
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
 
-  # ── Leakage scanner (full teeth — SR-4) ────────────────────────────────────
-  # Scans doctrine/ and tracked root-level files for all private marker classes:
+  # ── Leakage scanner (full teeth — SR-4, broadened SR-PKG) ──────────────────
+  # SR-PKG: doctrine/ + examples/ moved into the wheel at
+  #   src/research_vault/data/doctrine/ + src/research_vault/data/examples/.
+  # Coverage broadened to the whole publish-bound tree (whole-tree by default,
+  # opt-out by exception — the safe polarity for a public publish).
+  # Scans: package data (doctrine/ + examples/), DEVLOG.md, root public-bound
+  # files (README.md, architecture.md, QUICKSTART.md, REFERENCES.md, SETUP.md),
+  # and src/ for hardcoded private paths — all private marker classes:
   #   codenames · identity strings · site URLs · cluster paths ·
   #   secret-shaped strings · versioned model IDs · non-template memory slugs
   # Implemented in scripts/leakage_scan.sh (tested hermetically in tests/).
-  # DEVLOG.md is repo-tracked and public-bound; must be leak-scanned too
-  # (root cause: B2 pre-existing leak at SR-DISP entry was silent without this).
   leakage-scan:
     name: Leakage scan
     runs-on: ubuntu-latest
@@ -46,14 +50,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run leakage scanner over doctrine/
-        run: bash scripts/leakage_scan.sh doctrine
+      - name: Run leakage scanner over src/research_vault/data/doctrine/
+        run: bash scripts/leakage_scan.sh src/research_vault/data/doctrine
+
+      - name: Run leakage scanner over src/research_vault/data/examples/
+        run: bash scripts/leakage_scan.sh src/research_vault/data/examples
 
       - name: Run leakage scanner over DEVLOG.md
         run: bash scripts/leakage_scan.sh DEVLOG.md
 
-      - name: Run leakage scanner over architecture.md
-        run: bash scripts/leakage_scan.sh architecture.md
+      - name: Run leakage scanner over root public-bound files
+        run: |
+          # Scan public-bound root files individually.
+          # architecture.md was previously unscanned (Argus gap).
+          # REFERENCES.md and SETUP.md scanned when present (future artifacts).
+          for f in README.md architecture.md QUICKSTART.md REFERENCES.md SETUP.md; do
+            if [ -f "$f" ]; then
+              echo "--- scanning $f ---"
+              bash scripts/leakage_scan.sh "$f"
+            fi
+          done
 
       - name: Check for hardcoded private paths in src/
         run: |

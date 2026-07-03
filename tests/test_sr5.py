@@ -47,11 +47,19 @@ from research_vault.wait_for import resolve_watch
 
 # ---------------------------------------------------------------------------
 # Repo root and example paths
+# SR-PKG: examples/ moved to src/research_vault/data/examples/ (single home,
+# one source of truth for both dev + wheel install).
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).parent.parent
-RESEARCH_LOOP_PATH = REPO_ROOT / "examples" / "demo-research" / "research-loop.json"
-LITREVIEW_LOOP_PATH = REPO_ROOT / "examples" / "demo-litreview" / "lit-review-loop.json"
+RESEARCH_LOOP_PATH = (
+    REPO_ROOT / "src" / "research_vault" / "data" / "examples"
+    / "demo-research" / "research-loop.json"
+)
+LITREVIEW_LOOP_PATH = (
+    REPO_ROOT / "src" / "research_vault" / "data" / "examples"
+    / "demo-litreview" / "lit-review-loop.json"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -640,12 +648,15 @@ def test_note_watch_fresh_checks_mtime(tmp_cfg):
 # ---------------------------------------------------------------------------
 
 def test_leakage_scanner_green_on_examples():
-    """The leakage scanner must report no violations in the examples/ directory."""
+    """The leakage scanner must report no violations in the examples/ directory.
+
+    SR-PKG: examples/ moved to src/research_vault/data/examples/.
+    """
     import subprocess
 
-    examples_dir = REPO_ROOT / "examples"
+    examples_dir = REPO_ROOT / "src" / "research_vault" / "data" / "examples"
     if not examples_dir.exists():
-        pytest.skip("examples/ not yet created — skipping leakage check")
+        pytest.skip("data/examples/ not yet created — skipping leakage check")
 
     scanner = REPO_ROOT / "scripts" / "leakage_scan.sh"
     if not scanner.exists():
