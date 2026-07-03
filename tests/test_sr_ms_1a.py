@@ -206,7 +206,7 @@ def test_manifest_validates_with_no_errors(cfg):
 
 
 def test_manifest_has_expected_node_count(cfg):
-    """Scaffolded manifest has 16 nodes (the 5J.2 shape)."""
+    """Scaffolded manifest has 18 nodes (5J.2 + SR-MS-AUDIENCE: title + cold-read)."""
     from research_vault import manuscript as ms_mod
     _, _, manifest = ms_mod.cmd_new(
         "demo-research", "ms-007",
@@ -214,7 +214,7 @@ def test_manifest_has_expected_node_count(cfg):
         scope=[],
         config=cfg,
     )
-    assert len(manifest["nodes"]) == 16
+    assert len(manifest["nodes"]) == 18
 
 
 def test_manifest_all_agent_nodes_have_spec(cfg):
@@ -282,7 +282,11 @@ def test_appendix_repro_branches_off_approve_thesis_not_framing(cfg):
 
 
 def test_assemble_waits_for_both_abstract_and_appendix(cfg):
-    """assemble node depends on both abstract and appendix-repro."""
+    """assemble node depends on title (afterok abstract) and appendix-repro.
+
+    SR-MS-AUDIENCE: abstract→title→assemble, so assemble's direct dependency
+    is title (not abstract). The abstract dependency is still honoured transitively.
+    """
     from research_vault import manuscript as ms_mod
     _, _, manifest = ms_mod.cmd_new(
         "demo-research", "ms-012",
@@ -293,7 +297,8 @@ def test_assemble_waits_for_both_abstract_and_appendix(cfg):
     by_id = {n["id"]: n for n in manifest["nodes"]}
     assemble = by_id["assemble"]
     needs_from = {need["from"] for need in assemble.get("needs", [])}
-    assert "abstract" in needs_from, "assemble must depend on abstract"
+    assert "title" in needs_from, \
+        "assemble must depend on title (SR-MS-AUDIENCE: abstract→title→assemble)"
     assert "appendix-repro" in needs_from, "assemble must depend on appendix-repro"
 
 
