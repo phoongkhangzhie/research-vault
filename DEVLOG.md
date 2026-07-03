@@ -1,3 +1,41 @@
+## 2026-07-03 (SR-CCB — Claude Code binding: rv init boots Alfred + crew)
+
+### Done
+- **SR-CCB (`feat/sr-ccb`)**: The min-viable Claude Code binding. `rv init` now
+  scaffolds `CLAUDE.md` (Alfred hub-bootstrap), creates `.claude/agents/` dir (CC
+  session-start requirement), and auto-runs `build-agents --target claude-code` to
+  populate `.claude/agents/{manager,engineer,researcher,designer,reviewer,architect}.md`
+  with CC-format subagent files. A bare `rv init myvault && cd myvault && claude`
+  now boots Alfred + a discoverable 6-agent crew with zero extra commands.
+- **AgentBackend seam** in `build_agents.py`: `--target {agents-dir,claude-code}` flag;
+  `ClaudeCodeBackend` emits YAML frontmatter (name/description/tools/model) + hat body;
+  `AgentsDirBackend` preserves today's default; v1.1 slot commented for codex/cursor/generic.
+- **Tool-grant policy** (PUB-CCB.2): coordinator-class (manager/architect) no Bash;
+  reviewer no Write/Edit; researcher WebSearch+WebFetch; all model values as aliases
+  (sonnet/opus/haiku), never versioned IDs.
+- **`CLAUDE.md.tmpl`**: Hub-bootstrap with correct role-boundary table (human/Alfred/crew
+  separation, per coordinator note). Alfred runs control-plane verbs; crew runs
+  role-appropriate rv verbs from their hat bodies.
+- **Demo CONTRACTs** shipped as package data: pre-filled (no FILL stubs) for demo-research
+  and demo-litreview so the demo crew composes project-aware from the first session.
+- **CI**: added leakage scan step for `data/templates/` (publish-bound).
+- 45 SR-CCB acceptance tests (all RED before, all GREEN after). Full suite: 1722 passed.
+
+### Decisions
+- `.agents/` stays as the target-neutral source-of-record; `.claude/agents/` is the
+  CC-rendered projection. Both coexist — deprecating `.agents/` would break future
+  codex/cursor backends that render from the same source.
+- Default `--target` stays `agents-dir` (non-breaking); `rv init` passes `claude-code`
+  explicitly.
+- Architect emitted as a subagent (`.claude/agents/architect.md`) — vault-level coordinator,
+  Alfred delegates coherence reads to it.
+- `_CC_ROLES = DEFAULT_ROSTER + ["architect"]` = 6 files total.
+- Demo CONTRACTs written from `data/examples/<demo>/CONTRACT.md` (shipped alongside the
+  loop manifests) to `.agents/<demo>/CONTRACT.md` at init time.
+
+### Open / next
+- Hub to open PR for `feat/sr-ccb` (human-go class: harness binding, publish-critical).
+
 ## 2026-07-03 (feat/default-roster — canonical default crew, --roster removed)
 
 ### Done
