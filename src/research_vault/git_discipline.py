@@ -196,8 +196,13 @@ def _run_leakage_scan(
     repo: Path, *, staged: bool = True, framework: bool = True
 ) -> tuple[int, str]:
     """Run leakage_scan.sh with appropriate flags. Returns (exit_code, output)."""
-    # Find the script relative to the package installation or repo root
-    # Try: repo/.githooks/../scripts/leakage_scan.sh, or instance root
+    # DEV-REPO TOOLING: leakage_scan.sh is a bash script that ships in the repo's
+    # scripts/ directory — it is NOT packaged in the wheel (no data/ slot for it).
+    # This function is called from the pre-commit hook integration (cmd_check) and
+    # is dev/CI tooling, not a user-facing verb. Task #22 part 2 audit — confirmed
+    # dev-only. The graceful fallback (fails-open when script not found) already
+    # handles the wheel/non-repo context cleanly.
+    # Find the script relative to the package installation or repo root.
     candidates = [
         # Running from within the package source tree (development)
         Path(__file__).parent.parent.parent / "scripts" / "leakage_scan.sh",
