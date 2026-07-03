@@ -42,3 +42,11 @@ state/
 
 # Local-only maintenance aids (private ~/vault path structure — not for the public repo)
 doctrine/drift-watch.md
+
+# Worktrees
+.worktrees/
+
+# Stray local dirs / OS cruft (not part of the OSS repo)
+tasks/
+.DS_Store
+**/.DS_Store

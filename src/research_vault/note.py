@@ -418,9 +418,9 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
       experiments/ directory, and checks it has valid stance (confirmatory|
       exploratory) + valid plan_role (main|supporting_ablation|
       conditional_ablation) — BLOCKS on any violation (§5K.7).
-    - (child notes) warns when plan_role is set but stance is missing; warns
+    - (child notes) BLOCKS when plan_role is set but stance is missing; BLOCKS
       when stance=confirmatory but the note is not in any plan master's covers:
-      (degrade-to-skip when no plan masters exist); warns when supports_main
+      (degrade-to-skip when no plan masters exist); BLOCKS when supports_main
       points to a non-existent note.
 
     Returns a list of violation strings (empty = all clear).
