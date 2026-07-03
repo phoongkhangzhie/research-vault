@@ -43,10 +43,10 @@ gh absent → raises (FileNotFoundError / RuntimeError); the combined-set builde
 
 NO poller (D-CIF-3 DEFER): one-shot fetch at reconcile/gate time only.
 
-CLI activation path (OUT OF SCOPE):
-  Nothing in the shipped CLI constructs GitHubActionsSource automatically.
-  Activation is manual (extra_sources=[...]).  A ``rv reconcile --gh-pr N`` flag
-  is filed as a separate follow-up SR.
+CLI activation path (rv control reconcile --gh-pr N):
+  ``rv control reconcile --gh-pr N [--repo owner/repo]`` constructs this source
+  and passes it as extra_sources.  Repo auto-detected from git remote if omitted.
+  ``get_ci_advisory()`` provides the human-facing CI summary line.
 """
 from __future__ import annotations
 
@@ -84,6 +84,10 @@ class GitHubActionsSource:
     def __init__(self, repo: str, pr_number: int) -> None:
         self._repo = repo
         self._pr = pr_number
+        # Fetch-result caches: avoid duplicate gh subprocess calls when
+        # get_ci_advisory() and get_terminal_set() are called in the same session.
+        self._pr_info_cache: "tuple[str, frozenset[str]] | None" = None
+        self._checks_cache: "list[dict] | None" = None
 
     # ------------------------------------------------------------------
     # SignalSource Protocol implementation
@@ -132,11 +136,54 @@ class GitHubActionsSource:
         return frozenset()
 
     # ------------------------------------------------------------------
-    # Private helpers — gh subprocess calls
+    # Human-facing advisory surface (CLI activation path)
+    # ------------------------------------------------------------------
+
+    def get_ci_advisory(self) -> str:
+        """Return a human-readable CI summary line for display.
+
+        Advisory only — never used for gate logic.  Call before or after
+        get_terminal_set(); caching means no extra gh subprocess calls are made.
+
+        Returns one of:
+          "CI: GREEN (PR #N)"
+          "CI: RED (PR #N — <failing-check-name>, ...)"
+          "CI: PENDING (PR #N — N check(s) still running)"
+          "CI: UNVERIFIED (PR #N — <reason>)"
+        """
+        try:
+            _, _ = self._fetch_pr_info()
+            checks = self._fetch_checks()
+        except Exception as exc:
+            return f"CI: UNVERIFIED (PR #{self._pr} — {exc})"
+
+        if not checks:
+            return f"CI: UNVERIFIED (PR #{self._pr} — no checks found)"
+
+        non_skipping = [c for c in checks if c.get("bucket") != "skipping"]
+        if not non_skipping:
+            return f"CI: UNVERIFIED (PR #{self._pr} — all checks skipping)"
+
+        pending = [c for c in non_skipping if c.get("bucket") == "pending"]
+        if pending:
+            return f"CI: PENDING (PR #{self._pr} — {len(pending)} check(s) still running)"
+
+        failed = [c for c in non_skipping if c.get("bucket") != "pass"]
+        if failed:
+            names = ", ".join(c["name"] for c in failed[:3])
+            return f"CI: RED (PR #{self._pr} — {names})"
+
+        return f"CI: GREEN (PR #{self._pr})"
+
+    # ------------------------------------------------------------------
+    # Private helpers — gh subprocess calls (with instance-level cache)
     # ------------------------------------------------------------------
 
     def _fetch_pr_info(self) -> tuple[str, frozenset[str]]:
         """Fetch PR state and branch-derived sr-* ids in one gh call.
+
+        Results are cached on the instance — subsequent calls return the
+        same result without issuing another subprocess.
 
         Calls ``gh pr view <N> --repo <repo> --json state,headRefName``.
 
@@ -149,6 +196,9 @@ class GitHubActionsSource:
         Raises RuntimeError (or FileNotFoundError if gh absent) on failure,
         so the combined-set builder's except clause fires and warns.
         """
+        if self._pr_info_cache is not None:
+            return self._pr_info_cache
+
         result = subprocess.run(
             [
                 "gh", "pr", "view", str(self._pr),
@@ -177,10 +227,14 @@ class GitHubActionsSource:
 
         from ..controllib import _ID_TOKEN_RE
         ids = frozenset(m.group(1).lower() for m in _ID_TOKEN_RE.finditer(branch))
-        return state, ids
+        self._pr_info_cache = (state, ids)
+        return self._pr_info_cache
 
     def _fetch_checks(self) -> list[dict]:
         """Fetch PR check results via ``gh pr checks --json name,state,bucket``.
+
+        Results are cached on the instance — subsequent calls return the
+        same result without issuing another subprocess.
 
         Returns a list of dicts: [{"name": str, "state": str, "bucket": str}].
 
@@ -194,6 +248,9 @@ class GitHubActionsSource:
         Raises RuntimeError (or FileNotFoundError if gh absent) on failure,
         so the combined-set builder's except clause fires and warns.
         """
+        if self._checks_cache is not None:
+            return self._checks_cache
+
         result = subprocess.run(
             [
                 "gh", "pr", "checks", str(self._pr),
@@ -210,9 +267,10 @@ class GitHubActionsSource:
             )
 
         try:
-            return json.loads(result.stdout)
+            self._checks_cache = json.loads(result.stdout)
         except (json.JSONDecodeError, ValueError):
             raise RuntimeError(
                 f"gh pr checks --json returned unexpected output for PR #{self._pr}: "
                 f"{result.stdout[:200]!r}"
             )
+        return self._checks_cache

@@ -94,11 +94,16 @@ _VERB_REGISTRY: dict[str, dict] = {
             "When you need to initialize, validate, reconcile, or MUTATE the coordination "
             "control file for a project. READ via `rv status`. MUTATE via "
             "`rv control post/spawn-request/return/close/edit/move`. "
+            "Tier-3: use `rv control reconcile --gh-pr N [--repo owner/repo]` to "
+            "fetch GitHub Actions CI state and include it in the drift check — "
+            "the gate refuses to record a pass on red/unverified CI. "
             "Anti-pattern: do NOT open `control/*.md` and hand-type bullets — it races "
             "other agents and can author schema-invalid entries; do NOT `cat`/`Read` the "
-            "file by eye — use `rv status` or `rv control reconcile` to read current state."
+            "file by eye — use `rv status` or `rv control reconcile` to read current state. "
+            "Anti-pattern: do NOT hand-type 'CI green' into a merge decision — use "
+            "`rv control reconcile --gh-pr N` so the gate fetches Actions state directly."
         ),
-        "sr": "SR-1",
+        "sr": "SR-1, SR-CIF",
     },
     "devlog": {
         "module": "research_vault.devlog",
