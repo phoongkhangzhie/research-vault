@@ -41,6 +41,36 @@
 ### Open / next
 - SR-10 (publish) — the endgame
 
+## 2026-07-03 (help-map rework + snippet-check gate: PR #TODO)
+
+### Done
+- **Item 1 (S3+S4b) — grouped help renderer**: `rv help` now renders verbs grouped by
+  workflow phase (8 phases: Setup · Lit-review · Experiment · Figure · Manuscript ·
+  Gap loop · Infra/git · Coordination) with phase headers, first-sentence descriptions
+  (no 60-char truncation), per-verb subcommand listing, a Gap-loop section surfacing all
+  5 `review gap-*` subcommands (gap-scan/gap-route/gap-close/gap-list/gap-promote), and
+  a C4 validation-map footer. Groups at render-time — `_VERB_REGISTRY` order untouched
+  (SR-CO collision avoidance).
+- **Item 2 (S5) — snippet truthfulness gate**: `rv help --check` now parse-verifies
+  every `Use \`rv <verb> ...\`` snippet with `<placeholder>` patterns against the real
+  argparse parser (`_check_example_snippets`). Fixed 14 broken snippets across devlog,
+  project, manuscript, figure, and review — central bug: `rv figure new --experiment <id>`
+  omitted required `<project>` and `<fig-id>` positionals; all `rv review` subcmd examples
+  had wrong arg order (`rv review list <project>` → `rv review <project> list`).
+- 10 new tests (all were RED before implementation, GREEN after).
+
+### Decisions
+- Group at render time via `_HELP_PHASE_MAP` constant — do not reorder `_VERB_REGISTRY`
+  (SR-CO is concurrently editing compute/doctor/plugins entries).
+- Snippet check filters to `Use \`rv ...\`` patterns (capital U) with `<placeholder>` —
+  navigation hints without placeholders (e.g. `rv project list`) are intentional shorthand.
+- `_first_sentence` uses `[.!?](?:\s|$)` regex — stops at sentence-ending periods only,
+  not at `.md` file extensions or section refs like `§5K.7`.
+- `_verb_subcommands` loads each verb's argparse parser at render time to get live subcommand
+  names — no hardcoded lists (except `_REVIEW_MAIN_SUBCMDS` for the Lit-review split).
+
+### Open / next
+- PR #TODO needs human-go merge (reviewer-gate class).
 ## 2026-07-03 (SR-CO: compute-onboarding — rv compute init + env-aware doctor seam)
 
 ### Done
