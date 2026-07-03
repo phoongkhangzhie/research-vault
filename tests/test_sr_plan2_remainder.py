@@ -5,7 +5,7 @@ Covers the three §5K.7 items deferred from PR #32:
   1. covers:/stance link-validation (the note.py touch)
        - Plan master: each covers: child EXISTS with valid stance + plan_role
        - BLOCKs on missing child, invalid/missing stance, invalid/missing plan_role
-       - Child note: supports_main target exists; warns if plan_role set but stance missing
+       - Child note: supports_main target exists; BLOCKS if plan_role set but stance missing
        - Child note: stance=confirmatory but absent from any plan master's covers:
 
   2. rv result assert — predicate-assertion verb
@@ -271,8 +271,8 @@ class TestChildNoteValidation:
         cfg = load_config()
         return cmd_check("demo-research", config=cfg)
 
-    def test_plan_role_without_stance_warns(self, tmp_instance):
-        """A child note with plan_role but no stance → violation (stance required)."""
+    def test_plan_role_without_stance_blocks(self, tmp_instance):
+        """A child note with plan_role but no stance → violation (BLOCKS; stance required)."""
         exp_dir = self._exp_dir(tmp_instance)
         _exp_note(exp_dir, "q1-main1", plan_role="main")  # no stance
 
@@ -323,8 +323,8 @@ class TestChildNoteValidation:
             f"Valid supports_main target should pass; got: {violations}"
         )
 
-    def test_confirmatory_absent_from_covers_warns(self, tmp_instance):
-        """stance=confirmatory + plan_role but NOT in any plan master's covers: → violation."""
+    def test_confirmatory_absent_from_covers_blocks(self, tmp_instance):
+        """stance=confirmatory + plan_role but NOT in any plan master's covers: → violation (BLOCKS)."""
         exp_dir = self._exp_dir(tmp_instance)
         # Plan master exists but does NOT list q1-main1 in covers:
         _exp_note(exp_dir, "q1-plan", plan_kind="preregistration", covers="[q1-main2]")

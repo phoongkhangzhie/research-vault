@@ -1,3 +1,29 @@
+## 2026-07-02 (repo-hygiene — PR #44 de-commingled + 4 doc cleanups)
+
+### Done
+- De-commingled PR #44: merged origin/main; lint code (lint.py +138, test_lint_rules.py,
+  test_sr8.py) collapsed back to main (already present via PR #42). Branch is now doc/config-only.
+- Cleanup 1: genericized `~/vault/projects.json` → `projects.json` in architecture.md (line 124).
+  Lines 5/37 (standalone boundary Mermaid) intentionally left as ~/vault.
+- Cleanup 2: added architecture.md to CI leakage scan targets in ci.yml. Scan verified clean.
+- Cleanup 3 (#19): reconciled warns-vs-blocks docstring divergence in note.py cmd_check.
+  Child-note checks (plan_role-but-no-stance, confirmatory-absent-from-covers, dangling
+  supports_main) were documented as "warns" but actually BLOCK. Fixed docstring + renamed
+  2 misleading test methods to _blocks. Behavior unchanged; all 1393 tests pass.
+- Cleanup 4: added SSOT comment header to doctrine/standards.md documenting the ~/vault
+  Astro-mirror drift risk. Cross-repo CI guard not feasible from OSS repo; noted as follow-up.
+- CI green on pushed head a0cd7bf13942ed99 (both CI workflow runs: success).
+
+### Decisions
+- Path genericization: `projects.json` (not `<vault-root>/projects.json`) — simpler.
+- Docstring reconciliation direction: BLOCK, not weaken — strict-by-design per §5K.7.
+- Standards.md drift guard: comment-only header (no test) — cross-repo CI not feasible;
+  documented as a ~/vault-side follow-up rather than over-building.
+
+### Open / next
+- PR #44 awaits human-go merge (crew cannot self-approve).
+- ~/vault standards.md drift-guard is a follow-up task.
+
 ## 2026-07-02 (lint-rule7-indirected — task #18 rule-7 indirected + F811 ast.Match)
 
 ### Done
