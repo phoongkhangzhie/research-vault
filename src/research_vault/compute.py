@@ -203,26 +203,12 @@ def _scaffold_manifest(*, has_scheduler: str | None = None) -> dict[str, Any]:
                     # auto-apply from remote.py — omit unless overriding
                 },
                 # === OPTIONAL: data-transfer node (DTN) — same filesystem as compute-node ===
-                # Uncomment and fill this block if your cluster has a dedicated DTN.
                 # A DTN is archetype: ssh (plain ssh — no scheduler); use it for big downloads
                 # and dataset/checkpoint staging. The compute-node shares the same filesystem,
                 # so files staged here are visible there at the same path.
                 # Set host_group to the SAME value as compute-node above.
-                #
-                # "transfer-node": {
-                #     "archetype": "ssh",
-                #     "host": "FILL — ssh host alias for the data-transfer node",
-                #     "host_group": "FILL — same value as compute-node's host_group",
-                #     "when_to_use": (
-                #         "Big downloads + dataset/checkpoint STAGING here (plain ssh; "
-                #         "high-bandwidth DTN). Same filesystem as compute-node. "
-                #         "Anti-pattern: do NOT submit jobs on the DTN — there is no "
-                #         "scheduler here; submit on 'compute-node'."
-                #     ),
-                # },
-                #
-                # After filling, add "transfer-node" to the active list:
-                #   "active": ["compute-node", "transfer-node"]
+                # To activate: fill in host + host_group + when_to_use, then add "transfer-node"
+                # to the active list: "active": ["compute-node", "transfer-node"]
                 "transfer-node": {
                     "archetype": "ssh",
                     "host": (
