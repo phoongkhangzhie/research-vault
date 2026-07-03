@@ -1,3 +1,45 @@
+## 2026-07-03 (SR-CO: compute-onboarding — rv compute init + env-aware doctor seam)
+
+### Done
+- **rv compute init**: guided scaffold writes `compute_manifest.json` (local backend,
+  remote cluster FILL block with archetype pre-detected from local sbatch/qsub, W&B
+  entity/project FILL block, seeded gpu_tiers). Refuses to clobber without `--force`.
+  No secrets in manifest — leakage-clean by construction.
+- **Env-aware rv doctor**: iterates declared backends instead of only-local. Local backend
+  fully probed (today's probes, unchanged). Remote backends (ssh/ssh+slurm/ssh+pbs)
+  honestly reported as "declared; remote probe = SR-CO-REMOTE" — never silently skipped
+  (charter §2). Cache shape changed to per-backend `{backend: {ts, capabilities}}`;
+  flat legacy cache normalised to per-backend for back-compat.
+- **_ssh_exec extracted** from `adapters/remote.py`: shared SSOT `_ssh_exec()` pulled
+  out of the two inlined calls in `_run_status`; `_run_status` delegates to it. All
+  existing SR-7 tests pass unchanged. SR-CO-REMOTE builds on this seam.
+- **W&B manifest block**: `_resolve_wandb_from_manifest()` in `wandb_pull.py` reads
+  entity/project from `results.wandb`; `wandb_pull()` uses it as fallback when env
+  unset (env-over-config; FILL sentinel treated as unconfigured).
+- **compute-run-recipe.md** shipped as package data (`data/doctrine/`): before-you-
+  submit one-pager naming the three commands + anti-patterns.
+- **research-loop.json run nodes wired**: every `run` node carries
+  `reads: ["doctrine/compute-run-recipe.md#how to run here"]`.
+- **rv check nudge**: warns when `compute_manifest.json` absent with exact command.
+- **cli.py, init.py, QUICKSTART.md**: DECLARE→DISCOVER order surfaced everywhere.
+- **37 new tests** in `test_sr_co.py`; `test_sr6.py` updated to per-backend shape.
+
+### Decisions
+- D-CO-3 confirmed: `rv compute init` is separate from `rv init` (cluster facts are
+  user-specific; auto-scaffolding at init buys little and clutters local-only setups).
+- D-CO-6 confirmed: phased — SR-CO ships the seam; SR-CO-REMOTE ships the actual
+  remote ssh probe (BatchMode, sinfo GRES GPU discovery, not login-node nvidia-smi).
+- Cache shape changed to per-backend (breaking for any code reading `result["capabilities"]`
+  directly — only `test_sr6.py` needed updating; no other callers).
+
+### Open / next
+- **SR-CO-REMOTE**: remote ssh probe — `_ssh_exec` with BatchMode + ConnectTimeout,
+  scheduler-aware GPU discovery (`sinfo -o '%P %G %D'`), per-backend cache population,
+  clean "cluster unreachable" degrade. Seam is in place.
+- PR on feat/sr-co at SHA 85cfa07 — hub opens PR; awaits reviewer + Wren fit-check.
+
+---
+
 ## 2026-07-03 (lit-review loop hardening: Fix #34 reads:-gate + Fix #32 corpus-dedup)
 
 ### Done
