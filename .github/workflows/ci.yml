@@ -56,6 +56,11 @@ jobs:
       - name: Run leakage scanner over src/research_vault/data/examples/
         run: bash scripts/leakage_scan.sh src/research_vault/data/examples
 
+      # SR-CCB: CLAUDE.md.tmpl ships in the wheel and gets written to every
+      # adopter's instance root — must be leakage-clean (publish-bound).
+      - name: Run leakage scanner over src/research_vault/data/templates/
+        run: bash scripts/leakage_scan.sh src/research_vault/data/templates
+
       - name: Run leakage scanner over DEVLOG.md
         run: bash scripts/leakage_scan.sh DEVLOG.md
 
