@@ -28,6 +28,43 @@
 
 ### Open / next
 - PR open for reviewer-gate review (#23).
+## 2026-07-02 (SR-GAP-ROUTE / SR-LR-3 — gap-loop router, read-vs-run)
+
+### Done
+- **SR-GAP-ROUTE (SR-LR-3)**: gap-loop router complete. `suggest_route()` pure
+  function (per-type table + Tier-B section split per §5L.14–5L.15). Route tokens:
+  `ROUTE_LITERATURE`, `ROUTE_EXPERIMENT`, `ROUTE_TRIAGE`. `suggested_route:` field
+  written to `gaps/<id>.md` frontmatter at scan time (idempotent).
+- **Route-aware `cmd_gap_scope`**: `--target {literature|experiment}` with default
+  from gap note's `suggested_route`. Literature arm = SR-LR-2 behavior unchanged.
+  Experiment arm: creates `experiments/<id>-plan.md` with `plan_kind: preregistration`,
+  research question ← gap.claim verbatim (anti-fabrication spine), `covers:` skeleton,
+  diagnosis-table stub that passes K-2 shape-lint; writes `_gap-context.md` adjacent
+  with SR-PLAN-1 next-step chain. Zero new DAG mechanism.
+- **`gap-route` alias**: thin alias for `gap-scope` (discoverability per §5L.17).
+- **`gap-list` subcommand**: `--status proven-open` = the run-candidate queue.
+- **`proven_open_count()`**: new function; `rv status` surfaces proven-open count
+  in Needs Attention when > 0. Run NEVER auto-fires.
+- **Tier B section threading** (§5L.15 D-ROUTE-2): additive ~15 lines. `SupportVerdict`
+  gains optional `section: str = ""` field (back-compat). `to_meta_dict()` emits
+  `section`. `match_support()` accepts `section=` parameter. `check_support_tally`
+  threads `tex.stem` as `section` into each `match_support` call. `_detect_absent_rows`
+  reads `section` from verdict meta → `GapRecord._meta['section']` → `suggest_route()`
+  auto-splits absent_row by section (intro→literature, results→experiment, none→triage).
+- **Honest bound**: router suggests; run never auto-fires. Human-go at gap-route AND
+  at SR-PLAN-1's own `human-go-plan` gate. Two existing gates, no new one.
+- **Tests**: 44 acceptance tests (test_sr_gap_route.py); red-before-green confirmed.
+  Full suite: 1577 passed, 37 skipped.
+- `rv lint` clean; `rv help --check` OK (28 verbs); leakage clean on all changed files.
+
+### Decisions
+- D-ROUTE-1: `--target` on `cmd_gap_scope` + `gap-route` alias (per locked operator decisions).
+- D-ROUTE-2: Tier A + Tier B both shipped (additive, back-compat).
+- D-ROUTE-3: diagnosis-table stub (not question-only).
+- D-ROUTE-4: results-ingestion arm deferred (out of scope per spec).
+
+### Open / next
+- Push + PR for Architect fit-check (Wren) → reviewer gate → human-go merge.
 
 ## 2026-07-02 (sr-lr-2 block-fix — D-GAP-3 structured binding, attribution fix)
 

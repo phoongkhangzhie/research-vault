@@ -493,6 +493,24 @@ def cmd_status(
     except Exception:
         pass
 
+    # --- Proven-open run-candidate count (SR-GAP-ROUTE §5L.16) ---
+    # Surfaces the COUNT only — proven-open gaps are run-candidates that survived
+    # the read cascade without closing. A non-zero count is a prompt to author
+    # an experiment via `rv review gap-scope --target experiment` (human-go required).
+    # The run NEVER auto-fires; this is a rejects-only screen surfacing decided work.
+    try:
+        from research_vault.review.gap_scan import proven_open_count
+        n_proven_open = proven_open_count(project, config=cfg)
+        if n_proven_open > 0:
+            attention.append(
+                f"{n_proven_open} proven-open gap(s) are run-candidates — "
+                f"targeted lit pass saturated without closing. "
+                f"Run `rv review gap-scope {project} <gap-id> <scope> --target experiment` "
+                f"to author an experiment plan (human-go required; run never auto-fires)"
+            )
+    except Exception:
+        pass
+
     if attention:
         lines.append("## Needs Attention")
         for a in attention:
