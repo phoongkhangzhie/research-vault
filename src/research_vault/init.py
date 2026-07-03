@@ -428,6 +428,7 @@ def cmd_init_in_dir(target_dir: str) -> int:
         Config, _load_toml, _expand_paths, _default_config, _merge, reset_config_cache,
     )
     from .build_agents import cmd_build as _cmd_build_agents
+    from .project import DEFAULT_ROSTER as _DEFAULT_ROSTER
     try:
         _defaults = _default_config()
         _raw = _load_toml(config_path)
@@ -452,7 +453,7 @@ def cmd_init_in_dir(target_dir: str) -> int:
         # exist.  A silent zero-exit with 0 files is more dangerous than a loud failure.
         _agents_dir = _instance_root / ".claude" / "agents"
         _present = list(_agents_dir.glob("*.md")) if _agents_dir.is_dir() else []
-        _expected_count = 6  # DEFAULT_ROSTER (5) + architect
+        _expected_count = len(_DEFAULT_ROSTER) + 1  # DEFAULT_ROSTER roles + architect
         if len(_present) < _expected_count:
             _missing = _expected_count - len(_present)
             print(

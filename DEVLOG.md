@@ -1,3 +1,28 @@
+## 2026-07-03 (SR-CCB fast-follow: doc-verb audit covers .tmpl files)
+
+### Done
+- **CCB audit coverage** (`feat/ccb-audit-coverage`): Closed the .tmpl coverage hole Wren
+  caught in the #62 re-fit. Added `_iter_audit_files()` classmethod as SSOT for the file
+  set (*.md + *.tmpl); restricted `_collect_rv_verbs()` to code contexts (backtick-quoted
+  inline + fenced blocks) so prose "rv verbs" phrases don't false-positive; updated the main
+  gate test to use the new helper; added three supporting tests proving CLAUDE.md.tmpl and
+  CONTRACT.md.tmpl are permanently guarded.
+- **init.py magic number**: `_expected_count = 6` → `len(DEFAULT_ROSTER) + 1` so the count
+  tracks roster changes automatically.
+
+### Decisions
+- Scoped regex to backtick/fenced-code (not all prose): matches Wren's recommendation and is
+  semantically correct — the gate lints commands adopters will type, not English text. The
+  prose "rv verbs" phrases in CLAUDE.md.tmpl lines 14/44 are legitimate documentation.
+- Added `_iter_audit_files()` classmethod as the single file-iteration SSOT rather than
+  duplicating `rglob` calls — tests and gate share the same logic, so a future extension
+  (e.g. *.tex) only needs one change.
+
+### Open / next
+- PR needs hub to open (identity guard: crew cannot self-approve).
+
+---
+
 ## 2026-07-03 (SR-CCB — Claude Code binding: rv init boots Alfred + crew)
 
 ### Done
