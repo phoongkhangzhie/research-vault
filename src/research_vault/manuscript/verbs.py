@@ -324,28 +324,21 @@ def run(args: argparse.Namespace) -> int:
                 else:
                     print("  Layer-1 clean — no internal-provenance leaks in body sections.")
 
-                # Layer-2: LLM cold-read judge — requires RV_JUDGE_MODEL + ANTHROPIC_API_KEY
-                # Fails LOUD if either is absent (parallel to --semantic guard).
-                import os as _os_cr
-                _cr_judge_model = _os_cr.environ.get("RV_JUDGE_MODEL", "").strip()
-                _cr_api_key = _os_cr.environ.get("ANTHROPIC_API_KEY", "").strip()
-                if not _cr_judge_model or not _cr_api_key:
-                    _cr_missing = []
-                    if not _cr_judge_model:
-                        _cr_missing.append("RV_JUDGE_MODEL")
-                    if not _cr_api_key:
-                        _cr_missing.append("ANTHROPIC_API_KEY")
+                # Layer-2: LLM cold-read judge — requires RV_JUDGE_MODEL + ANTHROPIC_API_KEY.
+                # Calls the tested cold_read_layer2_env_guard() (reuse-over-create, charter §6).
+                from research_vault.manuscript.coldread import cold_read_layer2_env_guard
+                try:
+                    _cr_judge_model, _ = cold_read_layer2_env_guard()
+                except RuntimeError as _cr_env_err:
                     print(
-                        f"rv manuscript check --cold-read (Layer-2): FAIL — "
-                        f"env var(s) required but absent: {', '.join(_cr_missing)}. "
-                        f"Set them to the Opus-tier model ID and API key. "
+                        f"rv manuscript check --cold-read (Layer-2): {_cr_env_err}\n"
                         f"Layer-1 (deterministic) ran above; Layer-2 (LLM judge) skipped.",
                         file=sys.stderr,
                     )
-                    # Still return error if Layer-1 had hits
+                    # Layer-2 env missing is an error — return 1 regardless of Layer-1
                     if _leak_errors:
                         return 1
-                    return 1  # Layer-2 missing env is itself an error
+                    return 1
 
                 from research_vault.manuscript.check_gates import check_cold_read_tally
                 _cr_tally = check_cold_read_tally(

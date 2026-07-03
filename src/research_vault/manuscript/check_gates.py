@@ -1497,6 +1497,16 @@ def check_cold_read_tally(
             "meta": result.to_meta_dict(),
         }
 
+    # UNPARSEABLE judge output → fail-closed BLOCK (before Flag-A and individual flags)
+    if result.overall == "UNPARSEABLE":
+        errors.append(
+            "cold-read [UNPARSEABLE] BLOCK: judge returned malformed output on the real "
+            "paper (no SUMMARY block or unrecognized OVERALL token). "
+            "Flag-A is deterministic and covers hash/path shapes only — a malformed "
+            "real-paper response cannot certify the paper. "
+            "Check judge model / rubric wiring and re-run."
+        )
+
     # Flag-A hits → deterministic BLOCK (belt-and-suspenders, independent of LLM)
     for hit in result.flag_a_hits:
         errors.append(f"cold-read [Flag-A] BLOCK: {hit}")

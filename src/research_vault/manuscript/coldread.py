@@ -476,8 +476,17 @@ class ColdReadResult:
 
     @property
     def blocks(self) -> bool:
-        """True iff this result causes a BLOCK (DANGLING LLM flag or any Flag-A hit)."""
-        return self.block_count > 0 or len(self.flag_a_hits) > 0
+        """True iff this result causes a BLOCK.
+
+        Blocks on: DANGLING LLM flag, any Flag-A hit, OR unparseable judge output.
+        UNPARSEABLE is a fail-closed sentinel: a judge that passes the canaries but
+        returns malformed output on the real paper cannot certify it — it blocks.
+        """
+        return (
+            self.block_count > 0
+            or len(self.flag_a_hits) > 0
+            or self.overall == "UNPARSEABLE"
+        )
 
     @property
     def warns(self) -> bool:
@@ -502,10 +511,16 @@ class ColdReadResult:
 def _parse_coldread_response(raw: str) -> tuple[list[ColdReadFlag], str, int, int]:
     """Parse the cold-read judge response into (flags, overall, block_count, warn_count).
 
-    Returns ([], "STANDS-ALONE", 0, 0) when SUMMARY is absent or unparseable —
-    STANDS-ALONE is the safe default (note: this is an optimistic parse default,
-    but the canary gates guard against a trivially-passing judge, and Flag-A adds
-    an independent deterministic check).
+    FAIL-CLOSED: if the SUMMARY block is absent or the OVERALL token is unparseable,
+    returns overall="UNPARSEABLE" (never "STANDS-ALONE"). Callers must treat
+    UNPARSEABLE as a BLOCK — not a silent pass.
+
+    Rationale: a judge that passes both canary probes (well-formed responses on the
+    known probes) but returns malformed output on the REAL paper cannot be trusted on
+    that paper. Flag-A is deterministic but covers only hash/path shapes; it cannot
+    catch semantic danglings (undefined term, broken cross-ref, provenance-pointer prose)
+    that the LLM would have caught. Defaulting to STANDS-ALONE on a malformed response
+    would let those semantic danglings ship silently. Fail closed instead.
 
     Parses the FLAG block format from the rubric:
       FLAG:
@@ -546,20 +561,25 @@ def _parse_coldread_response(raw: str) -> tuple[list[ColdReadFlag], str, int, in
                 missing=m.group(5).strip()[:300],
             ))
 
-    # Parse SUMMARY block
-    overall = "STANDS-ALONE"  # safe default (guarded by canary + Flag-A)
+    # Parse SUMMARY block — FAIL-CLOSED: absent/malformed SUMMARY → "UNPARSEABLE"
+    # "UNPARSEABLE" is a sentinel that callers MUST treat as a BLOCK, never a pass.
+    overall = "UNPARSEABLE"
     block_count = 0
     warn_count = 0
 
-    summary_overall_re = re.compile(
-        r"OVERALL:\s*(\[[\w-]+\])",
-        re.IGNORECASE,
-    )
-    m_overall = summary_overall_re.search(raw)
-    if m_overall:
-        extracted_overall = _extract_coldread_verdict(m_overall.group(1).strip())
-        if extracted_overall:
-            overall = extracted_overall
+    has_summary = bool(re.search(r"\bSUMMARY:", raw, re.IGNORECASE))
+    if has_summary:
+        summary_overall_re = re.compile(
+            r"OVERALL:\s*(\[[\w-]+\])",
+            re.IGNORECASE,
+        )
+        m_overall = summary_overall_re.search(raw)
+        if m_overall:
+            extracted_overall = _extract_coldread_verdict(m_overall.group(1).strip())
+            if extracted_overall:
+                overall = extracted_overall
+            # else: OVERALL token unrecognized → stays "UNPARSEABLE"
+        # else: SUMMARY block present but no OVERALL line → stays "UNPARSEABLE"
 
     m_block = re.search(r"BLOCK_COUNT:\s*(\d+)", raw, re.IGNORECASE)
     if m_block:
@@ -780,17 +800,18 @@ def run_cold_read(
     flags, overall, block_count, warn_count = _parse_coldread_response(raw_response)
 
     # ── 4. Merge Flag-A into the overall verdict (Flag-A always blocks) ───────
-    # If Flag-A has hits, the overall must be at least DANGLING.
+    # If Flag-A has hits and the LLM said STANDS-ALONE, escalate to DANGLING.
+    # If the LLM output was UNPARSEABLE (fail-closed sentinel), leave it as-is —
+    # UNPARSEABLE already blocks, and escalating to DANGLING would mask the root cause.
     if flag_a_hits and overall == "STANDS-ALONE":
         overall = "DANGLING"
 
-    # Compose honest report
-    # Use paragraph/section count as "passages" (the judge read the whole paper).
-    # Report Flag-A separately to be transparent about the two-source verdict.
+    # Compose honest report (transparent about both LLM and Flag-A sources)
     n_flag_a = len(flag_a_hits)
+    _unparseable_note = " (UNPARSEABLE output — fail-closed BLOCK)" if overall == "UNPARSEABLE" else ""
     honest_report = (
         f"1 paper, {block_count} LLM BLOCK, {warn_count} LLM WARN, "
-        f"{n_flag_a} Flag-A BLOCK"
+        f"{n_flag_a} Flag-A BLOCK{_unparseable_note}"
     )
 
     return ColdReadResult(
