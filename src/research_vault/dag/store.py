@@ -12,13 +12,28 @@ Run state JSON structure:
         "status": "pending",
         "started_at": null,
         "completed_at": null,
-        "error": null
+        "error": null,
+        "attempts": 0,
+        "last_failure": null,
+        "failures": []
       }
     },
     "edge_registered_ts": {
       "node-b:node-a:0": 1720000000.0
     }
   }
+
+SR-RETRY fields (§5I.5, SR-RETRY):
+  attempts     — persisted count of failed attempts so far (default 0; incremented at FAIL,
+                 D-RETRY-5). The retry-decision input: retry fires iff attempts < max_retries.
+  last_failure — the latest failure summary string (length-capped ~4000 chars) persisted on
+                 --status failed. Single string threaded into the re-dispatch augmentation.
+                 Retained across retry-resets; cleared only if node is re-created.
+  failures     — append-only per-attempt history [{attempt, summary, ts}, ...].
+                 Retained on retry-reset AND on terminal exhaustion (D-RETRY-7 = both).
+                 Gives the downstream human diagnostician the full failure trajectory.
+  NOTE: the walker (compute_frontier) reads NONE of these fields — they are part of
+  node_states (the pure walker input) but the walker is byte-for-byte unchanged (§5I.1).
 
 Valid statuses:
   pending      — not yet started
@@ -157,6 +172,10 @@ class RunState:
                     "started_at": None,
                     "completed_at": None,
                     "error": None,
+                    # SR-RETRY: retry state fields (§5I.5) — walker never reads these
+                    "attempts": 0,
+                    "last_failure": None,
+                    "failures": [],
                 }
             # Register timestamps for afterok+watch edges
             for idx, need in enumerate(node.get("needs", [])):

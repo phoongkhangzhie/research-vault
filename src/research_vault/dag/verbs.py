@@ -1,4 +1,4 @@
-"""verbs.py — `rv dag` verb implementations for Research Vault (SR-3 + SR-SCOPE).
+"""verbs.py — `rv dag` verb implementations for Research Vault (SR-3 + SR-SCOPE + SR-RETRY).
 
 Verbs:
   rv dag run <manifest>
@@ -79,6 +79,30 @@ _STATUS_SYMBOL: dict[str, str] = {
     "awaiting-go": "  ⏸",
 }
 
+# ---------------------------------------------------------------------------
+# SR-RETRY: diagnose-before-retry doctrine string (§5I.5b, D-RETRY-8)
+# ---------------------------------------------------------------------------
+#
+# This constant is prepended to every attempt-k>0 re-dispatch (whenever attempts > 0).
+# It is FIXED and UNREMOVABLE — a project's retry_diagnosis_tips seam may APPEND to
+# it, but cannot replace it. The teeth (root-cause-first; no blind-repeat) are structural.
+#
+# Compose: the root-cause-first engineer doctrine (doctrine/standards.md) applied to the
+# DAG loop. The same "diagnose-before-fix" stance, instantiated for a retried agent node.
+
+RETRY_DIAGNOSIS_DIRECTIVE = (
+    "RETRY — attempt {attempt_k} of {total_attempts}. "
+    "This node FAILED on the previous attempt. Do NOT blind-repeat.\n"
+    "Your FIRST act is to root-cause the prior failure below — read it, reproduce your "
+    "understanding of *why* it failed, and only then decide your action. "
+    "If the failure is genuinely TRANSIENT (an infra flake, a rate limit, a nondeterministic "
+    "timeout) and the identical work should simply be re-run, say so explicitly and proceed — "
+    "'transient, re-running' is a valid fast conclusion. "
+    "If it is DETERMINISTIC (a bug, a bad assumption, a wrong input), you MUST change your "
+    "approach — repeating the identical failing action is forbidden.\n"
+    "PRIOR FAILURE: {last_failure}"
+)
+
 
 def _sym(status: str) -> str:
     return _STATUS_SYMBOL.get(status, f"  ?({status})")
@@ -88,7 +112,11 @@ def _sym(status: str) -> str:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _print_frontier(frontier: list[FrontierNode], run_id: str) -> None:
+def _print_frontier(
+    frontier: list[FrontierNode],
+    run_id: str,
+    node_states: dict[str, dict] | None = None,
+) -> None:
     """Print frontier items and actionable commands.
 
     SR-DISP: DISPATCH lines carry the spec pointer and dispatch mode:
@@ -99,6 +127,11 @@ def _print_frontier(frontier: list[FrontierNode], run_id: str) -> None:
       FRESH — spec:<ptr> — reads: <p1>, <p2>, …
       CONTINUES <node> — <reason> — spec:<ptr> — reads: <p1>, <p2>, …
     When reads: is absent the suffix is omitted (non-breaking additive suffix).
+
+    SR-RETRY: for a dispatch node with attempts > 0, renders the diagnose-first block
+    (RETRY_DIAGNOSIS_DIRECTIVE + optional retry_diagnosis_tips from the node). The
+    block appears AFTER the mode line so it's immediately visible to the agent runtime.
+    No block is rendered for attempts == 0 (first dispatch).
     """
     if not frontier:
         print("  (frontier empty — all nodes terminal or waiting for external conditions)")
@@ -106,7 +139,16 @@ def _print_frontier(frontier: list[FrontierNode], run_id: str) -> None:
     for item in frontier:
         label = item.node.get("label", item.node_id)
         if item.action == "dispatch":
+            # SR-RETRY: read attempts from node_states to decide if this is a retry dispatch
+            ns = (node_states or {}).get(item.node_id, {})
+            attempts = ns.get("attempts", 0)
+            last_failure = ns.get("last_failure")
+            max_retries = item.node.get("max_retries", 0)
+
             print(f"  → DISPATCH  [{item.node_id}] {label}")
+            # SR-RETRY: retry indicator in the header line
+            if attempts > 0:
+                print(f"      attempt {attempts + 1}/{max_retries + 1}")
             # SR-DISP: print mode line (spec pointer + fresh/continues mode)
             spec = item.node.get("spec", "")
             continues = item.node.get("continues")
@@ -130,6 +172,26 @@ def _print_frontier(frontier: list[FrontierNode], run_id: str) -> None:
                 if refs:
                     mode_line += f" — reads: {', '.join(refs)}"
             print(mode_line)
+            # SR-RETRY: render diagnose-first block only on retry dispatches (attempts > 0)
+            if attempts > 0:
+                failure_summary = last_failure or "(no summary captured)"
+                directive = RETRY_DIAGNOSIS_DIRECTIVE.format(
+                    attempt_k=attempts + 1,
+                    total_attempts=max_retries + 1,
+                    last_failure=failure_summary,
+                )
+                # Append optional per-node retry_diagnosis_tips (D-RETRY-8 seam)
+                tips = item.node.get("retry_diagnosis_tips")
+                if tips:
+                    if isinstance(tips, str):
+                        directive += f"\nDOMAIN TIPS: {tips}"
+                    elif isinstance(tips, list):
+                        directive += "\nDOMAIN TIPS:\n" + "\n".join(f"  - {t}" for t in tips)
+                print("      ---")
+                print("      DIAGNOSE FIRST:")
+                for line in directive.splitlines():
+                    print(f"      {line}")
+                print("      ---")
         elif item.action == "await-go":
             print(f"  ⏸ AWAIT-GO  [{item.node_id}] {label}")
             print(f"      run: rv dag approve {run_id} {item.node_id}")
@@ -421,8 +483,17 @@ def cmd_tick(args: argparse.Namespace) -> int:
 # Verb: complete
 # ---------------------------------------------------------------------------
 
+_FAILURE_SUMMARY_MAX_CHARS = 4000  # SR-RETRY: cap stored failure summaries (§5I.2)
+
+
 def cmd_complete(args: argparse.Namespace) -> int:
-    """Mark a node complete and re-print the frontier."""
+    """Mark a node complete and re-print the frontier.
+
+    SR-RETRY: on --status failed, reads --error / --error-file, persists
+    last_failure + failures[], increments attempts.  If attempts_before <
+    max_retries → resets to pending (retry-queued); else → terminal failed.
+    --error is REQUIRED when the node's max_retries > 0 (D-RETRY-9).
+    """
     run_id = args.run_id
     node_id = args.node_id
     status = getattr(args, "status", "succeeded") or "succeeded"
@@ -468,9 +539,95 @@ def cmd_complete(args: argparse.Namespace) -> int:
         )
         return 0
 
+    node = nodes_lookup[node_id]
+
+    # ── SR-RETRY: failure capture + retry-reset logic ─────────────────────────
+    # This block runs BEFORE the OKF produces check (which is succeeded-only)
+    # and BEFORE set_node_status, so it controls whether we reach terminal failed
+    # or retry-reset to pending.
+    if status == "failed":
+        max_retries: int = node.get("max_retries", 0)
+
+        # Read failure summary from --error / --error-file (D-RETRY-9)
+        error_summary: str | None = getattr(args, "error", None)
+        error_file: str | None = getattr(args, "error_file", None)
+
+        if error_file:
+            try:
+                raw = Path(error_file).read_text(encoding="utf-8")
+                # Length-cap to avoid bloating state files on stack-trace dumps
+                error_summary = raw[:_FAILURE_SUMMARY_MAX_CHARS]
+            except OSError as e:
+                print(
+                    f"rv dag complete: cannot read --error-file {error_file!r}: {e}",
+                    file=sys.stderr,
+                )
+                return 1
+
+        if error_summary is not None:
+            error_summary = error_summary[:_FAILURE_SUMMARY_MAX_CHARS]
+
+        # D-RETRY-9: --error REQUIRED when max_retries > 0 (a retriable failure
+        # with no captured summary IS a blind retry — reject it structurally).
+        if max_retries > 0 and not error_summary:
+            print(
+                f"rv dag complete: --error <summary> or --error-file <path> is REQUIRED "
+                f"when completing a retriable node ({node_id!r} has max_retries={max_retries}). "
+                f"A retry without a captured failure context is a blind retry — forbidden (D-RETRY-9).",
+                file=sys.stderr,
+            )
+            return 1
+
+        # Persist the failure: capture last_failure + append to failures[]
+        ns = run_state.node_states.setdefault(node_id, {})
+        attempts_before: int = ns.get("attempts", 0)
+        attempts_after = attempts_before + 1
+
+        ns["attempts"] = attempts_after
+        ns["last_failure"] = error_summary  # None when max_retries==0 and no --error
+        failures_list: list[dict] = ns.get("failures", [])
+        failures_list.append({
+            "attempt": attempts_after,
+            "summary": error_summary or "",
+            "ts": time.time(),
+        })
+        ns["failures"] = failures_list
+
+        if attempts_before < max_retries:
+            # RETRY-QUEUED: reset to pending — the walker re-surfaces it as dispatch
+            # Clear transient fields; RETAIN last_failure/failures (the diagnosis payload)
+            ns["status"] = "pending"
+            ns["completed_at"] = None
+            ns["error"] = None
+            ns["started_at"] = None  # per §5I.5: reset for truthful per-attempt timing
+
+            store.save(run_state)
+            print(
+                f"Node {node_id!r} RETRY-QUEUED "
+                f"(attempt {attempts_after}/{max_retries} used; resetting to pending)"
+            )
+            frontier = _recompute_awaiting_go(run_state, manifest, store)
+            print("Frontier:")
+            _print_frontier(frontier, run_id, node_states=run_state.node_states)
+            return 0
+        else:
+            # EXHAUSTED → terminal failed (D-RETRY-3)
+            # failures[] is retained for the human diagnostician
+            run_state.set_node_status(node_id, status)
+            store.save(run_state)
+            print(
+                f"Node {node_id!r} → {status} "
+                f"(retries exhausted: {attempts_after}/{max_retries} attempts)"
+            )
+            frontier = _recompute_awaiting_go(run_state, manifest, store)
+            print("Frontier:")
+            _print_frontier(frontier, run_id, node_states=run_state.node_states)
+            return 0
+
+    # ── For succeeded / blocked — original path below ─────────────────────────
+
     # OKF produces check: if the node has produces.note and status is succeeded,
     # validate the note's type:dir matches.
-    node = nodes_lookup[node_id]
     if status == "succeeded" and "produces" in node:
         produces = node["produces"]
         if "note" in produces:
@@ -534,7 +691,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
     print(f"Node {node_id!r} → {status}")
     frontier = _recompute_awaiting_go(run_state, manifest, store)
     print("Frontier:")
-    _print_frontier(frontier, run_id)
+    _print_frontier(frontier, run_id, node_states=run_state.node_states)
     return 0
 
 
@@ -864,9 +1021,19 @@ def cmd_status(args: argparse.Namespace) -> int:
         ns = run_state.node_states.get(nid, {})
         err = ns.get("error", "")
         err_str = f" [{err}]" if err else ""
-        print(f"  {sym} {nid}  ({status}){err_str}")
+        # SR-RETRY: show attempt progress on pending nodes with prior failures
+        attempts = ns.get("attempts", 0)
+        max_retries = node.get("max_retries", 0)
+        retry_str = f" [attempt {attempts + 1}/{max_retries + 1}]" if attempts > 0 else ""
+        print(f"  {sym} {nid}  ({status}){err_str}{retry_str}")
         if node.get("type") != "human-go" and label != nid:
             print(f"      {label}")
+        # SR-RETRY: for pending nodes with prior failures, print last_failure
+        if status == "pending" and attempts > 0:
+            last_failure = ns.get("last_failure")
+            if last_failure:
+                print(f"      PRIOR FAILURE: {last_failure[:200]}"
+                      + ("..." if len(last_failure) > 200 else ""))
 
     # Print awaiting-go commands
     awaiting = [
@@ -891,7 +1058,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         run_state.edge_registered_ts,
         manifest_global_cap(manifest),
     )
-    _print_frontier(frontier, run_id)
+    _print_frontier(frontier, run_id, node_states=run_state.node_states)
 
     return 0
 
@@ -943,6 +1110,29 @@ def build_parser(
         choices=["succeeded", "failed", "blocked"],
         default="succeeded",
         help="Completion status (default: succeeded).",
+    )
+    # SR-RETRY: failure capture for diagnose-before-retry (§5I, D-RETRY-9)
+    comp_p.add_argument(
+        "--error",
+        metavar="SUMMARY",
+        default=None,
+        help=(
+            "Short failure summary (SR-RETRY). "
+            "REQUIRED when --status failed and the node has max_retries > 0 (D-RETRY-9). "
+            "Persisted to node_states for diagnose-before-retry augmentation. "
+            "Optional when max_retries == 0 (still recorded for the human diagnostician)."
+        ),
+    )
+    comp_p.add_argument(
+        "--error-file",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Path to a file whose content is used as the failure summary (SR-RETRY). "
+            "Use for multi-line error output (stack traces, logs). "
+            "Content is truncated to 4000 chars. Mutually supplements --error; "
+            "if both supplied, --error-file takes precedence."
+        ),
     )
 
     # approve
