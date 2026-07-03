@@ -104,7 +104,14 @@ _DEFAULT_PLAN_TIPS: dict[str, str] = {
         "No ablation claim without an ablation run. "
         "No run without a named artifact. "
         "This is the anti-fabrication ground truth: the manuscript's result macros will read "
-        "hash-verified experiment notes — if there is no named artifact here, there is no result there."
+        "hash-verified experiment notes — if there is no named artifact here, there is no result there. "
+        "Statistical tests: if the plan uses a Shapiro-gated t vs. Wilcoxon/signed-rank decision, "
+        "note that scipy>=1.11 (the 'analysis' optional extra) provides these. "
+        "For small-n cases a stdlib fallback exists: the Wilcoxon signed-rank statistic and its "
+        "exact p-value can be computed without scipy using the sign-test or permutation-test "
+        "(import statistics, itertools). "
+        "Plans must NOT hard-depend on scipy being installed — state the fallback so the analysis "
+        "is runnable in a zero-extra environment."
     ),
     "freeze": (
         "The CONFIRMATORY set — the N mains + their supporting ablations + their conditional "
