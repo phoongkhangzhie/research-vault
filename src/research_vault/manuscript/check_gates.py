@@ -1365,6 +1365,180 @@ def check_support_tally(
 
 
 # ---------------------------------------------------------------------------
+# Cold-read tally gate (SR-MS-COLDREAD §5J.16.3 Layer-2)
+# ---------------------------------------------------------------------------
+
+def check_cold_read_tally(
+    tree_root: Path,
+    *,
+    judge_fn: "Any | None" = None,
+    judge_model: str = _DEFAULT_JUDGE_MODEL,
+    rubric_override: str | None = None,
+    config: "Any | None" = None,
+    pdf_text: str | None = None,
+) -> "dict[str, Any]":
+    """Run the LLM cold-read self-containment judge on the compiled PDF.
+
+    Two-layer gate (§5J.16.3):
+      Layer 1 (hermetic): Flag-A deterministic scan over pdftotext output —
+        same leak patterns as check_body_leakage() on .tex source, but applied
+        to the rendered PDF text (belt-and-suspenders). Runs inside run_cold_read().
+      Layer 2 (LLM): Ada's cold-read judge reads ONLY the pdftotext output and
+        flags every reference that doesn't resolve from the paper alone.
+
+    Bidirectional canary probes run before trusting any real verdict:
+      (a) known self-contained → judge must NOT flag [DANGLING]; else ABORT.
+      (b) known leaky → judge MUST flag [DANGLING] (BLOCK_COUNT≥2); else ABORT.
+
+    Args:
+        tree_root:       path to the manuscript artifact tree (manuscripts/<id>/).
+        judge_fn:        injectable LLM call (prompt: str) -> str. Mock in tests.
+        judge_model:     the model-id to log (D-AUD-5: Opus-tier).
+        rubric_override: optional rubric override (Ada's rubric via seam default).
+        config:          optional Config for rubric key lookup.
+        pdf_text:        optional pre-extracted pdftotext output. When None, this
+                         function attempts to call pdftotext on any PDF in tree_root;
+                         if pdftotext is absent or fails, falls back to reading main.tex.
+
+    Returns a dict with:
+      "flags":         list[ColdReadFlag] — per-issue LLM flags
+      "flag_a_hits":   list[str] — deterministic Flag-A hits
+      "overall":       STANDS-ALONE | DANGLING | NEEDS-CONTEXT
+      "block_count":   int — number of [DANGLING] flags from LLM
+      "warn_count":    int — number of [NEEDS-CONTEXT] flags from LLM
+      "honest_report": str — "1 paper, b LLM BLOCK, w LLM WARN, f Flag-A BLOCK"
+      "errors":        list[str] — BLOCK-level strings (for check_manuscript)
+      "warnings":      list[str] — WARN-level strings
+      "canary_aborted": bool
+      "meta":          dict — for RunState.meta["cold_read"] logging
+
+    BLOCK on [DANGLING] (LLM) or any Flag-A hit; WARN on [NEEDS-CONTEXT].
+    sr: SR-MS-COLDREAD
+    """
+    import shutil
+    import subprocess
+
+    from research_vault.manuscript.coldread import run_cold_read, ColdReadFlag
+
+    # ── Resolve pdftotext text ───────────────────────────────────────────────
+    resolved_pdf_text = pdf_text
+    if resolved_pdf_text is None:
+        pdf_files = list(tree_root.glob("*.pdf"))
+        if pdf_files and shutil.which("pdftotext"):
+            try:
+                r = subprocess.run(
+                    ["pdftotext", str(pdf_files[0]), "-"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if r.returncode == 0 and r.stdout.strip():
+                    resolved_pdf_text = r.stdout
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+
+        if resolved_pdf_text is None:
+            # Fallback: read main.tex + key sections (graceful degradation)
+            ms_text_parts: list[str] = []
+            main_tex = tree_root / "main.tex"
+            if main_tex.exists():
+                try:
+                    ms_text_parts.append(main_tex.read_text(encoding="utf-8", errors="replace")[:4000])
+                except OSError:
+                    pass
+            sections_dir = tree_root / "sections"
+            if sections_dir.exists():
+                for tex in sorted(sections_dir.glob("*.tex"))[:6]:
+                    try:
+                        ms_text_parts.append(tex.read_text(encoding="utf-8", errors="replace")[:1500])
+                    except OSError:
+                        pass
+            resolved_pdf_text = "\n\n".join(ms_text_parts) if ms_text_parts else ""
+
+    if not resolved_pdf_text.strip():
+        return {
+            "flags": [],
+            "flag_a_hits": [],
+            "overall": "STANDS-ALONE",
+            "block_count": 0,
+            "warn_count": 0,
+            "honest_report": "0 passages, 0 LLM BLOCK, 0 LLM WARN, 0 Flag-A BLOCK (no text extracted)",
+            "errors": [],
+            "warnings": ["cold-read: no PDF text extracted — pdftotext absent or PDF not compiled yet"],
+            "canary_aborted": False,
+            "meta": {},
+        }
+
+    # ── Run the cold-read judge ───────────────────────────────────────────────
+    result = run_cold_read(
+        resolved_pdf_text,
+        rubric_override=rubric_override,
+        config=config,
+        judge_fn=judge_fn,
+        judge_model=judge_model,
+    )
+
+    # ── Compose errors / warnings ─────────────────────────────────────────────
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if result.canary_aborted:
+        errors.append(
+            f"cold-read gate ABORTED: {result.abort_reason}"
+        )
+        return {
+            "flags": [],
+            "flag_a_hits": result.flag_a_hits,
+            "overall": "STANDS-ALONE",
+            "block_count": 0,
+            "warn_count": 0,
+            "honest_report": result.honest_report,
+            "errors": errors,
+            "warnings": warnings,
+            "canary_aborted": True,
+            "meta": result.to_meta_dict(),
+        }
+
+    # UNPARSEABLE judge output → fail-closed BLOCK (before Flag-A and individual flags)
+    if result.overall == "UNPARSEABLE":
+        errors.append(
+            "cold-read [UNPARSEABLE] BLOCK: judge returned malformed output on the real "
+            "paper (no SUMMARY block or unrecognized OVERALL token). "
+            "Flag-A is deterministic and covers hash/path shapes only — a malformed "
+            "real-paper response cannot certify the paper. "
+            "Check judge model / rubric wiring and re-run."
+        )
+
+    # Flag-A hits → deterministic BLOCK (belt-and-suspenders, independent of LLM)
+    for hit in result.flag_a_hits:
+        errors.append(f"cold-read [Flag-A] BLOCK: {hit}")
+
+    # LLM [DANGLING] flags → BLOCK
+    for fl in result.flags:
+        if fl.verdict == "DANGLING":
+            errors.append(
+                f"cold-read [DANGLING] BLOCK: span: '{fl.span[:120]}' — "
+                f"kind: {fl.kind} — missing: {fl.missing[:200]}"
+            )
+        elif fl.verdict == "NEEDS-CONTEXT":
+            warnings.append(
+                f"cold-read [NEEDS-CONTEXT] WARN: span: '{fl.span[:120]}' — "
+                f"kind: {fl.kind} — missing: {fl.missing[:200]}"
+            )
+
+    return {
+        "flags": result.flags,
+        "flag_a_hits": result.flag_a_hits,
+        "overall": result.overall,
+        "block_count": result.block_count,
+        "warn_count": result.warn_count,
+        "honest_report": result.honest_report,
+        "errors": errors,
+        "warnings": warnings,
+        "canary_aborted": False,
+        "meta": result.to_meta_dict(),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Critic node logic (SR-MS-2 §5J.13-A (2))
 # ---------------------------------------------------------------------------
 
@@ -1520,6 +1694,9 @@ def build_approve_payload(
     rubric_override: str | None = None,
     config: "Any | None" = None,
     page_limit: int | None = None,
+    cold_read_judge_fn: "Any | None" = None,
+    cold_read_rubric_override: str | None = None,
+    cold_read_pdf_text: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the full approve-manuscript human-go DECISION payload (§5J.13-D).
 
@@ -1645,6 +1822,23 @@ def build_approve_payload(
                 if r.status.startswith("warn"):
                     warnings.append(f"naked-cite: {r.payload_line}")
 
+    # ── Gate 10: cold-read tally (SR-MS-COLDREAD §5J.16.3 Layer-2) ──────────
+    # Runs pdftotext on the compiled PDF (or falls back to .tex), fires the
+    # bidirectional canary, runs Flag-A deterministic scan, then the LLM judge.
+    # cold_read_judge_fn defaults to the same judge_fn as support_matcher when
+    # not explicitly provided (both are Opus-tier by D-AUD-5/D-MS-4).
+    _cr_judge = cold_read_judge_fn if cold_read_judge_fn is not None else judge_fn
+    cr_tally = check_cold_read_tally(
+        tree_root,
+        judge_fn=_cr_judge,
+        judge_model=judge_model,
+        rubric_override=cold_read_rubric_override,
+        config=config,
+        pdf_text=cold_read_pdf_text,
+    )
+    errors.extend(cr_tally["errors"])
+    warnings.extend(cr_tally["warnings"])
+
     # ── Assemble payload ──────────────────────────────────────────────────────
     payload: dict[str, Any] = {
         # §5J.13-D.1
@@ -1682,6 +1876,10 @@ def build_approve_payload(
         "body_leakage": leak_errors,
         # §5J.16 — SR-MS-AUDIENCE 8th section: title candidates from note
         "title_candidates": _read_title_candidates(note_path),
+        # §5J.16.3 — SR-MS-COLDREAD 9th section: cold-read LLM judge results
+        "cold_read_flags": cr_tally["flags"],
+        "cold_read_flag_a": cr_tally["flag_a_hits"],
+        "cold_read_report": cr_tally["honest_report"],
         # Meta
         "errors": errors,
         "warnings": warnings,
