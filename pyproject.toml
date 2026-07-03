@@ -3,8 +3,36 @@ name = "research-vault"
 version = "0.1.0"
 description = "Research Vault — an adoptable, zero-infra AI research-assistant framework"
 readme = "README.md"
+license = {file = "LICENSE"}
 requires-python = ">=3.12"
 dependencies = []
+authors = [
+    {name = "The research-vault authors"},
+]
+keywords = [
+    "research",
+    "ai",
+    "llm",
+    "research-assistant",
+    "zero-infra",
+    "cli",
+    "dag",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+
+[project.urls]
+Homepage = "https://github.com/khangzhie-vault/research-vault"
+Repository = "https://github.com/khangzhie-vault/research-vault"
+Issues = "https://github.com/khangzhie-vault/research-vault/issues"
 
 # SR-FIG: the figures capability is the first dependency-bearing optional extra.
 # Core stays stdlib-only; figures needs matplotlib/seaborn/pandas behind the extra.
