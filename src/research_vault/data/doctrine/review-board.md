@@ -68,6 +68,10 @@ for the human.
 _Tool half:_ `rv control return` emits the negation-free `PASS`/`BLOCK` header by construction (SR-CI),
 so a reviewer cannot accidentally author a verdict whose narrative negation trips the approve-gate.
 
+## LLM-judged gates: blind-judge canary (SR-MS2-FIX)
+
+An LLM-judged gate is probed on a **known-positive** before its verdicts are trusted — silent-[ABSENT]-when-blind is indistinguishable from a real refutation. If the probe returns [ABSENT], the gate ABORTS loudly; the BLOCKs it would have emitted are NOT real refutations and must not be treated as such. A gate that always blocks is as broken as one that always passes.
+
 ## The board view
 
 A cross-project rollup tracks what critique is still unresolved across all work, with status

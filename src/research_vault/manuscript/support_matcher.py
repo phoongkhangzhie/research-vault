@@ -358,61 +358,95 @@ class SupportVerdict:
 def _read_note_structured_fields(note_path: Path) -> dict[str, str]:
     """Extract structured fields from a literature/ note for judge input.
 
-    Reads: TL;DR, metrics, findings, limitations, stance, plan_role.
-    Does NOT read the paper's own abstract or thesis (anti-positivity move 2).
+    SR-MS2-FIX: Robust extraction — feeds the judge ALL evidence in real OKF notes.
 
-    Returns a flat dict of non-empty fields.
+    Strategy:
+      1. Strip HTML comments first (comment-only scaffold → {} → correctly ABSENT).
+      2. Frontmatter: include all scalar fields except id/pointer denylist.
+      3. Body: extract EVERY ##/### section (heading → content). Skip only a section
+         titled EXACTLY 'Abstract' (anti-positivity move 2: the cited paper's own
+         abstract is NOT the researcher's recorded distillation). Everything else IS
+         evidence the judge must see (## Result, ## Benchmark facts, ## Hypothesis,
+         ## Setup, ## Analysis, etc.).
+      4. Capture markdown tables (pipe rows) verbatim within each section.
+      5. Fall back to the full de-commented body when the note has no ## headings.
+
+    Returns a flat dict of non-empty fields (str values only).
+
+    Does NOT read the paper's own abstract (anti-positivity move 2).
     """
     if not note_path.exists():
         return {}
     try:
-        text = note_path.read_text(encoding="utf-8")
+        raw_text = note_path.read_text(encoding="utf-8")
     except OSError:
         return {}
 
-    # Parse frontmatter
-    if not text.startswith("---"):
+    # ── 1. Strip HTML comments ───────────────────────────────────────────────
+    html_comment_re = re.compile(r"<!--.*?-->", re.DOTALL)
+    text = html_comment_re.sub("", raw_text)
+
+    # ── 2. Parse frontmatter ─────────────────────────────────────────────────
+    if not text.strip().startswith("---"):
         return {}
-    end = text.find("\n---", 3)
-    if end == -1:
+    # Find the closing --- delimiter
+    stripped = text.lstrip()
+    fm_start = raw_text.find("---")  # use original for FM boundary detection
+    end_fm = raw_text.find("\n---", fm_start + 3)
+    if end_fm == -1:
         return {}
-    fm_block = text[3:end].strip()
-    fields: dict[str, str] = {}
+
+    fm_block = raw_text[fm_start + 3 : end_fm].strip()
+    all_fm: dict[str, str] = {}
     for line in fm_block.splitlines():
         m = re.match(r"^(\w[\w_-]*):\s*(.*)$", line)
         if m:
             key, val = m.group(1), m.group(2).strip()
             if val.startswith(("'", '"')) and val.endswith(val[0]):
                 val = val[1:-1]
-            fields[key] = val
+            all_fm[key] = val
 
-    # Extract only the structured fields (NOT abstract/title for anti-positivity)
-    structured_keys = (
-        "tldr", "tl_dr", "tl-dr",
-        "metrics", "findings", "limitations",
-        "caveats", "confidence",
-        "stance", "plan_role",
-        "key_findings", "result", "results",
-        "notes", "summary",
-    )
+    # Denylist: id/pointer fields that are NOT evidence for support-matching
+    _FM_DENYLIST: frozenset[str] = frozenset({
+        "doi", "arxiv_id", "url", "type", "date", "year", "journal",
+        "title", "author", "publisher", "citekey", "zotero_key",
+        "results_location", "results_hash", "results_commit",
+        "manuscript_pdf", "manuscript_hash", "backed_by", "closes",
+        "covers", "dag_run", "synthesized_okf",
+    })
+
     result: dict[str, str] = {}
-    for k in structured_keys:
-        if k in fields and fields[k]:
-            result[k] = fields[k]
+    for k, v in all_fm.items():
+        if k not in _FM_DENYLIST and v:
+            result[k] = v
 
-    # Also extract body sections (e.g. ## Findings, ## Limitations)
-    body = text[end + 4:]
-    for section_name in ("TL;DR", "Findings", "Limitations", "Metrics", "Key Findings"):
-        pattern = re.compile(
-            rf"^#+ {re.escape(section_name)}\s*\n(.*?)(?=^#+|\Z)",
-            re.MULTILINE | re.DOTALL | re.IGNORECASE,
-        )
-        m = pattern.search(body)
-        if m:
-            content = m.group(1).strip()
-            if content:
-                key = section_name.lower().replace(";", "").replace(" ", "_")
-                result.setdefault(key, content[:500])
+    # ── 3. Extract body sections ─────────────────────────────────────────────
+    body = text[end_fm + 4:]  # text AFTER the closing ---
+
+    # Find all ## / ### sections
+    section_header_re = re.compile(r"^(#{1,3})\s+(.+?)\s*$", re.MULTILINE)
+    headers = list(section_header_re.finditer(body))
+
+    if headers:
+        for i, hdr in enumerate(headers):
+            section_title = hdr.group(2).strip()
+            # Skip ONLY the literally-titled "Abstract" section
+            if section_title.lower() == "abstract":
+                continue
+            # Content is from end of header line to start of next header (or end)
+            content_start = hdr.end()
+            content_end = headers[i + 1].start() if i + 1 < len(headers) else len(body)
+            section_content = body[content_start:content_end].strip()
+            if not section_content:
+                continue
+            # Normalize key: lowercase, strip punctuation, spaces→_
+            key = re.sub(r"[^a-z0-9]+", "_", section_title.lower()).strip("_")
+            result[key] = section_content
+    else:
+        # No ## headings → fall back to full de-commented body
+        body_stripped = body.strip()
+        if body_stripped:
+            result["body"] = body_stripped
 
     return result
 
@@ -441,9 +475,33 @@ def _build_judge_prompt(
     === CLAIM === / === CITED SOURCE === markers are ALWAYS appended so the
     parser and test mocks can reliably locate claim + note content.
     """
-    fields_block = "\n".join(
-        f"  {k}: {v[:400]}" for k, v in sorted(note_fields.items()) if v
-    ) or "  (no structured fields available)"
+    # SR-MS2-FIX: un-truncate — per-field cap raised to ~2000 chars; overall
+    # budget ~6000 chars with a visible marker when exceeded (never silently drop).
+    _PER_FIELD_CAP = 2000
+    _OVERALL_BUDGET = 6000
+
+    raw_lines: list[str] = []
+    total_chars = 0
+    for k, v in sorted(note_fields.items()):
+        if not v:
+            continue
+        field_val = v[:_PER_FIELD_CAP]
+        if len(v) > _PER_FIELD_CAP:
+            field_val += f" […truncated {len(v) - _PER_FIELD_CAP} chars…]"
+        line = f"  {k}: {field_val}"
+        if total_chars + len(line) > _OVERALL_BUDGET:
+            remaining = _OVERALL_BUDGET - total_chars
+            if remaining > 40:
+                raw_lines.append(line[:remaining])
+            raw_lines.append(
+                f"  […truncated {sum(len(l) for l in raw_lines) + len(line) - total_chars} "
+                f"chars — overall note budget exceeded…]"
+            )
+            break
+        raw_lines.append(line)
+        total_chars += len(line)
+
+    fields_block = "\n".join(raw_lines) or "  (no structured fields available)"
 
     stance_block = ""
     if stance and stance not in ("MISSING", "", "none"):

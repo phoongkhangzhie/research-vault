@@ -972,6 +972,7 @@ def check_support_tally(
             "k_block": 0, "j_warn": 0,
             "honest_report": "0 sentences, 0 citations, 0 BLOCK, 0 WARN",
             "errors": [], "warnings": [],
+            "canary_aborted": False,
         }
 
     # Infer notes_root: tree_root is manuscripts/<id>/, notes_root is project notes dir
@@ -979,6 +980,64 @@ def check_support_tally(
     _notes_root = notes_root
     if _notes_root is None:
         _notes_root = tree_root.parent.parent  # manuscripts/<id>/ → project root
+
+    # ── SR-MS2-FIX: Blind-judge canary ──────────────────────────────────────
+    # Before running the real tally, run one synthetic KNOWN-SUPPORTED probe
+    # through the same extractor+judge pipeline. If it returns [ABSENT], the
+    # judge is blind (extraction empty or judge mis-wired) — indistinguishable
+    # from a real refutation. In that case: ABORT the gate LOUDLY.
+    # Doctrine: "an LLM-judged gate is probed on a known-positive before its
+    # verdicts are trusted — silent-[ABSENT]-when-blind is indistinguishable
+    # from a refutation." (doctrine/review-board.md)
+    import tempfile as _tempfile
+    with _tempfile.TemporaryDirectory() as _canary_dir:
+        _canary_note = Path(_canary_dir) / "canary_probe.md"
+        _canary_note.write_text(
+            "---\ntype: literature\n---\n"
+            "## Result\n"
+            "The accuracy on the benchmark is 85.3%, a statistically significant improvement "
+            "over the 80.1% baseline (p < 0.01).\n",
+            encoding="utf-8",
+        )
+        _canary_claim = (
+            "The model achieves 85.3% accuracy, significantly above the 80.1% baseline."
+        )
+        _canary_citekey = "canary_probe_known_positive"
+        _judge_fn = judge_fn  # capture for canary call
+        try:
+            _canary_verdict = match_support(
+                claim=_canary_claim,
+                citekey=_canary_citekey,
+                note_path=_canary_note,
+                rubric_override=rubric_override,
+                config=config,
+                judge_fn=_judge_fn,
+                judge_model=judge_model,
+            )
+        except Exception as _e:
+            _canary_verdict = None  # type: ignore[assignment]
+
+        _canary_absent = (
+            _canary_verdict is None
+            or _canary_verdict.verdict == "ABSENT"
+        )
+        if _canary_absent:
+            _abort_msg = (
+                "support-judge appears blind on a known-supported probe — "
+                "extraction or judge mis-wired; the BLOCKs below are NOT real "
+                "refutations. Fix wiring before trusting this gate."
+            )
+            return {
+                "verdicts": [],
+                "n_sentences": 0,
+                "m_citations": 0,
+                "k_block": 0,
+                "j_warn": 0,
+                "honest_report": "0 sentences, 0 citations, 0 BLOCK, 0 WARN (CANARY ABORTED)",
+                "errors": [_abort_msg],
+                "warnings": [],
+                "canary_aborted": True,
+            }
 
     # Collect all sentences with \cite{} (sentence = text line containing a \cite)
     # Simple sentence heuristic: split on periods / newlines (for performance)
@@ -1074,6 +1133,7 @@ def check_support_tally(
         ),
         "errors": errors,
         "warnings": warnings,
+        "canary_aborted": False,
     }
 
 
