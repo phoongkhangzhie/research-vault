@@ -1,4 +1,4 @@
-"""schema.py — DAG manifest schema for Research Vault (SR-3 + SR-DISP + SR-SCOPE).
+"""schema.py — DAG manifest schema for Research Vault (SR-3 + SR-DISP + SR-SCOPE + SR-RETRY).
 
 JSON manifest format:
   {
@@ -11,6 +11,12 @@ JSON manifest format:
         "type": "agent",               # "agent" | "human-go"
         "label": "Literature search",  # optional display label
         "spec": "task://research#lit-search",  # REQUIRED on agent nodes (SR-DISP)
+        "max_retries": 2,              # OPTIONAL — opt-in retry count (SR-RETRY; default 0)
+                                       #   agent nodes only; 0 <= N <= 10; integer
+                                       #   ManifestError if negative, >10, non-int, or on human-go
+        "retry_diagnosis_tips": "Check W&B exit code before assuming OOM.",
+                                       # OPTIONAL — domain-specific append to RETRY_DIAGNOSIS_DIRECTIVE
+                                       #   str or list[str]; never replaces the standing directive
         "reads": [                     # OPTIONAL — bounded reading-scope (SR-SCOPE)
           "src/research_vault/dag/schema.py",       # bare = file pointer
           "tasks/design.md#5B-SCOPE",               # <file>#<anchor> = doc/task section
@@ -76,6 +82,15 @@ SR-SCOPE additions (bounded reading-scope grounding manifest):
     it is deferred to the run/tick pass in dag/reads.py (resolve_reads_pointers).
   - human-go nodes must NOT carry reads: (ManifestError if present).
 
+SR-RETRY additions (node-level diagnose-before-retry):
+  Agent nodes:
+  - max_retries OPTIONAL int — default 0 (N=0 = today's behavior: first failure is terminal).
+    Must be 0 <= N <= 10. Non-int, negative, or >10 → ManifestError.
+    human-go nodes must NOT carry max_retries (ManifestError; D-RETRY-1).
+  - retry_diagnosis_tips OPTIONAL — appends domain guidance after RETRY_DIAGNOSIS_DIRECTIVE
+    (the standing non-blind-repeat teeth). Must be str or list[str] when present.
+    Non-string or list containing non-str → ManifestError.
+
 Non-fatal WARNs (manifest_warns):
   1. A continues path crossing a produces: or human-go node between the continued ancestor
      and the current node → structural boundary-smell WARN (SR-DISP).
@@ -97,6 +112,9 @@ REQUIRED_MANIFEST_FIELDS: frozenset[str] = frozenset({"run_id", "nodes"})
 DEFAULT_GLOBAL_CAP = 4
 DEFAULT_NODE_TYPE = "agent"
 DEFAULT_EDGE_KIND = "afterok"
+
+# SR-RETRY: hard cap on max_retries (D-RETRY-4) — cheap insurance against typos.
+MAX_RETRIES_CAP = 10
 
 
 class ManifestError(ValueError):
@@ -193,10 +211,15 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
             _validate_agent_spec(nid, node)
             _validate_continues_structure(nid, node)
             _validate_reads_structure(nid, node)
+            # ── SR-RETRY: opt-in retry + diagnosis seam ───────────────────────
+            _validate_max_retries(nid, node)
+            _validate_retry_diagnosis_tips(nid, node)
 
         # ── SR-SCOPE: human-go nodes must NOT carry reads: ────────────────────
         if node_type == "human-go":
             _validate_no_reads_on_human_go(nid, node)
+            # ── SR-RETRY: human-go must NOT carry max_retries (D-RETRY-1) ─────
+            _validate_no_max_retries_on_human_go(nid, node)
 
         # Validate produces (optional)
         produces = node.get("produces")
@@ -422,6 +445,73 @@ def _validate_no_reads_on_human_go(nid: str, node: dict) -> None:
             f"human-go nodes are decision gates, not dispatch targets (SR-SCOPE). "
             f"Remove the 'reads' field from this node."
         )
+
+
+def _validate_max_retries(nid: str, node: dict) -> None:
+    """Validate max_retries on an agent node (SR-RETRY, §5I.4).
+
+    - OPTIONAL; absent means default 0 (first failure is terminal — backward-compat).
+    - Must be an int (not float, not str): non-int → ManifestError.
+    - Must satisfy 0 <= N <= MAX_RETRIES_CAP: negative or over-cap → ManifestError.
+    """
+    v = node.get("max_retries")
+    if v is None:
+        return  # absent → default 0; valid
+    # isinstance check: booleans are ints in Python but nonsensical here — reject them too.
+    if not isinstance(v, int) or isinstance(v, bool):
+        raise ManifestError(
+            f"Node {nid!r}: 'max_retries' must be a non-negative integer "
+            f"(0 <= N <= {MAX_RETRIES_CAP}), got {v!r} (SR-RETRY)"
+        )
+    if v < 0:
+        raise ManifestError(
+            f"Node {nid!r}: 'max_retries' must be >= 0, got {v!r} (SR-RETRY)"
+        )
+    if v > MAX_RETRIES_CAP:
+        raise ManifestError(
+            f"Node {nid!r}: 'max_retries' must be <= {MAX_RETRIES_CAP} "
+            f"(hard cap against runaway retries), got {v!r} (SR-RETRY)"
+        )
+
+
+def _validate_no_max_retries_on_human_go(nid: str, node: dict) -> None:
+    """Raise ManifestError if a human-go node carries max_retries (D-RETRY-1, SR-RETRY).
+
+    human-go nodes are decision gates, not dispatch targets — retry is meaningless.
+    Mirror of _validate_no_reads_on_human_go.
+    """
+    if "max_retries" in node:
+        raise ManifestError(
+            f"Node {nid!r}: 'max_retries' is not allowed on human-go nodes — "
+            f"human-go nodes are decision gates, not dispatch targets (SR-RETRY, D-RETRY-1). "
+            f"Remove the 'max_retries' field from this node."
+        )
+
+
+def _validate_retry_diagnosis_tips(nid: str, node: dict) -> None:
+    """Validate retry_diagnosis_tips on an agent node (SR-RETRY, §5I, D-RETRY-8).
+
+    - OPTIONAL; absent → only the standing RETRY_DIAGNOSIS_DIRECTIVE is used.
+    - When present: must be a str, or a list where every element is a str.
+    - Non-str, list with non-str items → ManifestError.
+    """
+    v = node.get("retry_diagnosis_tips")
+    if v is None:
+        return  # absent → valid
+    if isinstance(v, str):
+        return  # single string → valid
+    if isinstance(v, list):
+        for i, item in enumerate(v):
+            if not isinstance(item, str):
+                raise ManifestError(
+                    f"Node {nid!r}: 'retry_diagnosis_tips[{i}]' must be a string, "
+                    f"got {type(item).__name__!r} (SR-RETRY)"
+                )
+        return
+    raise ManifestError(
+        f"Node {nid!r}: 'retry_diagnosis_tips' must be a str or list[str], "
+        f"got {type(v).__name__!r} (SR-RETRY)"
+    )
 
 
 def _validate_continues_cross_node(
