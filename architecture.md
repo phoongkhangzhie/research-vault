@@ -10,41 +10,54 @@ change. **Research Vault is a STANDALONE public OSS package** — built fresh, l
 flowchart LR
     subgraph RV["research-vault repo (standalone, public-destined)"]
       direction TB
-      CFG["config.py<br/>(config plane SSOT —<br/>all paths + adapter selection)"]
-      CLI["cli.py<br/>(fresh Python dispatcher,<br/>config-driven argparse)"]
-      CLI --> CFG
-      subgraph T1["tier-1 — research assistant (zero infra)"]
-        V1["research · cite · note · mdstore<br/>task · devlog · lint · wait-for"]
+      subgraph PKG["src/research_vault/ (the package — ships in the wheel)"]
+        direction TB
+        CFG["config.py<br/>(config plane SSOT —<br/>all paths + adapter selection)"]
+        CLI["cli.py<br/>(fresh Python dispatcher,<br/>config-driven argparse)"]
+        CLI --> CFG
+        subgraph T1["tier-1 — research assistant (zero infra)"]
+          V1["research · cite · note · mdstore<br/>task · devlog · lint · wait-for"]
+        end
+        subgraph T2["tier-2 — file-based coordination"]
+          V2["role · build-agents · control<br/>crew/role system · control-file bus"]
+        end
+        CLI --> V1
+        CLI --> V2
+        subgraph ADP["adapters/ (Protocols + local-defaults)"]
+          N["Notifier<br/>(default: file inbox/outbox)"]
+          B["ComputeBackend<br/>(default: local subprocess)"]
+          S["SecretStore<br/>(default: keyring / env)"]
+        end
+        V1 --> ADP
+        V2 --> ADP
+        subgraph DATA["data/ (SR-PKG — loaded via importlib.resources + as_file;<br/>ships in the wheel · missing file = HARD ERROR, no silent skeleton)"]
+          DOC["doctrine/ (portable docs + the FULL named crew<br/>Alfred/Wren/Atlas/Mason/Argus/Iris/Ada — the headline)"]
+          TPL["templates/ (OKF + CONTRACT + QUICKSTART, placeholdered)"]
+          EX["examples/ (≥2 demo projects: research + lit-review)"]
+        end
+        CLI -. "rv init copies out via importlib.resources" .-> DATA
       end
-      subgraph T2["tier-2 — file-based coordination"]
-        V2["role · build-agents · control<br/>crew/role system · control-file bus"]
-      end
-      CLI --> V1
-      CLI --> V2
-      subgraph ADP["adapters/ (Protocols + local-defaults)"]
-        N["Notifier<br/>(default: file inbox/outbox)"]
-        B["ComputeBackend<br/>(default: local subprocess)"]
-        S["SecretStore<br/>(default: keyring / env)"]
-      end
-      V1 --> ADP
-      V2 --> ADP
-      DOC["doctrine/ (portable docs + the FULL named crew<br/>Alfred/Wren/Atlas/Mason/Argus/Iris/Ada — the headline)"]
-      TPL["templates/ (OKF, placeholdered)"]
-      EX["examples/ (≥2 demo projects: research + lit-review) + init"]
       GATE["CI: hermetic pytest + leakage scanner (red on private marker)"]
     end
 
     VAULT["~/vault (the live OS)"]:::ext
     VAULT -. "NO dependency · NO import · NO edit<br/>(v1 acceptance boundary)" .-x RV
 
-    subgraph T3["tier-3 — advanced (OUT of v1)"]
-      VCS["vcs/github adapter:<br/>multi-identity PR/review/merge"]
-      SLURM["ComputeBackend: SLURM"]
+    subgraph T3["tier-3 — advanced adapters (opt-in, MERGED — SR-CIF/SR-7)"]
+      VCS["github_ci adapter:<br/>CI-fetch / PR status"]
+      SLURM["remote ComputeBackend: SLURM over ssh"]
     end
-    ADP -. "opt-in, later SRs" .-> T3
+    ADP -. "opt-in extras, now merged" .-> T3
 
     classDef ext fill:#eee,stroke:#999,stroke-dasharray:5 5;
 ```
+
+**Package-data layout (SR-PKG, #22 part 1 / merged #46).** `doctrine/`, `templates/`, and `examples/`
+are **not** top-level repo boxes — they live under **`src/research_vault/data/`** *inside* the package,
+so they ship in the wheel. `rv init` reads them via **`importlib.resources.files("research_vault") / "data"`
++ `as_file()`** (zipimport-safe: works from a regular install AND a zipped wheel). The old `__file__`-based
+skeleton fallbacks are **gone** — a missing data file is a **HARD ERROR**, not a silently-degraded skeleton
+(charter §2: surface, never silently drop; `init.py:17-22`).
 
 ## Tiers
 | Tier | Surface | v1? |
@@ -79,11 +92,11 @@ prompt defaults + adopter override) and a `style.py` `apply_style`/style-preambl
 stdlib-only.** Every loop above obeys leakage-by-construction (no private markers in prompts/seams/DEVLOG).
 
 ## Adapter Protocols (adapters/base.py)
-| Adapter | Interface | Local-default (zero infra) | Later adapter |
+| Adapter | Interface | Local-default (zero infra) | Advanced adapter |
 |---|---|---|---|
 | Notifier | `notify(msg, severity)` (+ optional `push_brief`) | file inbox/outbox (`state/inbox.jsonl` + `desk.md`) — **the ONLY impl; NO telegram/bridge anywhere** (rescope #4) | — |
-| ComputeBackend | `submit(job)->handle` · `status(handle)` | local subprocess; artifact-verify = file check | SLURM over ssh (SR-6) |
-| SecretStore | `get(name)` · `set(name)` | `keyring` lib OR `$ENV` + gitignored dotfile (cross-platform) | macOS Keychain |
+| ComputeBackend | `submit(job)->handle` · `status(handle)` | local subprocess; artifact-verify = file check | remote SLURM over ssh (`adapters/remote.py`, SR-7 — **MERGED**) |
+| SecretStore | `get(name)` · `set(name)` | `keyring` lib OR `$ENV` + gitignored dotfile (cross-platform) | macOS Keychain (later) |
 
 The wait between submit and in-session verify is a backgrounded **`wait-for <condition>`** (§R) — one
 main session + background shells, no daemon/poller/registry. Subagents submit-and-return; they never
