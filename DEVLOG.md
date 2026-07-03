@@ -1,3 +1,63 @@
+## 2026-07-03 (SR-DOCTOR-PRINCIPLED: permissions + propose + confirm + learn)
+
+### Done
+- **Prereq refactor**: extracted `_ssh_probe_call(host, argv, archetype)` SSOT — the
+  common ssh-error ladder (FileNotFoundError/TimeoutExpired/OSError/exit-255 ->
+  unreachable dict). Routes all three `_probe_remote_*` functions through it. SR-CO-REMOTE
+  tests pass unchanged (25/25).
+- **StrictHostKeyChecking**: changed `no` -> `accept-new`. Safer default: accepts new
+  hosts on first connect; rejects known-host key changes (real MITM signal). Still
+  non-interactive for automated probes.
+- **Stage 1b — PERMISSIONS probe (SLURM-first)**:
+  - `_probe_permissions_slurm(host)`: runs sacctmgr (associations + QOS) + scontrol
+    show partition over same `_ssh_exec` SSOT; parses into `{allowed_partitions,
+    forbidden_partitions}` dict with reasons.
+  - `_parse_sacctmgr_assoc`, `_parse_sacctmgr_qos`, `_parse_scontrol_partitions`:
+    pure parse helpers for parsable2 output and scontrol block format.
+  - PBS permission seam: `{"available": False, "reason": "PBS permission probe: not yet
+    implemented"}` — honest SLURM-first boundary per §5DOC.
+  - Graceful degrade: sacctmgr absent or non-zero -> `{"available": False, "reason": "..."}`
+    -> falls back to inventory-only proposal with explicit banner. Never silent.
+- **Stage 2 — PROPOSE (pure/deterministic)**:
+  - `_propose_tiers(partitions, permissions, gpu_tiers, run_outcomes, lessons)`:
+    cheapest-that-fits per tier; rationale string on each row; forbidden partitions
+    never proposed; unmapped tiers surfaced with reason. LEARN: OOM outcomes annotate
+    warnings; lesson triggers surface inline.
+  - `_gres_gpu_count(gres_string)`: extract integer GPU count from GRES strings.
+  - `_build_proposal(cfg)`: reads cache + manifest, returns proposal from first
+    ok ssh+slurm backend.
+  - `format_proposal_report(proposal)`: human-readable proposal with rationale + warnings.
+- **Stage 3 — CONFIRM (human gate)**:
+  - `cmd_doctor_propose(cfg)`: writes quarantined `tiers_proposed` block to compute
+    manifest (NOT live `tiers`). Non-TTY-safe. Plain `rv doctor` writes nothing.
+  - `cmd_doctor_accept(cfg)`: shows diff; promotes `tiers_proposed` -> live `tiers`;
+    stamps `accepted_ts`; clears mapping from proposed block. Only path to live tiers.
+- **Per-type bifurcation enforced**:
+  - `ssh` archetype: direct nvidia-smi over ssh (flat topology — correct); NO sacctmgr.
+  - `ssh+slurm`: scheduler inventory + first-class permissions probe.
+  - `local`: unchanged (SR-6 probe).
+- **build_parser updated**: `--propose` + `--accept` flags with when_to_use + anti-pattern.
+- **36 new tests** in `test_sr_doctor_principled.py`: _ssh_probe_call error ladder,
+  permissions probe + forbidden exclusion (key non-vacuity), per-type bifurcation,
+  PROPOSE determinism + forbidden-never-proposed + unmapped surfacing, CONFIRM
+  human-gate (propose writes tiers_proposed not tiers; accept-without-propose errors),
+  LEARN OOM annotation + lesson inline, graceful degrade, accept-new assertion.
+- Full suite: 1831 passed, 37 skipped. lint PASS. help --check OK. leakage clean.
+
+### Decisions
+- `_ssh_probe_call`: returns `CompletedProcess | dict` (isinstance check at callers).
+  Considered returning a sentinel object but the dict-on-error / CompletedProcess-on-success
+  pattern is simpler and more Pythonic.
+- `tiers_proposed` vs mutating `gpu_tiers`: kept as a parallel key (`tiers_proposed`
+  for quarantine, `tiers` for live partition mapping). This avoids mutating the
+  existing gpu_tiers structure which declares GPU requirements; `tiers` holds the
+  accepted partition assignments separately.
+- PBS permission seam left as honest "not yet implemented" per §5DOC SLURM-first boundary.
+
+### Open / next
+- Push branch + PR; hub opens it (human-go class).
+- PBS permission probe (qstat -Qf / qmgr acl_users) to fill the seam.
+
 ## 2026-07-03 (SR-CO-REMOTE: real ssh remote probe — scheduler-aware GPU discovery)
 
 ### Done
