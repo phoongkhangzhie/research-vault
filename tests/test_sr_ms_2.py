@@ -1595,3 +1595,494 @@ class TestAdversarialCalibration:
             v = self._run_one(tmp_path, i, claim, note_fields, stance)
             assert v.warns, f"PARTIAL (no J-2) must .warns=True: {description}"
             assert not v.blocks, f"PARTIAL (no J-2) must NOT .blocks=True: {description}"
+
+
+# ===========================================================================
+# SR-MS2-FIX: Robust extractor, blind-judge canary, --semantic CLI,
+#             un-truncation, CSV results path
+# ===========================================================================
+
+
+class TestRobustExtractor:
+    """SR-MS2-FIX (a): extractor must see real OKF note shapes.
+
+    The OLD extractor returned {} on all of these — causing every verdict to
+    be ABSENT (false-BLOCK-everything). These tests prove the bug is gone.
+    """
+
+    def _note(self, tmp_path: Path, name: str, content: str) -> Path:
+        p = tmp_path / f"{name}.md"
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def test_result_section_extracted(self, tmp_path):
+        """## Result section in body → extracted as non-empty field."""
+        from research_vault.manuscript.support_matcher import _read_note_structured_fields
+        note = self._note(tmp_path, "n1", (
+            "---\ntype: literature\n---\n"
+            "## Result\n"
+            "The model achieves 85% accuracy on the benchmark.\n"
+        ))
+        fields = _read_note_structured_fields(note)
+        assert fields, "Expected non-empty fields from ## Result note"
+        all_text = " ".join(fields.values()).lower()
+        assert "85%" in all_text or "accuracy" in all_text
+
+    def test_benchmark_facts_section_extracted(self, tmp_path):
+        """## Benchmark facts section → extracted."""
+        from research_vault.manuscript.support_matcher import _read_note_structured_fields
+        note = self._note(tmp_path, "n2", (
+            "---\ntype: literature\n---\n"
+            "## Benchmark facts\n"
+            "BLEU score: 32.1 on WMT14 En-De.\n"
+        ))
+        fields = _read_note_structured_fields(note)
+        assert fields, "Expected non-empty fields from ## Benchmark facts"
+        all_text = " ".join(fields.values())
+        assert "32.1" in all_text or "BLEU" in all_text
+
+    def test_markdown_table_extracted(self, tmp_path):
+        """Markdown pipe-table in body → captured verbatim."""
+        from research_vault.manuscript.support_matcher import _read_note_structured_fields
+        note = self._note(tmp_path, "n3", (
+            "---\ntype: literature\n---\n"
+            "## Results Table\n"
+            "| Method | Accuracy | F1 |\n"
+            "|--------|----------|----|\n"
+            "| Ours   | 0.92     | 0.90 |\n"
+            "| Base   | 0.85     | 0.83 |\n"
+        ))
+        fields = _read_note_structured_fields(note)
+        assert fields, "Expected non-empty fields from table note"
+        all_text = " ".join(fields.values())
+        assert "0.92" in all_text or "Accuracy" in all_text
+
+    def test_experiments_default_sections_extracted(self, tmp_path):
+        """Experiments note (## Hypothesis / ## Setup / ## Analysis) → extracted."""
+        from research_vault.manuscript.support_matcher import _read_note_structured_fields
+        note = self._note(tmp_path, "n4", (
+            "---\ntype: experiments\n---\n"
+            "## Hypothesis\n"
+            "Cross-lingual models fail on pragmatics tasks.\n"
+            "## Setup\n"
+            "Dataset: XCulture-100, 10k examples.\n"
+            "## Analysis\n"
+            "We observe significant performance drop on pragmatics.\n"
+        ))
+        fields = _read_note_structured_fields(note)
+        assert fields, "Expected non-empty fields from experiments note"
+        all_text = " ".join(fields.values()).lower()
+        assert "pragmatics" in all_text or "hypothesis" in all_text
+
+    def test_comment_only_scaffold_returns_empty(self, tmp_path):
+        """HTML-comment-only unfilled scaffold → {} → correctly ABSENT."""
+        from research_vault.manuscript.support_matcher import _read_note_structured_fields
+        note = self._note(tmp_path, "n5", (
+            "---\ntype: literature\n---\n"
+            "<!-- Write your note here -->\n"
+            "<!-- ## Findings\n"
+            "Add your findings here. -->\n"
+        ))
+        fields = _read_note_structured_fields(note)
+        assert fields == {}, f"Expected empty dict for comment-only note, got {fields}"
+
+    def test_abstract_section_skipped(self, tmp_path):
+        """Section literally titled 'Abstract' is skipped (anti-positivity)."""
+        from research_vault.manuscript.support_matcher import _read_note_structured_fields
+        note = self._note(tmp_path, "n6", (
+            "---\ntype: literature\n---\n"
+            "## Abstract\n"
+            "We prove that transformers are universally superior.\n"
+            "## Result\n"
+            "Accuracy improved by 3.2 points in our evaluation.\n"
+        ))
+        fields = _read_note_structured_fields(note)
+        assert fields, "Expected non-empty fields (## Result should be captured)"
+        all_text = " ".join(fields.values())
+        # Abstract content must NOT be captured
+        assert "universally superior" not in all_text
+        # Result content MUST be captured
+        assert "3.2" in all_text or "improved" in all_text
+
+    def test_no_headings_fallback_to_full_body(self, tmp_path):
+        """Note with no ## headings → full de-commented body used as fallback."""
+        from research_vault.manuscript.support_matcher import _read_note_structured_fields
+        note = self._note(tmp_path, "n7", (
+            "---\ntype: literature\n---\n"
+            "This paper shows that attention is all you need. "
+            "The main finding is a 2x speed improvement.\n"
+        ))
+        fields = _read_note_structured_fields(note)
+        assert fields, "Expected non-empty fallback body field"
+        all_text = " ".join(fields.values()).lower()
+        assert "attention" in all_text or "speed" in all_text
+
+    def test_honest_claim_verdicts_supports_not_absent(self, tmp_path):
+        """Non-vacuous regression: honest (claim, real note) → [SUPPORTS], not [ABSENT].
+
+        This is the core false-BLOCK bug: the old extractor returned {} → every
+        match_support call returned ABSENT because note_fields was empty.
+        With the fix, real-OKF notes feed the judge which can now return SUPPORTS.
+        """
+        from research_vault.manuscript.support_matcher import match_support
+
+        note = tmp_path / "smith2023.md"
+        note.write_text(
+            "---\ntype: literature\n---\n"
+            "## Result\n"
+            "The model achieves 85% accuracy on the benchmark dataset.\n"
+            "## Analysis\n"
+            "Performance gap relative to baseline: +3.2 points.\n",
+            encoding="utf-8",
+        )
+
+        # Judge that confirms when it CAN see the note content
+        def honest_judge(prompt: str) -> str:
+            if "85%" in prompt or "3.2 points" in prompt:
+                return (
+                    "VERDICT: [SUPPORTS]\n"
+                    "SPAN: The model achieves 85% accuracy on the benchmark dataset.\n"
+                    "POLARITY: positive\n"
+                    "REASONING: Note directly backs the claim.\n"
+                )
+            # Blind — no content to judge
+            return (
+                "VERDICT: [ABSENT]\n"
+                "SPAN: none\n"
+                "POLARITY: neutral\n"
+                "REASONING: No relevant content found.\n"
+            )
+
+        v = match_support(
+            "Our method achieves 85% accuracy \\cite{smith2023}.",
+            "smith2023",
+            note,
+            judge_fn=honest_judge,
+        )
+        assert v.verdict == "SUPPORTS", (
+            f"Expected SUPPORTS (real note content visible to judge), got {v.verdict}. "
+            f"This is the core false-BLOCK bug: extractor returned {{}} and short-circuited to ABSENT."
+        )
+
+    def test_frontmatter_broad_scalar_fields_included(self, tmp_path):
+        """Frontmatter scalars not in the old whitelist are now included."""
+        from research_vault.manuscript.support_matcher import _read_note_structured_fields
+        note = self._note(tmp_path, "n8", (
+            "---\ntype: literature\n"
+            "effect_size: Cohen's d = 0.72, large effect\n"
+            "sample_size: 2400 participants\n"
+            "method: randomized controlled trial\n"
+            "doi: 10.1234/x.2023\n"
+            "---\n"
+            "<!-- empty body -->\n"
+        ))
+        fields = _read_note_structured_fields(note)
+        # At least some of the non-id scalar fields should be included
+        # doi/type are id/pointer fields and may be excluded
+        non_id = {k: v for k, v in fields.items() if k not in ("doi", "type")}
+        assert non_id, f"Expected frontmatter scalars beyond id/pointer; got fields={fields}"
+
+
+class TestBlindJudgeCanary:
+    """SR-MS2-FIX (b): blind-judge canary in check_support_tally.
+
+    When the judge/extractor is blind (returns empty fields → ABSENT on the
+    known-supported probe), check_support_tally must ABORT loudly instead of
+    emitting false-BLOCKs for every real citation.
+    """
+
+    def test_canary_aborts_on_blind_extractor(self, tmp_path):
+        """Blind extractor (returns {}) → tally raises RuntimeError / returns abort signal."""
+        from research_vault.manuscript.check_gates import check_support_tally
+
+        note_path, tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path / "notes"
+        _literature_note(notes_root, "smith2023")
+
+        # Write a tex file that would generate real citations
+        _write_tex(tree_root, "sections/results.tex",
+                   r"We found that X is true \cite{smith2023}.")
+
+        # Judge that always returns ABSENT — simulates a blind judge / broken extractor
+        def blind_judge(prompt: str) -> str:
+            return (
+                "VERDICT: [ABSENT]\n"
+                "SPAN: none\n"
+                "POLARITY: neutral\n"
+                "REASONING: Nothing found.\n"
+            )
+
+        # The canary must detect this: the probe is a known-supported pair but
+        # blind_judge returns ABSENT → the gate must abort (not emit false-BLOCKs)
+        result = check_support_tally(
+            tree_root,
+            notes_root=notes_root,
+            judge_fn=blind_judge,
+        )
+        # canary_aborted must be set + errors must contain the loud message
+        assert result.get("canary_aborted"), (
+            "Expected canary_aborted=True when judge is blind on the known-positive probe"
+        )
+        abort_msg = " ".join(result.get("errors", []))
+        assert "blind" in abort_msg.lower() or "canary" in abort_msg.lower() or "NOT real" in abort_msg, (
+            f"Expected loud abort message; got errors={result.get('errors')}"
+        )
+
+    def test_canary_does_not_abort_on_sighted_judge(self, tmp_path):
+        """Sighted judge → canary passes, normal tally proceeds."""
+        from research_vault.manuscript.check_gates import check_support_tally
+
+        note_path, tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path / "notes"
+        _literature_note(notes_root, "smith2023")
+        _write_tex(tree_root, "sections/results.tex",
+                   r"We found that X is true \cite{smith2023}.")
+
+        def sighted_judge(prompt: str) -> str:
+            return (
+                "VERDICT: [SUPPORTS]\n"
+                "SPAN: Finding A: X is true.\n"
+                "POLARITY: positive\n"
+                "REASONING: Note backs claim.\n"
+            )
+
+        result = check_support_tally(
+            tree_root,
+            notes_root=notes_root,
+            judge_fn=sighted_judge,
+        )
+        assert not result.get("canary_aborted"), "Expected canary_aborted=False with sighted judge"
+
+
+class TestSemanticCLIFlag:
+    """SR-MS2-FIX (c): rv manuscript check --semantic flag."""
+
+    def test_semantic_flag_in_parser(self):
+        """--semantic flag present in check subparser."""
+        from research_vault.manuscript.verbs import build_parser
+        p = build_parser()
+        # Parse a check --semantic invocation
+        args = p.parse_args(["demo-project", "check", "ms-001", "--semantic"])
+        assert getattr(args, "semantic", False) is True
+
+    def test_semantic_requires_api_key(self, tmp_path, monkeypatch):
+        """--semantic fails LOUD (exit 1 + error message) when ANTHROPIC_API_KEY absent."""
+        import os
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("RV_JUDGE_MODEL", raising=False)
+
+        from research_vault.manuscript.verbs import build_parser, run
+        p = build_parser()
+
+        # We test by calling the underlying dispatch directly with semantic=True
+        # and confirming it returns exit code 1 / raises / prints an error.
+        # Use a minimal namespace to avoid needing a full config.
+        import types
+        args = types.SimpleNamespace(
+            manuscript_cmd="check",
+            project="demo-project",
+            ms_id="ms-001",
+            semantic=True,
+        )
+
+        # run() should return exit code 1 when env vars are absent
+        # (it can't find the project; but the semantic check for missing key
+        # should happen before or during dispatch). We accept either:
+        # - return code 1
+        # - RuntimeError / SystemExit
+        try:
+            rc = run(args)
+            assert rc == 1, f"Expected exit code 1 when ANTHROPIC_API_KEY absent, got {rc}"
+        except (SystemExit, RuntimeError) as e:
+            pass  # Also acceptable — key-absent must not silently proceed
+
+    def test_plain_check_stays_hermetic(self, tmp_path):
+        """Plain rv manuscript check (no --semantic) stays structural/hermetic."""
+        from research_vault.manuscript.verbs import build_parser
+        p = build_parser()
+        args = p.parse_args(["demo-project", "check", "ms-001"])
+        # No --semantic flag → semantic attribute is False
+        assert getattr(args, "semantic", False) is False
+
+
+class TestUnTruncation:
+    """SR-MS2-FIX (d): _build_judge_prompt uses per-field cap ~2000 + overall ~6000-char budget."""
+
+    def test_long_field_gets_truncated_marker(self):
+        """A field longer than 2000 chars is truncated with a visible marker."""
+        from research_vault.manuscript.support_matcher import _build_judge_prompt
+        long_value = "X " * 1500  # 3000 chars
+        fields = {"result": long_value}
+        prompt = _build_judge_prompt(
+            claim="We show X.",
+            citekey="long2024",
+            note_fields=fields,
+            rubric="Assess the claim.",
+        )
+        assert "[" in prompt and "truncated" in prompt.lower(), (
+            "Expected a visible truncation marker in prompt for long fields"
+        )
+
+    def test_very_large_note_overall_budget_marker(self):
+        """Note with total content >6000 chars → overall budget marker in prompt."""
+        from research_vault.manuscript.support_matcher import _build_judge_prompt
+        # Many fields totaling >6000 chars
+        fields = {f"field_{i}": "Evidence text. " * 100 for i in range(10)}
+        prompt = _build_judge_prompt(
+            claim="We show X.",
+            citekey="big2024",
+            note_fields=fields,
+            rubric="Assess the claim.",
+        )
+        assert "truncated" in prompt.lower(), (
+            "Expected overall budget truncation marker for large note"
+        )
+
+    def test_short_fields_not_truncated(self):
+        """Short fields (< 2000 chars) are not truncated."""
+        from research_vault.manuscript.support_matcher import _build_judge_prompt
+        fields = {"result": "The model achieves 85% accuracy."}
+        prompt = _build_judge_prompt(
+            claim="We show 85% accuracy.",
+            citekey="smith2023",
+            note_fields=fields,
+            rubric="Assess the claim.",
+        )
+        # No truncation marker for short content
+        assert "85% accuracy" in prompt
+
+
+class TestCSVResultsPath:
+    """SR-MS2-FIX (e): inject_results branches on .csv suffix."""
+
+    def _make_exp_note(self, tmp_path: Path, results_location: str, results_hash: str) -> Path:
+        """Write a minimal experiment note."""
+        exp_dir = tmp_path / "experiments"
+        exp_dir.mkdir(parents=True, exist_ok=True)
+        note = exp_dir / "exp-test.md"
+        note.write_text(
+            f"---\ntype: experiments\n"
+            f"results_location: {results_location}\n"
+            f"results_hash: {results_hash}\n"
+            f"---\n",
+            encoding="utf-8",
+        )
+        return note
+
+    def _hash_file(self, path: Path) -> str:
+        import hashlib
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def test_csv_two_column_injects_macros(self, tmp_path):
+        """2-column key,value CSV → same macros a JSON dict would produce."""
+        from research_vault.manuscript.results_inject import inject_results
+
+        # Write a 2-col CSV artifact
+        csv_artifact = tmp_path / "results.csv"
+        csv_artifact.write_text("key,value\naccuracy,0.85\nf1_macro,0.83\n", encoding="utf-8")
+        csv_hash = self._hash_file(csv_artifact)
+
+        ms_note = tmp_path / "ms.md"
+        ms_note.write_text("---\ntype: manuscript\n---\n", encoding="utf-8")
+        tree_root = tmp_path / "manuscripts" / "ms-test"
+        tree_root.mkdir(parents=True, exist_ok=True)
+
+        exp_note = self._make_exp_note(tmp_path, str(csv_artifact), csv_hash)
+
+        result = inject_results(ms_note, [exp_note], tree_root)
+        macros = result["macros"]
+        assert any("Accuracy" in m for m in macros), f"Expected Accuracy macro, got {macros}"
+        assert any("FOneMacro" in m or "Fone" in m.lower() or "OneMacro" in m for m in macros), (
+            f"Expected F1 macro, got {macros}"
+        )
+
+        # results.tex must contain the \newcommand
+        results_tex = (tree_root / "results.tex").read_text(encoding="utf-8")
+        assert r"\newcommand" in results_tex
+        assert "0.85" in results_tex or r"\%" in results_tex or "0.83" in results_tex
+
+    def test_json_dict_still_works(self, tmp_path):
+        """Regression: .json artifact still works as before."""
+        from research_vault.manuscript.results_inject import inject_results
+        import json as json_mod
+
+        artifact = tmp_path / "results.json"
+        artifact.write_text(json_mod.dumps({"accuracy": 0.92}), encoding="utf-8")
+        json_hash = self._hash_file(artifact)
+
+        ms_note = tmp_path / "ms.md"
+        ms_note.write_text("---\ntype: manuscript\n---\n", encoding="utf-8")
+        tree_root = tmp_path / "manuscripts" / "ms-test"
+        tree_root.mkdir(parents=True, exist_ok=True)
+
+        exp_note = self._make_exp_note(tmp_path, str(artifact), json_hash)
+        result = inject_results(ms_note, [exp_note], tree_root)
+        assert any("Accuracy" in m for m in result["macros"])
+
+    def test_ambiguous_csv_raises_clear_error(self, tmp_path):
+        """CSV that is not 2-column key,value → clear error, not silent skip."""
+        from research_vault.manuscript.results_inject import inject_results
+
+        # 3-column CSV — ambiguous
+        csv_artifact = tmp_path / "results_bad.csv"
+        csv_artifact.write_text("method,accuracy,f1\nours,0.85,0.83\n", encoding="utf-8")
+        csv_hash = self._hash_file(csv_artifact)
+
+        ms_note = tmp_path / "ms.md"
+        ms_note.write_text("---\ntype: manuscript\n---\n", encoding="utf-8")
+        tree_root = tmp_path / "manuscripts" / "ms-test"
+        tree_root.mkdir(parents=True, exist_ok=True)
+
+        exp_note = self._make_exp_note(tmp_path, str(csv_artifact), csv_hash)
+
+        # Should raise ValueError or return a non-empty errors list — not silently zero-macros
+        try:
+            result = inject_results(ms_note, [exp_note], tree_root)
+            # If no exception: must report an error (not silently skip)
+            assert result.get("errors"), (
+                "Expected clear error for ambiguous CSV, not silent zero-macro skip. "
+                f"Got macros={result.get('macros')}, errors={result.get('errors')}"
+            )
+        except (ValueError, RuntimeError):
+            pass  # Also acceptable
+
+    def test_discriminates_real_absent(self, tmp_path):
+        """Regression: an unsupported claim still gets [ABSENT] (real logic intact).
+
+        This guards against the fix accidentally rubber-stamping everything.
+        """
+        from research_vault.manuscript.support_matcher import match_support
+
+        note = tmp_path / "speed2023.md"
+        note.write_text(
+            "---\ntype: literature\n---\n"
+            "## Result\n"
+            "The model achieves 85% accuracy on image classification.\n",
+            encoding="utf-8",
+        )
+
+        # Judge that honestly checks: speed claim vs accuracy-only note → ABSENT
+        def honest_judge(prompt: str) -> str:
+            if ("faster" in prompt.lower() or "speed" in prompt.lower()):
+                return (
+                    "VERDICT: [ABSENT]\n"
+                    "SPAN: none\n"
+                    "POLARITY: neutral\n"
+                    "REASONING: Speed/timing not mentioned in note.\n"
+                )
+            return (
+                "VERDICT: [SUPPORTS]\n"
+                "SPAN: The model achieves 85% accuracy.\n"
+                "POLARITY: positive\n"
+                "REASONING: Note backs the claim.\n"
+            )
+
+        v = match_support(
+            "Our model is 10x faster than the baseline \\cite{speed2023}.",
+            "speed2023",
+            note,
+            judge_fn=honest_judge,
+        )
+        assert v.verdict == "ABSENT", (
+            f"Expected ABSENT for speed claim with accuracy-only note, got {v.verdict}"
+        )

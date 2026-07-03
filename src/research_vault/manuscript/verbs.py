@@ -160,13 +160,29 @@ def build_parser(
             "Hard-fails on any unmatched \\cite. "
             "Citation integrity is structural for \\cite+provenance and "
             "assisted-plus-human for prose — this does NOT guarantee zero "
-            "hallucinated prose references."
+            "hallucinated prose references. "
+            "Add --semantic to ALSO run the LLM-judged support-matcher tally "
+            "(requires RV_JUDGE_MODEL and ANTHROPIC_API_KEY env vars). "
+            "Anti-pattern: do NOT skip --semantic before submission — the "
+            "structural gate alone does not verify claim support."
         ),
     )
     check_p.add_argument(
         "ms_id",
         metavar="id",
         help="Manuscript identifier slug (e.g. 'ms-001').",
+    )
+    check_p.add_argument(
+        "--semantic",
+        action="store_true",
+        default=False,
+        dest="semantic",
+        help=(
+            "ALSO run the LLM-judged support-matcher tally (SR-MS-2). "
+            "Requires RV_JUDGE_MODEL and ANTHROPIC_API_KEY environment variables — "
+            "fails loudly if either is absent (never a silent pass). "
+            "Plain 'check' without this flag stays hermetic (structural gates only)."
+        ),
     )
 
     return p
@@ -236,9 +252,58 @@ def run(args: argparse.Namespace) -> int:
             return result.get("exit_code", 1)
 
         if args.manuscript_cmd == "check":
+            semantic = getattr(args, "semantic", False)
+
+            # SR-MS2-FIX: --semantic requires RV_JUDGE_MODEL + ANTHROPIC_API_KEY.
+            # Fail LOUD if absent — never silently degrade to structural-only.
+            if semantic:
+                import os as _os
+                _judge_model = _os.environ.get("RV_JUDGE_MODEL", "").strip()
+                _api_key = _os.environ.get("ANTHROPIC_API_KEY", "").strip()
+                if not _judge_model or not _api_key:
+                    missing = []
+                    if not _judge_model:
+                        missing.append("RV_JUDGE_MODEL")
+                    if not _api_key:
+                        missing.append("ANTHROPIC_API_KEY")
+                    print(
+                        f"rv manuscript check --semantic: FAIL — "
+                        f"env var(s) required but absent: {', '.join(missing)}. "
+                        f"Set them to the Opus-tier model ID and API key before running "
+                        f"the semantic gate. (Plain 'rv manuscript check' stays hermetic.)",
+                        file=sys.stderr,
+                    )
+                    return 1
+
             result = cmd_check(args.project, args.ms_id, config=cfg)
             errors = result.get("errors", [])
             warnings = result.get("warnings", [])
+
+            # If --semantic: also run the LLM-judged support-matcher tally
+            if semantic and not errors:
+                from research_vault.manuscript.check_gates import check_support_tally
+                import os as _os2
+                _judge_model2 = _os2.environ.get("RV_JUDGE_MODEL", "")
+                tree_root = result.get("tree_root")
+                notes_root = result.get("notes_root")
+                if tree_root is not None:
+                    tally = check_support_tally(
+                        tree_root,
+                        notes_root=notes_root,
+                        judge_model=_judge_model2,
+                    )
+                    print(f"rv manuscript check --semantic: {tally['honest_report']}")
+                    if tally.get("canary_aborted"):
+                        print(
+                            f"  ABORT (canary): {tally['errors'][0] if tally['errors'] else 'blind judge'}",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    for e in tally.get("errors", []):
+                        errors.append(f"[semantic] {e}")
+                    for w in tally.get("warnings", []):
+                        warnings.append(f"[semantic] {w}")
+
             if errors:
                 print(f"rv manuscript check: FAIL — {len(errors)} error(s):", file=sys.stderr)
                 for e in errors:

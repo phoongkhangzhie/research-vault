@@ -5,8 +5,8 @@ and NEVER types a literal number. This module:
 
   1. Reads each experiment note's results_location + results_hash.
   2. Hash-verifies the artifact (via check_result_provenance from note.py).
-  3. Parses the JSON and emits \\newcommand{\\result<Key>}{<value>} macros
-     into manuscripts/<id>/results.tex.
+  3. Parses the JSON dict (or 2-col CSV) and emits \\newcommand{\\result<Key>}{<value>}
+     macros into manuscripts/<id>/results.tex.
   4. Stamps results_hash + results_commit into the manuscript note's
      provenance block (the drift-guard stamp, §5J.5b).
 
@@ -15,11 +15,19 @@ Anti-fabrication contract:
   - Only numeric/string values from hash-verified artifacts become macros.
   - Provenance stamp in the note records which artifact each number comes from.
 
+SR-MS2-FIX (fix d): results artifact may be .json (dict) OR 2-col .csv (key,value).
+  - .json: dict path (unchanged).
+  - .csv: exactly 2 columns; may have a header row where the second column is
+    'value' (case-insensitive) OR rows are plain key,value pairs.
+    An ambiguous CSV (wrong column count) → clear error, not silent zero-macro skip.
+
 Stdlib only.
-sr: SR-MS-1b
+sr: SR-MS-1b, SR-MS2-FIX
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 from pathlib import Path
@@ -132,6 +140,82 @@ def _stamp_provenance(note_path: Path, stamp_lines: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# CSV parser (SR-MS2-FIX fix d)
+# ---------------------------------------------------------------------------
+
+def _parse_csv_results(
+    artifact: Path,
+    errors_out: list[str],
+) -> dict[str, Any] | None:
+    """Parse a 2-column key,value CSV artifact into a dict.
+
+    Accepted forms:
+      (a) Header row where 2nd col is 'value' (case-insensitive) + data rows:
+            key,value
+            accuracy,0.85
+            f1_macro,0.83
+      (b) No header (or header where 2nd col is NOT 'value') + rows are key,value:
+            accuracy,0.85
+            f1_macro,0.83
+
+    Returns None and appends to errors_out on ambiguity (wrong column count).
+    Returns the dict on success (may be empty if no data rows).
+
+    Anti-fabrication: an ambiguous CSV is a clear error, never a silent skip.
+    """
+    try:
+        text = artifact.read_text(encoding="utf-8")
+    except OSError as exc:
+        errors_out.append(
+            f"results_inject: cannot read CSV artifact {artifact}: {exc}"
+        )
+        return None
+
+    reader = csv.reader(io.StringIO(text))
+    rows = [row for row in reader if any(cell.strip() for cell in row)]
+
+    if not rows:
+        return {}  # empty file → empty dict (no macros, no error)
+
+    # Validate column count — all rows must be exactly 2 columns
+    bad_rows = [i for i, row in enumerate(rows) if len(row) != 2]
+    if bad_rows:
+        errors_out.append(
+            f"results_inject: ambiguous CSV in {artifact.name} — expected exactly "
+            f"2 columns (key,value) but row(s) {bad_rows} have {[len(rows[i]) for i in bad_rows]} "
+            f"column(s). A CSV results artifact must be a simple key,value table. "
+            f"Use JSON for multi-column or matrix results."
+        )
+        return None
+
+    # Check if first row is a header (2nd col is 'value', case-insensitive)
+    data_rows = rows
+    first_row = rows[0]
+    if first_row[1].strip().lower() == "value":
+        # Header row — skip it
+        data_rows = rows[1:]
+
+    # Build dict from remaining rows
+    result: dict[str, Any] = {}
+    for row in data_rows:
+        key = row[0].strip()
+        val_raw = row[1].strip()
+        if not key:
+            continue
+        # Try to parse as float/int; keep as string otherwise
+        try:
+            val: Any = int(val_raw)
+        except ValueError:
+            try:
+                val = float(val_raw)
+            except ValueError:
+                val = val_raw
+        result[key] = val
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -216,7 +300,7 @@ def inject_results(
             # No results attached to this note — skip, not an error
             continue
 
-        # ── Load results JSON ──────────────────────────────────────────────
+        # ── Load results (JSON dict or 2-col CSV) ─────────────────────────
         artifact = Path(results_location)
         if not artifact.exists():
             non_fatal_errors.append(
@@ -225,19 +309,31 @@ def inject_results(
             )
             continue
 
-        try:
-            raw = json.loads(artifact.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            non_fatal_errors.append(
-                f"results_inject: cannot parse {results_location}: {exc}"
-            )
-            continue
+        suffix = artifact.suffix.lower()
+        if suffix == ".csv":
+            # SR-MS2-FIX (fix d): branch on .csv → parse 2-column key,value into dict.
+            # Accepts two forms:
+            #   (a) header row + single data row: "key,value\nacc,0.85\n"
+            #   (b) no header, each row is "key,value"
+            # An ambiguous CSV (wrong column count, multiple data rows without
+            # clear key/value structure) → clear error, NOT silent skip.
+            raw = _parse_csv_results(artifact, non_fatal_errors)
+            if raw is None:
+                continue  # error already appended by _parse_csv_results
+        else:
+            try:
+                raw = json.loads(artifact.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                non_fatal_errors.append(
+                    f"results_inject: cannot parse {results_location}: {exc}"
+                )
+                continue
 
-        if not isinstance(raw, dict):
-            non_fatal_errors.append(
-                f"results_inject: results JSON is not a dict in {results_location}"
-            )
-            continue
+            if not isinstance(raw, dict):
+                non_fatal_errors.append(
+                    f"results_inject: results JSON is not a dict in {results_location}"
+                )
+                continue
 
         # ── Emit macros ────────────────────────────────────────────────────
         macro_lines.append(f"% ── {exp_id} (hash: {results_hash[:20]}…) ──")

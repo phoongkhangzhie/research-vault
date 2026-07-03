@@ -34,6 +34,35 @@
 - PR #72 awaiting reviewer verdict + Architect (Wren) fit-check.
 
 ---
+## 2026-07-03 (SR-MS2-FIX: robust extractor + blind-judge canary + --semantic + un-truncate + CSV)
+
+### Done
+- **Robust extraction** (`_read_note_structured_fields`): strip HTML comments; extract every
+  ##/### section; capture markdown tables; fallback to full de-commented body; skip only
+  sections literally titled `Abstract`; broaden frontmatter to all scalar fields except
+  id/pointer denylist. Core bug: extractor returned {} on real OKF notes → every verdict
+  was false-ABSENT.
+- **Blind-judge canary** (`check_support_tally`): one synthetic known-supported probe before
+  the real tally; [ABSENT] on probe → ABORT LOUDLY with "NOT real refutations" message.
+- **CLI**: `rv manuscript check --semantic` — one flag on existing verb; requires
+  `RV_JUDGE_MODEL` + `ANTHROPIC_API_KEY`, fails LOUD if absent; plain check stays hermetic.
+- **Un-truncate** (`_build_judge_prompt`): per-field cap 400→2000, overall ~6000-char budget
+  with visible `[…truncated N chars…]` marker.
+- **CSV results** (`inject_results`): branches on `.csv` → 2-col key,value parser; ambiguous
+  CSV (wrong column count) → clear error not silent skip.
+- **Doctrine**: one-line canary principle in `doctrine/review-board.md`.
+- Tests: 21 new tests (red-before-green); full suite 1852 passed; rv lint PASS; rv help --check
+  OK; leakage clean. CI green on head SHA `2e4303f` — all 5 checks passed.
+
+### Decisions
+- Skip only sections titled exactly "Abstract" (not "Results Abstract" etc.) — anti-positivity
+  carve-out is narrow: only the cited paper's own abstract, not researcher's recorded distillation.
+- Canary uses a synthetic note with ## Result section so the extractor is exercised, not just
+  the judge. The probe must survive the full extractor+judge pipeline.
+- CSV: 2-col only for unambiguous machine-readable results; multi-col → JSON (clear error enforces this).
+
+### Open / next
+- Hub opens PR; Argus review + Wren fit-check before human-go merge.
 
 ## 2026-07-03 (SR-DOCTOR-PRINCIPLED: permissions + propose + confirm + learn)
 
