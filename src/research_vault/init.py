@@ -14,9 +14,8 @@ SR-CCB additions:
        the watcher only registers dirs that exist before the session opens).
     3. Auto-runs ``build-agents --target claude-code`` to populate
        ``.claude/agents/<role>.md`` with CC-format subagent files for the
-       DEFAULT_ROSTER (5 roles) + architect = 6 files.
-  Demo CONTRACTs (``.agents/<demo>/CONTRACT.md``) are also written so the
-  demo crew composes project-aware from the first session.
+       DEFAULT_ROSTER (5 roles) + architect = 6 files (charter + role doctrine,
+       vault-level — no per-project lens; SR-LENS-RM).
 
 Multi-repo topology note:
   The `examples/` demo projects are shipped inside the package under
@@ -365,28 +364,6 @@ def cmd_init_in_dir(target_dir: str) -> int:
         shutil.copytree(str(dl_src), str(demo_litreview_dir), dirs_exist_ok=True)
     print(f"  created: examples/demo-litreview/ ({_count_files(demo_litreview_dir)} files)")
 
-    # ── SR-CCB: Write demo CONTRACTs ─────────────────────────────────────────
-    # The demo CONTRACTs ship as package data alongside the loop manifests.
-    # They are pre-filled (no FILL stubs) so the demo crew composes project-aware
-    # from the first session, without any adopter authoring.
-    for demo_slug, demo_examples_dir in (
-        ("demo-research", demo_research_dir),
-        ("demo-litreview", demo_litreview_dir),
-    ):
-        src_contract = demo_examples_dir / "CONTRACT.md"
-        dst_contract_dir = agents_dir / demo_slug
-        dst_contract_dir.mkdir(parents=True, exist_ok=True)
-        dst_contract = dst_contract_dir / "CONTRACT.md"
-        if src_contract.is_file():
-            shutil.copy2(str(src_contract), str(dst_contract))
-            print(f"  created: .agents/{demo_slug}/CONTRACT.md")
-        else:
-            # Hard error — the wheel is incomplete (charter §2: surface, never drop)
-            raise RuntimeError(
-                f"Package data missing: data/examples/{demo_slug}/CONTRACT.md. "
-                "The wheel is incomplete — reinstall research-vault."
-            )
-
     # ── SR-CCB: Scaffold CLAUDE.md (the Alfred hub-bootstrap) ────────────────
     # Makes a fresh `claude` session become Alfred, the hub.
     # Loaded via importlib.resources (zipimport-safe, same pattern as QUICKSTART).
@@ -442,7 +419,7 @@ def cmd_init_in_dir(target_dir: str) -> int:
         # reload from the new instance's config rather than any stale pre-init cache.
         reset_config_cache()
 
-        _rc = _cmd_build_agents(project_slug=None, cfg=_cfg, target="claude-code")
+        _rc = _cmd_build_agents(cfg=_cfg, target="claude-code")
         if _rc != 0:
             print(
                 "rv init: WARNING — build-agents --target claude-code returned non-zero. "
