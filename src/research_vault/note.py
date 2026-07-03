@@ -33,6 +33,7 @@ OKF_TYPES = frozenset({
     "datasets",    # SR-8: provenance note for data artifacts (points to data, never contains it)
     "figures",     # SR-FIG: provenance note for publication figures (points to image, never embeds)
     "manuscript",  # SR-MS-1a: LaTeX-native POINTER note (metadata+provenance; points to manuscripts/<id>/)
+    "gaps",        # SR-LR-2: typed research gap record (§5L.7-5L.8); project-scoped; first-class lifecycle
 })
 
 # SR-RESOLVE-SCOPE: the sole SHARED (cross-project) OKF type — lives in cfg.datasets_root.

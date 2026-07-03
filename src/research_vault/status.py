@@ -477,6 +477,22 @@ def cmd_status(
     except Exception:
         pass
 
+    # --- Open gap count (SR-LR-2 §5L.7 D-GAP-4) ---
+    # Surfaces the COUNT only — never inlines gap records into the control bus.
+    # A non-zero count is a prompt to run `rv review gap-scope` + human-go.
+    try:
+        from research_vault.review.gap_scan import open_gap_count
+        n_open_gaps = open_gap_count(project, config=cfg)
+        if n_open_gaps > 0:
+            attention.append(
+                f"{n_open_gaps} open gap(s) detected — run "
+                f"`rv review gap-scan {project}` to inspect, then "
+                f"`rv review gap-scope {project} <gap-id> <scope>` to author "
+                f"a targeted review pass (human-go required)"
+            )
+    except Exception:
+        pass
+
     if attention:
         lines.append("## Needs Attention")
         for a in attention:

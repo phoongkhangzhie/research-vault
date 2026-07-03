@@ -128,11 +128,11 @@ class TestFiguresOkfType:
         assert "figures" in note_mod.OKF_TYPES
 
     def test_okf_type_count_is_nine(self):
-        """OKF_TYPES now has exactly 9 types (SR-MS-1a adds manuscript as the 9th)."""
-        assert len(note_mod.OKF_TYPES) == 9
+        """OKF_TYPES now has exactly 10 types (SR-LR-2 adds 'gaps' as the 10th)."""
+        assert len(note_mod.OKF_TYPES) == 10
         expected = {
             "literature", "concepts", "methods", "experiments",
-            "findings", "mocs", "datasets", "figures", "manuscript",
+            "findings", "mocs", "datasets", "figures", "manuscript", "gaps",
         }
         assert note_mod.OKF_TYPES == expected
 
