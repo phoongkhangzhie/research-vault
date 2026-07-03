@@ -116,6 +116,33 @@ def _merge_profile_defaults(profile: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def _ssh_exec(
+    host: str,
+    argv: list[str],
+    *,
+    timeout: int = 15,
+) -> "subprocess.CompletedProcess[str]":
+    """Run ``ssh <host> <argv>`` and return the CompletedProcess.
+
+    This is the shared SSOT for all ssh subprocess calls in the remote adapter.
+    It does NOT swallow exceptions — callers decide what to do.
+
+    Raises:
+      FileNotFoundError — ssh binary not found in PATH
+      subprocess.TimeoutExpired — the command timed out
+
+    SR-CO extracted this from the inlined calls in ``_run_status`` and ``submit``
+    so that SR-CO-REMOTE can reuse it (with BatchMode + ConnectTimeout flags)
+    for automated remote probing without duplicating the transport.
+    """
+    return subprocess.run(
+        ["ssh", host] + list(argv),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
 def _run_status(job_handle: str, profile: dict[str, Any]) -> str:
     """Run the declared status command and map output to a Protocol state.
 
@@ -139,12 +166,7 @@ def _run_status(job_handle: str, profile: dict[str, Any]) -> str:
     # Indicated by status_cmd=None or a state_map with _exit0 / _exit_nonzero keys.
     if status_cmd is None or "_exit0" in state_map:
         try:
-            result = subprocess.run(
-                ["ssh", host, "kill", "-0", str(job_handle)],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
+            result = _ssh_exec(host, ["kill", "-0", str(job_handle)], timeout=15)
             if result.returncode == 0:
                 return state_map.get("_exit0", "RUNNING")
             return state_map.get("_exit_nonzero", "DONE")
@@ -160,12 +182,7 @@ def _run_status(job_handle: str, profile: dict[str, Any]) -> str:
     cmd_str = status_cmd.replace("{jobid}", str(job_handle))
 
     try:
-        result = subprocess.run(
-            ["ssh", host] + shlex.split(cmd_str),
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
+        result = _ssh_exec(host, shlex.split(cmd_str), timeout=15)
     except FileNotFoundError:
         return "UNKNOWN"
     except subprocess.TimeoutExpired:

@@ -293,6 +293,17 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     lines.append(f"  [{status}] {latex_msg}")
 
     # Summary
+    # --- Compute manifest nudge (SR-CO) ---
+    # Check if compute_manifest.json exists; nudge if absent (not a blocking FAIL).
+    compute_manifest_present = False
+    try:
+        from .compute import _manifest_path
+        from .config import load_config as _load_config
+        _cfg = cfg if cfg is not None else _load_config()
+        compute_manifest_present = _manifest_path(_cfg).exists()
+    except Exception:
+        pass
+
     lines.append("")
     if all_required:
         lines.append("Result: OK — all required prerequisites present.")
@@ -305,6 +316,16 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     else:
         lines.append("Result: FAIL — required prerequisites missing (see FAIL items above).")
 
+    # Nudge: compute manifest (advisory, not a blocking gate)
+    if not compute_manifest_present:
+        lines.append("")
+        lines.append(
+            "Compute: compute_manifest.json not found — declare your compute environment:\n"
+            "  rv compute init   (DECLARE: scaffold manifest with local + remote FILL blocks)\n"
+            "  rv doctor         (DISCOVER: probe each declared backend)\n"
+            "  rv compute show   (VERIFY: merged declared+discovered recipe)"
+        )
+
     report = "\n".join(lines)
 
     return {
@@ -315,6 +336,7 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
         "wandb_key": wandb_ok,
         "figures": figures_ok,
         "latex": latex_ok,
+        "compute_manifest": compute_manifest_present,
         "all_required_ok": all_required,
         "report": report,
     }
