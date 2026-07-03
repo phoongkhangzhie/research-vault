@@ -368,21 +368,27 @@ class TestAppendixRepro:
 
     def _make_repro_note(self, cfg, project: str, exp_id: str,
                           overrides: dict | None = None) -> Path:
-        """Write an experiment note with repro_* fields."""
+        """Write an experiment note with repro_* fields.
+
+        The `overrides` dict may include `results_location`, `results_hash`, and
+        `results_commit` in addition to repro_* fields.
+        SR-MS-AUDIENCE: pass results_location=<non-empty> to avoid proxy-study detection.
+        """
         from research_vault.note import REPRO_SENTINEL, REPRO_ALL_FIELDS
         proj_notes = cfg.project_notes_dir(project)
         exp_dir = proj_notes / "experiments"
         exp_dir.mkdir(parents=True, exist_ok=True)
+        ov = overrides or {}
         fields_lines = [
             f"type: experiments",
             f"title: Experiment {exp_id}",
             f"created: 2026-01-01",
-            f"results_location: ",
-            f"results_hash: ",
-            f"results_commit: ",
+            f"results_location: {ov.get('results_location', '')}",
+            f"results_hash: {ov.get('results_hash', '')}",
+            f"results_commit: {ov.get('results_commit', '')}",
         ]
         for f in REPRO_ALL_FIELDS:
-            val = (overrides or {}).get(f, REPRO_SENTINEL)
+            val = ov.get(f, REPRO_SENTINEL)
             fields_lines.append(f"{f}: {val}")
         note = exp_dir / f"{exp_id}.md"
         frontmatter = "\n".join(fields_lines)
@@ -411,12 +417,17 @@ class TestAppendixRepro:
         assert "not recorded" in content.lower() or REPRO_SENTINEL in content
 
     def test_appendix_populated_fields_render_values(self, manuscript_tree, cfg):
-        """Populated repro fields render their actual values."""
+        """Populated repro fields render their actual values.
+
+        Must set results_location so the study is not classified as a proxy study
+        (SR-MS-AUDIENCE: empty results_location on all notes → reframe, not table).
+        """
         from research_vault.manuscript.appendix import inject_appendix
         note_path, tree_root, manifest, _ = manuscript_tree
         exp_note = self._make_repro_note(cfg, "demo-research", "exp-pop",
                                           overrides={"repro_seed": "42",
-                                                     "repro_model_id": "gpt-4o-mini"})
+                                                     "repro_model_id": "gpt-4o-mini",
+                                                     "results_location": "/data/results.csv"})
         inject_appendix(tree_root=tree_root, experiment_notes=[exp_note])
         content = (tree_root / "sections" / "appendix-repro.tex").read_text()
         assert "42" in content

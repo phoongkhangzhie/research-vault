@@ -45,16 +45,19 @@ SECTION_STATUS: dict[str, str] = {
     "conclusion": "required",
     "introduction": "required",
     "abstract": "required",
+    "title": "required",                # SR-MS-AUDIENCE: late editorial title node
     "appendix-repro": "required",
     "data-code-availability": "venue-optional",  # VENUE-OPTIONAL: near appendix
     "assemble": "required",
     "compile": "required",
     "critic": "required",
+    "cold-read": "required",            # SR-MS-AUDIENCE: Layer-1 body leak-scan node
 }
 
 # Full ordered list of all possible section keys (including optional/venue-optional).
 # The scaffolder selects a subset based on toggles (see get_active_sections()).
 # per_section_tips must contain an entry for EVERY key listed here.
+# SR-MS-AUDIENCE: widened from 16→18 nodes (+title +cold-read).
 SECTION_KEYS: tuple[str, ...] = (
     "gather-scope",
     "related-work",
@@ -67,11 +70,13 @@ SECTION_KEYS: tuple[str, ...] = (
     "conclusion",
     "introduction",
     "abstract",
+    "title",                # SR-MS-AUDIENCE: late editorial title node (afterok abstract)
     "appendix-repro",
     "data-code-availability",  # VENUE-OPTIONAL — near appendix
     "assemble",
     "compile",
     "critic",
+    "cold-read",            # SR-MS-AUDIENCE: Layer-1 body leak-scan (afterok compile)
 )
 
 
@@ -509,6 +514,76 @@ per_section_tips: dict[str, str] = {
         "BLOCK on [ABSENT] / [CONTRADICTS], WARN on [PARTIAL]. "
         "Output: a critic report with (a) three or more findings, (b) bracketed verdicts "
         "on sampled (sentence, cite) pairs, (c) BLOCK/WARN counts."
+    ),
+
+    # ── title (SR-MS-AUDIENCE §5J.16.4) ─────────────────────────────────────
+    # Written LATE — afterok abstract, body is known. Proposes 3–5 reader-facing
+    # candidate titles for the human to curate at the approve-manuscript gate.
+    # NOT a new human-go gate — the title is curated at the existing gate (D-AUD-4).
+    "title": (
+        "Propose 3–5 reader-facing candidate titles for this manuscript "
+        "(SR-MS-AUDIENCE §5J.16.4). "
+        "This node runs AFTER the body is known (afterok abstract) so titles can "
+        "reflect the actual findings and framing. The human will curate the final "
+        "title at the approve-manuscript gate — you propose, not decide. "
+        "\n\n"
+        "TITLE RULES (non-negotiable):\n"
+        "(1) A title states the KEY CLAIM or contribution — not the internal id, "
+        "not the run name, not the DAG slug. A title like 'ms-cb-fmt-draft' is a "
+        "machine artifact; a title like 'Cross-Lingual Cultural Competence in LLMs: "
+        "A Re-Analysis' is a reader-facing claim.\n"
+        "(2) NO CLAIM IN THE TITLE (Fig-1 rule): the title must state WHAT IS STUDIED, "
+        "not assert the result. Titles like 'Model X is More Culturally Competent' "
+        "embed the claim; 'Cultural Competence Benchmarks for Multilingual LLMs' does not. "
+        "Claims live in the abstract and body where the support-matcher can check them.\n"
+        "(3) 3–5 candidates only — never just one. The human curates from options.\n"
+        "(4) GROUNDED: each title must be a title a reader could see and understand "
+        "without the repo, without internal notes, without seeing the run id.\n"
+        "\n\n"
+        "Source the thesis from the manuscript note's 'thesis:' frontmatter field. "
+        "Source key concepts from the abstract.tex and conclusion.tex already written. "
+        "Do NOT introduce concepts not present in the body sections.\n\n"
+        "Output format: write the candidates to the manuscript note body under a "
+        "'## Title Candidates' heading, one per line prefixed with '- '. "
+        "Example output:\n"
+        "## Title Candidates\n"
+        "- Cross-Lingual Evaluation of Cultural Competence in Large Language Models\n"
+        "- Measuring Cultural Competence: A Re-Analysis of Published LLM Benchmarks\n"
+        "- Cultural Competence Gaps in Multilingual LLMs: Benchmark Evidence\n"
+    ),
+
+    # ── cold-read (SR-MS-AUDIENCE §5J.16.3 Layer-1) ──────────────────────────
+    # Structural (deterministic, no LLM) body leak-scan. Runs afterok compile so
+    # it can read the rendered .tex files in their final assembled state.
+    # Layer-2 LLM cold-read judge is SR-MS-COLDREAD (future SR).
+    "cold-read": (
+        "Run the Layer-1 deterministic body leak-scan "
+        "(SR-MS-AUDIENCE §5J.16.3, `rv manuscript check --cold-read`). "
+        "\n\n"
+        "This is a STRUCTURAL check — no LLM judgment. It is a cheap kill (charter §9) "
+        "that detects internal-provenance leaks in the body .tex files BEFORE the "
+        "approve-manuscript gate. A leak → BLOCK; the gate must clear before proceeding. "
+        "\n\n"
+        "Run: `rv manuscript <project> check <id> --cold-read`\n\n"
+        "WHAT IS SCANNED:\n"
+        "  - Body sections in sections/*.tex (EXCLUDING appendix-repro.tex and "
+        "    data-code-availability.tex, which legitimately contain provenance).\n"
+        "  - main.tex \\title{} for the structural title guard.\n"
+        "\n\n"
+        "WHAT BLOCKS:\n"
+        "  - sha256:<hex> or bare 64-char hex strings → internal hash stamps\n"
+        "  - covers_hash / results_hash / run_id / dag_run tokens → DAG-internal ids\n"
+        "  - 'not-recorded-in-provenance' sentinel → must not appear in body prose "
+        "    (proxy studies use the reframe paragraph instead)\n"
+        "  - results/*.csv or results/*.json paths → raw artifact paths\n"
+        "  - Absolute /Users/ or /home/ paths → local machine paths\n"
+        "  - \\title{} matches ms-...-draft or slug-with-hash → internal run id\n"
+        "\n\n"
+        "Surface the output honestly: 'cold-read Layer-1: N files scanned, k BLOCK'. "
+        "Never say 'clean' without having scanned every body section file. "
+        "A BLOCK here must be resolved before approve-manuscript — the leak must be "
+        "removed from body prose (move to appendix if it is legitimate provenance, "
+        "or strip it if it is an artifact of the drafting process)."
     ),
 }
 

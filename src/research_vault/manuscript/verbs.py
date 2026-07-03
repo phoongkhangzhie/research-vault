@@ -38,7 +38,7 @@ def build_parser(
     When to use: use `rv manuscript new <project> <id> --thesis '...'` to scaffold
     an anti-fabrication-by-construction path from a verified OKF graph to a paper draft:
     closed .bib from filed `literature/` notes, machine-injected results macros,
-    `reads:` grounding contracts, and a 16-node drafting-DAG manifest (§5J.2).
+    `reads:` grounding contracts, and an 18-node drafting-DAG manifest (§5J.2 + SR-MS-AUDIENCE).
 
     Anti-pattern: do NOT hand-write a .tex and hand-type citations/numbers — run
     `rv manuscript new --thesis` so the draft carries a closed .bib, machine-
@@ -71,7 +71,7 @@ def build_parser(
         "new",
         help=(
             "Create a manuscript OKF note + manuscripts/<id>/ tree + drafting-DAG manifest. "
-            "Scaffolds the 16-node §5J.2 drafting DAG with all section specs and reads: contracts."
+            "Scaffolds the 18-node §5J.2 + SR-MS-AUDIENCE drafting DAG with all section specs and reads: contracts."
         ),
     )
     new_p.add_argument(
@@ -184,6 +184,23 @@ def build_parser(
             "Plain 'check' without this flag stays hermetic (structural gates only)."
         ),
     )
+    check_p.add_argument(
+        "--cold-read",
+        action="store_true",
+        default=False,
+        dest="cold_read",
+        help=(
+            "Run the Layer-1 deterministic body leak-scan (SR-MS-AUDIENCE §5J.16.3). "
+            "Scans body sections/*.tex for internal-provenance patterns that must not "
+            "appear in the public PDF: sha256 hashes, artifact paths, DAG-internal ids, "
+            "the 'not-recorded-in-provenance' sentinel, and absolute machine paths. "
+            "Excludes appendix-repro.tex and data-code-availability.tex (zone-2, legitimate). "
+            "Also runs the structural title guard (\\title must not be the run id). "
+            "BLOCK on any hit — the leak must be removed or moved to the appendix. "
+            "Hermetic: no LLM, no network. Runs in SR-MS-AUDIENCE; Layer-2 LLM judge "
+            "is SR-MS-COLDREAD (separate SR, requires ANTHROPIC_API_KEY)."
+        ),
+    )
 
     return p
 
@@ -253,6 +270,7 @@ def run(args: argparse.Namespace) -> int:
 
         if args.manuscript_cmd == "check":
             semantic = getattr(args, "semantic", False)
+            cold_read = getattr(args, "cold_read", False)
 
             # SR-MS2-FIX: --semantic requires RV_JUDGE_MODEL + ANTHROPIC_API_KEY.
             # Fail LOUD if absent — never silently degrade to structural-only.
@@ -278,6 +296,31 @@ def run(args: argparse.Namespace) -> int:
             result = cmd_check(args.project, args.ms_id, config=cfg)
             errors = result.get("errors", [])
             warnings = result.get("warnings", [])
+
+            # If --cold-read: explicitly surface body leak-scan results
+            # (already wired into check_manuscript, but surface the tally here)
+            if cold_read:
+                from research_vault.manuscript.check_gates import check_body_leakage
+                _ms_dir = cfg.project_notes_dir(args.project) / "manuscript"
+                _tree_root = cfg.project_notes_dir(args.project) / "manuscripts" / args.ms_id
+                _note_path = _ms_dir / f"{args.ms_id}.md"
+                # Run standalone cold-read scan for explicit surface
+                _leak_errors = check_body_leakage(_tree_root, note_path=_note_path)
+                _tex_files = list(_tree_root.rglob("*.tex"))
+                _n_body = sum(
+                    1 for t in _tex_files
+                    if t.stem not in ("appendix-repro", "data-code-availability")
+                )
+                print(
+                    f"rv manuscript check --cold-read (Layer-1): "
+                    f"{_n_body} body file(s) scanned, {len(_leak_errors)} BLOCK"
+                )
+                if _leak_errors:
+                    print("  BLOCK — body leak(s) found:", file=sys.stderr)
+                    for le in _leak_errors:
+                        print(f"    {le}", file=sys.stderr)
+                else:
+                    print("  Layer-1 clean — no internal-provenance leaks in body sections.")
 
             # If --semantic: also run the LLM-judged support-matcher tally
             if semantic and not errors:
