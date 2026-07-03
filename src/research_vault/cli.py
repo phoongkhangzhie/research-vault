@@ -455,7 +455,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "counts — import `_load_corpus_index` and `_corpus_annotation` from "
             "`research_vault.research` directly (the corpus-helper import rule, §5L.11)."
         ),
-        "sr": "SR-LR-1, SR-LR-2",
+        "sr": "SR-LR-1, SR-LR-2, SR-GAP-ROUTE",
     },
 }
 

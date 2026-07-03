@@ -317,6 +317,11 @@ class SupportVerdict:
     prompt_hash: str
     j2_escalation: bool = False
     raw_response: str = field(default="", repr=False)
+    # SR-GAP-ROUTE Tier B: manuscript section stem (tex.stem) threaded from
+    # check_support_tally → match_support → SupportVerdict → to_meta_dict →
+    # _detect_absent_rows → GapRecord._meta['section'] → suggest_route().
+    # Default "" for back-compat: old verdicts without section → triage fallback.
+    section: str = ""
 
     @property
     def blocks(self) -> bool:
@@ -340,6 +345,9 @@ class SupportVerdict:
             "judge_model": self.judge_model,
             "prompt_hash": self.prompt_hash,
             "j2_escalation": self.j2_escalation,
+            # SR-GAP-ROUTE Tier B: section stem for absent_row routing in gap_scan.py.
+            # Empty string when not threaded (old verdicts) → back-compat triage fallback.
+            "section": self.section,
         }
 
 
@@ -608,6 +616,7 @@ def match_support(
     config: Any | None = None,
     judge_fn: Callable[[str], str] | None = None,
     judge_model: str = DEFAULT_JUDGE_MODEL,
+    section: str = "",
 ) -> SupportVerdict:
     """Assess whether a cited source backs a claim in the manuscript.
 
@@ -625,6 +634,10 @@ def match_support(
         judge_fn:        injectable LLM call (prompt: str) -> str. Defaults to
                          the urllib Anthropic API call. Pass a mock in tests.
         judge_model:     the model-id to log (D-MS-4 resolved: Opus-tier).
+        section:         SR-GAP-ROUTE Tier B: manuscript section stem (tex.stem) passed
+                         through from check_support_tally, stored in SupportVerdict.section
+                         and emitted in to_meta_dict() for absent_row routing in gap_scan.py.
+                         Default "" (back-compat: old callers without section → triage fallback).
 
     Returns:
         SupportVerdict with verdict, verbatim_span, polarity, judge_model, prompt_hash.
@@ -633,7 +646,7 @@ def match_support(
     BLOCK on [ABSENT] / [CONTRADICTS]; WARN on [PARTIAL].
     Log judge_model + prompt_hash to RunState.meta["support_matcher"] at the call site.
 
-    sr: SR-MS-2
+    sr: SR-MS-2, SR-GAP-ROUTE
     """
     rubric = get_support_rubric(override=rubric_override, config=config)
     note_fields = _read_note_structured_fields(note_path)
@@ -662,6 +675,7 @@ def match_support(
             judge_model=judge_model,
             prompt_hash=prompt_hash,
             raw_response="",
+            section=section,
         )
 
     # Call the judge
@@ -681,6 +695,7 @@ def match_support(
             judge_model=judge_model,
             prompt_hash=prompt_hash,
             raw_response="",
+            section=section,
         )
 
     verdict, verbatim_span, polarity, reasoning = _parse_judge_response(raw_response)
@@ -711,6 +726,7 @@ def match_support(
         prompt_hash=prompt_hash,
         j2_escalation=j2_escalation,
         raw_response=raw_response,
+        section=section,
     )
 
 
