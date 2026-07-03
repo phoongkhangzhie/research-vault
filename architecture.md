@@ -49,9 +49,34 @@ flowchart LR
 ## Tiers
 | Tier | Surface | v1? |
 |---|---|---|
-| 1 — research assistant | research, cite, note, mdstore, task, devlog, lint, wait-for + the doctrine | YES |
-| 2 — file coordination | role, build-agents, control, crew/role system, control-file bus, notify | YES |
-| 3 — advanced (opt-in) | vcs/github (multi-identity PR/merge), SLURM backend | NO (later SRs) |
+| 1 — research assistant | research, cite, note, mdstore, task, devlog, lint, wait-for, dag + the loops (manuscript, review, plan, figure, wandb, compute, doctor) + the doctrine | YES |
+| 2 — file coordination | status, role, build-agents, control, crew/role system, control-file bus, notify | YES |
+| 3 — advanced (opt-in) | github CI fetch (`adapters/github_ci.py`, MERGED), remote ComputeBackend / SLURM (MERGED); vcs multi-identity PR/merge | partial |
+
+## OKF typed notes — 9 types (note.OKF_TYPES, the SSOT)
+`note.OKF_TYPES` (`note.py:26-36`) is the frozen SSOT: **9 types** — `literature`, `concepts`, `methods`,
+`experiments`, `findings`, `mocs`, `datasets` (SR-8), `figures` (SR-FIG), `manuscript` (SR-MS-1a). Notes are
+**pointers, not embeds** (a figures/datasets/manuscript note *points to* its artifact, never contains it).
+**Scoping** is governed by `note.OKF_SHARED_TYPES = {"datasets"}` (`note.py:43`) — `datasets/` is the sole
+**shared** cross-project root (lives in `cfg.datasets_root`); **all other 8 types are project-scoped**
+(`cfg.project_notes_dir/<type>`). This split is imported, never duplicated (consumers: `wait_for` note-resolver,
+`dag/verbs` scope-check).
+
+## The loops & manuscript layer — the generative research OS (merged on top of core)
+Four subpackages, each a **DAG-driven loop** composed on the SR-3 walker/store + `spec:`/`reads:` grounding
+manifest with **zero new DAG mechanism** (the standing constraint). Each carries a **config seam** (Ada-authored
+prompt defaults + adopter override) and a `style.py` `apply_style`/style-preamble seam.
+
+| Subpackage | Verb | What it does | Config seam |
+|---|---|---|---|
+| `manuscript/` | `rv manuscript new/compile/check/list` | Grounded LaTeX drafting: `support_matcher` (`[SUPPORTS]`/`[PARTIAL]`/`[ABSENT]`/`[CONTRADICTS]` verdict per `\cite`→source, verbatim-span-or-BLOCK) · `naked_cite` (uncited-claim scan) · `check_gates` · `bib` (closed `.bib` from `literature/` notes) · `results_inject` (machine-injected `\result*` macros, hash-verified `experiments/` reads) · `appendix` · guarded `compile` | `per_section_tips` + `style.py` |
+| `review/` | `rv review new/expand/list` | Pre-registered, **saturation-gated lit-review DAG**: Phase-1 (review-scope → `[HG:approve-protocol]` → review-search → review-snowball → `[HG:coverage-gate]`) with `_protocol.md` freeze (non-empty `counter-position` = L-2 anti-fishing gate) + internal saturation loop (forward cited-by + backward refs); **two-phase fan-out** via `rv review expand` after the coverage human-go | `review_tips` + `style.py` |
+| `plan/` | `rv plan check/tips` | Pre-registration **freeze** (`freeze.py`) + structural **shape-lint** (`check.py`): rule (a) branch-presence, rule (b) one-component-per-ablation, **rule (c) bare-id `covers:` convention (SR-PLAN-2)** — run BEFORE `human-go-plan` | `plan_tips` + `style.py` |
+| `figures/` | `rv figure new/preview/render/recommend/list` | scores/datasets → publication-quality figures over pandas; `recommend` ranks plot types on the Cleveland–McGill perceptual ladder + Mackinlay expressiveness (SR-FIG-REC); provenance = `figures/` note (experiment-results-hash + filter recipe + style preset) | `apply_style(preset, skin)` seam (Iris style module + BeautifulFigures [MIT, attributed]) |
+
+**Dependency posture:** `figures/` bears RV's first optional extra — `[figures] = matplotlib/seaborn/pandas`
+(import-guarded); manuscript `compile` uses a documented **texlive prerequisite**, not a core dep. **Core stays
+stdlib-only.** Every loop above obeys leakage-by-construction (no private markers in prompts/seams/DEVLOG).
 
 ## Adapter Protocols (adapters/base.py)
 | Adapter | Interface | Local-default (zero infra) | Later adapter |
@@ -71,11 +96,30 @@ codenames; (2) a CI leakage scanner — private markers / secrets / non-template
 (3) placeholdered + linted templates. Acceptance: `rv init` → a valid stranger-runnable instance.
 
 ## SR sequence (build plan)
+Status verified against merged `main` (`src/research_vault/` modules + `note.OKF_TYPES`). **15 SRs merged.**
+
 | SR | What | Status |
 |---|---|---|
-| SR-1 | Package scaffold + config plane + dispatcher + `task`/`note`/`control`/`devlog` | THIS PR |
-| SR-2 | Remaining verbs + `wait-for` + adapter Protocols + local-defaults + plugin seam | — |
-| SR-3 | DAG core + OKF typed-artifact coupling | — |
-| SR-4 | Leakage gate teeth + portable doctrine + FULL named crew (the SPINE) | — (human-go) |
-| SR-5 | Both example loops + multi-project structure + `rv init` + preflight | — |
-| SR-6+ | SLURM backend · tier-3 vcs/github · OSS docs + publish | — |
+| SR-1 | Package scaffold + config plane + dispatcher + `task`/`note`/`control`/`devlog` | MERGED |
+| SR-2 | Remaining verbs + `wait-for` + adapter Protocols + local-defaults + plugin seam | MERGED |
+| SR-3 | DAG core (walker/store/schema/reads) + OKF typed-artifact coupling | MERGED |
+| SR-4 | Leakage gate teeth + portable doctrine + FULL named crew (the SPINE) | MERGED (human-go) |
+| SR-5 | Both example loops + multi-project structure + `rv init` + preflight | MERGED |
+| SR-NEW | `rv project new` capstone — stands up ONE new project as its own git repo (register-first + rollback) | MERGED |
+| SR-6 | `rv compute` / `rv doctor` — compute-discovery manifest + env probing/caching | MERGED |
+| SR-7 | Remote `ComputeBackend` (`adapters/remote.py`) + cleanup + `native_env` | MERGED |
+| SR-8 | DATASETS as a typed OKF artifact (shared root) + data-processing seams | MERGED |
+| SR-WB | `rv wandb pull` — W&B results core (server holds data, vault holds index, pull by id) | MERGED |
+| SR-FIG | FIGURES — data→figure DAG capability; `[figures]` extra; `figures/` OKF type (+ SR-FIG-REC recommender + fix) | MERGED |
+| SR-CIF | Tier-3 CI fetch (`adapters/github_ci.py`) — reworked | MERGED |
+| SR-EXP-REPRO | Experiment `repro_*` provenance schema | MERGED |
+| SR-PLAN-1/2 | Plan/freeze module + pre-registration + shape-lint (rule (c) bare-id `covers:`) | MERGED |
+| SR-MS-1a/1b/2 | Manuscript layer: structure · `.bib`+results-inject+guarded compile · support-matcher + critic + hash-drift gate | MERGED |
+| SR-LR-1 | Lit-review loop (`review/`) — saturation-gated, two-phase fan-out | MERGED |
+| corpus-dedup · SR-RESOLVE-SCOPE · SR-CONTRACT | Corpus dedup · project-scoped-vs-shared OKF split (`OKF_SHARED_TYPES`) · CONTRACT/project-lens scaffold (`build_agents`, `_hub.lensByRole`) | MERGED |
+| — next → | SR-FIG-REC polish · SR-LR-2 · SR-PLAN-2 follow-ons · SR-10 (OSS docs site + README/LICENSE + public publish, human-go) | — |
+
+## The CONTRACT / project-lens scaffold (SR-CONTRACT)
+The crew-composition layer: `build_agents.py` composes each agent hat as `charter + role + project-lens`; the
+per-role lens is selected via `_hub.lensByRole` in the project registry (`~/vault/projects.json`). This is what
+makes one shared crew serve multiple projects with the right emphasis per hat.
