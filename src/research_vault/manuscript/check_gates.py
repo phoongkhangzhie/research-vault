@@ -982,7 +982,10 @@ def check_support_tally(
 
     # Collect all sentences with \cite{} (sentence = text line containing a \cite)
     # Simple sentence heuristic: split on periods / newlines (for performance)
-    all_items: list[tuple[str, str]] = []  # (sentence, citekey)
+    # SR-GAP-ROUTE Tier B: capture tex.stem as section for absent_row routing in gap_scan.
+    # The section name is threaded through: all_items → match_support(section=) →
+    # SupportVerdict.section → to_meta_dict() → _detect_absent_rows → GapRecord._meta.
+    all_items: list[tuple[str, str, str]] = []  # (sentence, citekey, section)
     for tex in tex_files:
         if not tex.exists():
             continue
@@ -991,6 +994,7 @@ def check_support_tally(
         except OSError:
             continue
         text = _strip_comments(text)
+        section_name = tex.stem  # e.g. "introduction", "results-discussion"
         # Split into sentences (rough heuristic)
         sentences = re.split(r"(?<=[.!?])\s+|\n{2,}", text)
         for sent in sentences:
@@ -1001,7 +1005,7 @@ def check_support_tally(
                 for k in cm.group(1).split(","):
                     k = k.strip()
                     if k:
-                        all_items.append((sent, k))
+                        all_items.append((sent, k, section_name))
 
     verdicts: list[Any] = []
     errors: list[str] = []
@@ -1009,7 +1013,7 @@ def check_support_tally(
     n_sentences = len({item[0] for item in all_items})
     m_citations = len(all_items)
 
-    for sentence, citekey in all_items:
+    for sentence, citekey, section in all_items:
         # Find the note: try literature/<citekey>.md
         note_path = _notes_root / "literature" / f"{citekey}.md"
         if not note_path.exists():
@@ -1038,6 +1042,7 @@ def check_support_tally(
             config=config,
             judge_fn=judge_fn,
             judge_model=judge_model,
+            section=section,  # SR-GAP-ROUTE Tier B: thread section stem for absent_row routing
         )
         verdicts.append(v)
 
