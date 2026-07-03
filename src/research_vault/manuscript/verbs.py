@@ -190,15 +190,17 @@ def build_parser(
         default=False,
         dest="cold_read",
         help=(
-            "Run the Layer-1 deterministic body leak-scan (SR-MS-AUDIENCE §5J.16.3). "
-            "Scans body sections/*.tex for internal-provenance patterns that must not "
-            "appear in the public PDF: sha256 hashes, artifact paths, DAG-internal ids, "
-            "the 'not-recorded-in-provenance' sentinel, and absolute machine paths. "
-            "Excludes appendix-repro.tex and data-code-availability.tex (zone-2, legitimate). "
-            "Also runs the structural title guard (\\title must not be the run id). "
-            "BLOCK on any hit — the leak must be removed or moved to the appendix. "
-            "Hermetic: no LLM, no network. Runs in SR-MS-AUDIENCE; Layer-2 LLM judge "
-            "is SR-MS-COLDREAD (separate SR, requires ANTHROPIC_API_KEY)."
+            "Run the two-layer cold-read gate (SR-MS-AUDIENCE Layer-1 + SR-MS-COLDREAD Layer-2). "
+            "Layer-1 (hermetic): scans body sections/*.tex for internal-provenance patterns "
+            "(sha256 hashes, artifact paths, DAG-internal ids, sentinel text). Excludes "
+            "appendix-repro.tex and data-code-availability.tex (zone-2, legitimate). "
+            "Also runs the Flag-A deterministic scan over the pdftotext output (belt-and-suspenders). "
+            "Layer-2 (LLM judge, SR-MS-COLDREAD): fresh-reader self-containment judge — "
+            "reads ONLY the compiled PDF text and flags every reference that doesn't resolve "
+            "from the paper alone. Runs the bidirectional canary before trusting any verdict. "
+            "BLOCK on [DANGLING]; WARN on [NEEDS-CONTEXT]. "
+            "Layer-2 requires RV_JUDGE_MODEL + ANTHROPIC_API_KEY — FAILS LOUD if absent. "
+            "Plain 'rv manuscript check' stays hermetic (Layer-1 only via check_manuscript)."
         ),
     )
 
@@ -297,14 +299,14 @@ def run(args: argparse.Namespace) -> int:
             errors = result.get("errors", [])
             warnings = result.get("warnings", [])
 
-            # If --cold-read: explicitly surface body leak-scan results
-            # (already wired into check_manuscript, but surface the tally here)
+            # If --cold-read: run Layer-1 hermetic body leak-scan AND Layer-2 LLM judge
             if cold_read:
                 from research_vault.manuscript.check_gates import check_body_leakage
                 _ms_dir = cfg.project_notes_dir(args.project) / "manuscript"
                 _tree_root = cfg.project_notes_dir(args.project) / "manuscripts" / args.ms_id
                 _note_path = _ms_dir / f"{args.ms_id}.md"
-                # Run standalone cold-read scan for explicit surface
+
+                # Layer-1: deterministic body leak-scan (always, hermetic)
                 _leak_errors = check_body_leakage(_tree_root, note_path=_note_path)
                 _tex_files = list(_tree_root.rglob("*.tex"))
                 _n_body = sum(
@@ -321,6 +323,48 @@ def run(args: argparse.Namespace) -> int:
                         print(f"    {le}", file=sys.stderr)
                 else:
                     print("  Layer-1 clean — no internal-provenance leaks in body sections.")
+
+                # Layer-2: LLM cold-read judge — requires RV_JUDGE_MODEL + ANTHROPIC_API_KEY
+                # Fails LOUD if either is absent (parallel to --semantic guard).
+                import os as _os_cr
+                _cr_judge_model = _os_cr.environ.get("RV_JUDGE_MODEL", "").strip()
+                _cr_api_key = _os_cr.environ.get("ANTHROPIC_API_KEY", "").strip()
+                if not _cr_judge_model or not _cr_api_key:
+                    _cr_missing = []
+                    if not _cr_judge_model:
+                        _cr_missing.append("RV_JUDGE_MODEL")
+                    if not _cr_api_key:
+                        _cr_missing.append("ANTHROPIC_API_KEY")
+                    print(
+                        f"rv manuscript check --cold-read (Layer-2): FAIL — "
+                        f"env var(s) required but absent: {', '.join(_cr_missing)}. "
+                        f"Set them to the Opus-tier model ID and API key. "
+                        f"Layer-1 (deterministic) ran above; Layer-2 (LLM judge) skipped.",
+                        file=sys.stderr,
+                    )
+                    # Still return error if Layer-1 had hits
+                    if _leak_errors:
+                        return 1
+                    return 1  # Layer-2 missing env is itself an error
+
+                from research_vault.manuscript.check_gates import check_cold_read_tally
+                _cr_tally = check_cold_read_tally(
+                    _tree_root,
+                    judge_model=_cr_judge_model,
+                )
+                print(
+                    f"rv manuscript check --cold-read (Layer-2): {_cr_tally['honest_report']}"
+                )
+                if _cr_tally.get("canary_aborted"):
+                    print(
+                        f"  ABORT (canary): {_cr_tally['errors'][0] if _cr_tally['errors'] else 'judge mis-wired'}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                for e in _cr_tally.get("errors", []):
+                    errors.append(f"[cold-read] {e}")
+                for w in _cr_tally.get("warnings", []):
+                    warnings.append(f"[cold-read] {w}")
 
             # If --semantic: also run the LLM-judged support-matcher tally
             if semantic and not errors:
