@@ -294,33 +294,39 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-WB",
     },
-    # --- SR-6 ---
+    # --- SR-6 / SR-CO ---
     "compute": {
         "module": "research_vault.compute",
         "when_to_use": (
-            "When you need to see how to run on this environment (rv compute show), "
+            "When you need to declare your compute environment (rv compute init), "
+            "see how to run on this environment (rv compute show), "
             "resolve env/tier/flags for a specific job/model (rv compute explain <job>), "
             "capture a cluster gotcha as a declared rule (rv compute lesson add), or "
             "record a run outcome so the manifest improves from real experience "
             "(rv compute outcome add). "
+            "DECLARE → DISCOVER order: `rv compute init` (declare WHERE) → "
+            "`rv doctor` (discover WHAT per backend) → `rv compute show` (verify). "
             "Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what "
             "env/tier to use — rv compute show / rv doctor already declare it. "
-            "Memory is flimsy; this tooling makes it robust."
+            "Do NOT hand-edit compute_manifest.json from scratch — use rv compute init."
         ),
-        "sr": "SR-6",
+        "sr": "SR-6, SR-CO",
     },
     "doctor": {
         "module": "research_vault.doctor",
         "when_to_use": (
             "When you need to probe and cache compute environment capabilities "
-            "(conda envs, SLURM/PBS scheduler, CLI tools, GPU presence). "
-            "Run `rv doctor` once after setup or after environment changes — agents "
-            "query the cache; re-run with --refresh on env-change or failure. "
+            "(conda envs, SLURM/PBS scheduler, CLI tools, GPU presence) — "
+            "per each DECLARED backend from compute_manifest.json. "
+            "Run `rv doctor` AFTER `rv compute init` (declare first, then discover). "
+            "Re-run with --refresh on env-change or failure. "
             "Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what "
             "env/tier to use — rv doctor already discovers and caches it. "
+            "Do NOT run rv doctor before rv compute init — doctor iterates declared "
+            "backends; running it first is useless when your compute is a remote cluster. "
             "Degrades gracefully without a scheduler: reports 'not available', no traceback."
         ),
-        "sr": "SR-6",
+        "sr": "SR-6, SR-CO",
     },
     "plugins": {
         "module": "research_vault.plugins",

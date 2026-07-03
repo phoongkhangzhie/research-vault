@@ -1,18 +1,25 @@
 """compute.py — `rv compute` — compute manifest: declare + discover "how to run here".
 
-When to use: ``rv compute show`` to see how to run on this environment (backends,
-conda envs, GPU tiers, rules, model quirks). ``rv compute explain <job>`` to
-resolve which env/tier/flags a specific job/model would use. ``rv compute lesson
-add "<trigger>" "<fix>"`` to capture a cluster gotcha as a declared rule.
-``rv compute outcome add`` to record a run result (OOM/SUCCESS) so the manifest
-improves from real experience.
+DECLARE → DISCOVER ordering (SR-CO):
+  1. ``rv compute init``   — DECLARE: scaffold compute_manifest.json with local
+                             backend + optional remote cluster FILL block + W&B block.
+                             Run FIRST, before rv doctor. No doctor-cache dependency.
+  2. ``rv doctor``         — DISCOVER: probe each declared backend (local fully probed;
+                             remote probe = SR-CO-REMOTE fast-follow).
+  3. ``rv compute show``   — VERIFY: print the merged declared-where + discovered-what.
+
+Other verbs:
+  ``rv compute explain <job>`` — resolve which env/tier/flags a specific job uses.
+  ``rv compute lesson add``    — capture a cluster gotcha as a declared rule.
+  ``rv compute outcome add``   — record a run result (OOM/SUCCESS).
 
 Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what env/tier
-to use — ``rv compute show`` / ``rv doctor`` already declare it. Memory is
-flimsy; this tooling makes it robust.
+to use — ``rv compute show`` / ``rv doctor`` already declare it. Do NOT
+hand-edit compute_manifest.json from scratch — use ``rv compute init``.
 
 The manifest is stored at ``<state_dir>/compute_manifest.json`` — the instance's
 state_dir, NOT ~/vault.  One manifest per Research Vault instance.
+Credentials NEVER go in the manifest (ssh auth → ~/.ssh/config; W&B API key → keyring).
 
 Backend archetypes supported in the manifest:
   local         — subprocess (zero-infra default; LocalSubprocess adapter)
@@ -45,6 +52,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -114,6 +122,163 @@ def _save_manifest(cfg: Config, manifest: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# cmd_init — rv compute init
+# ---------------------------------------------------------------------------
+
+# FILL sentinel — value written into the scaffolded manifest for fields
+# the user must fill in. A value starting with this prefix is treated as
+# "not yet filled" by wandb_pull and other consumers (never used as a real value).
+_FILL_PREFIX = "FILL"
+
+# Scheduler CLI → archetype mapping for the cheap local PATH check.
+# When one of these CLIs is found locally, the corresponding remote cluster
+# FILL block is written pre-filled (the user only needs to supply host +
+# submit conventions). If none found, the block is written as a comment.
+_SCHEDULER_CLI_TO_ARCHETYPE = {
+    "sbatch": "ssh+slurm",
+    "qsub": "ssh+pbs",
+}
+
+
+def _scaffold_manifest(*, has_scheduler: str | None = None) -> dict[str, Any]:
+    """Return the guided-fill scaffold manifest for ``rv compute init``.
+
+    ``has_scheduler`` is the archetype detected locally (e.g. ``"ssh+slurm"``)
+    if a scheduler CLI is found, or ``None`` if not. When a scheduler is detected
+    locally, the remote cluster profile is pre-filled with FILL values (the user
+    fills host + submit convention). When none is detected, the cluster profile
+    is still included (inactive) — the user edits it when they have a cluster.
+
+    The manifest is always valid JSON. FILL values are strings starting with
+    ``_FILL_PREFIX`` and are treated as "not yet configured" by consumers.
+    """
+    # Always include a "cluster" profile block (inactive in `active` list) so
+    # the user has a concrete template to fill in. The archetype matches the
+    # detected scheduler if any, else defaults to ssh+slurm (most common HPC).
+    cluster_archetype = has_scheduler or "ssh+slurm"
+    submit_placeholder = (
+        "sbatch --partition=FILL --account=FILL --gres=gpu:{gpus} --time=FILL"
+        if cluster_archetype == "ssh+slurm"
+        else "qsub -q FILL -A FILL"
+    )
+
+    return {
+        "backends": {
+            # active: ["local"] — flip to ["cluster"] after filling the profile
+            "active": ["local"],
+            "profiles": {
+                "local": {"archetype": "local"},
+                # === DECLARE: fill host + submit_pattern then flip active to ["cluster"] ===
+                # Credentials: ssh auth via ~/.ssh/config (never put keys here)
+                "cluster": {
+                    "archetype": cluster_archetype,
+                    "host": (
+                        "FILL — ssh host alias (e.g. login.mycluster.edu); "
+                        "must resolve via your ~/.ssh/config"
+                    ),
+                    "submit_pattern": submit_placeholder,
+                    # Built-in defaults (jobid_parse/status_cmd/status_parse/state_map)
+                    # auto-apply from remote.py — omit unless overriding
+                },
+            },
+        },
+        # conda_envs: filled by `rv doctor` next (per declared backend)
+        "conda_envs": {},
+        "gpu_tiers": {
+            # Seeded default; rv doctor refines from probed GPU types; user tunes model-size
+            "tp1": {"gpus": 1, "models": ["<=7B"]},
+            # "tp4": {"gpus": 4, "models": ["<=70B"]}  # DECLARE: add tiers for your hardware
+        },
+        # W&B entity/project — config, NOT secrets (key stays in keyring via rv setup)
+        "results": {
+            "wandb": {
+                "entity": (
+                    "FILL — your W&B entity (username or team), "
+                    "or leave blank and set WANDB_ENTITY env var"
+                ),
+                "project": (
+                    "FILL — default W&B project for this instance, "
+                    "or leave blank and set WANDB_PROJECT env var"
+                ),
+            }
+        },
+        "rules": [],
+        "model_quirks": {},
+        "run_outcomes": [],
+    }
+
+
+def cmd_init(cfg: Config, *, force: bool = False) -> int:
+    """Scaffold a guided compute_manifest.json for DECLARE → DISCOVER setup.
+
+    Writes a non-empty manifest with:
+      - local backend (always)
+      - remote cluster FILL block (pre-filled if a scheduler CLI is found locally)
+      - results.wandb FILL block (entity/project; key stays in keyring)
+      - seeded gpu_tiers
+
+    Refuses to clobber an existing manifest without ``--force``.
+
+    Returns exit code 0 on success, 1 on error.
+    """
+    p = _manifest_path(cfg)
+
+    if p.exists() and not force:
+        print(
+            f"[SKIP] compute_manifest.json already exists at {p}\n"
+            "  Edit it directly, or re-run with `rv compute init --force` to overwrite.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Cheap local PATH check: detect scheduler CLIs to decide which template block
+    # to pre-fill. This does NOT depend on a doctor cache.
+    detected_cli: str | None = None
+    detected_archetype: str | None = None
+    for cli, archetype in _SCHEDULER_CLI_TO_ARCHETYPE.items():
+        if shutil.which(cli):
+            detected_cli = cli
+            detected_archetype = archetype
+            break
+
+    manifest = _scaffold_manifest(has_scheduler=detected_archetype)
+    _save_manifest(cfg, manifest)
+
+    print(f"[OK] Compute manifest written: {p}")
+    print()
+    print("Next: edit the FILL values in the 'cluster' profile + 'results.wandb' block:")
+    print(f"  {p}")
+    print()
+    print("Fill in:")
+    print("  backends.profiles.cluster.host  — your ssh host alias (from ~/.ssh/config)")
+    print("  backends.profiles.cluster.submit_pattern  — sbatch/qsub flags for your account")
+    print("  results.wandb.entity   — your W&B username or team")
+    print("  results.wandb.project  — your default W&B project")
+    print()
+    print("Then flip backends.active to [\"cluster\"] when ready to use it.")
+    print()
+    print("Then run: rv doctor  (discover capabilities per declared backend)")
+    print("Then run: rv compute show  (verify the merged declared+discovered recipe)")
+    print()
+    if detected_cli:
+        print(
+            f"Note: '{detected_cli}' found locally — "
+            f"cluster profile pre-set to archetype={detected_archetype!r}."
+        )
+    else:
+        print(
+            "No scheduler CLI found locally (sbatch/qsub). "
+            "Cluster profile defaults to archetype='ssh+slurm' — "
+            "change to 'ssh+pbs' for PBS clusters."
+        )
+    print()
+    print("Credentials NEVER go in this file:")
+    print("  SSH auth  → ~/.ssh/config + ssh-agent")
+    print("  W&B key   → keyring (rv setup stores WANDB_API_KEY)")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # cmd_show — rv compute show
 # ---------------------------------------------------------------------------
 
@@ -131,9 +296,8 @@ def cmd_show(cfg: Config) -> int:
         lines.append(
             "No compute manifest found. A default (local-only) environment is shown."
         )
-        lines.append(
-            f"  Create: edit {cfg.state_dir / MANIFEST_FILE} or use `rv compute lesson add`."
-        )
+        lines.append("  Run `rv compute init` to scaffold a guided manifest (declare WHERE).")
+        lines.append("  Then run `rv doctor` to discover capabilities per declared backend.")
         lines.append("")
 
     # --- Backends ---
@@ -220,6 +384,24 @@ def cmd_show(cfg: Config) -> int:
         for model, quirks in model_quirks.items():
             parts = [f"{k}={v}" for k, v in quirks.items()]
             lines.append(f"  {model}: {', '.join(parts)}")
+        lines.append("")
+
+    # --- W&B results block ---
+    results_block = m.get("results", {})
+    wandb_block = results_block.get("wandb", {})
+    if wandb_block:
+        entity = wandb_block.get("entity", "")
+        project = wandb_block.get("project", "")
+        entity_str = (
+            entity if entity and not entity.startswith(_FILL_PREFIX) else "(not yet configured)"
+        )
+        project_str = (
+            project if project and not project.startswith(_FILL_PREFIX)
+            else "(not yet configured)"
+        )
+        lines.append("W&B results:")
+        lines.append(f"  entity:  {entity_str}")
+        lines.append(f"  project: {project_str}")
         lines.append("")
 
     # --- Run outcomes (recent) ---
@@ -368,21 +550,41 @@ def build_parser(
     """Build the argument parser for the ``compute`` verb."""
     desc = (
         "Declare, discover, and cache 'how to run here'. "
-        "Sub-commands: show (print run-recipe), explain <job> (resolve env/tier/flags), "
+        "DECLARE → DISCOVER order: `rv compute init` (declare WHERE) → "
+        "`rv doctor` (discover WHAT per backend) → `rv compute show` (verify). "
+        "Sub-commands: init (scaffold manifest), show (print run-recipe), "
+        "explain <job> (resolve env/tier/flags), "
         "lesson add (capture gotcha as rule), outcome add (record run result). "
         "Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what "
-        "env/tier to use — rv compute show / rv doctor already declare it."
+        "env/tier to use — rv compute show / rv doctor already declare it. "
+        "Do NOT hand-edit compute_manifest.json from scratch — use rv compute init."
     )
     if parent is not None:
         p = parent.add_parser(
             "compute",
-            help="Compute manifest: declare + discover 'how to run here' (SR-6).",
+            help="Compute manifest: declare + discover 'how to run here' (SR-6, SR-CO).",
             description=desc,
         )
     else:
         p = argparse.ArgumentParser(prog="rv compute", description=desc)
 
     sub = p.add_subparsers(dest="compute_cmd", required=True)
+
+    # init (SR-CO)
+    init_p = sub.add_parser(
+        "init",
+        help=(
+            "Scaffold compute_manifest.json (DECLARE step: WHERE is your compute). "
+            "Run before `rv doctor`. Refuses to clobber an existing manifest "
+            "without --force."
+        ),
+    )
+    init_p.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Overwrite an existing compute_manifest.json.",
+    )
 
     # show
     sub.add_parser(
@@ -436,6 +638,9 @@ def run(args: argparse.Namespace) -> int:
     cfg: Config = getattr(args, "_cfg", None) or load_config()
 
     cmd = getattr(args, "compute_cmd", None)
+
+    if cmd == "init":
+        return cmd_init(cfg, force=getattr(args, "force", False))
 
     if cmd == "show":
         return cmd_show(cfg)
