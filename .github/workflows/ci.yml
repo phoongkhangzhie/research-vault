@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +64,8 @@ jobs:
           # Scan public-bound root files individually.
           # architecture.md was previously unscanned (Argus gap).
           # REFERENCES.md and SETUP.md scanned when present (future artifacts).
-          for f in README.md architecture.md QUICKSTART.md REFERENCES.md SETUP.md; do
+          # LICENSE + pyproject.toml added (SR-SETUP: ship to PyPI — must be clean).
+          for f in README.md architecture.md QUICKSTART.md REFERENCES.md SETUP.md LICENSE pyproject.toml; do
             if [ -f "$f" ]; then
               echo "--- scanning $f ---"
               bash scripts/leakage_scan.sh "$f"
