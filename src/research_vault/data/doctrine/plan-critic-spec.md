@@ -139,11 +139,14 @@ For EVERY diagnosis table in the plan master:
 - [ ] **`plan_role:` present** — every confirmatory child carries `plan_role:
   main | supporting_ablation | conditional_ablation`.  Missing is a BLOCK.
 - [ ] **`preregistration:` back-link** — every confirmatory child carries
-  `preregistration: experiments/<id>-plan` pointing back to this master.
-  Missing is a BLOCK.
+  `preregistration: <id>-plan` (bare note id, no path prefix) pointing back to
+  this master.  Missing is a BLOCK.  Note: `note.py` resolves `preregistration`
+  as a bare id against `notes_root/<id>.md`; a path-prefixed value like
+  `experiments/<id>-plan` doubles the directory and fails `rv note check`.
 - [ ] **`supports_main:` for ablations and conditionals** — every supporting
-  and conditional ablation child carries `supports_main: experiments/<id>-mainK`
-  linking to its parent main.  Missing is a BLOCK.
+  and conditional ablation child carries `supports_main: <id>-mainK`
+  (bare note id, no path prefix) linking to its parent main.  Missing is a BLOCK.
+  Same resolution rule: `note.py` resolves against `notes_root/<id>.md`.
 
 ---
 

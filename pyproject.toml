@@ -35,13 +35,20 @@ Repository = "https://github.com/khangzhie-vault/research-vault"
 Issues = "https://github.com/khangzhie-vault/research-vault/issues"
 
 # SR-FIG: the figures capability is the first dependency-bearing optional extra.
-# Core stays stdlib-only; figures needs matplotlib/seaborn/pandas behind the extra.
-# Install: pip install research-vault[figures]
+# Core stays stdlib-only; capabilities behind extras.
+# Install: pip install research-vault[figures]  or  pip install research-vault[analysis]
 [project.optional-dependencies]
 figures = [
     "matplotlib>=3.8",
     "seaborn>=0.13",
     "pandas>=2.2",
+]
+# analysis: statistical tests for plan-driven inference (Shapiro-gated t vs Wilcoxon, etc.)
+# Core provides no scipy dependency — plans should note the stdlib signed-rank fallback
+# for small-n cases so they are runnable without this extra.
+# Install: pip install research-vault[analysis]
+analysis = [
+    "scipy>=1.11",
 ]
 
 [project.scripts]

@@ -425,7 +425,7 @@ def verify_freeze_hash(
     covers_only_stored = plan_freeze.get("covers_hash", "")
     covers_only_current = compute_covers_hash(
         plan_note_path,
-        notes_root=notes_root,
+        notes_root=effective_notes_root,  # use stored pin, not caller's arg (diagnosis consistency)
         manifest_nodes=None,  # covers-only (pre-extension path)
     )
 

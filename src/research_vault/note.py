@@ -65,6 +65,14 @@ _VALID_PLAN_ROLE: frozenset[str] = frozenset({
 # use a hashed artifact + promoted flat scalars, never inline JSON in frontmatter."
 REPRO_SENTINEL = "not-recorded-in-provenance"
 
+# Explicit not-applicable value for repro_* fields on PROXY/no-run analyses.
+# Distinct from REPRO_SENTINEL:
+#   REPRO_SENTINEL  = "I had a model run but this field was not recorded" (WARN: fill it!)
+#   REPRO_NOT_APPLICABLE = "No model run took place; field is genuinely N/A" (SKIP lint)
+# Use case: a proxy analysis that aggregates published results sets results_hash on the
+# aggregated CSV, but repro_model_id/repro_seed/etc. are not applicable (no run occurred).
+REPRO_NOT_APPLICABLE = "not-applicable"
+
 # Full ordered list of all repro_* fields (§5J.14 — 22 fields).
 # Layer 1: hashed full-config artifact (tamper-evident ground truth).
 REPRO_LAYER1 = [
@@ -959,11 +967,18 @@ def check_repro_sentinel_lint(exp_note_path: Path) -> list[str]:
         # Only warn when the field is EXPLICITLY the sentinel — never on absent/empty fields.
         # "Absence of the whole block is not a violation (optional, like results_*)".
         # A visible sentinel is the honest hole left by cmd_new; it warns RIGHT AFTER the run.
+        #
+        # Two distinct non-warning states (must not be confused):
+        #   REPRO_SENTINEL       → default hole from cmd_new — WARN to fill
+        #   REPRO_NOT_APPLICABLE → explicit proxy/no-run marker — SKIP (genuinely N/A)
+        if val == REPRO_NOT_APPLICABLE:
+            continue  # Explicit proxy/no-run annotation: skip lint for this field
         if val == REPRO_SENTINEL:
             warnings.append(
                 f"[repro-lint] WARN: {exp_note_path.name}: "
                 f"results_hash is set but {field!r} is still the sentinel "
-                f"({REPRO_SENTINEL!r}) — fill or confirm not applicable"
+                f"({REPRO_SENTINEL!r}) — fill in, or set to {REPRO_NOT_APPLICABLE!r} "
+                f"if this is a proxy/no-run analysis where the field is genuinely not applicable"
             )
 
     return warnings

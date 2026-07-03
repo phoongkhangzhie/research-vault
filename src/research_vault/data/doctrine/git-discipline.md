@@ -61,6 +61,15 @@ they did not invite.
      A project repo may legitimately contain codenames, bibliography, cluster
      paths — gating it on private-marker classes is wrong.
 
+   **Operator-naming convention (class 2 — private identity strings):** crew
+   members must refer to the human as **"the operator"** in all committed
+   artifacts — DEVLOG entries, commit messages, docs, and code comments.  Never
+   use a personal name.  The leakage gate (class 2) treats the operator's name as
+   a private-marker and will BLOCK the staged commit.  A DEVLOG entry like
+   "per the operator's decision" is correct; using the operator's actual name
+   in its place is a gate-caught leak.  This applies to framework *and* project
+   repos — the personal name is a private marker in both profiles.
+
 3. **`rv lint`** — when `src/` files are staged.
 
 **commit-msg** — enforces conventional-commit subject format:
