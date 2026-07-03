@@ -268,6 +268,14 @@ def cmd_new(project: str, note_type: str, title: str, *,
         "created": _today(),
     }
 
+    # Fix #32: literature notes carry optional doi/arxiv_id placeholders so the
+    # notes-based corpus-dedup index (_load_notes_index in research.py) can match
+    # an S2 candidate to a filed note without requiring Zotero library.json sync.
+    # Fill these in after rv note new to enable [IN-CORPUS] annotation for the note.
+    if note_type == "literature":
+        fields["doi"] = ""        # fill in: DOI of the paper (e.g. 10.1234/example)
+        fields["arxiv_id"] = ""   # fill in: ArXiv id (e.g. 2005.14165, NOT arXiv:...)
+
     # SR-8: datasets notes carry provenance-specific placeholder fields
     if note_type == "datasets":
         fields["location"] = ""   # fill in: path/URL/DOI of the data artifact

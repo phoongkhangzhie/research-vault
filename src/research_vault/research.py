@@ -180,19 +180,81 @@ def _load_corpus_index(refs_path: str | None) -> dict[str, str]:
     return index
 
 
-def _corpus_annotation(paper: dict, corpus_index: dict[str, str]) -> str:
-    """Return [IN-CORPUS:<citekey>] or [NEW] for a candidate S2 paper dict."""
-    if not corpus_index:
-        return "[NEW]"
+def _load_notes_index(literature_dir: Path | None) -> dict[str, str]:
+    """Build a normalized-id → citekey lookup by scanning literature/*.md frontmatter.
+
+    Fix #32: literature notes filed via ``rv note new literature`` are invisible to the
+    Zotero library.json-based corpus index.  This function builds a parallel lookup
+    from the doi: and arxiv_id: frontmatter fields that literature notes now carry as
+    optional placeholders.  The citekey is the note's filename stem.
+
+    Returns an empty dict when literature_dir is None or does not exist.
+    Only notes with a non-empty doi or arxiv_id frontmatter field are indexed.
+    """
+    if literature_dir is None:
+        return {}
+    lit_path = Path(literature_dir)
+    if not lit_path.exists():
+        return {}
+
+    # Local import to avoid circular dep (note imports config; research imports config)
+    from .note import _parse_frontmatter
+
+    index: dict[str, str] = {}
+    for note_path in sorted(lit_path.glob("*.md")):
+        citekey = note_path.stem
+        try:
+            text = note_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fields, _ = _parse_frontmatter(text)
+
+        doi = _normalize_doi(fields.get("doi") or None)
+        if doi:
+            index[doi] = citekey
+
+        arxiv = _normalize_arxiv(fields.get("arxiv_id") or None)
+        if arxiv:
+            index[arxiv] = citekey
+
+    return index
+
+
+def _corpus_annotation(
+    paper: dict,
+    corpus_index: dict[str, str],
+    *,
+    notes_index: dict[str, str] | None = None,
+) -> str:
+    """Return [IN-CORPUS:<citekey>] or [NEW] for a candidate S2 paper dict.
+
+    Checks two sources in order:
+      1. corpus_index — built from the project's Zotero library.json.
+      2. notes_index  — built from literature/*.md doi/arxiv_id frontmatter
+                        (Fix #32: filed notes count as in-corpus even before
+                        Zotero sync updates library.json).
+
+    Returns [NEW] only if the paper matches neither source.
+    """
     ext = paper.get("externalIds") or {}
 
     doi = _normalize_doi(ext.get("DOI"))
-    if doi and doi in corpus_index:
-        return f"[IN-CORPUS:{corpus_index[doi]}]"
-
     arxiv = _normalize_arxiv(ext.get("ArXiv"))
-    if arxiv and arxiv in corpus_index:
-        return f"[IN-CORPUS:{corpus_index[arxiv]}]"
+
+    # 1. Check library.json corpus index
+    if corpus_index:
+        if doi and doi in corpus_index:
+            return f"[IN-CORPUS:{corpus_index[doi]}]"
+        if arxiv and arxiv in corpus_index:
+            return f"[IN-CORPUS:{corpus_index[arxiv]}]"
+
+    # 2. Check literature/ OKF dir index (Fix #32 — union with library.json)
+    ni = notes_index or {}
+    if ni:
+        if doi and doi in ni:
+            return f"[IN-CORPUS:{ni[doi]}]"
+        if arxiv and arxiv in ni:
+            return f"[IN-CORPUS:{ni[arxiv]}]"
 
     return "[NEW]"
 
@@ -225,13 +287,16 @@ def _normalize_author_name(authors_raw: Any) -> str:
 def _print_candidates(
     papers: list[dict],
     corpus_index: dict[str, str] | None = None,
+    *,
+    notes_index: dict[str, str] | None = None,
 ) -> None:
     """Print S2 paper candidates in a human-readable table.
 
-    When corpus_index is provided (loaded from the project's library.json),
-    each candidate is annotated [IN-CORPUS:<citekey>] or [NEW] so the
-    lit-review saturation stopping rule (SR-LR-1) can detect when a snowball
-    round adds no new papers.
+    When corpus_index is provided (loaded from the project's library.json) and/or
+    notes_index (loaded from the project's literature/ OKF dir — Fix #32), each
+    candidate is annotated [IN-CORPUS:<citekey>] or [NEW] so the lit-review
+    saturation stopping rule (SR-LR-1) can detect when a snowball round adds no
+    new papers.
     """
     idx = corpus_index or {}
     print(f"\n{len(papers)} candidate(s)\n")
@@ -243,7 +308,7 @@ def _print_candidates(
         arxiv = ext.get("ArXiv", "")
         doi = ext.get("DOI", "")
         id_str = f"arXiv:{arxiv}" if arxiv else (f"DOI:{doi}" if doi else "")
-        annotation = _corpus_annotation(p, idx)
+        annotation = _corpus_annotation(p, idx, notes_index=notes_index)
         print(f"  {annotation}  {first_author} {year}  {title}")
         if id_str:
             print(f"  {'':12}  {id_str}")
@@ -293,7 +358,13 @@ def cmd_find(args: argparse.Namespace) -> int:
 
     refs_path = _refs_path_for_project(project, cfg)
     corpus_index = _load_corpus_index(refs_path)
-    _print_candidates(papers, corpus_index)
+    # Fix #32: also check filed literature notes (zero-infra dedup)
+    lit_dir = (
+        cfg.project_notes_dir(project) / "literature"
+        if project else None
+    )
+    notes_index = _load_notes_index(lit_dir)
+    _print_candidates(papers, corpus_index, notes_index=notes_index)
     return 0
 
 
@@ -326,7 +397,13 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
 
     refs_path = _refs_path_for_project(project, cfg) if cfg else None
     corpus_index = _load_corpus_index(refs_path)
-    _print_candidates(papers, corpus_index)
+    # Fix #32: also check filed literature notes
+    lit_dir = (
+        cfg.project_notes_dir(project) / "literature"
+        if (cfg and project) else None
+    )
+    notes_index = _load_notes_index(lit_dir)
+    _print_candidates(papers, corpus_index, notes_index=notes_index)
     return 0
 
 
@@ -364,7 +441,13 @@ def cmd_references(args: argparse.Namespace) -> int:
 
     refs_path = _refs_path_for_project(project, cfg) if cfg else None
     corpus_index = _load_corpus_index(refs_path)
-    _print_candidates(papers, corpus_index)
+    # Fix #32: also check filed literature notes
+    lit_dir = (
+        cfg.project_notes_dir(project) / "literature"
+        if (cfg and project) else None
+    )
+    notes_index = _load_notes_index(lit_dir)
+    _print_candidates(papers, corpus_index, notes_index=notes_index)
     return 0
 
 
