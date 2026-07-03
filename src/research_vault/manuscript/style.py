@@ -477,13 +477,22 @@ per_section_tips: dict[str, str] = {
 
     # ── compile ─────────────────────────────────────────────────────────────
     "compile": (
-        "Run `rv manuscript compile <id>` to execute the exec-guarded chktex + pdflatex "
-        "fix-loop (bounded iterations). The compile verb is the only path to produce the "
-        "PDF — do not call pdflatex directly. "
-        "If pdflatex/chktex are absent, the verb exits with a friendly install message "
-        "(never a crash). Surface the compile log if any errors remain after N iterations. "
-        "On success, the manuscript note's manuscript_pdf and manuscript_hash fields "
-        "are updated by rv manuscript compile."
+        "Run `rv manuscript <project> compile <id>` to execute the exec-guarded "
+        "pdflatex + bibtex + chktex compile loop. "
+        "This is the ONLY path to produce the PDF — do NOT call pdflatex directly "
+        "or hand-edit .tex/.bib files during this node. "
+        "The deliverable is `manuscripts/<id>/main.pdf`; the manuscript note's "
+        "`manuscript_pdf` and `manuscript_hash` fields are stamped on success. "
+        "Two distinct outcomes on non-zero exit: "
+        "(1) BLOCKED-PREREQ (status='blocked-prereq'): LaTeX toolchain (pdflatex/bibtex) "
+        "absent — install texlive to unblock "
+        "(macOS: `brew install --cask mactex`; Ubuntu: `sudo apt-get install texlive-full`). "
+        "This is a RESUMABLE state: the draft is not broken; mark the node blocked-prereq, "
+        "not failed, and surface the install message. "
+        "(2) FAILED (status='failed'): grounding hard-fail — unmatched \\cite commands "
+        "or a results_hash mismatch. The draft requires attention; this is a real failure, "
+        "not a missing toolchain. "
+        "Surface the compile log if any chktex errors remain after the bounded fix-loop."
     ),
 
     # ── critic ──────────────────────────────────────────────────────────────

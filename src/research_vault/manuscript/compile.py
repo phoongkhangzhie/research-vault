@@ -16,13 +16,24 @@ Exec-guard (§5J.5):
   ``pdflatex``, ``bibtex``, and ``chktex`` are SYSTEM PREREQUISITES
   (not pip-installable). If absent:
   - Print a friendly message: "install texlive-full (system package) to compile manuscripts"
-  - Exit cleanly (return exit_code=1) — NEVER crash with a raw traceback.
+  - Exit cleanly (return exit_code=1, status="blocked-prereq") — NEVER crash.
+
+Status key semantics (SR-DRAFT-RENDER):
+  run_compile (and run_prep) always return a ``status`` key:
+    "ok"            — compile succeeded, main.pdf produced.
+    "blocked-prereq" — LaTeX toolchain (pdflatex/bibtex) absent; install texlive to unblock.
+                       This is a RESUMABLE state — the draft is NOT broken.
+    "failed"        — A real error: unmatched \\cite, results_hash mismatch, or pdflatex
+                       hard-fail. The draft or its grounding requires attention.
+
+  blocked-prereq is INTENTIONALLY DISTINCT from failed so DAG operators / the compile node
+  can tell "install texlive to finish" from "the draft is broken."
 
 This mirrors the wandb/asta prerequisite guards in research.py:59-66
 and wait_for.py:671-677.
 
 Stdlib only.
-sr: SR-MS-1b
+sr: SR-MS-1b, SR-DRAFT-RENDER
 """
 from __future__ import annotations
 
@@ -302,6 +313,7 @@ def _run_grounding_builders(
         if unmatched:
             return 1, {
                 "exit_code": 1,
+                "status": "failed",
                 "message": (
                     f"{label}: BLOCKED — unmatched \\cite commands.\n"
                     + extra_unmatched_msg
@@ -325,6 +337,7 @@ def _run_grounding_builders(
     except ValueError as exc:
         return 1, {
             "exit_code": 1,
+            "status": "failed",
             "message": f"{label}: BLOCKED — results hash mismatch.\n{exc}",
             "builder_warnings": builder_warnings,
         }, builder_warnings
@@ -386,6 +399,7 @@ def run_prep(
     if not main_tex.exists():
         return {
             "exit_code": 1,
+            "status": "failed",
             "message": f"rv manuscript compile --prep-only: main.tex not found at {main_tex}",
             "pdf_path": None,
             "builder_warnings": [],
@@ -408,6 +422,7 @@ def run_prep(
 
     return {
         "exit_code": 0,
+        "status": "ok",
         "message": (
             "rv manuscript compile --prep-only: OK — "
             "refs.bib, results.tex, and appendix-repro.tex populated.\n"
@@ -476,6 +491,7 @@ def run_compile(
     if not main_tex.exists():
         return {
             "exit_code": 1,
+            "status": "failed",
             "message": f"rv manuscript compile: main.tex not found at {main_tex}",
             "log": "",
             "chktex": {},
@@ -517,6 +533,7 @@ def run_compile(
     if missing_tools:
         return {
             "exit_code": 1,
+            "status": "blocked-prereq",
             "message": _texlive_absent_message(missing_tools),
             "log": "",
             "chktex": {},
@@ -562,6 +579,7 @@ def run_compile(
     if not success:
         return {
             "exit_code": 1,
+            "status": "failed",
             "message": (
                 f"rv manuscript compile: PDF not produced — check log for errors.\n"
                 f"Last pdflatex exit code: {rc4}"
@@ -579,8 +597,9 @@ def run_compile(
 
     return {
         "exit_code": 0,
+        "status": "ok",
         "message": (
-            f"rv manuscript compile: OK — {pdf_path.name} produced "
+            f"rv manuscript compile: OK — PDF produced at {pdf_path} "
             f"({pdf_path.stat().st_size:,} bytes).\n"
             f"manuscript_hash: {pdf_hash}"
         ),
