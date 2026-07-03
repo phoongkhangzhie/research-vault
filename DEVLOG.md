@@ -23,6 +23,14 @@
   discrimination (discriminates, doesn't rubber-stamp), Flag-A (sha256/results-path/
   covers_hash), rubric seam, check_cold_read_tally honest_report, approve_payload 9th
   section, --cold-read env guard, plain check stays hermetic. Full suite: 2002 passed.
+  PR #78 opened; CI green.
+- **Pre-merge fixes** (Argus + Wren, commit `30931c1`): (1) fail-closed on malformed judge
+  output — `_parse_coldread_response` now defaults `overall="UNPARSEABLE"` (not "STANDS-ALONE");
+  `ColdReadResult.blocks` treats UNPARSEABLE as BLOCK; `check_cold_read_tally` surfaces a loud
+  error for it; (2) `verbs.py` now calls `cold_read_layer2_env_guard()` from `coldread.py`
+  instead of inlining its own env check (reuse-over-create, charter §6); (3) `per_section_tips`
+  `cold-read` entry rewritten to reflect Layer-2 as live and carry the 3 anti-anchoring moves.
+  8 new tests added; full suite 2010 passed; CI green on both push + pull_request triggers.
 
 ### Decisions
 - Canary (b) abort condition: `overall != "DANGLING" OR block_count < 2` (Ada's exact
@@ -33,6 +41,9 @@
   pdftotext on the test runner.
 - `build_approve_payload` gets `cold_read_judge_fn` kwarg — can be the same judge_fn as
   support_matcher or a distinct one (D-AUD-5 resolved: Opus-tier both).
+- UNPARSEABLE is a distinct fail-closed state: it BLOCKS but never gets promoted to DANGLING
+  by the Flag-A merge step (masking root cause). The check_cold_read_tally error message
+  explicitly names the cause so the operator knows to inspect judge model / rubric wiring.
 
 ### Open / next
 - SR-FIG-MINIMAL (raster plot-only): the next dispatch after COLDREAD.
