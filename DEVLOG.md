@@ -1,3 +1,58 @@
+## 2026-07-03 (SR-MS-REVIEW-a: review-board bounded loop machinery)
+
+### Done
+- **`manuscript/review_board.py`** (new) — the scientific-merit review-board control-flow:
+  - NEW dimensioned-score bracket extractor `_extract_review_scores()` for
+    `[SOUND:N]`/`[CONTRIB:N]`/`[CLARITY:N]`/`[ORIG:N]`/`[LIMIT:N]`/`[REPRO:N]`/`[ETHICS:N]`
+    — separate from support_matcher's 4-verdict and coldread's 3-verdict extractors (no overload).
+    FAIL-CLOSED: unparseable → None / 0 (floor-fail, never silent pass).
+  - `_evaluate_threshold()` — per-dim floors, MIN-across-reviewers (worst reviewer gates, not mean).
+  - `PLACEHOLDER_REVIEW_RUBRIC` + `get_review_rubric(override, config)` seam
+    keyed on `[manuscript_review].rubric` (Ada's real rubric = SR-MS-REVIEW-b).
+  - Canary scaffold: `run_canary_scaffold()` wired but calibrated bounds in SR-MS-REVIEW-b.
+  - `run_reviewer_node()`: node-level skip short-circuit on `RunState.meta["review_board"]["cleared_at"]`.
+  - `run_meta_review()`: MIN aggregation, threshold predicate, canary_ok in meta.
+  - `run_revise()`: re-fires support-matcher + cold-read (anti-gaming c); `honesty_gate_blocked`
+    on BLOCK; rebuttal recorded as artifact (not verdict; crew-cannot-self-approve).
+  - `run_review_board()`: N-round bounded acyclic unroll; cleared → remaining rounds no-op;
+    not-cleared-after-N → NOT-CLEARED first-class payload; `honest_report` never says "approved".
+  - `get_review_config()` with N hard-cap 3 (D-REV-3), K min 2 (D-REV-4).
+- **`__init__.py` `_build_manifest`** extended with N review-board round-blocks after cold-read,
+  before approve-manuscript. Fresh-by-construction: reviewer nodes read only `[tree_rel]` — NOT
+  the thesis note, NOT prior-round reviews/rebuttals (the reads: list is the only channel).
+  `review_config` frozen into manifest at scaffold time (stopping rule). Default N=2, K=3.
+  Manifest node count: 18 (§5J.2+SR-MS-AUDIENCE) + 9 (N=2 K=3 review-board) = 27 total.
+- **`check_gates.py` `build_approve_payload()`** extended with `review_board` + `review_board_report`
+  sections (§5J.17.6). Honest tally line never says "approved".
+- **`verbs.py` `rv manuscript review`** — new subcommand with loud env guard (RV_JUDGE_MODEL +
+  ANTHROPIC_API_KEY required; mirrors --semantic/--cold-read guard).
+- **`style.py`** — `per_section_tips` entries for review-board node types (reviewer, meta-review,
+  revise) as documentation; SECTION_STATUS comment noting dynamic generation.
+- **28 tests** in `test_sr_ms_review_a.py`: all RED-before-GREEN confirmed. Covers:
+  score extractor (basic + fail-closed + partial + case-insensitive), threshold predicate
+  (below-floor, cleared, MIN-gates), bounded unroll (N=2 K=1: cleared-r1 short-circuits r2
+  with 0 extra judge calls; not-cleared-after-N → NOT-CLEARED), anti-gaming (revise re-fires
+  support-matcher; revise re-fires cold-read; fresh-reviewers-by-construction in manifest),
+  honest-report (never "approved"), build_approve_payload extension, rv manuscript review
+  loud-fail guards, N/K frozen at scaffold, N hard-cap 3 clamping, canary scaffold meta key,
+  walker/schema/store unchanged (import-diff), rubric seam. Full suite: 2038 passed.
+
+### Decisions
+- Review-board nodes generated dynamically in `_build_manifest` with inline specs (not via
+  `_spec()` / SECTION_KEYS) — they don't follow the static section pattern; N and K are
+  frozen config values, not section toggles.
+- Placeholder rubric ships in -a; Ada's real venue rubric + bidirectional canary calibration
+  = SR-MS-REVIEW-b. Clean seam: `get_review_rubric()` is wired, bounds are not.
+- `run_revise()` does NOT call cold-read when `cold_read_judge_fn is None` — the honesty
+  gate re-fire is conditional on having a judge (tests exercise both code paths).
+
+### Open / next
+- SR-MS-REVIEW-b: Ada's `DEFAULT_REVIEW_RUBRIC` (7-dim venue scales, ARR justify-each,
+  Yes/No/NA checklist, disconfirm-first + anti-anchoring) + bidirectional canary calibration
+  (known-STRONG + known-WEAK expected-score bounds).
+
+---
+
 ## 2026-07-03 (SR-MS-COLDREAD: LLM cold-read self-containment judge)
 
 ### Done

@@ -206,7 +206,7 @@ def test_manifest_validates_with_no_errors(cfg):
 
 
 def test_manifest_has_expected_node_count(cfg):
-    """Scaffolded manifest has 18 nodes (5J.2 + SR-MS-AUDIENCE: title + cold-read)."""
+    """Scaffolded manifest has 27 nodes (18 §5J.2+SR-MS-AUDIENCE + 9 SR-MS-REVIEW-a round blocks)."""
     from research_vault import manuscript as ms_mod
     _, _, manifest = ms_mod.cmd_new(
         "demo-research", "ms-007",
@@ -214,7 +214,11 @@ def test_manifest_has_expected_node_count(cfg):
         scope=[],
         config=cfg,
     )
-    assert len(manifest["nodes"]) == 18
+    # SR-MS-REVIEW-a adds the review-board round blocks:
+    # Default N=2, K=3: 3 reviewer-1-L{1..3} + meta-review-1 + revise-1
+    #                  + 3 reviewer-2-L{1..3} + meta-review-2 = 9 review nodes
+    # Total: 18 (§5J.2 + SR-MS-AUDIENCE) + 9 (review-board) = 27
+    assert len(manifest["nodes"]) == 27
 
 
 def test_manifest_all_agent_nodes_have_spec(cfg):
