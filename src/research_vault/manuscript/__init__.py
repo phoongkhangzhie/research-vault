@@ -724,6 +724,58 @@ def cmd_list(
     return results
 
 
+def cmd_prep(
+    project: str,
+    ms_id: str,
+    *,
+    config: Config | None = None,
+) -> dict[str, Any]:
+    """Run grounding-builders prep step (no pdflatex). Idempotent.
+
+    When to use: ``rv manuscript compile --prep-only <project> <id>`` to populate
+    refs.bib, results.tex, and sections/appendix-repro.tex so that a drafting agent
+    (e.g. ``results-discussion``) can reference ``\\resultAcc`` macros BEFORE the
+    full compile at the end of the DAG.
+
+    Execution order (anti-fabrication contract — same as cmd_compile Phase 1):
+      1. build_refs_bib — exports closed .bib from library.json.
+         Hard-fails on any unmatched \\cite.
+      2. inject_results — writes hash-verified \\newcommand macros into results.tex.
+         Hard-fails on results_hash mismatch.
+      3. inject_appendix — machine-populates sections/appendix-repro.tex.
+
+    Does NOT require pdflatex/bibtex — works without texlive.
+
+    Idempotent: running prep twice, or prep then compile, produces the same
+    grounded output as compile alone — builders overwrite, never append.
+
+    Returns:
+        dict with "exit_code", "message", "pdf_path" (always None), "builder_warnings".
+
+    sr: SR-MS-1c
+    """
+    from research_vault.manuscript.compile import run_prep
+
+    cfg = config or load_config()
+    ms_dir = _manuscript_dir(project, cfg)
+    note_path = ms_dir / f"{ms_id}.md"
+    tree_root = _manuscripts_tree_root(project, ms_id, cfg)
+
+    # Resolve library_path from project config ("refs" key) or standard default.
+    library_path: Path | None = None
+    try:
+        proj_rec = cfg.project(project)
+        refs = proj_rec.get("refs")
+        if refs:
+            library_path = Path(refs).expanduser()
+    except (KeyError, Exception):
+        pass
+    if library_path is None:
+        library_path = cfg.project_notes_dir(project) / "library.json"
+
+    return run_prep(note_path, tree_root, library_path=library_path)
+
+
 def cmd_compile(
     project: str,
     ms_id: str,

@@ -241,6 +241,138 @@ def _chktex_fix_loop(
 
 
 # ---------------------------------------------------------------------------
+# Prep-only entry point (draft-time macro-visibility seam — SR-MS-1c)
+# ---------------------------------------------------------------------------
+
+def run_prep(
+    manuscript_note_path: Path,
+    tree_root: Path,
+    *,
+    library_path: Path | None = None,
+    experiment_notes: list[Path] | None = None,
+) -> dict[str, Any]:
+    """Run grounding-builders only — no pdflatex render.
+
+    When to use: called by the ``compile`` DAG node's pre-draft step and
+    ``rv manuscript compile --prep-only`` to populate refs.bib, results.tex, and
+    sections/appendix-repro.tex BEFORE the drafting agent starts writing.
+
+    This lets a ``results-discussion`` (or ``assemble``) node reference
+    ``\\resultAcc`` and sibling macros while drafting, without waiting for the
+    full compile at the end of the DAG.
+
+    Execution order (same as run_compile Phase 1 — anti-fabrication contract):
+      1. build_refs_bib — exports closed .bib from library.json.
+         Hard-fails on any unmatched \\cite.
+      2. inject_results — writes hash-verified \\newcommand macros into results.tex.
+         Hard-fails on results_hash mismatch.
+      3. inject_appendix — machine-populates sections/appendix-repro.tex.
+
+    Does NOT require pdflatex/bibtex/chktex — works without texlive.
+
+    Idempotent: builders overwrite their output files; running run_prep twice
+    (or run_prep then run_compile, which re-runs the same builders) produces
+    identical refs.bib / results.tex / appendix-repro.tex output.
+
+    Args:
+        manuscript_note_path: path to the manuscript/<id>.md OKF note.
+        tree_root: path to manuscripts/<id>/ (contains main.tex).
+        library_path: path to library.json. When None, defaults to
+            manuscript_note_path.parent.parent / "library.json".
+        experiment_notes: list of experiments/ note paths to read results from.
+            When None, resolved automatically from the note's ``synthesized_okf``
+            field.
+
+    Returns:
+        dict with:
+          "exit_code": int (0 = success, 1 = failure)
+          "message": str (friendly message — success summary or error)
+          "pdf_path": None (never produced by prep-only)
+          "builder_warnings": list[str] (non-fatal builder issues)
+
+    sr: SR-MS-1c
+    """
+    main_tex = tree_root / "main.tex"
+    if not main_tex.exists():
+        return {
+            "exit_code": 1,
+            "message": f"rv manuscript compile --prep-only: main.tex not found at {main_tex}",
+            "pdf_path": None,
+            "builder_warnings": [],
+        }
+
+    builder_warnings: list[str] = []
+
+    # Resolve library.json path (default: project_notes_dir/library.json)
+    if library_path is None:
+        library_path = manuscript_note_path.parent.parent / "library.json"
+
+    # Resolve experiment notes from synthesized_okf if not provided
+    if experiment_notes is None:
+        experiment_notes = _resolve_experiment_notes(manuscript_note_path)
+
+    # ── Step 1: build_refs_bib ───────────────────────────────────────────────
+    from research_vault.manuscript.bib import build_refs_bib
+    bib_errors, _bib_path = build_refs_bib(
+        tree_root,
+        library_path=library_path,
+        cite_tex_files=None,  # rglob all .tex under tree_root
+    )
+    if bib_errors:
+        unmatched = [
+            e for e in bib_errors
+            if "unmatched" in e.lower() and "cite" in e.lower()
+        ]
+        if unmatched:
+            return {
+                "exit_code": 1,
+                "message": (
+                    "rv manuscript compile --prep-only: BLOCKED — unmatched \\cite commands.\n"
+                    "Fix: run `rv cite add <doi>` then `rv cite sync` for each:\n  "
+                    + "\n  ".join(unmatched)
+                ),
+                "pdf_path": None,
+                "builder_warnings": [],
+            }
+        builder_warnings.extend(bib_errors)
+
+    # ── Step 2: inject_results ───────────────────────────────────────────────
+    from research_vault.manuscript.results_inject import inject_results
+    try:
+        inj = inject_results(
+            manuscript_note_path=manuscript_note_path,
+            experiment_notes=experiment_notes,
+            tree_root=tree_root,
+        )
+        builder_warnings.extend(inj.get("errors", []))
+    except ValueError as exc:
+        return {
+            "exit_code": 1,
+            "message": (
+                f"rv manuscript compile --prep-only: BLOCKED — results hash mismatch.\n{exc}"
+            ),
+            "pdf_path": None,
+            "builder_warnings": builder_warnings,
+        }
+
+    # ── Step 3: inject_appendix ──────────────────────────────────────────────
+    from research_vault.manuscript.appendix import inject_appendix
+    inject_appendix(tree_root=tree_root, experiment_notes=experiment_notes)
+
+    return {
+        "exit_code": 0,
+        "message": (
+            "rv manuscript compile --prep-only: OK — "
+            "refs.bib, results.tex, and appendix-repro.tex populated.\n"
+            "Macros are ready for drafting agents. "
+            "Run `rv manuscript compile <id>` for the full PDF render."
+        ),
+        "pdf_path": None,
+        "builder_warnings": builder_warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main compile entry point
 # ---------------------------------------------------------------------------
 

@@ -1,3 +1,31 @@
+## 2026-07-02 (SR-MS-1c — draft-time macro-visibility prep seam)
+
+### Done
+- Added `run_prep()` to `manuscript/compile.py`: runs grounding-builders (build_refs_bib
+  → inject_results → inject_appendix) without pdflatex. No texlive required.
+- Added `cmd_prep()` to `manuscript/__init__.py`: public API with same library_path
+  resolution as cmd_compile (project refs key or standard default).
+- Added `--prep-only` flag to `rv manuscript compile`: dispatches to cmd_prep when set;
+  default False (normal compile when omitted).
+- 19 new SR-MS-1c tests in `tests/test_sr_ms_1c.py`:
+  - run_prep populates refs.bib, results.tex, appendix-repro.tex without producing PDF
+  - Idempotency: prep→prep→compile identical to compile-alone (builders overwrite, never append)
+  - run_prep exits 0 even when pdflatex absent (monkeypatched _find_tool)
+  - CLI --prep-only flag dispatches correctly and defaults to False
+
+### Decisions
+- Surface: `rv manuscript compile --prep-only` (flag on existing verb) rather than a
+  separate `rv manuscript prep` subcommand. Keeps the compile/prep relationship explicit
+  and avoids proliferating verb surface area.
+- Idempotency is structural: all three builders use write_text (overwrite), so
+  prep→prep→compile produces identical output as compile alone.
+- The DAG spec for results-discussion and assemble nodes can instruct the agent to run
+  `rv manuscript compile --prep-only <project> <id>` first — no new DAG mechanism needed.
+
+### Open / next
+- SR-MS-2 (semantic gates + support-matcher): gated on D-MS-4 (judge model) + Ada.
+- SR-EXP-REPRO: extends wandb_pull.py + experiment note repro_* fields.
+
 ## 2026-07-02 (sr-cif-activation — rv control reconcile --gh-pr N)
 
 ### Done
