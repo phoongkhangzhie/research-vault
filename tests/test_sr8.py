@@ -588,22 +588,63 @@ class TestDatasetResolver:
         assert result["ready"] is True, f"Expected ready for DOI location, got: {result}"
 
     def test_dataset_in_known_prefixes(self, tmp_instance):
-        """'dataset:' must be in the known prefixes so rv wait-for accepts it."""
+        """'dataset:' must be in the _KNOWN_PREFIXES tuple in wait_for.run().
+
+        Checked via AST inspection of the tuple literal — a comment mentioning
+        'dataset:' cannot rescue a missing tuple entry (AST carries no comment
+        text, only live code values).
+        """
+        import ast, inspect, textwrap
         from research_vault import wait_for as wf_mod
-        import inspect
-        src = inspect.getsource(wf_mod.run)
-        assert "dataset:" in src, (
-            "'dataset:' must be in the _KNOWN_PREFIXES tuple in wait_for.run()"
+
+        src = textwrap.dedent(inspect.getsource(wf_mod.run))
+        tree = ast.parse(src)
+        known_prefixes: list | None = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "_KNOWN_PREFIXES":
+                        known_prefixes = [
+                            elt.value
+                            for elt in node.value.elts
+                            if isinstance(elt, ast.Constant)
+                            and isinstance(elt.value, str)
+                        ]
+        assert known_prefixes is not None, (
+            "_KNOWN_PREFIXES assignment not found in wait_for.run()"
+        )
+        assert "dataset:" in known_prefixes, (
+            "'dataset:' not in _KNOWN_PREFIXES — rv wait-for will reject dataset: watches"
         )
 
     def test_note_prefix_in_known_prefixes(self, tmp_instance):
-        """'note:' must also be in the known prefixes (was omitted before SR-8)."""
+        """'note:' must be in the _KNOWN_PREFIXES tuple in wait_for.run() (omitted pre-SR-8).
+
+        Checked via AST inspection of the tuple literal — comment-free by
+        construction, so a note in a docstring cannot produce a false pass.
+        """
+        import ast, inspect, textwrap
         from research_vault import wait_for as wf_mod
-        import inspect
-        src = inspect.getsource(wf_mod.run)
-        assert "note:" in src, (
-            "'note:' must be in the _KNOWN_PREFIXES tuple in wait_for.run() — "
-            "was omitted pre-SR-8"
+
+        src = textwrap.dedent(inspect.getsource(wf_mod.run))
+        tree = ast.parse(src)
+        known_prefixes: list | None = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "_KNOWN_PREFIXES":
+                        known_prefixes = [
+                            elt.value
+                            for elt in node.value.elts
+                            if isinstance(elt, ast.Constant)
+                            and isinstance(elt.value, str)
+                        ]
+        assert known_prefixes is not None, (
+            "_KNOWN_PREFIXES assignment not found in wait_for.run()"
+        )
+        assert "note:" in known_prefixes, (
+            "'note:' not in _KNOWN_PREFIXES — was omitted pre-SR-8, "
+            "rv wait-for rejects note: watches"
         )
 
     def test_dataset_resolver_resolves_from_datasets_root_not_project_dir(self, tmp_instance):
@@ -670,16 +711,46 @@ class TestStreamingHash:
         assert "mismatch" in result["state"]
 
     def test_streaming_hash_uses_chunked_read(self):
-        """Implementation uses chunked streaming (not read_bytes) — verified by source."""
+        """Implementation uses chunked streaming (not read_bytes) — verified via AST.
+
+        Rewritten from the vacuous getsource pattern (#40 rule-7 extension): AST
+        inspection of the while-loop structure is comment-free, so a docstring
+        mentioning 'read(' cannot rescue a missing chunked-read implementation.
+
+        Checks:
+          - A ``while chunk := fh.read(n):`` walrus-read loop is present in
+            the function body (positive check on live code structure).
+          - No ``read_bytes()`` call appears anywhere in the function (negative
+            check that the forbidden RAM-load pattern is absent).
+        """
+        import ast, inspect, textwrap
         from research_vault import wait_for as wf_mod
-        import inspect
-        src = inspect.getsource(wf_mod._verify_local_file_hash)
-        # Must use chunked read pattern: read(chunk_size) or walrus-operator chunk loop
-        assert "read(" in src or "1 <<" in src or "1<<" in src, (
-            "_verify_local_file_hash must use chunked streaming read, not p.read_bytes()"
+
+        src = textwrap.dedent(inspect.getsource(wf_mod._verify_local_file_hash))
+        tree = ast.parse(src)
+
+        # Positive: while-walrus pattern with a .read(...) call on the RHS
+        found_chunked_read = any(
+            isinstance(node, ast.While)
+            and isinstance(node.test, ast.NamedExpr)
+            and isinstance(node.test.value, ast.Call)
+            and isinstance(node.test.value.func, ast.Attribute)
+            and node.test.value.func.attr == "read"
+            for node in ast.walk(tree)
         )
-        # Must NOT load the entire file: read_bytes() is forbidden
-        assert "read_bytes()" not in src, (
+        assert found_chunked_read, (
+            "_verify_local_file_hash must use a while-walrus chunked read loop — "
+            "datasets are big; use fh.read(chunk_size) streaming, not p.read_bytes()"
+        )
+
+        # Negative: no read_bytes() call (RAM-load pattern forbidden)
+        has_read_bytes = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "read_bytes"
+            for node in ast.walk(tree)
+        )
+        assert not has_read_bytes, (
             "_verify_local_file_hash must not use p.read_bytes() — "
             "datasets are big; use chunked streaming"
         )
