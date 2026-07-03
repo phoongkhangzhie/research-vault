@@ -513,25 +513,55 @@ class TestShippedDocVerbAudit:
     # argparse built-in; not in _VERB_REGISTRY but valid for docs
     _EXTRA_ALLOWED = {"help"}
 
+    @classmethod
+    def _iter_audit_files(cls, data_dir: Path) -> list[Path]:
+        """Return sorted list of all files the doc-verb audit must scan.
+
+        Covers *.md (doctrine, QUICKSTART, examples) AND *.tmpl (CLAUDE.md.tmpl,
+        CONTRACT.md.tmpl) — the templates are the highest-value shipped docs because
+        adopters copy-type their rv commands directly.
+        """
+        return sorted(data_dir.rglob("*.md")) + sorted(data_dir.rglob("*.tmpl"))
+
     @staticmethod
     def _collect_rv_verbs(path: Path) -> list[tuple[str, int, str]]:
-        """Return [(verb, lineno, raw_line)] for every 'rv <verb>' in the file."""
-        pattern = re.compile(r'\brv\s+([a-z][a-z0-9-]+)')
-        hits = []
+        """Return [(verb, lineno, raw_line)] for rv <verb> in CODE contexts only.
+
+        Only scans:
+        - Backtick-quoted inline code: `rv <verb>...`
+        - Fenced code block lines (between ``` markers)
+
+        Deliberately skips bare prose so that English phrases like
+        "the rv verbs appropriate to their role" are not flagged as commands.
+        The gate lints COMMANDS adopters will type, not English text.
+        """
+        backtick_pat = re.compile(r'`rv\s+([a-z][a-z0-9-]+)[^`]*`')
+        cmd_pat = re.compile(r'^\s*rv\s+([a-z][a-z0-9-]+)')
+        hits: list[tuple[str, int, str]] = []
+        in_fence = False
         for lineno, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), 1
         ):
-            for m in pattern.finditer(line):
-                hits.append((m.group(1), lineno, line.strip()))
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                for m in cmd_pat.finditer(line):
+                    hits.append((m.group(1), lineno, stripped))
+            else:
+                for m in backtick_pat.finditer(line):
+                    hits.append((m.group(1), lineno, stripped))
         return hits
 
     def test_no_fabricated_rv_verbs_in_shipped_docs(self):
-        """Every rv <verb> in shipped data/ docs must be in _VERB_REGISTRY or 'help'.
+        """Every rv <verb> in shipped data/ docs (*.md and *.tmpl) must be real.
 
-        Fails on the current tree (fabricated verbs: identity, gh, launch, poll,
-        approve, route, guard-engineer, hub-guard, selfcheck, memory, heal, crew,
-        devlog-check).  Passes only after each is replaced with a real package verb
-        or the surrounding text is rewritten to avoid the rv-verb pattern.
+        Scans backtick-quoted and fenced-code commands only — prose mentions like
+        'the rv verbs appropriate to their role' are not flagged.
+
+        The gate covers CLAUDE.md.tmpl and CONTRACT.md.tmpl (the .tmpl coverage
+        hole closed in the SR-CCB fast-follow) in addition to the original *.md files.
         """
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from research_vault.cli import _VERB_REGISTRY  # noqa: PLC0415
@@ -541,10 +571,10 @@ class TestShippedDocVerbAudit:
         assert data_dir.is_dir(), f"Data dir not found: {data_dir}"
 
         fabricated: list[str] = []
-        for md_file in sorted(data_dir.rglob("*.md")):
-            for verb, lineno, line in self._collect_rv_verbs(md_file):
+        for f in self._iter_audit_files(data_dir):
+            for verb, lineno, line in self._collect_rv_verbs(f):
                 if verb not in real_verbs:
-                    rel = md_file.relative_to(data_dir)
+                    rel = f.relative_to(data_dir)
                     fabricated.append(
                         f"  {rel}:{lineno}: rv {verb!r}  — {line[:100]}"
                     )
@@ -554,3 +584,68 @@ class TestShippedDocVerbAudit:
             " (adopters will type these and get 'invalid choice'):\n"
             + "\n".join(fabricated)
         )
+
+    # ------------------------------------------------------------------
+    # SR-CCB fast-follow: close the .tmpl coverage hole
+    # ------------------------------------------------------------------
+
+    def test_tmpl_files_included_in_audit_scan(self):
+        """CLAUDE.md.tmpl must be in the set of files the audit scans.
+
+        The original gate used rglob("*.md") which misses .tmpl files.
+        CLAUDE.md.tmpl is the highest-value shipped doc — a stranger types its
+        rv commands directly.  This test proves the hole is permanently closed.
+
+        Verified via _iter_audit_files — the single source-of-truth for which
+        files the audit covers, shared with the main gate test.
+        """
+        claude_tmpl = self._DATA_DIR / "templates" / "CLAUDE.md.tmpl"
+        assert claude_tmpl.is_file(), f"Fixture missing: {claude_tmpl}"
+
+        scanned = set(self._iter_audit_files(self._DATA_DIR))
+        assert claude_tmpl in scanned, (
+            "CLAUDE.md.tmpl is NOT in the audit scan set.\n"
+            "_iter_audit_files must include *.tmpl files so this doc is permanently guarded."
+        )
+
+    def test_prose_rv_verbs_not_flagged_as_fabricated(self):
+        """'rv verbs' in prose (e.g. 'the rv verbs appropriate to their role')
+        must NOT be reported as a fabricated command by _collect_rv_verbs.
+
+        CLAUDE.md.tmpl lines 14 and 44 use 'rv verbs' as an English phrase, not
+        a shell command.  The gate must lint COMMANDS (backtick/fenced code), not
+        prose — so this phrase is invisible to the scanner.
+
+        RED: the current broad regex r'\\brv\\s+([a-z][a-z0-9-]+)' extracts 'verbs'
+             from prose → assertion fails.
+        GREEN: after restricting _collect_rv_verbs to backtick/fenced contexts → PASSES.
+        """
+        claude_tmpl = self._DATA_DIR / "templates" / "CLAUDE.md.tmpl"
+        assert claude_tmpl.is_file(), f"Fixture missing: {claude_tmpl}"
+
+        hits = self._collect_rv_verbs(claude_tmpl)
+        verbs_hit = {verb for verb, _, _ in hits}
+        assert "verbs" not in verbs_hit, (
+            "The scanner flagged 'rv verbs' as a command in CLAUDE.md.tmpl.\n"
+            "'verbs' is an English word here, not an rv subcommand.\n"
+            "Restrict _collect_rv_verbs to backtick-quoted and fenced-code contexts\n"
+            "so prose mentions of 'rv verbs' are not flagged as fabricated commands."
+        )
+
+    def test_tmpl_files_present_and_covered(self):
+        """The two shipped .tmpl files (CLAUDE.md.tmpl, CONTRACT.md.tmpl) must
+        both exist and both appear in _iter_audit_files — the non-vacuous proof
+        that the templates/ directory is fully guarded.
+        """
+        data_dir = self._DATA_DIR
+        tmpl_files = set(data_dir.rglob("*.tmpl"))
+        assert tmpl_files, (
+            "No .tmpl files found under data/ — fixture assumption broken. "
+            "This test exists to guard CLAUDE.md.tmpl and CONTRACT.md.tmpl."
+        )
+
+        scanned = set(self._iter_audit_files(data_dir))
+        for t in sorted(tmpl_files):
+            assert t in scanned, (
+                f"{t.name} is NOT in _iter_audit_files — the audit silently skips it."
+            )
