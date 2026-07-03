@@ -1,3 +1,29 @@
+## 2026-07-03 (SR-MS-1c — Architect block fix: _run_grounding_builders refactor)
+
+### Done
+- Extracted `_run_grounding_builders(... label, extra_unmatched_msg)` as the SINGLE
+  anti-fabrication contract site (§5J.4) in `manuscript/compile.py`.
+- Refactored `run_prep` and `run_compile` to CALL `_run_grounding_builders` — no
+  remaining copy of the builder-orchestration or hard-fail blocks in either function.
+- `label` parametrises message wording ("--prep-only:" vs "compile:" + §5J.4 line);
+  distinct wording preserved while the contract lives in one place.
+- Fixed `except (KeyError, Exception)` → `except (KeyError, TypeError)` in
+  `cmd_prep` and `cmd_compile` (Argus nit: Exception subsumed KeyError, over-broad).
+- Added 5 `TestSingleOrchestration` tests: structural AST check both functions call
+  the helper; behavioral check unmatched-cite hard-fails both paths with label-
+  appropriate messages. Full suite: 1485 passed, 37 skipped.
+- CI green on `fd1982a` (push + PR runs).
+
+### Decisions
+- Return signature of `_run_grounding_builders` is `(exit_code, failure_base | None,
+  builder_warnings)`: callers merge in path-specific keys (log/chktex/pdf_path) before
+  returning, so failure dicts remain byte-identical to original (compile tests unchanged).
+- AST-based structural test (not `getsource` string membership) — immune to rule-7
+  lint, comment-free, will catch any future copy of the builder block.
+
+### Open / next
+- PR #53 awaiting human-go merge.
+
 ## 2026-07-02 (SR-MS-1c — draft-time macro-visibility prep seam)
 
 ### Done
