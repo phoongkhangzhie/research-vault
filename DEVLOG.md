@@ -1,3 +1,38 @@
+## 2026-07-02 (sr-lr-2 — gap-driven pass, loop-closer)
+
+### Done
+- SR-LR-2 built and committed (53866c9): the gap-driven pass, §5L.7–5L.10.
+- Added `gaps/` as the 10th OKF type in `note.OKF_TYPES` SSOT.
+- New `review/gap_scan.py`: `GapRecord` dataclass; four typed detectors (knowledge_void /
+  contradictory / evaluation_void / absent_row); `cmd_gap_scan`, `cmd_gap_scope`,
+  `cmd_gap_close`, `open_gap_count`. Zero new DAG mechanism.
+- `rv review gap-scan / gap-scope / gap-close` wired into verbs.py.
+- `gap-scope` auto-authors a Part-1 review scope from a gap record (question ← claim
+  verbatim; seed_queries per type template; snowball_seeds from anchor; `_gap-context.md`
+  written). Composes SR-LR-1's `cmd_new` directly.
+- `rv status` surfaces open gap COUNT in Needs Attention (D-GAP-4: count only, no inline records).
+- `cli._VERB_REGISTRY["review"].sr` updated to `"SR-LR-1, SR-LR-2"`.
+- 41 new acceptance tests (test_sr_lr_2.py); 4 existing count/sr tests updated.
+- Full suite: 1497 passed, 37 skipped. `rv lint`: PASS. `rv help --check`: OK.
+  Leakage scan: clean.
+
+### Decisions
+- D-GAP-1 resolved: new `gaps/` OKF type (recommended path) — gaps are first-class
+  research objects with their own `status` lifecycle and queryable `proven-open` state.
+- D-GAP-2 resolved: support-degree = count of `backed_by:` frontmatter entries on a
+  finding note; threshold defaults to 1 (operator can override with `--threshold N`).
+- D-GAP-3 resolved: absent_row verdict uses `[ABSENT]`/`[CONTRADICTS]` tokens from the
+  existing support-matcher convention — no new verdict language.
+- D-GAP-4 resolved: manual `rv review gap-scan` only; COUNT in `rv status`; no auto-fire.
+- absent_row detector greps a caller-supplied `--critic-report <path>` file; the operator
+  runs `rv manuscript check` / `build_approve_payload()` first to produce the report file.
+
+### Open / next
+- Push `feat/sr-lr-2` and open PR (hub handles PR creation: human-go class).
+- Verify CI green on pushed HEAD SHA.
+
+---
+
 ## 2026-07-02 (sr-cif-activation — rv control reconcile --gh-pr N)
 
 ### Done
