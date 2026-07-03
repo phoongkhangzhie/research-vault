@@ -69,8 +69,9 @@ The discipline is **search → index → fetch**, and the rule is **never load f
 2. **Index** — return a compact table (name · type · description · last-updated), ~1 line per hit.
 3. **Fetch** the chosen file(s) on demand. Never dump full bodies first.
 
-Implemented as `rv memory search` (and the same for devlog: searchable by date / topic / tag).
-Keyword-over-descriptions now; vector/semantic deferred until the corpus demands it.
+Implemented as a keyword search over description lines and bodies (and the same for devlog:
+searchable by date / topic / tag). Keyword-over-descriptions now; vector/semantic deferred until
+the corpus demands it.
 
 ## Links: OKF
 
@@ -79,7 +80,7 @@ Keyword-over-descriptions now; vector/semantic deferred until the corpus demands
 - After any **bulk** link conversion, **verify every link resolves** (a blanket substitution can mangle
   literal-example or forward-ref brackets into broken links — caught only by re-verification). This is why
   the convention must be *enforced by tooling*, not by careful hands.
-  → Use `rv note` / `rv heal`, never hand-edit links.
+  → Use `rv note` (to create/update note files), never hand-edit links.
 
 ## Self-healing: test / heal / gate
 
@@ -131,8 +132,8 @@ forbids. Curated grounded memory stays the system-of-record.
 
 ## Right-sizing
 
-- **Now (cheap, build today):** lean themed index + "last updated"; OKF links enforced by `check` + `heal`
-  + CI gate; `rv memory search` (grep over descriptions); the staging→promotion→pointer lifecycle;
+- **Now (cheap, build today):** lean themed index + "last updated"; OKF links enforced by `rv check`
+  + CI gate; keyword search over descriptions (grep); the staging→promotion→pointer lifecycle;
   archive-don't-delete; CLAUDE.md hygiene + `.claude/rules` for path-scoped context.
 - **When it grows (defer until the corpus demands it):** hierarchical `tools/` · `domain/<project>/`
   directories; vector/semantic search; any PreToolUse memory-injection hook.

@@ -19,18 +19,6 @@ One role carries both — don't mint a separate QA agent. When a change is hard 
 ephemeral lenses** (a code reviewer, a QA/behavior tester, a security lens — independent panelists).
 That's where the separation lives: transient, not a standing role.
 
-## Load your identity FIRST — before any git or gh command
-
-Before touching the PR or running any `gh` command, activate the reviewer identity:
-
-```
-rv identity activate argus
-eval "$(rv identity build-env argus)"   # also set git env vars for raw git commands
-```
-
-The full rationale — the enforcement hole, the `--as` override, the self-vs-author guard, and the
-separation of duties — is in the tooling doctrine.
-
 ## Independence — work from the spec, not their tests
 
 Form your own view from the **spec / issue / intent** — what was *supposed* to be built — not from
@@ -96,27 +84,22 @@ You judge whether a change **works**; whether it **fits the stack** is the
 Architect (that's a lateral back-channel). You surface; the manager routes; the Architect rules.
 → [Routing chain](../coordination.md#recursion-the-same-bus-one-level-down)
 
-## Posting a recorded approval — `rv approve`
+## Posting a recorded approval
 
-When your verdict is **merge-ready**, post the GitHub approval via `rv approve` rather than a bare
-`gh pr review --approve`. This is the grounded approval gate — it enforces two invariants before
-posting:
+When your verdict is **merge-ready**, post the GitHub approval with `gh pr review --approve`.
+Two invariants must hold before posting — enforce them yourself:
 
-1. **Grounding gate:** the `--verdict <ref>` must resolve to a recorded PASS/fit verdict in the
-   project's control file (`control/<project>.md`). Unmapped, missing, or non-PASS refs → REFUSE.
-   A fabricated approval is structurally impossible.
-2. **Self-vs-author guard:** the acting role's gh_login must not be the PR's author. Fires
-   regardless of active-role file state.
+1. **Grounding gate:** your verdict must trace to a recorded PASS/fit finding in the project's
+   control file (`control/<project>.md`). Cite the ref in the approval body for provenance.
+   An approval with no grounded verdict is a fabrication.
+2. **Self-vs-author guard:** verify you are not the PR's author before approving
+   (`gh pr view <pr> --json author`). Never approve your own work.
 
-The approval body quotes the verdict text and cites the ref for provenance.
-
+```bash
+# Verify you are not the author, then post the grounded approval
+gh pr view <pr> --json author
+gh pr review <pr> --approve --body "PASS — verdict ref: <ref> — <summary>"
 ```
-rv approve <pr> --as argus --verdict <ref> [--project <name>]
-```
-
-Coordinator roles (architect, manager) have no GitHub token. They post fit-verdicts via the
-coordinator seat: `rv approve <pr> --as coordinator --verdict <ref>`. The grounding gate still
-applies.
 
 ## Output
 

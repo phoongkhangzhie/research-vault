@@ -73,30 +73,18 @@ When the operator authorizes a cluster run and you execute the submit (e.g. a SL
 **register its verify-poll at submit time** — not afterwards. The verify must check the artifact is
 **fresh** (mtime after submission), not just that it exists. This is the same rule as the engineer's.
 
-**The tool:** `rv launch` for SLURM jobs.
+**Pattern for SLURM jobs:** submit with `sbatch`, capture the job id, and immediately record
+the expected artifact path and deadline. Verify freshness (mtime after submission), not just
+existence.
 
 ```bash
-rv launch \
-  --artifact /path/to/scores.json \
-  --by +24h \
-  -- sbatch --gres=gpu:2 ... run.sbatch
+job_id=$(sbatch --parsable --gres=gpu:2 ... run.sbatch)
+# immediately note: job $job_id → /path/to/scores.json, deadline +24h
+# verify: mtime of artifact > submit timestamp  (not just existence)
 ```
 
-`rv launch` captures the job id and registers a fresh-verify poll automatically. If you must use
-raw `sbatch` (e.g. from a cluster login node where `rv` isn't on `PATH`), note the job id and
-immediately register on the hub. The exact template:
-
-```bash
-rv poll register \
-  --name <slug-id> \
-  --job <sacct-jobid> \
-  --artifact-path /full/path/to/expected/output.jsonl \
-  --verify "fresh_since:<dur>" \
-  --expect "<one-liner: what should be there when done>" \
-  --by +24h \
-  --grace +2h \
-  --severity warn
-```
+If you must submit from a cluster login node without `rv` on PATH, note the job id and
+immediately inform the hub — record: job id, artifact path, submit timestamp, deadline.
 
 `--verify fresh_since:<dur>` is mandatory (never bare `exists`/`non_empty` — pre-existing stale
 files false-satisfy). Never leave a deferred artifact unpolled.

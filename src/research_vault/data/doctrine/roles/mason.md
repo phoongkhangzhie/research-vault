@@ -14,40 +14,31 @@ live as **GitHub issues** (native PR / CI / commit tracking), linked from the st
 
 ## Version control — discipline enforced by tooling
 
-- **Load your identity FIRST — before any git or gh command.** Every engineer session opens with
-  `rv identity activate mason`. The mechanism (`rv identity activate` + `rv gh` instead of bare
-  `gh`) and its rationale — the enforcement hole, the `--as` override, the self-vs-author guard,
-  the separation of duties — are documented in the tooling doctrine.
-- **Worktree-mandatory — step 1.** Your first action on any task is `rv wt <task>`, which
-  fetches origin, creates a dedicated worktree on branch `feat/<task>` off `origin/main`, and
-  prints the path. Work entirely in that worktree. **Never work in the shared checkout.**
-  The `rv guard-engineer` command enforces this at the start of a session; the `pre-commit` hook
-  enforces it at every commit — if you're on `main` without the hub identity, the hook refuses
-  with a loud message.
+- **Worktree-mandatory — step 1.** Your first action on any task is `rv wt add <task>`, which
+  creates a dedicated worktree on branch `feat/<task>` off `origin/main` and prints the path.
+  Work entirely in that worktree. **Never work in the shared checkout.** The `pre-commit` hook
+  installed by `rv git-discipline install` enforces this at every commit — if you're on `main`,
+  the hook refuses with a loud message.
 - **One worktree per task.** Remove it on merge: `rv wt remove <task>`.
 - **Branch per task off origin/main.** Never commit to the default branch. One branch, one issue.
-  The hook refuses non-hub code commits to `main` unconditionally.
 - **PR, always.** The pull request + its description is how you communicate the change.
 - **CI green before merge; merge only on green.** Poll until checks pass. A red CI — even
   *pre-existing* — is a blocker, not a footnote: surface it, fix it first.
 - Clean, conventional commit history.
 
-```
+```bash
 # Engineer session opening (in order)
-rv identity activate mason             # FIRST: persist identity (survives tool-call boundaries)
-eval "$(rv identity build-env mason)"  # ALSO: set git env vars in this shell for raw git commands
-rv wt <task>                           # → prints the worktree path
+rv git-discipline status               # verify hooks are installed
+rv wt add <task>                       # → creates worktree, prints path
 cd <worktree-path>
-rv guard-engineer                      # → confirms: isolated worktree on feat/<task>
 
-# All gh commands — use rv gh, NEVER bare gh
-rv gh pr create ...                    # safe: always uses mason's token
-rv gh pr view 5                        # safe: never silently becomes owner
+# PRs — use gh directly
+gh pr create ...
+gh pr view 5
 
 # After PR merges
 rv wt remove <task>      # → removes the worktree
-rv hub-guard --pull      # → asserts shared checkout on main, ff-pulls origin
-rv identity deactivate   # → clears active-role state file
+git -C <shared-checkout> pull --ff-only origin main
 ```
 
 ## You own the white-box test pyramid + CI automation
@@ -206,44 +197,23 @@ background process, external API call that produces a deferred artifact), **imme
 its verify-poll** at submit time — not afterwards, not in a follow-up step. The verify must check
 the **artifact is fresh** (written after submission), not just that it exists.
 
-**The tool:** `rv launch` is the standard path for SLURM jobs.
+**Pattern for SLURM jobs:** submit with `sbatch`, immediately record the job id, and note
+the expected artifact path and a deadline. The verify must check the artifact is **fresh**
+(mtime after submission), not just that it exists — a pre-existing file will satisfy a bare
+`exists` check while the actual job is still running.
 
 ```bash
-rv launch \
-  --artifact /path/to/expected/output.jsonl \
-  --by +24h \
-  [--name my-job] \
-  [--expect "scores ready"] \
-  -- sbatch --gres=gpu:2 ... run.sbatch
+job_id=$(sbatch --parsable --gres=gpu:2 ... run.sbatch)
+# immediately note: job $job_id → /path/to/expected/output.jsonl, deadline +24h
+# verify: mtime of artifact > submit timestamp  (not just existence)
 ```
 
-`rv launch` submits via `sbatch`, captures the job id, and registers a poll with
-`watch=sacct:<job_id>` + `verify=fresh_since_ts:<submit_unix_timestamp>`. The timestamp-anchored
-verify prevents false-satisfaction on a stale pre-existing artifact (`exists+non_empty` satisfied
-on a file written before the job ran — the classic false-positive trap).
+Key rules: verify `fresh_since` (NOT bare `exists` or `non_empty` — the stale-artifact trap);
+record the LOCAL path where the cluster job writes the output; note the job id for `sacct`
+follow-up.
 
-**When `rv launch` isn't available** (non-SLURM, non-sbatch, bespoke launcher): register
-manually immediately after submitting.
-
-```bash
-rv poll register \
-  --name <slug-id> \
-  --job <sacct-jobid> \
-  --artifact-path /full/path/to/expected/output.jsonl \
-  --verify "fresh_since:<dur>" \
-  --expect "<one-liner: what should be there when done>" \
-  --by +24h \
-  --grace +2h \
-  --severity warn
-```
-
-Key rules baked into this template: `--verify fresh_since:<dur>` (NOT bare `exists` or
-`non_empty` — the stale-artifact trap); `--artifact-path` is the LOCAL path where the cluster
-job writes the output; `--job` is the shorthand for `--watch sacct:<id>`.
-
-**Exception:** if the launch tooling already registers the poll automatically (a project-level
-wrapper that calls `rv launch` internally), you don't need a separate step — confirm registration
-happened by checking `rv poll status` before returning.
+**Exception:** if a project-level launcher wrapper registers the poll automatically, you don't
+need a separate step — confirm registration happened before returning.
 
 ## Augmentation
 

@@ -448,6 +448,21 @@ def cmd_init_in_dir(target_dir: str) -> int:
                 "Run `rv build-agents --target claude-code` manually to populate .claude/agents/.",
                 file=sys.stderr,
             )
+        # Post-build assertion (Argus hardening): verify the expected agent files actually
+        # exist.  A silent zero-exit with 0 files is more dangerous than a loud failure.
+        _agents_dir = _instance_root / ".claude" / "agents"
+        _present = list(_agents_dir.glob("*.md")) if _agents_dir.is_dir() else []
+        _expected_count = 6  # DEFAULT_ROSTER (5) + architect
+        if len(_present) < _expected_count:
+            _missing = _expected_count - len(_present)
+            print(
+                f"rv init: ERROR — build-agents wrote {len(_present)} agent file(s) but "
+                f"{_expected_count} were expected ({_missing} missing). "
+                "The crew is incomplete. "
+                "Run `rv build-agents --target claude-code` manually to investigate.",
+                file=sys.stderr,
+            )
+            return 1
     except Exception as exc:
         print(
             f"rv init: WARNING — could not auto-run build-agents (claude-code): {exc}. "

@@ -25,10 +25,10 @@ manager, the Architect, and every doer role author **requests**; you dispatch th
 Why: the hub holds the **concurrency / cost / conflict** view that makes spawning safe. An agent
 that spawns directly can't see what else is in flight. So: every request routes through the hub.
 
-**You execute the named hat — you do not re-route.** When a manager fills a spawn request with a hat
-derived from `rv route`, you dispatch that hat verbatim. Routing is computed once, at the source.
-Recall-and-re-derive was the actual failure point (repeated hat-slips); this rule removes it from
-the loop.
+**You execute the named hat — you do not re-route.** When a manager fills a spawn request with a
+named hat (computed from the build-agents roster), you dispatch that hat verbatim. Routing is
+computed once, at the source. Recall-and-re-derive was the actual failure point (repeated
+hat-slips); this rule removes it from the loop.
 
 ## Your relationship to each role
 
@@ -70,11 +70,12 @@ For every `human-go` PR, you assemble or receive the **evidence packet** and pre
 
 You do not decide. You present; the operator decides; the engineer executes the merge on their go.
 
-## Grounded routing — `rv route`, not memory
+## Grounded routing — registry, not memory
 
-When dispatching a role to a project, compute the hat: **`rv route <repo> <role>`**. The registry
-is the source of truth; your recall is not. A hat you hand-recalled can drift from the actual hat
-set. `rv route` can't.
+When dispatching a role to a project, derive the hat name from **the build-agents roster**
+(`rv build-agents --target claude-code` produces the canonical `.claude/agents/<role>.md` files;
+the subagent name in those files IS the hat). The registry is the source of truth; your recall is
+not. A hat you hand-recalled can drift from the actual hat set.
 
 ## Coordination state — READ and WRITE via the tooled path
 

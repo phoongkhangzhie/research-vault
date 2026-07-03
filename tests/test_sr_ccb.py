@@ -488,3 +488,69 @@ class TestDemoContracts:
             for word in private_words:
                 assert word not in text, \
                     f"{demo}/CONTRACT.md contains private marker: {word!r}"
+
+
+# ---------------------------------------------------------------------------
+# SR-CCB-7: Shipped docs must only reference real package verbs
+# (Wren gate — non-vacuous: fails on current files, passes only after fix)
+# ---------------------------------------------------------------------------
+
+class TestShippedDocVerbAudit:
+    """Every rv <verb> in shipped data docs must be a real package verb.
+
+    This is a STRUCTURAL gate: a reference to a non-existent verb (rv identity,
+    rv gh, rv launch, rv approve, rv route, ...) in a shipped doc misleads adopters
+    who will type those commands and get "rv: error: argument verb: invalid choice".
+
+    The test is non-vacuous: it FAILS on the current shipped docs (which contain
+    fabricated vault-OS verbs from the ported method doctrine) and passes only
+    after ALL fabricated rv-verb patterns are replaced with real package equivalents.
+    """
+
+    _DATA_DIR = (
+        Path(__file__).parent.parent / "src" / "research_vault" / "data"
+    )
+    # argparse built-in; not in _VERB_REGISTRY but valid for docs
+    _EXTRA_ALLOWED = {"help"}
+
+    @staticmethod
+    def _collect_rv_verbs(path: Path) -> list[tuple[str, int, str]]:
+        """Return [(verb, lineno, raw_line)] for every 'rv <verb>' in the file."""
+        pattern = re.compile(r'\brv\s+([a-z][a-z0-9-]+)')
+        hits = []
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            for m in pattern.finditer(line):
+                hits.append((m.group(1), lineno, line.strip()))
+        return hits
+
+    def test_no_fabricated_rv_verbs_in_shipped_docs(self):
+        """Every rv <verb> in shipped data/ docs must be in _VERB_REGISTRY or 'help'.
+
+        Fails on the current tree (fabricated verbs: identity, gh, launch, poll,
+        approve, route, guard-engineer, hub-guard, selfcheck, memory, heal, crew,
+        devlog-check).  Passes only after each is replaced with a real package verb
+        or the surrounding text is rewritten to avoid the rv-verb pattern.
+        """
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        from research_vault.cli import _VERB_REGISTRY  # noqa: PLC0415
+
+        real_verbs: set[str] = set(_VERB_REGISTRY.keys()) | self._EXTRA_ALLOWED
+        data_dir = self._DATA_DIR
+        assert data_dir.is_dir(), f"Data dir not found: {data_dir}"
+
+        fabricated: list[str] = []
+        for md_file in sorted(data_dir.rglob("*.md")):
+            for verb, lineno, line in self._collect_rv_verbs(md_file):
+                if verb not in real_verbs:
+                    rel = md_file.relative_to(data_dir)
+                    fabricated.append(
+                        f"  {rel}:{lineno}: rv {verb!r}  — {line[:100]}"
+                    )
+
+        assert not fabricated, (
+            f"\n{len(fabricated)} fabricated rv <verb> reference(s) in shipped docs"
+            " (adopters will type these and get 'invalid choice'):\n"
+            + "\n".join(fabricated)
+        )
