@@ -462,6 +462,39 @@ def cmd_status(
 
     lines.append("")
 
+    # --- Pointers.md (SR-LENS-RM D-LR-1) ---
+    # Echo the pointers.md head so the crew sees project-context pointers
+    # automatically (they already read rv status for control state — no new habit).
+    try:
+        try:
+            proj_data = cfg.project(project)
+            source_dir = proj_data.get("source_dir")
+        except (KeyError, Exception):
+            source_dir = None
+
+        if source_dir:
+            pointers_path = Path(source_dir) / "pointers.md"
+            if pointers_path.is_file():
+                pointers_head = pointers_path.read_text(encoding="utf-8")
+                # Show first 5 non-empty lines of content (skip title/blank lines)
+                content_lines = [
+                    ln for ln in pointers_head.splitlines()
+                    if ln.strip() and not ln.startswith("# ")
+                ][:5]
+                lines.append(f"Pointers:  (from {pointers_path})")
+                for ln in content_lines:
+                    lines.append(f"  {ln}")
+            else:
+                lines.append(
+                    f"Pointers:  none yet — add them to `{source_dir}/pointers.md`"
+                )
+        else:
+            lines.append("Pointers:  (source_dir not set — cannot locate pointers.md)")
+    except Exception as e:
+        lines.append(f"Pointers:  [error: {e}]")
+
+    lines.append("")
+
     # --- Needs-attention roll-up ---
     attention: list[str] = []
     try:

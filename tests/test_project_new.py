@@ -241,27 +241,29 @@ class TestProjectNewScaffold:
 # ---------------------------------------------------------------------------
 
 class TestProjectNewCrew:
-    def test_default_roster_creates_agent_hats(self, rv_instance: Path) -> None:
-        """cmd_new with DEFAULT_ROSTER generates a hat file per role."""
-        src = rv_instance / "projects" / "demo"
-        cmd_new("demo", "dm", str(src), DEFAULT_ROSTER)
-        agents_dir = rv_instance / ".agents" / "demo"
-        for role in DEFAULT_ROSTER:
-            hat = agents_dir / f"{role}.md"
-            assert hat.exists(), f"{role}.md hat must exist"
+    def test_default_roster_does_not_create_per_project_hats(self, rv_instance: Path) -> None:
+        """cmd_new does NOT create per-project hat files (SR-LENS-RM: vault-level crew).
 
-    def test_empty_roster_falls_back_to_default(self, rv_instance: Path) -> None:
-        """cmd_new with roster=[] falls back to DEFAULT_ROSTER and generates hats."""
+        The crew is built once at rv init; rv project new no longer bakes hats.
+        """
         src = rv_instance / "projects" / "demo"
-        cmd_new("demo", "dm", str(src), [])
-        agents_dir = rv_instance / ".agents" / "demo"
-        # Belt-and-suspenders: empty roster → DEFAULT_ROSTER hats must be created.
-        for role in DEFAULT_ROSTER:
-            hat = agents_dir / f"{role}.md"
-            assert hat.exists(), (
-                f"{role}.md hat must exist even when cmd_new called with roster=[] "
-                f"(fallback to DEFAULT_ROSTER)"
-            )
+        rc = cmd_new("demo", "dm", str(src), DEFAULT_ROSTER)
+        assert rc == 0
+        # No per-project agents subdir should exist
+        per_proj_agents = rv_instance / ".agents" / "demo"
+        assert not per_proj_agents.exists(), (
+            ".agents/demo/ must NOT exist — crew is vault-level (SR-LENS-RM)"
+        )
+
+    def test_empty_roster_does_not_create_per_project_hats(self, rv_instance: Path) -> None:
+        """cmd_new with roster=[] also creates no per-project hats (SR-LENS-RM)."""
+        src = rv_instance / "projects" / "demo"
+        rc = cmd_new("demo", "dm", str(src), [])
+        assert rc == 0
+        per_proj_agents = rv_instance / ".agents" / "demo"
+        assert not per_proj_agents.exists(), (
+            ".agents/demo/ must NOT exist even with empty roster (SR-LENS-RM)"
+        )
 
 
 # ---------------------------------------------------------------------------

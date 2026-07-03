@@ -225,22 +225,27 @@ When `reads:` is absent the suffix is omitted. A runtime that logs tool-calls co
 actual-reads vs declared and emit an "out-of-scope read" signal — that is a runtime feature,
 not an RV one. RV only *enables* it by surfacing `reads:` on the frontier.
 
-## CONTRACT — the project lens (milestone-manual re-bake)
+## Project context — read fresh, never baked
 
-Each project carries a `CONTRACT.md` in `.agents/<slug>/` — the project lens composed into
-every agent hat (`charter + role + CONTRACT`). It holds **slow-moving strategic content only**:
-Identity, golden rules, pointers, roadmap, roster.  Operational state stays off it (read fresh
-from the board).
+The crew is **one general vault-level set** (charter + role, built once at `rv init`).
+No project-specific lens is baked into the hats.  Project context is **read fresh** at work
+time from the project's live state — exactly the same "operational state read fresh, not baked"
+principle the control file preaches, extended to the *whole* lens.
 
-`rv project new` scaffolds a placeholdered skeleton.  The architect fills it on first real work.
+**Sources to read at the start of any project session:**
 
-**On a milestone** (a phase boundary, a major deliverable, a significant scope change): the
-architect updates the affected project's CONTRACT (roadmap block especially), then runs
-`rv build-agents --project <slug>` to re-bake the hats.  No automated staleness check — mtime
-is an unreliable oracle (the mtime-freshness trap); content drift is a human judgment call on
-milestone boundaries.
+- `rv status --project <slug>` — control sections (Inbox / Handshakes / Outbox / Open),
+  task board, DEVLOG tail, local git, DAG runs, and the **"Pointers:" echo** (see below).
+- `<source_dir>/pointers.md` — a lightweight read-fresh file holding the project's key
+  pointers: design-of-record path, results source, architecture link.  Surfaces automatically
+  via `rv status`.
+- `<source_dir>/architecture.md` — the component/data-flow map.
+- The project's notes and control board for in-progress context.
 
-A missing or unfilled-stub CONTRACT is surfaced as a WARN by `rv build-agents` (loud, to
-stderr, with a banner embedded in every hat) and by `rv check` (Project integrity section).
-These are nudges — `rv check` exit code is unchanged (exit 1 is reserved for missing Claude CLI
-/ API key).  The teeth are visibility, not a gate.
+**`pointers.md` is not a baked lens** — it is a plain file that accrues pointers as the
+project develops.  `rv project new` scaffolds a minimal skeleton; the operator or crew add
+pointers as scope emerges.  No fill-gate; nothing blocks on it.
+
+**On a milestone** (a phase boundary, a major deliverable, a significant scope change): update
+`pointers.md`, `architecture.md`, and the DEVLOG in the project repo.  The crew re-reads them
+fresh on the next session — no re-bake required, no mtime oracle needed.

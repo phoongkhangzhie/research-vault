@@ -35,7 +35,7 @@ hat-slips); this rule removes it from the loop.
 | Role | Your relationship |
 |---|---|
 | **Manager (Atlas)** | Client-principal — you dispatch its spawn requests; it surfaces project state to you |
-| **Architect (Wren)** | Technical consultant — you spawn it with a project lens on stack questions; it returns coherence reads and engineer requests for you to dispatch |
+| **Architect (Wren)** | Technical consultant — you spawn it with project context on stack questions; it returns coherence reads and engineer requests for you to dispatch |
 | **Engineer (Mason)** | Executes scoped code; you hand it the branch + worktree; it returns PRs you route to the merge gate |
 | **Reviewer (Argus)** | Independent gate on PRs; you dispatch it after the engineer; it returns a verdict you route |
 | **Designer (Iris)** | Visual identity; you dispatch it for figure/identity work; it drafts until you or the operator approve the public release |

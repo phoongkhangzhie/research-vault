@@ -493,18 +493,18 @@ class TestEmptyRosterFallback:
         return Config(raw)
 
     def test_build_agents_empty_roster_uses_default(self, tmp_path: Path) -> None:
-        """build-agents must generate DEFAULT_ROSTER hats for a project with roster=[]."""
+        """build-agents must generate DEFAULT_ROSTER hats flat (SR-LENS-RM: vault-level crew)."""
         from research_vault.build_agents import cmd_build
         cfg = self._make_cfg_empty_roster(tmp_path)
         agents_dir = tmp_path / ".agents"
-        rc = cmd_build("legacy-proj", cfg, agents_dir=agents_dir)
+        rc = cmd_build(cfg, agents_dir=agents_dir)
         assert rc == 0
 
+        # Flat files — no per-project subdir (SR-LENS-RM)
         for role in DEFAULT_ROSTER:
-            hat = agents_dir / "legacy-proj" / f"{role}.md"
+            hat = agents_dir / f"{role}.md"
             assert hat.exists(), (
-                f"Hat {role}.md must be generated for empty-roster project "
-                f"(fallback to DEFAULT_ROSTER)"
+                f"Hat {role}.md must be generated as flat vault-level file"
             )
 
     def test_role_list_empty_roster_shows_default(self, tmp_path: Path, capsys) -> None:
@@ -522,7 +522,7 @@ class TestEmptyRosterFallback:
 
 
 class TestBuildAgentsDefaultRoster:
-    """rv build-agents --project p with a default roster generates one hat per role."""
+    """rv build-agents builds the vault-level crew (6 flat files, SR-LENS-RM)."""
 
     def _make_cfg_with_default_roster(self, tmp_path: Path) -> Config:
         raw = {
@@ -544,25 +544,24 @@ class TestBuildAgentsDefaultRoster:
         return Config(raw)
 
     def test_generates_hat_per_default_role(self, tmp_path: Path) -> None:
-        """build-agents must generate exactly one hat file per DEFAULT_ROSTER role."""
-        from research_vault.build_agents import cmd_build
+        """build-agents generates one flat hat file per vault role (SR-LENS-RM)."""
+        from research_vault.build_agents import cmd_build, _VAULT_ROLES
         cfg = self._make_cfg_with_default_roster(tmp_path)
         agents_dir = tmp_path / ".agents"
-        rc = cmd_build("my-proj", cfg, agents_dir=agents_dir)
+        rc = cmd_build(cfg, agents_dir=agents_dir)
         assert rc == 0
 
-        proj_agents = agents_dir / "my-proj"
-        for role in DEFAULT_ROSTER:
-            hat = proj_agents / f"{role}.md"
-            assert hat.exists(), f"Hat {role}.md must be generated for DEFAULT_ROSTER"
+        # Flat vault-level files — no per-project subdir
+        for role in _VAULT_ROLES:
+            hat = agents_dir / f"{role}.md"
+            assert hat.exists(), f"Hat {role}.md must be generated (vault-level flat)"
 
     def test_hub_hat_not_generated(self, tmp_path: Path) -> None:
-        """Hub (alfred/hub) hat must NOT be generated for any project."""
+        """Hub (alfred/hub) hat must NOT be generated (hub is not in _VAULT_ROLES)."""
         from research_vault.build_agents import cmd_build
         cfg = self._make_cfg_with_default_roster(tmp_path)
         agents_dir = tmp_path / ".agents"
-        cmd_build("my-proj", cfg, agents_dir=agents_dir)
+        cmd_build(cfg, agents_dir=agents_dir)
 
-        proj_agents = agents_dir / "my-proj"
-        assert not (proj_agents / "alfred.md").exists(), "hub hat must never be generated"
-        assert not (proj_agents / "hub.md").exists(), "hub hat must never be generated"
+        assert not (agents_dir / "alfred.md").exists(), "hub hat must never be generated"
+        assert not (agents_dir / "hub.md").exists(), "hub hat must never be generated"

@@ -33,7 +33,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import importlib.resources
 from datetime import date as _date
 
 from .config import Config, load_config, reset_config_cache, _find_config_path, _load_toml
@@ -280,32 +279,37 @@ graph TD
 """
 
 
-def _render_contract_template(
-    slug: str,
-    code: str,
-    source_dir: str,
-    roster: list[str],
-) -> str:
-    """Load and interpolate the portable CONTRACT.md template.
+def _render_pointers_skeleton(slug: str, source_dir: str) -> str:
+    """Generate a minimal pointers.md skeleton for a new project.
 
-    Fills only the mechanically-known fields: {slug}, {code}, {source_dir},
-    {roster}, {date}.  Every editorial field remains a <!-- FILL --> placeholder.
-    Template is loaded from the package data (templates/CONTRACT.md.tmpl).
+    pointers.md is a LIGHTWEIGHT, READ-FRESH file — not a baked hat lens.
+    It accrues pointers as the project develops; a brand-new project can
+    have an empty skeleton and nothing blocks on it (SR-LENS-RM D-LR-1).
+
+    No FILL gates — no authoring burden before first crew dispatch.
+    Commented prompts suggest what to fill in as the project evolves.
     """
-    # SR-PKG: templates/ relocated into the wheel at data/templates/.
-    # Use as_file() for zipimport safety.
-    pkg_data = importlib.resources.files("research_vault") / "data"
-    with importlib.resources.as_file(pkg_data / "templates" / "CONTRACT.md.tmpl") as tmpl_path:
-        template = tmpl_path.read_text(encoding="utf-8")
-    roster_str = " · ".join(roster) if roster else "(no roster defined)"
     today = _date.today().isoformat()
-    return template.format(
-        slug=slug,
-        code=code,
-        source_dir=source_dir,
-        roster=roster_str,
-        date=today,
-    )
+    return f"""\
+# Pointers — {slug}
+
+*Read fresh by the crew via `rv status --project {slug}`.
+Add pointers here as the project develops — no gates, no required fields.*
+
+**Source dir:** `{source_dir}`
+
+<!-- Add the design-of-record path when it exists:
+design-of-record: /path/to/tasks/task-name.md
+-->
+
+<!-- Add the primary results source when known:
+results: wandb.ai/... or /path/to/results/
+-->
+
+<!-- Add architecture link when written:
+architecture: {source_dir}/architecture.md
+-->
+"""
 
 
 def cmd_new(
@@ -329,25 +333,23 @@ def cmd_new(
       5. control.cmd_init (SR-CP write-face).
       6. devlog.cmd_init.
       7. architecture.md (project-shaped template).
-      7b. CONTRACT.md (portable lens skeleton — fill before first crew dispatch).
+      7b. pointers.md (lightweight read-fresh pointer skeleton — SR-LENS-RM).
       8. library.json (empty corpus or Zotero-synced if --zotero).
       9. [optional --zotero] cite.create_collection + sync_library.
-     10. build_agents.cmd_build (if roster non-empty).
-     11. [optional --git-discipline] git_discipline._install_repo; else print offer.
-     12. Initial conventional commit.
-     13. Next-steps print.
+     10. [optional --git-discipline] git_discipline._install_repo; else print offer.
+     11. Initial conventional commit.
+     12. Next-steps print.
 
     source_dir: path where the new repo will live. If None, defaults to
     cfg.instance_root.parent / name (sibling-of-instance convention).
 
-    Rollback: any failure at steps 4–12 un-appends the registry section,
-    shutil.rmtree(source_dir), AND removes cfg.agents_dir/<slug>/ (so no
-    orphan CONTRACT or hat files are left behind — D-CONTRACT-2 fix).
+    Rollback: any failure at steps 4–11 un-appends the registry section and
+    shutil.rmtree(source_dir).
     Failure before step 3 → rmtree only.
     Returns 0 on success, 1 on any error.
     """
     from .note import scaffold_okf_dirs
-    from . import control, devlog, build_agents, git_discipline as gd
+    from . import control, devlog, git_discipline as gd
     from .config import load_config, reset_config_cache
 
     # ── Resolve config path ──────────────────────────────────────────────────
@@ -464,17 +466,15 @@ def cmd_new(
         )
         print(f"  created: architecture.md")
 
-        # ── STEP 7b: CONTRACT.md (project lens skeleton) ─────────────────────
-        # Must come BEFORE crew hats (step 10) so that build_agents.cmd_build
-        # can compose a real CONTRACT into every hat from the first run.
-        contract_dir = cfg.agents_dir / name
-        contract_dir.mkdir(parents=True, exist_ok=True)
-        contract_path = contract_dir / "CONTRACT.md"
-        contract_path.write_text(
-            _render_contract_template(name, code, str(source_path), roster),
+        # ── STEP 7b: pointers.md (read-fresh project-context pointer skeleton) ──
+        # SR-LENS-RM: replaces the CONTRACT lens skeleton.  No fill-gate; no
+        # authoring burden before first crew dispatch; accrues as scope emerges.
+        pointers_path = source_path / "pointers.md"
+        pointers_path.write_text(
+            _render_pointers_skeleton(name, str(source_path)),
             encoding="utf-8",
         )
-        print(f"  created: .agents/{name}/CONTRACT.md (lens skeleton — fill before first crew dispatch)")
+        print(f"  created: pointers.md (read-fresh project pointer skeleton)")
 
         # ── STEP 8: library.json (empty corpus) ──────────────────────────────
         refs_path.write_text("[]", encoding="utf-8")
@@ -503,12 +503,7 @@ def cmd_new(
                     file=sys.stderr,
                 )
 
-        # ── STEP 10: crew hats ────────────────────────────────────────────────
-        if roster:
-            build_agents.cmd_build(name, cfg)
-            print(f"  created: .agents/{name}/ hat files for {roster}")
-
-        # ── STEP 11: git-discipline ───────────────────────────────────────────
+        # ── STEP 10: git-discipline ───────────────────────────────────────────
         if git_discipline:
             gd._install_repo(source_path, alias=name)
         else:
@@ -517,7 +512,7 @@ def cmd_new(
                 f"    rv git-discipline install --project {name}"
             )
 
-        # ── STEP 12: initial commit ───────────────────────────────────────────
+        # ── STEP 11: initial commit ───────────────────────────────────────────
         subprocess.run(
             ["git", "-C", str(source_path), "add", "-A"],
             capture_output=True, text=True,
@@ -531,7 +526,7 @@ def cmd_new(
             raise RuntimeError(f"git commit failed: {r.stderr.strip()}")
         print(f"  committed: chore: scaffold {name} project")
 
-        # ── STEP 13: next-steps print ─────────────────────────────────────────
+        # ── STEP 12: next-steps print ─────────────────────────────────────────
         _print_next_steps(name, source_path, git_discipline)
 
         return 0
@@ -542,19 +537,9 @@ def cmd_new(
         if registered:
             _rollback_registry(config_path, name)
         shutil.rmtree(source_path, ignore_errors=True)
-        # D-CONTRACT-2 fix: also clean the agents-dir entry so no orphan CONTRACT
-        # or hat files are left behind (agents_dir is outside source_path and
-        # was not covered by the prior rmtree).
-        try:
-            _cfg_for_rollback = load_config(reload=True)
-            agents_slug_dir = _cfg_for_rollback.agents_dir / name
-            shutil.rmtree(agents_slug_dir, ignore_errors=True)
-        except Exception:
-            # Best-effort: if config is broken at this point, skip silently
-            pass
         reset_config_cache()
         print(
-            "  Rollback complete: registry entry removed, source dir deleted, agents dir cleaned.",
+            "  Rollback complete: registry entry removed, source dir deleted.",
             file=sys.stderr,
         )
         return 1
@@ -598,8 +583,8 @@ def _print_next_steps(name: str, source_path: Path, gd_installed: bool) -> None:
     """Print the discovery/next-steps surface after a successful `project new`."""
     print(f"\nProject {name!r} is ready at {source_path}")
     print("\nNext steps:")
-    print(f"  1. Fill .agents/{name}/CONTRACT.md (the project lens — replace <!-- FILL --> blocks)")
-    print(f"  rv build-agents --project {name}   # re-bake hats after you fill the CONTRACT")
+    print(f"  rv status --project {name}   # check coordination state + see pointers.md")
+    print(f"  # Edit pointers.md as the project scope emerges (no gates, accrues over time)")
     print(f"  rv wt add <task> --project {name}   # create an isolated task worktree")
     print(f"  rv note {name} new findings \"<title>\"  # create your first finding")
     print(f"  rv research add --project {name} <doi>   # add a paper to the corpus")
