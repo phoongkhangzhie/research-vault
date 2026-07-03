@@ -241,6 +241,185 @@ def _chktex_fix_loop(
 
 
 # ---------------------------------------------------------------------------
+# Shared grounding-builder orchestration (anti-fabrication contract §5J.4)
+# ---------------------------------------------------------------------------
+
+def _run_grounding_builders(
+    manuscript_note_path: Path,
+    tree_root: Path,
+    library_path: Path,
+    experiment_notes: list[Path],
+    *,
+    label: str,
+    extra_unmatched_msg: str = "",
+) -> tuple[int, dict[str, Any] | None, list[str]]:
+    """Run build_refs_bib → inject_results → inject_appendix.
+
+    This is the SINGLE canonical anti-fabrication contract site (§5J.4).
+    Called by BOTH ``run_prep`` and ``run_compile`` so the hard-fails live in
+    exactly one place — a future divergence is structurally impossible.
+
+    Hard-fails (never silently skip):
+    - Any unmatched ``\\cite`` → exit_code=1 (never render an ungrounded PDF).
+    - results_hash mismatch → exit_code=1 (never proceed with wrong data).
+
+    Args:
+        manuscript_note_path: path to the manuscript OKF note.
+        tree_root: path to manuscripts/<id>/ (contains main.tex).
+        library_path: resolved path to library.json (must be pre-resolved by caller).
+        experiment_notes: resolved list of experiment note paths (pre-resolved by caller).
+        label: caller label prefix for error messages, e.g.
+            ``"rv manuscript compile --prep-only"`` or ``"rv manuscript compile"``.
+        extra_unmatched_msg: optional extra line appended after "BLOCKED" in the
+            unmatched-cite message. ``run_compile`` uses this to cite §5J.4;
+            ``run_prep`` leaves it empty.
+
+    Returns:
+        ``(exit_code, failure_base | None, builder_warnings)``
+
+        - ``exit_code`` — 0 on success, 1 on failure.
+        - ``failure_base`` — on failure, a dict with ``"exit_code"``, ``"message"``,
+          and ``"builder_warnings"``; the caller merges in any path-specific extra
+          keys (``"log"``, ``"chktex"``, ``"pdf_path"``) before returning.
+          ``None`` on success.
+        - ``builder_warnings`` — non-fatal warning list; on success, caller extends
+          its own response dict with this list.
+    """
+    builder_warnings: list[str] = []
+
+    # ── Step 1: build_refs_bib ───────────────────────────────────────────────
+    from research_vault.manuscript.bib import build_refs_bib
+    bib_errors, _bib_path = build_refs_bib(
+        tree_root,
+        library_path=library_path,
+        cite_tex_files=None,  # rglob all .tex under tree_root
+    )
+    if bib_errors:
+        unmatched = [
+            e for e in bib_errors
+            if "unmatched" in e.lower() and "cite" in e.lower()
+        ]
+        if unmatched:
+            return 1, {
+                "exit_code": 1,
+                "message": (
+                    f"{label}: BLOCKED — unmatched \\cite commands.\n"
+                    + extra_unmatched_msg
+                    + "Fix: run `rv cite add <doi>` then `rv cite sync` for each:\n  "
+                    + "\n  ".join(unmatched)
+                ),
+                "builder_warnings": [],
+            }, []
+        # Non-fatal bib errors (library.json missing, malformed) → warn, continue
+        builder_warnings.extend(bib_errors)
+
+    # ── Step 2: inject_results ───────────────────────────────────────────────
+    from research_vault.manuscript.results_inject import inject_results
+    try:
+        inj = inject_results(
+            manuscript_note_path=manuscript_note_path,
+            experiment_notes=experiment_notes,
+            tree_root=tree_root,
+        )
+        builder_warnings.extend(inj.get("errors", []))
+    except ValueError as exc:
+        return 1, {
+            "exit_code": 1,
+            "message": f"{label}: BLOCKED — results hash mismatch.\n{exc}",
+            "builder_warnings": builder_warnings,
+        }, builder_warnings
+
+    # ── Step 3: inject_appendix ──────────────────────────────────────────────
+    from research_vault.manuscript.appendix import inject_appendix
+    inject_appendix(tree_root=tree_root, experiment_notes=experiment_notes)
+
+    return 0, None, builder_warnings
+
+
+# ---------------------------------------------------------------------------
+# Prep-only entry point (draft-time macro-visibility seam — SR-MS-1c)
+# ---------------------------------------------------------------------------
+
+def run_prep(
+    manuscript_note_path: Path,
+    tree_root: Path,
+    *,
+    library_path: Path | None = None,
+    experiment_notes: list[Path] | None = None,
+) -> dict[str, Any]:
+    """Run grounding-builders only — no pdflatex render.
+
+    When to use: called by the ``compile`` DAG node's pre-draft step and
+    ``rv manuscript compile --prep-only`` to populate refs.bib, results.tex, and
+    sections/appendix-repro.tex BEFORE the drafting agent starts writing.
+
+    This lets a ``results-discussion`` (or ``assemble``) node reference
+    ``\\resultAcc`` and sibling macros while drafting, without waiting for the
+    full compile at the end of the DAG.
+
+    Delegates to ``_run_grounding_builders`` — the single anti-fabrication
+    contract site (§5J.4). Does NOT require pdflatex/bibtex/chktex.
+
+    Idempotent: builders overwrite their output files; running run_prep twice
+    (or run_prep then run_compile, which re-runs the same builders) produces
+    identical refs.bib / results.tex / appendix-repro.tex output.
+
+    Args:
+        manuscript_note_path: path to the manuscript/<id>.md OKF note.
+        tree_root: path to manuscripts/<id>/ (contains main.tex).
+        library_path: path to library.json. When None, defaults to
+            manuscript_note_path.parent.parent / "library.json".
+        experiment_notes: list of experiments/ note paths to read results from.
+            When None, resolved automatically from the note's ``synthesized_okf``
+            field.
+
+    Returns:
+        dict with:
+          "exit_code": int (0 = success, 1 = failure)
+          "message": str (friendly message — success summary or error)
+          "pdf_path": None (never produced by prep-only)
+          "builder_warnings": list[str] (non-fatal builder issues)
+
+    sr: SR-MS-1c
+    """
+    main_tex = tree_root / "main.tex"
+    if not main_tex.exists():
+        return {
+            "exit_code": 1,
+            "message": f"rv manuscript compile --prep-only: main.tex not found at {main_tex}",
+            "pdf_path": None,
+            "builder_warnings": [],
+        }
+
+    # Resolve library.json path (default: project_notes_dir/library.json)
+    if library_path is None:
+        library_path = manuscript_note_path.parent.parent / "library.json"
+
+    # Resolve experiment notes from synthesized_okf if not provided
+    if experiment_notes is None:
+        experiment_notes = _resolve_experiment_notes(manuscript_note_path)
+
+    exit_code, failure, builder_warnings = _run_grounding_builders(
+        manuscript_note_path, tree_root, library_path, experiment_notes,
+        label="rv manuscript compile --prep-only",
+    )
+    if failure is not None:
+        return {"pdf_path": None, **failure}
+
+    return {
+        "exit_code": 0,
+        "message": (
+            "rv manuscript compile --prep-only: OK — "
+            "refs.bib, results.tex, and appendix-repro.tex populated.\n"
+            "Macros are ready for drafting agents. "
+            "Run `rv manuscript compile <id>` for the full PDF render."
+        ),
+        "pdf_path": None,
+        "builder_warnings": builder_warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main compile entry point
 # ---------------------------------------------------------------------------
 
@@ -305,8 +484,8 @@ def run_compile(
         }
 
     # ── Phase 1: Grounding builders ─────────────────────────────────────────
-    # Must run BEFORE pdflatex — never render without grounded .bib and macros.
-    builder_warnings: list[str] = []
+    # Delegates to _run_grounding_builders — the single anti-fabrication
+    # contract site (§5J.4). Must run BEFORE pdflatex.
 
     # Resolve library.json path (default: project_notes_dir/library.json)
     if library_path is None:
@@ -316,60 +495,13 @@ def run_compile(
     if experiment_notes is None:
         experiment_notes = _resolve_experiment_notes(manuscript_note_path)
 
-    # 1a. Build refs.bib — hard-fail on unmatched \cite
-    from research_vault.manuscript.bib import build_refs_bib
-    bib_errors, _bib_path = build_refs_bib(
-        tree_root,
-        library_path=library_path,
-        cite_tex_files=None,  # rglob all .tex under tree_root
+    _gc_exit, _gc_failure, builder_warnings = _run_grounding_builders(
+        manuscript_note_path, tree_root, library_path, experiment_notes,
+        label="rv manuscript compile",
+        extra_unmatched_msg="Rendering an ungrounded PDF is refused (§5J.4).\n",
     )
-    if bib_errors:
-        unmatched = [
-            e for e in bib_errors
-            if "unmatched" in e.lower() and "cite" in e.lower()
-        ]
-        if unmatched:
-            return {
-                "exit_code": 1,
-                "message": (
-                    "rv manuscript compile: BLOCKED — unmatched \\cite commands.\n"
-                    "Rendering an ungrounded PDF is refused (§5J.4).\n"
-                    "Fix: run `rv cite add <doi>` then `rv cite sync` for each:\n  "
-                    + "\n  ".join(unmatched)
-                ),
-                "log": "",
-                "chktex": {},
-                "pdf_path": None,
-                "builder_warnings": [],
-            }
-        # Non-fatal bib errors (library.json missing, malformed) → warn, continue
-        builder_warnings.extend(bib_errors)
-
-    # 1b. Inject hash-verified results macros into results.tex
-    from research_vault.manuscript.results_inject import inject_results
-    try:
-        inj = inject_results(
-            manuscript_note_path=manuscript_note_path,
-            experiment_notes=experiment_notes,
-            tree_root=tree_root,
-        )
-        builder_warnings.extend(inj.get("errors", []))
-    except ValueError as exc:
-        # Hash mismatch — hard fail
-        return {
-            "exit_code": 1,
-            "message": (
-                f"rv manuscript compile: BLOCKED — results hash mismatch.\n{exc}"
-            ),
-            "log": "",
-            "chktex": {},
-            "pdf_path": None,
-            "builder_warnings": builder_warnings,
-        }
-
-    # 1c. Inject reproducibility appendix table
-    from research_vault.manuscript.appendix import inject_appendix
-    inject_appendix(tree_root=tree_root, experiment_notes=experiment_notes)
+    if _gc_failure is not None:
+        return {"log": "", "chktex": {}, "pdf_path": None, **_gc_failure}
 
     # ── Exec-guard ─────────────────────────────────────────────────────────
     missing_tools: list[str] = []

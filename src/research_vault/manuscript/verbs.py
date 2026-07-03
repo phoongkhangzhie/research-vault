@@ -126,13 +126,28 @@ def build_parser(
             "Exec-guarded LaTeX compile loop: build .bib from library.json, inject "
             "results macros, run pdflatex→bibtex→pdflatex×2 + chktex fix-loop. "
             "Requires texlive-full (system package, not pip-installable). "
-            "Exits cleanly with a friendly message if pdflatex is absent."
+            "Exits cleanly with a friendly message if pdflatex is absent. "
+            "Use --prep-only to run only the grounding-builders (no pdflatex) "
+            "so drafting agents can reference \\result* macros before compile."
         ),
     )
     compile_p.add_argument(
         "ms_id",
         metavar="id",
         help="Manuscript identifier slug (e.g. 'ms-001').",
+    )
+    compile_p.add_argument(
+        "--prep-only",
+        action="store_true",
+        default=False,
+        dest="prep_only",
+        help=(
+            "Run grounding-builders only (no pdflatex render). "
+            "Populates refs.bib, results.tex, and appendix-repro.tex so that "
+            "drafting agents can reference \\result* macros before the full compile. "
+            "Idempotent: safe to run before rv manuscript compile. "
+            "Does NOT require texlive."
+        ),
     )
 
     # ── check ─────────────────────────────────────────────────────────────────
@@ -160,7 +175,7 @@ def build_parser(
 def run(args: argparse.Namespace) -> int:
     """Dispatch manuscript subcommands. Returns exit code."""
     from research_vault.config import load_config
-    from research_vault.manuscript import cmd_new, cmd_list, cmd_compile, cmd_check
+    from research_vault.manuscript import cmd_new, cmd_list, cmd_compile, cmd_check, cmd_prep
 
     try:
         cfg = load_config()
@@ -203,6 +218,14 @@ def run(args: argparse.Namespace) -> int:
             return 0
 
         if args.manuscript_cmd == "compile":
+            if getattr(args, "prep_only", False):
+                # --prep-only: run grounding-builders only, no pdflatex
+                result = cmd_prep(args.project, args.ms_id, config=cfg)
+                print(result.get("message", ""))
+                warnings = result.get("builder_warnings", [])
+                for w in warnings:
+                    print(f"  WARN: {w}")
+                return result.get("exit_code", 1)
             result = cmd_compile(args.project, args.ms_id, config=cfg)
             print(result.get("message", ""))
             if result.get("exit_code", 1) != 0:
