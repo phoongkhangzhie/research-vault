@@ -1,3 +1,32 @@
+## 2026-07-02 (SR-RETRY — DAG node-level diagnose-before-retry, §5I)
+
+### Done
+- Built SR-RETRY: opt-in `max_retries: N` (0<=N<=10) per agent node + diagnose-before-retry.
+- Walker unchanged (byte-for-byte). All retry logic lives in cmd_complete (fail-time reset).
+- schema.py: _validate_max_retries, _validate_no_max_retries_on_human_go (D-RETRY-1),
+  _validate_retry_diagnosis_tips (D-RETRY-8 seam). MAX_RETRIES_CAP=10 (D-RETRY-4).
+- store.py: init_nodes adds attempts:0, last_failure:null, failures:[] (§5I.5).
+- verbs.py: RETRY_DIAGNOSIS_DIRECTIVE constant (§5I.5b); --error/--error-file on
+  rv dag complete; fail-time retry reset in cmd_complete (increment attempts, persist
+  last_failure+failures[], reset to pending if attempts_before<N, terminal failed on
+  exhaustion); diagnose-first block in _print_frontier + cmd_status (attempts>0).
+- 42 new tests: all §5I.3 interaction checks, backward-compat N=0, exhaustion,
+  human-go invariant, walker-untouched grep, RETRY_DIAGNOSIS_DIRECTIVE shape.
+- CI green on SHA 37ea22727a2499a767983d2714ad29dddcf83fba.
+
+### Decisions
+- D-RETRY-9 (--error required when max_retries>0): implemented as a hard error —
+  missing → rc=1 with clear message. Optional-with-degradation when max_retries==0.
+- _print_frontier now accepts optional node_states parameter (backward-compatible:
+  default None → no retry block). All callers in cmd_complete/cmd_status pass it.
+- retry-reset clears started_at=None (per §5I.5 spec, truthful per-attempt timing).
+- boolean check in _validate_max_retries: bool is a subtype of int in Python, rejected.
+
+### Open / next
+- Hub to open PR + request Architect fit-check, then Khang's human-go merge.
+
+---
+
 ## 2026-07-02 (lint-rule7-indirected — task #18 rule-7 indirected + F811 ast.Match)
 
 ### Done
