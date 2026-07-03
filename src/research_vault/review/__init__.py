@@ -112,9 +112,13 @@ def _build_phase1_manifest(
     def _afterok(from_id: str) -> dict[str, Any]:
         return {"from": from_id, "edge": "afterok"}
 
-    # Project-root-relative OKF type-dir pointers (SR-SCOPE convention)
+    # Absolute OKF type-dir pointers (Fix #34: emit absolute paths so the
+    # reads:-grounding resolver finds the real OKF dirs regardless of what
+    # project_root=manifest_path.parent is at run/tick time).
+    # Previously this returned a bare name like "literature" which resolved
+    # relative to the manifest dir (reviews/<scope>/) — always wrong.
     def _rel(okf_type: str) -> str:
-        return okf_type  # resolves under project_notes_dir
+        return str(project_notes_dir / okf_type)
 
     # Absolute path to review artifact dir (for produces: and watch: expressions)
     protocol_path = str(review_dir / "_protocol.md")
@@ -280,8 +284,9 @@ def _build_phase2_manifest(
     def _afterok(from_id: str) -> dict[str, Any]:
         return {"from": from_id, "edge": "afterok"}
 
+    # Absolute OKF type-dir pointers (Fix #34 — same as Phase-1; see comment there)
     def _rel(okf_type: str) -> str:
-        return okf_type
+        return str(project_notes_dir / okf_type)
 
     protocol_path = str(review_dir / "_protocol.md")
 

@@ -42,6 +42,13 @@ Coverage:
   9. CLI verb registry
      9a. "review" in cli._VERB_REGISTRY with sr: "SR-LR-1"
      9b. rv help --check passes with review verb present
+ 10. Fix #34: reads: grounding gate is live for review manifests
+     10a. Phase-1 manifest reads: OKF-dir pointers resolve against the project's
+          real OKF dirs (not manifest_path.parent) — zero reads-scope ERRORs when
+          OKF dirs exist
+     10b. Grounding is non-vacuous: a genuinely missing reads target IS caught
+          as an error (not silently ignored)
+     10c. Phase-2 manifest reads: OKF-dir pointers also resolve cleanly
 """
 from __future__ import annotations
 
@@ -499,3 +506,129 @@ def test_rv_help_check_passes(tmp_instance):
     # If help --check exists, it should exit 0
     if result.returncode not in (0, 1, 2):
         pytest.fail(f"rv help --check crashed: {result.stderr}")
+
+
+# ---------------------------------------------------------------------------
+# 10. Fix #34: reads: grounding gate is live for review manifests
+# ---------------------------------------------------------------------------
+
+def test_phase1_reads_resolve_against_project_okf_dirs(cfg, tmp_instance):
+    """Phase-1 manifest reads: OKF dirs resolve to the project's real OKF dirs.
+
+    Red-before-green: before the fix, _rel() emits bare type names (e.g.
+    'literature') that resolve relative to manifest_path.parent
+    (reviews/<scope>/) — those dirs don't exist → reads-scope ERROR.
+    After the fix, _rel() emits absolute paths → zero errors when OKF dirs exist.
+
+    This is a §2 gate: a zero-error result must mean the grounding check ACTUALLY
+    ran (non-vacuous), proven by test 10b.
+    """
+    from research_vault.review import cmd_new
+    from research_vault.dag.reads import resolve_reads_pointers
+
+    note_path, review_dir, manifest = cmd_new(
+        "demo-research",
+        "scope-reads-test",
+        question="Test reads: resolution",
+        config=cfg,
+    )
+
+    # Simulate the call site: project_root = manifest_path.parent
+    manifest_path = review_dir / "phase1-dag.json"
+    project_root = manifest_path.parent
+
+    # Create the project OKF dirs so the resolution CAN succeed (post-fix)
+    project_notes_dir = cfg.project_notes_dir("demo-research")
+    for okf_dir in ("literature", "concepts", "mocs", "findings"):
+        (project_notes_dir / okf_dir).mkdir(parents=True, exist_ok=True)
+
+    # After the fix: OKF-dir reads: pointers are absolute → they resolve against the
+    # real project OKF dirs, not the manifest's parent dir.
+    # (Note: _protocol.md errors are expected — that artifact is created at run-time
+    # by the review-scope node, not available pre-run. This test only checks the
+    # OKF-dir relative-base bug is gone.)
+    errors, warns = resolve_reads_pointers(manifest, project_root=project_root)
+    okf_errors = [
+        e for e in errors
+        if any(t in e for t in ("literature", "concepts", "mocs", "findings"))
+    ]
+    assert okf_errors == [], (
+        f"Phase-1 manifest has OKF-dir reads: errors (relative-base bug still present):\n"
+        + "\n".join(okf_errors)
+    )
+
+
+def test_phase1_reads_grounding_is_nontrivial(cfg, tmp_instance):
+    """Grounding check is non-vacuous: a genuinely missing reads target is caught.
+
+    This prevents a green-and-empty pass (charter §2): if the grounding check
+    returned 0 errors even for a manifest with a deliberately broken pointer,
+    the gate would be silently dead.
+
+    After the fix, absolute paths are used. cmd_new calls scaffold_okf_dirs
+    which creates ALL OKF dirs. We remove 'findings' AFTER cmd_new to simulate
+    a missing target and assert the error IS surfaced.
+    """
+    import shutil
+    from research_vault.review import cmd_new
+    from research_vault.dag.reads import resolve_reads_pointers
+
+    note_path, review_dir, manifest = cmd_new(
+        "demo-research",
+        "scope-reads-nontrivial",
+        question="Test reads: non-vacuous grounding",
+        config=cfg,
+    )
+
+    manifest_path = review_dir / "phase1-dag.json"
+    project_root = manifest_path.parent
+
+    # cmd_new scaffolds all OKF dirs via scaffold_okf_dirs. Remove 'findings'
+    # AFTER creation to prove the grounding check catches it.
+    project_notes_dir = cfg.project_notes_dir("demo-research")
+    findings_dir = project_notes_dir / "findings"
+    if findings_dir.exists():
+        shutil.rmtree(findings_dir)
+
+    # After the fix, the reads: pointer for 'findings' is an absolute path that
+    # no longer exists → must surface at least one error
+    errors, warns = resolve_reads_pointers(manifest, project_root=project_root)
+    # Filter to OKF-dir errors (exclude _protocol.md which is also absent in tests)
+    assert any("findings" in e for e in errors), (
+        "Grounding check must catch a missing 'findings' OKF dir. "
+        f"Got errors: {errors}"
+    )
+
+
+def test_phase2_reads_resolve_against_project_okf_dirs(cfg, tmp_instance, corpus_md_with_citekeys):
+    """Phase-2 manifest reads: OKF dirs also resolve cleanly (same fix as Phase-1)."""
+    from research_vault.review import cmd_expand
+    from research_vault.dag.reads import resolve_reads_pointers
+
+    manifest = cmd_expand(
+        "demo-research",
+        "scope-reads-ph2",
+        corpus_path=corpus_md_with_citekeys,
+        config=cfg,
+    )
+
+    review_dir = cfg.project_notes_dir("demo-research") / "reviews" / "scope-reads-ph2"
+    manifest_path = review_dir / "phase2-dag.json"
+    project_root = manifest_path.parent
+
+    # Create OKF dirs
+    project_notes_dir = cfg.project_notes_dir("demo-research")
+    for okf_dir in ("literature", "concepts", "mocs", "findings"):
+        (project_notes_dir / okf_dir).mkdir(parents=True, exist_ok=True)
+
+    # protocol_path is absolute; OKF dirs must also be absolute after the fix
+    # Don't create the protocol file — it's an absolute path that won't exist;
+    # so we only check that OKF-dir reads: errors (the relative-base bug) are gone.
+    errors, warns = resolve_reads_pointers(manifest, project_root=project_root)
+    okf_errors = [e for e in errors if any(
+        t in e for t in ("literature", "concepts", "mocs", "findings")
+    )]
+    assert okf_errors == [], (
+        f"Phase-2 manifest has OKF-dir reads: errors (relative-base bug still present):\n"
+        + "\n".join(okf_errors)
+    )

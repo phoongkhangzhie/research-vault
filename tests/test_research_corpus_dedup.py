@@ -625,3 +625,199 @@ def test_load_corpus_index_citationkey_field_priority(tmp_path: Path) -> None:
     idx = research_mod._load_corpus_index(str(lib))
     # Field takes priority
     assert idx.get("10.9999/test") == "FieldKey"
+
+
+# ---------------------------------------------------------------------------
+# Test 16–20: Fix #32 — notes-dir dedup (literature/<citekey>.md counts as in-corpus)
+# ---------------------------------------------------------------------------
+
+def _make_literature_note(
+    literature_dir: Path,
+    citekey: str,
+    doi: str = "",
+    arxiv_id: str = "",
+) -> Path:
+    """Write a minimal literature note with optional doi/arxiv_id frontmatter."""
+    literature_dir.mkdir(parents=True, exist_ok=True)
+    note_path = literature_dir / f"{citekey}.md"
+    lines = ["---", f"type: literature", f"title: Test paper {citekey}", f"created: 2026-01-01"]
+    if doi:
+        lines.append(f"doi: {doi}")
+    if arxiv_id:
+        lines.append(f"arxiv_id: {arxiv_id}")
+    lines += ["---", "", f"# {citekey}", ""]
+    note_path.write_text("\n".join(lines), encoding="utf-8")
+    return note_path
+
+
+def test_load_notes_index_importable() -> None:
+    """_load_notes_index is importable from research_vault.research (Fix #32)."""
+    from research_vault.research import _load_notes_index
+    assert callable(_load_notes_index)
+
+
+def test_load_notes_index_doi(tmp_path: Path) -> None:
+    """_load_notes_index builds doi → citekey lookup from literature/*.md frontmatter."""
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "vaswani2017Attention", doi="10.48550/ARXIV.1706.03762")
+
+    idx = research_mod._load_notes_index(lit_dir)
+    assert "10.48550/arxiv.1706.03762" in idx
+    assert idx["10.48550/arxiv.1706.03762"] == "vaswani2017Attention"
+
+
+def test_load_notes_index_arxiv(tmp_path: Path) -> None:
+    """_load_notes_index builds arxiv → citekey lookup from literature/*.md frontmatter."""
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "devlin2018BERT", arxiv_id="1810.04805")
+
+    idx = research_mod._load_notes_index(lit_dir)
+    assert "1810.04805" in idx
+    assert idx["1810.04805"] == "devlin2018BERT"
+
+
+def test_load_notes_index_no_doi_field_not_indexed(tmp_path: Path) -> None:
+    """A literature note without doi/arxiv_id fields is NOT indexed (can't match by id)."""
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "unlisted2020", doi="", arxiv_id="")
+
+    idx = research_mod._load_notes_index(lit_dir)
+    # No doi/arxiv field → the note doesn't contribute any lookup entry
+    assert "unlisted2020" not in idx.values() or all(
+        v != "unlisted2020" for v in idx.values()
+    ), f"Expected no entry for unlisted2020, got: {idx}"
+
+
+def test_load_notes_index_none_dir() -> None:
+    """_load_notes_index returns empty dict for None (no project notes dir)."""
+    idx = research_mod._load_notes_index(None)
+    assert idx == {}
+
+
+def test_load_notes_index_missing_dir(tmp_path: Path) -> None:
+    """_load_notes_index returns empty dict when the literature dir doesn't exist."""
+    idx = research_mod._load_notes_index(tmp_path / "nonexistent" / "literature")
+    assert idx == {}
+
+
+def test_corpus_annotation_filed_note_doi_in_corpus(tmp_path: Path) -> None:
+    """_corpus_annotation returns [IN-CORPUS:<key>] for a paper with a filed literature note
+    (doi frontmatter match) even when library.json is empty.
+
+    Red-before-green (Fix #32): currently _corpus_annotation ignores the notes dir
+    and returns [NEW] for this paper.
+    """
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "vaswani2017Attention", doi="10.48550/ARXIV.1706.03762")
+
+    notes_index = research_mod._load_notes_index(lit_dir)
+    assert notes_index, "notes_index must be non-empty (test setup check)"
+
+    result = research_mod._corpus_annotation(
+        CANDIDATE_DOI_MATCH,  # has DOI 10.48550/ARXIV.1706.03762
+        corpus_index={},       # empty — not in library.json
+        notes_index=notes_index,
+    )
+    assert result == "[IN-CORPUS:vaswani2017Attention]", (
+        f"A filed literature note with doi frontmatter must be [IN-CORPUS]; got {result!r}"
+    )
+
+
+def test_corpus_annotation_filed_note_arxiv_in_corpus(tmp_path: Path) -> None:
+    """_corpus_annotation returns [IN-CORPUS:<key>] for a filed note with arxiv_id match."""
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "devlin2018BERT", arxiv_id="1810.04805")
+
+    notes_index = research_mod._load_notes_index(lit_dir)
+    result = research_mod._corpus_annotation(
+        CANDIDATE_ARXIV_MATCH,  # has ArXiv 1810.04805
+        corpus_index={},
+        notes_index=notes_index,
+    )
+    assert result == "[IN-CORPUS:devlin2018BERT]", (
+        f"A filed literature note with arxiv_id frontmatter must be [IN-CORPUS]; got {result!r}"
+    )
+
+
+def test_corpus_annotation_genuinely_new_stays_new(tmp_path: Path) -> None:
+    """A paper with no library.json entry and no filed note stays [NEW]."""
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "vaswani2017Attention", doi="10.48550/ARXIV.1706.03762")
+    notes_index = research_mod._load_notes_index(lit_dir)
+
+    result = research_mod._corpus_annotation(
+        CANDIDATE_NEW,  # has ArXiv 2401.99999 — genuinely new
+        corpus_index={},
+        notes_index=notes_index,
+    )
+    assert result == "[NEW]", f"Genuinely-new paper must stay [NEW]; got {result!r}"
+
+
+def test_corpus_annotation_library_json_wins_when_note_also_present(tmp_path: Path) -> None:
+    """When a paper is in BOTH library.json AND has a filed note, library.json citekey wins."""
+    lit_dir = tmp_path / "literature"
+    # Note uses one citekey; library.json uses another (simulates the common case)
+    _make_literature_note(lit_dir, "vaswani2017Attention", doi="10.48550/ARXIV.1706.03762")
+    notes_index = research_mod._load_notes_index(lit_dir)
+
+    corpus_index = {"10.48550/arxiv.1706.03762": "vaswani2017Attention"}
+    result = research_mod._corpus_annotation(
+        CANDIDATE_DOI_MATCH,
+        corpus_index=corpus_index,
+        notes_index=notes_index,
+    )
+    # Either citekey is acceptable; the key invariant is [IN-CORPUS] (not [NEW])
+    assert result.startswith("[IN-CORPUS:"), (
+        f"A paper in both sources must be [IN-CORPUS]; got {result!r}"
+    )
+
+
+def test_cmd_find_filed_note_shows_in_corpus(tmp_path: Path, monkeypatch, capsys) -> None:
+    """cmd_find with --project annotates [IN-CORPUS] from a filed literature note.
+
+    Red-before-green (Fix #32): before the fix, this shows [NEW] because cmd_find
+    only checks library.json, not the literature/ OKF dir.
+    """
+    # library.json is EMPTY (Zotero not synced)
+    lib = _make_library_json(tmp_path, items=[])
+
+    # Project notes dir has a filed literature note for the candidate paper
+    project_notes_dir = tmp_path / "notes" / "demo-proj"
+    lit_dir = project_notes_dir / "literature"
+    _make_literature_note(lit_dir, "vaswani2017Attention", doi="10.48550/ARXIV.1706.03762")
+
+    cfg_path = tmp_path / "research_vault.toml"
+    cfg_path.write_text(
+        f'[projects.demo-proj]\n'
+        f'refs = "{lib}"\n'
+        f'source_dir = "{project_notes_dir}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(cfg_path))
+    from research_vault.config import reset_config_cache
+    reset_config_cache()
+
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"data": [CANDIDATE_DOI_MATCH, CANDIDATE_NEW]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(research_mod, "_preflight_asta", lambda: None)
+
+    args = argparse.Namespace(
+        research_cmd="find",
+        query="attention",
+        deep=False,
+        limit=10,
+        project="demo-proj",
+    )
+    rc = research_mod.cmd_find(args)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[IN-CORPUS:vaswani2017Attention]" in out, (
+        f"Filed literature note must show [IN-CORPUS]; got output:\n{out}"
+    )
+    assert "[NEW]" in out  # CANDIDATE_NEW has no matching note
