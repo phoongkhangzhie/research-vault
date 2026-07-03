@@ -60,10 +60,12 @@ A reported improvement or gap (the `+12.17` case) is captioned as a **cross-mode
 implies a precision the design does not support. Two grammar consequences:
 
 - **Cross-model vs. per-element.** A headline number must be recomputed against the
-  per-element encoding it sits over. A cross-model *floor* (the smallest net across models)
-  is a different statistic from any single per-bar net — never present one as the other. (In
-  `cb-fmt` Fig-2 the +12.17 is the cross-model floor; the smallest *per-model* net is
-  aya at ~+15.9. Stating "+12.17" as if it were a per-bar value is a reader-trap.)
+  per-element encoding it sits over. A conservative *cross-model* floor is a different
+  statistic from any single per-bar net — never present one as the other. (In `cb-fmt`
+  Fig-2 the +12.17 is a cross-model floor computed by discounting the **smallest** residual
+  by the **largest** observed confound bound — a combination no single model exhibits; the
+  smallest *per-model* worst-case net is aya at ~+15.9. Stating "+12.17" as if it were a
+  per-bar value is a reader-trap.)
 - **One-directional uncertainty reads as one-directional.** When a confound can only bias
   a value in one direction (e.g. shrink each bar toward zero, never flip its sign), the
   in-plot uncertainty marker must read **unambiguously as one-directional** — a downward-only
