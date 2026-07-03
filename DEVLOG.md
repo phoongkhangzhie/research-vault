@@ -1,3 +1,37 @@
+## 2026-07-03 (SR-LENS-RM: remove project-lens mechanism)
+
+### Done
+- **SR-LENS-RM** (`feat/sr-lens-rm`): removed per-project CONTRACT lens; moved to one
+  general vault-level crew composed from charter + role doctrine.
+  - `build_agents.py`: replaced `_hat_header` / CONTRACT machinery with `_compose_hat()`
+    reading `doctrine/agent-charter.md` + `doctrine/roles/<personal>.md` via `_ROLE_DOC`
+    map; both backends now build 6 flat vault-level files; removed `--project` flag.
+  - `project.py`: removed CONTRACT scaffold (step 7b), per-project hat bake (step 10),
+    and rollback agents-dir cleanup. Added `pointers.md` skeleton (D-LR-1); updated
+    next-steps message.
+  - `init.py`: removed demo-CONTRACT copy block; updated auto-build call signature.
+  - `check.py`: removed `_check_project_integrity` and "Project integrity" section.
+  - `status.py`: added "Pointers:" echo line reading `source_dir/pointers.md`.
+  - DELETED: `CONTRACT.md.tmpl`, `demo-*/CONTRACT.md`, `test_sr_contract.py`.
+  - REWORKED: `test_sr_ccb.py` (TestDemoContracts → TestNoDemoContracts; backend unit
+    tests updated for new render() signature).
+  - ADDED: `test_sr_lens_rm.py` (24 acceptance tests, all green).
+- **Latent bug fixed**: hats previously carried only the CONTRACT body (never the charter
+  or role doctrine). The `_compose_hat()` composition closes this gap.
+
+### Decisions
+- D-LR-1 (pointers home): `source_dir/pointers.md` — travels with the project, read
+  fresh, no fill-gate, surfaced via `rv status` "Pointers:" echo line.
+- D-LR-2 (delete vs deprecate): full DELETE (pre-v1, no adopters, no deprecation shim).
+- D-LR-3 (per-project roster field): kept inert in registry — forward-compat, minimal
+  blast radius. build-agents ignores it (vault-level crew now).
+- D-LR-4 (hat body): inline-compose charter+role — self-contained system prompt.
+- The `AgentsDirBackend` now writes flat `<role>.md` (not `<project>/<role>.md`);
+  the first-project-pick namespacing hack is gone (one crew → no collision → mooted).
+
+### Open / next
+- PR ready for Wren fit-check + human-go (human-go class: crew-generation convention).
+
 ## 2026-07-03 (SR-CCB fast-follow: doc-verb audit covers .tmpl files)
 
 ### Done
