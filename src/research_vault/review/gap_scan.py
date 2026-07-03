@@ -63,6 +63,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# #26 convergence: use the canonical parser from note.py (now list-aware).
+# The local _parse_frontmatter_gap is removed — this import replaces all 9 call sites.
+from research_vault.note import _parse_frontmatter as _pfm
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -234,61 +238,6 @@ def suggest_route(gap_type: str, meta: dict[str, Any]) -> str:
 # Gap detectors (cheap OKF graph queries — §5L.7)
 # ---------------------------------------------------------------------------
 
-def _parse_frontmatter_gap(text: str) -> dict[str, Any]:
-    """Parse YAML-like frontmatter between --- delimiters for gap_scan.
-
-    Handles both scalar and YAML list values (``  - item`` lines).  This is a
-    LOCAL list-aware parser because ``note._parse_frontmatter`` is deliberately
-    scalar-only: extending it to return lists would break numerous callers that
-    do ``.strip()`` on expected-scalar fields (e.g. ``check_gates.py:synthesized_okf``,
-    ``review/__init__.py``, ``manuscript/__init__.py``).  The convergence fix (§6)
-    would require updating all those callers — deferred; this local parser is the
-    justified fork, documented in ``note._parse_frontmatter``'s docstring.
-
-    gap_scan specifically needs list support for: ``backed_by:`` (finding notes),
-    ``supported_by:`` / ``contradicted_by:`` (concept notes).
-
-    Returns: fields dict only (body is discarded — gap_scan callers don't need it).
-    """
-    lines = text.splitlines()
-    in_block = False
-    fm: dict[str, Any] = {}
-    i = 0
-    current_list_key: str | None = None
-    while i < len(lines):
-        ln = lines[i]
-        if not in_block:
-            if ln.strip() == "---":
-                in_block = True
-        elif ln.strip() == "---":
-            break
-        else:
-            # List continuation: "  - item" lines
-            if ln.startswith("  - "):
-                if current_list_key is not None:
-                    fm[current_list_key].append(ln[4:].strip())
-                i += 1
-                continue
-            current_list_key = None
-            if ":" in ln:
-                key, _, val = ln.partition(":")
-                key = key.strip()
-                val = val.strip()
-                if val == "":
-                    # Empty value: start collecting YAML list items
-                    current_list_key = key
-                    fm[key] = []
-                else:
-                    # Strip inline comments (# ...) and quotes
-                    val = val.split(" #")[0].strip() if " #" in val else val
-                    if val.startswith('"') and val.endswith('"'):
-                        val = val[1:-1]
-                    elif val.startswith("'") and val.endswith("'"):
-                        val = val[1:-1]
-                    fm[key] = val
-        i += 1
-    return fm
-
 
 def _extract_claim(fm: dict[str, Any]) -> str:
     """Extract a claim string from frontmatter.  Falls back to empty string."""
@@ -308,7 +257,7 @@ def _scan_notes_dir(notes_dir: Path, note_type: str) -> list[tuple[Path, dict[st
     for p in sorted(type_dir.glob("*.md")):
         try:
             text = p.read_text(encoding="utf-8")
-            fm = _parse_frontmatter_gap(text)
+            fm, _ = _pfm(text)
             results.append((p, fm))
         except OSError:
             continue
@@ -630,7 +579,7 @@ def _existing_gap_ids(project_notes_dir: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     for p in gaps_dir.glob("*.md"):
         try:
-            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
+            fm, _ = _pfm(p.read_text(encoding="utf-8"))
             result[p.stem] = fm.get("status", "open")
         except OSError:
             result[p.stem] = "open"
@@ -867,7 +816,7 @@ def cmd_gap_scope(
     gap_path = _gap_note_path(pnd, gap_id)
     if not gap_path.exists():
         raise FileNotFoundError(f"Gap note not found: {gap_path}")
-    fm = _parse_frontmatter_gap(gap_path.read_text(encoding="utf-8"))
+    fm, _ = _pfm(gap_path.read_text(encoding="utf-8"))
     gap_type = fm.get("gap_type", "knowledge_void")
     claim = fm.get("claim", "").strip().strip('"\'')
     anchor = fm.get("anchor", "")
@@ -923,7 +872,7 @@ def _cmd_gap_scope_literature(
     anchor_path = pnd / anchor if not Path(anchor).is_absolute() else Path(anchor)
     if anchor_path.exists():
         try:
-            a_fm = _parse_frontmatter_gap(anchor_path.read_text(encoding="utf-8"))
+            a_fm, _ = _pfm(anchor_path.read_text(encoding="utf-8"))
             for fkey in ("backed_by", "supported_by", "contradicted_by"):
                 vals = a_fm.get(fkey, [])
                 if isinstance(vals, list):
@@ -1249,7 +1198,7 @@ def cmd_gap_close(
         raise FileNotFoundError(f"Gap note not found: {gap_path}")
 
     text = gap_path.read_text(encoding="utf-8")
-    fm = _parse_frontmatter_gap(text)
+    fm, _ = _pfm(text)
     old_status = fm.get("status", "open")
 
     # Stamp status: (regex-stamp, in-place)
@@ -1334,7 +1283,7 @@ def cmd_gap_promote(
         raise FileNotFoundError(f"Gap note not found: {gap_path}")
 
     text = gap_path.read_text(encoding="utf-8")
-    fm = _parse_frontmatter_gap(text)
+    fm, _ = _pfm(text)
     current_status = fm.get("status", "open")
 
     if current_status != "proven-open":
@@ -1384,7 +1333,7 @@ def cmd_gap_list(
     results: list[dict[str, str]] = []
     for p in sorted(gaps_dir.glob("*.md")):
         try:
-            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
+            fm, _ = _pfm(p.read_text(encoding="utf-8"))
         except OSError:
             continue
         s = fm.get("status", "open")
@@ -1421,7 +1370,7 @@ def open_gap_count(project: str, *, config: Any = None) -> int:
     _OPEN_STATUSES = frozenset({"open", "reopened"})
     for p in gaps_dir.glob("*.md"):
         try:
-            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
+            fm, _ = _pfm(p.read_text(encoding="utf-8"))
             if fm.get("status", "open") in _OPEN_STATUSES:
                 count += 1
         except OSError:
@@ -1447,7 +1396,7 @@ def proven_open_count(project: str, *, config: Any = None) -> int:
     count = 0
     for p in gaps_dir.glob("*.md"):
         try:
-            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
+            fm, _ = _pfm(p.read_text(encoding="utf-8"))
             if fm.get("status", "") == "proven-open":
                 count += 1
         except OSError:

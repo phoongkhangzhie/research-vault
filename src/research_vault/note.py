@@ -157,20 +157,21 @@ def _render_frontmatter(fields: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
+def _parse_frontmatter(text: str) -> "tuple[dict[str, str | list[str]], str]":
     """Parse YAML-like frontmatter between --- delimiters.
 
-    Scalar-only: returns ``dict[str, str]`` for all fields.  Empty-valued keys
-    (e.g. ``key:`` with no inline value) return ``""`` — YAML list items
-    (``  - item``) are NOT collected here.
+    Handles both scalar fields and YAML indented-list fields (``  - item``):
+    - Scalar: ``key: value`` → ``{"key": "value"}``
+    - List:   ``key:\\n  - a\\n  - b`` → ``{"key": ["a", "b"]}``
+    - Inline ``key: []`` syntax stays as the literal string ``"[]"`` (not a list).
 
-    This is intentional: many callers do ``.strip()`` on expected-scalar fields.
-    Extending this function to return ``list[str]`` for list-valued fields would
-    break those callers (verified: ``check_gates.py:synthesized_okf``,
-    ``review/__init__.py``, ``manuscript/__init__.py`` and others — SR-LR-2
-    STOP decision documented in gap_scan._parse_frontmatter_gap docstring).
-
-    Use ``gap_scan._parse_frontmatter_gap`` when YAML list values are needed.
+    #26 convergence: this canonical parser now replaces the local
+    ``gap_scan._parse_frontmatter_gap`` duplicate (SR-LR-2 STOP decision lifted).
+    The extension is backwards-compatible for all existing callers: callers that
+    do ``.strip()`` on results only access SCALAR fields (``synthesized_okf``,
+    ``confidence``, ``plan_kind``, etc.); none of them access list-valued fields
+    (``backed_by``, ``supported_by``, ``contradicted_by``), which are exclusively
+    used by gap_scan.  Audit verified in #26 grep-before-extend pass.
 
     Return: (fields_dict, body_text)
     """
@@ -181,14 +182,27 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
         return {}, text
     fm_block = text[3:end].strip()
     body = text[end + 4:].lstrip("\n")
-    fields: dict[str, str] = {}
+    fields: "dict[str, str | list[str]]" = {}
+    current_list_key: "str | None" = None
     for line in fm_block.splitlines():
+        # YAML indented list item: "  - item" (two-space indent + dash + space)
+        if line.startswith("  - ") and current_list_key is not None:
+            cast_list = fields[current_list_key]
+            if isinstance(cast_list, list):
+                cast_list.append(line[4:].strip())
+            continue
+        current_list_key = None
         m = re.match(r"^(\w[\w_-]*):\s*(.*)$", line)
         if m:
             key, val = m.group(1), m.group(2).strip()
-            if val.startswith(("'", '"')) and val.endswith(val[0]):
-                val = val[1:-1]
-            fields[key] = val
+            if val == "":
+                # Empty value after colon → start accumulating a YAML list
+                current_list_key = key
+                fields[key] = []
+            else:
+                if val.startswith(("'", '"')) and val.endswith(val[0]):
+                    val = val[1:-1]
+                fields[key] = val
     return fields, body
 
 

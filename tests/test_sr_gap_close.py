@@ -193,9 +193,10 @@ def _make_concept(pnd: Path, cid: str, supported_by: list | None = None,
 
 
 def _parse_fm(path: Path) -> dict[str, Any]:
-    """Parse frontmatter from a file."""
-    from research_vault.review.gap_scan import _parse_frontmatter_gap
-    return _parse_frontmatter_gap(path.read_text(encoding="utf-8"))
+    """Parse frontmatter from a file via canonical note parser (#26 convergence)."""
+    from research_vault.note import _parse_frontmatter
+    fm, _ = _parse_frontmatter(path.read_text(encoding="utf-8"))
+    return fm
 
 
 def _make_verdict(
