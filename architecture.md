@@ -130,10 +130,56 @@ Status verified against merged `main` (`src/research_vault/` modules + `note.OKF
 | SR-MS-1a/1b/2 | Manuscript layer: structure · `.bib`+results-inject+guarded compile · support-matcher + critic + hash-drift gate | MERGED |
 | SR-LR-1 | Lit-review loop (`review/`) — saturation-gated, two-phase fan-out | MERGED |
 | SR-LR-2 | Gap-driven pass (`review/gap_scan.py`) — four typed detectors, `gaps/` OKF type, loop-closer (absent_row bound to structured `support_matcher` verdicts) | MERGED |
-| corpus-dedup · SR-RESOLVE-SCOPE · SR-CONTRACT | Corpus dedup · project-scoped-vs-shared OKF split (`OKF_SHARED_TYPES`) · CONTRACT/project-lens scaffold (`build_agents`, `_hub.lensByRole`) | MERGED |
+| corpus-dedup · SR-RESOLVE-SCOPE | Corpus dedup · project-scoped-vs-shared OKF split (`OKF_SHARED_TYPES`) | MERGED |
+| SR-CONTRACT → SR-LENS-RM (#64) | project-lens scaffold, then **REVERSED**: per-project lens + `_hub.lensByRole` + per-project hat-bake removed — ONE flat vault crew, hats = `charter + role`, project context read fresh | MERGED |
+| SR-CCB | Claude Code binding — `rv init` writes `CLAUDE.md` + populates `.claude/agents/` via `build-agents --target claude-code`; per-role tool grants + model aliases (PUB-CCB.2) | MERGED |
 | — next → | SR-FIG-REC polish · SR-PLAN-2 follow-ons · SR-10 (OSS docs site + README/LICENSE + public publish, human-go) | — |
 
-## The CONTRACT / project-lens scaffold (SR-CONTRACT)
-The crew-composition layer: `build_agents.py` composes each agent hat as `charter + role + project-lens`; the
-per-role lens is selected via `_hub.lensByRole` in the project registry (`projects.json`). This is what
-makes one shared crew serve multiple projects with the right emphasis per hat.
+## Crew generation & the emit path (SR-LENS-RM, #64)
+**One general, VAULT-LEVEL crew — not one crew per project.** Each hat is composed **`charter + role`**
+only (`_compose_hat`, `build_agents.py:67`) and built **once at `rv init`**, flat. The old per-project
+CONTRACT lens, the per-project hat-bake branch, the `_hub.lensByRole` selection, and the
+first-project-pick namespacing hack are **all removed** (#64). Project emphasis is **not baked** — it is
+**read fresh** at work time. The 6 vault roles are `_VAULT_ROLES = DEFAULT_ROSTER + ["architect"]`
+(`build_agents.py:250`).
+
+```mermaid
+flowchart TB
+    subgraph DOC["doctrine/ (package data)"]
+      CH["agent-charter.md<br/>(universal values)"]
+      RD["roles/&lt;personal&gt;.md<br/>(atlas·mason·ada·iris·argus·wren·alfred<br/>via _ROLE_DOC map)"]
+    end
+    COMP["_compose_hat(role)<br/>= charter + role + read-fresh footer<br/>(NO project lens · build_agents.py:67)"]
+    CH --> COMP
+    RD --> COMP
+    COMP --> BE{{"AgentBackend seam<br/>render(role, composed_body)"}}
+    BE -->|"--target agents-dir (default)"| ADS[".agents/&lt;role&gt;.md<br/>target-neutral, harness-agnostic<br/>source-of-record — FLAT, vault-level<br/>(no per-project subdir)"]
+    BE -->|"--target claude-code"| CCB[".claude/agents/&lt;role&gt;.md<br/>CC-rendered projection: YAML frontmatter<br/>(tool grant + model alias) + body verbatim"]
+    ADS -. "v1.1: codex / cursor / generic render<br/>from the SAME .agents/ source" .-> FUT(["(future backends)"])
+
+    subgraph INIT["rv init — SR-CCB binding (once, at instance setup)"]
+      direction TB
+      I1["writes CLAUDE.md (Alfred hub-bootstrap)"]
+      I2["creates .claude/agents/ (CC session-start requirement)"]
+      I3["auto-runs build-agents --target claude-code"]
+    end
+    I3 --> CCB
+
+    PCTX["Project context — READ FRESH, never baked:<br/>&lt;source_dir&gt;/pointers.md · rv status --project &lt;slug&gt;<br/>· architecture.md · notes / control board"]:::fresh
+    CCB -. "hat reads at work time" .-> PCTX
+    ADS -. "hat reads at work time" .-> PCTX
+
+    classDef fresh fill:#eef,stroke:#66c;
+```
+
+**Two coexisting targets, one composed source.** `.agents/<role>.md` is the neutral source-of-record;
+`.claude/agents/<role>.md` is the Claude-Code-rendered *projection* (both emitted by `rv build-agents`,
+selected by `--target`). The `AgentBackend` seam (`render(role, composed_body) -> [(relpath, contents)]`)
+is where v1.1 `codex`/`cursor`/`generic` backends slot in — same composed body, different path/format.
+
+**CC tool-grant policy (PUB-CCB.2 — least-privilege).** The `claude-code` projection stamps YAML
+frontmatter per role: **coordinator-class** (manager, architect) gets **no `Bash`** (structural, not
+disciplinary); **doer-class** (engineer, designer) gets `Bash` + role tools; **reviewer** is read-only
+(`Read, Bash, Grep, Glob` — no Write/Edit); **researcher** carries `WebSearch`/`WebFetch` for
+retrieval-backed citations. Model values are **aliases only** (`sonnet`/`opus`/`haiku`) — never a
+versioned ID (leakage class-6); researcher + reviewer baseline **opus**.
