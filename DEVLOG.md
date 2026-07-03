@@ -28,7 +28,7 @@
 - `require_frozen=False` escape-hatch: `rv dag approve` gates on `plan_freeze`
   presence before calling verify, so it sets `require_frozen=False` to avoid
   redundant "not frozen" errors on runs that legitimately have no pre-registration.
-- PR #72, `human-go` class: reviewer + Architect fit-check + Khang as 2nd party.
+- PR #72, `human-go` class: reviewer + Architect fit-check + the operator as 2nd party.
 
 ### Open / next
 - PR #72 awaiting reviewer verdict + Architect (Wren) fit-check.
