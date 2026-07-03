@@ -1,3 +1,16 @@
+## 2026-07-02 (SR-GAP-HYGIENE — vanished-anchor check)
+
+### Done
+- **SR-GAP-HYGIENE (feat/sr-gap-hygiene, commit `860b7c4`)**: Extended `note.cmd_check` with `check_gap_anchor` — a degrade-to-WARN check (isomorphic to `check_covers_links`) that fires when an `open` or `reopened` gap's `anchor:` field resolves to a nonexistent artifact. CLI handler extended to treat `[gap-hygiene]` prefix as warn-not-block alongside `[repro-lint]`. 11 hermetic tests incl. red-before-green guard, live/dead-anchor cases, all closed-status no-warn coverage, and CLI exit-0 guard. Full suite 1665 passed; `rv lint` clean; CI green on `860b7c4`.
+
+### Decisions
+- **Check open+reopened only** (not closed/proven-open/promoted): actionable statuses that count toward `open_gap_count`; closed-status anchor vanishing is lower urgency and would add noise for cleaned-up notes. Documented in `check_gap_anchor` docstring.
+- **Resolver reuse**: `anchor_path = project_notes_dir / f"{anchor}.md"` — same pattern as `check_covers_links`'s `notes_root / f"{child_id}.md"`. No parallel resolver forked.
+- **Degrade-to-WARN not BLOCK**: per Wren D-CLOSE-3 ruling. A dead anchor is a hygiene signal, not a corruption.
+
+### Open / next
+- Hub to open PR for `feat/sr-gap-hygiene` (identity guard; reviewer-gate class).
+
 ## 2026-07-03 (gap-loop-cleanup — Items #30, #26, #28, #29)
 
 ### Done

@@ -586,6 +586,16 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                     )
                 manuscript_issues = _check_manuscript_pdf_hash(p, fields)
                 violations.extend(manuscript_issues)
+            elif t == "gaps":
+                # Standard OKF type-dir contract for gaps.
+                if note_type != t:
+                    violations.append(
+                        f"{p}: type={note_type!r} but file is in {t!r} directory"
+                    )
+                # SR-GAP-HYGIENE: check that open/reopened gap anchor: notes still exist.
+                # Isomorphic to the covers: resolution check — degrade-to-WARN (not BLOCK).
+                anchor_issues = check_gap_anchor(p, fields, base)
+                violations.extend(anchor_issues)
             else:
                 # Standard OKF type-dir contract for the other project-scoped types
                 if note_type != t:
@@ -594,6 +604,67 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                     )
 
     return violations
+
+
+# ---------------------------------------------------------------------------
+# SR-GAP-HYGIENE: vanished-anchor check for gap notes
+# ---------------------------------------------------------------------------
+
+#: Gap statuses that count toward open_gap_count — the actionable ones that
+#: need a live anchor.  Closed/proven-open/promoted gaps are resolved; their
+#: anchor vanishing is low-urgency and would create noise for cleaned-up notes.
+_ACTIONABLE_GAP_STATUSES: frozenset[str] = frozenset({"open", "reopened"})
+
+
+def check_gap_anchor(
+    gap_note_path: Path,
+    fields: dict[str, str],
+    project_notes_dir: Path,
+) -> list[str]:
+    """SR-GAP-HYGIENE: warn when an open/reopened gap's anchor: note no longer exists.
+
+    A gap note carries an ``anchor:`` field — an OKF path relative to
+    ``project_notes_dir`` (e.g. ``findings/slug``, ``literature/citekey``).  When
+    the anchored artifact is deleted or renamed, the gap inflates ``open_gap_count``
+    with a dead reference.
+
+    This check is isomorphic to the ``covers:`` resolution check in
+    ``check_covers_links`` — resolve the referenced path; if it no longer resolves,
+    degrade-to-WARN (not BLOCK).  The warning surfaces the stale reference so the
+    human can re-anchor, re-scan, or close the gap.
+
+    Only ``open`` and ``reopened`` gaps are checked (the statuses that count toward
+    ``open_gap_count``).  Closed/proven-open/promoted gaps are skipped — their
+    anchor vanishing is less urgent and would produce noise for resolved gaps
+    whose source notes have been cleaned up.
+
+    Args:
+        gap_note_path:      path to the gap note (for error messages).
+        fields:             frontmatter dict of the gap note.
+        project_notes_dir:  project root used to resolve ``anchor:`` paths
+                            (e.g. ``cfg.project_notes_dir(project)``).
+
+    Returns:
+        list of warning strings prefixed with ``[gap-hygiene] WARN:``.
+        Empty = clean (live anchor or non-actionable status).
+    """
+    status = fields.get("status", "open").strip()
+    if status not in _ACTIONABLE_GAP_STATUSES:
+        return []
+
+    anchor = fields.get("anchor", "").strip()
+    if not anchor:
+        return []
+
+    anchor_path = project_notes_dir / f"{anchor}.md"
+    if anchor_path.exists():
+        return []
+
+    return [
+        f"[gap-hygiene] WARN: {gap_note_path.name}: anchor {anchor!r} no longer "
+        f"exists at {anchor_path} — re-scan (rv review gap-scan), "
+        f"re-anchor, or close this gap (rv review gap-close {gap_note_path.stem})"
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1042,10 +1113,13 @@ def run(args: argparse.Namespace) -> int:
             if not violations:
                 print(f"rv note check: OK — {args.project!r}")
                 return 0
-            # Separate hard violations from repro-lint warnings (§5J.14).
-            # Warnings (prefixed "[repro-lint] WARN:") are shown but do not flip exit code.
-            hard = [v for v in violations if not v.startswith("[repro-lint]")]
-            warnings = [v for v in violations if v.startswith("[repro-lint]")]
+            # Separate hard violations from soft warnings (§5J.14, SR-GAP-HYGIENE).
+            # Prefixes that degrade-to-warn (shown but do not flip exit code):
+            #   [repro-lint] WARN: — repro-sentinel lint (SR-EXP-REPRO)
+            #   [gap-hygiene] WARN: — vanished anchor on open/reopened gap (SR-GAP-HYGIENE)
+            _WARN_PREFIXES = ("[repro-lint]", "[gap-hygiene]")
+            hard = [v for v in violations if not v.startswith(_WARN_PREFIXES)]
+            warnings = [v for v in violations if v.startswith(_WARN_PREFIXES)]
             for v in hard:
                 print(f"  VIOLATION: {v}")
             for w in warnings:
