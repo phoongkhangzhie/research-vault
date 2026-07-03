@@ -187,6 +187,12 @@ def _parse_frontmatter(text: str) -> "tuple[dict[str, str | list[str]], str]":
     for line in fm_block.splitlines():
         # YAML indented list item: "  - item" (two-space indent + dash + space)
         if line.startswith("  - ") and current_list_key is not None:
+            # Lazy-promote: first list item converts "" → [] before appending.
+            # This preserves the old behaviour for empty keys that have NO list items
+            # (they stay as "") — only keys WITH  - item lines become list[str].
+            existing = fields[current_list_key]
+            if isinstance(existing, str):
+                fields[current_list_key] = []
             cast_list = fields[current_list_key]
             if isinstance(cast_list, list):
                 cast_list.append(line[4:].strip())
@@ -196,9 +202,10 @@ def _parse_frontmatter(text: str) -> "tuple[dict[str, str | list[str]], str]":
         if m:
             key, val = m.group(1), m.group(2).strip()
             if val == "":
-                # Empty value after colon → start accumulating a YAML list
+                # Empty value after colon → tentatively empty string; may become
+                # list[str] if  - item lines follow (lazy-promote on first item).
                 current_list_key = key
-                fields[key] = []
+                fields[key] = ""
             else:
                 if val.startswith(("'", '"')) and val.endswith(val[0]):
                     val = val[1:-1]

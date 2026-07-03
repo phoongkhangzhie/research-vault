@@ -98,11 +98,16 @@ status: open
 ---
 """
     fields, _ = _parse_frontmatter(text)
-    # A key: with no value AND no  - items → empty list OR empty string; either acceptable
-    # The key thing: it must NOT crash
+    # A key: with no value AND no  - items → empty string (lazy-promote: only
+    # becomes [] when actual list items follow).  Backwards-compat: callers do
+    # .strip() on empty-valued keys and must not get AttributeError.
     val = fields.get("backed_by")
-    assert val is not None  # field must be present
-    # Acceptable: either [] or "" (both are falsy and safe to iterate/strip)
+    assert val == "" or val == [], (
+        f"Empty key with no list items must be '' or [] (falsy, .strip()-safe if str); "
+        f"got {val!r}"
+    )
+    # Confirm no crash from .strip() on the result of a typical caller pattern
+    assert fields.get("backed_by", "").strip() == "" or isinstance(fields.get("backed_by"), list)
 
 
 # ---------------------------------------------------------------------------
