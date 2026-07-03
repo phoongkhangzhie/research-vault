@@ -1,16 +1,20 @@
 """build_agents.py — agent hat file generation for Research Vault.
 
-When to use: ``rv build-agents [--project <slug>] [--target {agents-dir,claude-code}]``
+When to use: ``rv build-agents [--target {agents-dir,claude-code}]``
 to regenerate agent hat files from the role registry and role-doc templates.
 
 ``--target agents-dir`` (default) writes prose hat files to
-``agents_dir/<project>/<role>.md`` — the target-neutral, harness-agnostic
-source-of-record.
+``agents_dir/<role>.md`` — the target-neutral, harness-agnostic
+source-of-record for the ONE vault-level crew (6 roles, flat).
 
 ``--target claude-code`` writes Claude Code subagent files to
 ``.claude/agents/<role>.md`` at the instance root (CC YAML frontmatter +
 composed hat body). Run this to make a fresh ``claude`` session discover
 Alfred's crew as subagents.
+
+Both targets build the SAME general vault-level crew (charter + role
+doctrine) — no per-project lens is baked into hats.  Project context is
+read fresh from ``rv status``, ``pointers.md``, and the control board.
 
 Both targets can coexist: ``.agents/`` is the neutral source;
 ``.claude/agents/`` is the CC-rendered projection.  When codex/cursor/generic
@@ -35,110 +39,88 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# CONTRACT stub detection
+# Hat composition — charter + role (SR-LENS-RM)
 # ---------------------------------------------------------------------------
 
-# The scaffold banner injected by rv project new into every CONTRACT.md.
-# Its presence (combined with >= 1 FILL marker) identifies an unfilled stub.
-_CONTRACT_SCAFFOLD_BANNER = "Auto-scaffolded by `rv project new`"
-_CONTRACT_FILL_MARKER = "<!-- FILL"
+# Map from functional role name → personal role-doc filename under doctrine/roles/.
+# Personal names are crew identity — we use a map rather than renaming the docs.
+_ROLE_DOC: dict[str, str] = {
+    "manager":    "atlas.md",
+    "engineer":   "mason.md",
+    "researcher": "ada.md",
+    "designer":   "iris.md",
+    "reviewer":   "argus.md",
+    "architect":  "wren.md",
+    "hub":        "alfred.md",
+}
+
+# Read-fresh footer appended to every hat (not a baked lens).
+_READ_FRESH_FOOTER = (
+    "\n\n---\n\n"
+    "**Project context is not baked into this hat.**\n"
+    "Read it fresh when you pick up work: "
+    "`rv status --project <slug>`, the project's `pointers.md`, "
+    "`architecture.md`, and its notes/control board."
+)
 
 
-def _is_contract_stub(text: str | None) -> bool:
-    """Return True if ``text`` is an unfilled CONTRACT scaffold.
+def _compose_hat(role: str, doctrine_dir: Path) -> str:
+    """Compose the hat body = charter + role doctrine + read-fresh footer.
 
-    Stub = the scaffold banner is still present AND at least one <!-- FILL
-    marker remains.  A filled CONTRACT removes the banner (or all markers).
-    None (missing file) is not a stub — it's missing; caller handles that.
+    Reads:
+      - ``doctrine_dir/agent-charter.md`` (universal values)
+      - ``doctrine_dir/roles/<personal>.md`` (role doctrine) via _ROLE_DOC map
+
+    Falls back gracefully if a file is absent (logs a warning, includes what
+    it can) — never returns an empty body silently.
     """
-    if not text:
-        return False
-    return (
-        _CONTRACT_SCAFFOLD_BANNER in text
-        and _CONTRACT_FILL_MARKER in text
-    )
+    parts: list[str] = []
 
-
-def _load_contract_text(proj_dir: Path) -> str | None:
-    """Read CONTRACT.md from ``proj_dir``.  Returns None if the file is absent."""
-    contract_path = proj_dir / "CONTRACT.md"
-    try:
-        return contract_path.read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError):
-        return None
-
-
-# ---------------------------------------------------------------------------
-# Hat generation
-# ---------------------------------------------------------------------------
-
-# Sentinel object so _hat_header can distinguish "not passed" from None (missing).
-_MISSING = object()
-
-
-def _hat_header(
-    project_slug: str,
-    role: str,
-    source_dir: str,
-    *,
-    contract_text: str | None = _MISSING,  # type: ignore[assignment]
-) -> str:
-    """Generate an agent hat for a project+role combination.
-
-    contract_text:
-      - (default sentinel ``_MISSING``) — backward-compat path: emit a placeholder
-        note. Callers should pass the value explicitly.
-      - str — the CONTRACT.md content to embed.  Stub vs filled is detected
-        automatically; stubs get a nudge banner, filled contracts compose clean.
-      - None — CONTRACT.md is absent; a loud NO-CONTRACT banner is embedded.
-    """
-    # Resolve the contract section
-    if contract_text is _MISSING:
-        # Backward-compat: called without explicit contract_text
-        contract_section = (
-            "> (no project lens — re-run `rv build-agents` to compose the CONTRACT)\n"
-        )
-    elif contract_text is None:
-        # Missing CONTRACT
-        contract_section = (
-            f"> WARNING: NO CONTRACT — this project has no lens file "
-            f"(agents_dir/{project_slug}/CONTRACT.md is absent). "
-            f"Run `rv project new` to scaffold one, or create it manually, "
-            f"then re-run `rv build-agents --project {project_slug}` to re-bake the hats.\n"
-        )
-    elif _is_contract_stub(contract_text):
-        # Stub CONTRACT (scaffolded but not yet filled)
-        contract_section = (
-            f"> NOTE: CONTRACT is an unfilled stub — fill every <!-- FILL --> "
-            f"placeholder and re-run `rv build-agents --project {project_slug}` "
-            f"to compose the real project lens into this hat.\n\n"
-        ) + contract_text
+    # Charter (universal values)
+    charter_path = doctrine_dir / "agent-charter.md"
+    if charter_path.is_file():
+        parts.append(charter_path.read_text(encoding="utf-8"))
     else:
-        # Filled CONTRACT — embed it directly
-        contract_section = contract_text
+        print(
+            f"rv build-agents: WARNING — charter doc not found at {charter_path}. "
+            "Hat will lack the charter layer.",
+            file=sys.stderr,
+        )
+        parts.append(
+            f"# Agent charter\n\n"
+            f"*(Charter not found at {charter_path} — run `rv init` to ensure doctrine/ is present.)*\n"
+        )
 
-    return (
-        f"# Agent hat: {role} for {project_slug}\n\n"
-        f"<!-- Generated by rv build-agents — edit the role docs to update. -->\n\n"
-        f"**Project:** {project_slug}\n"
-        f"**Role:** {role}\n"
-        f"**Source directory:** {source_dir}\n\n"
-        f"# Current project lens (CONTRACT)\n\n"
-        f"{contract_section}\n"
-    )
+    # Role doctrine
+    role_filename = _ROLE_DOC.get(role, f"{role}.md")
+    role_path = doctrine_dir / "roles" / role_filename
+    if role_path.is_file():
+        parts.append(role_path.read_text(encoding="utf-8"))
+    else:
+        print(
+            f"rv build-agents: WARNING — role doc not found at {role_path}. "
+            f"Hat for {role!r} will lack the role layer.",
+            file=sys.stderr,
+        )
+        parts.append(
+            f"# Role — {role}\n\n"
+            f"*(Role doc not found at {role_path} — run `rv init` to ensure doctrine/ is present.)*\n"
+        )
+
+    return "\n\n".join(parts) + _READ_FRESH_FOOTER
 
 
 # ---------------------------------------------------------------------------
 # AgentBackend seam
 #
 # A minimal strategy with one method:
-#   render(role, composed_body, project) -> list[tuple[str, str]]
+#   render(role, composed_body) -> list[tuple[str, str]]
 #
-# Returns a list of (relpath_from_instance_root, file_contents) pairs.
+# Returns a list of (relpath_from_base, file_contents) pairs.
 # The caller writes each pair to the filesystem.
 #
 # Two backends ship in v1:
-#   agents-dir    → today's behaviour (default)
+#   agents-dir    → prose hat files (default)
 #   claude-code   → CC subagent format (.claude/agents/<role>.md)
 #
 # v1.1 slot: add "codex", "cursor", "generic" backends here — each renders
@@ -208,7 +190,6 @@ class ClaudeCodeBackend:
         self,
         role: str,
         composed_body: str,
-        project: str,
     ) -> list[tuple[str, str]]:
         """Render one CC subagent file.
 
@@ -236,7 +217,7 @@ class ClaudeCodeBackend:
 
 
 class AgentsDirBackend:
-    """Emit prose hat files to agents_dir/<project>/<role>.md (today's default).
+    """Emit prose hat files to agents_dir/<role>.md (flat, vault-level).
 
     This is the target-neutral, harness-agnostic source-of-record.
     Future backends (codex/cursor/generic — v1.1) render from this same source.
@@ -246,15 +227,14 @@ class AgentsDirBackend:
         self,
         role: str,
         composed_body: str,
-        project: str,
     ) -> list[tuple[str, str]]:
         """Render one prose hat file.
 
         Returns:
             [(relpath, contents)] where relpath is relative to agents_dir
-            (``<project>/<role>.md``).
+            (``<role>.md`` — flat, vault-level, no per-project subdir).
         """
-        relpath = f"{project}/{role}.md"
+        relpath = f"{role}.md"
         return [(relpath, composed_body)]
 
 
@@ -265,9 +245,9 @@ _BACKENDS: dict[str, AgentsDirBackend | ClaudeCodeBackend] = {
     "claude-code": ClaudeCodeBackend(),
 }
 
-# The 6 roles emitted for the claude-code target:
+# The 6 vault roles emitted for both targets:
 # DEFAULT_ROSTER (5 project roles) + architect (vault-level coordinator).
-_CC_ROLES = list(DEFAULT_ROSTER) + ["architect"]
+_VAULT_ROLES = list(DEFAULT_ROSTER) + ["architect"]
 
 
 # ---------------------------------------------------------------------------
@@ -276,31 +256,22 @@ _CC_ROLES = list(DEFAULT_ROSTER) + ["architect"]
 
 
 def cmd_build(
-    project_slug: str | None,
     cfg: Config,
     *,
     agents_dir: Path | None = None,
     dry_run: bool = False,
     target: str = "agents-dir",
 ) -> int:
-    """Generate agent hat files from the config registry.
+    """Generate agent hat files from the vault-level crew doctrine.
 
-    If project_slug is given, only generates hats for that project.
-    If None, generates hats for all registered projects.
+    Builds the ONE general crew (6 roles) from charter + role doctrine.
+    No per-project lens is baked; project context is read fresh at work time.
 
     target:
       ``agents-dir`` (default) — write prose hats to
-        ``cfg.agents_dir/<project>/<role>.md`` (today's behaviour).
+        ``cfg.agents_dir/<role>.md`` (flat, vault-level).
       ``claude-code`` — write CC subagent files to
         ``.claude/agents/<role>.md`` at the instance root.
-
-    For ``claude-code``, the 6 files are the DEFAULT_ROSTER roles + architect.
-    The hat body is composed from the first available project's CONTRACT
-    (or a generic hat if no project is registered).
-
-    CONTRACT composing: reads cfg.agents_dir/<slug>/CONTRACT.md and embeds it
-    in each hat.  Missing -> WARN loudly on stderr + NO-CONTRACT banner in hat.
-    Stub (unfilled) -> nudge WARN on stderr + stub banner in hat.
     """
     if target not in _BACKENDS:
         print(
@@ -310,126 +281,63 @@ def cmd_build(
         )
         return 1
 
+    doctrine_dir = cfg.instance_root / "doctrine"
+
     if target == "claude-code":
-        return _cmd_build_cc(cfg, dry_run=dry_run)
+        return _cmd_build_cc(cfg, doctrine_dir=doctrine_dir, dry_run=dry_run)
 
     # agents-dir target (default)
     return _cmd_build_agents_dir(
-        project_slug=project_slug,
         cfg=cfg,
         agents_dir=agents_dir,
+        doctrine_dir=doctrine_dir,
         dry_run=dry_run,
     )
 
 
 def _cmd_build_agents_dir(
-    project_slug: str | None,
     cfg: Config,
     agents_dir: Path | None,
+    doctrine_dir: Path,
     dry_run: bool,
 ) -> int:
-    """Write prose hat files to agents_dir/<project>/<role>.md."""
+    """Write flat prose hat files to agents_dir/<role>.md."""
     backend = _BACKENDS["agents-dir"]
     target_dir = agents_dir or cfg.agents_dir
 
-    slugs = [project_slug] if project_slug else cfg.all_project_slugs()
-    if not slugs:
-        print("No projects registered (rv project add <name> to register one).")
-        return 0
+    if not dry_run:
+        target_dir.mkdir(parents=True, exist_ok=True)
 
     generated = 0
-    for slug in slugs:
-        try:
-            proj = cfg.project(slug)
-        except KeyError as e:
-            print(f"rv build-agents: {e}", file=sys.stderr)
-            return 1
-
-        roster = proj.get("roster", []) or DEFAULT_ROSTER
-        source_dir = proj.get("source_dir", str(cfg.notes_root / slug))
-        proj_dir = target_dir / slug
-        if not dry_run:
-            proj_dir.mkdir(parents=True, exist_ok=True)
-
-        # Load and validate the CONTRACT for this project
-        contract_text = _load_contract_text(proj_dir)
-        if contract_text is None:
-            print(
-                f"rv build-agents: WARNING — {slug}: no CONTRACT.md found at "
-                f"{proj_dir / 'CONTRACT.md'}. "
-                f"Run `rv project new` to scaffold one. "
-                f"Hats will include a NO-CONTRACT banner.",
-                file=sys.stderr,
-            )
-        elif _is_contract_stub(contract_text):
-            print(
-                f"rv build-agents: NOTE — {slug}: CONTRACT.md is still an unfilled stub. "
-                f"Fill every <!-- FILL --> placeholder then re-run "
-                f"`rv build-agents --project {slug}`. "
-                f"Hats will include a stub banner.",
-                file=sys.stderr,
-            )
-
-        for role in roster:
-            composed_body = _hat_header(slug, role, source_dir, contract_text=contract_text)
-            pairs = backend.render(role, composed_body, slug)
-            for relpath, contents in pairs:
-                hat_path = target_dir / relpath
-                if dry_run:
-                    print(f"  (dry-run) would write: {hat_path}")
-                else:
-                    hat_path.write_text(contents, encoding="utf-8")
-                    print(f"  Written: {hat_path}")
-                generated += 1
+    for role in _VAULT_ROLES:
+        composed_body = _compose_hat(role, doctrine_dir)
+        pairs = backend.render(role, composed_body)
+        for relpath, contents in pairs:
+            hat_path = target_dir / relpath
+            if dry_run:
+                print(f"  (dry-run) would write: {hat_path}")
+            else:
+                hat_path.write_text(contents, encoding="utf-8")
+                print(f"  Written: {hat_path}")
+            generated += 1
 
     verb = "would generate" if dry_run else "generated"
     print(f"\nbuild-agents: {verb} {generated} hat file(s).")
     return 0
 
 
-def _cmd_build_cc(cfg: Config, dry_run: bool) -> int:
-    """Write CC subagent files to .claude/agents/<role>.md at the instance root.
-
-    Emits the 6 CC roles (DEFAULT_ROSTER + architect).  Hat bodies are composed
-    from the first registered project's CONTRACT.md when available.
-    """
+def _cmd_build_cc(cfg: Config, doctrine_dir: Path, dry_run: bool) -> int:
+    """Write CC subagent files to .claude/agents/<role>.md at the instance root."""
     backend = _BACKENDS["claude-code"]
     cc_dir = cfg.instance_root / ".claude" / "agents"
 
     if not dry_run:
         cc_dir.mkdir(parents=True, exist_ok=True)
 
-    # Find a project to use for the CONTRACT / source_dir context.
-    # For multi-project: the first slug's contract is used.  Last-writer-wins
-    # when multiple projects share a role name (flat .claude/agents/ dir).
-    slugs = cfg.all_project_slugs()
-    first_slug: str | None = slugs[0] if slugs else None
-    contract_text: str | None = None
-    source_dir = str(cfg.notes_root)
-
-    if first_slug:
-        try:
-            proj = cfg.project(first_slug)
-            source_dir = proj.get("source_dir", str(cfg.notes_root / first_slug))
-        except KeyError:
-            pass
-        proj_agents_dir = cfg.agents_dir / first_slug
-        contract_text = _load_contract_text(proj_agents_dir)
-
     generated = 0
-    for role in _CC_ROLES:
-        if role == "architect":
-            # Vault-level coordinator — hat body identifies it as vault-level
-            project_label = "(vault-level)"
-            src = str(cfg.instance_root)
-            ctext = None  # No single-project CONTRACT for the vault-level architect
-        else:
-            project_label = first_slug or "demo"
-            src = source_dir
-            ctext = contract_text
-
-        composed_body = _hat_header(project_label, role, src, contract_text=ctext)
-        pairs = backend.render(role, composed_body, project_label)
+    for role in _VAULT_ROLES:
+        composed_body = _compose_hat(role, doctrine_dir)
+        pairs = backend.render(role, composed_body)
         for relpath, contents in pairs:
             out_path = cfg.instance_root / relpath
             if dry_run:
@@ -454,18 +362,19 @@ def build_parser(
     """Build the argument parser for the ``build-agents`` verb.
 
     When to use: ``rv build-agents [--target {agents-dir,claude-code}]`` to
-    regenerate agent hat files from the role registry and role-doc templates.
+    regenerate agent hat files from the charter + role doctrine.
     Use ``--target agents-dir`` (default) for the prose source-of-record hats.
     Use ``--target claude-code`` to emit CC subagent files to ``.claude/agents/``.
 
     Anti-pattern: do not use ``--target claude-code`` if you haven't run
     ``rv init`` first — the ``.claude/agents/`` dir is created by ``rv init``
-    to satisfy Claude Code's session-start requirement.
+    to satisfy Claude Code's session-start requirement.  The one vault crew is
+    built once at ``rv init``; there is no per-project re-bake.
     """
     desc = (
-        "Regenerate agent hat files from the role registry. "
-        "Default (--target agents-dir): writes to agents_dir/<project>/<role>.md "
-        "(prose hat, target-neutral source-of-record). "
+        "Regenerate agent hat files from the charter + role doctrine. "
+        "Builds the ONE vault-level crew (6 roles); no per-project lens. "
+        "Default (--target agents-dir): writes flat hat files to agents_dir/<role>.md. "
         "With --target claude-code: writes CC subagent files to "
         ".claude/agents/<role>.md at the instance root."
     )
@@ -474,10 +383,6 @@ def build_parser(
     else:
         p = argparse.ArgumentParser(prog="rv build-agents", description=desc)
 
-    p.add_argument(
-        "--project", default=None,
-        help="Project slug (regenerate hats for this project only; agents-dir target only).",
-    )
     p.add_argument(
         "--dry-run", action="store_true",
         help="Preview what would be written without writing.",
@@ -488,7 +393,7 @@ def build_parser(
         choices=["agents-dir", "claude-code"],
         help=(
             "Output target (default: agents-dir). "
-            "'agents-dir' writes prose hats to agents_dir/<project>/<role>.md. "
+            "'agents-dir' writes flat prose hats to agents_dir/<role>.md. "
             "'claude-code' writes CC subagent files to .claude/agents/<role>.md."
         ),
     )
@@ -505,7 +410,6 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     return cmd_build(
-        project_slug=args.project,
         cfg=cfg,
         dry_run=args.dry_run,
         target=getattr(args, "target", "agents-dir"),

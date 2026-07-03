@@ -99,48 +99,56 @@ def test_role_show_unknown_project(cfg_with_project: Config, capsys) -> None:
 # ---------------------------------------------------------------------------
 
 def test_build_agents_writes_hat_files(cfg_with_project: Config, tmp_path: Path) -> None:
+    """build-agents writes flat vault-level hat files (SR-LENS-RM)."""
     from research_vault.build_agents import cmd_build
     agents_dir = tmp_path / ".agents"
-    rc = cmd_build("test-proj", cfg_with_project, agents_dir=agents_dir)
+    rc = cmd_build(cfg_with_project, agents_dir=agents_dir)
     assert rc == 0
-    # Should have written engineer.md and researcher.md
-    assert (agents_dir / "test-proj" / "engineer.md").exists()
-    assert (agents_dir / "test-proj" / "researcher.md").exists()
+    # Flat vault-level files — no per-project subdir
+    assert (agents_dir / "engineer.md").exists()
+    assert (agents_dir / "researcher.md").exists()
 
 
 def test_build_agents_dry_run_no_files(cfg_with_project: Config, tmp_path: Path, capsys) -> None:
     from research_vault.build_agents import cmd_build
     agents_dir = tmp_path / ".agents"
-    rc = cmd_build("test-proj", cfg_with_project, agents_dir=agents_dir, dry_run=True)
+    rc = cmd_build(cfg_with_project, agents_dir=agents_dir, dry_run=True)
     assert rc == 0
     # Nothing written in dry-run mode
-    assert not (agents_dir / "test-proj").exists()
+    assert not agents_dir.exists()
     out = capsys.readouterr().out
     assert "dry-run" in out
 
 
 def test_build_agents_all_projects(cfg_with_project: Config, tmp_path: Path) -> None:
+    """build-agents builds the vault crew once (no per-project slug needed)."""
     from research_vault.build_agents import cmd_build
     agents_dir = tmp_path / ".agents"
-    rc = cmd_build(None, cfg_with_project, agents_dir=agents_dir)
+    rc = cmd_build(cfg_with_project, agents_dir=agents_dir)
     assert rc == 0
-    assert (agents_dir / "test-proj" / "engineer.md").exists()
+    assert (agents_dir / "engineer.md").exists()
 
 
 def test_build_agents_hat_contains_role(cfg_with_project: Config, tmp_path: Path) -> None:
+    """Hat body must mention the role (charter+role composition)."""
     from research_vault.build_agents import cmd_build
     agents_dir = tmp_path / ".agents"
-    cmd_build("test-proj", cfg_with_project, agents_dir=agents_dir)
-    content = (agents_dir / "test-proj" / "engineer.md").read_text(encoding="utf-8")
-    assert "engineer" in content
-    assert "test-proj" in content
+    cmd_build(cfg_with_project, agents_dir=agents_dir)
+    content = (agents_dir / "engineer.md").read_text(encoding="utf-8")
+    assert "engineer" in content.lower()
 
 
-def test_build_agents_unknown_project(cfg_with_project: Config, tmp_path: Path) -> None:
+def test_build_agents_unknown_project_is_no_longer_an_error(cfg_with_project: Config, tmp_path: Path) -> None:
+    """build-agents no longer accepts a project_slug — crew is vault-level (SR-LENS-RM).
+
+    The old test expected rc != 0 for an unknown project slug.
+    Now there is no --project flag; cmd_build builds the vault crew unconditionally.
+    """
     from research_vault.build_agents import cmd_build
     agents_dir = tmp_path / ".agents"
-    rc = cmd_build("nonexistent", cfg_with_project, agents_dir=agents_dir)
-    assert rc != 0
+    # No project_slug arg anymore; build always succeeds (vault-level crew)
+    rc = cmd_build(cfg_with_project, agents_dir=agents_dir)
+    assert rc == 0  # vault crew builds regardless of project registry
 
 
 # ---------------------------------------------------------------------------

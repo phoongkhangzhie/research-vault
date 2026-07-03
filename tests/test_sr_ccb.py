@@ -1,15 +1,15 @@
 """test_sr_ccb.py — SR-CCB: Claude Code binding acceptance tests.
 
-Acceptance criteria (from PUB-CCB.5):
+Acceptance criteria (from PUB-CCB.5, updated for SR-LENS-RM):
 1. rv init -> CLAUDE.md exists + names Alfred / the hub; .claude/agents/ dir exists.
 2. rv build-agents --target claude-code -> .claude/agents/{manager,engineer,
    researcher,designer,reviewer,architect}.md — 6 files, valid CC frontmatter.
 3. Tool grants match the PUB-CCB.2 policy table.
 4. Model values are aliases (sonnet/opus/haiku), never versioned IDs.
-5. --target agents-dir (default) still writes .agents/<project>/<role>.md unchanged.
-6. Body of each subagent file is non-empty (the composed hat).
-
-All tests run RED on today's code (no CLAUDE.md, no .claude/agents/, no target flag).
+5. --target agents-dir (default) writes flat .agents/<role>.md (vault-level crew;
+   SR-LENS-RM: no per-project subdir).
+6. Body of each subagent file is non-empty and contains charter+role doctrine
+   (SR-LENS-RM: replaces the CONTRACT body).
 """
 from __future__ import annotations
 
@@ -340,35 +340,29 @@ class TestPolicyConstraints:
 # ---------------------------------------------------------------------------
 
 class TestAgentsDirBackwardCompat:
-    """--target agents-dir (default) must still write .agents/<project>/<role>.md."""
+    """--target agents-dir (default) writes flat .agents/<role>.md (SR-LENS-RM)."""
 
-    def test_agents_dir_target_still_writes_to_agents_dir(self, tmp_vault):
-        """build-agents --target agents-dir writes to .agents/, not .claude/agents/."""
+    def test_agents_dir_target_writes_flat_vault_crew(self, tmp_vault):
+        """build-agents --target agents-dir writes flat vault crew to .agents/."""
         from research_vault.config import load_config
-        from research_vault.build_agents import cmd_build
+        from research_vault.build_agents import cmd_build, _VAULT_ROLES
         import os
 
-        # Use the tmp_vault's config
         config_path = tmp_vault / "research_vault.toml"
         os.environ["RESEARCH_VAULT_CONFIG"] = str(config_path)
         try:
             cfg = load_config()
-            rc = cmd_build(
-                project_slug=None,
-                cfg=cfg,
-                target="agents-dir",
-            )
+            rc = cmd_build(cfg=cfg, target="agents-dir")
         finally:
             del os.environ["RESEARCH_VAULT_CONFIG"]
 
         assert rc == 0
-        # Should write to .agents/, not .claude/agents/
         agents_dir = tmp_vault / ".agents"
         assert agents_dir.is_dir()
-        # At least one project's hats should exist
-        # (demo-research or demo-litreview)
-        hats = list(agents_dir.rglob("*.md"))
-        assert len(hats) > 0, "No hat files written to .agents/ by --target agents-dir"
+        # Flat vault-level files (SR-LENS-RM: no per-project subdir)
+        for role in _VAULT_ROLES:
+            hat = agents_dir / f"{role}.md"
+            assert hat.exists(), f"Flat hat {role}.md must be written to .agents/"
 
     def test_default_target_is_agents_dir(self, tmp_vault):
         """cmd_build without explicit target defaults to agents-dir behaviour."""
@@ -380,17 +374,15 @@ class TestAgentsDirBackwardCompat:
         os.environ["RESEARCH_VAULT_CONFIG"] = str(config_path)
         try:
             cfg = load_config()
-            # No 'target' kwarg → default behaviour
-            rc = cmd_build(project_slug=None, cfg=cfg)
+            rc = cmd_build(cfg=cfg)  # no target kwarg → agents-dir default
         finally:
             del os.environ["RESEARCH_VAULT_CONFIG"]
 
         assert rc == 0
-        # Must write to .agents/, not contaminate .claude/agents/
-        # (.claude/agents/ was already populated by init; verify .agents/ also populated)
+        # Flat files must exist in .agents/
         agents_dir = tmp_vault / ".agents"
-        hats = list(agents_dir.rglob("*.md"))
-        assert len(hats) > 0
+        hats = list(agents_dir.glob("*.md"))
+        assert len(hats) > 0, "No flat hat files written to .agents/ by default target"
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +390,10 @@ class TestAgentsDirBackwardCompat:
 # ---------------------------------------------------------------------------
 
 class TestClaudeCodeBackendUnit:
-    """Unit tests for the ClaudeCodeBackend strategy object."""
+    """Unit tests for the ClaudeCodeBackend strategy object.
+
+    SR-LENS-RM: render() no longer takes a 'project' param (vault-level crew).
+    """
 
     def test_render_returns_list_of_tuples(self):
         """render() must return a list of (relpath, contents) tuples."""
@@ -407,7 +402,6 @@ class TestClaudeCodeBackendUnit:
         result = backend.render(
             role="manager",
             composed_body="# Hat content\n\nsome body text",
-            project="demo-research",
         )
         assert isinstance(result, list)
         assert len(result) == 1
@@ -419,7 +413,7 @@ class TestClaudeCodeBackendUnit:
         """render() must return a relpath inside .claude/agents/."""
         from research_vault.build_agents import ClaudeCodeBackend
         backend = ClaudeCodeBackend()
-        result = backend.render("engineer", "# body", "demo-research")
+        result = backend.render("engineer", "# body")
         relpath, _ = result[0]
         assert ".claude/agents/engineer.md" in relpath or relpath == ".claude/agents/engineer.md", \
             f"relpath {relpath!r} should be .claude/agents/engineer.md"
@@ -428,7 +422,7 @@ class TestClaudeCodeBackendUnit:
         """render() output must begin with '---' YAML frontmatter."""
         from research_vault.build_agents import ClaudeCodeBackend
         backend = ClaudeCodeBackend()
-        _, contents = backend.render("manager", "# Body", "demo")[0]
+        _, contents = backend.render("manager", "# Body")[0]
         assert contents.startswith("---\n"), \
             f"Expected YAML frontmatter, got: {contents[:60]!r}"
 
@@ -437,7 +431,7 @@ class TestClaudeCodeBackendUnit:
         from research_vault.build_agents import ClaudeCodeBackend
         backend = ClaudeCodeBackend()
         for role in _POLICY:
-            _, contents = backend.render(role, "# Body\n\nsome text", "demo")[0]
+            _, contents = backend.render(role, "# Body\n\nsome text")[0]
             assert not _VERSIONED_ID_RE.search(contents), \
                 f"render({role!r}) contains a versioned model ID"
 
@@ -446,48 +440,36 @@ class TestClaudeCodeBackendUnit:
         from research_vault.build_agents import ClaudeCodeBackend
         backend = ClaudeCodeBackend()
         marker = "UNIQUE-MARKER-FOR-BODY-CHECK-12345"
-        _, contents = backend.render("manager", f"# Hat\n\n{marker}", "demo")[0]
+        _, contents = backend.render("manager", f"# Hat\n\n{marker}")[0]
         assert marker in contents, \
             "Composed body not embedded in the render output"
 
 
 # ---------------------------------------------------------------------------
-# SR-CCB-5: Demo CONTRACTs ship and are written by rv init
+# SR-LENS-RM: No demo CONTRACTs (deleted; crew carries charter+role directly)
 # ---------------------------------------------------------------------------
 
-class TestDemoContracts:
-    def test_demo_research_contract_exists_after_init(self, tmp_vault):
-        """.agents/demo-research/CONTRACT.md must be written by rv init."""
-        contract = tmp_vault / ".agents" / "demo-research" / "CONTRACT.md"
-        assert contract.is_file(), \
-            ".agents/demo-research/CONTRACT.md missing — rv init must write demo CONTRACTs"
+class TestNoDemoContracts:
+    """SR-LENS-RM: demo CONTRACT.md files must NOT exist anywhere."""
 
-    def test_demo_litreview_contract_exists_after_init(self, tmp_vault):
-        """.agents/demo-litreview/CONTRACT.md must be written by rv init."""
-        contract = tmp_vault / ".agents" / "demo-litreview" / "CONTRACT.md"
-        assert contract.is_file(), \
-            ".agents/demo-litreview/CONTRACT.md missing"
+    def test_no_demo_contracts_after_init(self, tmp_vault):
+        """rv init must NOT write any CONTRACT.md files (SR-LENS-RM)."""
+        contract_files = list((tmp_vault / ".agents").rglob("CONTRACT.md"))
+        assert not contract_files, (
+            f"rv init still writes CONTRACT.md files: {contract_files}. "
+            "SR-LENS-RM: the CONTRACT mechanism is deleted."
+        )
 
-    def test_demo_contracts_not_stubs(self, tmp_vault):
-        """Demo CONTRACTs must be filled (no <!-- FILL --> markers)."""
-        from research_vault.build_agents import _CONTRACT_FILL_MARKER, _CONTRACT_SCAFFOLD_BANNER
-        for demo in ("demo-research", "demo-litreview"):
-            contract = tmp_vault / ".agents" / demo / "CONTRACT.md"
-            text = contract.read_text(encoding="utf-8")
-            assert _CONTRACT_FILL_MARKER not in text, \
-                f"{demo}/CONTRACT.md still contains FILL markers (must be pre-filled)"
-            assert _CONTRACT_SCAFFOLD_BANNER not in text, \
-                f"{demo}/CONTRACT.md still has the scaffold banner (must be pre-filled)"
-
-    def test_demo_contracts_no_private_markers(self, tmp_vault):
-        """Demo CONTRACTs must contain no private identity strings."""
-        private_words = ["khang", "phoong", "phoongkz", "stanford", "khangzhie.io"]
-        for demo in ("demo-research", "demo-litreview"):
-            contract = tmp_vault / ".agents" / demo / "CONTRACT.md"
-            text = contract.read_text(encoding="utf-8").lower()
-            for word in private_words:
-                assert word not in text, \
-                    f"{demo}/CONTRACT.md contains private marker: {word!r}"
+    def test_no_contract_template_in_data(self):
+        """CONTRACT.md.tmpl must NOT exist in the package data (SR-LENS-RM)."""
+        from pathlib import Path
+        tmpl_path = (
+            Path(__file__).parent.parent
+            / "src" / "research_vault" / "data" / "templates" / "CONTRACT.md.tmpl"
+        )
+        assert not tmpl_path.exists(), (
+            f"CONTRACT.md.tmpl still exists at {tmpl_path}. SR-LENS-RM: delete it."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -633,15 +615,23 @@ class TestShippedDocVerbAudit:
         )
 
     def test_tmpl_files_present_and_covered(self):
-        """The two shipped .tmpl files (CLAUDE.md.tmpl, CONTRACT.md.tmpl) must
-        both exist and both appear in _iter_audit_files — the non-vacuous proof
-        that the templates/ directory is fully guarded.
+        """All shipped .tmpl files must appear in _iter_audit_files.
+
+        SR-LENS-RM: CONTRACT.md.tmpl was deleted; only CLAUDE.md.tmpl ships now.
+        The non-vacuous proof: CLAUDE.md.tmpl must exist and be in the audit set.
         """
         data_dir = self._DATA_DIR
         tmpl_files = set(data_dir.rglob("*.tmpl"))
         assert tmpl_files, (
             "No .tmpl files found under data/ — fixture assumption broken. "
-            "This test exists to guard CLAUDE.md.tmpl and CONTRACT.md.tmpl."
+            "This test exists to guard CLAUDE.md.tmpl."
+        )
+
+        # Confirm CONTRACT.md.tmpl is gone (SR-LENS-RM deletion)
+        contract_tmpl = data_dir / "templates" / "CONTRACT.md.tmpl"
+        assert not contract_tmpl.exists(), (
+            f"CONTRACT.md.tmpl still exists at {contract_tmpl}. "
+            "SR-LENS-RM: this file must be deleted."
         )
 
         scanned = set(self._iter_audit_files(data_dir))

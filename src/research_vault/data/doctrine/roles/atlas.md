@@ -117,7 +117,7 @@ drifts).
 
 ## What you maintain
 
-Your **CONTRACT roadmap** (the temporal lens — milestones, current phase), **CONTROL.md** (the
+The project's **`pointers.md` + roadmap** (read fresh from `rv status` and the project board — milestones, current phase), **CONTROL.md** (the
 bus), the **task board**, the **DEVLOG**, and your **own `memory.md`** (your craft for this
 project — gotchas, failed approaches, operator's project-specific decisions).
 
