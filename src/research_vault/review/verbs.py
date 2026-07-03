@@ -1,4 +1,4 @@
-"""review/verbs.py — rv review subcommand dispatcher (SR-LR-1 + SR-LR-2 + SR-GAP-ROUTE, §5L).
+"""review/verbs.py — rv review subcommand dispatcher (SR-LR-1 + SR-LR-2 + SR-GAP-ROUTE + SR-GAP-CLOSE, §5L).
 
 When to use: use ``rv review new <project> <scope> --question '...'`` to start a
 pre-registered, saturation-gated literature review.  ``rv review expand`` emits the
@@ -58,10 +58,26 @@ Subcommands (SR-LR-2 — the gap-driven pass):
   rv review <project> gap-list [--status <status>]
       List gap records for the project, optionally filtered by status.
       ``--status proven-open`` = the run-candidate queue (§5L.16).
+      ``--status reopened`` = gaps that re-entered open-routing via structural signal.
+      ``--status promoted`` = proven-open gaps promoted to manuscript contribution candidate.
 
-  rv review <project> gap-close <gap-id> --status <status>
+  rv review <project> gap-close <gap-id> --status <status> [--by <note-ref>]
       Stamp a gap's closure status. status ∈ {closed-supported, closed-filled, proven-open}.
       A ``proven-open`` gap saturated without closing → run-candidate contribution.
+      SR-GAP-CLOSE: --by is REQUIRED for closed-supported and closed-filled (charter §2:
+      a closed gap with no closer is un-auditable). --by is REJECTED for proven-open
+      (nothing closed it — that's the point). --by writes bidirectional edges:
+        closed_by: <note-ref> in the gap FM + closes: <gap-id> in the closing note FM.
+      Anti-pattern: do NOT gap-close a closed-* gap without --by — a closer-less closure
+      is un-auditable and breaks the provenance chain (SR-GAP-CLOSE §5L.21(1)).
+
+  rv review <project> gap-promote <gap-id> --to <ref>
+      SR-GAP-CLOSE: promote a proven-open gap to 'promoted' status (human-only).
+      Writes promoted_to: <ref> in the gap FM.
+      Requires --to <manuscript-section/claim> (unauditable without a target).
+      Anti-pattern: do NOT hand-write a contribution claim from a proven-open gap —
+      run gap-promote first so the claim round-trips the SR-MS-2 support-matcher
+      (the honesty backstop that polices its own promotions via the absent_row loop).
 
 Anti-pattern: do NOT hand-collect papers without running ``rv review new`` — a
 hand-collected corpus has no ``_protocol.md`` freeze, no saturation measurement,
@@ -76,7 +92,7 @@ run ``rv review gap-scope <project> <gap-id> <scope>``; it routes by error-asymm
 and auto-authors the remedy scope (SR-GAP-ROUTE §5L.17 when-to-use).
 
 Stdlib only.
-sr: SR-LR-1, SR-LR-2, SR-GAP-ROUTE
+sr: SR-LR-1, SR-LR-2, SR-GAP-ROUTE, SR-GAP-CLOSE
 """
 from __future__ import annotations
 
@@ -282,17 +298,22 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_list_p = sub.add_parser(
         "gap-list",
         help=(
-            "List gap records for the project (SR-GAP-ROUTE §5L.16). "
-            "--status proven-open shows the run-candidate queue."
+            "List gap records for the project (SR-GAP-ROUTE §5L.16 + SR-GAP-CLOSE §5L.20). "
+            "--status proven-open shows the run-candidate queue; "
+            "--status promoted shows promoted contribution candidates; "
+            "--status reopened shows gaps that re-entered open-routing."
         ),
     )
     gap_list_p.add_argument(
         "--status",
         default=None,
-        choices=["open", "closed-supported", "closed-filled", "proven-open"],
+        choices=["open", "closed-supported", "closed-filled", "proven-open",
+                 "promoted", "reopened"],
         help=(
             "Filter by gap status. 'proven-open' = the run-candidate queue "
-            "(gaps whose targeted lit pass saturated without closing)."
+            "(gaps whose targeted lit pass saturated without closing). "
+            "'promoted' = proven-open gaps promoted to manuscript candidate (SR-GAP-CLOSE). "
+            "'reopened' = gaps that re-entered open-routing via structural reopen signal."
         ),
     )
 
@@ -300,7 +321,9 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_close_p = sub.add_parser(
         "gap-close",
         help=(
-            "Stamp a gap's closure status (§5L.8). "
+            "Stamp a gap's closure status with provenance edge (§5L.8 + SR-GAP-CLOSE §5L.21(1)). "
+            "--by is REQUIRED for closed-supported/closed-filled (charter §2); "
+            "REJECTED for proven-open (nothing closed it). "
             "proven-open = targeted pass saturated without closing → candidate contribution."
         ),
     )
@@ -317,6 +340,45 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
             "Closure status. closed-supported: matcher flipped [ABSENT]→[SUPPORTS/PARTIAL]. "
             "closed-filled: support-degree crossed threshold / MOC filled. "
             "proven-open: saturated without closing → candidate contribution."
+        ),
+    )
+    gap_close_p.add_argument(
+        "--by",
+        default=None,
+        metavar="<note-ref>",
+        help=(
+            "SR-GAP-CLOSE: the OKF note that resolved this gap (e.g. 'literature/smith2024', "
+            "'experiments/exp-001'). REQUIRED for closed-supported and closed-filled "
+            "(a closed gap with no closer is un-auditable — charter §2). "
+            "REJECTED for proven-open (nothing closed it). "
+            "Writes bidirectional edges: closed_by: in the gap FM + closes: in the closing note FM."
+        ),
+    )
+
+    # ── gap-promote ────────────────────────────────────────────────────────────
+    gap_promote_p = sub.add_parser(
+        "gap-promote",
+        help=(
+            "SR-GAP-CLOSE §5L.21(2): promote a proven-open gap to 'promoted' status (human-only). "
+            "proven-open → promoted; writes promoted_to: <ref> in the gap FM. "
+            "Requires --to <manuscript-section/claim>. "
+            "Anti-pattern: do NOT hand-write a contribution from a proven-open gap — "
+            "run gap-promote so the claim round-trips the SR-MS-2 support-matcher."
+        ),
+    )
+    gap_promote_p.add_argument(
+        "gap_id",
+        metavar="<gap-id>",
+        help="Gap record id (stem of the gaps/<id>.md note). Must be in proven-open status.",
+    )
+    gap_promote_p.add_argument(
+        "--to",
+        required=True,
+        metavar="<ref>",
+        help=(
+            "Manuscript section or claim reference (e.g. 'manuscript/contributions', "
+            "'manuscript/future-work'). Required — a promotion without a target is "
+            "un-auditable (charter §2)."
         ),
     )
 
@@ -348,6 +410,8 @@ def run(args: argparse.Namespace) -> int:
         return _run_gap_list(args)
     elif subcommand == "gap-close":
         return _run_gap_close(args)
+    elif subcommand == "gap-promote":
+        return _run_gap_promote(args)
     else:
         print(
             "rv review: missing subcommand. "
@@ -357,7 +421,8 @@ def run(args: argparse.Namespace) -> int:
             "`rv review <project> gap-scan`, `rv review <project> gap-scope [--target …]`, "
             "`rv review <project> gap-route [--target …]` (alias for gap-scope), "
             "`rv review <project> gap-list [--status …]`, "
-            "or `rv review <project> gap-close`.",
+            "`rv review <project> gap-close [--by <note-ref>]`, "
+            "or `rv review <project> gap-promote --to <ref>`.",
             file=sys.stderr,
         )
         return 1
@@ -656,7 +721,7 @@ def _run_gap_list(args: argparse.Namespace) -> int:
 
 
 def _run_gap_close(args: argparse.Namespace) -> int:
-    """Stamp a gap's closure status (SR-LR-2 §5L.8)."""
+    """Stamp a gap's closure status with provenance edge (SR-LR-2 §5L.8 + SR-GAP-CLOSE §5L.21(1))."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_close
 
@@ -666,25 +731,74 @@ def _run_gap_close(args: argparse.Namespace) -> int:
         print(f"rv review gap-close: config error: {e}", file=sys.stderr)
         return 1
 
+    # SR-GAP-CLOSE: --by flag (maps to closer_ref parameter)
+    closer_ref = getattr(args, "by", None)
+
     try:
         gap_path = cmd_gap_close(
             args.project,
             args.gap_id,
             args.status,
+            closer_ref=closer_ref,
             config=cfg,
         )
         print(f"rv review gap-close: updated {gap_path}")
         print(f"rv review gap-close: gap {args.gap_id!r} status → {args.status}")
+        if closer_ref:
+            print(
+                f"rv review gap-close: closed_by: {closer_ref!r} written to gap FM "
+                f"(forward edge) + closes: {args.gap_id!r} written to closing note FM "
+                f"(backward link — Ada ruling 2, W3C PROV)."
+            )
         if args.status == "proven-open":
             print(
                 "rv review gap-close: proven-open = targeted pass saturated without closing. "
-                "This gap is a candidate contribution — cite it in the manuscript's "
-                "contribution framing ('no prior work addresses X — that is our gap to fill')."
+                "This gap is a candidate contribution — run `rv review gap-promote "
+                f"{args.project} {args.gap_id} --to <manuscript-section>` to promote it "
+                "into the manuscript (human-only; the claim round-trips the support-matcher)."
             )
         return 0
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, TypeError) as e:
         print(f"rv review gap-close: {e}", file=sys.stderr)
         return 1
     except Exception as e:
         print(f"rv review gap-close: error: {e}", file=sys.stderr)
+        return 1
+
+
+def _run_gap_promote(args: argparse.Namespace) -> int:
+    """Promote a proven-open gap to 'promoted' status (SR-GAP-CLOSE §5L.21(2), human-only)."""
+    from research_vault.config import load_config
+    from research_vault.review.gap_scan import cmd_gap_promote
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv review gap-promote: config error: {e}", file=sys.stderr)
+        return 1
+
+    to_ref = getattr(args, "to", None)
+
+    try:
+        gap_path = cmd_gap_promote(
+            args.project,
+            args.gap_id,
+            to_ref=to_ref,
+            config=cfg,
+        )
+        print(f"rv review gap-promote: updated {gap_path}")
+        print(f"rv review gap-promote: gap {args.gap_id!r} status → promoted")
+        print(f"rv review gap-promote: promoted_to: {to_ref!r}")
+        print(
+            "rv review gap-promote: the promoted claim must round-trip the SR-MS-2 "
+            "support-matcher when cited in the manuscript. If the manuscript sentence "
+            "asserting significance is unsupported, the matcher returns [ABSENT] and "
+            "the claim re-enters the gap loop as an absent_row — the honesty backstop."
+        )
+        return 0
+    except (FileNotFoundError, ValueError, TypeError) as e:
+        print(f"rv review gap-promote: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"rv review gap-promote: error: {e}", file=sys.stderr)
         return 1

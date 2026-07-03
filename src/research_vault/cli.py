@@ -450,6 +450,20 @@ _VERB_REGISTRY: dict[str, dict] = {
             "--status proven-open is the run-candidate queue. "
             "Use `rv review gap-close <project> <gap-id> --status proven-open` to stamp "
             "a proven-open gap (targeted pass saturated without closing → run-candidate). "
+            "SR-GAP-CLOSE (§5L.19–5L.24): use `rv review gap-close --by <note-ref>` to record "
+            "the bidirectional provenance edge — --by is REQUIRED for closed-supported/"
+            "closed-filled (charter §2: a closed gap with no closer is un-auditable); "
+            "--by is REJECTED for proven-open (nothing closed it). "
+            "--by writes both: closed_by: in the gap FM + closes: in the closing note FM. "
+            "Use `rv review gap-promote <project> <gap-id> --to <ref>` to promote a "
+            "proven-open gap to 'promoted' status (human-only, never auto). The promoted "
+            "claim round-trips the SR-MS-2 support-matcher (the honesty backstop). "
+            "Use `rv review gap-list --status promoted` / `--status reopened` for the "
+            "new lifecycle statuses. "
+            "Anti-pattern: do NOT gap-close a closed-* gap without --by — a closer-less "
+            "closure is un-auditable and breaks the provenance chain. "
+            "Anti-pattern: do NOT hand-write a contribution claim from a proven-open gap — "
+            "run gap-promote so the claim round-trips the support-matcher. "
             "Anti-pattern: do NOT hand-collect papers without `rv review new` — the "
             "hand-run path has no `_protocol.md` freeze, no saturation curve, and no "
             "rejects-only coverage critic (the coverage gate cannot fire without the "
@@ -463,7 +477,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "counts — import `_load_corpus_index` and `_corpus_annotation` from "
             "`research_vault.research` directly (the corpus-helper import rule, §5L.11)."
         ),
-        "sr": "SR-LR-1, SR-LR-2, SR-GAP-ROUTE",
+        "sr": "SR-LR-1, SR-LR-2, SR-GAP-ROUTE, SR-GAP-CLOSE",
     },
 }
 

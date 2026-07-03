@@ -696,9 +696,16 @@ def test_gap_close_supported(tmp_instance):
     cfg = load_config()
     pnd = cfg.project_notes_dir("demo-research")
     _make_finding(pnd, "f-close-1", claim="Gap to close as supported")
+    # Create the closing note (SR-GAP-CLOSE: --by required for closed-supported)
+    lit_dir = pnd / "literature"
+    lit_dir.mkdir(parents=True, exist_ok=True)
+    (lit_dir / "closer2024.md").write_text(
+        "---\ntype: literature\ncitekey: closer2024\n---\n# Closer\n", encoding="utf-8"
+    )
     cmd_gap_scan("demo-research", config=cfg)
     gap_id = list((pnd / "gaps").glob("*.md"))[0].stem
-    cmd_gap_close("demo-research", gap_id, "closed-supported", config=cfg)
+    cmd_gap_close("demo-research", gap_id, "closed-supported",
+                  closer_ref="literature/closer2024", config=cfg)
     gap_path = pnd / "gaps" / f"{gap_id}.md"
     fm, _ = _parse_frontmatter(gap_path.read_text(encoding="utf-8"))
     assert fm["status"] == "closed-supported"
@@ -736,13 +743,15 @@ def test_gap_close_invalid_status(tmp_instance):
 
 
 def test_gap_close_missing_gap(tmp_instance):
-    """9d. Gap ID not found → FileNotFoundError."""
+    """9d. Gap ID not found → FileNotFoundError (with closer_ref to pass --by validation)."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_close
 
     cfg = load_config()
+    # SR-GAP-CLOSE: must pass closer_ref to satisfy --by check before the file-not-found check
     with pytest.raises(FileNotFoundError):
-        cmd_gap_close("demo-research", "nonexistent-gap-id", "closed-supported", config=cfg)
+        cmd_gap_close("demo-research", "nonexistent-gap-id", "closed-supported",
+                      closer_ref="literature/any-ref", config=cfg)
 
 
 # ---------------------------------------------------------------------------

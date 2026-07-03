@@ -1,3 +1,48 @@
+## 2026-07-02 (SR-GAP-CLOSE / SR-LR-4 — gap-closure lifecycle, closure-as-provenance)
+
+### Done
+- **SR-GAP-CLOSE (SR-LR-4)**: gap-closure lifecycle complete. Makes closure a PROVENANCE
+  EVENT, not a status delete. Zero new mechanism — frontmatter regex-stamps + pure OKF reads.
+- **`GAP_STATUSES += {promoted, reopened}`** — NOT superseded (DEFERRED per D-CLOSE-3
+  to `note.cmd_check`). Additive; all existing statuses untouched.
+- **`cmd_gap_close --by <note-ref>`** bidirectional provenance edge (Ada ruling 2, W3C PROV):
+  `--by` REQUIRED for `closed-supported`/`closed-filled` (charter §2: un-auditable without);
+  REJECTED for `proven-open` (nothing closed it). Writes both: `closed_by: <note-ref>` in gap
+  FM (forward edge) + `closes: <gap-id>` in closing note FM (backward link, the failure mode
+  Gotel & Finkelstein name). In-place, never moves/archives (load-bearing on idempotent guard).
+- **`cmd_gap_promote <gap-id> --to <ref>`** — human-only verb, `proven-open → promoted`.
+  Writes `promoted_to: <ref>`. Rejects non-proven-open and absent `--to` (both un-auditable).
+  Honesty backstop: promoted claim round-trips SR-MS-2 support-matcher; [ABSENT] verdict
+  re-enters the gap loop as `absent_row` — the loop polices its own promotions.
+- **`reopened` structural re-detection** (conservative, §5L.21(3)):
+  - Signal 1: `absent_row` re-fires on `closed-supported` gap (matcher flip-back to [ABSENT]).
+    Requires `matcher_meta`; degrade-to-skip if None.
+  - Signal 2: `contradictory` re-fires on ANY closed status (concept re-acquired both edges).
+  - Everything else (closed-filled re-fires) → `warnings.warn` (FP guard, §5L.22 caveat a).
+  Stamps `reopened_reason: <signal>`; retains `closed_by:` as history (charter §2 surface).
+- **`open_gap_count` counts `{open, reopened}`** (D-CLOSE-4 — both actionable).
+- **`gap-promote`** CLI subcommand + `--by` on `gap-close` + updated help/anti-patterns.
+- **Discovery**: verb registry SR field updated to `SR-GAP-CLOSE`; anti-patterns in docs.
+- 50 new tests (test_sr_gap_close.py). Updated test_sr_lr_2.py (old gap-close tests
+  now pass `closer_ref` to satisfy the new --by requirement).
+- Full suite: 1627 passed, 37 skipped; `rv lint` clean; `rv help --check` OK.
+
+### Decisions
+- Superseded status DROPPED (D-CLOSE-3): vanished-anchor hygiene → deferred to `note.cmd_check`
+  (the existing validation path already does the isomorphic `covers:`-resolution check).
+  Avoids status proliferation; honors reuse-over-create (charter §6).
+- run-arm closure: `--by experiments/<id>` records the audit trail; no `backed_by` required
+  (backed_by is LITERATURE support, semantically wrong for a run-arm closure). Closure
+  persists via the idempotent-preserve guard, not a detector edge.
+- Conservative `warn` posture for closed-filled re-fires: the detector cannot distinguish
+  "backed_by threshold crossed" from "run-arm generated result" — warn, human confirms.
+
+### Open / next
+- SR-10: OSS public publish (endgame)
+- SR-GAP-HYGIENE (future): extend `note.cmd_check` for vanished-anchor degrade-to-warn
+
+---
+
 ## 2026-07-02 (SR-PLAN-FREEZE-RETRY #23 — max_retries folded into freeze-hash)
 
 ### Done
