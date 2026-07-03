@@ -42,6 +42,18 @@ from .config import Config, load_config, reset_config_cache, _find_config_path, 
 # Registry schema
 # ---------------------------------------------------------------------------
 
+# The canonical dispatchable crew for every project.
+# Hub (Alfred) and architect (Wren) are vault-level; all other named-crew
+# roles are project-scoped and always appear per-project.
+# Slug convention matches the functional role name (not the personal name).
+DEFAULT_ROSTER: list[str] = [
+    "manager",    # Atlas
+    "engineer",   # Mason
+    "researcher", # Ada
+    "designer",   # Iris
+    "reviewer",   # Argus
+]
+
 # Required fields on every project record
 _REQUIRED_FIELDS = ("name", "code", "source_dir")
 
@@ -387,6 +399,10 @@ def cmd_new(
         # Remove any prior registry entry for this slug (best-effort)
         _rollback_registry(config_path, name)
 
+    # Belt-and-suspenders: any direct Python caller passing roster=[] also gets
+    # the canonical default crew (same as the CLI path).
+    roster = roster or DEFAULT_ROSTER
+
     # Track whether we've registered (so rollback knows what to undo)
     registered = False
 
@@ -633,11 +649,7 @@ def build_parser(
         "--source", dest="source_dir", required=True,
         help="Absolute or ~ path to the project's source directory.",
     )
-    add_p.add_argument(
-        "--roster", nargs="+", default=[],
-        metavar="ROLE",
-        help="Space-separated list of roles for this project (e.g. engineer researcher).",
-    )
+    # --roster is intentionally absent: every project always gets DEFAULT_ROSTER.
 
     # list — real implementation (SR-XP)
     sub.add_parser("list", help="List all registered projects (slug, code, roster, source).")
@@ -662,11 +674,7 @@ def build_parser(
             "Default: sibling of the RV instance root (instance_root/../<slug>)."
         ),
     )
-    new_p.add_argument(
-        "--roster", nargs="+", default=[],
-        metavar="ROLE",
-        help="Agent roles for this project (e.g. engineer researcher reviewer).",
-    )
+    # --roster is intentionally absent: every project always gets DEFAULT_ROSTER.
     new_p.add_argument(
         "--zotero", action="store_true", default=False,
         help=(
@@ -694,7 +702,7 @@ def run(args: argparse.Namespace) -> int:
                 name=args.name,
                 code=args.code,
                 source_dir=args.source_dir,
-                roster=args.roster,
+                roster=DEFAULT_ROSTER,
             )
             return 0
         except FileNotFoundError as e:
@@ -715,7 +723,7 @@ def run(args: argparse.Namespace) -> int:
             name=args.name,
             code=args.code,
             source_dir=args.source_dir,
-            roster=args.roster,
+            roster=DEFAULT_ROSTER,
             zotero=args.zotero,
             git_discipline=args.git_discipline,
             force=args.force,

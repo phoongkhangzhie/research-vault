@@ -38,13 +38,21 @@ The `okf-coverage-gate` human-go node blocks until all distill nodes succeed.
 
 ## Adding a real project
 
-A real project is a separate git repository. Register it:
+A real project is a separate git repository. Register an existing repo:
 
 ```bash
-rv project add my-project /path/to/my-project-repo
+rv project add my-project --code mp --source /path/to/my-project-repo
 ```
 
-Then use any `rv` verb with `my-project` as the project slug.
+Or stand up a brand-new project repo (git init + scaffold + crew) in one command:
+
+```bash
+rv project new my-project --code mp --source /path/to/new-project-dir
+```
+
+Every project automatically gets the full default crew. Use any `rv` verb with
+`my-project` as the project slug, and `rv build-agents --project my-project`
+to generate the agent hat files.
 
 ## Key verbs
 

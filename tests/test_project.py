@@ -7,6 +7,8 @@ Core invariants under test:
   4. CANONICAL form: fixed field order in the written section (code, source_dir, roster).
   5. SR-1 forward-flag: roster and code appear in the written record.
   6. SR-XP: rv project list enumerates projects with real fields, no disclosure column.
+  7. DEFAULT-ROSTER: rv project add always writes the canonical default crew; --roster
+     option is removed; empty/missing roster in registry falls back to DEFAULT_ROSTER.
 
 All tests are hermetic: run in tmp_path, no real filesystem side-effects.
 """
@@ -18,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from research_vault.project import (
+    DEFAULT_ROSTER,
     _check_no_duplicate,
     _render_project_section,
     _validate_entry,
@@ -376,3 +379,190 @@ def test_project_list_empty_registry(tmp_path: Path, capsys) -> None:
     assert rc == 0
     out = capsys.readouterr().out
     assert "No projects" in out
+
+
+# ---------------------------------------------------------------------------
+# DEFAULT-ROSTER invariants (rv project add, build-agents, role list)
+# ---------------------------------------------------------------------------
+
+class TestDefaultRosterConstant:
+    def test_default_roster_is_nonempty(self) -> None:
+        """DEFAULT_ROSTER must be a non-empty list."""
+        assert isinstance(DEFAULT_ROSTER, list)
+        assert len(DEFAULT_ROSTER) > 0, "DEFAULT_ROSTER must have at least one role"
+
+    def test_default_roster_excludes_hub(self) -> None:
+        """Hub (alfred) must NOT be in the DEFAULT_ROSTER — it's vault-level, not per-project."""
+        assert "alfred" not in DEFAULT_ROSTER, "hub (alfred) must never be in DEFAULT_ROSTER"
+        # Also check common hub aliases
+        assert "hub" not in DEFAULT_ROSTER
+
+    def test_default_roster_contains_core_doer_roles(self) -> None:
+        """The core project doer roles must be present."""
+        for role in ("manager", "engineer", "researcher", "designer"):
+            assert role in DEFAULT_ROSTER, f"doer role {role!r} must be in DEFAULT_ROSTER"
+
+    def test_default_roster_contains_reviewer(self) -> None:
+        """Reviewer is project-scoped (reviews through the project lens)."""
+        assert "reviewer" in DEFAULT_ROSTER, "reviewer must be in DEFAULT_ROSTER"
+
+    def test_default_roster_excludes_architect(self) -> None:
+        """Architect (Wren) is vault-level (cross-project stack) — NOT per-project."""
+        assert "architect" not in DEFAULT_ROSTER, "architect must not be in DEFAULT_ROSTER (vault-level)"
+
+
+class TestProjectAddDefaultRoster:
+    """rv project add must always write DEFAULT_ROSTER — no --roster option."""
+
+    def test_cmd_add_writes_default_roster(self, config_file: Path, tmp_path: Path) -> None:
+        """cmd_add with no explicit roster → registry entry has DEFAULT_ROSTER (not [])."""
+        cmd_add(
+            name="new-proj",
+            code="np",
+            source_dir=str(tmp_path / "new-proj"),
+            roster=DEFAULT_ROSTER,
+            config_path=config_file,
+        )
+        content = config_file.read_bytes()
+        parsed = tomllib.loads(content.decode())
+        proj = parsed["projects"]["new-proj"]
+        assert proj["roster"] == DEFAULT_ROSTER, (
+            f"cmd_add must write DEFAULT_ROSTER {DEFAULT_ROSTER!r}, "
+            f"got {proj['roster']!r}"
+        )
+
+    def test_cli_run_writes_default_roster(
+        self, config_file: Path, tmp_path: Path, monkeypatch
+    ) -> None:
+        """CLI run() for 'add' must write DEFAULT_ROSTER when no --roster is passed."""
+        import research_vault.project as proj_mod
+        monkeypatch.setattr(proj_mod, "_find_config_path", lambda: config_file)
+
+        # Simulate CLI invocation WITHOUT --roster (the option is removed)
+        ns = argparse.Namespace(
+            project_cmd="add",
+            name="cli-norost",
+            code="cn",
+            source_dir=str(tmp_path / "cli-norost"),
+        )
+        rc = run(ns)
+        assert rc == 0, f"run() returned {rc}"
+
+        content = config_file.read_bytes()
+        parsed = tomllib.loads(content.decode())
+        proj = parsed["projects"]["cli-norost"]
+        assert proj["roster"] == DEFAULT_ROSTER, (
+            f"CLI add must write DEFAULT_ROSTER, got {proj['roster']!r}"
+        )
+
+    def test_add_parser_has_no_roster_option(self) -> None:
+        """--roster must NOT be an accepted option on rv project add."""
+        from research_vault.project import build_parser
+        p = build_parser()
+        # Parse 'add' subcommand — passing --roster must cause an error
+        with pytest.raises(SystemExit) as exc_info:
+            p.parse_args([
+                "add", "test-proj",
+                "--code", "tp",
+                "--source", "/tmp/test-proj",
+                "--roster", "engineer",
+            ])
+        assert exc_info.value.code != 0, "--roster must be rejected as unrecognized argument"
+
+
+class TestEmptyRosterFallback:
+    """Projects with roster=[] in registry must yield DEFAULT_ROSTER from build-agents / role list."""
+
+    def _make_cfg_empty_roster(self, tmp_path: Path) -> Config:
+        raw = {
+            "instance_root": str(tmp_path),
+            "notes_root": str(tmp_path / "notes"),
+            "state_dir": str(tmp_path / "state"),
+            "agents_dir": str(tmp_path / ".agents"),
+            "tasks_dir": str(tmp_path / "tasks"),
+            "control_dir": str(tmp_path / "control"),
+            "adapters": {"notifier": "file", "backend": "local", "secrets": "env"},
+            "projects": {
+                "legacy-proj": {
+                    "code": "lp",
+                    "source_dir": str(tmp_path / "legacy"),
+                    "roster": [],
+                }
+            },
+        }
+        return Config(raw)
+
+    def test_build_agents_empty_roster_uses_default(self, tmp_path: Path) -> None:
+        """build-agents must generate DEFAULT_ROSTER hats for a project with roster=[]."""
+        from research_vault.build_agents import cmd_build
+        cfg = self._make_cfg_empty_roster(tmp_path)
+        agents_dir = tmp_path / ".agents"
+        rc = cmd_build("legacy-proj", cfg, agents_dir=agents_dir)
+        assert rc == 0
+
+        for role in DEFAULT_ROSTER:
+            hat = agents_dir / "legacy-proj" / f"{role}.md"
+            assert hat.exists(), (
+                f"Hat {role}.md must be generated for empty-roster project "
+                f"(fallback to DEFAULT_ROSTER)"
+            )
+
+    def test_role_list_empty_roster_shows_default(self, tmp_path: Path, capsys) -> None:
+        """rv role list must show DEFAULT_ROSTER (not '(none)') for roster=[] project."""
+        from research_vault.role import cmd_list as role_list
+        cfg = self._make_cfg_empty_roster(tmp_path)
+        rc = role_list(cfg)
+        assert rc == 0
+        out = capsys.readouterr().out
+        # At least one DEFAULT_ROSTER role must appear in the output
+        assert any(role in out for role in DEFAULT_ROSTER), (
+            f"role list must show DEFAULT_ROSTER roles for empty-roster project, got:\n{out}"
+        )
+        assert "(none)" not in out, "role list must not show '(none)' for empty-roster project"
+
+
+class TestBuildAgentsDefaultRoster:
+    """rv build-agents --project p with a default roster generates one hat per role."""
+
+    def _make_cfg_with_default_roster(self, tmp_path: Path) -> Config:
+        raw = {
+            "instance_root": str(tmp_path),
+            "notes_root": str(tmp_path / "notes"),
+            "state_dir": str(tmp_path / "state"),
+            "agents_dir": str(tmp_path / ".agents"),
+            "tasks_dir": str(tmp_path / "tasks"),
+            "control_dir": str(tmp_path / "control"),
+            "adapters": {"notifier": "file", "backend": "local", "secrets": "env"},
+            "projects": {
+                "my-proj": {
+                    "code": "mp",
+                    "source_dir": str(tmp_path / "my-proj"),
+                    "roster": DEFAULT_ROSTER,
+                }
+            },
+        }
+        return Config(raw)
+
+    def test_generates_hat_per_default_role(self, tmp_path: Path) -> None:
+        """build-agents must generate exactly one hat file per DEFAULT_ROSTER role."""
+        from research_vault.build_agents import cmd_build
+        cfg = self._make_cfg_with_default_roster(tmp_path)
+        agents_dir = tmp_path / ".agents"
+        rc = cmd_build("my-proj", cfg, agents_dir=agents_dir)
+        assert rc == 0
+
+        proj_agents = agents_dir / "my-proj"
+        for role in DEFAULT_ROSTER:
+            hat = proj_agents / f"{role}.md"
+            assert hat.exists(), f"Hat {role}.md must be generated for DEFAULT_ROSTER"
+
+    def test_hub_hat_not_generated(self, tmp_path: Path) -> None:
+        """Hub (alfred/hub) hat must NOT be generated for any project."""
+        from research_vault.build_agents import cmd_build
+        cfg = self._make_cfg_with_default_roster(tmp_path)
+        agents_dir = tmp_path / ".agents"
+        cmd_build("my-proj", cfg, agents_dir=agents_dir)
+
+        proj_agents = agents_dir / "my-proj"
+        assert not (proj_agents / "alfred.md").exists(), "hub hat must never be generated"
+        assert not (proj_agents / "hub.md").exists(), "hub hat must never be generated"

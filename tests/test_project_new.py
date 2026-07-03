@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from research_vault.config import load_config, reset_config_cache
 from research_vault.project import (
+    DEFAULT_ROSTER,
     _rollback_registry,
     _render_project_section,
     cmd_add,
@@ -115,7 +116,7 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
 class TestProjectNewHappyPath:
     def test_exits_zero(self, rv_instance: Path) -> None:
         src = rv_instance / "projects" / "demo"
-        rc = cmd_new("demo", "dm", str(src), ["engineer", "reviewer"])
+        rc = cmd_new("demo", "dm", str(src), DEFAULT_ROSTER)
         assert rc == 0, f"cmd_new should return 0"
 
     def test_creates_git_repo_on_main(self, rv_instance: Path) -> None:
@@ -157,12 +158,14 @@ class TestProjectNewRegistry:
     def test_config_has_required_fields(self, rv_instance: Path) -> None:
         src = rv_instance / "projects" / "demo"
         config_file = rv_instance / "research_vault.toml"
-        cmd_new("demo", "dm", str(src), ["engineer", "reviewer"])
+        cmd_new("demo", "dm", str(src), DEFAULT_ROSTER)
         parsed = tomllib.loads(config_file.read_bytes().decode())
         proj = parsed["projects"]["demo"]
         assert proj["code"] == "dm"
         assert proj["source_dir"] == str(src)
-        assert proj.get("roster") == ["engineer", "reviewer"]
+        assert proj.get("roster") == DEFAULT_ROSTER, (
+            f"registry must contain DEFAULT_ROSTER, got {proj.get('roster')!r}"
+        )
         assert "refs" in proj, "refs key must be written by project new"
         assert proj["refs"].endswith("library.json"), f"refs must point to library.json: {proj['refs']}"
 
@@ -238,25 +241,27 @@ class TestProjectNewScaffold:
 # ---------------------------------------------------------------------------
 
 class TestProjectNewCrew:
-    def test_roster_creates_agent_hats(self, rv_instance: Path) -> None:
+    def test_default_roster_creates_agent_hats(self, rv_instance: Path) -> None:
+        """cmd_new with DEFAULT_ROSTER generates a hat file per role."""
         src = rv_instance / "projects" / "demo"
-        cmd_new("demo", "dm", str(src), ["engineer", "reviewer"])
+        cmd_new("demo", "dm", str(src), DEFAULT_ROSTER)
         agents_dir = rv_instance / ".agents" / "demo"
-        assert (agents_dir / "engineer.md").exists(), "engineer.md hat must exist"
-        assert (agents_dir / "reviewer.md").exists(), "reviewer.md hat must exist"
+        for role in DEFAULT_ROSTER:
+            hat = agents_dir / f"{role}.md"
+            assert hat.exists(), f"{role}.md hat must exist"
 
-    def test_empty_roster_no_agent_hats(self, rv_instance: Path) -> None:
+    def test_empty_roster_falls_back_to_default(self, rv_instance: Path) -> None:
+        """cmd_new with roster=[] falls back to DEFAULT_ROSTER and generates hats."""
         src = rv_instance / "projects" / "demo"
         cmd_new("demo", "dm", str(src), [])
         agents_dir = rv_instance / ".agents" / "demo"
-        # SR-CONTRACT: CONTRACT.md is always scaffolded (even for empty roster),
-        # so agents_dir WILL exist and contain CONTRACT.md.
-        # The invariant is: no ROLE hat files (engineer.md, reviewer.md, etc.) —
-        # not "no files at all".
-        if agents_dir.exists():
-            role_hats = [f for f in agents_dir.glob("*.md") if f.name != "CONTRACT.md"]
-            assert not role_hats, \
-                f"no role hat files should be created for empty roster, got: {role_hats}"
+        # Belt-and-suspenders: empty roster → DEFAULT_ROSTER hats must be created.
+        for role in DEFAULT_ROSTER:
+            hat = agents_dir / f"{role}.md"
+            assert hat.exists(), (
+                f"{role}.md hat must exist even when cmd_new called with roster=[] "
+                f"(fallback to DEFAULT_ROSTER)"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -449,12 +454,12 @@ class TestProjectNewDiscovery:
 
 class TestProjectNewCLI:
     def test_cli_exit_zero(self, rv_instance: Path) -> None:
+        """CLI rv project new without --roster succeeds (roster auto-defaults)."""
         src = rv_instance / "projects" / "demo"
         rc = invoke_cli([
             "project", "new", "demo",
             "--code", "dm",
             "--source", str(src),
-            "--roster", "engineer", "reviewer",
         ])
         assert rc == 0
 

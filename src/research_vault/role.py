@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, load_config
+from .project import DEFAULT_ROSTER
 
 
 # ---------------------------------------------------------------------------
@@ -30,8 +31,8 @@ def cmd_list(cfg: Config) -> int:
     print("-" * 60)
     for slug, rec in projects.items():
         code = rec.get("code", "?")
-        roster = rec.get("roster", [])
-        roster_str = ", ".join(roster) if roster else "(none)"
+        roster = rec.get("roster", []) or DEFAULT_ROSTER
+        roster_str = ", ".join(roster)
         print(f"  {slug:<22} {code:<12} {roster_str}")
     return 0
 

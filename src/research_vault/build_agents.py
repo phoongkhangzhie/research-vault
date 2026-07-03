@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from .config import Config, load_config
+from .project import DEFAULT_ROSTER
 
 
 # ---------------------------------------------------------------------------
@@ -143,10 +144,9 @@ def cmd_build(
             print(f"rv build-agents: {e}", file=sys.stderr)
             return 1
 
-        roster = proj.get("roster", [])
-        if not roster:
-            print(f"  {slug}: no roster defined — skipping hat generation.")
-            continue
+        roster = proj.get("roster", []) or DEFAULT_ROSTER
+        # An empty/missing roster is treated as DEFAULT_ROSTER (belt-and-suspenders
+        # for legacy projects that pre-date the default-roster rule).
 
         source_dir = proj.get("source_dir", str(cfg.notes_root / slug))
         proj_dir = target_dir / slug
