@@ -100,12 +100,16 @@ GAP_TYPES: frozenset[str] = frozenset({
     GAP_TYPE_ABSENT_ROW,
 })
 
-# Valid closure statuses (§5L.8)
+# Valid closure statuses (§5L.8 + §5L.20 SR-GAP-CLOSE)
+# NOTE: "superseded" is INTENTIONALLY ABSENT — DEFERRED to note.cmd_check (D-CLOSE-3).
+# The vanished-anchor hygiene check belongs in the existing validation path, not here.
 GAP_STATUSES: frozenset[str] = frozenset({
     "open",
     "closed-supported",
     "closed-filled",
     "proven-open",
+    "promoted",   # SR-GAP-CLOSE: proven-open → promoted (human-only via gap-promote)
+    "reopened",   # SR-GAP-CLOSE: structural reopen signal; re-enters open-routing
 })
 
 # Default support-degree threshold (D-GAP-2)
@@ -686,7 +690,16 @@ def cmd_gap_scan(
     for rec in all_gaps:
         gid = _gap_id(rec.type, rec.anchor, rec.claim)
         if gid in existing:
-            # Gap already recorded — do NOT overwrite (preserves closed status)
+            # Gap already recorded — idempotent-preserve guard.
+            # SR-GAP-CLOSE §5L.21(3): check for CONSERVATIVE structural reopen signals.
+            existing_status = existing[gid]
+            _check_reopen_signal(
+                rec=rec,
+                gid=gid,
+                existing_status=existing_status,
+                pnd=pnd,
+                matcher_meta=matcher_meta,
+            )
             continue
         # SR-GAP-ROUTE: stamp suggested_route on the record before writing
         rec.suggested_route = suggest_route(rec.type, rec._meta)
@@ -694,6 +707,102 @@ def cmd_gap_scan(
         new_gaps.append(rec)
 
     return new_gaps
+
+
+def _check_reopen_signal(
+    *,
+    rec: GapRecord,
+    gid: str,
+    existing_status: str,
+    pnd: Path,
+    matcher_meta: "dict[str, Any] | None",
+) -> None:
+    """Evaluate whether a re-firing detector should trigger a 'reopened' status.
+
+    SR-GAP-CLOSE §5L.21(3) — CONSERVATIVE structural reopen (Ada's two signals):
+
+    Signal 1 — absent_row re-fires on a CLOSED-SUPPORTED gap:
+        The SR-MS-2 matcher verdict flipped back to [ABSENT]. A closed-supported
+        gap is by definition a matcher-flip closure; re-firing means the flip reversed.
+        → stamp 'reopened' + 'reopened_reason: absent_row_flip_back'.
+        Requires matcher_meta at scan time; degrade-to-skip if None (§5M posture).
+
+    Signal 2 — contradictory re-fires on ANY closed status:
+        The concept note re-acquired both supported_by AND contradicted_by edges.
+        Pure structural (OKF graph read via _detect_contradictory) → stamp 'reopened'.
+        → stamp 'reopened' + 'reopened_reason: contradictory_edges_reacquired'.
+
+    Everything else:
+        A closed-filled gap re-fires on ANY detector type (knowledge_void,
+        evaluation_void, absent_row) → WARN on stderr, status UNCHANGED.
+        Rationale: closed-filled spans BOTH "backed_by threshold crossed" AND
+        "run-arm generated result" closures. The detector cannot distinguish them.
+        The human confirms from the closed_by: audit trail (§5L.22 caveat a).
+        Any gap type re-firing on a non-closed status → also WARN only (already handled
+        by the caller not reaching here for non-existing gaps, but be defensive).
+
+    Stamps 'reopened_reason: <signal>' and retains 'closed_by:' as history (charter §2:
+    surface, never silently drop; the closure audit trail is a specific).
+    """
+    # Only structural signals authorize auto-reopen (NEVER semantic drift)
+    is_absent_row = rec.type == GAP_TYPE_ABSENT_ROW
+    is_contradictory = rec.type == GAP_TYPE_CONTRADICTORY
+
+    # Signal 1: absent_row on closed-supported (matcher flip-back)
+    if is_absent_row and existing_status == "closed-supported":
+        if matcher_meta is None:
+            # Degrade-to-skip (§5M posture): no matcher_meta → can't confirm flip-back
+            return
+        # Signal 1 confirmed: the absent_row detector re-fired AND the gap was
+        # closed-supported (i.e. closed because the matcher said [SUPPORTS]/[PARTIAL]).
+        # Re-firing now means the verdict flipped back to [ABSENT]/[CONTRADICTS].
+        _stamp_reopened(pnd, gid, reason="absent_row_flip_back_on_closed_supported")
+        return
+
+    # Signal 2: contradictory on ANY closed status (both edges re-acquired — pure structural)
+    if is_contradictory and existing_status in {
+        "closed-supported", "closed-filled", "proven-open", "promoted",
+    }:
+        _stamp_reopened(pnd, gid, reason="contradictory_edges_reacquired")
+        return
+
+    # Everything else → WARN, status UNCHANGED (the FP guard)
+    # This covers:
+    #   - absent_row on closed-filled (run-arm ambiguity, §5L.22 caveat a)
+    #   - knowledge_void / evaluation_void on closed-filled
+    #   - any type on proven-open / promoted (terminal states from the human path)
+    warnings.warn(
+        f"gap {gid!r} (type={rec.type!r}) re-fired but its status is "
+        f"{existing_status!r} — NOT auto-reopening (conservative posture §5L.21(3)). "
+        f"Inspect the gap's closed_by: field and confirm manually if a reopen is warranted.",
+        UserWarning,
+        stacklevel=4,
+    )
+
+
+def _stamp_reopened(pnd: Path, gid: str, reason: str) -> None:
+    """Stamp a gap as 'reopened' with a reason field (in-place, retains closed_by:).
+
+    SR-GAP-CLOSE §5L.21(3): reopened carries 'reopened_reason: <signal>' AND
+    retains 'closed_by:' as history — surface, never drop (charter §2).
+    """
+    gap_path = _gap_note_path(pnd, gid)
+    if not gap_path.exists():
+        return
+    text = gap_path.read_text(encoding="utf-8")
+    # Stamp status: reopened (in-place)
+    new_text = re.sub(
+        r"^(status:\s*)(.*)$",
+        lambda m: f"{m.group(1)}reopened",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if new_text == text:
+        new_text = _stamp_frontmatter_field(text, "status", "reopened")
+    # Stamp reopened_reason: (in-place; retains closed_by: — do NOT remove it)
+    new_text = _stamp_frontmatter_field(new_text, "reopened_reason", reason)
+    gap_path.write_text(new_text, encoding="utf-8")
 
 
 def cmd_gap_scope(
@@ -998,19 +1107,91 @@ def _cmd_gap_scope_experiment(
     return {"plan_note_path": str(plan_path), "gap_context_path": str(context_path)}
 
 
+def _stamp_frontmatter_field(text: str, field: str, value: str) -> str:
+    """Add or replace ``field: value`` in the frontmatter block.
+
+    If the field already exists, replaces its value in-place (regex-stamp,
+    mirroring the status: stamp pattern).  If absent, appends it before the
+    closing ``---`` delimiter.  In-place, never moves/archives the file.
+
+    Only modifies the FIRST frontmatter block (between the first pair of ``---``).
+    """
+    # Try to replace an existing field line
+    new_text = re.sub(
+        rf"^({re.escape(field)}:\s*)(.*)$",
+        lambda m: f"{m.group(1)}{value}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if new_text != text:
+        return new_text  # replaced in-place
+
+    # Field absent — inject before the closing --- of the first frontmatter block
+    # Find the second --- (end of frontmatter)
+    lines = text.splitlines(keepends=True)
+    delim_count = 0
+    insert_idx = None
+    for i, ln in enumerate(lines):
+        if ln.strip() == "---":
+            delim_count += 1
+            if delim_count == 2:
+                insert_idx = i
+                break
+    if insert_idx is not None:
+        lines.insert(insert_idx, f"{field}: {value}\n")
+        return "".join(lines)
+
+    # No frontmatter found — append at end (degrade gracefully)
+    return text + f"\n{field}: {value}\n"
+
+
+def _append_closes_to_note(note_path: Path, gap_id: str) -> None:
+    """Append ``closes: <gap-id>`` to the closing note's frontmatter (the backward link).
+
+    Implements Ada ruling 2 (W3C PROV + Gotel & Finkelstein): the failure mode
+    is the MISSING backward link — write both edges, never just the forward one.
+
+    If the note file does not exist, silently skips (the note reference may be
+    to a note that will be created separately; the gap record retains the forward
+    edge for audit).
+    """
+    if not note_path.exists():
+        return
+    text = note_path.read_text(encoding="utf-8")
+    new_text = _stamp_frontmatter_field(text, "closes", gap_id)
+    note_path.write_text(new_text, encoding="utf-8")
+
+
 def cmd_gap_close(
     project: str,
     gap_id: str,
     status: str,
     *,
+    closer_ref: str | None = None,
     config: Any = None,
 ) -> Path:
-    """Stamp a gap's closure status (§5L.8).
+    """Stamp a gap's closure status with bidirectional provenance edge (SR-GAP-CLOSE §5L.21(1)).
 
     ``status`` must be one of: closed-supported, closed-filled, proven-open.
-    A ``proven-open`` gap is a first-class research object — it means the
-    targeted pass saturated WITHOUT closing → candidate contribution for
-    the manuscript's contribution framing.
+
+    SR-GAP-CLOSE provenance rules (§5L.24 D-CLOSE-1):
+    - ``closer_ref`` is REQUIRED for ``closed-supported`` / ``closed-filled``.
+      A closed gap with no closer is un-auditable (charter §2). The closer is the
+      specific that must be recorded — a literature/ note, experiments/ result, etc.
+    - ``closer_ref`` is REJECTED for ``proven-open``. Nothing closed it — the
+      targeted pass saturated, confirming this is a candidate contribution.
+      Providing --by for proven-open is a logic error (and would silently mislead
+      the audit trail).
+
+    When ``closer_ref`` is provided, writes BOTH edges (Ada ruling 2, W3C PROV +
+    Gotel & Finkelstein — the failure mode is the MISSING backward link):
+      (a) ``closed_by: <closer_ref>`` into the GAP frontmatter (forward edge)
+      (b) ``closes: <gap_id>`` appended into the CLOSING NOTE's frontmatter (back edge)
+
+    In-place, never moves/archives the gap note (Ada ruling 1 — load-bearing on
+    the idempotent-preserve guard: moving the note breaks the _existing_gap_ids glob
+    and causes the detector to re-create the gap as fresh-open, destroying closure).
 
     Returns the updated gap note path.
     """
@@ -1024,6 +1205,25 @@ def cmd_gap_close(
             f"Gap status must be one of {sorted(GAP_STATUSES)!r}; got {status!r}"
         )
 
+    # D-CLOSE-1: closer_ref enforcement
+    _REQUIRES_CLOSER = {"closed-supported", "closed-filled"}
+    _REJECTS_CLOSER = {"proven-open"}
+
+    if status in _REQUIRES_CLOSER and not closer_ref:
+        raise ValueError(
+            f"gap-close --status {status!r} requires --by <note-ref>. "
+            f"A closed gap with no closer is un-auditable (charter §2). "
+            f"Provide the OKF note that resolved this gap "
+            f"(e.g. 'literature/smith2024', 'experiments/exp-001')."
+        )
+    if status in _REJECTS_CLOSER and closer_ref:
+        raise ValueError(
+            f"gap-close --status {status!r} rejects --by <note-ref>. "
+            f"A proven-open gap has no closer — the targeted pass saturated without "
+            f"closing, confirming this is a candidate contribution. "
+            f"Do NOT provide --by for proven-open; run gap-promote instead."
+        )
+
     gap_path = _gap_note_path(pnd, gap_id)
     if not gap_path.exists():
         raise FileNotFoundError(f"Gap note not found: {gap_path}")
@@ -1032,8 +1232,7 @@ def cmd_gap_close(
     fm = _parse_frontmatter_gap(text)
     old_status = fm.get("status", "open")
 
-    # Rewrite the status: line in the frontmatter block
-    # Using a targeted regex to avoid re-serializing the whole FM
+    # Stamp status: (regex-stamp, in-place)
     new_text = re.sub(
         r"^(status:\s*)(.*)$",
         lambda m: f"{m.group(1)}{status}",
@@ -1048,6 +1247,98 @@ def cmd_gap_close(
             f"\nstatus: {status}\n",
             1,
         )
+
+    # Stamp closed_by: (forward edge) if closer_ref provided
+    if closer_ref:
+        new_text = _stamp_frontmatter_field(new_text, "closed_by", closer_ref)
+
+    gap_path.write_text(new_text, encoding="utf-8")
+
+    # Write backward edge: closes: <gap_id> into the closing note's frontmatter
+    if closer_ref:
+        # Resolve the note path: closer_ref is relative to project_notes_dir
+        # closer_ref format: "literature/smith2024" or "experiments/exp-001"
+        # The note file is <closer_ref>.md (no extension in closer_ref by convention)
+        note_ref_path = Path(closer_ref) if Path(closer_ref).is_absolute() else pnd / closer_ref
+        # Add .md extension if not already present
+        if note_ref_path.suffix != ".md":
+            note_ref_path = note_ref_path.with_suffix(".md")
+        _append_closes_to_note(note_ref_path, gap_id)
+
+    return gap_path
+
+
+def cmd_gap_promote(
+    project: str,
+    gap_id: str,
+    *,
+    to_ref: str | None,
+    config: Any = None,
+) -> Path:
+    """Promote a proven-open gap to the 'promoted' status (SR-GAP-CLOSE §5L.21(2)).
+
+    Human-only verb: proven-open → promoted. Writes ``promoted_to: <to_ref>`` in
+    the gap frontmatter.
+
+    Rules:
+    - ``to_ref`` is REQUIRED (a promotion without a target is un-auditable — same
+      §2 logic as --by in gap-close). The target is a manuscript section or claim
+      reference (e.g. 'manuscript/contributions', 'manuscript/future-work').
+    - The gap MUST be in ``proven-open`` status. Promoting an open/closed/reopened
+      gap is an error — the human must first saturate a targeted pass to confirm
+      the gap is a candidate contribution before citing it in the manuscript.
+
+    The honesty backstop (zero new mechanism — §5L.21(2)):
+    A contribution claim written from a promoted gap is ultimately a drafted manuscript
+    sentence that round-trips through the SR-MS-2 support-matcher. If the significance
+    is asserted without backing, the matcher returns [ABSENT] → re-enters the gap loop
+    as an absent_row. The loop polices its own promotions; gap-promote is a data-write.
+
+    Returns the updated gap note path.
+    """
+    from research_vault.config import load_config as _load_config
+
+    cfg = config or _load_config()
+    pnd = cfg.project_notes_dir(project)
+
+    if not to_ref:
+        raise ValueError(
+            "gap-promote requires --to <ref>. "
+            "A promotion without a target is un-auditable (charter §2). "
+            "Provide the manuscript section or claim reference "
+            "(e.g. 'manuscript/contributions', 'manuscript/future-work')."
+        )
+
+    gap_path = _gap_note_path(pnd, gap_id)
+    if not gap_path.exists():
+        raise FileNotFoundError(f"Gap note not found: {gap_path}")
+
+    text = gap_path.read_text(encoding="utf-8")
+    fm = _parse_frontmatter_gap(text)
+    current_status = fm.get("status", "open")
+
+    if current_status != "proven-open":
+        raise ValueError(
+            f"gap-promote requires the gap to be in 'proven-open' status; "
+            f"gap {gap_id!r} is currently '{current_status}'. "
+            f"Only a proven-open gap (targeted pass saturated without closing) "
+            f"is a candidate contribution. Run gap-close --status proven-open first."
+        )
+
+    # Stamp status: promoted
+    new_text = re.sub(
+        r"^(status:\s*)(.*)$",
+        lambda m: f"{m.group(1)}promoted",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if new_text == text:
+        new_text = _stamp_frontmatter_field(text, "status", "promoted")
+
+    # Stamp promoted_to: <to_ref>
+    new_text = _stamp_frontmatter_field(new_text, "promoted_to", to_ref)
+
     gap_path.write_text(new_text, encoding="utf-8")
     return gap_path
 
@@ -1092,6 +1383,10 @@ def cmd_gap_list(
 def open_gap_count(project: str, *, config: Any = None) -> int:
     """Return the count of open (unresolved) gaps for a project.
 
+    SR-GAP-CLOSE D-CLOSE-4: counts BOTH 'open' AND 'reopened' gaps — both are
+    actionable and must be visible as needing-work. 'promoted' and 'closed-*'
+    remain uncounted (terminal / provenance states).
+
     Used by ``rv status`` to surface the open-gaps count (D-GAP-4) — never
     inlines the records, only the count.
     """
@@ -1103,10 +1398,11 @@ def open_gap_count(project: str, *, config: Any = None) -> int:
     if not gaps_dir.is_dir():
         return 0
     count = 0
+    _OPEN_STATUSES = frozenset({"open", "reopened"})
     for p in gaps_dir.glob("*.md"):
         try:
             fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
-            if fm.get("status", "open") == "open":
+            if fm.get("status", "open") in _OPEN_STATUSES:
                 count += 1
         except OSError:
             continue
