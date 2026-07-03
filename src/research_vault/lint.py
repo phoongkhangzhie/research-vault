@@ -51,7 +51,13 @@ from .config import Config, load_config
 # Test-hygiene rules — module-level state for monkeypatching in tests
 # ---------------------------------------------------------------------------
 
-# Repository root (two levels up from src/research_vault/lint.py).
+# DEV-REPO TOOLING — these paths target the framework's own source tree.
+# They are correct when rv lint runs inside the research-vault repo (CI / dev).
+# In a wheel-installed context they resolve to non-existent directories and
+# rules 4/5 silently no-op (0 files found → OK). This is by design: test-hygiene
+# (rules 4a/4b/4c) and F811 (rule 5) guard the FRAMEWORK's own code quality, not
+# the end-user's project. A wheel user has no research_vault tests/ to scan.
+# Task #22 part 2 audit — confirmed dev-only, leave __file__-based. See DEVLOG.
 _FRAMEWORK_ROOT: Path = Path(__file__).parent.parent.parent
 # Default tests directory; monkeypatched by integration tests.
 _TESTS_DIR: Path = _FRAMEWORK_ROOT / "tests"
@@ -631,6 +637,12 @@ def cmd_lint(cfg: Config, *, strict: bool = False) -> int:
         print("Config schema: OK")
 
     # 2. Leakage scan (only if patterns are configured)
+    # DEV-REPO TOOLING: src_dir = Path(__file__).parent targets the research_vault
+    # package directory (src/research_vault/ in dev; site-packages/research_vault/
+    # in wheel). The intent is to catch private names hardcoded in the FRAMEWORK's
+    # own source — a CI gate for framework developers. A wheel user running rv lint
+    # without forbidden_patterns configured (the common case) skips this check
+    # entirely. Task #22 part 2 audit — confirmed dev-only, leave __file__-based.
     patterns = _get_forbidden_patterns(cfg)
     if patterns:
         src_dir = Path(__file__).parent

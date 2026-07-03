@@ -10,41 +10,54 @@ change. **Research Vault is a STANDALONE public OSS package** — built fresh, l
 flowchart LR
     subgraph RV["research-vault repo (standalone, public-destined)"]
       direction TB
-      CFG["config.py<br/>(config plane SSOT —<br/>all paths + adapter selection)"]
-      CLI["cli.py<br/>(fresh Python dispatcher,<br/>config-driven argparse)"]
-      CLI --> CFG
-      subgraph T1["tier-1 — research assistant (zero infra)"]
-        V1["research · cite · note · mdstore<br/>task · devlog · lint · wait-for"]
+      subgraph PKG["src/research_vault/ (the package — ships in the wheel)"]
+        direction TB
+        CFG["config.py<br/>(config plane SSOT —<br/>all paths + adapter selection)"]
+        CLI["cli.py<br/>(fresh Python dispatcher,<br/>config-driven argparse)"]
+        CLI --> CFG
+        subgraph T1["tier-1 — research assistant (zero infra)"]
+          V1["research · cite · note · mdstore<br/>task · devlog · lint · wait-for"]
+        end
+        subgraph T2["tier-2 — file-based coordination"]
+          V2["role · build-agents · control<br/>crew/role system · control-file bus"]
+        end
+        CLI --> V1
+        CLI --> V2
+        subgraph ADP["adapters/ (Protocols + local-defaults)"]
+          N["Notifier<br/>(default: file inbox/outbox)"]
+          B["ComputeBackend<br/>(default: local subprocess)"]
+          S["SecretStore<br/>(default: keyring / env)"]
+        end
+        V1 --> ADP
+        V2 --> ADP
+        subgraph DATA["data/ (SR-PKG — loaded via importlib.resources + as_file;<br/>ships in the wheel · missing file = HARD ERROR, no silent skeleton)"]
+          DOC["doctrine/ (portable docs + the FULL named crew<br/>Alfred/Wren/Atlas/Mason/Argus/Iris/Ada — the headline)"]
+          TPL["templates/ (OKF + CONTRACT + QUICKSTART, placeholdered)"]
+          EX["examples/ (≥2 demo projects: research + lit-review)"]
+        end
+        CLI -. "rv init copies out via importlib.resources" .-> DATA
       end
-      subgraph T2["tier-2 — file-based coordination"]
-        V2["role · build-agents · control<br/>crew/role system · control-file bus"]
-      end
-      CLI --> V1
-      CLI --> V2
-      subgraph ADP["adapters/ (Protocols + local-defaults)"]
-        N["Notifier<br/>(default: file inbox/outbox)"]
-        B["ComputeBackend<br/>(default: local subprocess)"]
-        S["SecretStore<br/>(default: keyring / env)"]
-      end
-      V1 --> ADP
-      V2 --> ADP
-      DOC["doctrine/ (portable docs + the FULL named crew<br/>Alfred/Wren/Atlas/Mason/Argus/Iris/Ada — the headline)"]
-      TPL["templates/ (OKF, placeholdered)"]
-      EX["examples/ (≥2 demo projects: research + lit-review) + init"]
       GATE["CI: hermetic pytest + leakage scanner (red on private marker)"]
     end
 
     VAULT["~/vault (the live OS)"]:::ext
     VAULT -. "NO dependency · NO import · NO edit<br/>(v1 acceptance boundary)" .-x RV
 
-    subgraph T3["tier-3 — advanced (OUT of v1)"]
-      VCS["vcs/github adapter:<br/>multi-identity PR/review/merge"]
-      SLURM["ComputeBackend: SLURM"]
+    subgraph T3["tier-3 — advanced adapters (opt-in, MERGED — SR-CIF/SR-7)"]
+      VCS["github_ci adapter:<br/>CI-fetch / PR status"]
+      SLURM["remote ComputeBackend: SLURM over ssh"]
     end
-    ADP -. "opt-in, later SRs" .-> T3
+    ADP -. "opt-in extras, now merged" .-> T3
 
     classDef ext fill:#eee,stroke:#999,stroke-dasharray:5 5;
 ```
+
+**Package-data layout (SR-PKG, #22 part 1 / merged #46).** `doctrine/`, `templates/`, and `examples/`
+are **not** top-level repo boxes — they live under **`src/research_vault/data/`** *inside* the package,
+so they ship in the wheel. `rv init` reads them via **`importlib.resources.files("research_vault") / "data"`
++ `as_file()`** (zipimport-safe: works from a regular install AND a zipped wheel). The old `__file__`-based
+skeleton fallbacks are **gone** — a missing data file is a **HARD ERROR**, not a silently-degraded skeleton
+(charter §2: surface, never silently drop; `init.py:17-22`).
 
 ## Tiers
 | Tier | Surface | v1? |
@@ -70,7 +83,7 @@ prompt defaults + adopter override) and a `style.py` `apply_style`/style-preambl
 | Subpackage | Verb | What it does | Config seam |
 |---|---|---|---|
 | `manuscript/` | `rv manuscript new/compile/check/list` | Grounded LaTeX drafting: `support_matcher` (`[SUPPORTS]`/`[PARTIAL]`/`[ABSENT]`/`[CONTRADICTS]` verdict per `\cite`→source, verbatim-span-or-BLOCK) · `naked_cite` (uncited-claim scan) · `check_gates` · `bib` (closed `.bib` from `literature/` notes) · `results_inject` (machine-injected `\result*` macros, hash-verified `experiments/` reads) · `appendix` · guarded `compile` | `per_section_tips` + `style.py` |
-| `review/` | `rv review new/expand/list` | Pre-registered, **saturation-gated lit-review DAG**: Phase-1 (review-scope → `[HG:approve-protocol]` → review-search → review-snowball → `[HG:coverage-gate]`) with `_protocol.md` freeze (non-empty `counter-position` = L-2 anti-fishing gate) + internal saturation loop (forward cited-by + backward refs); **two-phase fan-out** via `rv review expand` after the coverage human-go | `review_tips` + `style.py` |
+| `review/` | `rv review new/expand/list/gap-scan/gap-scope/gap-close` | Pre-registered, **saturation-gated lit-review DAG**: Phase-1 (review-scope → `[HG:approve-protocol]` → review-search → review-snowball → `[HG:coverage-gate]`) with `_protocol.md` freeze (non-empty `counter-position` = L-2 anti-fishing gate) + internal saturation loop (forward cited-by + backward refs); **two-phase fan-out** via `rv review expand` after the coverage human-go. **SR-LR-2 gap-driven pass**: `gap_scan.py` detects four typed gaps (knowledge_void / contradictory / evaluation_void / absent_row); `gap-scan` is a **rejects-only screen** that writes `gaps/<id>.md` (10th OKF type, first-class lifecycle); `gap-scope` auto-authors a targeted Part-1 scope (question←claim, seed_queries, snowball_seeds); `absent_row` detector binds to `RunState.meta['support_matcher']` structured verdicts — NOT prose-grep (the loop-closer: manuscript↔lit-review cycle, §5L.10) | `review_tips` + `style.py` |
 | `plan/` | `rv plan check/tips` | Pre-registration **freeze** (`freeze.py`) + structural **shape-lint** (`check.py`): rule (a) branch-presence, rule (b) one-component-per-ablation, **rule (c) bare-id `covers:` convention (SR-PLAN-2)** — run BEFORE `human-go-plan` | `plan_tips` + `style.py` |
 | `figures/` | `rv figure new/preview/render/recommend/list` | scores/datasets → publication-quality figures over pandas; `recommend` ranks plot types on the Cleveland–McGill perceptual ladder + Mackinlay expressiveness (SR-FIG-REC); provenance = `figures/` note (experiment-results-hash + filter recipe + style preset) | `apply_style(preset, skin)` seam (Iris style module + BeautifulFigures [MIT, attributed]) |
 
@@ -79,11 +92,11 @@ prompt defaults + adopter override) and a `style.py` `apply_style`/style-preambl
 stdlib-only.** Every loop above obeys leakage-by-construction (no private markers in prompts/seams/DEVLOG).
 
 ## Adapter Protocols (adapters/base.py)
-| Adapter | Interface | Local-default (zero infra) | Later adapter |
+| Adapter | Interface | Local-default (zero infra) | Advanced adapter |
 |---|---|---|---|
 | Notifier | `notify(msg, severity)` (+ optional `push_brief`) | file inbox/outbox (`state/inbox.jsonl` + `desk.md`) — **the ONLY impl; NO telegram/bridge anywhere** (rescope #4) | — |
-| ComputeBackend | `submit(job)->handle` · `status(handle)` | local subprocess; artifact-verify = file check | SLURM over ssh (SR-6) |
-| SecretStore | `get(name)` · `set(name)` | `keyring` lib OR `$ENV` + gitignored dotfile (cross-platform) | macOS Keychain |
+| ComputeBackend | `submit(job)->handle` · `status(handle)` | local subprocess; artifact-verify = file check | remote SLURM over ssh (`adapters/remote.py`, SR-7 — **MERGED**) |
+| SecretStore | `get(name)` · `set(name)` | `keyring` lib OR `$ENV` + gitignored dotfile (cross-platform) | macOS Keychain (later) |
 
 The wait between submit and in-session verify is a backgrounded **`wait-for <condition>`** (§R) — one
 main session + background shells, no daemon/poller/registry. Subagents submit-and-return; they never
@@ -116,8 +129,9 @@ Status verified against merged `main` (`src/research_vault/` modules + `note.OKF
 | SR-PLAN-1/2 | Plan/freeze module + pre-registration + shape-lint (rule (c) bare-id `covers:`) | MERGED |
 | SR-MS-1a/1b/2 | Manuscript layer: structure · `.bib`+results-inject+guarded compile · support-matcher + critic + hash-drift gate | MERGED |
 | SR-LR-1 | Lit-review loop (`review/`) — saturation-gated, two-phase fan-out | MERGED |
+| SR-LR-2 | Gap-driven pass (`review/gap_scan.py`) — four typed detectors, `gaps/` OKF type, loop-closer (absent_row bound to structured `support_matcher` verdicts) | MERGED |
 | corpus-dedup · SR-RESOLVE-SCOPE · SR-CONTRACT | Corpus dedup · project-scoped-vs-shared OKF split (`OKF_SHARED_TYPES`) · CONTRACT/project-lens scaffold (`build_agents`, `_hub.lensByRole`) | MERGED |
-| — next → | SR-FIG-REC polish · SR-LR-2 · SR-PLAN-2 follow-ons · SR-10 (OSS docs site + README/LICENSE + public publish, human-go) | — |
+| — next → | SR-FIG-REC polish · SR-PLAN-2 follow-ons · SR-10 (OSS docs site + README/LICENSE + public publish, human-go) | — |
 
 ## The CONTRACT / project-lens scaffold (SR-CONTRACT)
 The crew-composition layer: `build_agents.py` composes each agent hat as `charter + role + project-lens`; the

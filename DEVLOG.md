@@ -1,37 +1,112 @@
-## 2026-07-02 (sr-lr-2 — gap-driven pass, loop-closer)
+## 2026-07-02 (sr-lr-2 block-fix — D-GAP-3 structured binding, attribution fix)
 
 ### Done
-- SR-LR-2 built and committed (53866c9): the gap-driven pass, §5L.7–5L.10.
-- Added `gaps/` as the 10th OKF type in `note.OKF_TYPES` SSOT.
-- New `review/gap_scan.py`: `GapRecord` dataclass; four typed detectors (knowledge_void /
-  contradictory / evaluation_void / absent_row); `cmd_gap_scan`, `cmd_gap_scope`,
-  `cmd_gap_close`, `open_gap_count`. Zero new DAG mechanism.
-- `rv review gap-scan / gap-scope / gap-close` wired into verbs.py.
-- `gap-scope` auto-authors a Part-1 review scope from a gap record (question ← claim
-  verbatim; seed_queries per type template; snowball_seeds from anchor; `_gap-context.md`
-  written). Composes SR-LR-1's `cmd_new` directly.
-- `rv status` surfaces open gap COUNT in Needs Attention (D-GAP-4: count only, no inline records).
-- `cli._VERB_REGISTRY["review"].sr` updated to `"SR-LR-1, SR-LR-2"`.
-- 41 new acceptance tests (test_sr_lr_2.py); 4 existing count/sr tests updated.
-- Full suite: 1497 passed, 37 skipped. `rv lint`: PASS. `rv help --check`: OK.
+- **D-GAP-3 structured binding** (Architect BLOCK resolved): rewired `_detect_absent_rows`
+  to consume `RunState.meta['support_matcher']['verdicts']` structured `SupportVerdict` records
+  instead of grepping prose with a bespoke `FINDING_RE` (which never matched real matcher output
+  and silently returned `[]` — charter §2 violation on the load-bearing loop-closer gate).
+  New signature: `_detect_absent_rows(matcher_meta: dict, run_id: str)`. Filters
+  `.verdict in {ABSENT, CONTRADICTS}` or `j2_escalation=True`; builds `GapRecord` from
+  `.claim_snippet` + `.citekey`.
+- **Charter §2 guard**: if meta is non-empty but `verdicts` key is absent, emits
+  `warnings.warn` — never silently returns `[]`.
+- **API change**: `cmd_gap_scan(matcher_meta=dict|None, run_id=str)` replaces
+  `critic_report=Path|None`. CLI: `--critic-report <path>` → `--run-state <path>` (loads
+  run-state JSON, extracts `meta.support_matcher`).
+- **Parser convergence (STOP decision)**: Wren requested extending `note._parse_frontmatter`
+  to handle list values. Verified that extension breaks `check_gates.py:synthesized_okf`,
+  `review/__init__.py`, `manuscript/__init__.py` callers doing `.strip()` on expected-scalar
+  fields. Per Wren's own escape hatch ("STOP and report if risks can't be cleanly verified"):
+  reverted. `_parse_frontmatter_simple` renamed to `_parse_frontmatter_gap` with honest
+  docstring. Canonical parser annotated with STOP decision rationale.
+- **Attribution fix** (Ada retrieval-verified, coordinator relay): all 7 attribution strings
+  in `gap_scan.py` corrected — type names AND procedure from Müller-Bloch & Kranz (2015, ICIS);
+  Miles (2017) and Robinson et al. (2011) as related secondary taxonomies (was inverted).
+- **Tests**: 7 tests (6a-6e) rewritten to structured dict API; 4 new tests (6f-6i for
+  citekey anchor, j2 escalation, §2 guard, silent-all-SUPPORTS); 6j cmd_gap_scan matcher_meta;
+  gap parser list test; canonical scalar guard. 48 SR-LR-2 tests pass.
+- Rebased on main (post-#49/#51/#52). DEVLOG union. Full suite: 1482 passed, 37 skipped.
+
+### Decisions
+- D-GAP-3 re-resolved: absent_row detector binds to STRUCTURED `SupportVerdict` records,
+  not a prose file. The prior resolution (grep FINDING_RE) was never correct — it matched a
+  format the matcher never emitted. The structured binding is the only correct fix.
+- Parser convergence deferred: see STOP decision above. Requires a separate PR that updates
+  all `.strip()` callers across check_gates/review/manuscript — touching in-flight SR-MS-1c.
+
+### Open / next
+- Push `feat/sr-lr-2` and update PR #50 (hub handles; human-go class).
+- Verify CI green on pushed HEAD SHA (post-rebase).
+
+---
+
+## 2026-07-02 (task-22-pt2 — wheel __file__ audit)
+
+### Done
+- Audited every `__file__`-repo-root usage in `lint.py`, `git_discipline.py`,
+  `wait_for.py` (Wren's SR-PKG/#46 flag). Verdict per site:
+  - `lint.py _FRAMEWORK_ROOT/_TESTS_DIR/_SRC_DIR` — DEV-ONLY. Rules 4/5 scan the
+    framework's own `tests/` and `src/research_vault/`. In a wheel context these
+    paths don't exist → 0 files → silent no-op. Annotated with dev-repo note.
+  - `lint.py cmd_lint src_dir = Path(__file__).parent` — DEV-ONLY. Leakage scan
+    targets framework source (CI gate for framework devs). Wheel users typically
+    don't configure `forbidden_patterns`; if they do, scan runs on installed source
+    (harmless, meaningless). Annotated.
+  - `git_discipline.py scripts/leakage_scan.sh` — DEV-ONLY. Graceful fallback chain
+    already handles wheel (fails-open when script not found). Comments already describe
+    dev vs installed intent. Annotated with task #22 note.
+  - `wait_for.py _launch_background_poller package_path` — USER-REACHABLE, WRONG.
+    `rv wait-for` is a user verb. The background poller subprocess needs
+    `sys.path.insert(0, package_path)` to `import research_vault.wait_for`.
+    Old code: `.parent.parent.parent` (repo root in dev, `lib/python3.x/` in wheel —
+    neither is a valid sys.path entry for the package). Comment said "src/ dir" but
+    was factually wrong.
+    FIX: extracted `_get_package_path()` returning `.parent.parent` (`src/` in dev,
+    `site-packages/` in wheel — both contain `research_vault/`). Works in practice
+    before the fix only because the package is already installed in the env.
+- 2 new tests in `test_task22_wheel_audit.py`: red-before-green verified.
+  - `test_poller_package_path_contains_research_vault`: FAILED before fix (ImportError
+    for non-existent `_get_package_path`), PASSED after.
+  - `test_old_three_parent_path_does_not_contain_research_vault`: confirms the old
+    calculation was wrong (repo root does not contain `research_vault/`).
+- Full suite: 1458 passed, 37 skipped. `rv lint`: PASS. `rv help --check`: OK.
   Leakage scan: clean.
 
 ### Decisions
-- D-GAP-1 resolved: new `gaps/` OKF type (recommended path) — gaps are first-class
-  research objects with their own `status` lifecycle and queryable `proven-open` state.
-- D-GAP-2 resolved: support-degree = count of `backed_by:` frontmatter entries on a
-  finding note; threshold defaults to 1 (operator can override with `--threshold N`).
-- D-GAP-3 resolved: absent_row verdict uses `[ABSENT]`/`[CONTRADICTS]` tokens from the
-  existing support-matcher convention — no new verdict language.
-- D-GAP-4 resolved: manual `rv review gap-scan` only; COUNT in `rv status`; no auto-fire.
-- absent_row detector greps a caller-supplied `--critic-report <path>` file; the operator
-  runs `rv manuscript check` / `build_approve_payload()` first to produce the report file.
+- Fix only the user-reachable site (`wait_for.py`); leave dev-only sites annotated.
+  The annotation pattern is the right outcome for confirmed-dev-only tooling (§3 of
+  the task brief: "a valid finding — document it").
+- Extracted `_get_package_path()` (not inline in `_launch_background_poller`) so
+  the path logic is testable in isolation — clean TDD red-green.
+- `.parent.parent` is correct in BOTH dev and wheel: `src/` and `site-packages/`
+  are symmetric — both are the parent directory containing `research_vault/`.
 
 ### Open / next
-- Push `feat/sr-lr-2` and open PR (hub handles PR creation: human-go class).
-- Verify CI green on pushed HEAD SHA.
+- PR: hub opens (crew-cannot-self-approve; task #22 architectural PR).
+## 2026-07-02 (sr-cif-terminal-fix — gate terminal-set on MERGED, not just CI green)
 
----
+### Done
+- Fixed `GitHubActionsSource.get_terminal_set`: added Gate 1 — `state == "merged"` —
+  before the existing CI-green gate.  A green-but-OPEN PR (the normal awaiting-human-go
+  state) no longer contributes to the terminal set, eliminating the false `[R4] STALE`
+  alarm emitted on every reconcile while waiting for the operator merge.
+- Updated test 2, 7, 10, 11 in `test_sr_cif.py` to use `state="MERGED"` for the
+  positive (terminal) cases — the old tests were inadvertently validating the bug.
+- Added tests 23–25 (bug guard, merged positive, functional proof open-vs-merged).
+
+### Decisions
+- Placed the state gate FIRST in `get_terminal_set` (before the branch-id and CI-check
+  gates) so that OPEN/CLOSED PRs short-circuit without ever calling `_fetch_checks()`.
+  This avoids one unnecessary `gh pr checks` subprocess call for non-merged PRs and
+  makes the control-flow intent explicit: merge state is the primary gate.
+- Advisory (`get_ci_advisory`) is unchanged — it correctly reports CI state regardless
+  of PR merge state.  The [R4] wording "terminal (merged/done)" is now correct by
+  construction since `get_terminal_set` only fires for genuinely merged PRs.
+- Hard boundary preserved: `get_terminal_set` returns `frozenset[str]` only; no write,
+  approve, or verdict path added.
+
+### Open / next
+- Hub to open PR; Argus review gate.
 
 ## 2026-07-02 (sr-cif-activation — rv control reconcile --gh-pr N)
 
