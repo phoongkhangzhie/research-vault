@@ -8,6 +8,7 @@ Acceptance criteria:
 3. rv project new: produces pointers.md skeleton, NO CONTRACT, no per-project hats.
 4. Vault-level crew: build-agents writes flat .agents/<role>.md (not per-project).
 5. rv build-agents --project flag is gone.
+7. Shipped doctrine contains NO removed-mechanism terms (Wren grep-guard).
 6. rv status echoes "Pointers:" line when pointers.md is present.
 
 All tests are hermetic (tmp_path only; zero ~/vault).
@@ -388,3 +389,92 @@ class TestCheckNoContractIntegrity:
             "rv check still emits a 'Project integrity' (CONTRACT) section — delete it."
         assert "CONTRACT" not in report, \
             "rv check report still mentions CONTRACT — the integrity check must be removed."
+
+
+# ---------------------------------------------------------------------------
+# 7. Shipped doctrine grep-guard: no removed-mechanism terms (Wren fit-check)
+# ---------------------------------------------------------------------------
+
+class TestDoctrineNoContractTerms:
+    """Shipped data/doctrine/**/*.md must not document the removed CONTRACT lens.
+
+    Non-vacuous: FAILS on current coordination.md and atlas.md (before fixes),
+    PASSES after doctrine is rewritten to the read-fresh model (SR-LENS-RM).
+
+    This is the doctrine-drift guard — the same class Wren flagged: tests grepped
+    code and one hat body, but never the shipped doctrine prose.  A mechanism
+    removal without a doctrine update self-contradicts in the generated hats.
+    """
+
+    _DOCTRINE_DIR = (
+        Path(__file__).parent.parent
+        / "src" / "research_vault" / "data" / "doctrine"
+    )
+
+    # Terms that must NOT appear in the shipped doctrine after SR-LENS-RM.
+    # These are the removed-mechanism markers:
+    _FORBIDDEN_TERMS: list[tuple[str, str]] = [
+        # (term, reason)
+        ("CONTRACT.md", "per-project CONTRACT file is deleted"),
+        ("build-agents --project", "the --project flag is removed"),
+        (".agents/<slug>/CONTRACT", "per-project agents-dir structure is gone"),
+        ("CONTRACT roadmap", "CONTRACT-specific roadmap concept is removed"),
+        ("CONTRACT — the project lens", "the lens section heading is removed"),
+    ]
+
+    def _scan_doctrine(self) -> list[tuple[str, int, str, str]]:
+        """Scan all doctrine .md files for forbidden terms.
+
+        Returns [(relpath, lineno, term, line)] for each hit.
+        """
+        hits = []
+        doctrine_dir = self._DOCTRINE_DIR
+        for md_file in sorted(doctrine_dir.rglob("*.md")):
+            text = md_file.read_text(encoding="utf-8")
+            for lineno, line in enumerate(text.splitlines(), 1):
+                for term, reason in self._FORBIDDEN_TERMS:
+                    if term in line:
+                        rel = str(md_file.relative_to(doctrine_dir))
+                        hits.append((rel, lineno, term, line.strip()))
+        return hits
+
+    def test_no_contract_terms_in_shipped_doctrine(self):
+        """No removed CONTRACT mechanism terms in shipped data/doctrine/**/*.md.
+
+        RED before doctrine fix (coordination.md + atlas.md still reference
+        CONTRACT); GREEN after the doctrine is rewritten to the read-fresh model.
+        """
+        assert self._DOCTRINE_DIR.is_dir(), \
+            f"Doctrine dir not found: {self._DOCTRINE_DIR}"
+
+        hits = self._scan_doctrine()
+        if hits:
+            lines = []
+            for rel, lineno, term, line in hits:
+                lines.append(f"  doctrine/{rel}:{lineno}: term={term!r}")
+                lines.append(f"    → {line[:120]}")
+            raise AssertionError(
+                f"\n{len(hits)} removed-mechanism term(s) found in shipped doctrine.\n"
+                "These terms document the deleted CONTRACT lens and must be removed:\n"
+                + "\n".join(lines)
+            )
+
+    def test_coordination_md_has_read_fresh_section(self):
+        """coordination.md must document the read-fresh project-context model."""
+        coord_md = self._DOCTRINE_DIR / "coordination.md"
+        assert coord_md.is_file(), f"coordination.md not found at {coord_md}"
+        text = coord_md.read_text(encoding="utf-8")
+        # After SR-LENS-RM the section must describe pointers.md and rv status
+        assert "pointers.md" in text, \
+            "coordination.md must document pointers.md as the project-context file"
+        assert "rv status" in text, \
+            "coordination.md must reference rv status as the read-fresh path"
+
+    def test_atlas_role_no_contract_roadmap(self):
+        """atlas.md must not reference 'CONTRACT roadmap' (self-contradiction in hat body)."""
+        atlas_md = self._DOCTRINE_DIR / "roles" / "atlas.md"
+        assert atlas_md.is_file(), f"atlas.md not found at {atlas_md}"
+        text = atlas_md.read_text(encoding="utf-8")
+        assert "CONTRACT roadmap" not in text, \
+            ("atlas.md still says 'CONTRACT roadmap' — this composes verbatim into the "
+             "manager hat, which self-contradicts the read-fresh footer.")
