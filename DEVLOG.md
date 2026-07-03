@@ -1,3 +1,17 @@
+## 2026-07-03 (gap-loop-cleanup — Items #30, #26, #28, #29)
+
+### Done
+- **Item #30 (Signal 2 narrow, `feat/gap-loop-cleanup` commit `00c678f`)**: Narrowed `_check_reopen_signal` Signal 2 (contradictory re-fire) to MACHINE-CLOSED states only (`{closed-supported, closed-filled}`). `proven-open` and `promoted` (human-blessed) now emit a loud `UserWarning` call-to-action instead of auto-reopening. Ada ruling: automation-authority + COPE.
+- **Item #26 (parser convergence, commits `348e29f` + `5f8aa2c`)**: Extended `note._parse_frontmatter` to handle YAML `  - item` list syntax (lazy-promote: empty keys stay `""` until a list item follows, preserving `.strip()` backwards-compat). Deleted 53-line local `gap_scan._parse_frontmatter_gap` duplicate. All 9 call sites updated to use `_pfm` alias. Grep-before-extend audit: no non-gap_scan caller accesses list-valued fields. Updated 2 test_sr_lr_2.py guard tests that encoded the now-lifted STOP decision.
+- **Item #28 (SR-GAP-ROUTE polish, commit `60619b2`)**: `_cmd_gap_scope_experiment` context file renamed from fixed `_gap-context.md` to `<gap_id>-gap-context.md` (mirrors `<gap_id>-plan.md`). Added `UserWarning` when `scope` arg is passed with `--target experiment` (scope arg ignored; plan named by gap ID). Updated tests 4f/4g to use the new path.
+- **Item #29 (back-edge warn, commit `0cdd1b3`)**: `_append_closes_to_note` now emits `UserWarning` on the skip path (missing `--by` closer note) instead of silently returning. Forward `closed_by:` edge still written. Charter §2: surface, never silently drop.
+
+### Decisions
+- **lazy-promote semantics**: Preferred `val == ""` for keys with no list items over an early `[]` to avoid breaking callers. This means gap_scan callers see `[]` only for keys with actual list items, and `""` for unset fields — cleaner than requiring callers to handle `str | list`.
+
+### Open / next
+- PR `feat/gap-loop-cleanup` pushed, CI green on `5f8aa2c8`. Hub to open PR; `human-go` class (touches note.py + gap-loop core).
+
 ## 2026-07-02 (SR-GAP-CLOSE / SR-LR-4 — gap-closure lifecycle, closure-as-provenance)
 
 ### Done
