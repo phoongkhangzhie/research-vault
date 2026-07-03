@@ -727,10 +727,15 @@ def _check_reopen_signal(
         → stamp 'reopened' + 'reopened_reason: absent_row_flip_back'.
         Requires matcher_meta at scan time; degrade-to-skip if None (§5M posture).
 
-    Signal 2 — contradictory re-fires on ANY closed status:
+    Signal 2 — contradictory re-fires on a MACHINE-CLOSED status (§5L.21 / #30):
         The concept note re-acquired both supported_by AND contradicted_by edges.
         Pure structural (OKF graph read via _detect_contradictory) → stamp 'reopened'.
         → stamp 'reopened' + 'reopened_reason: contradictory_edges_reacquired'.
+        Only machine-closed statuses trigger auto-reopen: {closed-supported, closed-filled}.
+        Human-blessed states (proven-open, promoted) WARN-only — the machine must not
+        silently reverse a human decision (Ada ruling: automation-authority + COPE).
+        A loud UserWarning is emitted for the human-blessed case so the operator is
+        informed that a contribution may be built on a now-contradicted concept.
 
     Everything else:
         A closed-filled gap re-fires on ANY detector type (knowledge_void,
@@ -738,8 +743,7 @@ def _check_reopen_signal(
         Rationale: closed-filled spans BOTH "backed_by threshold crossed" AND
         "run-arm generated result" closures. The detector cannot distinguish them.
         The human confirms from the closed_by: audit trail (§5L.22 caveat a).
-        Any gap type re-firing on a non-closed status → also WARN only (already handled
-        by the caller not reaching here for non-existing gaps, but be defensive).
+        Any non-contradictory type re-firing on proven-open / promoted → also WARN only.
 
     Stamps 'reopened_reason: <signal>' and retains 'closed_by:' as history (charter §2:
     surface, never silently drop; the closure audit trail is a specific).
@@ -759,18 +763,34 @@ def _check_reopen_signal(
         _stamp_reopened(pnd, gid, reason="absent_row_flip_back_on_closed_supported")
         return
 
-    # Signal 2: contradictory on ANY closed status (both edges re-acquired — pure structural)
-    if is_contradictory and existing_status in {
-        "closed-supported", "closed-filled", "proven-open", "promoted",
-    }:
+    # Signal 2: contradictory on a MACHINE-CLOSED status (both edges re-acquired — pure structural)
+    # Ada ruling §5L.21 / #30: narrow to machine-closed only (closed-supported, closed-filled).
+    # proven-open and promoted are HUMAN-BLESSED states — a machine must not silently reverse a
+    # human decision (automation-authority + COPE ruling).  Those fall through to WARN-only below.
+    if is_contradictory and existing_status in {"closed-supported", "closed-filled"}:
         _stamp_reopened(pnd, gid, reason="contradictory_edges_reacquired")
+        return
+
+    # Human-blessed state + contradictory re-fire → WARN loudly (honest surface, §2) but
+    # do NOT auto-reopen.  The contribution built on this concept may be an overclaim;
+    # a human must evaluate the audit trail and re-open manually if warranted.
+    if is_contradictory and existing_status in {"proven-open", "promoted"}:
+        warnings.warn(
+            f"gap {gid!r}: concept re-acquired both supported_by AND contradicted_by "
+            f"while status={existing_status!r} — a human-blessed state is NOT auto-reopened. "
+            f"A contribution built on a now-contradicted concept may be an overclaim: "
+            f"inspect via 'rv review gap-scan' and re-open manually if warranted "
+            f"(closed_by:/promoted_to: audit trail retained).  §5L.21 / #30.",
+            UserWarning,
+            stacklevel=4,
+        )
         return
 
     # Everything else → WARN, status UNCHANGED (the FP guard)
     # This covers:
     #   - absent_row on closed-filled (run-arm ambiguity, §5L.22 caveat a)
     #   - knowledge_void / evaluation_void on closed-filled
-    #   - any type on proven-open / promoted (terminal states from the human path)
+    #   - any non-contradictory type on proven-open / promoted
     warnings.warn(
         f"gap {gid!r} (type={rec.type!r}) re-fired but its status is "
         f"{existing_status!r} — NOT auto-reopening (conservative posture §5L.21(3)). "

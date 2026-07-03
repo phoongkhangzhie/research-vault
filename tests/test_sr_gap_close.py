@@ -1277,6 +1277,143 @@ def test_gap_promote_anti_pattern_in_docs():
 
 
 # ---------------------------------------------------------------------------
+# 4-new. Item #30 — Signal 2 narrow: human-blessed states are WARN-only
+# ---------------------------------------------------------------------------
+
+def test_reopened_contradictory_on_promoted_is_warn_only(tmp_instance):
+    """#30/Item1: contradictory re-fire on 'promoted' gap → status stays 'promoted' + UserWarning.
+
+    Ada ruling (automation-authority + COPE): a machine must not silently reverse a
+    HUMAN decision.  promoted is a human-blessed state (set only via cmd_gap_promote,
+    which requires a human-provided --to ref).  The contradiction is real and must
+    SURFACE (honest WARN), but auto-reopen is prohibited.  §5L.21 / #30.
+    """
+    import warnings
+    from research_vault.config import load_config
+    from research_vault.review.gap_scan import (
+        cmd_gap_close, cmd_gap_promote, cmd_gap_scan, _gap_id, GAP_TYPE_CONTRADICTORY,
+    )
+
+    cfg = load_config()
+    pnd = cfg.project_notes_dir("demo-research")
+    _make_concept(pnd, "c-promo-contested", supported_by=["lit-X"], contradicted_by=["lit-Y"])
+    _make_literature_note(pnd, "contrib-ref2024")
+
+    # Step 1: first scan creates the gap (status=open)
+    new_gaps = cmd_gap_scan("demo-research", config=cfg)
+    assert len(new_gaps) == 1
+    gid = _gap_id(GAP_TYPE_CONTRADICTORY, "concepts/c-promo-contested", "c-promo-contested")
+    gap_path = pnd / "gaps" / f"{gid}.md"
+    assert gap_path.exists()
+
+    # Step 2: human promotion path: proven-open → promoted (both human steps)
+    cmd_gap_close("demo-research", gid, "proven-open", config=cfg)
+    cmd_gap_promote("demo-research", gid, to_ref="manuscript/contributions", config=cfg)
+    assert _parse_fm(gap_path).get("status") == "promoted"
+
+    # Step 3: re-scan — concept still has both edges → Signal 2 fires on PROMOTED gap
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cmd_gap_scan("demo-research", config=cfg)
+
+    fm = _parse_fm(gap_path)
+    # Status MUST remain 'promoted' — no auto-reopen on human-blessed state
+    assert fm.get("status") == "promoted", (
+        "promoted gap MUST NOT be auto-reopened by contradictory Signal 2 (Ada ruling #30). "
+        f"Got status={fm.get('status')!r}"
+    )
+    # A UserWarning MUST be emitted (honest surface — charter §2)
+    assert any(issubclass(warning.category, UserWarning) for warning in w), (
+        "Expected a UserWarning for contradictory re-fire on promoted gap (#30)"
+    )
+
+
+def test_reopened_contradictory_on_proven_open_is_warn_only(tmp_instance):
+    """#30/Item1: contradictory re-fire on 'proven-open' gap → status stays 'proven-open' + UserWarning.
+
+    proven-open is set when a targeted literature pass saturates without closing the gap,
+    signalling it as a candidate CONTRIBUTION — a human-meaningful milestone.  The machine
+    must not reverse this by auto-reopening; the honest action is to surface a loud warning.
+    §5L.21 / #30.
+    """
+    import warnings
+    from research_vault.config import load_config
+    from research_vault.review.gap_scan import (
+        cmd_gap_close, cmd_gap_scan, _gap_id, GAP_TYPE_CONTRADICTORY,
+    )
+
+    cfg = load_config()
+    pnd = cfg.project_notes_dir("demo-research")
+    _make_concept(pnd, "c-po-contested", supported_by=["lit-A"], contradicted_by=["lit-B"])
+
+    # Step 1: first scan creates the gap (status=open)
+    new_gaps = cmd_gap_scan("demo-research", config=cfg)
+    assert len(new_gaps) == 1
+    gid = _gap_id(GAP_TYPE_CONTRADICTORY, "concepts/c-po-contested", "c-po-contested")
+    gap_path = pnd / "gaps" / f"{gid}.md"
+    assert gap_path.exists()
+
+    # Step 2: human step — mark as proven-open (targeted pass saturated; candidate contribution)
+    cmd_gap_close("demo-research", gid, "proven-open", config=cfg)
+    assert _parse_fm(gap_path).get("status") == "proven-open"
+
+    # Step 3: re-scan — concept STILL has both edges → Signal 2 fires on PROVEN-OPEN gap
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cmd_gap_scan("demo-research", config=cfg)
+
+    fm = _parse_fm(gap_path)
+    # Status MUST remain 'proven-open' — no auto-reopen on human-blessed state
+    assert fm.get("status") == "proven-open", (
+        "proven-open gap MUST NOT be auto-reopened by contradictory Signal 2 (Ada ruling #30). "
+        f"Got status={fm.get('status')!r}"
+    )
+    assert any(issubclass(warning.category, UserWarning) for warning in w), (
+        "Expected a UserWarning for contradictory re-fire on proven-open gap (#30)"
+    )
+
+
+def test_reopened_contradictory_on_machine_closed_still_reopens(tmp_instance):
+    """#30/Item1 positive-control: contradictory on closed-supported → still auto-reopens.
+
+    Pins the NARROW end of the fix: machine-closed statuses (closed-supported, closed-filled)
+    still trigger auto-reopen on Signal 2.  This ensures the narrowing doesn't accidentally
+    disable Signal 2 entirely.
+    """
+    import warnings
+    from research_vault.config import load_config
+    from research_vault.review.gap_scan import cmd_gap_close, cmd_gap_scan, _gap_id, GAP_TYPE_CONTRADICTORY
+
+    cfg = load_config()
+    pnd = cfg.project_notes_dir("demo-research")
+    _make_literature_note(pnd, "closer-pin-cs2024")
+    _make_concept(pnd, "c-pin-contested", supported_by=["lit-A"], contradicted_by=["lit-B"])
+
+    # First scan: creates contradictory gap
+    new_gaps = cmd_gap_scan("demo-research", config=cfg)
+    assert len(new_gaps) == 1
+    gid = _gap_id(GAP_TYPE_CONTRADICTORY, "concepts/c-pin-contested", "c-pin-contested")
+    gap_path = pnd / "gaps" / f"{gid}.md"
+
+    # Machine-close it as closed-supported
+    cmd_gap_close("demo-research", gid, "closed-supported",
+                  closer_ref="literature/closer-pin-cs2024", config=cfg)
+    fm = _parse_fm(gap_path)
+    assert fm.get("status") == "closed-supported"
+
+    # Re-scan: concept still contradictory → must AUTO-REOPEN (positive control)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        cmd_gap_scan("demo-research", config=cfg)
+
+    fm2 = _parse_fm(gap_path)
+    assert fm2.get("status") == "reopened", (
+        "closed-supported gap MUST be auto-reopened on contradictory Signal 2 "
+        f"(positive-control pin for #30 narrowing). Got status={fm2.get('status')!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # 9. Zero ~/vault edits (all hermetic)
 # ---------------------------------------------------------------------------
 
