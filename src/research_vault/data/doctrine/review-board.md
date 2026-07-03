@@ -49,6 +49,13 @@ replay**: run the check against the exact state it claims to catch.
 - **New scanner/gate rule:** run the **pre-change** scanner over planted violating content and confirm it
   *passes* (no teeth before) while the new rule *catches* it (teeth after). A rule that only fires on
   content the old rule already caught adds nothing.
+- **Conservative-posture / FP-guard PR:** when a PR introduces a gate designed to *suppress* false
+  positives (a narrowing condition, a conservative filter, a cost guard), the mutation that proves the
+  gate has teeth is the **opposite** of the usual revert — **widen the signal or neuter the narrowing
+  condition**, and confirm the gate's own test goes RED. The reviewer must NAME the exact mutation and
+  SHOW the failure. This converts "the test asserts X is accepted" into evidence that "the test CATCHES
+  not-X being passed through." Without this, a conservatively-scoped gate looks correct while protecting
+  nothing against the false signals it was designed to suppress.
 
 ## The verdict header — gate-clean by construction
 
