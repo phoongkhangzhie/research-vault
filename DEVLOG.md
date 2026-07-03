@@ -1,3 +1,40 @@
+## 2026-07-03 (SR-FREEZE-FIX: fail-closed + notes_root pin + approve hardening)
+
+### Done
+- **hole (a) FAIL-OPEN closed**: `verify_freeze_hash` now returns `(False, "run not
+  frozen — run rv plan freeze first")` when `plan_freeze` is absent and
+  `require_frozen=True` (the new default). Old behavior was `(True, None)` — a never-
+  frozen run silently passed the K-3 integrity gate.
+- **hole (b) NON-REPRODUCIBLE fixed**: `store_freeze_hash` now stores `notes_root`
+  (absolute) in `plan_freeze` meta. `verify_freeze_hash` uses the STORED pin for
+  re-derivation, ignoring the caller's arg. Relocation: FAIL LOUD ("pass --notes-root
+  to re-pin"), never silent fallback. Legacy meta (no field): `UserWarning` + fail.
+- **Approve hook hardened** (`dag/verbs.py`): drops `cfg.notes_root/"experiments"`
+  re-derive at L774; uses `plan_freeze["notes_root"]`. On verify EXCEPTION → BLOCK
+  (`return 1`) not warn-and-proceed (second fail-open now closed).
+- **13 new tests** (`test_sr_freeze_fix.py`), all red-before-green:
+  - `test_never_frozen_returns_false`: confirmed old code returned `True`, new returns `False`
+  - `test_cross_caller_different_notes_root_arg_still_ok`: confirmed old code gave false FAIL
+  - mutation tests (tamper detection un-regressed through the pin change)
+  - approve-hook exception → BLOCK
+- `rv lint` PASS; `rv help --check` OK; leakage scan clean; 1825 suite-wide pass.
+
+### Decisions
+- Store `notes_root` (not a canonical child list): `compute_covers_hash` already
+  parameterized by `(plan_note, notes_root)` and MUST re-parse `covers:` to catch
+  tampers — pinning `notes_root` makes it caller-invariant with one field and zero
+  new resolution logic. Storing a child list would need a parallel resolution path
+  and couldn't catch `covers:` edits without re-reading the plan note anyway.
+- `require_frozen=False` escape-hatch: `rv dag approve` gates on `plan_freeze`
+  presence before calling verify, so it sets `require_frozen=False` to avoid
+  redundant "not frozen" errors on runs that legitimately have no pre-registration.
+- PR #72, `human-go` class: reviewer + Architect fit-check + Khang as 2nd party.
+
+### Open / next
+- PR #72 awaiting reviewer verdict + Architect (Wren) fit-check.
+
+---
+
 ## 2026-07-03 (SR-DOCTOR-PRINCIPLED: permissions + propose + confirm + learn)
 
 ### Done
