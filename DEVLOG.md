@@ -36,6 +36,27 @@
 ### Open / next
 - Hub to open PR for `feat/sr-ccb` (human-go class: harness binding, publish-critical).
 
+## 2026-07-03 (fix/sr-ccb-cache — bypass stale _CACHE bug in rv init auto-build)
+
+### Done
+- **SR-CCB cache fix (`cc5758e`)**: Coordinator hands-on wheel verification found `.claude/agents/`
+  EMPTY after `rv init`. Root cause: `cli.py` calls `load_config()` at dispatch time (line 519)
+  to load instance verbs, populating `_CACHE` with a stale default config (no projects, wrong
+  `instance_root=CWD`). The auto-build's `load_config()` call hit the cache → files written to
+  WRONG root. The conftest `autouse=True` `reset_config_cache` fixture masked this in tests.
+- **Fix**: replaced `load_config()` with direct Config construction from the just-written TOML
+  (`_load_toml` + `_merge` + `_expand_paths`), bypassing the cache. `reset_config_cache()` called
+  after to clear any stale pre-init cache for subsequent commands in the same process.
+- **Non-vacuous RED test** (`TestInitColdPathCacheResistance`): injects stale `_CACHE` with wrong
+  `instance_root` before `cmd_init_in_dir`; asserts 6 files appear in the CORRECT instance.
+  Was RED before fix (empty agents dir), GREEN after. 47/47 SR-CCB tests pass; 1724 full suite.
+- CI: all 5 jobs green on `cc5758e`.
+
+### Decisions
+- Direct TOML construction (not `load_config(reload=True)`) is the right pattern for any verb
+  that constructs a Config for a NEW instance: no cache side effects during construction,
+  explicit `reset_config_cache()` clears stale state for subsequent commands.
+
 ## 2026-07-03 (feat/default-roster — canonical default crew, --roster removed)
 
 ### Done
