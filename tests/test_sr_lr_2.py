@@ -879,13 +879,13 @@ def test_gap_scan_with_matcher_meta(tmp_instance):
 
 
 def test_gap_scan_parser_handles_list_values():
-    """_parse_frontmatter_gap correctly parses YAML list fields (backed_by, supported_by).
+    """note._parse_frontmatter correctly parses YAML list fields (backed_by, supported_by).
 
-    This is the LOCAL list-aware parser for gap_scan — separate from the canonical
-    note._parse_frontmatter (scalar-only by design; see SR-LR-2 STOP decision in
-    note._parse_frontmatter and gap_scan._parse_frontmatter_gap docstrings).
+    #26 convergence: the local _parse_frontmatter_gap was deleted; the canonical
+    note._parse_frontmatter now handles list values.  This test is updated to test
+    the canonical parser (same behaviour, new home).
     """
-    from research_vault.review.gap_scan import _parse_frontmatter_gap
+    from research_vault.note import _parse_frontmatter
 
     note_text = (
         "---\n"
@@ -898,12 +898,12 @@ def test_gap_scan_parser_handles_list_values():
         "---\n"
         "Body text.\n"
     )
-    fields = _parse_frontmatter_gap(note_text)
+    fields, _ = _parse_frontmatter(note_text)
     assert fields["type"] == "findings"
     assert fields["claim"] == "LLMs outperform humans"
     backed_by = fields.get("backed_by")
     assert isinstance(backed_by, list), (
-        "_parse_frontmatter_gap must return list for YAML list fields; "
+        "note._parse_frontmatter must return list for YAML '  - item' list fields (#26); "
         f"got {type(backed_by).__name__!r}"
     )
     assert "smith2022" in backed_by
@@ -911,12 +911,14 @@ def test_gap_scan_parser_handles_list_values():
 
 
 def test_canonical_parser_scalar_only():
-    """note._parse_frontmatter is SCALAR-ONLY — list-valued key lines return empty string.
+    """note._parse_frontmatter: scalar fields unaffected, .strip() callers still work.
 
-    Guard test: documents the intentional design. If this test breaks, someone
-    extended the canonical parser without updating all .strip() callers.
-    The SR-LR-2 STOP decision (see note._parse_frontmatter docstring) must not
-    be silently undone.
+    #26 convergence: the SR-LR-2 STOP decision is lifted (grep-before-extend audit
+    confirmed all .strip() callers only access SCALAR fields).  The canonical parser
+    now returns list[str] for '  - item' formatted fields and str for scalar fields.
+    Empty-valued keys with NO following list items remain as '' (lazy-promote: only
+    converts to list[] when actual items follow) — preserving backwards-compat for
+    callers that do .strip() on empty-valued fields.
     """
     from research_vault.note import _parse_frontmatter
 
@@ -937,14 +939,15 @@ def test_canonical_parser_scalar_only():
     assert fields["stance"] == "confirmatory"
     assert fields["plan_role"] == "main"
     assert fields["results_hash"] == "sha256:abc123"
-    # .strip() must not fail on any returned value
+    # .strip() must not fail on scalar fields
     assert fields["stance"].strip() == "confirmatory"
-    # backed_by is empty-string (list items are skipped by scalar-only parser)
-    backed_by = fields.get("backed_by", "")
-    assert isinstance(backed_by, str), (
-        "canonical parser must return str (not list) — "
-        "see SR-LR-2 STOP decision in note._parse_frontmatter docstring"
+    # backed_by with list items → returns list (#26 lift)
+    backed_by = fields.get("backed_by")
+    assert isinstance(backed_by, list), (
+        "backed_by with  - item lines must return list after #26 convergence; "
+        f"got {type(backed_by).__name__!r}"
     )
+    assert backed_by == ["smith2022"]
 
 
 # ---------------------------------------------------------------------------

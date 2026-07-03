@@ -63,6 +63,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# #26 convergence: use the canonical parser from note.py (now list-aware).
+# The local _parse_frontmatter_gap is removed — this import replaces all 9 call sites.
+from research_vault.note import _parse_frontmatter as _pfm
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -234,61 +238,6 @@ def suggest_route(gap_type: str, meta: dict[str, Any]) -> str:
 # Gap detectors (cheap OKF graph queries — §5L.7)
 # ---------------------------------------------------------------------------
 
-def _parse_frontmatter_gap(text: str) -> dict[str, Any]:
-    """Parse YAML-like frontmatter between --- delimiters for gap_scan.
-
-    Handles both scalar and YAML list values (``  - item`` lines).  This is a
-    LOCAL list-aware parser because ``note._parse_frontmatter`` is deliberately
-    scalar-only: extending it to return lists would break numerous callers that
-    do ``.strip()`` on expected-scalar fields (e.g. ``check_gates.py:synthesized_okf``,
-    ``review/__init__.py``, ``manuscript/__init__.py``).  The convergence fix (§6)
-    would require updating all those callers — deferred; this local parser is the
-    justified fork, documented in ``note._parse_frontmatter``'s docstring.
-
-    gap_scan specifically needs list support for: ``backed_by:`` (finding notes),
-    ``supported_by:`` / ``contradicted_by:`` (concept notes).
-
-    Returns: fields dict only (body is discarded — gap_scan callers don't need it).
-    """
-    lines = text.splitlines()
-    in_block = False
-    fm: dict[str, Any] = {}
-    i = 0
-    current_list_key: str | None = None
-    while i < len(lines):
-        ln = lines[i]
-        if not in_block:
-            if ln.strip() == "---":
-                in_block = True
-        elif ln.strip() == "---":
-            break
-        else:
-            # List continuation: "  - item" lines
-            if ln.startswith("  - "):
-                if current_list_key is not None:
-                    fm[current_list_key].append(ln[4:].strip())
-                i += 1
-                continue
-            current_list_key = None
-            if ":" in ln:
-                key, _, val = ln.partition(":")
-                key = key.strip()
-                val = val.strip()
-                if val == "":
-                    # Empty value: start collecting YAML list items
-                    current_list_key = key
-                    fm[key] = []
-                else:
-                    # Strip inline comments (# ...) and quotes
-                    val = val.split(" #")[0].strip() if " #" in val else val
-                    if val.startswith('"') and val.endswith('"'):
-                        val = val[1:-1]
-                    elif val.startswith("'") and val.endswith("'"):
-                        val = val[1:-1]
-                    fm[key] = val
-        i += 1
-    return fm
-
 
 def _extract_claim(fm: dict[str, Any]) -> str:
     """Extract a claim string from frontmatter.  Falls back to empty string."""
@@ -308,7 +257,7 @@ def _scan_notes_dir(notes_dir: Path, note_type: str) -> list[tuple[Path, dict[st
     for p in sorted(type_dir.glob("*.md")):
         try:
             text = p.read_text(encoding="utf-8")
-            fm = _parse_frontmatter_gap(text)
+            fm, _ = _pfm(text)
             results.append((p, fm))
         except OSError:
             continue
@@ -630,7 +579,7 @@ def _existing_gap_ids(project_notes_dir: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     for p in gaps_dir.glob("*.md"):
         try:
-            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
+            fm, _ = _pfm(p.read_text(encoding="utf-8"))
             result[p.stem] = fm.get("status", "open")
         except OSError:
             result[p.stem] = "open"
@@ -727,10 +676,15 @@ def _check_reopen_signal(
         → stamp 'reopened' + 'reopened_reason: absent_row_flip_back'.
         Requires matcher_meta at scan time; degrade-to-skip if None (§5M posture).
 
-    Signal 2 — contradictory re-fires on ANY closed status:
+    Signal 2 — contradictory re-fires on a MACHINE-CLOSED status (§5L.21 / #30):
         The concept note re-acquired both supported_by AND contradicted_by edges.
         Pure structural (OKF graph read via _detect_contradictory) → stamp 'reopened'.
         → stamp 'reopened' + 'reopened_reason: contradictory_edges_reacquired'.
+        Only machine-closed statuses trigger auto-reopen: {closed-supported, closed-filled}.
+        Human-blessed states (proven-open, promoted) WARN-only — the machine must not
+        silently reverse a human decision (Ada ruling: automation-authority + COPE).
+        A loud UserWarning is emitted for the human-blessed case so the operator is
+        informed that a contribution may be built on a now-contradicted concept.
 
     Everything else:
         A closed-filled gap re-fires on ANY detector type (knowledge_void,
@@ -738,8 +692,7 @@ def _check_reopen_signal(
         Rationale: closed-filled spans BOTH "backed_by threshold crossed" AND
         "run-arm generated result" closures. The detector cannot distinguish them.
         The human confirms from the closed_by: audit trail (§5L.22 caveat a).
-        Any gap type re-firing on a non-closed status → also WARN only (already handled
-        by the caller not reaching here for non-existing gaps, but be defensive).
+        Any non-contradictory type re-firing on proven-open / promoted → also WARN only.
 
     Stamps 'reopened_reason: <signal>' and retains 'closed_by:' as history (charter §2:
     surface, never silently drop; the closure audit trail is a specific).
@@ -759,18 +712,34 @@ def _check_reopen_signal(
         _stamp_reopened(pnd, gid, reason="absent_row_flip_back_on_closed_supported")
         return
 
-    # Signal 2: contradictory on ANY closed status (both edges re-acquired — pure structural)
-    if is_contradictory and existing_status in {
-        "closed-supported", "closed-filled", "proven-open", "promoted",
-    }:
+    # Signal 2: contradictory on a MACHINE-CLOSED status (both edges re-acquired — pure structural)
+    # Ada ruling §5L.21 / #30: narrow to machine-closed only (closed-supported, closed-filled).
+    # proven-open and promoted are HUMAN-BLESSED states — a machine must not silently reverse a
+    # human decision (automation-authority + COPE ruling).  Those fall through to WARN-only below.
+    if is_contradictory and existing_status in {"closed-supported", "closed-filled"}:
         _stamp_reopened(pnd, gid, reason="contradictory_edges_reacquired")
+        return
+
+    # Human-blessed state + contradictory re-fire → WARN loudly (honest surface, §2) but
+    # do NOT auto-reopen.  The contribution built on this concept may be an overclaim;
+    # a human must evaluate the audit trail and re-open manually if warranted.
+    if is_contradictory and existing_status in {"proven-open", "promoted"}:
+        warnings.warn(
+            f"gap {gid!r}: concept re-acquired both supported_by AND contradicted_by "
+            f"while status={existing_status!r} — a human-blessed state is NOT auto-reopened. "
+            f"A contribution built on a now-contradicted concept may be an overclaim: "
+            f"inspect via 'rv review gap-scan' and re-open manually if warranted "
+            f"(closed_by:/promoted_to: audit trail retained).  §5L.21 / #30.",
+            UserWarning,
+            stacklevel=4,
+        )
         return
 
     # Everything else → WARN, status UNCHANGED (the FP guard)
     # This covers:
     #   - absent_row on closed-filled (run-arm ambiguity, §5L.22 caveat a)
     #   - knowledge_void / evaluation_void on closed-filled
-    #   - any type on proven-open / promoted (terminal states from the human path)
+    #   - any non-contradictory type on proven-open / promoted
     warnings.warn(
         f"gap {gid!r} (type={rec.type!r}) re-fired but its status is "
         f"{existing_status!r} — NOT auto-reopening (conservative posture §5L.21(3)). "
@@ -847,7 +816,7 @@ def cmd_gap_scope(
     gap_path = _gap_note_path(pnd, gap_id)
     if not gap_path.exists():
         raise FileNotFoundError(f"Gap note not found: {gap_path}")
-    fm = _parse_frontmatter_gap(gap_path.read_text(encoding="utf-8"))
+    fm, _ = _pfm(gap_path.read_text(encoding="utf-8"))
     gap_type = fm.get("gap_type", "knowledge_void")
     claim = fm.get("claim", "").strip().strip('"\'')
     anchor = fm.get("anchor", "")
@@ -862,6 +831,16 @@ def cmd_gap_scope(
         target = ROUTE_LITERATURE  # back-compat default
 
     if target == ROUTE_EXPERIMENT:
+        # #28: warn if the caller passed a non-empty scope arg for the experiment arm —
+        # the plan is named <gap_id>-plan.md (gap-scoped), not after the scope arg.
+        if scope:
+            warnings.warn(
+                f"gap-scope: scope arg {scope!r} is ignored for --target experiment; "
+                f"the plan is named '{gap_id}-plan.md' (gap-scoped, not scope-scoped). "
+                f"Use gap-scope without a scope arg for experiment routes.",
+                UserWarning,
+                stacklevel=2,
+            )
         return _cmd_gap_scope_experiment(
             project=project,
             gap_id=gap_id,
@@ -903,7 +882,7 @@ def _cmd_gap_scope_literature(
     anchor_path = pnd / anchor if not Path(anchor).is_absolute() else Path(anchor)
     if anchor_path.exists():
         try:
-            a_fm = _parse_frontmatter_gap(anchor_path.read_text(encoding="utf-8"))
+            a_fm, _ = _pfm(anchor_path.read_text(encoding="utf-8"))
             for fkey in ("backed_by", "supported_by", "contradicted_by"):
                 vals = a_fm.get(fkey, [])
                 if isinstance(vals, list):
@@ -1101,7 +1080,8 @@ def _cmd_gap_scope_experiment(
         "six-gap framework. Related secondary taxonomies: Miles (2017); "
         "Robinson et al. (2011).",
     ]
-    context_path = exp_dir / "_gap-context.md"
+    # #28: gap-scoped filename mirrors <gap_id>-plan.md — prevents overwrite on 2nd gap
+    context_path = exp_dir / f"{gap_id}-gap-context.md"
     context_path.write_text("\n".join(context_lines), encoding="utf-8")
 
     return {"plan_note_path": str(plan_path), "gap_context_path": str(context_path)}
@@ -1152,11 +1132,21 @@ def _append_closes_to_note(note_path: Path, gap_id: str) -> None:
     Implements Ada ruling 2 (W3C PROV + Gotel & Finkelstein): the failure mode
     is the MISSING backward link — write both edges, never just the forward one.
 
-    If the note file does not exist, silently skips (the note reference may be
-    to a note that will be created separately; the gap record retains the forward
-    edge for audit).
+    If the note file does not exist, emits a UserWarning (charter §2: surface,
+    never silently drop) so the operator knows the backward ``closes:`` edge was
+    skipped.  The forward ``closed_by:`` edge is already written in the gap note;
+    the audit trail is partially intact but the back-edge is missing until the
+    closer note is created/corrected.  #29.
     """
     if not note_path.exists():
+        warnings.warn(
+            f"--by target {note_path!r} not found; forward closed_by: written but "
+            f"backward closes: edge skipped — verify the closer ref and re-run "
+            f"gap-close once the note exists, or create {note_path.name} first. "
+            f"Gap ID: {gap_id!r}  §5L.21(1) / #29.",
+            UserWarning,
+            stacklevel=3,
+        )
         return
     text = note_path.read_text(encoding="utf-8")
     new_text = _stamp_frontmatter_field(text, "closes", gap_id)
@@ -1229,7 +1219,7 @@ def cmd_gap_close(
         raise FileNotFoundError(f"Gap note not found: {gap_path}")
 
     text = gap_path.read_text(encoding="utf-8")
-    fm = _parse_frontmatter_gap(text)
+    fm, _ = _pfm(text)
     old_status = fm.get("status", "open")
 
     # Stamp status: (regex-stamp, in-place)
@@ -1314,7 +1304,7 @@ def cmd_gap_promote(
         raise FileNotFoundError(f"Gap note not found: {gap_path}")
 
     text = gap_path.read_text(encoding="utf-8")
-    fm = _parse_frontmatter_gap(text)
+    fm, _ = _pfm(text)
     current_status = fm.get("status", "open")
 
     if current_status != "proven-open":
@@ -1364,7 +1354,7 @@ def cmd_gap_list(
     results: list[dict[str, str]] = []
     for p in sorted(gaps_dir.glob("*.md")):
         try:
-            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
+            fm, _ = _pfm(p.read_text(encoding="utf-8"))
         except OSError:
             continue
         s = fm.get("status", "open")
@@ -1401,7 +1391,7 @@ def open_gap_count(project: str, *, config: Any = None) -> int:
     _OPEN_STATUSES = frozenset({"open", "reopened"})
     for p in gaps_dir.glob("*.md"):
         try:
-            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
+            fm, _ = _pfm(p.read_text(encoding="utf-8"))
             if fm.get("status", "open") in _OPEN_STATUSES:
                 count += 1
         except OSError:
@@ -1427,7 +1417,7 @@ def proven_open_count(project: str, *, config: Any = None) -> int:
     count = 0
     for p in gaps_dir.glob("*.md"):
         try:
-            fm = _parse_frontmatter_gap(p.read_text(encoding="utf-8"))
+            fm, _ = _pfm(p.read_text(encoding="utf-8"))
             if fm.get("status", "") == "proven-open":
                 count += 1
         except OSError:
