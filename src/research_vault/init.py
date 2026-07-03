@@ -411,22 +411,35 @@ def cmd_init_in_dir(target_dir: str) -> int:
     # ── SR-CCB: Auto-run build-agents --target claude-code ───────────────────
     # Populate .claude/agents/<role>.md with CC-format subagent files so the
     # crew is discoverable immediately (zero extra commands for the adopter).
-    # Guard: only if the config can be loaded (it always can here — we just
-    # wrote research_vault.toml — but be defensive about parse errors).
-    from .config import Config, _load_toml, _expand_paths, _default_config, _merge
+    #
+    # IMPORTANT — why we do NOT use load_config() here:
+    #   The rv CLI calls load_config() at dispatch time (cli.py: cfg = load_config())
+    #   to resolve instance-level plugin verbs.  That call populates the module-level
+    #   _CACHE with a stale config — typically the default (no projects, CWD as
+    #   instance_root) because `rv init myvault` is run from the PARENT directory
+    #   before the new research_vault.toml even exists.  A subsequent load_config()
+    #   call here would hit that stale cache regardless of any env-var override, and
+    #   the auto-build would write files to the WRONG instance_root.
+    #
+    #   Fix: construct Config directly from the TOML we just wrote, bypassing the
+    #   module-level cache entirely.  This is immune to cache state and always reads
+    #   exactly what we persisted above.
+    from .config import (
+        Config, _load_toml, _expand_paths, _default_config, _merge, reset_config_cache,
+    )
     from .build_agents import cmd_build as _cmd_build_agents
     try:
-        import os
-        _env_save = os.environ.get("RESEARCH_VAULT_CONFIG")
-        os.environ["RESEARCH_VAULT_CONFIG"] = str(config_path)
-        try:
-            from .config import load_config as _load_config
-            _cfg = _load_config()
-        finally:
-            if _env_save is None:
-                os.environ.pop("RESEARCH_VAULT_CONFIG", None)
-            else:
-                os.environ["RESEARCH_VAULT_CONFIG"] = _env_save
+        _defaults = _default_config()
+        _raw = _load_toml(config_path)
+        _merged = _merge(_defaults, _raw)
+        # instance_root is written as an absolute path in the TOML by _CONFIG_TEMPLATE;
+        # fall back to `target` if somehow absent.
+        _instance_root = Path(_merged.get("instance_root", str(target)))
+        _merged = _expand_paths(_merged, _instance_root)
+        _cfg = Config(_merged, config_file=config_path)
+        # Reset the module-level cache so subsequent rv commands in the same process
+        # reload from the new instance's config rather than any stale pre-init cache.
+        reset_config_cache()
 
         _rc = _cmd_build_agents(project_slug=None, cfg=_cfg, target="claude-code")
         if _rc != 0:

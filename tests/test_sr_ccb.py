@@ -106,6 +106,86 @@ class TestClaudemdScaffold:
 
 
 # ---------------------------------------------------------------------------
+# SR-CCB-1b: COLD-PATH test (non-vacuous) — the init→auto-build wiring
+#
+# Root cause of the init bug: rv cli.py calls load_config() before dispatching
+# to rv init (line 519: cfg = load_config()) to load instance-level verbs.
+# This populates _CACHE with a stale default config (no projects, wrong
+# instance_root = CWD).  When cmd_init_in_dir then calls load_config() inside
+# the auto-build, _CACHE is not None → cache hit → stale config is used →
+# files written to wrong instance_root → .claude/agents/ in the new instance
+# is EMPTY.
+#
+# The conftest autouse fixture resets _CACHE before each test, which masks
+# this bug in the test suite (tests always start with _CACHE = None).
+#
+# This test REPRODUCES the CLI scenario by injecting a stale _CACHE BEFORE
+# calling cmd_init_in_dir.  It must FAIL on the current code (env-var approach
+# is bypassed by cache) and PASS after the fix (direct Config construction
+# ignores the cache).
+# ---------------------------------------------------------------------------
+
+class TestInitColdPathCacheResistance:
+    """Non-vacuous cold-path test: rv init must emit 6 agents even with a stale cache.
+
+    This is the test the coordinator identified as missing — it exercises the
+    FULL cmd_init_in_dir path under the same conditions as the real CLI.
+    """
+
+    def test_six_agents_emitted_despite_stale_cache(self, tmp_path):
+        """Full cold path: rv init emits 6 CC agents even when _CACHE is stale.
+
+        Simulates cli.py calling load_config() (populating _CACHE with wrong
+        instance_root) before rv init dispatches to cmd_init_in_dir.
+        Without the fix, .claude/agents/ is empty (files written to wrong dir).
+        """
+        import research_vault.config as _cfg_mod
+        from research_vault.config import Config, _default_config, _expand_paths
+        from research_vault.init import cmd_init_in_dir
+
+        # Simulate cli.py's pre-dispatch load_config() call:
+        # inject a stale cache with wrong instance_root (the PARENT, not the instance).
+        stale = _default_config()
+        stale["instance_root"] = str(tmp_path)   # WRONG — the real instance is a subdir
+        stale = _expand_paths(stale, tmp_path)
+        _cfg_mod._CACHE = Config(stale)           # poison the cache
+
+        # Run rv init in a subdir — must NOT be fooled by the stale cache.
+        instance = tmp_path / "myvault"
+        rc = cmd_init_in_dir(str(instance))
+        assert rc == 0, "rv init must succeed even with a stale _CACHE"
+
+        agents_dir = instance / ".claude" / "agents"
+        assert agents_dir.is_dir(), ".claude/agents/ must exist"
+
+        files = {f.stem for f in agents_dir.glob("*.md")}
+        expected = {"manager", "engineer", "researcher", "designer", "reviewer", "architect"}
+        assert files == expected, (
+            f"Expected 6 agent files in instance .claude/agents/, got: {sorted(files)}.\n"
+            f"Bug: stale _CACHE (instance_root={tmp_path!r}) caused auto-build to write "
+            f"to wrong location instead of {str(instance)!r}."
+        )
+
+    def test_claude_md_exists_in_instance_despite_stale_cache(self, tmp_path):
+        """CLAUDE.md must be written to the NEW instance, not the stale cache root."""
+        import research_vault.config as _cfg_mod
+        from research_vault.config import Config, _default_config, _expand_paths
+        from research_vault.init import cmd_init_in_dir
+
+        stale = _default_config()
+        stale["instance_root"] = str(tmp_path)
+        stale = _expand_paths(stale, tmp_path)
+        _cfg_mod._CACHE = Config(stale)
+
+        instance = tmp_path / "myvault"
+        rc = cmd_init_in_dir(str(instance))
+        assert rc == 0
+
+        assert (instance / "CLAUDE.md").is_file(), \
+            "CLAUDE.md missing from instance dir (init.py writes it directly, not via config)"
+
+
+# ---------------------------------------------------------------------------
 # SR-CCB-2: build-agents --target claude-code emits 6 CC subagent files
 # ---------------------------------------------------------------------------
 
