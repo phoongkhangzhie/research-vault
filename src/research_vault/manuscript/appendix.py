@@ -13,9 +13,10 @@ Anti-fabrication contract (§5J.5c + Ada #2):
     flagged as "manual entry required" when still at sentinel.
 
 Audience filter (SR-MS-AUDIENCE §5J.16.2):
-  - _is_proxy_study: detects proxy/no-run studies (all-empty results_location
-    or >threshold fraction of required fields at sentinel). When True,
-    inject_appendix emits a reframe paragraph instead of a sentinel wall.
+  - _is_proxy_study: detects proxy/no-run studies (single signal: ALL experiment
+    notes have empty results_location). When True, inject_appendix emits a
+    reframe paragraph instead of a sentinel wall. A real run with honest gaps in
+    repro fields is NOT a proxy study.
   - _sanitize_appendix_value: maps filesystem paths to identifiers/available-on-
     request; hashes pass through (verification anchors, D-AUD-3).
 
@@ -99,25 +100,6 @@ def _latex_escape(s: str) -> str:
 # Proxy-study detection (SR-MS-AUDIENCE §5J.16.2a)
 # ---------------------------------------------------------------------------
 
-# Required repro fields that a real experiment should populate.
-# When a high fraction of these are at sentinel AND no results_location is set,
-# the study is treated as a proxy/no-run analysis.
-_PROXY_REQUIRED_FIELDS = frozenset({
-    "repro_seed",
-    "repro_model_id",
-    "repro_model_revision",
-    "repro_decode_temperature",
-    "repro_decode_top_p",
-    "repro_decode_max_tokens",
-    "repro_dataset_id",
-    "repro_eval_harness",
-    "repro_metric",
-})
-
-# Default fraction of required-fields that must be at sentinel to trigger reframe.
-# Configurable via [manuscript_check].proxy_sentinel_fraction in research_vault.toml.
-_DEFAULT_PROXY_SENTINEL_FRACTION: float = 0.6
-
 # Filesystem-path patterns for _sanitize_appendix_value
 _FS_PATH_RE = re.compile(
     r"^(?:/|~/|\./).*|.*[\\/].*\.(csv|json|yaml|yml|txt|pkl|parquet|h5|pt|ckpt)$",
@@ -132,56 +114,35 @@ _HASH_RE = re.compile(r"^sha256:[0-9a-fA-F]{8,}|^[0-9a-fA-F]{32,}$", re.IGNORECA
 def _is_proxy_study(
     experiment_notes: list[Path],
     *,
-    proxy_sentinel_fraction: float | None = None,
     config: "Any | None" = None,
 ) -> bool:
     """Detect whether the study is a proxy/no-run analysis (SR-MS-AUDIENCE §5J.16.2a).
 
     A proxy study is one where no experimental run was actually executed by the
-    author — e.g. a re-analysis of published aggregate results. Two conditions
-    each independently trigger the proxy label:
+    author — e.g. a re-analysis of published aggregate results.
 
-    1. ALL experiment notes in scope have an empty ``results_location`` field
-       (the primary structural signal — inject_results already early-returns on
-       this per results_inject.py:265).
-
-    2. MORE THAN ``proxy_sentinel_fraction`` of the required repro fields across
-       all scope notes are at the 'not-recorded-in-provenance' sentinel.
-       (Configurable via [manuscript_check].proxy_sentinel_fraction, default 0.6)
+    Single detection signal: ALL experiment notes in scope have an empty
+    ``results_location`` field.  This is the primary structural signal — a note
+    with ``results_location`` set (even if some ``repro_*`` fields are still at
+    sentinel) represents a REAL RUN with honest gaps, not a proxy study.
 
     Args:
         experiment_notes: list of path objects to experiment OKF notes.
-        proxy_sentinel_fraction: override fraction (0.0–1.0). When None, reads
-            from config or falls back to _DEFAULT_PROXY_SENTINEL_FRACTION.
-        config: optional Config instance for reading the fraction seam.
+        config: unused; retained for forward-compat call-site compatibility.
 
     Returns:
-        True if the study is a proxy/no-run analysis; False otherwise.
+        True if ALL notes have empty results_location (proxy/no-run study).
+        False if any note has a non-empty results_location (real run).
+        False if experiment_notes is empty (cannot determine — not proxy).
 
     sr: SR-MS-AUDIENCE
     """
-    from research_vault.note import _parse_frontmatter, REPRO_SENTINEL
+    from research_vault.note import _parse_frontmatter
 
     if not experiment_notes:
         return False  # No experiments: can't determine — not a proxy study
 
-    # Resolve the threshold
-    threshold = proxy_sentinel_fraction
-    if threshold is None and config is not None:
-        raw = getattr(config, "_raw", {})
-        ms_check = raw.get("manuscript_check", {})
-        if isinstance(ms_check, dict):
-            cfg_frac = ms_check.get("proxy_sentinel_fraction")
-            if isinstance(cfg_frac, (int, float)) and 0.0 <= cfg_frac <= 1.0:
-                threshold = float(cfg_frac)
-    if threshold is None:
-        threshold = _DEFAULT_PROXY_SENTINEL_FRACTION
-
-    all_results_empty = True
-    total_required = 0
-    total_sentinel = 0
     note_count = 0
-
     for note_path in experiment_notes:
         if not note_path.exists():
             continue
@@ -191,35 +152,15 @@ def _is_proxy_study(
             continue
         fields, _ = _parse_frontmatter(text)
         note_count += 1
-
-        # Check results_location (the primary structural signal for "real run")
         rl = fields.get("results_location", "").strip()
         if rl:
-            # At least one note has a results_location set → not all-empty
-            all_results_empty = False
-
-        # Count sentinel fields (only meaningful for notes without results_location)
-        # A real run (results_location set) with incomplete repro fields is an
-        # HONEST GAP, not a proxy study. The reframe fires "only when the whole
-        # study is a proxy" (§5J.16.2a spec ruling).
-        if not rl:
-            for f in _PROXY_REQUIRED_FIELDS:
-                total_required += 1
-                val = fields.get(f, "").strip()
-                if val == REPRO_SENTINEL or val == "":
-                    total_sentinel += 1
+            return False  # Real run found — not a proxy study
 
     if note_count == 0:
         return False  # No readable notes — cannot determine
 
-    # Trigger 1: ALL notes have empty results_location → no runs at all → proxy study
-    if all_results_empty:
-        return True
-
-    # Trigger 2 does NOT fire if any note has results_location set.
-    # (A real run with some sentinel fields is an honest gap, not a proxy study.)
-
-    return False
+    # Every readable note had empty results_location → proxy/no-run study
+    return True
 
 
 def _sanitize_appendix_value(field: str, value: str) -> str:
@@ -372,7 +313,7 @@ def inject_appendix(
     Args:
         tree_root: path to manuscripts/<id>/ tree root.
         experiment_notes: list of experiments/ note paths to read repro_* from.
-        config: optional Config for proxy_sentinel_fraction seam (D-AUD-2).
+        config: reserved (unused); retained for call-site compatibility.
 
     Returns:
         Path to the written sections/appendix-repro.tex.

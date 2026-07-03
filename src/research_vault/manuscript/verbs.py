@@ -38,7 +38,7 @@ def build_parser(
     When to use: use `rv manuscript new <project> <id> --thesis '...'` to scaffold
     an anti-fabrication-by-construction path from a verified OKF graph to a paper draft:
     closed .bib from filed `literature/` notes, machine-injected results macros,
-    `reads:` grounding contracts, and a 16-node drafting-DAG manifest (§5J.2).
+    `reads:` grounding contracts, and an 18-node drafting-DAG manifest (§5J.2 + SR-MS-AUDIENCE).
 
     Anti-pattern: do NOT hand-write a .tex and hand-type citations/numbers — run
     `rv manuscript new --thesis` so the draft carries a closed .bib, machine-
@@ -71,7 +71,7 @@ def build_parser(
         "new",
         help=(
             "Create a manuscript OKF note + manuscripts/<id>/ tree + drafting-DAG manifest. "
-            "Scaffolds the 16-node §5J.2 drafting DAG with all section specs and reads: contracts."
+            "Scaffolds the 18-node §5J.2 + SR-MS-AUDIENCE drafting DAG with all section specs and reads: contracts."
         ),
     )
     new_p.add_argument(
