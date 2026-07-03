@@ -725,8 +725,17 @@ class TestConfirm:
 class TestLearn:
     """Stage 4: run_outcomes and lessons annotate the proposal (still human-gated)."""
 
-    def test_oom_outcome_annotates_proposal_warning(self) -> None:
-        """OOM outcome on the proposed partition -> warning in the proposal row."""
+    def test_oom_outcome_real_schema_annotates_proposal_warning(self) -> None:
+        """OOM outcome using the REAL capture schema (no partition field) -> warning.
+
+        cmd_outcome_add (compute.py:524,537) writes {job, tier, result, ts} —
+        NO partition field. The LEARN keying must use tier ALONE. This is the
+        load-bearing correctness test: the real capture path never writes
+        a 'partition' key, so any impl that requires it is silently inert.
+
+        RED-FIRST: this test MUST fail against the old (tier,partition)-keyed
+        implementation; it passes only after the fix (tier-only keying).
+        """
         from research_vault.doctor import _propose_tiers
 
         inventory = [
@@ -743,23 +752,24 @@ class TestLearn:
             "forbidden_partitions": [],
         }
         gpu_tiers = {"tp1": {"gpus": 1, "models": ["<=7B"]}}
+
+        # REAL schema from cmd_outcome_add — NO "partition" field
         run_outcomes = [
-            {"job": "run-1", "tier": "tp1", "partition": "gpu-short", "result": "OOM",
-             "ts": "2026-07-01T10:00:00"}
+            {"job": "run-1", "tier": "tp1", "result": "OOM", "ts": "2026-07-01T10:00:00"}
         ]
 
         result = _propose_tiers(inventory, permissions, gpu_tiers, run_outcomes, [])
-        mapping = result["mapping"]
-        tp1 = mapping.get("tp1", {})
+        tp1 = result["mapping"].get("tp1", {})
 
-        # The proposal should still map tp1 (there's no better partition)
+        # Still maps tp1 (OOM doesn't prevent proposal — it annotates)
         assert tp1.get("partition") == "gpu-short"
 
-        # But there should be a warning about the OOM
+        # LEARN must fire: OOM on tier tp1 -> warning on the proposed partition
         warnings = tp1.get("warnings", [])
         assert warnings, (
-            "OOM outcome on proposed partition should produce a warning, "
-            "but warnings list is empty"
+            "OOM outcome (real schema, no partition field) should produce a warning "
+            "for the proposed partition, but warnings list is empty. "
+            "The LEARN keying must be tier-only — 'partition' is never in real outcomes."
         )
         warning_text = " ".join(warnings).lower()
         assert "oom" in warning_text or "warn" in warning_text or "consider" in warning_text

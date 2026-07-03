@@ -618,17 +618,19 @@ def _propose_tiers(
     else:
         inventory_only = True  # sacctmgr absent or unavailable
 
-    # Build OOM index: {(tier, partition): ["OOM on <ts>", ...]}
-    oom_index: dict[tuple[str, str], list[str]] = {}
+    # Build OOM index: {tier: ["OOM on <ts>", ...]}
+    # Key on TIER ALONE. cmd_outcome_add (compute.py:524,537) writes
+    # {job, tier, result, ts} — NO partition field. The partition to annotate
+    # is the one _propose_tiers chooses for that tier (not the recorded outcome).
+    # Requiring (tier, partition) would be silently inert against all real outcomes.
+    oom_index: dict[str, list[str]] = {}
     for outcome in run_outcomes:
         tier_k = outcome.get("tier", "")
-        part_k = outcome.get("partition", "")
         res = outcome.get("result", "")
-        if res in ("OOM", "FAILED") and tier_k and part_k:
-            key = (tier_k, part_k)
-            oom_index.setdefault(key, [])
+        if res in ("OOM", "FAILED") and tier_k:
+            oom_index.setdefault(tier_k, [])
             ts = outcome.get("ts", "")
-            oom_index[key].append(f"{res} on {ts}" if ts else res)
+            oom_index[tier_k].append(f"{res} on {ts}" if ts else res)
 
     # Sort partitions by GPU count ascending (cheapest-first)
     def _sort_key(p: dict[str, Any]) -> int:
@@ -717,8 +719,9 @@ def _propose_tiers(
             f"{best_partition} [{best_gres}×{best_count} · {models_str}{assoc_info}]"
         )
 
-        # LEARN: check outcomes for OOM/FAILED on this pairing
-        outcome_warns = oom_index.get((tier_name, best_partition), [])
+        # LEARN: check outcomes for OOM/FAILED on this tier (tier-keyed, not
+        # tier+partition — cmd_outcome_add never records a partition field)
+        outcome_warns = oom_index.get(tier_name, [])
         for ow in outcome_warns:
             warnings.append(
                 f"⚠ {best_partition} had {ow} for {tier_name} — consider a larger partition"
