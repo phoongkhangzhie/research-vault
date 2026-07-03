@@ -755,27 +755,39 @@ def cmd_approve(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1).
+    # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
     #
     # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]
     # AND the node being approved is NOT the plan-freeze gate itself
     # (convention: node_id == "human-go-plan" is the freeze gate), re-derive
     # the hash and BLOCK approval on mismatch.
     #
-    # The plan_freeze.plan_note path was recorded at freeze time by
-    # ``rv plan freeze``; notes_root is derived from the same config.
+    # SR-FREEZE-FIX (hole b): The stored plan_freeze["notes_root"] is used for
+    # re-derivation — NOT re-derived from cfg.notes_root.  The config re-derive
+    # was the source of the non-reproducibility bug.
+    #
+    # SR-FREEZE-FIX (approve hardening): on a verify EXCEPTION, BLOCK (return 1)
+    # instead of warning-and-proceeding.  An integrity gate must fail-closed on
+    # inability-to-verify (charter §2: surface, never swallow).
+    #
+    # require_frozen=False: the hook already gates on plan_freeze presence above,
+    # so it never calls verify on a non-frozen run; the no-op path is never needed.
     plan_freeze = run_state.meta.get("plan_freeze")
     if plan_freeze and node_id != "human-go-plan":
         stored_plan_note = plan_freeze.get("plan_note", "")
         if stored_plan_note:
+            from ..plan.freeze import verify_freeze_hash
             try:
-                from ..plan.freeze import verify_freeze_hash
-                # notes_root: default to <notes_root>/experiments from config
-                notes_root = cfg.notes_root / "experiments"
+                # Pass the stored notes_root (the pin) directly; ignore cfg re-derive.
+                stored_notes_root_str = plan_freeze.get("notes_root")
+                stored_notes_root = (
+                    Path(stored_notes_root_str) if stored_notes_root_str else None
+                )
                 ok, msg = verify_freeze_hash(
                     store, run_id,
                     Path(stored_plan_note),
-                    notes_root=notes_root,
+                    notes_root=stored_notes_root,
+                    require_frozen=False,  # already gated on presence above
                 )
                 if not ok:
                     print(
@@ -785,13 +797,16 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     )
                     return 1
             except Exception as k3_err:
-                # Surface K-3 errors as warnings, not hard blocks, to avoid
-                # locking a run when the freeze module is unavailable.
+                # SR-FREEZE-FIX: BLOCK on exception — an integrity gate must not
+                # proceed when it cannot verify.  Old code warned-and-proceeded
+                # (a second fail-open); that is now closed.
                 print(
-                    f"rv dag approve: K-3 verify warning: {k3_err} "
-                    f"(proceeding — fix and re-run if concerned)",
+                    f"rv dag approve: K-3 verify FAILED with an exception — "
+                    f"approval BLOCKED (integrity gate cannot proceed on "
+                    f"inability-to-verify): {k3_err}",
                     file=sys.stderr,
                 )
+                return 1
 
     run_state.set_node_status(node_id, "succeeded")
     store.save(run_state)

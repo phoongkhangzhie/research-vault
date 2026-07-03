@@ -277,22 +277,26 @@ def _run_freeze(args: argparse.Namespace) -> int:
 def _run_verify_freeze(args: argparse.Namespace) -> int:
     """K-3: re-derive covers:-hash and compare to stored value (§5K.5.1).
 
-    Returns 0 on match (or no freeze stored); 1 on MISMATCH.
+    SR-FREEZE-FIX: fail CLOSED — exits 1 when no freeze is stored (a never-frozen
+    run must NOT pass the K-3 gate silently).
+
+    SR-FREEZE-FIX: caller-invariant — notes_root is used ONLY as an explicit
+    re-pin override when the stored pin is absent (legacy meta back-compat).
+    The stored pin in plan_freeze["notes_root"] takes precedence; the old
+    config auto-resolve (cfg.notes_root/"experiments") has been REMOVED because
+    it was the source of the non-reproducibility bug (different callers with
+    different configs got different verdicts on the same untampered artifact).
+
+    Returns 0 on hash match; 1 on mismatch, not-frozen, or error.
     """
     from .freeze import verify_freeze_hash
 
     run_id = args.run_id
     plan_note = Path(args.plan_note)
     notes_root_arg = getattr(args, "notes_root", None)
+    # Accept --notes-root as an explicit re-pin override only (legacy back-compat).
+    # Do NOT auto-resolve from config — that was the non-reproducibility bug.
     notes_root = Path(notes_root_arg) if notes_root_arg else None
-
-    if notes_root is None:
-        try:
-            from research_vault.config import load_config
-            cfg = load_config()
-            notes_root = cfg.notes_root / "experiments"
-        except Exception:
-            pass
 
     try:
         from research_vault.config import load_config
@@ -304,7 +308,12 @@ def _run_verify_freeze(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        ok, msg = verify_freeze_hash(store, run_id, plan_note, notes_root=notes_root)
+        # require_frozen=True (default): exit 1 when no freeze stored.
+        ok, msg = verify_freeze_hash(
+            store, run_id, plan_note,
+            notes_root=notes_root,
+            require_frozen=True,
+        )
     except Exception as e:
         print(f"rv plan verify-freeze: {e}", file=sys.stderr)
         return 1

@@ -378,7 +378,14 @@ class TestFreeze:
         assert msg is not None
 
     def test_verify_no_freeze_in_meta(self, tmp_path):
-        """If no freeze hash stored, verify returns (None, None) — no-op."""
+        """SR-FREEZE-FIX: no freeze stored → fail CLOSED by default (require_frozen=True).
+
+        The old behavior was (True, None) — a fail-open bug (hole a).  The new
+        correct behavior: (False, msg) with a 'not frozen' explanation.
+
+        Callers that gate on presence themselves (e.g. rv dag approve) opt in to
+        require_frozen=False to get the old no-op (True, None).
+        """
         from research_vault.dag.store import RunState, RunStore
 
         freeze = self._import_freeze()
@@ -390,10 +397,19 @@ class TestFreeze:
         run_state = RunState(run_id="no-freeze-run", manifest_path=str(tmp_path / "m.json"))
         store.create(run_state)
 
+        # Default: require_frozen=True — must FAIL CLOSED on absent freeze.
         ok, msg = freeze.verify_freeze_hash(store, "no-freeze-run", p, notes_root=notes_dir)
-        # No freeze stored → no-op, not an error
-        assert ok is True
-        assert msg is None
+        assert ok is False, "Absent freeze must return (False, msg) — not (True, None)"
+        assert msg is not None
+        assert "not frozen" in msg.lower() or "freeze" in msg.lower()
+
+        # Explicit require_frozen=False: the no-op escape-hatch (for callers that
+        # already gate on presence).
+        ok2, msg2 = freeze.verify_freeze_hash(
+            store, "no-freeze-run", p, notes_root=notes_dir, require_frozen=False
+        )
+        assert ok2 is True
+        assert msg2 is None
 
 
 # ===========================================================================

@@ -103,6 +103,12 @@ class RunState:
       "plan_freeze": {
           "covers_hash":  "<sha256-hex>",       — hash of sorted (child_id, stance, plan_role) tuples
           "plan_note":    "<abs-path-str>",      — path to the plan master note that was frozen
+          "notes_root":   "<abs-path-str>|null", — resolution input pin (SR-FREEZE-FIX, hole b);
+                                                    stored at freeze time so verify_freeze_hash
+                                                    re-derives with the SAME notes_root regardless
+                                                    of caller cwd/config.  null = legacy format
+                                                    (pre-SR-FREEZE-FIX) — requires explicit
+                                                    --notes-root at verify time.
           "frozen_at":    <float>,               — Unix timestamp of freeze
       }
     """
