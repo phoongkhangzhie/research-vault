@@ -659,3 +659,104 @@ class TestWalkerByteForByte:
         assert result.stdout.strip() == "", (
             f"walker.py must be UNCHANGED from origin/main:\n{result.stdout}"
         )
+
+
+# ===========================================================================
+# 15. SR-RETRY cosmetic fix — attempt counter overshoot (task #21)
+# ===========================================================================
+
+class TestAttemptCounterDisplay:
+    """Display-only: behavior (state machine, terminality) UNCHANGED.
+
+    Fixes:
+    - cmd_status: terminal failed/succeeded nodes must NOT show a live attempt counter.
+    - cmd_complete: N=0 exhausted-path must NOT print a 'k/0' ratio.
+    """
+
+    # ── cmd_status: N=0 failed node — no counter ────────────────────────────
+
+    def test_status_n0_failed_no_counter(self, tmp_instance, capsys):
+        """N=0 failed node: cmd_status must NOT show '[attempt …]'."""
+        m = _manifest([_agent("a")])  # max_retries absent → 0
+        run_id = _start_run(tmp_instance, m)
+        _run_complete(run_id, "a", status="failed")
+        capsys.readouterr()  # flush complete output
+        rc = _run_status(run_id)
+        assert rc == 0
+        out = capsys.readouterr().out
+        # Terminal N=0 failure: no live attempt counter
+        assert "[attempt" not in out, (
+            f"N=0 terminal failed must not show an attempt counter; got:\n{out}"
+        )
+
+    # ── cmd_complete: N=0 failed — no k/0 ratio ─────────────────────────────
+
+    def test_complete_n0_failed_no_ratio(self, tmp_instance, capsys):
+        """N=0 failed: cmd_complete must NOT print 'retries exhausted: 1/0'."""
+        m = _manifest([_agent("a")])
+        run_id = _start_run(tmp_instance, m)
+        capsys.readouterr()
+        _run_complete(run_id, "a", status="failed")
+        out = capsys.readouterr().out
+        assert "retries exhausted" not in out, (
+            f"N=0 plain failure must not mention 'retries exhausted'; got:\n{out}"
+        )
+        assert "1/0" not in out, (
+            f"N=0 plain failure must not produce a '1/0' ratio; got:\n{out}"
+        )
+
+    # ── cmd_status: N=2 pending+attempts=1 DOES show counter ────────────────
+
+    def test_status_n2_pending_retry_shows_counter(self, tmp_instance, capsys):
+        """N=2, pending with attempts=1: cmd_status MUST show '[attempt 2/3]'."""
+        m = _manifest([_agent("a", max_retries=2)])
+        run_id = _start_run(tmp_instance, m)
+        _run_complete(run_id, "a", status="failed", error="boom")
+        # Node is now pending (retry-queued), attempts=1
+        capsys.readouterr()
+        rc = _run_status(run_id)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "[attempt 2/3]" in out, (
+            f"Retry-queued (pending, attempts=1) must show '[attempt 2/3]'; got:\n{out}"
+        )
+
+    # ── cmd_status: N=2 exhausted terminal — no overshooting counter ─────────
+
+    def test_status_n2_exhausted_no_counter(self, tmp_instance, capsys):
+        """N=2 exhausted (terminal failed, attempts=3): cmd_status must NOT show '[attempt 4/3]'."""
+        m = _manifest([_agent("a", max_retries=2)])
+        run_id = _start_run(tmp_instance, m)
+        _run_complete(run_id, "a", status="failed", error="f1")
+        _run_complete(run_id, "a", status="failed", error="f2")
+        _run_complete(run_id, "a", status="failed", error="f3")
+        # Node is now terminal failed, attempts=3
+        capsys.readouterr()
+        rc = _run_status(run_id)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "[attempt 4/3]" not in out, (
+            f"Terminal-exhausted node must not show '[attempt 4/3]' overshoot; got:\n{out}"
+        )
+        # Also must not show ANY live attempt counter (node is terminal, not pending)
+        assert "[attempt" not in out, (
+            f"Terminal-exhausted node must not show any live attempt counter; got:\n{out}"
+        )
+
+    # ── cmd_complete: N=2 exhausted — correct ratio printed ─────────────────
+
+    def test_complete_n2_exhausted_correct_ratio(self, tmp_instance, capsys):
+        """N=2 exhausted: cmd_complete must print 'retries exhausted: 3/2 attempts'."""
+        m = _manifest([_agent("a", max_retries=2)])
+        run_id = _start_run(tmp_instance, m)
+        _run_complete(run_id, "a", status="failed", error="f1")
+        _run_complete(run_id, "a", status="failed", error="f2")
+        capsys.readouterr()
+        _run_complete(run_id, "a", status="failed", error="f3")
+        out = capsys.readouterr().out
+        assert "retries exhausted" in out, (
+            f"Exhausted node must say 'retries exhausted'; got:\n{out}"
+        )
+        assert "3/2" in out, (
+            f"Exhausted N=2 node must show '3/2' attempts ratio; got:\n{out}"
+        )
