@@ -124,16 +124,24 @@ def _ssh_exec(
 ) -> "subprocess.CompletedProcess[str]":
     """Run ``ssh <host> <argv>`` and return the CompletedProcess.
 
-    This is the shared SSOT for all ssh subprocess calls in the remote adapter.
+    This is the shared SSOT for ssh subprocess calls in the remote adapter.
     It does NOT swallow exceptions — callers decide what to do.
 
     Raises:
       FileNotFoundError — ssh binary not found in PATH
       subprocess.TimeoutExpired — the command timed out
 
-    SR-CO extracted this from the inlined calls in ``_run_status`` and ``submit``
-    so that SR-CO-REMOTE can reuse it (with BatchMode + ConnectTimeout flags)
-    for automated remote probing without duplicating the transport.
+    Call sites:
+      - ``_run_status`` (SR-CO) — uses this for all status queries
+      - ``doctor._probe_remote_*`` (SR-CO-REMOTE) — uses this for remote probing
+        with BatchMode=yes + ConnectTimeout flags prepended to argv
+
+    Note: ``submit()`` uses ``subprocess.run`` directly (not this function) because
+    submit builds a full ssh_argv list that includes the host, submit command, env/cwd
+    flags, container wrap, and the remote cmd all as a single argv — it is
+    structurally different from the two-argument (host, argv) form here, and has
+    a longer timeout (60s) plus a different error-handling contract
+    (FileNotFoundError → RuntimeError).
     """
     return subprocess.run(
         ["ssh", host] + list(argv),

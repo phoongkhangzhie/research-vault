@@ -267,8 +267,13 @@ class TestDoctorEnvAware:
             "run_outcomes": [],
         })
 
-    def test_doctor_probes_local_and_defers_remote(self, cfg: Config) -> None:
-        """doctor probes local backend + honestly reports remote as deferred."""
+    def test_doctor_probes_local_and_probes_remote(self, cfg: Config) -> None:
+        """doctor probes local backend + actually probes remote (SR-CO-REMOTE live).
+
+        The remote probe will fail (example-hpc.edu unreachable in CI) but
+        must return a structured result — never deferred, never silently skipped
+        (charter §2).
+        """
         from research_vault.doctor import cmd_doctor
         self._manifest_with_local_and_remote(cfg)
         result = cmd_doctor(cfg, refresh=True)
@@ -277,22 +282,34 @@ class TestDoctorEnvAware:
         assert "local" in backends
         local_caps = backends["local"]["capabilities"]
         assert local_caps.get("local_available") is True
-        # Cluster must be present and marked as deferred (not silently skipped — charter §2)
+        # Cluster must be present and have been attempted (not silently skipped)
         assert "cluster" in backends
         cluster_caps = backends["cluster"]["capabilities"]
-        assert cluster_caps.get("probe_status") == "deferred"
-        assert "declared" in cluster_caps
-        assert cluster_caps["declared"] is True
+        # Must have a probe_status (real probe ran) — not "deferred" (that was SR-CO placeholder)
+        assert "probe_status" in cluster_caps, (
+            "cluster backend has no probe_status — probe was silently skipped (charter §2 violation)"
+        )
+        assert cluster_caps.get("probe_status") != "deferred", (
+            "cluster backend is still 'deferred' — SR-CO-REMOTE not wired in"
+        )
+        # The fake host will be unreachable, but the probe must have been attempted
+        assert cluster_caps.get("probe_status") in (
+            "ok", "unreachable", "scheduler_error", "unfilled"
+        ), f"Unexpected probe_status: {cluster_caps.get('probe_status')!r}"
 
     def test_doctor_remote_honest_message_in_report(self, cfg: Config) -> None:
-        """format_report includes the honest 'declared; probe deferred' message."""
+        """format_report includes a meaningful remote backend section (not silently skipped)."""
         from research_vault.doctor import cmd_doctor, format_report
         self._manifest_with_local_and_remote(cfg)
         result = cmd_doctor(cfg, refresh=True)
         report = format_report(result)
-        # Must surface the deferral — NOT silently skip (charter §2)
-        assert "SR-CO-REMOTE" in report
-        assert "declared" in report.lower()
+        # Must surface the cluster backend — NOT silently skip (charter §2)
+        assert "[cluster]" in report
+        # For the unreachable fake host, must mention unreachable or the host
+        # (the old "SR-CO-REMOTE" deferral message is gone — real probe runs now)
+        assert "SR-CO-REMOTE" not in report, (
+            "format_report still shows old deferral message — SR-CO-REMOTE is implemented"
+        )
 
     def test_doctor_per_backend_cache_shape(self, cfg: Config) -> None:
         """Cache written in per-backend shape: {ts, backends: {name: {ts, capabilities}}}."""

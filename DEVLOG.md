@@ -1,3 +1,46 @@
+## 2026-07-03 (SR-CO-REMOTE: real ssh remote probe — scheduler-aware GPU discovery)
+
+### Done
+- **Real ssh remote probe** in `doctor.py`: replaced `_probe_remote_backend_deferred`
+  with `_probe_remote_backend` that dispatches to archetype-specific probers.
+- **_probe_remote_slurm**: calls `sinfo --format='%P %G %D' --noheader` via ssh;
+  parses partitions + GRES GPU types. GPU discovery is scheduler-aware — does NOT call
+  nvidia-smi on login node (which false-negatives because login nodes are typically
+  GPU-less on HPC clusters).
+- **_probe_remote_pbs**: calls `pbsnodes -a` via ssh for PBS/Torque clusters.
+- **_probe_remote_ssh**: plain connectivity check via `ssh <host> true`.
+- **_parse_sinfo_output**: pure parser for `%P %G %D` sinfo format — extracts
+  partition names, GRES strings, node counts; builds deduplicated `gpu_types` list
+  from GRES like `gpu:a100:4 → "a100"`.
+- **BatchMode fail-fast**: all probe calls use `_SSH_PROBE_OPTS = ["-o", "BatchMode=yes",
+  "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no"]` — automated probe
+  NEVER hangs on auth prompt or unreachable host.
+- **Graceful degrade**: timeout → probe_status="unreachable"; ssh exit 255 (auth fail) →
+  "unreachable"; scheduler error → "scheduler_error" (reachable=True, distinct from
+  unreachable); FILL placeholder host → "unfilled" (guides user to configure).
+- **format_report updated**: shows partitions + GPU types for ok probes; unreachable
+  reason + corrective action for failures; no longer shows old "SR-CO-REMOTE" deferral.
+- **_ssh_exec docstring corrected**: no longer claims extraction from `submit` (submit
+  uses subprocess.run directly — different contract, timeout=60, error semantics).
+- **25 new tests** in `test_sr_co_remote.py`: sinfo parser, login-node GPU trap (the
+  key correctness test), BatchMode/ConnectTimeout argv assertions, unreachable vs no-GPU
+  distinction, PBS probe, format_report display, SR-7 regression guards.
+- **SR-CO test updates**: deferred assertions replaced with real-probe assertions;
+  SR-CO-REMOTE mention removed from format_report assertions.
+
+### Decisions
+- D-CO-REMOTE-1: submit() not routed through `_ssh_exec` — submit builds a structurally
+  different argv (full ssh_argv with host, submit flags, container wrap, cmd as a unit),
+  uses timeout=60 (vs 15 for probes), and has FileNotFoundError→RuntimeError semantics
+  that differ from the probe's degrade-to-unreachable contract. Routing through `_ssh_exec`
+  would require splitting the argv or changing the SSOT signature — net negative. The
+  docstring was updated to accurately document the actual call sites.
+- D-CO-REMOTE-2: `StrictHostKeyChecking=no` added to probe opts — new HPC systems
+  not yet in known_hosts should not block the probe with an interactive prompt.
+
+### Open / next
+- SR-10 (publish) — the endgame
+
 ## 2026-07-03 (help-map rework + snippet-check gate: PR #TODO)
 
 ### Done

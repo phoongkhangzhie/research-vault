@@ -25,10 +25,16 @@ gets a fully working doctor that reports "slurm: not available".
 
 Backend archetype probes (per declared backend):
   local       — always available; nvidia-smi for GPU detection (today's full probe)
-  ssh+slurm   — DECLARED; remote probe = SR-CO-REMOTE (honest deferral)
-  ssh+pbs     — DECLARED; remote probe = SR-CO-REMOTE (honest deferral)
-  ssh         — DECLARED; remote probe = SR-CO-REMOTE (honest deferral)
+  ssh+slurm   — ssh probe via sinfo (scheduler-aware GPU discovery, BatchMode fail-fast)
+  ssh+pbs     — ssh probe via pbsnodes (BatchMode fail-fast)
+  ssh         — ssh probe (connectivity + uptime check, BatchMode fail-fast)
   generic     — runs declared probe_commands from the manifest profile (local only)
+
+Remote probe design (SR-CO-REMOTE):
+  GPU discovery uses the SCHEDULER (sinfo/pbsnodes), NOT login-node nvidia-smi.
+  Login nodes on HPC clusters typically have no GPU — nvidia-smi would false-negative.
+  BatchMode=yes + ConnectTimeout=N on every probe call ensures the probe never hangs
+  on an auth prompt or unreachable host.
 
 Stdlib only.
 """
@@ -182,12 +188,290 @@ def _probe_generic(probe_commands: list[str]) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Per-backend probers
+# Remote probe helpers (SR-CO-REMOTE)
 # ---------------------------------------------------------------------------
 
+# SSH options that make the probe fail-fast rather than hang:
+#   BatchMode=yes   — never prompt for password/passphrase (returns exit 255)
+#   ConnectTimeout  — bail out quickly on unreachable hosts
+_SSH_PROBE_OPTS: list[str] = [
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=10",
+    "-o", "StrictHostKeyChecking=no",
+]
+
 # Archetypes that are remote (require an ssh connection to probe meaningfully).
-# The actual remote probe ships in SR-CO-REMOTE — here we report honestly.
 _REMOTE_ARCHETYPES = frozenset({"ssh", "ssh+slurm", "ssh+pbs"})
+
+
+def _parse_sinfo_output(stdout: str) -> dict[str, Any]:
+    """Parse ``sinfo --format='%P %G %D' --noheader`` stdout.
+
+    Returns::
+
+        {
+            "available": True,
+            "partitions": [
+                {"partition": "gpu*", "gpu_gres": "gpu:a100:4", "nodes": "8"},
+                ...
+            ],
+            "gpu_types": ["a100", "v100"],   # deduplicated; empty if no GPU partitions
+        }
+
+    GPU type extraction: ``gpu:a100:4`` → ``"a100"``; ``(null)`` → skipped.
+    Never raises — bad lines are silently skipped.
+    """
+    partitions: list[dict[str, str]] = []
+    gpu_types_seen: list[str] = []
+
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        partition_name = parts[0]
+        gpu_gres = parts[1] if len(parts) > 1 else "(null)"
+        nodes = parts[2] if len(parts) > 2 else "?"
+        partitions.append({
+            "partition": partition_name,
+            "gpu_gres": gpu_gres,
+            "nodes": nodes,
+        })
+        # Extract GPU type from GRES string like "gpu:a100:4" or "gpu:2"
+        if gpu_gres and gpu_gres != "(null)" and gpu_gres.startswith("gpu:"):
+            gres_parts = gpu_gres.split(":")
+            # gpu:<type>:<count>  → type is index 1 (if it's not a bare count)
+            if len(gres_parts) >= 2:
+                gpu_type_candidate = gres_parts[1]
+                # Bare "gpu:4" has a digit at index 1 — skip (no named type)
+                if gpu_type_candidate and not gpu_type_candidate.isdigit():
+                    if gpu_type_candidate not in gpu_types_seen:
+                        gpu_types_seen.append(gpu_type_candidate)
+
+    return {
+        "available": True,
+        "partitions": partitions,
+        "gpu_types": gpu_types_seen,
+    }
+
+
+def _probe_remote_slurm(host: str, backend_name: str) -> dict[str, Any]:
+    """Probe an ssh+slurm backend via ``sinfo``.
+
+    Uses BatchMode=yes + ConnectTimeout so the probe never hangs on an
+    unconfigured host or auth prompt.  GPU discovery goes through the
+    scheduler (sinfo GRES), NOT login-node nvidia-smi — login nodes on
+    HPC clusters are typically GPU-less, so nvidia-smi would false-negative.
+
+    Returns a capabilities dict with one of:
+      probe_status="ok"             — reachable, sinfo ran
+      probe_status="scheduler_error"— reachable but sinfo returned non-zero
+      probe_status="unreachable"    — ssh failed (timeout, auth, not found)
+    """
+    from .adapters.remote import _ssh_exec
+
+    sinfo_argv = _SSH_PROBE_OPTS + ["sinfo", "--format=%P %G %D", "--noheader"]
+    try:
+        result = _ssh_exec(host, sinfo_argv, timeout=20)
+    except FileNotFoundError:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": "ssh binary not found — install openssh-client",
+            "host": host,
+            "archetype": "ssh+slurm",
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": (
+                f"ssh to '{host}' timed out — "
+                "check your ~/.ssh/config / host alias or network connectivity"
+            ),
+            "host": host,
+            "archetype": "ssh+slurm",
+        }
+    except OSError as exc:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": str(exc),
+            "host": host,
+            "archetype": "ssh+slurm",
+        }
+
+    # ssh exit 255 = connection refused / auth failure
+    if result.returncode == 255:
+        stderr_snip = (result.stderr or "")[:200]
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": (
+                f"ssh to '{host}' failed (exit 255 — likely auth or connection refused): "
+                f"{stderr_snip}"
+            ),
+            "host": host,
+            "archetype": "ssh+slurm",
+        }
+
+    if result.returncode != 0:
+        stderr_snip = (result.stderr or "")[:200]
+        return {
+            "probe_status": "scheduler_error",
+            "reachable": True,
+            "reason": f"sinfo returned exit {result.returncode}: {stderr_snip}",
+            "host": host,
+            "archetype": "ssh+slurm",
+            "partitions": [],
+            "gpu_types": [],
+        }
+
+    parsed = _parse_sinfo_output(result.stdout or "")
+    return {
+        "probe_status": "ok",
+        "reachable": True,
+        "host": host,
+        "archetype": "ssh+slurm",
+        "partitions": parsed["partitions"],
+        "gpu_types": parsed["gpu_types"],
+    }
+
+
+def _probe_remote_pbs(host: str, backend_name: str) -> dict[str, Any]:
+    """Probe an ssh+pbs backend via ``pbsnodes -a``.
+
+    Uses BatchMode=yes + ConnectTimeout so the probe never hangs.
+    Returns a capabilities dict with probe_status in
+    ("ok", "scheduler_error", "unreachable").
+    """
+    from .adapters.remote import _ssh_exec
+
+    pbs_argv = _SSH_PROBE_OPTS + ["pbsnodes", "-a"]
+    try:
+        result = _ssh_exec(host, pbs_argv, timeout=20)
+    except FileNotFoundError:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": "ssh binary not found — install openssh-client",
+            "host": host,
+            "archetype": "ssh+pbs",
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": (
+                f"ssh to '{host}' timed out — "
+                "check your ~/.ssh/config / host alias or network connectivity"
+            ),
+            "host": host,
+            "archetype": "ssh+pbs",
+        }
+    except OSError as exc:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": str(exc),
+            "host": host,
+            "archetype": "ssh+pbs",
+        }
+
+    if result.returncode == 255:
+        stderr_snip = (result.stderr or "")[:200]
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": (
+                f"ssh to '{host}' failed (exit 255 — likely auth or connection refused): "
+                f"{stderr_snip}"
+            ),
+            "host": host,
+            "archetype": "ssh+pbs",
+        }
+
+    if result.returncode != 0:
+        stderr_snip = (result.stderr or "")[:200]
+        return {
+            "probe_status": "scheduler_error",
+            "reachable": True,
+            "reason": f"pbsnodes returned exit {result.returncode}: {stderr_snip}",
+            "host": host,
+            "archetype": "ssh+pbs",
+            "raw_output": (result.stdout or "")[:500],
+        }
+
+    return {
+        "probe_status": "ok",
+        "reachable": True,
+        "host": host,
+        "archetype": "ssh+pbs",
+        "raw_output": (result.stdout or "")[:1000],
+    }
+
+
+def _probe_remote_ssh(host: str, backend_name: str) -> dict[str, Any]:
+    """Probe a plain ssh backend (connectivity check via 'true').
+
+    Uses BatchMode=yes + ConnectTimeout so the probe never hangs.
+    """
+    from .adapters.remote import _ssh_exec
+
+    check_argv = _SSH_PROBE_OPTS + ["true"]
+    try:
+        result = _ssh_exec(host, check_argv, timeout=15)
+    except FileNotFoundError:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": "ssh binary not found — install openssh-client",
+            "host": host,
+            "archetype": "ssh",
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": (
+                f"ssh to '{host}' timed out — "
+                "check your ~/.ssh/config / host alias or network connectivity"
+            ),
+            "host": host,
+            "archetype": "ssh",
+        }
+    except OSError as exc:
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": str(exc),
+            "host": host,
+            "archetype": "ssh",
+        }
+
+    if result.returncode != 0:
+        stderr_snip = (result.stderr or "")[:200]
+        return {
+            "probe_status": "unreachable",
+            "reachable": False,
+            "reason": f"ssh to '{host}' failed (exit {result.returncode}): {stderr_snip}",
+            "host": host,
+            "archetype": "ssh",
+        }
+
+    return {
+        "probe_status": "ok",
+        "reachable": True,
+        "host": host,
+        "archetype": "ssh",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Per-backend probers
+# ---------------------------------------------------------------------------
 
 
 def _probe_local_backend(cfg: Config) -> dict[str, Any]:
@@ -242,33 +526,62 @@ def _probe_local_backend(cfg: Config) -> dict[str, Any]:
     return caps
 
 
-def _probe_remote_backend_deferred(
+def _probe_remote_backend(
     backend_name: str,
     profile: dict[str, Any],
 ) -> dict[str, Any]:
-    """Return the honest "declared but not yet probed" caps for a remote backend.
+    """Probe a declared remote backend via ssh.
 
-    SR-CO ships the seam; the actual ssh probe (BatchMode + ConnectTimeout +
-    scheduler-aware GPU discovery) ships in SR-CO-REMOTE.
+    Dispatches to the archetype-appropriate probe:
+      ssh+slurm  → _probe_remote_slurm (sinfo-based GPU discovery)
+      ssh+pbs    → _probe_remote_pbs   (pbsnodes)
+      ssh        → _probe_remote_ssh   (connectivity check)
 
-    Charter §2 — never silently skip a declared remote backend. This function
-    surfaces it explicitly so the user knows their cluster is declared but the
-    remote probe has not yet run.
+    Every probe uses BatchMode=yes + ConnectTimeout so the automated probe
+    NEVER hangs on an auth prompt or unreachable host.
+
+    GPU discovery is SCHEDULER-AWARE (not login-node nvidia-smi) — HPC login
+    nodes are typically GPU-less; the scheduler (sinfo GRES) accurately
+    reports what compute nodes have.
+
+    Charter §2 — graceful degrade: if the host field is a FILL placeholder,
+    return an "unfilled" status so the user knows to fill in the manifest.
+    Never crashes; never silently returns an empty dict.
     """
     host = profile.get("host", "")
     archetype = profile.get("archetype", "?")
-    host_display = host if host and not host.startswith("FILL") else "(not yet filled)"
-    return {
-        "declared": True,
-        "archetype": archetype,
-        "host": host_display,
-        "probe_status": "deferred",
-        "message": (
-            f"cluster '{backend_name}' declared (host={host_display}, "
-            f"archetype={archetype}); remote probe not yet implemented "
-            "(SR-CO-REMOTE) — declare partitions/tiers by hand for now"
-        ),
-    }
+
+    # Guard: host is still a FILL placeholder — cannot probe
+    if not host or host.startswith("FILL"):
+        host_display = "(not yet filled)"
+        return {
+            "probe_status": "unfilled",
+            "reachable": False,
+            "declared": True,
+            "archetype": archetype,
+            "host": host_display,
+            "reason": (
+                f"cluster '{backend_name}' host is not configured — "
+                "fill in the 'host' field in state_dir/compute_manifest.json "
+                "(ssh alias or hostname), then run 'rv doctor --refresh'"
+            ),
+        }
+
+    if archetype == "ssh+slurm":
+        return _probe_remote_slurm(host, backend_name)
+    elif archetype == "ssh+pbs":
+        return _probe_remote_pbs(host, backend_name)
+    elif archetype == "ssh":
+        return _probe_remote_ssh(host, backend_name)
+    else:
+        # Fallback — unknown remote archetype
+        return {
+            "probe_status": "unknown-archetype",
+            "reachable": False,
+            "archetype": archetype,
+            "host": host,
+            "reason": f"no probe handler for remote archetype {archetype!r}",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -281,8 +594,9 @@ def _probe_capabilities(cfg: Config) -> dict[str, dict[str, Any]]:
     Returns a mapping: ``{backend_name: caps_dict}``.
 
     The ``local`` backend (archetype="local") receives the full SR-6 local
-    probe. Remote backends (ssh/ssh+slurm/ssh+pbs) are recognised and honestly
-    reported as deferred until SR-CO-REMOTE ships the actual probe.
+    probe. Remote backends (ssh/ssh+slurm/ssh+pbs) are probed via ssh using
+    BatchMode=yes + ConnectTimeout (fail-fast, no hang). GPU discovery is
+    scheduler-aware (sinfo GRES), not login-node nvidia-smi.
 
     Never raises — each backend degrades gracefully on failure.
     """
@@ -302,7 +616,7 @@ def _probe_capabilities(cfg: Config) -> dict[str, dict[str, Any]]:
         if archetype == "local":
             result[backend_name] = _probe_local_backend(cfg)
         elif archetype in _REMOTE_ARCHETYPES:
-            result[backend_name] = _probe_remote_backend_deferred(backend_name, prof)
+            result[backend_name] = _probe_remote_backend(backend_name, prof)
         elif archetype == "generic":
             # Generic: run declared probe_commands locally
             probe_cmds = prof.get("probe_commands", [])
@@ -528,12 +842,37 @@ def format_report(result: dict[str, Any]) -> str:
 
         lines.append(f"[{backend_name}]")
 
-        # --- Remote deferred backend ---
-        if caps.get("probe_status") == "deferred":
-            msg = caps.get("message", f"cluster '{backend_name}' declared; probe deferred")
-            lines.append(f"  {msg}")
-        elif caps.get("probe_status") == "unknown-archetype":
-            msg = caps.get("message", f"unknown archetype for '{backend_name}'")
+        probe_status = caps.get("probe_status")
+
+        if probe_status == "ok" and caps.get("reachable"):
+            # Real remote probe succeeded — show discovered capabilities
+            lines.extend(_format_remote_caps(backend_name, caps))
+        elif probe_status == "unreachable":
+            reason = caps.get("reason", f"cluster '{backend_name}' unreachable")
+            archetype = caps.get("archetype", "?")
+            host = caps.get("host", "?")
+            lines.append(f"  Backend: {archetype} — UNREACHABLE")
+            lines.append(f"  Host: {host}")
+            lines.append(f"  Reason: {reason}")
+            lines.append(
+                "  Action: check ~/.ssh/config host alias, network connectivity, "
+                "and ssh key auth; then run `rv doctor --refresh`"
+            )
+        elif probe_status == "unfilled":
+            reason = caps.get("reason", f"cluster '{backend_name}' not configured")
+            archetype = caps.get("archetype", "?")
+            lines.append(f"  Backend: {archetype} — NOT CONFIGURED (host not filled)")
+            lines.append(f"  {reason}")
+        elif probe_status == "scheduler_error":
+            reason = caps.get("reason", "scheduler returned an error")
+            archetype = caps.get("archetype", "?")
+            host = caps.get("host", "?")
+            lines.append(f"  Backend: {archetype} — scheduler error (host reachable)")
+            lines.append(f"  Host: {host}")
+            lines.append(f"  Reason: {reason}")
+        elif probe_status in ("unknown-archetype", None) and caps.get("archetype") in _REMOTE_ARCHETYPES:
+            # Legacy deferred or truly unknown archetype for a remote backend
+            msg = caps.get("message", f"cluster '{backend_name}': no probe result")
             lines.append(f"  {msg}")
         else:
             # Local (or generic) — full detail
@@ -542,6 +881,45 @@ def format_report(result: dict[str, Any]) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _format_remote_caps(backend_name: str, caps: dict[str, Any]) -> list[str]:
+    """Format real remote probe results into report lines."""
+    lines: list[str] = []
+    archetype = caps.get("archetype", "?")
+    host = caps.get("host", "?")
+    lines.append(f"  Backend: {archetype} — reachable")
+    lines.append(f"  Host: {host}")
+
+    if archetype == "ssh+slurm":
+        partitions = caps.get("partitions", [])
+        gpu_types = caps.get("gpu_types", [])
+        lines.append(f"  Partitions ({len(partitions)}):")
+        for p in partitions[:8]:  # cap display at 8
+            name = p.get("partition", "?")
+            gres = p.get("gpu_gres", "(null)")
+            nodes = p.get("nodes", "?")
+            gpu_label = f" [{gres}]" if gres != "(null)" else ""
+            lines.append(f"    {name}: {nodes} node(s){gpu_label}")
+        if len(partitions) > 8:
+            lines.append(f"    ... ({len(partitions) - 8} more partitions)")
+        if gpu_types:
+            lines.append(f"  GPU types (via sinfo): {', '.join(gpu_types)}")
+        else:
+            lines.append("  GPU types: none found in sinfo (CPU-only cluster or no GPU GRES)")
+    elif archetype == "ssh+pbs":
+        lines.append("  PBS/Torque: reachable (pbsnodes successful)")
+        raw = caps.get("raw_output", "")
+        if raw:
+            preview = raw[:200].replace("\n", " ")
+            lines.append(f"  pbsnodes preview: {preview}")
+    elif archetype == "ssh":
+        lines.append("  Plain ssh: connectivity confirmed")
+    else:
+        # Generic remote archetype — just confirm reachable
+        lines.append(f"  Remote probe: reachable")
+
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -556,11 +934,12 @@ def build_parser(
         "Probe and cache compute environment capabilities — per declared backend. "
         "Run AFTER `rv compute init` (which declares WHERE your compute is). "
         "Local backend: full probe (conda envs, GPU, SLURM/PBS CLIs, hf/uv). "
-        "Remote backends: honestly reported as declared-but-not-yet-probed "
-        "(SR-CO-REMOTE ships the actual ssh probe). "
+        "Remote backends (ssh+slurm/ssh+pbs/ssh): probed via ssh using "
+        "BatchMode=yes + ConnectTimeout (fail-fast). GPU discovery uses sinfo "
+        "GRES (scheduler-aware, not login-node nvidia-smi). "
         "Second call reads cache (no re-probe). Use --refresh to force a fresh probe. "
-        "Degrades gracefully when cluster tools are absent — reports 'not available', "
-        "never a traceback."
+        "Degrades gracefully when cluster is unreachable — reports reason, "
+        "exits 0, never a traceback."
     )
     if parent is not None:
         p = parent.add_parser(
