@@ -121,5 +121,5 @@ Status verified against merged `main` (`src/research_vault/` modules + `note.OKF
 
 ## The CONTRACT / project-lens scaffold (SR-CONTRACT)
 The crew-composition layer: `build_agents.py` composes each agent hat as `charter + role + project-lens`; the
-per-role lens is selected via `_hub.lensByRole` in the project registry (`~/vault/projects.json`). This is what
+per-role lens is selected via `_hub.lensByRole` in the project registry (`projects.json`). This is what
 makes one shared crew serve multiple projects with the right emphasis per hat.
