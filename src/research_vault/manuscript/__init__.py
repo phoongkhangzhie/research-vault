@@ -456,7 +456,7 @@ def _build_manifest(
     # "Cleared" skip short-circuit = node-level check on RunState.meta["review_board"]
     # (zero new walker mechanism — the existing inject_results early-return pattern).
     # N and K are FROZEN at scaffold time (stopping rule — see review_config in manifest).
-    from research_vault.manuscript.review_board import get_review_config
+    from research_vault.manuscript.review_board import get_review_config, get_reviewer_lens_spec
 
     review_cfg = get_review_config(config)
     _N = review_cfg["max_rounds"]
@@ -489,8 +489,13 @@ def _build_manifest(
                 reviewer_upstream = f"revise-{r - 1}"
 
             tip_key = f"reviewer-round-{r}-L{k}"
+            # SR-MS-REVIEW-b: prepend the lens-specific posture to the reviewer spec.
+            # The lens biases WHERE to dig first; all 7 dims are still scored.
+            # K=2 fallback: L1+L3 (floor-carrying pair). K=1: L1 only.
+            lens_posture = get_reviewer_lens_spec(k=k, K=_K)
             reviewer_spec = (
                 f"[REVIEW-BOARD ROUND {r} / LENS {k}]\n\n"
+                f"{lens_posture}\n\n"
                 f"You are a FRESH, INDEPENDENT adversarial reviewer. You have NOT seen any "
                 f"prior review or rebuttal — you see ONLY the compiled paper text. "
                 f"Score all 7 dimensions using the rubric and emit machine-parseable bracket "

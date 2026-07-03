@@ -1,28 +1,36 @@
-"""review_board.py — SR-MS-REVIEW-a: scientific-merit review-board bounded loop machinery.
+"""review_board.py — SR-MS-REVIEW: scientific-merit review-board bounded loop machinery.
 
-SCOPE AND HONEST BOUNDARY
-==========================
-This module implements the CONTROL-FLOW and PREDICATE layer of the venue-grounded
-review-board gate (§5J.17). It does NOT implement Ada's real rubric or the
-bidirectional canary calibration — those are SR-MS-REVIEW-b.
+SCOPE
+=====
+This module implements the complete venue-grounded review-board gate (§5J.17):
 
-What this module provides:
-  - A NEW dimensioned-score bracket extractor (do NOT overload support_matcher.py's
-    4-verdict [SUPPORTS/…] extractor or control.py's [PASS]/[BLOCK] extractor).
-  - The threshold predicate: per-dimension FLOORS, MIN-across-reviewers.
-  - The bounded N-round unroll loop with node-level skip short-circuit.
-  - The revise-r postcondition: re-fires support-matcher + cold-read on the revised
-    draft so a revision CANNOT un-ground or re-leak to please a reviewer.
-  - A PLACEHOLDER default rubric (Ada's real rubric = SR-MS-REVIEW-b).
-  - A canary SCAFFOLD (wired but calibrated expected-score bounds = SR-MS-REVIEW-b).
-  - The rubric seam: get_review_rubric(override, config) → str.
+  SR-MS-REVIEW-a (merged): CONTROL-FLOW and PREDICATE layer.
+    - Dimensioned-score bracket extractor (7-dim, distinct from all prior extractors).
+    - Threshold predicate: per-dimension FLOORS, MIN-across-reviewers.
+    - Bounded N-round unroll loop with node-level skip short-circuit.
+    - Revise-r postcondition: re-fires support-matcher + cold-read.
+    - Rubric seam: get_review_rubric(override, config) → str.
 
-VERDICT TOKENS (dimensioned scores — NEW 7-dim set, separate from all prior extractors)
-=======================================================================
+  SR-MS-REVIEW-b (this): Ada's real rubric + reviewer-lens specs + calibrated canary.
+    - DEFAULT_REVIEW_RUBRIC: Ada's venue-grounded 7-dim rubric (replaces placeholder).
+    - _REVIEWER_LENS_L1/L2/L3: the three independent review postures.
+    - get_reviewer_lens_spec(k, K) → str: lens assignment for manifest builders.
+    - run_canary_scaffold: CALIBRATED bidirectional probes (known-STRONG + known-WEAK),
+      replacing the always-True scaffold placeholder from -a.
+    - CanaryAbortError: raised when a canary probe is out-of-bounds.
+
+HONEST BOUNDARY: rv manuscript review (standalone)
+===================================================
+Running ``rv manuscript review`` standalone re-scores the SAME compiled PDF text each
+round. There is NO revision between rounds in standalone mode — the revise-r node is a
+no-op because there is no separate re-draft step outside the full DAG. Multi-round review
+only bites meaningfully inside the full manuscript DAG (the ``approve-manuscript`` flow),
+where the revise-r node re-drafts failing sections and recompiles before the next round.
+
+VERDICT TOKENS (dimensioned scores — NEW 7-dim set)
+====================================================
   Bracket form: [DIM:SCORE] where DIM ∈ {SOUND, CONTRIB, CLARITY, ORIG, LIMIT, REPRO, ETHICS}
   and SCORE is a digit on the venue scale (default 1–5).
-
-  Example: [SOUND:4] [CONTRIB:3] [CLARITY:4] [ORIG:3] [LIMIT:3] [REPRO:4] [ETHICS:4]
 
   ★ FAIL-CLOSED: a score that cannot be parsed defaults to 0 (below any floor).
     A missing dim also defaults to 0. Never a silent pass.
@@ -31,37 +39,21 @@ FLOOR PREDICATE
 ===============
   cleared ⟺ ∀ dim ∈ floor_dims: MIN_across_reviewers(scores[dim]) ≥ floor_value
   Default floor_dims = {SOUND, REPRO}, floor_value = 3 (borderline-accept, 1–5 scale).
-  The other 5 dims (CONTRIB, CLARITY, ORIG, LIMIT, ETHICS) are surface-only — never
-  auto-gate. NO overall/average score gates anything (the gameable quantity).
 
-BOUNDED ACYCLIC UNROLL
-======================
-  N pre-declared round-blocks (N frozen at scaffold, hard-cap 3, default 2):
-    per round r ∈ {1..N}:
-      K parallel reviewer-r-L{k} nodes → meta-review-r join → (r<N) revise-r
-  Cleared-at-round-r' → remaining rounds are no-ops (node-level short-circuit on
-  RunState.meta["review_board"]["cleared_at"]).
+CALIBRATED BIDIRECTIONAL CANARY
+================================
+  Two probes, fired through the SAME judge_fn + DEFAULT_REVIEW_RUBRIC, BEFORE trusting
+  any real reviewer scores (same structural pattern as check_support_tally canary):
+    (a) known-STRONG: expect SOUND ≥ 4 AND REPRO ≥ 4. Fails → ABORT (blind rejector).
+    (b) known-WEAK:   expect SOUND ≤ 2 AND REPRO ≤ 2. Fails → ABORT (rubber-stamper).
+  Dead-band at floor (3) disallowed both directions. Parse failure → ABORT.
+  Bounds calibrated to floor: strong ≥ floor+1, weak ≤ floor−1.
 
-REVISE-R POSTCONDITION (anti-gaming c)
-=======================================
-  run_revise() re-fires the support-matcher (SR-MS-2) AND the cold-read
-  (SR-MS-COLDREAD) on the revised draft. If either BLOCKS → the revision is
-  rejected with honesty_gate_blocked=True. A revision cannot un-ground or
-  re-leak to please a reviewer.
-
-CANARY SCAFFOLD (SR-MS-REVIEW-b fills the calibrated bounds)
-=============================================================
-  Placeholder: run_canary_scaffold() always returns canary_ok=True in -a.
-  SR-MS-REVIEW-b drops in the known-STRONG and known-WEAK probes with
-  calibrated expected-score bounds.
-
-RUBRIC SEAM
-===========
-  PLACEHOLDER_REVIEW_RUBRIC ships as the seam default (Ada's real rubric = -b).
-  get_review_rubric(override, config) reads [manuscript_review].rubric from config.
+  Canary fires when rubric has the {PDF_TEXT} slot AND canary_judge_fn is provided.
+  Skips silently when rubric="" (backward-compat with -a tests that don't wire the judge).
 
 Stdlib only.
-sr: SR-MS-REVIEW-a
+sr: SR-MS-REVIEW-a + SR-MS-REVIEW-b
 """
 from __future__ import annotations
 
@@ -71,6 +63,21 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+
+# ---------------------------------------------------------------------------
+# CanaryAbortError — raised when a calibrated canary probe is out of bounds
+# ---------------------------------------------------------------------------
+
+class CanaryAbortError(RuntimeError):
+    """Raised when a canary probe fails its expected-score bounds.
+
+    Either the judge is BROKEN-HARSH (strong probe below floor+1) or
+    RUBBER-STAMPING / positivity-biased (weak probe at/above floor).
+    Either failure makes the round's scores untrustworthy — ABORT.
+
+    sr: SR-MS-REVIEW-b §5J.17.5
+    """
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -195,35 +202,168 @@ def _evaluate_threshold(
 
 
 # ---------------------------------------------------------------------------
-# Placeholder rubric (Ada's real rubric = SR-MS-REVIEW-b)
+# SR-MS-REVIEW-b: Ada's DEFAULT_REVIEW_RUBRIC (replaces placeholder from -a)
 # ---------------------------------------------------------------------------
 
-PLACEHOLDER_REVIEW_RUBRIC: str = """\
-REVIEW-BOARD JUDGE RUBRIC — PLACEHOLDER (SR-MS-REVIEW-a)
+DEFAULT_REVIEW_RUBRIC: str = """\
+SCIENTIFIC-MERIT REVIEW-BOARD JUDGE RUBRIC
 
-NOTE: This is a placeholder rubric. Ada's venue-grounded review-board rubric
-(7-dimension NeurIPS/ICLR/ICML/ARR scales, ARR justify-each-score rule,
-Yes/No/NA Responsible-NLP checklist, disconfirm-first + anti-anchoring moves)
-ships in SR-MS-REVIEW-b. Do NOT use this placeholder in production.
+You are an EXPERT PEER REVIEWER at a top venue (NeurIPS / ICLR / ICML / ARR class).
+You have been handed ONE compiled paper (its extracted text, below) and NOTHING
+else — no repository, no author's notes, no rebuttal, no prior round's reviews, no
+acquaintance with this project or its authors. Your job is to assess the paper's
+SCIENTIFIC MERIT on seven dimensions and return a machine-parseable score block.
 
-Your task is to assess the following paper on 7 dimensions:
-  Soundness (SOUND) — methodological rigor; binds to support-grounding provenance
-  Contribution (CONTRIB) — significance and novelty
-  Clarity (CLARITY) — exposition and organization
-  Originality (ORIG) — novel ideas, framing, or methods
-  Limitations (LIMIT) — honest treatment of scope and failure modes
-  Reproducibility (REPRO) — freeze-hashes, run-ids, code; binds to provenance
-  Ethics (ETHICS) — responsible-AI checklist
+★ YOUR POSTURE IS ADVERSARIAL — DISCONFIRM FIRST. A reviewer's job is to argue
+AGAINST the paper: to find the weakest point, the unsupported claim, the flaw that
+sinks it, BEFORE extending any credit. The dominant failure of an automated reviewer
+is POSITIVITY BIAS — waving papers through with 4s and 5s because they read fluently.
+A judge that rubber-stamps is worse than no judge: it manufactures false confidence.
+You do not award a high score; a paper EARNS it by surviving your attempt to break it.
+Default to the low end of each scale and let the paper's own evidence pull the score up.
 
-Score each dimension on a 1–5 scale:
-  1 = strong reject   2 = reject   3 = borderline   4 = accept   5 = strong accept
-
-IMPORTANT: For each score, emit the machine-parseable bracket token:
-  [SOUND:N] [CONTRIB:N] [CLARITY:N] [ORIG:N] [LIMIT:N] [REPRO:N] [ETHICS:N]
-where N is your integer score (1–5). These tokens MUST appear in your response.
-
-Paper text:
+────────────────────────────────────────────────────────────────────────
+INPUT — the compiled paper text (this is ALL you may use)
+────────────────────────────────────────────────────────────────────────
 {PDF_TEXT}
+
+────────────────────────────────────────────────────────────────────────
+HARD CONSTRAINTS — read before you score
+────────────────────────────────────────────────────────────────────────
+C1. ★ NO EXTERNAL RESOLUTION (anti-anchoring — the load-bearing rule).
+    Judge ONLY from what is printed above. You do NOT have the authors' framing,
+    their thesis statement, their reputation, or the surrounding project. If the
+    paper claims a result but the evidence for it is not ON THE PAGE, the claim is
+    UNSUPPORTED for your purposes — even if you personally believe it, even if it is
+    "standard" in the field. If you catch yourself thinking "the authors surely
+    checked that" — STOP: that is the anchoring this gate exists to catch. You are a
+    stranger with the page, not a colleague with the context.
+
+C2. ★ EVERY SCORE JUSTIFIED IN TEXT WITH A VERBATIM SPAN (the ARR rule + integrity
+    anchor). For EACH of the seven dimensions your justification MUST quote at least
+    one EXACT string, character-for-character, copied from the paper above — the
+    span that drove the score up or down. No paraphrase, no reconstruction. If you
+    cannot quote a literal span to justify a score, you do not have a justified score
+    — and an unjustifiable score defaults to the FLOOR-FAILING end (see C6). The
+    verbatim span is what makes the score auditable rather than a vibe.
+
+C3. DISCONFIRM FIRST, THEN SCORE. For every dimension, hunt the WEAKEST evidence
+    before the strongest. Write the single most damaging objection you can defend
+    from the text (the WEAKNESS line) BEFORE you commit the number. A dimension with
+    no stated weakness is a tell that you did not look — re-read.
+
+C4. SCORE INDEPENDENTLY PER DIMENSION. Do not let a strong Clarity halo a weak
+    Soundness, or a novel idea excuse an unreproducible method. A beautifully written
+    paper with an unsupported central claim is a LOW-Soundness paper. Score each axis
+    on its own evidence.
+
+C5. ★ THE TWO FLOOR DIMENSIONS BIND TO THE PAPER'S OWN PROVENANCE — they cannot be
+    talked up. Soundness and Reproducibility are the auto-gating axes; they ride on
+    objective, on-page evidence, NOT on how convincing the prose is:
+
+    • SOUNDNESS binds to SUPPORT-GROUNDING. Score high ONLY if the paper's CENTRAL
+      empirical claims are each backed by evidence VISIBLE IN THE PAPER — a number
+      with a stated source, a cited result, a table/figure that is actually present,
+      a described procedure that could produce the claim. A confident sentence with
+      no on-page backing is an UNSUPPORTED claim and drives Soundness DOWN, however
+      fluent. (An upstream hard gate — the support-matcher — already blocks claims
+      that contradict or lack a grounding note; your Soundness score is the
+      methodological-rigor layer on TOP of that: is the design itself valid, are the
+      comparisons fair, are the claims proportionate to the evidence shown.)
+
+    • REPRODUCIBILITY binds to PROVENANCE PRESENCE. Score high ONLY if the paper
+      supplies what a stranger would need to reproduce it: a reproducibility / data-
+      availability statement, the seeds or number of runs, the key configuration or
+      hyperparameters, a code/data pointer, and (where the framework stamps them) the
+      run-ids / freeze-manifest reference behind a proper "reproducibility" or
+      "provenance" statement. ABSENCE of this apparatus CAPS Reproducibility at 2 —
+      you cannot certify the reproducibility of a method whose provenance is not on
+      the page. (Note: a well-formed repro statement that POINTS to seeds, configs,
+      and an availability reference is legitimate scholarly apparatus and scores
+      HIGH; a bare raw hash or filesystem path dumped mid-prose is a different
+      problem the cold-read gate handles — do not double-penalize it here, but do
+      NOT credit it as reproducibility apparatus either.)
+
+C6. ★ FAIL-CLOSED. An unscoreable dimension is NOT a pass. If you cannot find the
+    evidence to justify a score on a FLOOR dimension (Soundness, Reproducibility) —
+    the section is missing, the provenance is absent, the claim has no backing — you
+    MUST score that dimension BELOW the floor (1 or 2), never at or above it. Silence
+    is not certification. A score you cannot justify with a verbatim span (C2)
+    defaults to the floor-failing end. Never read an absent thing as adequate.
+
+────────────────────────────────────────────────────────────────────────
+THE SEVEN DIMENSIONS (venue review form) — score each 1–5
+────────────────────────────────────────────────────────────────────────
+SOUND   Soundness — methodological rigor; are the central claims supported by the
+        evidence ON THE PAGE, the design valid, the comparisons fair, the claims
+        proportionate? ★ FLOOR + binds to support-grounding (C5).
+CONTRIB Contribution / significance — does the work matter; is the advance real and
+        non-trivial relative to what the paper itself situates it against?
+CLARITY Clarity — can a competent reader follow the exposition, notation, and
+        structure from the paper alone?
+ORIG    Originality — novel idea, framing, method, or result, as evidenced on the page.
+LIMIT   Limitations — does the paper honestly state its scope, threats to validity,
+        and failure modes (rather than hiding them)?
+REPRO   Reproducibility — freeze-hashes / run-ids / seeds / configs / code-or-data
+        availability present and sufficient. ★ FLOOR + binds to provenance (C5).
+ETHICS  Ethics — responsible-use, risks, and a Yes/No/NA responsible-AI checklist
+        (data consent/licensing, foreseeable harm, dual-use) addressed.
+
+1–5 ORDINAL SCALE (venue-normalized):
+  1 = strong reject   — fatal flaw / unsupported central claim / no provenance.
+  2 = reject          — significant unresolved problem; below the bar.
+  3 = borderline      — the bar clears here (floor); defensible but not compelling.
+  4 = accept          — solid, well-supported, reproducible.
+  5 = strong accept   — exemplary on this axis; nothing you could break.
+  (Floor dims: 3 is the PASS threshold; the worst reviewer must reach it — §5J.17.4.)
+
+────────────────────────────────────────────────────────────────────────
+PROCEDURE (do the steps in order)
+────────────────────────────────────────────────────────────────────────
+STEP 1 — DISCONFIRMING SWEEP (mandatory, first; C3). Read the whole paper as an
+  adversary. For each of the seven dimensions, find and quote (C2) the single most
+  damaging thing you can defend from the text. For the two FLOOR dims, explicitly
+  check the binding (C5): is each central claim backed on the page (SOUND)? is the
+  provenance apparatus present (REPRO)? If either binding is absent, you are already
+  at 1–2 on that dim (C6) — do not talk yourself up.
+
+STEP 2 — SCORE each dimension 1–5 on its own evidence (C4), defaulting low and
+  letting on-page evidence raise it. Attach the verbatim justification span (C2) and
+  a confidence (high|med|low). LOW confidence on a FLOOR dim means you could not
+  establish the binding → score it below the floor (C6).
+
+STEP 3 — EMIT the machine-parseable block (below), exactly once, all seven tokens.
+
+────────────────────────────────────────────────────────────────────────
+OUTPUT (machine-parseable). Emit exactly one block, all seven dimensions present.
+The [DIM:SCORE] token on each line is REQUIRED and is what the gate reads.
+────────────────────────────────────────────────────────────────────────
+For each of the seven dimensions, in this order (SOUND, CONTRIB, CLARITY, ORIG,
+LIMIT, REPRO, ETHICS), emit exactly:
+
+[SOUND:N]
+WEAKNESS: <the single most damaging objection you can defend, disconfirm-first>
+JUSTIFY: "<exact verbatim span copied from the paper that drove this score>"
+CONF: <high|med|low>
+
+[CONTRIB:N]
+WEAKNESS: ...
+JUSTIFY: "<verbatim span>"
+CONF: <high|med|low>
+
+...and likewise for [CLARITY:N] [ORIG:N] [LIMIT:N] [REPRO:N] [ETHICS:N].
+
+Then always, exactly once:
+
+CHECKLIST (responsible-AI, Yes/No/NA — one line each):
+  DATA_LICENSING: <Yes|No|NA> — <one-line basis>
+  FORESEEABLE_HARM: <Yes|No|NA> — <one-line basis>
+  DUAL_USE: <Yes|No|NA> — <one-line basis>
+
+SUMMARY:
+  FLOOR_DIMS: SOUND=N REPRO=N   (the two auto-gating axes)
+  WORST_OBJECTION: <the single strongest reason this paper should not clear, in one line>
+  SWEPT: <one line confirming you read the whole paper adversarially, disconfirm-first>
 """
 
 
@@ -233,14 +373,13 @@ def get_review_rubric(
 ) -> str:
     """Return the active review-board judge rubric.
 
-    Priority: override arg > [manuscript_review].rubric in config > PLACEHOLDER.
+    Priority: override arg > [manuscript_review].rubric in config > DEFAULT_REVIEW_RUBRIC.
 
-    Ada's real rubric drops in via:
+    Ada's real rubric is now the default (SR-MS-REVIEW-b). Override via:
       (a) override="..." (direct pass), OR
       (b) [manuscript_review] rubric = "..." in research_vault.toml.
-    The PLACEHOLDER ships in -a; Ada's real rubric replaces it in SR-MS-REVIEW-b.
 
-    sr: SR-MS-REVIEW-a §5J.17.3
+    sr: SR-MS-REVIEW-b §5J.17.3
     """
     if override is not None:
         return override
@@ -251,42 +390,224 @@ def get_review_rubric(
             rubric_cfg = ms_review.get("rubric")
             if isinstance(rubric_cfg, str) and rubric_cfg.strip():
                 return rubric_cfg
-    return PLACEHOLDER_REVIEW_RUBRIC
+    return DEFAULT_REVIEW_RUBRIC
 
 
 # ---------------------------------------------------------------------------
-# Canary scaffold (bidirectional probe calibration = SR-MS-REVIEW-b)
+# SR-MS-REVIEW-b: Calibrated bidirectional canary — Ada's known passages + bounds
 # ---------------------------------------------------------------------------
+
+# Unique marker strings used by tests to detect which probe is being sent.
+# These substrings appear ONLY in the respective canary passage and are
+# guaranteed to be on a single line (no line-break in the marker text).
+_CANARY_STRONG_MARKER: str = "holistic fidelity score"
+_CANARY_WEAK_MARKER: str = "clearly the best"
+
+# Known-STRONG passage: CI-backed claim, matched baselines, full provenance apparatus.
+# Expect SOUND ≥ 4 AND REPRO ≥ 4 (floor+1). A judge that scores this at/below floor
+# is BROKEN-HARSH — a blind rejector that would block genuinely strong work.
+_CANARY_STRONG_PASSAGE: str = """\
+We evaluate three models on the holistic fidelity score (HFS), a 0–100 measure of
+agreement with human reference judgments. Each model was run over 5 random seeds
+(seeds 0–4); we report the mean and a 95% bootstrap confidence interval. The
+strongest model reaches HFS 71.4 (95% CI [69.8, 73.1]), a margin over the weakest
+at 52.9 (95% CI [51.2, 54.7]) that does not overlap at the 95% level, as shown in
+Table 1. The scoring procedure, including the exact prompt and the human-reference
+protocol, is given in full in Section 3. We compare against the two strongest prior
+reference-based scorers [4, 9] under identical inputs; our method exceeds both.
+
+Limitations. Our evaluation covers English-only inputs and three model families; we
+do not claim the ordering transfers to other languages or to instruction-tuned
+variants outside this set (Section 6).
+
+Reproducibility. Code, prompts, and per-seed scored outputs are released; all runs
+use seeds 0–4 with the configuration in Appendix B. Data are drawn from the
+publicly licensed reference set [4].
+
+References
+[4] A. Rivera and B. Osei (2023). Reference-based fidelity scoring for generative
+    models. Journal of Evaluation Methods, 11(2), 88–104.
+[9] L. Mensah (2022). Calibrated human-reference evaluation. Proc. XYZ, 210–219.\
+"""
+
+# Known-WEAK passage: no numbers, no baselines, no provenance. EVERY central claim
+# is unsupported on the page. Expect SOUND ≤ 2 AND REPRO ≤ 2 (floor−1). A judge
+# that scores this at/above floor is RUBBER-STAMPING — positivity bias (AI-Scientist
+# failure, Lu et al. 2024). This is the exact failure the weak canary guards.
+_CANARY_WEAK_PASSAGE: str = """\
+Our method is clearly the best. On our benchmark it achieves much higher quality
+than the baseline, demonstrating the effectiveness of the approach. We ran the
+experiment and observed a large improvement across the board. The results speak for
+themselves and confirm our hypothesis that the method works well in practice.
+
+We believe these findings will generalize broadly to essentially all settings of
+interest, and we are confident the approach is robust.\
+"""
+
+# Calibrated bounds (tied to the floor value = 3, §5J.17.4):
+#   strong probe: score must be ≥ floor+1 = 4 on BOTH SOUND and REPRO
+#   weak probe:   score must be ≤ floor−1 = 2 on BOTH SOUND and REPRO
+# Dead-band AT the floor (3) is disallowed both directions.
+_CANARY_STRONG_MIN: int = 4   # SOUND/REPRO on strong probe must be ≥ this
+_CANARY_WEAK_MAX: int = 2     # SOUND/REPRO on weak probe must be ≤ this
+
 
 def run_canary_scaffold(
     judge_fn: Callable[[str], str],
     judge_model: str = "",
     rubric: str = "",
 ) -> dict[str, Any]:
-    """Run the canary scaffold probes before trusting real reviewer scores.
+    """Run the calibrated bidirectional canary probes before trusting real reviewer scores.
 
-    SR-MS-REVIEW-a: scaffold wired; bidirectional calibrated bounds = SR-MS-REVIEW-b.
-    In -a, both probes always return canary_ok=True (placeholder — real calibration
-    requires Ada's expected-score bounds).
+    SR-MS-REVIEW-b: fires Ada's two calibrated probes through the SAME judge_fn +
+    rubric (via {PDF_TEXT} slot replacement) + _extract_review_scores.
 
-    A real canary (SR-MS-REVIEW-b) fires TWO synthetic probes:
-      (a) known-STRONG: must NOT score at floor (else blind rejector)
-      (b) known-WEAK:   must NOT score at ceiling (else blind rubber-stamper)
-    Either out of bounds → ABORT the round LOUDLY.
+    Bounds (calibrated to floor=3):
+      (a) known-STRONG probe: SOUND ≥ 4 AND REPRO ≥ 4. Miss → ABORT (blind rejector).
+      (b) known-WEAK probe:   SOUND ≤ 2 AND REPRO ≤ 2. Miss → ABORT (rubber-stamper).
+
+    A probe that fails to parse (extractor → None / missing floor dim → 0) is itself
+    out of bounds → ABORT. An unscoreable canary never certifies the judge.
+
+    SKIP: if rubric is "" or lacks the {PDF_TEXT} slot, canary is skipped
+    (backward-compat with -a tests that call run_meta_review without wiring a rubric).
+
+    Args:
+        judge_fn:    the SAME judge callable used for real reviewer nodes
+        judge_model: model-id to log
+        rubric:      the active review rubric (must contain {PDF_TEXT} slot)
 
     Returns:
-      canary_ok:     bool — True (placeholder in -a; calibrated in -b)
-      canary_note:   str  — explanation of placeholder status
+        canary_ok:   True — only returned when both probes are in bounds
+        canary_note: description of outcome
+
+    Raises:
+        CanaryAbortError: if either probe is out of bounds (ABORT — do not run round)
+
+    sr: SR-MS-REVIEW-b §5J.17.5
     """
-    # SR-MS-REVIEW-a placeholder: no live calibration yet.
-    # SR-MS-REVIEW-b will replace this with real probe + expected-score bounds.
+    # Skip when rubric not configured (backward-compat / placeholder mode)
+    if not rubric or "{PDF_TEXT}" not in rubric:
+        return {
+            "canary_ok": True,
+            "canary_note": "CANARY SKIPPED: rubric not configured (no {PDF_TEXT} slot).",
+        }
+
+    # --- Fire known-STRONG probe ---
+    strong_prompt = rubric.replace("{PDF_TEXT}", _CANARY_STRONG_PASSAGE)
+    strong_raw = judge_fn(strong_prompt)
+    strong_scores = _extract_review_scores(strong_raw) or {}
+    s_sound = strong_scores.get("SOUND", 0)
+    s_repro = strong_scores.get("REPRO", 0)
+
+    if s_sound < _CANARY_STRONG_MIN or s_repro < _CANARY_STRONG_MIN:
+        raise CanaryAbortError(
+            f"review judge is BROKEN-HARSH / blind REJECTOR on a known-STRONG probe "
+            f"(SOUND={s_sound}, REPRO={s_repro}; expected ≥{_CANARY_STRONG_MIN} on both) "
+            f"— scores not trustworthy; ABORTING round."
+        )
+
+    # --- Fire known-WEAK probe ---
+    weak_prompt = rubric.replace("{PDF_TEXT}", _CANARY_WEAK_PASSAGE)
+    weak_raw = judge_fn(weak_prompt)
+    weak_scores = _extract_review_scores(weak_raw) or {}
+    w_sound = weak_scores.get("SOUND", 0)
+    w_repro = weak_scores.get("REPRO", 0)
+
+    # Weak probe: score must be BELOW floor (≤ floor−1 = 2). At-floor (3) is disallowed.
+    # Note: w_sound=0 here means parse failure, which is also out-of-bounds for a WEAK probe
+    # because 0 ≤ 2 → this would vacuously pass. We treat 0 as a parse failure and abort.
+    if w_sound == 0 and w_repro == 0 and not weak_scores:
+        # Complete parse failure on weak probe
+        raise CanaryAbortError(
+            f"review judge returned UNPARSEABLE output on the known-WEAK probe "
+            f"— scores not trustworthy; ABORTING round."
+        )
+
+    if w_sound >= (_CANARY_WEAK_MAX + 1) or w_repro >= (_CANARY_WEAK_MAX + 1):
+        raise CanaryAbortError(
+            f"review judge is RUBBER-STAMPING / positivity-biased on a known-WEAK probe "
+            f"(SOUND={w_sound}, REPRO={w_repro}; expected ≤{_CANARY_WEAK_MAX} on both) "
+            f"— scores not trustworthy; ABORTING round. "
+            f"This is the AI-Scientist positivity-bias failure."
+        )
+
     return {
         "canary_ok": True,
         "canary_note": (
-            "CANARY SCAFFOLD (SR-MS-REVIEW-a): placeholder — bidirectional probe "
-            "calibration (known-STRONG + known-WEAK bounds) ships in SR-MS-REVIEW-b."
+            f"Canary calibrated: strong probe SOUND={s_sound}/REPRO={s_repro} ≥ {_CANARY_STRONG_MIN}; "
+            f"weak probe SOUND={w_sound}/REPRO={w_repro} ≤ {_CANARY_WEAK_MAX}. "
+            f"Judge distinguishes strong from weak — trust the round."
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# SR-MS-REVIEW-b: Reviewer lens specs (L1/L2/L3 — three independent postures)
+# ---------------------------------------------------------------------------
+
+# L1 — METHODS / SOUNDNESS adversary (the "does the result hold up" reviewer).
+# Prepended to the reviewer node spec; all 7 dims still scored; lens biases WHERE to dig.
+_REVIEWER_LENS_L1: str = (
+    "You review as a hard-nosed methodologist. Attack the SOUNDNESS floor first: "
+    "is every central empirical claim backed by evidence on the page, or are there "
+    "confident sentences with no support? Are the comparisons fair (matched baselines, "
+    "no cherry-picked split, no moved goalposts)? Is the effect size proportionate to "
+    "the evidence, or is a small/uncontrolled result oversold? Is there a confound the "
+    "paper waves away? Probe the REPRODUCIBILITY floor next: seeds, runs, configs, "
+    "availability — present and sufficient, or absent? You are the reviewer who has seen "
+    "fifty papers die on a hidden confound; find this one's before you grant Soundness above 3."
+)
+
+# L2 — SIGNIFICANCE / NOVELTY / RELATED-WORK adversary (the "is this actually new" reviewer).
+_REVIEWER_LENS_L2: str = (
+    "You review as a skeptic of contribution. Attack CONTRIB and ORIG first: is the "
+    "advance real and non-trivial, or a relabeling of known work? Does the paper situate "
+    "itself honestly against prior art, or is the related work thin / self-serving / "
+    "missing the obvious comparator that would shrink the claimed delta? Is the 'novelty' "
+    "a genuine new idea or an incremental tweak dressed up? You still score all seven — "
+    "and you hold Soundness/Repro to the same floor — but your edge is catching the paper "
+    "whose real problem is that it does not matter or is not new."
+)
+
+# L3 — CLARITY / REPRODUCIBILITY / LIMITATIONS adversary (the "can a stranger use this" reviewer).
+_REVIEWER_LENS_L3: str = (
+    "You review as the fresh reader who must reproduce and build on this. Attack CLARITY, "
+    "REPRO, and LIMIT first: can you follow the exposition, notation, and structure from "
+    "the paper alone, or does it assume context you do not have? Is the reproducibility "
+    "apparatus actually present and sufficient (a real repro/availability statement, seeds, "
+    "configs) — or is REPRO capped at 2 by absence (C5/C6)? Does the paper honestly own "
+    "its limitations and threats to validity, or bury them? You are the reviewer who protects "
+    "the reader who comes after; a paper that cannot be followed or reproduced does not clear "
+    "on your watch."
+)
+
+
+def get_reviewer_lens_spec(k: int, K: int) -> str:
+    """Return the lens posture string for reviewer k in a round of K reviewers.
+
+    Lens assignment:
+      K=1: k=1 → L1 (methods/soundness only)
+      K=2: k=1 → L1, k=2 → L3 (floor-carrying pair — skip L2 significance/novelty)
+      K≥3: k=1 → L1, k=2 → L2, k=3 → L3; k>3 → L1 (wraps)
+
+    K=2 fallback rationale: L1 (soundness floor) and L3 (repro floor) carry the two
+    auto-gating dimensions. L2 (significance) is the surface-only dimension; its
+    adversarial angle is less critical when K is constrained.
+
+    sr: SR-MS-REVIEW-b §5J.17.2
+    """
+    if K == 1:
+        return _REVIEWER_LENS_L1
+    if K == 2:
+        return _REVIEWER_LENS_L1 if k == 1 else _REVIEWER_LENS_L3
+    # K >= 3: cycle L1, L2, L3
+    idx = ((k - 1) % 3) + 1  # 1,2,3,1,2,3,...
+    if idx == 1:
+        return _REVIEWER_LENS_L1
+    if idx == 2:
+        return _REVIEWER_LENS_L2
+    return _REVIEWER_LENS_L3
 
 
 # ---------------------------------------------------------------------------
