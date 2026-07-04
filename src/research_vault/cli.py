@@ -78,16 +78,14 @@ _VERB_REGISTRY: dict[str, dict] = {
         "module": "research_vault.note",
         "when_to_use": (
             "When you need to create or inspect OKF notes (literature, concepts, methods, "
-            "experiments, findings, mocs, datasets, figures, manuscript) for a project. "
+            "experiments, findings, mocs, datasets) for a project. "
             "Enforces the type↔directory contract. "
             "SR-8 datasets notes are provenance metadata — they POINT to the data artifact "
             "(path/URL/DOI + content-hash), never contain the data itself. "
-            "SR-MS-1a manuscript notes are LaTeX-native POINTER notes — use `rv manuscript new` "
-            "for richer creation (scaffolds the DAG + artifact tree). "
             "Anti-pattern: do NOT hand-copy a data path into a finding — file a "
             "datasets/ provenance note and afterok on it so data lineage is structural."
         ),
-        "sr": "SR-1, SR-8, SR-MS-1a",
+        "sr": "SR-1, SR-8",
     },
     "control": {
         "module": "research_vault.control",
@@ -236,8 +234,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "multi-node research-loop DAG. The human-go node is the solo decision gate: "
             "it blocks until ALL transitive upstream nodes are terminal, then `dag approve` "
             "is the exact command to run (printed by `dag status`). "
-            "Use `rv dag templates` to discover ALL four built-in research loops (experiment, "
-            "lit-review, figure, manuscript) with their scaffolder verb, entry command, and "
+            "Use `rv dag templates` to discover the built-in research loops (experiment, "
+            "lit-review) with their scaffolder verb, entry command, and "
             "human-go gate locations — the discovery entry before starting any new loop. "
             "Afterok+watch edges gate on artifact freshness (OKF type-dir checked by vault check). "
             "In-session resolution only — no background pollers. "
@@ -351,52 +349,6 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-6",
     },
-    # --- SR-MS-1a ---
-    "manuscript": {
-        "module": "research_vault.manuscript.verbs",
-        "when_to_use": (
-            "When you need to scaffold a grounded manuscript draft from a project's "
-            "verified OKF graph. Use `rv manuscript <project> new <id> --thesis '...'` "
-            "to create the manuscript OKF note + manuscripts/<id>/ LaTeX tree + the "
-            "16-node drafting-DAG manifest (§5J.2). Drive the loop with `rv dag run`. "
-            "Anti-pattern: do NOT hand-write a .tex and hand-type citations/numbers — "
-            "run `rv manuscript <project> new <id> --thesis` so the draft carries a closed .bib from "
-            "your `literature/` notes, machine-injected results, and structural "
-            "\\cite→source verification. A hand-typed number or an uncited claim is "
-            "exactly the fabrication this prevents. Use `rv manuscript <project> list` to "
-            "enumerate all manuscript notes for a project."
-        ),
-        "sr": "SR-MS-1a",
-    },
-    # --- SR-FIG / SR-FIG-REC ---
-    "figure": {
-        "module": "research_vault.figure",
-        "when_to_use": (
-            "When you have an experiment note (experiments/<id>.md) with results attached "
-            "(results_location/results_hash populated by `rv wandb pull`) and need a "
-            "publication-quality plot with full provenance. "
-            "Use `rv figure <project> new <fig-id> --experiment <exp-id>` "
-            "to declare the figure spec (experiment results hash + filter recipe + style preset), "
-            "`rv figure preview` to inspect the exact data frame before rendering, "
-            "`rv figure render` to produce SVG+PNG images via the apply_style seam, and "
-            "`rv figure recommend <view>` to get ranked plot-type suggestions grounded in the "
-            "Cleveland–McGill perceptual-accuracy ladder + Mackinlay expressiveness→effectiveness. "
-            "When `rv figure new` is called without `--type`, the recommender auto-picks and "
-            "prints the rationale; `--type` overrides silently (recommend-not-mandate). "
-            "The optional `--benchmark <id>` references a shared datasets/ note for comparison "
-            "overlay only — it is never the primary source. "
-            "Requires pip install research-vault[figures] for preview/render. "
-            "Anti-pattern: do NOT hand-write a one-off matplotlib script and drop a PNG into "
-            "a finding — declare `rv figure new` against an `experiments/` note so the figure "
-            "carries experiment→results→filter→style provenance and afterok-able lineage. "
-            "One-off scripts break the reproducibility chain that makes figures publishable. "
-            "Anti-pattern: do NOT pick a plot type by gut feel or habit (eyeballing a chart "
-            "type skips the perceptual encoding-accuracy check) — use `rv figure recommend` "
-            "to get a ranked recommendation for your data's structure and task "
-            "(comparison, trend, relationship, distribution, composition, lookup, deviation)."
-        ),
-        "sr": "SR-FIG, SR-FIG-REC",
-    },
     # --- SR-HUB-DAG §B ---
     "experiment": {
         "module": "research_vault.experiment",
@@ -477,8 +429,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Use `rv review <project> list` to enumerate all reviews. "
             "Use `rv review <project> tips [--key <key>]` to inspect the review_tips seam. "
             "SR-LR-2 gap-driven pass (§5L.7): use `rv review <project> gap-scan` to "
-            "detect typed research gaps (knowledge_void, contradictory, evaluation_void, "
-            "absent_row) from the OKF corpus + an optional manuscript critic run-state. "
+            "detect typed research gaps (knowledge_void, contradictory, evaluation_void) "
+            "from the OKF corpus. "
             "Each gap note gets a suggested_route: field (literature|experiment|triage). "
             "This is a rejects-only SCREEN — it PROPOSES gaps, never auto-fires a review. "
             "SR-GAP-ROUTE (§5L.14–5L.16): use `rv review <project> gap-scope <gap-id> <scope>` "
@@ -496,8 +448,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "closed gap with no closer is un-auditable); --by is REJECTED for proven-open. "
             "--by writes both: closed_by: in the gap FM + closes: in the closing note FM. "
             "Use `rv review <project> gap-promote <gap-id> --to <ref>` to promote a "
-            "proven-open gap to 'promoted' status (human-only, never auto). The promoted "
-            "claim round-trips the SR-MS-2 support-matcher (the honesty backstop). "
+            "proven-open gap to 'promoted' status (human-only, never auto). "
             "Use `rv review <project> gap-list --status promoted` / `--status reopened` "
             "for the new lifecycle statuses. "
             "Anti-pattern: do NOT gap-close a closed-* gap without --by — a closer-less "
@@ -532,8 +483,6 @@ _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
     ("Setup",        ["init", "check", "project", "wt", "git-discipline", "git-health"]),
     ("Lit-review",   ["research", "cite", "review"]),
     ("Experiment",   ["experiment", "dag", "result", "plan", "wandb", "compute", "doctor"]),
-    ("Figure",       ["figure"]),
-    ("Manuscript",   ["manuscript"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS
     ("Infra/git",    ["lint", "mdstore", "wait-for", "plugins"]),
     ("Coordination", ["status", "control", "task", "note", "devlog", "role", "build-agents"]),
