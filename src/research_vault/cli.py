@@ -227,7 +227,7 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-GD",
     },
-    # --- SR-3 ---
+    # --- SR-3 / SR-HUB-DAG ---
     "dag": {
         "module": "research_vault.dag.verbs",
         "when_to_use": (
@@ -235,6 +235,9 @@ _VERB_REGISTRY: dict[str, dict] = {
             "multi-node research-loop DAG. The human-go node is the solo decision gate: "
             "it blocks until ALL transitive upstream nodes are terminal, then `dag approve` "
             "is the exact command to run (printed by `dag status`). "
+            "Use `rv dag templates` to discover ALL four built-in research loops (experiment, "
+            "lit-review, figure, manuscript) with their scaffolder verb, entry command, and "
+            "human-go gate locations — the discovery entry before starting any new loop. "
             "Afterok+watch edges gate on artifact freshness (OKF type-dir checked by vault check). "
             "In-session resolution only — no background pollers. "
             "For external watches use: rv wait-for <cond> --then 'rv dag tick <run_id>' &"
@@ -251,7 +254,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "re-inflating the token cost fresh dispatch was meant to kill — bound it with the "
             "artifacts the agent must read."
         ),
-        "sr": "SR-3, SR-DISP, SR-SCOPE",
+        "sr": "SR-3, SR-DISP, SR-SCOPE, SR-HUB-DAG",
     },
     # --- SR-5 ---
     "init": {
@@ -393,6 +396,29 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-FIG, SR-FIG-REC",
     },
+    # --- SR-HUB-DAG §B ---
+    "experiment": {
+        "module": "research_vault.experiment",
+        "when_to_use": (
+            "When you need to start a pre-registered experiment study. "
+            "Use `rv experiment <project> new <id> --question '...'` "
+            "to scaffold the pre-registration plan note skeleton "
+            "(`experiments/<id>-plan.md`, plan_kind: preregistration, covers: skeleton) "
+            "AND emit a REGISTERED experiment DAG manifest mirroring the research-loop.json "
+            "topology (plan → plan-critic → [HG:human-go-plan] → "
+            "{per-main: run→score→analyze (+ablations)} → [HG:human-go-conditionals-*] → "
+            "[HG:human-go-findings] → methods-update). "
+            "Prints the exact next commands so the freeze cannot be silently skipped: "
+            "`rv dag run <manifest>`, then at the plan gate "
+            "`rv dag approve <run_id> human-go-plan && rv plan freeze <run_id> <plan-note>`. "
+            "Anti-pattern: do NOT run a pre-registered study as ad-hoc crew dispatches — "
+            "`rv experiment new` registers the DAG so `rv plan freeze` has a run_id to "
+            "hash; hand-dispatching silently loses the pre-registration guarantee (K-3 "
+            "covers:-hash never gets bound to a run_id, so `rv dag approve human-go-findings` "
+            "cannot re-verify it)."
+        ),
+        "sr": "SR-HUB-DAG",
+    },
     # --- SR-PLAN-2 ---
     "result": {
         "module": "research_vault.result",
@@ -504,7 +530,7 @@ _VERB_REGISTRY: dict[str, dict] = {
 _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
     ("Setup",        ["init", "check", "project", "wt", "git-discipline", "git-health"]),
     ("Lit-review",   ["research", "cite", "review"]),
-    ("Experiment",   ["dag", "result", "plan", "wandb", "compute", "doctor"]),
+    ("Experiment",   ["experiment", "dag", "result", "plan", "wandb", "compute", "doctor"]),
     ("Figure",       ["figure"]),
     ("Manuscript",   ["manuscript"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS

@@ -243,14 +243,17 @@ def _run_freeze(args: argparse.Namespace) -> int:
             print(f"  - {v}", file=sys.stderr)
         return 1
 
-    # Resolve notes_root from config if not given
+    # Resolve notes_root from plan-note's parent dir when not given.
+    #
+    # SR-HUB-DAG §B fix: the old default (cfg.notes_root / "experiments") was
+    # wrong for projects that use a separate source_dir — the plan note and its
+    # child stubs live under source_dir/experiments, NOT under notes_root/experiments.
+    # Using plan_note.parent is correct: child stubs are scaffolded in the SAME
+    # experiments/ dir as the plan note (rv experiment new writes them together).
+    # This is also backwards-compatible: when notes_root IS notes_root/experiments,
+    # plan_note.parent resolves to the same directory.
     if notes_root is None:
-        try:
-            from research_vault.config import load_config
-            cfg = load_config()
-            notes_root = cfg.notes_root / "experiments"
-        except Exception:
-            pass  # Fall through — freeze.py handles None (uses MISSING sentinels)
+        notes_root = plan_note.parent
 
     try:
         from research_vault.config import load_config

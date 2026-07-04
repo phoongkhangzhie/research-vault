@@ -999,6 +999,32 @@ def cmd_insert(args: argparse.Namespace) -> int:
 # Verb: status
 # ---------------------------------------------------------------------------
 
+def cmd_templates(args: argparse.Namespace) -> int:
+    """Print the built-in loop catalog — discovery entry for all four research loops.
+
+    SR-HUB-DAG §A2: pure read, no config needed.
+    """
+    from .catalog import LOOP_CATALOG
+
+    for entry in LOOP_CATALOG:
+        print(f"Loop: {entry.key}")
+        print(f"  scaffolder : {entry.scaffolder or '(none — manifest authored manually)'}")
+        print(f"  entry verb : {entry.entry_verb}")
+        has_scaffolder = entry.scaffolder is not None
+        print(f"  scaffolder exists: {'yes' if has_scaffolder else 'no'}")
+        if entry.human_go_gates:
+            print(f"  human-go gates ({len(entry.human_go_gates)}):")
+            for g in entry.human_go_gates:
+                print(f"    [{g.node_id}] {g.label}")
+                if g.freeze_action:
+                    print(f"      freeze: {g.freeze_action}")
+        else:
+            print("  human-go gates: (none)")
+        print(f"  topology: {entry.topology_summary}")
+        print()
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Print a formatted status table for the run.
 
@@ -1186,6 +1212,15 @@ def build_parser(
     stat_p = sub.add_parser("status", help="Print the current run status.")
     stat_p.add_argument("run_id", help="The run_id.")
 
+    # templates  (SR-HUB-DAG §A2 — discovery entry for all four research loops)
+    sub.add_parser(
+        "templates",
+        help=(
+            "Print the built-in loop catalog: all four research loops with their "
+            "scaffolder verb, entry command, and human-go gate locations."
+        ),
+    )
+
     return p
 
 
@@ -1199,6 +1234,7 @@ def run(args: argparse.Namespace) -> int:
         "add": cmd_add,
         "insert": cmd_insert,
         "status": cmd_status,
+        "templates": cmd_templates,
     }
     dag_cmd = getattr(args, "dag_cmd", None)
     fn = cmd_map.get(dag_cmd)
