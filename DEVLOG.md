@@ -1,3 +1,21 @@
+## 2026-07-04 (fix/instance-resolution: F1/F2 footgun fix)
+
+### Done
+- Added `--config PATH` global CLI option with highest precedence (--config > RESEARCH_VAULT_CONFIG > CWD walk-up). Pre-scan in `main()` extracts the flag before `_load_instance_verbs()` calls `load_config()`.
+- Added `--show-instance` global flag: prints resolved `instance_root` + `config_file`, then exits.
+- `rv status <project>` now surfaces `instance_root:` and `config_file:` at the header.
+- `cmd_status_all` surfaces same when no projects registered.
+- Updated `config.py` docstring to document the three-tier precedence explicitly.
+- 19 new hermetic tests covering all acceptance criteria; CI green on PR #92.
+
+### Decisions
+- Env-var injection approach: `--config` sets `RESEARCH_VAULT_CONFIG` before any `load_config()` call. Keeps a single resolution path in `_find_config_path()` rather than threading a new param through all callers.
+- No teardown of env var injection (process-scoped CLI; tests use `monkeypatch`).
+- `_extract_config_arg` strips `--config PATH` and `--show-instance` from the stripped argv before the unimplemented-verb pre-check so global flags before the verb name don't confuse it.
+
+### Open / next
+- PR #92 awaiting reviewer gate before merge.
+
 ## 2026-07-04 (feat/sr-fig-method-ab: seaborn skin + render-script seam)
 
 ### Done
