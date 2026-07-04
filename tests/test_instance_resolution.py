@@ -326,3 +326,48 @@ class TestBackwardCompat:
         """--version still works normally (regression guard)."""
         rc = main(["--version"])
         assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# F3 — env-var restore: RESEARCH_VAULT_CONFIG is cleaned up after main()
+# ---------------------------------------------------------------------------
+
+class TestEnvRestore:
+    """main() must restore RESEARCH_VAULT_CONFIG after returning.
+
+    Without the try/finally, a re-entrant main() call (e.g. rv init's
+    post-init CC build) would inherit the --config-injected path and
+    resolve the wrong instance.
+    """
+
+    def test_env_restored_to_none_after_config_flag(self, tmp_path, monkeypatch):
+        """When RESEARCH_VAULT_CONFIG was absent before main(), it is absent after."""
+        instance = tmp_path / "inst"
+        instance.mkdir()
+        cfg_path = _write_instance(instance)
+
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.chdir(tmp_path)  # CWD has no config → forces --config to matter
+
+        assert os.environ.get("RESEARCH_VAULT_CONFIG") is None
+
+        main(["--config", str(cfg_path), "--show-instance"])
+
+        assert os.environ.get("RESEARCH_VAULT_CONFIG") is None, (
+            "RESEARCH_VAULT_CONFIG must be unset after main() when it was unset before"
+        )
+
+    def test_env_restored_to_prior_value_after_config_flag(self, tmp_path, monkeypatch):
+        """When RESEARCH_VAULT_CONFIG had a prior value, it is restored after main()."""
+        instance = tmp_path / "inst"
+        instance.mkdir()
+        cfg_path = _write_instance(instance)
+
+        prior = "/prior/fake/value"
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", prior)
+
+        main(["--config", str(cfg_path), "--show-instance"])
+
+        assert os.environ.get("RESEARCH_VAULT_CONFIG") == prior, (
+            "RESEARCH_VAULT_CONFIG must be restored to its prior value after main()"
+        )
