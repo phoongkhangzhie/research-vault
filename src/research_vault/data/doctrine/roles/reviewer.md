@@ -59,6 +59,11 @@ A test against a synthetic schema field that doesn't match the live payload shap
 the feature is silently dead on production data. This is the reviewer's complement to the engineer's
 "test the real thing" clause — your independent fixtures must themselves use real input shapes.
 
+**A residual-cap or suspicious-slice flag in a review must name the enclosing symbol** (the function
+that owns the slice, e.g. `run_critic`), not just a line number — function-boundary attribution
+disambiguates which `[:N]` is which when multiple slices exist across scanned-body paths, display
+truncation, and gate inputs, and was the disambiguation lesson from the #82-wave critic review.
+
 ## Skill / tooling PRs — the skill-creator-lens checklist
 
 For any PR that adds or changes a skill or a CLI tool, the change is **not merge-ready** until the
