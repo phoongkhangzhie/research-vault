@@ -269,23 +269,103 @@ def _no_experiments_placeholder() -> str:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def _proxy_study_reframe_tex() -> str:
+def _proxy_study_reframe_tex(
+    experiment_notes: "list[Path] | None" = None,
+    *,
+    config: "Any | None" = None,
+) -> str:
     """Return the proxy/no-run study reframe paragraph for the appendix.
 
     Used when _is_proxy_study() returns True. Replaces the sentinel wall
-    ('not recorded in provenance' for every row) with an honest statement
-    explaining that no experimental runs were executed (SR-MS-AUDIENCE §5J.16.2a).
+    ('not recorded in provenance' for every row) with:
+      1. An honest statement that no experimental runs were executed (N/A fields).
+      2. A positive analysis-provenance section so the C1-anti-anchored reviewer
+         has ON-PAGE evidence to score REPRO on (SR-MS-GATE-ALIGN Slice B).
+         Renders only what the notes supply — no fabricated pointers.
+
+    SR-MS-GATE-ALIGN Slice B additions:
+      - After the "no new runs / seeds N/A" statement, adds a positive sentence
+        pointing to (a) in-text method/formulas, (b) cited source of aggregated
+        data (from repro_dataset_id if populated), (c) analysis-code pointer
+        (from repro_config_location if populated and not a raw filesystem path).
+      - Template-honest: missing/sentinel fields are skipped, not fabricated.
+
+    Args:
+        experiment_notes: optional list of experiment note paths to scan for
+            non-sentinel analysis-provenance fields. None → generic fallback.
+        config: unused; retained for forward-compat.
+
+    sr: SR-MS-AUDIENCE §5J.16.2a; SR-MS-GATE-ALIGN Slice B
     """
-    return (
-        r"\section*{Reproducibility}" + "\n\n"
+    # Collect analysis-provenance fields from notes (template-honest: only non-sentinel)
+    dataset_ids: list[str] = []
+    code_pointers: list[str] = []
+
+    if experiment_notes:
+        from research_vault.note import _parse_frontmatter
+
+        for note_path in experiment_notes:
+            if not isinstance(note_path, Path) or not note_path.exists():
+                continue
+            try:
+                text = note_path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            fields, _ = _parse_frontmatter(text)
+
+            # (b) Cited source of aggregated data
+            did = fields.get("repro_dataset_id", "").strip()
+            if did and did != _SENTINEL:
+                sanitized = _sanitize_appendix_value("repro_dataset_id", did)
+                if sanitized and r"\textit" not in sanitized:  # skip "available on request"
+                    dataset_ids.append(sanitized)
+
+            # (c) Analysis-code pointer (skip raw filesystem paths — _sanitize converts them)
+            cfg_loc = fields.get("repro_config_location", "").strip()
+            if cfg_loc and cfg_loc != _SENTINEL:
+                sanitized = _sanitize_appendix_value("repro_config_location", cfg_loc)
+                # Only include if not a "available on request" substitution
+                if sanitized and r"\textit" not in sanitized:
+                    code_pointers.append(sanitized)
+
+    # --- Build the reframe text ---
+    lines: list[str] = [
+        r"\section*{Reproducibility}",
+        "",
         "\\textit{This work is a re-analysis of published aggregate results; "
         "no new experimental runs were executed by the authors. "
         "Reproducibility fields (random seed, model configuration, hardware, etc.) "
-        "are therefore not applicable to this study. "
-        "We refer readers to the original publications cited in the related-work "
-        "section for the provenance of the aggregated results.}"
-        "\n"
-    )
+        "are therefore not applicable to this study.}",
+        "",
+        # Positive analysis-provenance section (SR-MS-GATE-ALIGN Slice B)
+        "\\textbf{Analysis provenance.} "
+        "The analytical methods, formulas, and aggregation steps are specified "
+        "in the Methods section of the manuscript.",
+    ]
+
+    # (b) Dataset / cited-source pointer
+    if dataset_ids:
+        deduped = list(dict.fromkeys(dataset_ids))  # preserve order, deduplicate
+        ids_str = ", ".join(_latex_escape(d) for d in deduped)
+        lines.append(
+            f"The aggregated results were drawn from the following cited source(s): {ids_str}."
+        )
+    else:
+        lines.append(
+            "We refer readers to the original publications cited in the related-work "
+            "section for the provenance of the aggregated results."
+        )
+
+    # (c) Analysis-code pointer
+    if code_pointers:
+        deduped_code = list(dict.fromkeys(code_pointers))
+        code_str = ", ".join(_latex_escape(c) for c in deduped_code)
+        lines.append(
+            f"Analysis code / scripts: {code_str}."
+        )
+
+    lines.append("")  # trailing newline
+    return "\n".join(lines) + "\n"
 
 
 def inject_appendix(
@@ -342,7 +422,10 @@ def inject_appendix(
     # Check BEFORE building tables. A proxy study emits a reframe paragraph
     # instead of a wall of sentinel rows that would confuse a reader.
     if _is_proxy_study(experiment_notes, config=config):
-        appendix_tex.write_text(header + _proxy_study_reframe_tex(), encoding="utf-8")
+        appendix_tex.write_text(
+            header + _proxy_study_reframe_tex(experiment_notes, config=config),
+            encoding="utf-8",
+        )
         return appendix_tex
 
     body_parts: list[str] = [header, ""]

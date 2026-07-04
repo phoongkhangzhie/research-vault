@@ -24,6 +24,60 @@
 - PR #84 (fix/remove-manager) awaits reviewer pass + hub merge — must merge before SR-HUB-DAG's doctrine slice
 
 ---
+## 2026-07-04 (SR-MS-GATE-ALIGN Slice B — study-type-aware REPRO)
+
+### Done
+- **`review_board.py`**: `_REPRO_PROXY_CLAUSE` (C5-override injected into rubric for proxy studies),
+  `_REVIEWER_LENS_L3_PROXY` (analysis-provenance attack lens for L3 position), `is_proxy_study`
+  kwarg on `run_reviewer_node` + `run_review_board`. `run_review_board(is_proxy_study=None)`
+  self-determines from `notes_root/experiments/*.md` via `appendix._is_proxy_study`. Records flag
+  in `meta`. Canary passages unchanged.
+- **`appendix.py`**: enriched `_proxy_study_reframe_tex` with positive analysis-provenance section
+  (renders `repro_dataset_id` + `repro_config_location` from notes where non-sentinel). Template-honest.
+- **Tests**: 23 new in `test_sr_ms_review_repro_proxy.py`. Red-before-green: 21 RED before
+  implementation, 23 GREEN after. Full suite 2101 passed. `rv lint` PASS. Leakage clean.
+- **PR #83** open: `fix/review-repro-proxy`. CI green on HEAD.
+
+### Decisions
+- `_REPRO_PROXY_CLAUSE` appended to ALL reviewers in a proxy study (not just L3): every reviewer
+  needs to know the binding changed. The proxy L3 lens additionally targets analysis-provenance
+  attack angle. Both signals together give the judge the right prior.
+- Self-determination scopes to `notes_root/experiments/*.md` — same glob as `inject_appendix`'s
+  call path. No new mechanism, reuses `appendix._is_proxy_study` directly.
+- `_proxy_study_reframe_tex` now takes `experiment_notes` optionally; `inject_appendix` passes it
+  through. Backward-compat: no-arg call still works (generic fallback).
+
+### Open / next
+- PR #83 awaits Wren fit-check + operator merge.
+## 2026-07-03 (SR-MS-GATE-ALIGN Slice A, take 2: structural zone-1 .tex selection)
+
+### Done
+- **DELETED `_body_scope_pdf_text`** (coldread.py) and **`_SECTION_TITLE_RE`**
+  (check_gates.py) — the substring primitive was the root cause of the blocked PR #82.
+  `pdf_text.find(heading)` matched the FIRST occurrence of the zone-2 heading string
+  anywhere in the compiled PDF text — including TOC entries and body prose
+  cross-references — silently truncating all subsequent body content (vacuous gate).
+- **`check_cold_read_tally`** reworked: primary text path reads zone-1 `.tex` sources
+  (`main.tex` + `sections/*.tex` skipping `_ZONE2_FILENAMES` stems) — structural
+  zone-2 exclusion by filename, no substring search, no silent char caps.
+- **4 red-before-green fixtures** (Wren-required): TOC case, body-cross-reference case,
+  zone-2 positive control, canary calibration control. All 4 confirmed RED before,
+  GREEN after. `TestBodyScopePdfText` class deleted (tests the deleted primitive).
+  `TestBodyScopingInTally` updated to use `pdf_text=None` (structural .tex path).
+  Full suite: 50/50 (test_sr_ms_coldread), CI green on SHA `a024866`.
+
+### Decisions
+- Structural zone-1 selection over substring truncation: the .tex file's stem is the
+  authoritative zone discriminant — the same check as `check_body_leakage()`'s
+  `if stem in _ZONE2_FILENAMES: continue`. No new mechanism; existing frozenset reused.
+- `pdf_text=` parameter preserved as explicit override/injection path (for tests that
+  pre-supply text). When explicitly passed, no body-scoping is applied — the caller owns
+  zone-2 exclusion. When `None` (the default), structural .tex selection runs.
+- No char caps: full file content is read. Silent truncation at arbitrary byte counts
+  re-creates the vacuous-gate vector — body content past the cap silently dropped.
+
+### Open / next
+- Slice B (sibling PR #83): review_board.py / appendix.py (not touched here per spec).
 
 ## 2026-07-03 (hygiene-batch: crew-name scrub + leakage gate + checklist fix + pyc doctrine)
 

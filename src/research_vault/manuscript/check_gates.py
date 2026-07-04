@@ -676,7 +676,6 @@ _RUN_ID_SHAPE_RE = re.compile(
 # Matches \title{...} in a .tex file (single-line, non-greedy)
 _TITLE_CMD_RE = re.compile(r"\\title\{([^}]*)\}")
 
-
 def _extract_title_value(tex_text: str) -> str | None:
     """Extract the value of \\title{...} from a .tex file, or None if absent."""
     m = _TITLE_CMD_RE.search(tex_text)
@@ -1377,14 +1376,31 @@ def check_cold_read_tally(
     config: "Any | None" = None,
     pdf_text: str | None = None,
 ) -> "dict[str, Any]":
-    """Run the LLM cold-read self-containment judge on the compiled PDF.
+    """Run the LLM cold-read self-containment judge on the zone-1 LaTeX source.
 
     Two-layer gate (§5J.16.3):
-      Layer 1 (hermetic): Flag-A deterministic scan over pdftotext output —
-        same leak patterns as check_body_leakage() on .tex source, but applied
-        to the rendered PDF text (belt-and-suspenders). Runs inside run_cold_read().
-      Layer 2 (LLM): the cold-read judge reads ONLY the pdftotext output and
-        flags every reference that doesn't resolve from the paper alone.
+      Layer 1 (hermetic): Flag-A deterministic scan — same leak patterns as
+        check_body_leakage() on .tex source, applied to the gathered zone-1 text.
+        Belt-and-suspenders. Runs inside run_cold_read().
+      Layer 2 (LLM): the cold-read judge reads the zone-1 LaTeX source and flags
+        every reference that doesn't resolve from the paper alone.
+
+    TEXT SELECTION — STRUCTURAL (not substring):
+      Zone-1 .tex sources are selected by filename:
+        tree_root/main.tex  (body content, full)
+        tree_root/sections/*.tex  (all .tex files whose stem is NOT in _ZONE2_FILENAMES)
+      Zone-2 files (appendix-repro.tex, data-code-availability.tex) are excluded by
+      stem name — this is the same frozenset check as check_body_leakage(), promoted
+      to primary. No pdftotext call; no substring body-scoping.
+
+    RUBRIC/DOCSTRING MODE NOTE:
+      The cold-read judge now reads zone-1 LaTeX source, not pdftotext output.
+      Broken cross-ref adjudication (unresolved \\ref{}) is delegated to the
+      deterministic check_cite_resolution / check_figure_existence gates — the LLM
+      judge must NOT be relied on for broken-\\ref detection (a resolved \\ref looks
+      identical to a broken one in .tex source). The judge targets undefined-term /
+      provenance-pointer / internal-plumbing prose, which reads identically in
+      source vs rendered form.
 
     Bidirectional canary probes run before trusting any real verdict:
       (a) known self-contained → judge must NOT flag [DANGLING]; else ABORT.
@@ -1396,9 +1412,11 @@ def check_cold_read_tally(
         judge_model:     the model-id to log (D-AUD-5: Opus-tier).
         rubric_override: optional rubric override (researcher's rubric via seam default).
         config:          optional Config for rubric key lookup.
-        pdf_text:        optional pre-extracted pdftotext output. When None, this
-                         function attempts to call pdftotext on any PDF in tree_root;
-                         if pdftotext is absent or fails, falls back to reading main.tex.
+        pdf_text:        pre-extracted text passed directly (test injection / override).
+                         When None (the default), zone-1 .tex sources are read from
+                         tree_root (structural selection, zone-2 excluded by stem name).
+                         When explicitly provided, used as-is — no body-scoping applied;
+                         the caller is responsible for zone-2 exclusion.
 
     Returns a dict with:
       "flags":         list[ColdReadFlag] — per-issue LLM flags
@@ -1413,45 +1431,39 @@ def check_cold_read_tally(
       "meta":          dict — for RunState.meta["cold_read"] logging
 
     BLOCK on [DANGLING] (LLM) or any Flag-A hit; WARN on [NEEDS-CONTEXT].
-    sr: SR-MS-COLDREAD
+    sr: SR-MS-COLDREAD, SR-MS-GATE-ALIGN
     """
-    import shutil
-    import subprocess
+    from research_vault.manuscript.coldread import (
+        run_cold_read,
+        ColdReadFlag,
+    )
 
-    from research_vault.manuscript.coldread import run_cold_read, ColdReadFlag
-
-    # ── Resolve pdftotext text ───────────────────────────────────────────────
+    # ── Resolve zone-1 LaTeX source text ─────────────────────────────────────
+    # PRIMARY path: read zone-1 .tex sources (main.tex + sections/*.tex),
+    # skipping any stem in _ZONE2_FILENAMES.  Zone-2 exclusion is STRUCTURAL
+    # (by filename) — not textual (substring truncation).  Full content is read;
+    # no silent char caps that could hide body leaks past an arbitrary cutoff.
+    # pdf_text= is an explicit override/test-injection path: when provided, the
+    # caller's text is used as-is (no zone-2 stripping applied).
     resolved_pdf_text = pdf_text
     if resolved_pdf_text is None:
-        pdf_files = list(tree_root.glob("*.pdf"))
-        if pdf_files and shutil.which("pdftotext"):
+        ms_text_parts: list[str] = []
+        main_tex = tree_root / "main.tex"
+        if main_tex.exists():
             try:
-                r = subprocess.run(
-                    ["pdftotext", str(pdf_files[0]), "-"],
-                    capture_output=True, text=True, timeout=60,
-                )
-                if r.returncode == 0 and r.stdout.strip():
-                    resolved_pdf_text = r.stdout
-            except (subprocess.TimeoutExpired, OSError):
+                ms_text_parts.append(main_tex.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
                 pass
-
-        if resolved_pdf_text is None:
-            # Fallback: read main.tex + key sections (graceful degradation)
-            ms_text_parts: list[str] = []
-            main_tex = tree_root / "main.tex"
-            if main_tex.exists():
+        sections_dir = tree_root / "sections"
+        if sections_dir.exists():
+            for tex in sorted(sections_dir.glob("*.tex")):
+                if tex.stem in _ZONE2_FILENAMES:
+                    continue  # structural zone-2 exclusion by stem — matches check_body_leakage
                 try:
-                    ms_text_parts.append(main_tex.read_text(encoding="utf-8", errors="replace")[:4000])
+                    ms_text_parts.append(tex.read_text(encoding="utf-8", errors="replace"))
                 except OSError:
                     pass
-            sections_dir = tree_root / "sections"
-            if sections_dir.exists():
-                for tex in sorted(sections_dir.glob("*.tex"))[:6]:
-                    try:
-                        ms_text_parts.append(tex.read_text(encoding="utf-8", errors="replace")[:1500])
-                    except OSError:
-                        pass
-            resolved_pdf_text = "\n\n".join(ms_text_parts) if ms_text_parts else ""
+        resolved_pdf_text = "\n\n".join(ms_text_parts) if ms_text_parts else ""
 
     if not resolved_pdf_text.strip():
         return {
@@ -1462,7 +1474,7 @@ def check_cold_read_tally(
             "warn_count": 0,
             "honest_report": "0 passages, 0 LLM BLOCK, 0 LLM WARN, 0 Flag-A BLOCK (no text extracted)",
             "errors": [],
-            "warnings": ["cold-read: no PDF text extracted — pdftotext absent or PDF not compiled yet"],
+            "warnings": ["cold-read: no zone-1 .tex text found — sections missing or not yet compiled"],
             "canary_aborted": False,
             "meta": {},
         }
