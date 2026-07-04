@@ -210,10 +210,14 @@ def build_parser(
     review_p = sub.add_parser(
         "review",
         help=(
-            "Run the adversarial review-board gate (SR-MS-REVIEW-a): "
+            "Run the adversarial review-board gate (SR-MS-REVIEW): "
             "N rounds of K fresh independent reviewers + MIN-floor threshold + honest-failure "
             "surface. The scientific-merit layer ABOVE the honesty gates (support-matcher + "
             "cold-read). Requires RV_JUDGE_MODEL and ANTHROPIC_API_KEY — FAILS LOUD if absent. "
+            "STANDALONE NOTE: in standalone mode this command re-scores the SAME compiled PDF "
+            "each round — there is no revision between rounds because revise-r is a no-op "
+            "outside the full DAG. Multi-round iteration (revise-r recompiles a new draft) "
+            "only bites inside the full approve-manuscript DAG flow. "
             "Anti-pattern: do NOT eyeball scientific merit or use a single self-review — "
             "the multi-round adversarial board with provenance-bound floors (Soundness ↔ "
             "support-grounding, Reproducibility ↔ freeze-hashes) iterates toward quality, "
@@ -445,7 +449,9 @@ def run(args: argparse.Namespace) -> int:
                 return 1
 
             from research_vault.manuscript.support_matcher import _default_judge_fn
-            from research_vault.manuscript.review_board import run_review_board, get_review_config
+            from research_vault.manuscript.review_board import (
+                run_review_board, get_review_config, get_review_rubric,
+            )
 
             ms_id = args.ms_id
             _ms_dir = cfg.project_notes_dir(args.project) / "manuscript"
@@ -491,6 +497,10 @@ def run(args: argparse.Namespace) -> int:
                     "falling back to main.tex (compile first for accurate review)."
                 )
 
+            # SR-MS-REVIEW-b: build the judge lambda once so the canary uses the SAME fn.
+            _judge_lambda = lambda prompt: _default_judge_fn(prompt, model=_rb_judge_model)
+            _active_rubric = get_review_rubric(config=cfg)
+
             _rb_result = run_review_board(
                 pdf_text=_pdf_text or "",
                 tree_root=_tree_root,
@@ -499,10 +509,15 @@ def run(args: argparse.Namespace) -> int:
                 floor_dims=_rb_cfg["floor_dimensions"],
                 floor_value=_rb_cfg["floor_value"],
                 venue_scale=_rb_cfg["venue_scale"],
-                judge_fn=lambda prompt: _default_judge_fn(prompt, model=_rb_judge_model),
+                judge_fn=_judge_lambda,
                 judge_model=_rb_judge_model,
+                rubric_override=None,
                 config=cfg,
                 notes_root=cfg.project_notes_dir(args.project),
+                # Canary fires the SAME judge on known-STRONG + known-WEAK probes
+                # BEFORE trusting any real reviewer scores (SR-MS-REVIEW-b §5J.17.5).
+                canary_judge_fn=_judge_lambda,
+                canary_rubric=_active_rubric,
             )
 
             print(f"rv manuscript review: {_rb_result['honest_report']}")

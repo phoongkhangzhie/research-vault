@@ -993,6 +993,8 @@ def run_review_board(
     config: Any | None = None,
     notes_root: Path | None = None,
     cold_read_pdf_text: str | None = None,
+    canary_judge_fn: Callable[[str], str] | None = None,
+    canary_rubric: str = "",
 ) -> dict[str, Any]:
     """Run the full bounded N-round review-board loop.
 
@@ -1002,20 +1004,28 @@ def run_review_board(
 
     The revise node re-fires support-matcher + cold-read (anti-gaming c).
 
+    SR-MS-REVIEW-b: canary_judge_fn + canary_rubric wire the calibrated bidirectional
+    canary through run_meta_review → run_canary_scaffold. When provided, the canary
+    fires BEFORE trusting reviewer scores each round. The SAME judge_fn used for
+    real reviews should be passed as canary_judge_fn (§5J.17.5).
+    In tests (default): canary_judge_fn=None → canary skips (backward-compat).
+
     Args:
-        pdf_text:        rendered PDF text (pdftotext output or fallback)
-        tree_root:       manuscript artifact tree root
-        N:               number of review rounds (frozen at scaffold; clamped to hard-cap 3)
-        K:               reviewers per round
-        floor_dims:      list of floor dimension names (default: ["SOUND", "REPRO"])
-        floor_value:     minimum score to pass each floor dim (default: 3)
-        venue_scale:     score scale description (default: "1-5")
-        judge_fn:        injectable judge (tests use mock; None → raises in production)
-        judge_model:     model-id to log
-        rubric_override: optional rubric override
-        config:          optional Config
-        notes_root:      project notes dir (for revise honesty re-fire)
+        pdf_text:           rendered PDF text (pdftotext output or fallback)
+        tree_root:          manuscript artifact tree root
+        N:                  number of review rounds (frozen at scaffold; clamped to hard-cap 3)
+        K:                  reviewers per round
+        floor_dims:         list of floor dimension names (default: ["SOUND", "REPRO"])
+        floor_value:        minimum score to pass each floor dim (default: 3)
+        venue_scale:        score scale description (default: "1-5")
+        judge_fn:           injectable judge (tests use mock; None → raises in production)
+        judge_model:        model-id to log
+        rubric_override:    optional rubric override
+        config:             optional Config
+        notes_root:         project notes dir (for revise honesty re-fire)
         cold_read_pdf_text: optional PDF text for cold-read re-fire
+        canary_judge_fn:    judge for the bidirectional canary probes (None → skip canary)
+        canary_rubric:      rubric string with {PDF_TEXT} slot for canary probes
 
     Returns dict with:
         cleared:        bool
@@ -1027,7 +1037,7 @@ def run_review_board(
         n_reviewers_per_round: int
         meta:           RunState.meta["review_board"] dict
 
-    sr: SR-MS-REVIEW-a §5J.17.2–.6
+    sr: SR-MS-REVIEW-a §5J.17.2–.6 + SR-MS-REVIEW-b §5J.17.5
     """
     _floor_dims = floor_dims if floor_dims is not None else list(_DEFAULT_FLOOR_DIMS)
     # Apply hard-cap
@@ -1076,6 +1086,8 @@ def run_review_board(
         round_record["reviewers"] = reviewer_results
 
         # --- Meta-review join (fan-in) ---
+        # SR-MS-REVIEW-b: pass canary_judge_fn + rubric so the calibrated bidirectional
+        # canary fires BEFORE trusting scores. When None, run_canary_scaffold skips.
         meta_result = run_meta_review(
             round_num=r,
             reviewer_results=reviewer_results,
@@ -1083,6 +1095,8 @@ def run_review_board(
             floor_value=floor_value,
             venue_scale=venue_scale,
             judge_model=judge_model,
+            canary_judge_fn=canary_judge_fn,
+            canary_rubric=canary_rubric,
             run_state_meta=run_state_meta,
         )
         round_record["meta_review"] = meta_result
