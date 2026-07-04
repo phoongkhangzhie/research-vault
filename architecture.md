@@ -62,34 +62,32 @@ skeleton fallbacks are **gone** — a missing data file is a **HARD ERROR**, not
 ## Tiers
 | Tier | Surface | v1? |
 |---|---|---|
-| 1 — research assistant | research, cite, note, mdstore, task, devlog, lint, wait-for, dag + the loops (manuscript, review, plan, figure, wandb, compute, doctor) + the doctrine | YES |
+| 1 — research assistant | research, cite, note, mdstore, task, devlog, lint, wait-for, dag + the loops (experiment, review, plan, wandb, compute, doctor) + the doctrine | YES |
 | 2 — file coordination | status, role, build-agents, control, crew/role system, control-file bus, notify | YES |
 | 3 — advanced (opt-in) | github CI fetch (`adapters/github_ci.py`, MERGED), remote ComputeBackend / SLURM (MERGED); vcs multi-identity PR/merge | partial |
 
-## OKF typed notes — 9 types (note.OKF_TYPES, the SSOT)
-`note.OKF_TYPES` (`note.py:26-36`) is the frozen SSOT: **9 types** — `literature`, `concepts`, `methods`,
-`experiments`, `findings`, `mocs`, `datasets` (SR-8), `figures` (SR-FIG), `manuscript` (SR-MS-1a). Notes are
-**pointers, not embeds** (a figures/datasets/manuscript note *points to* its artifact, never contains it).
-**Scoping** is governed by `note.OKF_SHARED_TYPES = {"datasets"}` (`note.py:43`) — `datasets/` is the sole
-**shared** cross-project root (lives in `cfg.datasets_root`); **all other 8 types are project-scoped**
+## OKF typed notes — 8 types (note.OKF_TYPES, the SSOT)
+`note.OKF_TYPES` (`note.py`) is the frozen SSOT: **8 types** — `literature`, `concepts`, `methods`,
+`experiments`, `findings`, `mocs`, `datasets` (SR-8), `gaps` (SR-LR-2). Notes are **pointers, not
+embeds** (a datasets note *points to* its artifact, never contains it).
+**Scoping** is governed by `note.OKF_SHARED_TYPES = {"datasets"}` (`note.py`) — `datasets/` is the sole
+**shared** cross-project root (lives in `cfg.datasets_root`); **all other 7 types are project-scoped**
 (`cfg.project_notes_dir/<type>`). This split is imported, never duplicated (consumers: `wait_for` note-resolver,
 `dag/verbs` scope-check).
 
-## The loops & manuscript layer — the generative research OS (merged on top of core)
-Four subpackages, each a **DAG-driven loop** composed on the SR-3 walker/store + `spec:`/`reads:` grounding
+## The loops layer — the generative research OS (merged on top of core)
+Two subpackages, each a **DAG-driven loop** composed on the SR-3 walker/store + `spec:`/`reads:` grounding
 manifest with **zero new DAG mechanism** (the standing constraint). Each carries a **config seam** (Ada-authored
-prompt defaults + adopter override) and a `style.py` `apply_style`/style-preamble seam.
+prompt defaults + adopter override).
 
 | Subpackage | Verb | What it does | Config seam |
 |---|---|---|---|
-| `manuscript/` | `rv manuscript new/compile/check/list` | Grounded LaTeX drafting: `support_matcher` (`[SUPPORTS]`/`[PARTIAL]`/`[ABSENT]`/`[CONTRADICTS]` verdict per `\cite`→source, verbatim-span-or-BLOCK) · `naked_cite` (uncited-claim scan) · `check_gates` · `bib` (closed `.bib` from `literature/` notes) · `results_inject` (machine-injected `\result*` macros, hash-verified `experiments/` reads) · `appendix` · guarded `compile` | `per_section_tips` + `style.py` |
-| `review/` | `rv review new/expand/list/gap-scan/gap-scope/gap-close` | Pre-registered, **saturation-gated lit-review DAG**: Phase-1 (review-scope → `[HG:approve-protocol]` → review-search → review-snowball → `[HG:coverage-gate]`) with `_protocol.md` freeze (non-empty `counter-position` = L-2 anti-fishing gate) + internal saturation loop (forward cited-by + backward refs); **two-phase fan-out** via `rv review expand` after the coverage human-go. **SR-LR-2 gap-driven pass**: `gap_scan.py` detects four typed gaps (knowledge_void / contradictory / evaluation_void / absent_row); `gap-scan` is a **rejects-only screen** that writes `gaps/<id>.md` (10th OKF type, first-class lifecycle); `gap-scope` auto-authors a targeted Part-1 scope (question←claim, seed_queries, snowball_seeds); `absent_row` detector binds to `RunState.meta['support_matcher']` structured verdicts — NOT prose-grep (the loop-closer: manuscript↔lit-review cycle, §5L.10) | `review_tips` + `style.py` |
+| `review/` | `rv review new/expand/list/gap-scan/gap-scope/gap-close` | Pre-registered, **saturation-gated lit-review DAG**: Phase-1 (review-scope → `[HG:approve-protocol]` → review-search → review-snowball → `[HG:coverage-gate]`) with `_protocol.md` freeze (non-empty `counter-position` = L-2 anti-fishing gate) + internal saturation loop (forward cited-by + backward refs); **two-phase fan-out** via `rv review expand` after the coverage human-go. **SR-LR-2 gap-driven pass**: `gap_scan.py` detects three typed gaps (knowledge_void / contradictory / evaluation_void); `gap-scan` is a **rejects-only screen** that writes `gaps/<id>.md` (8th OKF type, first-class lifecycle); `gap-scope` auto-authors a targeted Part-1 scope (question←claim, seed_queries, snowball_seeds) | `review_tips` + `style.py` |
 | `plan/` | `rv plan check/tips` | Pre-registration **freeze** (`freeze.py`) + structural **shape-lint** (`check.py`): rule (a) branch-presence, rule (b) one-component-per-ablation, **rule (c) bare-id `covers:` convention (SR-PLAN-2)** — run BEFORE `human-go-plan` | `plan_tips` + `style.py` |
-| `figures/` | `rv figure new/preview/render/recommend/list` | scores/datasets → publication-quality figures over pandas; `recommend` ranks plot types on the Cleveland–McGill perceptual ladder + Mackinlay expressiveness (SR-FIG-REC); provenance = `figures/` note (experiment-results-hash + filter recipe + style preset) | `apply_style(preset, skin)` seam (Iris style module + BeautifulFigures [MIT, attributed]) |
 
-**Dependency posture:** `figures/` bears RV's first optional extra — `[figures] = matplotlib/seaborn/pandas`
-(import-guarded); manuscript `compile` uses a documented **texlive prerequisite**, not a core dep. **Core stays
-stdlib-only.** Every loop above obeys leakage-by-construction (no private markers in prompts/seams/DEVLOG).
+**Dependency posture: Core stays stdlib-only.** The `[analysis]` extra (`scipy`) is the only optional dep —
+for statistical tests in plan-driven inference. Every loop obeys leakage-by-construction (no private markers in
+prompts/seams/DEVLOG).
 
 ## Adapter Protocols (adapters/base.py)
 | Adapter | Interface | Local-default (zero infra) | Advanced adapter |
@@ -123,17 +121,16 @@ Status verified against merged `main` (`src/research_vault/` modules + `note.OKF
 | SR-7 | Remote `ComputeBackend` (`adapters/remote.py`) + cleanup + `native_env` | MERGED |
 | SR-8 | DATASETS as a typed OKF artifact (shared root) + data-processing seams | MERGED |
 | SR-WB | `rv wandb pull` — W&B results core (server holds data, vault holds index, pull by id) | MERGED |
-| SR-FIG | FIGURES — data→figure DAG capability; `[figures]` extra; `figures/` OKF type (+ SR-FIG-REC recommender + fix) | MERGED |
 | SR-CIF | Tier-3 CI fetch (`adapters/github_ci.py`) — reworked | MERGED |
 | SR-EXP-REPRO | Experiment `repro_*` provenance schema | MERGED |
 | SR-PLAN-1/2 | Plan/freeze module + pre-registration + shape-lint (rule (c) bare-id `covers:`) | MERGED |
-| SR-MS-1a/1b/2 | Manuscript layer: structure · `.bib`+results-inject+guarded compile · support-matcher + critic + hash-drift gate | MERGED |
 | SR-LR-1 | Lit-review loop (`review/`) — saturation-gated, two-phase fan-out | MERGED |
-| SR-LR-2 | Gap-driven pass (`review/gap_scan.py`) — four typed detectors, `gaps/` OKF type, loop-closer (absent_row bound to structured `support_matcher` verdicts) | MERGED |
+| SR-LR-2 | Gap-driven pass (`review/gap_scan.py`) — three typed detectors, `gaps/` 8th OKF type | MERGED |
 | corpus-dedup · SR-RESOLVE-SCOPE | Corpus dedup · project-scoped-vs-shared OKF split (`OKF_SHARED_TYPES`) | MERGED |
 | SR-CONTRACT → SR-LENS-RM (#64) | project-lens scaffold, then **REVERSED**: per-project lens + `_hub.lensByRole` + per-project hat-bake removed — ONE flat vault crew, hats = `charter + role`, project context read fresh | MERGED |
 | SR-CCB | Claude Code binding — `rv init` writes `CLAUDE.md` + populates `.claude/agents/` via `build-agents --target claude-code`; per-role tool grants + model aliases (PUB-CCB.2) | MERGED |
-| — next → | SR-FIG-REC polish · SR-PLAN-2 follow-ons · SR-10 (OSS docs site + README/LICENSE + public publish, human-go) | — |
+| SR-RM-FIGMS | Remove figure + manuscript loops; `figures/`, `manuscript/` OKF types, `[figures]` extra, `absent_row` gap detector removed; OKF→8; honesty-gates doctrine harvested | MERGED |
+| — next → | SR-10 (OSS docs site + README/LICENSE + public publish, human-go) | — |
 
 ## Crew generation & the emit path (SR-LENS-RM, #64)
 **One general, VAULT-LEVEL crew — not one crew per project.** Each hat is composed **`charter + role`**
