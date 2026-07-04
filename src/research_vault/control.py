@@ -15,9 +15,9 @@ Anti-patterns this replaces:
 
 Control file structure (REQUIRED_SECTIONS):
   # CONTROL — <project>
-  ## Inbox   (hub/owner → manager)
+  ## Inbox   (hub/owner → crew)
   ## Handshakes  (in-flight, needs the other side)
-  ## Outbox  (manager → hub/owner)
+  ## Outbox  (crew → hub/owner)
   ## Open / blockers
 
 All paths resolved from Config — zero hardcoded paths.
@@ -146,19 +146,19 @@ def _render_control_file(project: str, note: str = "") -> str:
 
 # CONTROL — {project}
 
-The manager bus for this project: an async, durable handshake file. The manager reads it
-at the top of each turn; the hub reads it to build the brief. Markdown, near-free, legible.
+The hub↔crew bus for this project: an async, durable handshake file. The hub reads it
+to build the brief; crew members read it at the top of each turn. Markdown, near-free, legible.
 Read via `rv status {project}` or `rv control {project} reconcile`.
 
 > *{intro}*
 
-## Inbox  (hub/owner → manager)
+## Inbox  (hub/owner → crew)
   _(none)_
 
 ## Handshakes  (in-flight, needs the other side)
   _(none)_
 
-## Outbox  (manager → hub/owner)
+## Outbox  (crew → hub/owner)
   _(none)_
 
 ## Open / blockers
@@ -963,7 +963,7 @@ def build_parser(
 
     Anti-pattern: do NOT open control/*.md and hand-type entries or read them raw.
     """
-    desc = "Manage the project coordination control file (the manager-hub bus)."
+    desc = "Manage the project coordination control file (the crew-hub bus)."
     if parent is not None:
         p = parent.add_parser("control", help="Project coordination control file.",
                                description=desc)

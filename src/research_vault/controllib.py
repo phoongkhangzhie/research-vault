@@ -15,8 +15,8 @@ THE INVESTIGATE-BOUNDARY (read before extending the status side):
 
   The control plane reads what owners POSTED — the durable record. It NEVER
   investigates. It does not ssh a cluster, count run outputs, or diagnose *why*
-  something failed — that is the owning manager's loop, run through its doers.
-  If posted state is stale or thin, ping the manager to refresh — do not go
+  something failed — that is the hub's loop, run through the crew.
+  If posted state is stale or thin, ping the hub to refresh — do not go
   look. (This boundary is also stated in `rv status --help`.)
 ──────────────────────────────────────────────────────────────────────────────
 

@@ -112,19 +112,19 @@ control_file = "{control_dir}/demo-litreview.md"
 _CONTROL_TEMPLATE = """\
 # CONTROL — {project}
 
-The manager bus for this project: an async, durable handshake file.
+The hub↔crew bus for this project: an async, durable handshake file.
 READ via `rv status {project}` or `rv control {project} check`.
 WRITE via `rv control {project} post <text>` — never by hand.
 
 > *Created by `rv init`.*
 
-## Inbox  (hub/owner → manager)
+## Inbox  (hub/owner → crew)
   _(none)_
 
 ## Handshakes  (in-flight, needs the other side)
   _(none)_
 
-## Outbox  (manager → hub/owner)
+## Outbox  (crew → hub/owner)
   _(none)_
 
 ## Open / blockers
