@@ -1554,6 +1554,17 @@ def check_cold_read_tally(
 # Critic node logic (SR-MS-2 §5J.13-A (2))
 # ---------------------------------------------------------------------------
 
+# Input cap for run_critic.  The original code used silent per-source slices
+# ([:8000], [:4000], [:2000], [:10000]) that could leave critic-relevant content
+# invisible to the gate with no signal to the human — same vacuous-gate class as
+# the #82 cold-read over-truncation.  Fix: collect source text without per-source
+# truncation, then apply a single total cap and emit a LOUD warning if exceeded.
+# 60 000 chars comfortably covers a typical 10-page academic paper; a manuscript
+# that still exceeds this is genuinely large and the human must know it was not
+# fully reviewed.
+_CRITIC_TOTAL_CAP: int = 60_000    # final joined cap; LOUD WARN emitted if exceeded
+
+
 def run_critic(
     tree_root: Path,
     *,
@@ -1591,7 +1602,7 @@ def run_critic(
                 capture_output=True, text=True, timeout=30,
             )
             if r.returncode == 0 and r.stdout.strip():
-                ms_text_parts.append(r.stdout[:8000])
+                ms_text_parts.append(r.stdout)
         except (subprocess.TimeoutExpired, OSError):
             pass
 
@@ -1600,14 +1611,14 @@ def run_critic(
         main_tex = tree_root / "main.tex"
         if main_tex.exists():
             try:
-                ms_text_parts.append(main_tex.read_text(encoding="utf-8")[:4000])
+                ms_text_parts.append(main_tex.read_text(encoding="utf-8"))
             except OSError:
                 pass
         for sname in ("abstract", "introduction", "results-discussion", "limitations"):
             sp = tree_root / "sections" / f"{sname}.tex"
             if sp.exists():
                 try:
-                    ms_text_parts.append(sp.read_text(encoding="utf-8")[:2000])
+                    ms_text_parts.append(sp.read_text(encoding="utf-8"))
                 except OSError:
                     pass
 
@@ -1624,7 +1635,17 @@ def run_critic(
             "raw_response": "",
         }
 
-    ms_text = "\n\n".join(ms_text_parts)[:10000]
+    ms_text_joined = "\n\n".join(ms_text_parts)
+    _critic_warnings: list[str] = []
+    if len(ms_text_joined) > _CRITIC_TOTAL_CAP:
+        n_chars = len(ms_text_joined)
+        _critic_warnings.append(
+            f"critic: manuscript text exceeds review cap "
+            f"({n_chars:,} chars > {_CRITIC_TOTAL_CAP:,} cap); "
+            f"critic reviewed only the first {_CRITIC_TOTAL_CAP:,} chars — "
+            "content past that limit was NOT reviewed. Split or shorten the manuscript."
+        )
+    ms_text = ms_text_joined[:_CRITIC_TOTAL_CAP]
 
     # Build critic prompt (anti-positivity baked in)
     critic_prompt = (
@@ -1684,7 +1705,7 @@ def run_critic(
     return {
         "findings": findings,
         "errors": [],
-        "warnings": [],
+        "warnings": _critic_warnings,
         "raw_response": raw_response,
     }
 
