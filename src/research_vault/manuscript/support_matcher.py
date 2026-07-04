@@ -660,7 +660,137 @@ def _default_judge_fn(prompt: str, model: str = DEFAULT_JUDGE_MODEL) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Core public callable — match_support()
+# Core public callable — match_support_against_fields() (fields-injectable)
+# ---------------------------------------------------------------------------
+
+def match_support_against_fields(
+    claim: str,
+    citekey: str,
+    source_fields: dict[str, str],
+    *,
+    stance: str | None = None,
+    plan_role: str | None = None,
+    rubric: str,
+    judge_fn: Callable[[str], str] | None = None,
+    judge_model: str = DEFAULT_JUDGE_MODEL,
+    section: str = "",
+    note_path: str = "",
+) -> SupportVerdict:
+    """Assess whether *source_fields* (pre-extracted structured fields) back a claim.
+
+    This is the inner judge core extracted from match_support so that any caller —
+    the note-file path (match_support wrapper) or a figure-caption data table
+    (SR-FIG-METHOD slice C) — can feed structured fields directly without going
+    through the note-file reader.
+
+    Args:
+        claim:        the manuscript sentence containing the \\cite{citekey}.
+        citekey:      the BibTeX citekey being checked.
+        source_fields: flat dict of field-name → text (the evidence the judge sees).
+                       Empty dict → ABSENT (no evidence → cannot confirm support).
+        stance:       optional stance: field from the note (for J-2 gate; None → skip).
+        plan_role:    optional plan_role: field (for J-2 gate context; None → skip).
+        rubric:       the full judge rubric (resolved by the caller; see get_support_rubric).
+        judge_fn:     injectable LLM call (prompt: str) -> str. Defaults to the urllib
+                      Anthropic API call. Pass a mock in tests.
+        judge_model:  the model-id to log (D-MS-4 resolved: Opus-tier).
+        section:      SR-GAP-ROUTE Tier B: manuscript section stem threaded from
+                      check_support_tally. Default "" (back-compat).
+        note_path:    optional string path of the originating note for SupportVerdict
+                      provenance. Callers that feed structured fields from a non-file
+                      source (e.g. a figure data table) may leave this as "" or pass
+                      a descriptive label. Default "".
+
+    Returns:
+        SupportVerdict with verdict, verbatim_span, polarity, judge_model, prompt_hash.
+        ABSENT is the safe default when source_fields is empty or the judge fails.
+
+    BLOCK on [ABSENT] / [CONTRADICTS]; WARN on [PARTIAL].
+
+    sr: SR-MS-2, SR-FIG-METHOD
+    """
+    prompt = _build_judge_prompt(
+        claim=claim,
+        citekey=citekey,
+        note_fields=source_fields,
+        rubric=rubric,
+        stance=stance,
+        plan_role=plan_role,
+    )
+
+    # Compute prompt hash for audit + RunState.meta
+    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+
+    # If no structured fields available → ABSENT (can't quote → ABSENT)
+    if not source_fields:
+        return SupportVerdict(
+            verdict="ABSENT",
+            verbatim_span=None,
+            polarity="neutral",
+            reasoning="No structured fields found in the literature note — cannot assess support.",
+            claim=claim,
+            citekey=citekey,
+            note_path=note_path,
+            judge_model=judge_model,
+            prompt_hash=prompt_hash,
+            raw_response="",
+            section=section,
+        )
+
+    # Call the judge
+    _judge = judge_fn if judge_fn is not None else _default_judge_fn
+    try:
+        raw_response = _judge(prompt)
+    except Exception as e:  # noqa: BLE001
+        # Judge failure degrades to ABSENT (safe — do not pass on failure)
+        return SupportVerdict(
+            verdict="ABSENT",
+            verbatim_span=None,
+            polarity="neutral",
+            reasoning=f"Judge call failed: {e}",
+            claim=claim,
+            citekey=citekey,
+            note_path=note_path,
+            judge_model=judge_model,
+            prompt_hash=prompt_hash,
+            raw_response="",
+            section=section,
+        )
+
+    verdict, verbatim_span, polarity, reasoning = _parse_judge_response(raw_response)
+
+    # J-2 escalation: exploratory note cited at explicit confirmatory strength → BLOCK
+    # (D-MS-5: strength inversion is a BLOCK; general drift is WARN)
+    j2_escalation = False
+    if stance and stance.lower() in ("exploratory", "pilot", "tentative"):
+        claim_lower = claim.lower()
+        if any(cv in claim_lower for cv in _CONFIRMATORY_VERBS):
+            j2_escalation = True
+            # If verdict was PARTIAL, escalate to BLOCK
+            if verdict == "PARTIAL":
+                pass  # j2_escalation=True already causes .blocks to return True
+            # If verdict was SUPPORTS, downgrade to PARTIAL + escalate
+            if verdict == "SUPPORTS":
+                verdict = "PARTIAL"
+
+    return SupportVerdict(
+        verdict=verdict,
+        verbatim_span=verbatim_span,
+        polarity=polarity,
+        reasoning=reasoning,
+        claim=claim,
+        citekey=citekey,
+        note_path=note_path,
+        judge_model=judge_model,
+        prompt_hash=prompt_hash,
+        j2_escalation=j2_escalation,
+        raw_response=raw_response,
+        section=section,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Thin wrapper — match_support() (note-file entry point; same public API)
 # ---------------------------------------------------------------------------
 
 def match_support(
@@ -677,6 +807,10 @@ def match_support(
     section: str = "",
 ) -> SupportVerdict:
     """Assess whether a cited source backs a claim in the manuscript.
+
+    Thin wrapper around match_support_against_fields: reads the note at
+    *note_path* into structured fields, resolves the rubric, then delegates
+    all judge logic to the fields-injectable core.
 
     This is the reusable callable — both the semantic gate in check_gates.py
     and the (A) naked-cite resolver in naked_cite.py call this function.
@@ -708,83 +842,17 @@ def match_support(
     """
     rubric = get_support_rubric(override=rubric_override, config=config)
     note_fields = _read_note_structured_fields(note_path)
-    prompt = _build_judge_prompt(
-        claim=claim,
-        citekey=citekey,
-        note_fields=note_fields,
-        rubric=rubric,
+    return match_support_against_fields(
+        claim,
+        citekey,
+        note_fields,
         stance=stance,
         plan_role=plan_role,
-    )
-
-    # Compute prompt hash for audit + RunState.meta
-    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
-
-    # If no structured fields available → ABSENT (can't quote → ABSENT)
-    if not note_fields:
-        return SupportVerdict(
-            verdict="ABSENT",
-            verbatim_span=None,
-            polarity="neutral",
-            reasoning="No structured fields found in the literature note — cannot assess support.",
-            claim=claim,
-            citekey=citekey,
-            note_path=str(note_path),
-            judge_model=judge_model,
-            prompt_hash=prompt_hash,
-            raw_response="",
-            section=section,
-        )
-
-    # Call the judge
-    _judge = judge_fn if judge_fn is not None else _default_judge_fn
-    try:
-        raw_response = _judge(prompt)
-    except Exception as e:  # noqa: BLE001
-        # Judge failure degrades to ABSENT (safe — do not pass on failure)
-        return SupportVerdict(
-            verdict="ABSENT",
-            verbatim_span=None,
-            polarity="neutral",
-            reasoning=f"Judge call failed: {e}",
-            claim=claim,
-            citekey=citekey,
-            note_path=str(note_path),
-            judge_model=judge_model,
-            prompt_hash=prompt_hash,
-            raw_response="",
-            section=section,
-        )
-
-    verdict, verbatim_span, polarity, reasoning = _parse_judge_response(raw_response)
-
-    # J-2 escalation: exploratory note cited at explicit confirmatory strength → BLOCK
-    # (D-MS-5: strength inversion is a BLOCK; general drift is WARN)
-    j2_escalation = False
-    if stance and stance.lower() in ("exploratory", "pilot", "tentative"):
-        claim_lower = claim.lower()
-        if any(cv in claim_lower for cv in _CONFIRMATORY_VERBS):
-            j2_escalation = True
-            # If verdict was PARTIAL, escalate to BLOCK
-            if verdict == "PARTIAL":
-                pass  # j2_escalation=True already causes .blocks to return True
-            # If verdict was SUPPORTS, downgrade to PARTIAL + escalate
-            if verdict == "SUPPORTS":
-                verdict = "PARTIAL"
-
-    return SupportVerdict(
-        verdict=verdict,
-        verbatim_span=verbatim_span,
-        polarity=polarity,
-        reasoning=reasoning,
-        claim=claim,
-        citekey=citekey,
-        note_path=str(note_path),
+        rubric=rubric,
+        judge_fn=judge_fn,
         judge_model=judge_model,
-        prompt_hash=prompt_hash,
-        j2_escalation=j2_escalation,
-        raw_response=raw_response,
         section=section,
+        note_path=str(note_path),
     )
 
 

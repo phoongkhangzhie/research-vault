@@ -353,6 +353,112 @@ class TestJ2StanceEscalation:
 
 
 # ===========================================================================
+# 3b. match_support_against_fields — fields-injectable core (SR-FIG-METHOD-D)
+# ===========================================================================
+
+class TestMatchSupportAgainstFields:
+    """Slice D: match_support_against_fields takes pre-extracted fields directly.
+
+    Acceptance: with the SAME source_fields that _read_note_structured_fields
+    would extract from the note, the result is behaviour-identical to calling
+    match_support on the note file itself.
+    """
+
+    def test_behaviour_identical_to_match_support(self, tmp_path):
+        """match_support_against_fields + hand-built fields == match_support via note file."""
+        from research_vault.manuscript.support_matcher import (
+            match_support,
+            match_support_against_fields,
+            _read_note_structured_fields,
+            get_support_rubric,
+        )
+
+        note = _literature_note(tmp_path, "equiv2024")
+        claim = "We show that X is true \\cite{equiv2024}."
+        citekey = "equiv2024"
+        mock_fn = _mock_judge("SUPPORTS", "Finding A: X is true.")
+
+        # Path 1: note file via match_support wrapper
+        v_via_note = match_support(
+            claim,
+            citekey,
+            note,
+            judge_fn=mock_fn,
+        )
+
+        # Path 2: pre-extracted fields via match_support_against_fields
+        source_fields = _read_note_structured_fields(note)
+        rubric = get_support_rubric()
+        v_via_fields = match_support_against_fields(
+            claim,
+            citekey,
+            source_fields,
+            rubric=rubric,
+            judge_fn=mock_fn,
+            note_path=str(note),
+        )
+
+        # All semantically-significant fields must match
+        assert v_via_fields.verdict == v_via_note.verdict
+        assert v_via_fields.verbatim_span == v_via_note.verbatim_span
+        assert v_via_fields.polarity == v_via_note.polarity
+        assert v_via_fields.reasoning == v_via_note.reasoning
+        assert v_via_fields.claim == v_via_note.claim
+        assert v_via_fields.citekey == v_via_note.citekey
+        assert v_via_fields.note_path == v_via_note.note_path
+        assert v_via_fields.j2_escalation == v_via_note.j2_escalation
+        assert v_via_fields.blocks == v_via_note.blocks
+
+    def test_empty_fields_returns_absent(self):
+        """Empty source_fields → ABSENT (safe default; same as an unreadable note)."""
+        from research_vault.manuscript.support_matcher import (
+            match_support_against_fields,
+            get_support_rubric,
+        )
+        v = match_support_against_fields(
+            "X is shown \\cite{k2024}.",
+            "k2024",
+            {},
+            rubric=get_support_rubric(),
+            judge_fn=_mock_judge("SUPPORTS"),
+        )
+        assert v.verdict == "ABSENT"
+        assert v.blocks
+
+    def test_note_path_defaults_to_empty_string(self):
+        """note_path defaults to '' — callers that feed non-file fields don't need to pass it."""
+        from research_vault.manuscript.support_matcher import (
+            match_support_against_fields,
+            get_support_rubric,
+        )
+        v = match_support_against_fields(
+            "X \\cite{k2025}.",
+            "k2025",
+            {"tldr": "X is true.", "findings": "Finding A: X."},
+            rubric=get_support_rubric(),
+            judge_fn=_mock_judge("SUPPORTS"),
+        )
+        assert v.note_path == ""
+
+    def test_j2_escalation_works_via_fields(self):
+        """J-2 stance-mismatch escalation fires identically when called via fields path."""
+        from research_vault.manuscript.support_matcher import (
+            match_support_against_fields,
+            get_support_rubric,
+        )
+        v = match_support_against_fields(
+            "We definitively prove X \\cite{ex2024}.",
+            "ex2024",
+            {"tldr": "Exploratory result: X may hold.", "findings": "X is possible."},
+            stance="exploratory",
+            rubric=get_support_rubric(),
+            judge_fn=_mock_judge("SUPPORTS"),
+        )
+        assert v.j2_escalation
+        assert v.blocks
+
+
+# ===========================================================================
 # 4. naked_cite detection and resolution
 # ===========================================================================
 
