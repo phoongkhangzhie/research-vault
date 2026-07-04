@@ -1,3 +1,23 @@
+## 2026-07-04 (feat/sr-fig-method-ab: seaborn skin + render-script seam)
+
+### Done
+- Slice A: seaborn-backed `apply_style` — `sns.set_theme` + project palette (culturebench tokens: teal/clay/cream) overriding seaborn defaults; `skin` arg now palette selector; guard seaborn inside apply_style → None on absence.
+- C1: extend `_check_figures_extra` probe to include seaborn (two-layer defence with apply_style guard).
+- C2: extract `wandb_pull._hash_file` to shared `hashing.hash_file` — single SSOT for sha256 digests across render and pull domains.
+- Slice B: new `figures/render_script.py` — `static_check` (stdlib ast, V1–V4 violation classes, pre-exec) + `emit_scaffold` (author-me template, intentionally fails static_check per honesty gate ruling).
+- `cmd_render`: render_script: field → static_check → subprocess exec with injected vars (preamble approach). No field → df.plot stub UNCHANGED (C3 back-compat).
+- 43 new red-before-green tests; 172 figure tests total green. `rv lint` clean. CI green on PR #88.
+
+### Decisions
+- Seaborn stays in `[figures]` extra only; not core dep.
+- Scaffold intentionally fails static_check — a pre-satisfied scaffold would make the honesty gate vacuous (architect's ruling baked into test).
+- Variable injection via Python preamble prepend + subprocess `-c` (no temp files, no env var leakage, no `os` needed in script).
+- `_allowed_import_roots` fallback to root package allows `matplotlib.patches` etc. without enumerating every submodule.
+
+### Open / next
+- Slice C (honesty gate + doctrine) — separate PR after this lands.
+- Iris deploy-and-judge-live (rendered output aesthetics) — separate task.
+
 ## 2026-07-04 (fix/remove-manager: drop manager role from 6→5 crew)
 
 ### Done
