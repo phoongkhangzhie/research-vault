@@ -1,26 +1,32 @@
-## 2026-07-03 (SR-MS-GATE-ALIGN Slice A: cold-read body-scoping)
+## 2026-07-03 (SR-MS-GATE-ALIGN Slice A, take 2: structural zone-1 .tex selection)
 
 ### Done
-- **`_body_scope_pdf_text`** in `coldread.py`: pure helper that truncates pdftotext
-  at the first zone-2 section heading (appendix-repro / data-code-availability) — no-op
-  when no heading matches, so canary calibration texts are unaffected.
-- **`check_cold_read_tally` wiring**: extracts zone-2 headings from
-  `tree_root/sections/{stem}.tex` via new `_SECTION_TITLE_RE`, applies body-scoping
-  before `run_cold_read` (scopes both Flag-A and LLM judge coherently). Also skips
-  zone-2 `.tex` files in the fallback gather path, mirroring `check_body_leakage`.
-- 13 new tests (all red-before-green): `TestBodyScopePdfText` (8 unit tests on the
-  pure helper) + `TestBodyScopingInTally` (5 integration tests). Full suite 2091/2091.
+- **DELETED `_body_scope_pdf_text`** (coldread.py) and **`_SECTION_TITLE_RE`**
+  (check_gates.py) — the substring primitive was the root cause of the blocked PR #82.
+  `pdf_text.find(heading)` matched the FIRST occurrence of the zone-2 heading string
+  anywhere in the compiled PDF text — including TOC entries and body prose
+  cross-references — silently truncating all subsequent body content (vacuous gate).
+- **`check_cold_read_tally`** reworked: primary text path reads zone-1 `.tex` sources
+  (`main.tex` + `sections/*.tex` skipping `_ZONE2_FILENAMES` stems) — structural
+  zone-2 exclusion by filename, no substring search, no silent char caps.
+- **4 red-before-green fixtures** (Wren-required): TOC case, body-cross-reference case,
+  zone-2 positive control, canary calibration control. All 4 confirmed RED before,
+  GREEN after. `TestBodyScopePdfText` class deleted (tests the deleted primitive).
+  `TestBodyScopingInTally` updated to use `pdf_text=None` (structural .tex path).
+  Full suite: 50/50 (test_sr_ms_coldread), CI green on SHA `a024866`.
 
 ### Decisions
-- Body-scoping truncates at the heading position (not line-start): `str.find()` locates
-  the heading's character position in the flat pdftotext; all content from that position
-  is appendix-zone and excluded. Correct because the heading itself is not body prose.
-- Heading search is case-sensitive: the extracted LaTeX title is the ground truth;
-  pdftotext renders it verbatim. A mismatch (e.g. different capitalisation in the PDF)
-  means no truncation — safe-direction (over-includes rather than over-truncates).
+- Structural zone-1 selection over substring truncation: the .tex file's stem is the
+  authoritative zone discriminant — the same check as `check_body_leakage()`'s
+  `if stem in _ZONE2_FILENAMES: continue`. No new mechanism; existing frozenset reused.
+- `pdf_text=` parameter preserved as explicit override/injection path (for tests that
+  pre-supply text). When explicitly passed, no body-scoping is applied — the caller owns
+  zone-2 exclusion. When `None` (the default), structural .tex selection runs.
+- No char caps: full file content is read. Silent truncation at arbitrary byte counts
+  re-creates the vacuous-gate vector — body content past the cap silently dropped.
 
 ### Open / next
-- Slice B (sibling): review_board.py / appendix.py body-scoping (not touched here per spec).
+- Slice B (sibling PR #83): review_board.py / appendix.py (not touched here per spec).
 
 ## 2026-07-03 (hygiene-batch: crew-name scrub + leakage gate + checklist fix + pyc doctrine)
 
