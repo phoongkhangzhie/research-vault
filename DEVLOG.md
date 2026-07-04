@@ -1,3 +1,45 @@
+## 2026-07-03 (SR-MS-REVIEW-b: real rubric + lenses + calibrated canary)
+
+### Done
+- **`manuscript/review_board.py`** — SR-MS-REVIEW-b drop-in:
+  - `DEFAULT_REVIEW_RUBRIC`: Ada's 7-dim venue-grounded rubric (NeurIPS/ICLR/ICML/ARR),
+    replaces `PLACEHOLDER_REVIEW_RUBRIC`. C5 binds SOUND↔support-grounding, REPRO↔provenance.
+    C6 fail-closed: absent floor dim → below-floor score. ARR verbatim-span rule. Disconfirm-first.
+  - `CanaryAbortError` + calibrated bidirectional `run_canary_scaffold`: known-STRONG probe
+    (SOUND/REPRO ≥ 4 guards blind rejectors) + known-WEAK probe (SOUND/REPRO ≤ 2 guards
+    positivity-bias rubber-stampers; the AI-Scientist failure). Dead-band at floor (3) disallowed
+    both directions. Parse failure → ABORT. Skips when rubric="" (backward-compat with -a tests).
+  - `_REVIEWER_LENS_L1/L2/L3` + `get_reviewer_lens_spec(k, K)`: K=2 fallback = L1+L3
+    (floor-carrying pair). Prepended to reviewer node spec in `__init__._build_manifest`.
+  - `run_review_board`: new `canary_judge_fn/canary_rubric` params wired through to meta-review.
+- **`verbs.py`**: CLI wires canary_judge_fn (same judge lambda as real reviews) + active rubric
+  into `run_review_board`; standalone re-scoring note added to description.
+- **`init.py`**: commented `[manuscript_review]` stanza in config template (D-REV knobs).
+- **`doctrine/review-board.md`**: orthogonality note — gates are orthogonal by construction,
+  do not double-penalize (cold-read leak ≠ REPRO deficiency; support-matcher block ≠ Soundness).
+- **`tests/test_sr_ms_review_b.py`** (22 new tests): canary both-directions + non-vacuous mutation
+  sentinels (strong bound 4→3 RED, weak bound 3→4 RED); C5 binding (no-provenance→capped ≤2,
+  with-provenance→passes); L377 partial-omit guard (missing floor dim → 0 → not cleared);
+  lens spec K=1/2/3 + manifest wiring; backward-compat skip; meta-review propagation.
+- **`test_sr_ms_review_a.py`**: updated test_23 — fallback is now `DEFAULT_REVIEW_RUBRIC`.
+
+### Decisions
+- Canary skips when rubric="" to preserve backward-compat with -a tests that don't wire judge.
+  CLI explicitly passes canary_judge_fn + active_rubric for live production runs.
+- `_CANARY_WEAK_MARKER = "clearly the best"` (not "results speak for themselves" which crosses a
+  line boundary in the passage text and would fail in Python substring search).
+
+### Post-live validation (manual — do NOT gate CI)
+Ada's calibration-sweep: once live with ANTHROPIC_API_KEY, fire both canaries N=5+ times to
+confirm the ≥4/≤2 bounds sit outside the judge's score noise on DEFAULT_REVIEW_RUBRIC.
+If the strong probe reads SOUND=3 under noise: loosen to MIN-of-repeats and update
+_CANARY_STRONG_MIN. The bounds are calibrated to floor=3; floor+1=4 is the target.
+
+### Open / next
+- SR-10 (OSS docs site + README/LICENSE + public publish) — endgame.
+
+---
+
 ## 2026-07-03 (SR-MS-REVIEW-a: review-board bounded loop machinery)
 
 ### Done
