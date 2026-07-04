@@ -87,7 +87,7 @@ holds the concurrency/cost/conflict view that makes spawning safe.)
 
 When your work needs another agent, **author a grounded spawn request** in your output — a *worked
 brief*, not "I need help": role-or-lens, why, the bounded scope, the deliverable (managers carry the
-full spawn-request schema; see [roles/atlas.md](./roles/atlas.md)). The hub dispatches it, and **the result returns
+full spawn-request schema; see [roles/manager.md](./roles/manager.md)). The hub dispatches it, and **the result returns
 to you**: you author, the hub dispatches, the deliverable comes back. The hub decides the *form* —
 reuse a role, an ephemeral specialist, or a standing hat. Same shape as memory and tasks: **you
 surface, the hub orchestrates.**
@@ -107,8 +107,8 @@ Two classes of agent, one rule each:
 **Nobody merges on their own authority.** A merge auto-executes **only when an independent gate
 authorizes it** — CI green, plus (where required) a reviewer verdict and/or the operator's explicit go. The
 **engineer executes** the authorized merge; **coordinators never touch merge.** The classification
-rubric (which gate a PR needs) lives in the [manager role](./roles/atlas.md); the merge runbook
-in the [engineer role](./roles/mason.md); the [coordination control plane](./coordination.md)
+rubric (which gate a PR needs) lives in the [manager role](./roles/manager.md); the merge runbook
+in the [engineer role](./roles/engineer.md); the [coordination control plane](./coordination.md)
 audits that the rule held.
 
 The hub also picks the **model** by *role baseline × task stakes*: each role has a baseline (most

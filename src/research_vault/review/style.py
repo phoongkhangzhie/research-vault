@@ -2,7 +2,7 @@
 
 SEAM CONTRACT
   ``get_review_tips(config=None)`` is the call-point for the review DAG nodes'
-  spec/prompt.  The shipped default is Ada's retrieval-grounded section 5L.6 prose:
+  spec/prompt.  The shipped default is the researcher's retrieval-grounded section 5L.6 prose:
   the saturation loop, counter-position/L-2 gate, and disconfirming obligation, each
   anchored to the systematic-review methodology it operationalizes (protocol
   pre-registration, both-direction snowballing, saturation-as-plateau, concept-centric
@@ -31,7 +31,7 @@ SEAM CONTRACT
 
 Two halves independently mergeable:
   - Engineer ships this module (SR-LR-1 plumbing).
-  - Ada owns the default payload — the retrieval-grounded section 5L.6 strings.
+  - The researcher owns the default payload — the retrieval-grounded section 5L.6 strings.
   Keep ``get_review_tips`` / ``get_review_style_preamble`` signatures stable.
 
 Stdlib only.
@@ -72,9 +72,9 @@ _DEFAULT_PREAMBLE: str = (
 )
 
 # ---------------------------------------------------------------------------
-# Default payload — Ada's review-prompt content (section 5L.6)
+# Default payload — researcher's review-prompt content (section 5L.6)
 # ---------------------------------------------------------------------------
-# The Architect owns the keys/shape; Ada owns the prose.
+# The architect owns the keys/shape; the researcher owns the prose.
 # Each string is the prompt guidance for that node of the review DAG.
 
 _DEFAULT_REVIEW_TIPS: dict[str, str] = {
@@ -224,7 +224,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "The synthesis is the input to `review-coverage-critic`."
     ),
     "review_critic_tips": (
-        "You are the coverage critic (Argus role). You are a REJECTS-ONLY reviewer: "
+        "You are the coverage critic (reviewer role). You are a REJECTS-ONLY reviewer: "
         "a `[PASS]` does NOT certify coverage, it only fails to find a blocking hole.\n\n"
         "WHY (methodology): your two hardest axes have named backing. Axis 1 tests "
         "whether the plateau meets theoretical-saturation criteria (Glaser & Strauss, "
@@ -293,7 +293,7 @@ def get_review_tips(config: Any = None) -> dict[str, str]:
     Contract:
         - Always returns a dict with all REVIEW_TIPS_KEYS present.
         - Adopter overrides cannot remove a key — they can only replace the value.
-        - The default is Ada's review-prompt content (section 5L.6); adopters own the prose.
+        - The default is the researcher's review-prompt content (section 5L.6); adopters own the prose.
 
     sr: SR-LR-1
     """

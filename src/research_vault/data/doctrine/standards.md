@@ -120,6 +120,12 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
     reads before shipping. (SR-LR-2: the absent-row detector re-grepped the prose render and silently
     returned `[]` on all real inputs because it named fields that existed in the prose format, not in the
     upstream dataclass contract.)
+- **When mutation-testing Python, run each mutation in its own process invocation — or bust `__pycache__`
+  between runs.** Same-second `.pyc` mtime staleness causes `.pyc` files written by one mutant to satisfy
+  the mtime check for a subsequent mutant in a batched run: the old bytecode is re-used, the mutation
+  effectively does not execute, and the mutant spuriously "survives" (false pass). Run each mutation as
+  a subprocess, OR delete `__pycache__` between mutations. Confirmed empirically on PR #80 (reviewer
+  gate caught it during acceptance tests).
 - **An extracted helper is only done when the pre-existing caller uses it.** An SR whose deliverable
   is "extract Phase-X as a reusable function" is incomplete if the pre-existing path still contains a
   parallel copy of the same logic. An extracted-but-uncalled copy is a silent charter-§6 regression CI

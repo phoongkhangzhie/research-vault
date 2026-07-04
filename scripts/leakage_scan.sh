@@ -25,6 +25,7 @@
 #   7. Placeholder-template lint  (memory.md files must not contain real private journal content)
 #   8. Real citekeys              (Pandoc [@key] citations reveal private bibliography)
 #   9. Real projects.json entries (private project registry slugs/codes not in class 1)
+#  10. Crew narrative-names in .py (Ada/Wren/Mason/Argus/Iris/Atlas must not appear in Python source)
 #
 # Self-exclusion: the scanner skips itself, ci.yml, and the test file
 # (all three intentionally list the marker strings).
@@ -150,6 +151,25 @@ _grep_re() {
     fi
 }
 
+_grep_py_word() {
+    # _grep_py_word LABEL WORD  — whole-word, case-insensitive, .py files only.
+    # Used for class 10 (crew narrative-names) so role docs (*.md) are not flagged.
+    local label="$1" word="$2"
+    local found
+    if [ "$STAGED" -eq 1 ]; then
+        found=$(echo "$STAGED_FILES" | grep '\.py$' | xargs -I{} grep -nH -wi "$word" {} 2>/dev/null \
+                | grep -Ev "$SKIP_PATTERN" || true)
+    else
+        found=$(grep -rn --include="*.py" -wi "$word" "$TARGET" 2>/dev/null \
+                | grep -Ev "$SKIP_PATTERN" || true)
+    fi
+    if [ -n "$found" ]; then
+        echo "$found"
+        echo "FAIL [$label]: crew name '$word' (whole-word, .py) found in Python source"
+        FAIL=1
+    fi
+}
+
 # ── Class 5 always runs (secrets scan applies everywhere) ────────────────────
 # Run this block always (both modes); the other classes are skipped in --secrets-only.
 
@@ -235,6 +255,22 @@ _grep_re "citekey/pandoc-citation" '\[@[A-Za-z][A-Za-z0-9_:-]+'
 # "_hub" is the hub-infrastructure registry key; "dsr" is the dossier project code.
 _grep_literal "projects-json/_hub"     '"_hub"'
 _grep_literal "projects-json/dsr-code" '"code": "dsr"'
+
+# ── Class 10: Crew narrative-names in Python source ──────────────────────────
+# Session-narrative agent names must not appear in shipped Python source
+# (docstrings, comments, inline annotations).  The product uses ROLE-BASED
+# identifiers (researcher / engineer / reviewer / designer / manager / architect).
+# Role docs (*.md in doctrine/roles/) are the ONLY legitimate home for these
+# names — class 10 uses _grep_py_word to scan .py files only, leaving .md alone.
+#
+# Mapping: Ada→researcher · Wren→architect · Mason→engineer ·
+#          Argus→reviewer · Iris→designer · Atlas→manager
+_grep_py_word "crew-name/ada"    "ada"
+_grep_py_word "crew-name/wren"   "wren"
+_grep_py_word "crew-name/mason"  "mason"
+_grep_py_word "crew-name/argus"  "argus"
+_grep_py_word "crew-name/iris"   "iris"
+_grep_py_word "crew-name/atlas"  "atlas"
 
 fi  # end SECRETS_ONLY=0 block
 

@@ -2,9 +2,9 @@
 
 SEAM CONTRACT
   ``get_plan_tips(config=None)`` is the call-point for the `plan` DAG node's
-  spec/prompt.  The shipped default is Ada's plan-prompt content (folded from
-  §5K.4); adopters override per lab/venue via the ``[plan_style]`` section in
-  ``research_vault.toml``.
+  spec/prompt.  The shipped default is the researcher's plan-prompt content
+  (folded from §5K.4); adopters override per lab/venue via the ``[plan_style]``
+  section in ``research_vault.toml``.
 
   Shape:
     plan_tips = {
@@ -24,7 +24,7 @@ SEAM CONTRACT
 
 Two halves are independently mergeable via this seam:
   - Engineer ships this module (SR-PLAN-1 plumbing PR).
-  - Ada's content is the default payload (already folded; §5K.4).
+  - The researcher's content is the default payload (already folded; §5K.4).
   Keep the ``get_plan_tips`` signature stable — it is the seam boundary.
 
 Stdlib only.
@@ -48,9 +48,9 @@ PLAN_TIPS_KEYS: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
-# Default payload — Ada's plan-prompt content (§5K.4)
+# Default payload — researcher's plan-prompt content (§5K.4)
 # ---------------------------------------------------------------------------
-# The Architect owns the keys/shape; Ada owns the prose.
+# The architect owns the keys/shape; the researcher owns the prose.
 # Each string is the prompt guidance for that section of the pre-registration.
 
 _DEFAULT_PLAN_TIPS: dict[str, str] = {
@@ -153,7 +153,7 @@ def get_plan_tips(config: Any = None) -> dict[str, str]:
     Contract:
         - Always returns a dict with all PLAN_TIPS_KEYS present.
         - Adopter overrides cannot remove a key — they can only replace the value.
-        - The default is Ada's plan-prompt content (§5K.4); adopters own the prose.
+        - The default is the researcher's plan-prompt content (§5K.4); adopters own the prose.
     """
     tips: dict[str, str] = dict(_DEFAULT_PLAN_TIPS)
 

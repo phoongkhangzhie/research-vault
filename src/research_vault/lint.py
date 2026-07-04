@@ -31,6 +31,12 @@ When to use: ``rv lint [--strict]`` to run the project linter. Checks:
      Both forms are smells because getsource returns comments and docstrings
      as well as live code — the assertion may pass even when the live code is
      broken (the symbol survives in a comment).
+  8. Doctrine relative-link integrity: scans every ``*.md`` file under
+     ``data/doctrine/`` for relative Markdown links (``](./X.md)`` and
+     ``](../X.md)``) and verifies that each target file exists.  Fragment
+     anchors (``#section``) are stripped before resolution.  A broken
+     internal reference fails CI — a renamed file without updating its
+     back-links would otherwise ship silently.
 
 All path resolution goes through Config — zero hardcoded paths or codenames.
 Stdlib only.
@@ -63,6 +69,16 @@ _FRAMEWORK_ROOT: Path = Path(__file__).parent.parent.parent
 _TESTS_DIR: Path = _FRAMEWORK_ROOT / "tests"
 # Default source directory for F811 scan; monkeypatched by integration tests.
 _SRC_DIR: Path = _FRAMEWORK_ROOT / "src" / "research_vault"
+# Default doctrine directory for link-integrity scan; monkeypatched by integration tests.
+_DOCTRINE_DIR: Path = _FRAMEWORK_ROOT / "src" / "research_vault" / "data" / "doctrine"
+
+# Relative Markdown link pattern for the doctrine link-integrity check (rule 8).
+# Matches ](./path) and ](../path) — relative hrefs only.
+# Group 1 captures the path component (everything before the optional fragment).
+# Does NOT match absolute URLs (http/https) or bare anchor-only (#section) links.
+_REL_LINK_PAT: re.Pattern[str] = re.compile(
+    r"\]\((\.\.?/[^)#\s]+?)(?:#[^)]*)?\)"
+)
 
 # Vacuous-assertion patterns (rule 4 / SR-LINT).
 # Each entry is (compiled_pattern, human_label).
@@ -528,6 +544,49 @@ def check_redefined_while_unused(
     return findings
 
 
+# ---------------------------------------------------------------------------
+# Doctrine relative-link integrity (rule 8)
+# ---------------------------------------------------------------------------
+
+
+def check_doctrine_links(
+    doctrine_dir: Path,
+) -> list[tuple[str, int, str, str]]:
+    """Scan ``*.md`` files under *doctrine_dir* for broken relative links.
+
+    For each relative Markdown link — ``](./X.md)`` or ``](../X.md)`` —
+    resolves the target against the containing file's parent directory and
+    checks whether the file exists.  Fragment anchors (``#section``) are
+    stripped before resolution.
+
+    Absolute URLs (``http://`` / ``https://``) and bare anchor-only links
+    (``](#heading)``) are not matched and are never flagged.
+
+    Returns a list of ``(file_path, lineno, link_href, resolved_path)``
+    tuples for each broken link found.  Returns an empty list if
+    *doctrine_dir* does not exist (graceful skip for wheel installs without
+    the doctrine tree).
+    """
+    findings: list[tuple[str, int, str, str]] = []
+    if not doctrine_dir.exists():
+        return findings
+
+    for md_file in sorted(doctrine_dir.rglob("*.md")):
+        try:
+            lines = md_file.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for lineno, line in enumerate(lines, start=1):
+            for m in _REL_LINK_PAT.finditer(line):
+                href = m.group(1)
+                # Resolve relative to the containing file's directory.
+                target = (md_file.parent / href).resolve()
+                if not target.exists():
+                    findings.append((str(md_file), lineno, href, str(target)))
+
+    return findings
+
+
 def _collect_src_files(
     src_dir: Path,
 ) -> list[Path]:
@@ -729,6 +788,20 @@ def cmd_lint(cfg: Config, *, strict: bool = False) -> int:
     else:
         n = len(src_files)
         print(f"Redefined-in-same-scope rule (F811): OK ({n} source file(s) checked)")
+
+    # 8. Doctrine relative-link integrity check
+    doc_link_findings = check_doctrine_links(_DOCTRINE_DIR)
+    if doc_link_findings:
+        print(
+            f"\nDoctrine link-integrity (rule 8): {len(doc_link_findings)} finding(s) "
+            f"(broken relative link in data/doctrine/ — target file not found):"
+        )
+        for fpath, lineno, href, resolved in doc_link_findings:
+            print(f"  {fpath}:{lineno}: {href!r} → {resolved}")
+        issues_total += len(doc_link_findings)
+    else:
+        n = sum(1 for _ in _DOCTRINE_DIR.rglob("*.md")) if _DOCTRINE_DIR.exists() else 0
+        print(f"Doctrine link-integrity (rule 8): OK ({n} doctrine file(s) checked)")
 
     if issues_total == 0:
         print("\nlint: PASS")

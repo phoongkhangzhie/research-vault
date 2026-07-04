@@ -59,7 +59,7 @@
       "type": "agent",
       "label": "Critique synthesis — flag orphan concepts/mocs (Argus/reviewer)",
       "role": "reviewer",
-      "spec": "doctrine/roles/argus.md",
+      "spec": "doctrine/roles/reviewer.md",
       "needs": [{"from": "synthesize", "edge": "afterok"}]
     },
     {

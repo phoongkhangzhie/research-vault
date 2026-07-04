@@ -330,7 +330,7 @@ def _build_phase2_manifest(
         "needs": synthesize_needs,
     })
 
-    # review-coverage-critic — rejects-only, Argus role (§5L.5)
+    # review-coverage-critic — rejects-only, reviewer role (§5L.5)
     # Judges: saturation-real vs premature, orphan concepts, protocol-adherence,
     # AND L-2 counter-position PRESENT and SOUGHT (hard [BLOCK] if absent or ignored).
     nodes.append({

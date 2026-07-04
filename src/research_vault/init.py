@@ -437,7 +437,7 @@ def cmd_init_in_dir(target_dir: str) -> int:
                 "Run `rv build-agents --target claude-code` manually to populate .claude/agents/.",
                 file=sys.stderr,
             )
-        # Post-build assertion (Argus hardening): verify the expected agent files actually
+        # Post-build assertion (reviewer hardening): verify the expected agent files actually
         # exist.  A silent zero-exit with 0 files is more dangerous than a loud failure.
         _agents_dir = _instance_root / ".claude" / "agents"
         _present = list(_agents_dir.glob("*.md")) if _agents_dir.is_dir() else []

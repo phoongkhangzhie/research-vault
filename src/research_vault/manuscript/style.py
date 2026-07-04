@@ -5,14 +5,14 @@ node in the drafting-DAG (§5J.6). Adopters customize per venue (NeurIPS vs a
 journal) by overriding entries — the plumbing calls it; the adopter owns what
 it says. Directly parallel to figures' apply_style(preset, skin) seam.
 
-The default `per_section_tips` dict bakes Ada's grounding craft (§5J.3c) so
-section agents synthesize HONESTLY, not just fluently. Each tip is the `spec:`
+The default `per_section_tips` dict bakes the researcher's grounding craft (§5J.3c)
+so section agents synthesize HONESTLY, not just fluently. Each tip is the `spec:`
 payload string that the corresponding DAG node pulls in at dispatch time.
 
 `manuscript_style_preamble` is a module-level sibling: 7 voice/stance rules
-(Ada-authored, §5J.6 fold-in part C) prepended to EVERY agent section node's
-spec by the scaffolder. Grounded in Gopen & Swan (1990), Whitesides (2004),
-Hyland (1998).
+(researcher-authored, §5J.6 fold-in part C) prepended to EVERY agent section
+node's spec by the scaffolder. Grounded in Gopen & Swan (1990), Whitesides
+(2004), Hyland (1998).
 
 K-1 completeness gate (§5M / §5J.3c): the gather-scope tip instructs the agent
 to emit a complete inclusion ledger covering the plan-master's `covers:` set
@@ -116,7 +116,7 @@ def get_active_sections(
 
 
 # ---------------------------------------------------------------------------
-# manuscript_style_preamble — 7 voice/stance rules (Ada-authored, §5J.6 part C)
+# manuscript_style_preamble — 7 voice/stance rules (researcher-authored, §5J.6 part C)
 #
 # Prepended by the scaffolder to every agent section node's spec (NOT the
 # human-go gates). Adopter-overridable via get_style_preamble(override=...).
@@ -228,7 +228,7 @@ def get_style_preamble(
 
 
 # ---------------------------------------------------------------------------
-# Default per_section_tips (Ada-specced grounding craft, §5J.3c + fold-in parts A/B)
+# Default per_section_tips (researcher-specced grounding craft, §5J.3c + fold-in parts A/B)
 # Every key in SECTION_KEYS must have an entry here.
 # ---------------------------------------------------------------------------
 
@@ -273,7 +273,7 @@ per_section_tips: dict[str, str] = {
     ),
 
     # ── background ──────────────────────────────────────────────────────────
-    # OPTIONAL section (after related-work). Ada-authored §5J fold-in (B).
+    # OPTIONAL section (after related-work). researcher-authored §5J fold-in (B).
     # Purpose: formalism/notation ONLY what Method uses; NO results.
     # Label what is ESTABLISHED (cite literature/ note) vs NOVEL problem-setting.
     "background": (
@@ -346,7 +346,7 @@ per_section_tips: dict[str, str] = {
     ),
 
     # ── ethics-impacts ──────────────────────────────────────────────────────
-    # VENUE-OPTIONAL section (after limitations). Ada-authored §5J fold-in (B).
+    # VENUE-OPTIONAL section (after limitations). researcher-authored §5J fold-in (B).
     # The integrity TWIN of Limitations: harms IF the work SUCCEEDS.
     "ethics-impacts": (
         "Write the ethics and broader impacts section (VENUE-OPTIONAL — required at "
@@ -377,7 +377,7 @@ per_section_tips: dict[str, str] = {
     ),
 
     # ── conclusion ──────────────────────────────────────────────────────────
-    # Ada-augmented (§5J fold-in B): Future Work first-class + claim-subset rule.
+    # Researcher-augmented (§5J fold-in B): Future Work first-class + claim-subset rule.
     "conclusion": (
         "Write the conclusion section. Anti-fabrication rules: "
         "(1) CLAIM SUBSET: every claim in the conclusion must be a strict subset of "
@@ -445,7 +445,7 @@ per_section_tips: dict[str, str] = {
     ),
 
     # ── data-code-availability ──────────────────────────────────────────────
-    # VENUE-OPTIONAL section (near appendix). Ada-authored §5J fold-in (B).
+    # VENUE-OPTIONAL section (near appendix). researcher-authored §5J fold-in (B).
     # A ROADMAP into the appendix-repro table; structurally cross-checkable.
     "data-code-availability": (
         "Write the data and code availability section (VENUE-OPTIONAL — include when "

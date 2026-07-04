@@ -32,7 +32,7 @@ Subcommands (SR-LR-1):
       List all review pointer notes for the project.
 
   rv review <project> tips [--key <key>]
-      Print the review_tips seam content (Ada's default or adopter override).
+      Print the review_tips seam content (researcher's default or adopter override).
 
 Subcommands (SR-LR-2 — the gap-driven pass):
   rv review <project> gap-scan [--threshold <n>] [--run-state <path>]
@@ -194,7 +194,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     # ── tips ─────────────────────────────────────────────────────────────────
     tips_p = sub.add_parser(
         "tips",
-        help="Print review_tips seam content (Ada's defaults or adopter override).",
+        help="Print review_tips seam content (researcher's defaults or adopter override).",
     )
     tips_p.add_argument(
         "--key",
@@ -748,7 +748,7 @@ def _run_gap_close(args: argparse.Namespace) -> int:
             print(
                 f"rv review gap-close: closed_by: {closer_ref!r} written to gap FM "
                 f"(forward edge) + closes: {args.gap_id!r} written to closing note FM "
-                f"(backward link — Ada ruling 2, W3C PROV)."
+                f"(backward link — §5L.21 ruling 2, W3C PROV)."
             )
         if args.status == "proven-open":
             print(

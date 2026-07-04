@@ -2,12 +2,12 @@
 
 SEAM CONTRACT — DO NOT CHANGE THE SIGNATURE.
   apply_style(preset, skin) is the hook that render calls before plotting.
-  Iris replaces this stub with the real aesthetic (BeautifulFigures adaptation +
-  frontend-design typography/palette/skin). The plumbing calls it; Iris owns it.
+  The designer replaces this stub with the real aesthetic (BeautifulFigures adaptation +
+  frontend-design typography/palette/skin). The plumbing calls it; the designer owns it.
 
   The two halves are INDEPENDENTLY MERGEABLE via this seam:
     - Engineer ships this stub (SR-FIG plumbing PR).
-    - Iris ships the real implementation against the same signature.
+    - The designer ships the real implementation against the same signature.
   Keep the signature exactly `apply_style(preset, skin)`.
 
 Presets:
@@ -17,11 +17,11 @@ Presets:
 
 Skin:
   A per-project accent applied on top of the shared preset grammar.
-  Example: skin="hfs" → project-specific palette accent (Iris's implementation).
+  Example: skin="hfs" → project-specific palette accent (designer's implementation).
   None or unknown → use the preset defaults.
 
 This stub sets minimal sensible rcParams so renders are not raw matplotlib defaults.
-The real Iris implementation replaces these with the BeautifulFigures-derived grammar.
+The designer's implementation replaces these with the BeautifulFigures-derived grammar.
 
 Stdlib only in this stub (no matplotlib import at module level — guarded per [figures] extra).
 """
@@ -31,11 +31,11 @@ from typing import Any
 
 
 # ---------------------------------------------------------------------------
-# STUB — minimal default rcParams (Iris replaces this with the real aesthetic)
+# STUB — minimal default rcParams (designer replaces this with the real aesthetic)
 # ---------------------------------------------------------------------------
 
 # Minimal preset rcParam overrides — enough to not look like raw matplotlib defaults.
-# Iris's version will be far richer (BeautifulFigures + frontend-design skin).
+# The designer's version will be far richer (BeautifulFigures + frontend-design skin).
 _PRESET_RCPARAMS: dict[str, dict[str, Any]] = {
     "publication": {
         "figure.figsize": (8, 5),
@@ -75,20 +75,20 @@ _KNOWN_PRESETS = frozenset(_PRESET_RCPARAMS)
 def apply_style(preset: str, skin: str | None) -> dict[str, Any] | None:
     """Apply the named preset + per-project skin to the current matplotlib rcParams.
 
-    SEAM SIGNATURE — Iris replaces the body; the signature must not change.
+    SEAM SIGNATURE — the designer replaces the body; the signature must not change.
 
     Args:
       preset: named style preset — "publication" | "slide" | "poster".
               Unknown presets fall back to "publication".
       skin:   per-project accent identifier (e.g. project slug). Currently a no-op
-              in this stub — Iris's implementation maps this to palette/font accents.
+              in this stub — the designer's implementation maps this to palette/font accents.
 
     Returns:
       dict of rcParam keys set (the applied overrides), or None if matplotlib
       is not installed (the [figures] extra is absent). Callers may ignore the
       return value; the side-effect on matplotlib.rcParams is what matters.
 
-    Stub behaviour (Iris replaces this):
+    Stub behaviour (designer replaces this):
       - Applies a minimal set of rcParams that strip raw matplotlib defaults.
       - Does NOT touch fonts, palettes, or anything requiring matplotlib internals.
       - If matplotlib is absent, returns None silently (no ImportError).
@@ -104,7 +104,7 @@ def apply_style(preset: str, skin: str | None) -> dict[str, Any] | None:
         # path only executes in test scenarios without matplotlib.
         return None
 
-    # skin is intentionally unused in this stub — Iris's implementation applies
+    # skin is intentionally unused in this stub — the designer's implementation applies
     # per-project palette/font accents here (e.g. colour from skin.<project>).
     _ = skin  # noqa: F841
 

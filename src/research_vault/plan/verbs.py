@@ -16,10 +16,10 @@ Subcommands:
           path-prefixed (e.g. 'q1-main1', not 'experiments/q1-main1').
       Exit 0 on pass; exit 1 with violations printed on fail.
       This is a REJECTS-ONLY screen (charter §9): pass does NOT certify the plan;
-      the plan-critic (Argus) judges semantic completeness.
+      the plan-critic (reviewer) judges semantic completeness.
 
   rv plan tips [--key <key>]
-      Print the plan_tips seam content (Ada's default or adopter override).
+      Print the plan_tips seam content (researcher's default or adopter override).
       Use --key to print a single tip key.
       Useful for debugging adopter overrides and wiring the plan node's spec.
 
@@ -72,7 +72,7 @@ def build_parser(parent: argparse._SubParsersAction) -> argparse.ArgumentParser:
     # tips
     tips_p = sub.add_parser(
         "tips",
-        help="Print plan_tips seam content (Ada's defaults or adopter override).",
+        help="Print plan_tips seam content (researcher's defaults or adopter override).",
     )
     tips_p.add_argument(
         "--key",

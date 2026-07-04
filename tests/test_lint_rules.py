@@ -1299,3 +1299,147 @@ def _make_minimal_config(root: Path):
         "projects": {},
     }
     return Config(raw)
+
+
+# ---------------------------------------------------------------------------
+# Rule 8 — Doctrine relative-link integrity (check_doctrine_links)
+# ---------------------------------------------------------------------------
+
+
+class TestDoctrineLinks:
+    """check_doctrine_links flags broken relative ](./X.md) links in doctrine.
+
+    RED-before-GREEN: tests fail with ImportError until check_doctrine_links
+    is added to research_vault.lint.
+    """
+
+    def test_broken_link_is_flagged(self, tmp_path: Path) -> None:
+        """A link to a non-existent .md file must be flagged."""
+        from research_vault.lint import check_doctrine_links  # RED: ImportError until implemented
+
+        doctrine = tmp_path / "doctrine"
+        doctrine.mkdir()
+        roles = doctrine / "roles"
+        roles.mkdir()
+        # Write a file that links to a non-existent sibling
+        (roles / "researcher.md").write_text(
+            "# Researcher\n"
+            "\n"
+            "Analog of [the engineer](./mason.md): does deep work.\n"
+        )
+        findings = check_doctrine_links(doctrine)
+        assert len(findings) == 1, f"expected 1 broken-link finding, got: {findings}"
+        fpath, lineno, href, _resolved = findings[0]
+        assert "researcher.md" in fpath
+        assert lineno == 3
+        assert href == "./mason.md"
+
+    def test_valid_link_not_flagged(self, tmp_path: Path) -> None:
+        """A link whose target exists must not be flagged."""
+        from research_vault.lint import check_doctrine_links
+
+        doctrine = tmp_path / "doctrine"
+        doctrine.mkdir()
+        roles = doctrine / "roles"
+        roles.mkdir()
+        (roles / "engineer.md").write_text("# Engineer\n")
+        (roles / "researcher.md").write_text(
+            "Analog of [the engineer](./engineer.md).\n"
+        )
+        findings = check_doctrine_links(doctrine)
+        assert findings == [], f"expected no findings, got: {findings}"
+
+    def test_absolute_url_not_flagged(self, tmp_path: Path) -> None:
+        """Absolute URLs (https://...) must not be flagged — not relative links."""
+        from research_vault.lint import check_doctrine_links
+
+        doctrine = tmp_path / "doctrine"
+        doctrine.mkdir()
+        (doctrine / "charter.md").write_text(
+            "See [the docs](https://example.com/guide.md) for details.\n"
+        )
+        findings = check_doctrine_links(doctrine)
+        assert findings == [], f"expected no findings, got: {findings}"
+
+    def test_fragment_only_link_not_flagged(self, tmp_path: Path) -> None:
+        """Anchor-only links (#section) must not be flagged — no file reference."""
+        from research_vault.lint import check_doctrine_links
+
+        doctrine = tmp_path / "doctrine"
+        doctrine.mkdir()
+        (doctrine / "charter.md").write_text(
+            "See [section](#heading) for details.\n"
+        )
+        findings = check_doctrine_links(doctrine)
+        assert findings == [], f"expected no findings, got: {findings}"
+
+    def test_link_with_fragment_flagged_when_target_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """A link with a fragment (](./missing.md#section)) still flags when target absent."""
+        from research_vault.lint import check_doctrine_links
+
+        doctrine = tmp_path / "doctrine"
+        doctrine.mkdir()
+        (doctrine / "charter.md").write_text(
+            "See [the rubric](./missing.md#some-section) for details.\n"
+        )
+        findings = check_doctrine_links(doctrine)
+        assert len(findings) == 1, f"expected 1 finding, got: {findings}"
+        _, _, href, _ = findings[0]
+        assert href == "./missing.md"
+
+    def test_parent_relative_link_flagged_when_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """A parent-relative link (](../X.md)) flags when the target is absent."""
+        from research_vault.lint import check_doctrine_links
+
+        doctrine = tmp_path / "doctrine"
+        doctrine.mkdir()
+        roles = doctrine / "roles"
+        roles.mkdir()
+        (roles / "engineer.md").write_text(
+            "See [standards](../nonexistent.md) for the bar.\n"
+        )
+        findings = check_doctrine_links(doctrine)
+        assert len(findings) == 1, f"expected 1 finding, got: {findings}"
+        _, _, href, _ = findings[0]
+        assert href == "../nonexistent.md"
+
+    def test_parent_relative_link_clean_when_target_exists(
+        self, tmp_path: Path
+    ) -> None:
+        """A parent-relative link (](../X.md)) is clean when the target exists."""
+        from research_vault.lint import check_doctrine_links
+
+        doctrine = tmp_path / "doctrine"
+        doctrine.mkdir()
+        roles = doctrine / "roles"
+        roles.mkdir()
+        (doctrine / "standards.md").write_text("# Standards\n")
+        (roles / "engineer.md").write_text(
+            "See [standards](../standards.md) for the bar.\n"
+        )
+        findings = check_doctrine_links(doctrine)
+        assert findings == [], f"expected no findings, got: {findings}"
+
+    def test_empty_doctrine_dir_returns_no_findings(
+        self, tmp_path: Path
+    ) -> None:
+        """An empty doctrine dir must return no findings."""
+        from research_vault.lint import check_doctrine_links
+
+        doctrine = tmp_path / "empty_doctrine"
+        doctrine.mkdir()
+        findings = check_doctrine_links(doctrine)
+        assert findings == []
+
+    def test_nonexistent_doctrine_dir_returns_no_findings(
+        self, tmp_path: Path
+    ) -> None:
+        """A non-existent doctrine dir must return no findings (graceful skip)."""
+        from research_vault.lint import check_doctrine_links
+
+        findings = check_doctrine_links(tmp_path / "does_not_exist")
+        assert findings == []

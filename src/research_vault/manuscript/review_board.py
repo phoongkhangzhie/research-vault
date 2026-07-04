@@ -11,8 +11,8 @@ This module implements the complete venue-grounded review-board gate (§5J.17):
     - Revise-r postcondition: re-fires support-matcher + cold-read.
     - Rubric seam: get_review_rubric(override, config) → str.
 
-  SR-MS-REVIEW-b (this): Ada's real rubric + reviewer-lens specs + calibrated canary.
-    - DEFAULT_REVIEW_RUBRIC: Ada's venue-grounded 7-dim rubric (replaces placeholder).
+  SR-MS-REVIEW-b (this): the researcher's rubric + reviewer-lens specs + calibrated canary.
+    - DEFAULT_REVIEW_RUBRIC: researcher's venue-grounded 7-dim rubric (replaces placeholder).
     - _REVIEWER_LENS_L1/L2/L3: the three independent review postures.
     - get_reviewer_lens_spec(k, K) → str: lens assignment for manifest builders.
     - run_canary_scaffold: CALIBRATED bidirectional probes (known-STRONG + known-WEAK),
@@ -202,7 +202,7 @@ def _evaluate_threshold(
 
 
 # ---------------------------------------------------------------------------
-# SR-MS-REVIEW-b: Ada's DEFAULT_REVIEW_RUBRIC (replaces placeholder from -a)
+# SR-MS-REVIEW-b: DEFAULT_REVIEW_RUBRIC (replaces placeholder from -a)
 # ---------------------------------------------------------------------------
 
 DEFAULT_REVIEW_RUBRIC: str = """\
@@ -375,7 +375,7 @@ def get_review_rubric(
 
     Priority: override arg > [manuscript_review].rubric in config > DEFAULT_REVIEW_RUBRIC.
 
-    Ada's real rubric is now the default (SR-MS-REVIEW-b). Override via:
+    The researcher's rubric is now the default (SR-MS-REVIEW-b). Override via:
       (a) override="..." (direct pass), OR
       (b) [manuscript_review] rubric = "..." in research_vault.toml.
 
@@ -394,7 +394,7 @@ def get_review_rubric(
 
 
 # ---------------------------------------------------------------------------
-# SR-MS-REVIEW-b: Calibrated bidirectional canary — Ada's known passages + bounds
+# SR-MS-REVIEW-b: Calibrated bidirectional canary — known passages + bounds
 # ---------------------------------------------------------------------------
 
 # Unique marker strings used by tests to detect which probe is being sent.
@@ -459,7 +459,7 @@ def run_canary_scaffold(
 ) -> dict[str, Any]:
     """Run the calibrated bidirectional canary probes before trusting real reviewer scores.
 
-    SR-MS-REVIEW-b: fires Ada's two calibrated probes through the SAME judge_fn +
+    SR-MS-REVIEW-b: fires two calibrated probes through the SAME judge_fn +
     rubric (via {PDF_TEXT} slot replacement) + _extract_review_scores.
 
     Bounds (calibrated to floor=3):
@@ -652,7 +652,7 @@ def run_reviewer_node(
         lens_num:         reviewer lens index within the round (1-based)
         judge_fn:         injectable LLM call (prompt: str) -> str
         judge_model:      model-id to log (Opus-tier D-REV-8)
-        rubric_override:  optional rubric override (Ada's real rubric via seam default in -b)
+        rubric_override:  optional rubric override (researcher's rubric via seam default in -b)
         config:           optional Config for rubric lookup
         run_state_meta:   optional RunState.meta dict for skip short-circuit
 
@@ -841,8 +841,8 @@ def run_meta_review(
         "meta_review": meta_review_text,
         "worst_findings": worst_findings,
         "checklist": (
-            "CHECKLIST PLACEHOLDER — Responsible-NLP Yes/No/NA checklist "
-            "ships in SR-MS-REVIEW-b (Ada's rubric)."
+            "see reviewer raw_response fields and meta_review"
+            " (responsible-NLP criteria are embedded in the review rubric output)"
         ),
         "canary_ok": canary_result["canary_ok"],
         "canary_note": canary_result.get("canary_note", ""),

@@ -489,3 +489,98 @@ def test_green_on_realistic_scrubbed_doc(tmp_path):
         """,
     )
     assert_green(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Class 10: Crew narrative-names in Python source
+# ---------------------------------------------------------------------------
+# Session-narrative agent names (Ada, Wren, Mason, Argus, Iris, Atlas) must not
+# appear in shipped Python source.  Role docs (*.md) are the only legitimate
+# location — they define the product crew, and class 10 is .py-scoped.
+
+
+def _write_py(tmp_path: Path, content: str, filename: str = "module.py") -> Path:
+    """Write a Python source file to *tmp_path*."""
+    f = tmp_path / filename
+    f.write_text(textwrap.dedent(content))
+    return f
+
+
+def test_red_on_ada_in_py_docstring(tmp_path):
+    """'Ada' as crew-name attribution in a Python docstring must be flagged."""
+    _write_py(tmp_path, '''\
+        """module.py — something.
+
+        Ada's rubric ships as the default.
+        """
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_argus_in_py_comment(tmp_path):
+    """'Argus' in a Python comment must be flagged."""
+    _write_py(tmp_path, '''\
+        # Argus hardening: post-build assertion
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_iris_in_py_comment(tmp_path):
+    """'Iris' in a Python comment must be flagged."""
+    _write_py(tmp_path, '''\
+        # Iris replaces this stub
+        STUB = None
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_wren_in_py_comment(tmp_path):
+    """'Wren' in a Python comment must be flagged."""
+    _write_py(tmp_path, '''\
+        # FLAG-A (Wren addendum)
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_mason_in_py_comment(tmp_path):
+    """'Mason' in a Python comment must be flagged."""
+    _write_py(tmp_path, '''\
+        # Mason/engineer label
+        ROSTER = ["engineer"]  # Mason
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_atlas_in_py_comment(tmp_path):
+    """'Atlas' in a Python comment must be flagged."""
+    _write_py(tmp_path, '''\
+        ROSTER = ["manager"]  # Atlas
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_role_terms_in_py(tmp_path):
+    """Python source using role terms (not crew names) passes class 10."""
+    _write_py(tmp_path, '''\
+        """module.py — something.
+
+        The researcher's rubric ships as the default.
+        The designer replaces this stub with the real aesthetic.
+        The reviewer role checks semantic completeness.
+        The architect addendum applies Flag-A.
+        """
+        ROSTER = ["manager", "engineer", "researcher", "designer", "reviewer"]
+        def fn(): pass
+    ''')
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_md_with_crew_name_not_py(tmp_path):
+    """A .md file with a crew name is NOT flagged — class 10 is .py-only."""
+    doc = tmp_path / "roles" / "ada.md"
+    doc.parent.mkdir()
+    doc.write_text("# Role — Ada (Researcher)\n\nAda is the researcher.\n")
+    assert_green(run_scan(tmp_path))

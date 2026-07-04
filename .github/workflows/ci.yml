@@ -67,7 +67,7 @@ jobs:
       - name: Run leakage scanner over root public-bound files
         run: |
           # Scan public-bound root files individually.
-          # architecture.md was previously unscanned (Argus gap).
+          # architecture.md was previously unscanned (reviewer-gate gap).
           # REFERENCES.md and SETUP.md scanned when present (future artifacts).
           # LICENSE + pyproject.toml added (SR-SETUP: ship to PyPI — must be clean).
           for f in README.md architecture.md QUICKSTART.md REFERENCES.md SETUP.md LICENSE pyproject.toml; do
@@ -87,6 +87,14 @@ jobs:
             exit 1
           fi
           echo "OK: no hardcoded private paths in src/"
+
+      # Hygiene-batch: class 10 crew narrative-names in Python source.
+      # Catches session-narrative attributions (Ada/Wren/Mason/Argus/Iris/Atlas)
+      # in shipped .py files. Runs leakage_scan.sh over src/ — the _grep_py_word
+      # helper in class 10 restricts matches to .py files only, so role docs
+      # (*.md in data/doctrine/roles/) are not flagged.
+      - name: Check for crew narrative-names in src/ Python source
+        run: bash scripts/leakage_scan.sh src/research_vault
 
   # ── help --check gate ───────────────────────────────────────────────────────
   help-check:
