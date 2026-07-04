@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import hashlib
 import os
 import re
 import subprocess
@@ -47,6 +46,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, load_config
+from .hashing import hash_file as _hash_file  # canonical hasher — never duplicate
 
 
 # ---------------------------------------------------------------------------
@@ -140,11 +140,7 @@ def _verify_local_file_hash(location: str, recorded_hash: str) -> dict:
 
     expected_hex = recorded_hash[len("sha256:"):]
     try:
-        h = hashlib.sha256()
-        with open(p, "rb") as fh:
-            while chunk := fh.read(1 << 20):  # 1 MiB chunks — streaming (datasets are big)
-                h.update(chunk)
-        actual_hex = h.hexdigest()
+        actual_hex = _hash_file(p)[len("sha256:"):]
     except OSError as e:
         return {"ok": False, "state": "hash-read-error", "error": str(e)}
 

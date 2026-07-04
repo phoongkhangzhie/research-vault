@@ -37,13 +37,14 @@ sr: SR-MS-1b, SR-DRAFT-RENDER
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+
+from ..hashing import hash_file as _sha256_file  # canonical hasher — never duplicate
 
 # Maximum iterations of the chktex fix-loop
 CHKTEX_MAX_ITERS = 3
@@ -117,19 +118,6 @@ def _texlive_absent_message(missing: list[str]) -> str:
         "    Other:   https://www.tug.org/texlive/\n"
         "  Note: LaTeX tools are NOT pip-installable — use your system package manager."
     )
-
-
-# ---------------------------------------------------------------------------
-# Hash helper (for updating manuscript_hash after compile)
-# ---------------------------------------------------------------------------
-
-def _sha256_file(path: Path) -> str:
-    """Compute sha256:<hex> of a file (streaming)."""
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        while chunk := fh.read(1 << 20):
-            h.update(chunk)
-    return "sha256:" + h.hexdigest()
 
 
 # ---------------------------------------------------------------------------

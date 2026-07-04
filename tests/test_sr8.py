@@ -710,18 +710,17 @@ class TestStreamingHash:
         assert result["ok"] is False
         assert "mismatch" in result["state"]
 
-    def test_streaming_hash_uses_chunked_read(self):
-        """Implementation uses chunked streaming (not read_bytes) — verified via AST.
+    def test_streaming_hash_uses_canonical_hasher(self):
+        """Implementation delegates to hashing._hash_file — NOT an inline loop.
 
-        Rewritten from the vacuous getsource pattern (#40 rule-7 extension): AST
-        inspection of the while-loop structure is comment-free, so a docstring
-        mentioning 'read(' cannot rescue a missing chunked-read implementation.
+        Consolidated in fix/hasher-consolidation: the while-walrus chunked-read
+        loop was extracted to hashing.hash_file (the canonical hasher), so this
+        test now checks delegation rather than the inline loop structure.
 
         Checks:
-          - A ``while chunk := fh.read(n):`` walrus-read loop is present in
-            the function body (positive check on live code structure).
-          - No ``read_bytes()`` call appears anywhere in the function (negative
-            check that the forbidden RAM-load pattern is absent).
+          - ``_hash_file`` is called inside ``_verify_local_file_hash`` (AST check,
+            comment-free — proves delegation to the canonical streaming hasher).
+          - No ``read_bytes()`` call anywhere (RAM-load pattern still forbidden).
         """
         import ast, inspect, textwrap
         from research_vault import wait_for as wf_mod
@@ -729,18 +728,18 @@ class TestStreamingHash:
         src = textwrap.dedent(inspect.getsource(wf_mod._verify_local_file_hash))
         tree = ast.parse(src)
 
-        # Positive: while-walrus pattern with a .read(...) call on the RHS
-        found_chunked_read = any(
-            isinstance(node, ast.While)
-            and isinstance(node.test, ast.NamedExpr)
-            and isinstance(node.test.value, ast.Call)
-            and isinstance(node.test.value.func, ast.Attribute)
-            and node.test.value.func.attr == "read"
+        # Positive: _hash_file(...) is called somewhere in the function
+        found_hash_file_call = any(
+            isinstance(node, ast.Call)
+            and (
+                (isinstance(node.func, ast.Name) and node.func.id == "_hash_file")
+                or (isinstance(node.func, ast.Attribute) and node.func.attr == "_hash_file")
+            )
             for node in ast.walk(tree)
         )
-        assert found_chunked_read, (
-            "_verify_local_file_hash must use a while-walrus chunked read loop — "
-            "datasets are big; use fh.read(chunk_size) streaming, not p.read_bytes()"
+        assert found_hash_file_call, (
+            "_verify_local_file_hash must delegate to _hash_file (canonical streaming hasher); "
+            "inline hashlib.sha256 loop removed in fix/hasher-consolidation"
         )
 
         # Negative: no read_bytes() call (RAM-load pattern forbidden)

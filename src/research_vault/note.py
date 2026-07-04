@@ -11,13 +11,13 @@ Stdlib only.
 
 import argparse
 import datetime
-import hashlib
 import re
 import sys
 from pathlib import Path
 from typing import Any
 
 from .config import Config, load_config
+from .hashing import hash_file as _hash_file  # canonical hasher — never duplicate
 
 # ---------------------------------------------------------------------------
 # OKF note types
@@ -908,11 +908,7 @@ def check_result_provenance(exp_note_path: Path) -> list[str]:
     if results_hash.startswith("sha256:"):
         expected_hex = results_hash[len("sha256:"):]
         try:
-            h = hashlib.sha256()
-            with open(artifact, "rb") as fh:
-                while chunk := fh.read(1 << 20):  # streaming, 1 MiB chunks
-                    h.update(chunk)
-            actual_hex = h.hexdigest()
+            actual_hex = _hash_file(artifact)[len("sha256:"):]
         except OSError as e:
             return [f"{exp_note_path.name}: cannot read results artifact: {e}"]
 
@@ -1032,11 +1028,7 @@ def _check_manuscript_pdf_hash(note_path: Path, fields: dict[str, str]) -> list[
     if ms_hash.startswith("sha256:"):
         expected_hex = ms_hash[len("sha256:"):]
         try:
-            h = hashlib.sha256()
-            with open(pdf, "rb") as fh:
-                while chunk := fh.read(1 << 20):
-                    h.update(chunk)
-            actual_hex = h.hexdigest()
+            actual_hex = _hash_file(pdf)[len("sha256:"):]
         except OSError as e:
             return [f"{note_path.name}: cannot read manuscript PDF: {e}"]
 
