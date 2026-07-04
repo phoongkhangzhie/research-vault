@@ -140,8 +140,6 @@ class LoopEntry:
 #   lit-review : src/research_vault/review/__init__.py
 #                _build_phase1_manifest (approve-protocol, coverage-gate)
 #                _build_phase2_manifest (approve-review)
-#   figure     : src/research_vault/data/examples/demo-figures/demo-figures.json
-#   manuscript : src/research_vault/manuscript/__init__.py _build_manifest
 #
 # ★ Do NOT update gate IDs from memory or design docs — read the source files
 # and update the grounding test (TestCatalogGrounding) in parallel.
@@ -220,60 +218,6 @@ LOOP_CATALOG: list[LoopEntry] = [
         ),
     ),
 
-    # Figure gates grounded in data/examples/demo-figures/demo-figures.json:
-    #   data-check is in the MIDDLE (extract → [HG:data-check] → render)
-    LoopEntry(
-        key="figure",
-        entry_verb="rv dag run <project-notes-dir>/figures/<fig-id>-loop.json",
-        scaffolder="rv figure <project> new <fig-id> --experiment <exp-id>",
-        human_go_gates=[
-            LoopGate(
-                node_id="data-check",
-                label=(
-                    "Review the exact data frame before rendering "
-                    "(operator eyeballs the view.csv — §5E.3 inspection surface)"
-                ),
-                freeze_action=None,
-            ),
-        ],
-        topology_summary=(
-            "extract → [HG:data-check] → render"
-        ),
-    ),
-
-    # Manuscript gates grounded in manuscript/__init__.py _build_manifest:
-    #   approve-thesis (line ~217), approve-framing (line ~247),
-    #   approve-manuscript (line ~569)
-    LoopEntry(
-        key="manuscript",
-        entry_verb="rv dag run <project-notes-dir>/manuscript/<id>-loop.json",
-        scaffolder="rv manuscript <project> new <id> --thesis '...'",
-        human_go_gates=[
-            LoopGate(
-                node_id="approve-thesis",
-                label="Gate 1: thesis + gather-scope approved before related-work",
-                freeze_action=None,
-            ),
-            LoopGate(
-                node_id="approve-framing",
-                label="Gate 2: framing (related-work) approved before body sections",
-                freeze_action=None,
-            ),
-            LoopGate(
-                node_id="approve-manuscript",
-                label=(
-                    "Gate 3: final manuscript approved — support-matcher (J-1), "
-                    "strength-mono (K-1), and critic pass all green"
-                ),
-                freeze_action=None,
-            ),
-        ],
-        topology_summary=(
-            "gather-scope → [HG:approve-thesis] → related-work + appendix-repro → "
-            "[HG:approve-framing] → body-sections → abstract → assemble → compile → "
-            "critic → [HG:approve-manuscript]"
-        ),
-    ),
 ]
 
 

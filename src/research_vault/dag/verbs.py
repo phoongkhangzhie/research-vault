@@ -335,12 +335,10 @@ def _check_okf_note_type(note_path_str: str, notes_root: Path) -> list[str]:
 # ---------------------------------------------------------------------------
 
 # Maps produces.* subkey → OKF type directory.
-# SSOT: the produces subkey name ("result"/"figure"/"manuscript") is the
-# semantic name; the OKF type directory is the filesystem path segment.
+# SSOT: the produces subkey name ("result") is the semantic name;
+# the OKF type directory is the filesystem path segment.
 _PRODUCES_KEY_TO_OKF_DIR: dict[str, str] = {
     "result": "experiments",
-    "figure": "figures",
-    "manuscript": "manuscript",
 }
 
 
@@ -349,7 +347,7 @@ def _check_project_scoped_note(
     note_ref: str,
     cfg,
 ) -> list[str]:
-    """Validate a project-scoped produces.result / .figure / .manuscript note.
+    """Validate a project-scoped produces.result note.
 
     note_ref format: "<project>/<id>" where id may or may not include .md.
     Resolves to: project_notes_dir(project) / <type_dir> / "<id>.md"
