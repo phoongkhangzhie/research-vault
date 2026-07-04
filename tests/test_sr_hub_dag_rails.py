@@ -163,15 +163,20 @@ class TestCatalogCompleteness:
         # Conditional gates (at least one)
         assert any("conditionals" in gid for gid in gate_ids)
 
-    def test_lit_review_gate_names_match_shipped_manifest(self):
-        """Gate IDs must match the SHIPPED lit-review-loop.json exactly."""
-        # Ground truth from data/examples/demo-litreview/lit-review-loop.json:
-        # okf-coverage-gate, human-go-synthesis
+    def test_lit_review_gate_names_match_scaffolder_output(self):
+        """Catalog gate IDs must match what rv review new (review/__init__.py) emits.
+
+        Ground truth from review/__init__.py:
+          Phase-1: approve-protocol, coverage-gate
+          Phase-2: approve-review
+        NOT from the legacy demo-litreview/lit-review-loop.json (old manual format).
+        """
         lr = get_loop("lit-review")
         assert lr is not None
         gate_ids = {g.node_id for g in lr.human_go_gates}
-        assert "okf-coverage-gate" in gate_ids
-        assert "human-go-synthesis" in gate_ids
+        assert "approve-protocol" in gate_ids
+        assert "coverage-gate" in gate_ids
+        assert "approve-review" in gate_ids
 
     def test_experiment_freeze_gate_has_freeze_action(self):
         """human-go-plan gate must carry the freeze_action (K-3 reminder)."""
@@ -183,6 +188,132 @@ class TestCatalogCompleteness:
         assert plan_gate is not None
         assert plan_gate.freeze_action is not None
         assert "rv plan freeze" in plan_gate.freeze_action
+
+
+class TestCatalogGrounding:
+    """A1b — catalog gate IDs grounded in REAL shipped manifests / scaffolders.
+
+    Every catalog human_go_gate.node_id MUST appear as a real "human-go" typed
+    node in the corresponding manifest source. This is the canonical drift detector:
+    if a scaffolder renames a gate, this test goes red immediately.
+    """
+
+    def _real_human_go_ids_from_json(self, json_path: Path) -> set[str]:
+        """Extract human-go node IDs from a manifest JSON file."""
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        return {
+            n["id"] for n in data.get("nodes", []) if n.get("type") == "human-go"
+        }
+
+    def _real_human_go_ids_from_scaffolder(self, fn, *args, **kwargs) -> set[str]:
+        """Call a manifest-builder function and extract human-go IDs."""
+        manifest = fn(*args, **kwargs)
+        return {
+            n["id"] for n in manifest.get("nodes", []) if n.get("type") == "human-go"
+        }
+
+    def _examples_dir(self) -> Path:
+        import research_vault
+        pkg_root = Path(research_vault.__file__).parent
+        return pkg_root / "data" / "examples"
+
+    def test_experiment_gates_in_shipped_manifest(self):
+        """experiment catalog gates must all appear in demo-research/research-loop.json."""
+        shipped = self._examples_dir() / "demo-research" / "research-loop.json"
+        assert shipped.exists(), f"shipped manifest not found: {shipped}"
+        real_ids = self._real_human_go_ids_from_json(shipped)
+        exp = get_loop("experiment")
+        assert exp is not None
+        for gate in exp.human_go_gates:
+            # human-go-conditionals-main1 is grounding representative for
+            # all human-go-conditionals-main* nodes (shipped manifest has N of them)
+            if "conditionals" in gate.node_id:
+                assert any("conditionals" in rid for rid in real_ids), (
+                    f"No conditionals gate found in shipped manifest. "
+                    f"Real gates: {real_ids}"
+                )
+            else:
+                assert gate.node_id in real_ids, (
+                    f"Catalog gate {gate.node_id!r} NOT in shipped manifest. "
+                    f"Real gates: {real_ids}"
+                )
+
+    def test_figure_gate_in_shipped_manifest(self):
+        """figure catalog gate must appear in demo-figures/demo-figures.json."""
+        shipped = self._examples_dir() / "demo-figures" / "demo-figures.json"
+        assert shipped.exists(), f"shipped manifest not found: {shipped}"
+        real_ids = self._real_human_go_ids_from_json(shipped)
+        fig = get_loop("figure")
+        assert fig is not None
+        for gate in fig.human_go_gates:
+            assert gate.node_id in real_ids, (
+                f"Catalog gate {gate.node_id!r} NOT in demo-figures.json. "
+                f"Real gates: {real_ids}"
+            )
+
+    def test_litreview_gates_in_scaffolder_output(self, tmp_path):
+        """lit-review catalog gates must appear in review/__init__.py scaffolder output.
+
+        The REAL source is the scaffolder (review/__init__.py), NOT the legacy
+        demo-litreview/lit-review-loop.json which predates SR-LR-1.
+        Phase-1 gates: approve-protocol, coverage-gate
+        Phase-2 gates: approve-review
+        """
+        from research_vault.review import _build_phase1_manifest, _build_phase2_manifest
+
+        review_dir = tmp_path / "reviews" / "grounding-test"
+        review_dir.mkdir(parents=True)
+        notes_dir = tmp_path / "notes"
+        notes_dir.mkdir()
+
+        # Phase 1
+        p1 = _build_phase1_manifest(
+            "grounding-test", "grounding-scope", "Is this grounded?",
+            review_dir, notes_dir,
+        )
+        p1_ids = {n["id"] for n in p1.get("nodes", []) if n.get("type") == "human-go"}
+
+        # Phase 2 (1 dummy paper so nodes are emitted)
+        p2 = _build_phase2_manifest(
+            "grounding-test", "grounding-scope", ["dummy2024"],
+            notes_dir, review_dir,
+        )
+        p2_ids = {n["id"] for n in p2.get("nodes", []) if n.get("type") == "human-go"}
+
+        all_real = p1_ids | p2_ids
+        lr = get_loop("lit-review")
+        assert lr is not None
+        for gate in lr.human_go_gates:
+            assert gate.node_id in all_real, (
+                f"Catalog gate {gate.node_id!r} NOT in review scaffolder output. "
+                f"Phase-1 gates: {p1_ids}, Phase-2 gates: {p2_ids}"
+            )
+
+    def test_manuscript_gates_in_scaffolder_output(self, tmp_path):
+        """manuscript catalog gates must appear in manuscript/__init__.py scaffolder output."""
+        from research_vault.manuscript import _build_manifest
+
+        notes_dir = tmp_path / "notes"
+        notes_dir.mkdir()
+        tree_root = tmp_path / "manuscripts" / "grounding-ms"
+        tree_root.mkdir(parents=True)
+
+        # Minimal scope (required sections only)
+        scope = ["introduction", "method", "results-discussion", "conclusion"]
+        manifest = _build_manifest(
+            "grounding-test", "grounding-ms", "Is this grounded?",
+            scope, notes_dir, tree_root,
+        )
+        real_ids = {
+            n["id"] for n in manifest.get("nodes", []) if n.get("type") == "human-go"
+        }
+        ms = get_loop("manuscript")
+        assert ms is not None
+        for gate in ms.human_go_gates:
+            assert gate.node_id in real_ids, (
+                f"Catalog gate {gate.node_id!r} NOT in manuscript scaffolder output. "
+                f"Real gates: {real_ids}"
+            )
 
 
 class TestDagTemplatesVerb:
@@ -213,11 +344,17 @@ class TestDagTemplatesVerb:
         args = p.parse_args(["templates"])
         run(args)
         out = capsys.readouterr().out
-        # Experiment gates from shipped manifest
+        # Experiment gates from shipped research-loop.json
         assert "human-go-plan" in out
         assert "human-go-findings" in out
-        # Lit-review gates
-        assert "okf-coverage-gate" in out
+        # Lit-review gates from review/__init__.py scaffolder
+        assert "approve-protocol" in out
+        assert "coverage-gate" in out
+        # Figure gate from demo-figures.json
+        assert "data-check" in out
+        # Manuscript gates from manuscript/__init__.py
+        assert "approve-thesis" in out
+        assert "approve-manuscript" in out
 
     def test_templates_output_mentions_scaffolders(self, capsys):
         from research_vault.dag.verbs import build_parser, run
@@ -339,20 +476,34 @@ class TestExperimentNew:
         assert "human-go-findings" in node_ids
 
     # B4: freeze round-trip
-    def test_freeze_round_trip(self, instance):
-        """rv plan freeze stores hash; verify_freeze_hash returns True on same data."""
+    def test_freeze_round_trip_via_printed_cli_commands(self, instance):
+        """B4 — end-to-end: drives the EXACT cli commands printed by rv experiment new.
+
+        Regression test for BLOCKER 1: the old plan/verbs.py defaulted notes_root to
+        cfg.notes_root/"experiments" (shared tree), not the project's source_dir.
+        The plan note lives in source_dir/experiments — different path — so the hash
+        computation found zero child notes and stored a wrong hash.
+
+        This test simulates what the operator does from the printed "Next steps":
+          1. rv experiment new  (creates plan note + manifest in source_dir/experiments)
+          2. rv dag run <manifest>  (registers the run state — simulated via RunStore API)
+          3. rv dag approve <run_id> human-go-plan  (simulated — not tested here)
+          4. rv plan freeze <run_id> <plan-note>  NO --notes-root  ← the critical path
+          5. rv plan verify-freeze <run_id> <plan-note>  NO --notes-root  ← must pass
+        """
         from research_vault.experiment import cmd_new
         from research_vault.config import load_config
         from research_vault.dag.store import RunStore, RunState
-        from research_vault.plan.freeze import store_freeze_hash, verify_freeze_hash
+        from research_vault.plan.verbs import _run_freeze, _run_verify_freeze
         import time as _time
 
         cfg = load_config()
         plan_path, manifest_path = cmd_new(
-            "demo-research", "freeze-test", question="Freeze test?", config=cfg
+            "demo-research", "freeze-cli-test",
+            question="CLI freeze round-trip?", config=cfg,
         )
 
-        # Create a run state for the manifest
+        # Step 2: register the run (simulates rv dag run <manifest>)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         store = RunStore.from_config(cfg)
         run_state = RunState(
@@ -363,27 +514,40 @@ class TestExperimentNew:
         run_state.init_nodes(manifest)
         store.create(run_state)
 
-        # Write minimal child notes so the freeze hash can be computed.
-        # Use cfg.project_notes_dir to get the correct path (source_dir is used).
-        notes_root = cfg.project_notes_dir("demo-research")
-        exp_dir = notes_root / "experiments"
-        exp_dir.mkdir(parents=True, exist_ok=True)
-        child_ids = ["freeze-test-main1", "freeze-test-main1-abl-A"]
+        # Write child notes in plan_note.parent (same dir as the plan note).
+        # This is the correct experiments dir under source_dir — NOT notes_root/experiments.
+        experiments_dir = plan_path.parent
+        child_ids = ["freeze-cli-test-main1", "freeze-cli-test-main1-abl-A"]
         for cid in child_ids:
-            (exp_dir / f"{cid}.md").write_text(
+            (experiments_dir / f"{cid}.md").write_text(
                 f"---\ntype: experiments\ncitekey: {cid}\n"
                 f"stance: confirmatory\nplan_role: main\n---\n",
                 encoding="utf-8",
             )
 
-        # Store the freeze hash
-        store_freeze_hash(store, manifest["run_id"], plan_path, notes_root=notes_root)
-
-        # Verify round-trips correctly
-        ok, msg = verify_freeze_hash(
-            store, manifest["run_id"], plan_path, notes_root=notes_root
+        # Step 4: rv plan freeze <run_id> <plan-note>  (NO --notes-root)
+        # Simulates the printed CLI command verbatim — no notes_root override.
+        freeze_args = argparse.Namespace(
+            run_id=manifest["run_id"],
+            plan_note=str(plan_path),
+            notes_root=None,  # ← the printed command has no --notes-root
         )
-        assert ok, f"verify_freeze_hash failed: {msg}"
+        rc_freeze = _run_freeze(freeze_args)
+        assert rc_freeze == 0, (
+            "rv plan freeze returned non-zero — notes_root defaulted to the WRONG path. "
+            "Fix: plan/verbs.py must default notes_root = plan_note.parent."
+        )
+
+        # Step 5: rv plan verify-freeze <run_id> <plan-note>  (NO --notes-root)
+        verify_args = argparse.Namespace(
+            run_id=manifest["run_id"],
+            plan_note=str(plan_path),
+            notes_root=None,  # stored pin takes precedence (SR-FREEZE-FIX)
+        )
+        rc_verify = _run_verify_freeze(verify_args)
+        assert rc_verify == 0, (
+            "rv plan verify-freeze returned non-zero — hash mismatch or pin mismatch."
+        )
 
     # B5: rv help --check green with experiment present
     def test_help_check_green(self, instance):

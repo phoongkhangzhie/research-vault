@@ -548,7 +548,7 @@ def cmd_status(
     # A preregistration plan note with no registered DAG run means rv plan freeze
     # cannot bind (no run_id to hash into meta). This is the guardrail that would
     # have caught the original root cause (ad-hoc dispatch of pre-registered studies).
-    # Reuses DagRunSource.list_runs() — no new aggregation.
+    # Reuses DagRunSource.summary() — no new aggregation.
     try:
         from .note import _parse_frontmatter as _pfm
         experiments_dir: Path | None = None
@@ -580,12 +580,10 @@ def cmd_status(
                 else:
                     exp_id = stem
                 expected_run_id = f"{exp_id}-loop"
-                # Also accept any registered run whose id STARTS WITH exp_id
-                # (handles edge cases like "q1-loop-v2")
-                covered = (
-                    expected_run_id in registered_run_ids
-                    or any(rid.startswith(exp_id) for rid in registered_run_ids)
-                )
+                # Exact match on the canonical "<id>-loop" convention only.
+                # A loose startswith() match would suppress warnings for unrelated
+                # runs whose id happens to share the same prefix.
+                covered = expected_run_id in registered_run_ids
                 if not covered:
                     orphans.append(note_path.name)
 

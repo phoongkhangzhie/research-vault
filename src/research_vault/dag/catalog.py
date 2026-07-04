@@ -8,15 +8,25 @@ Captures:
   - entry_verb     : the command to start a new DAG run (after the manifest exists)
   - scaffolder     : the command that EMITS the manifest + registers the run
                      (None when no scaffold verb exists)
-  - human_go_gates : ordered list of human-go node IDs from the shipped manifests,
+  - human_go_gates : ordered list of human-go node IDs from the real scaffolders,
                      annotated with the freeze/verify action that each gate triggers
   - topology_summary : one-line description of the loop shape
 
-Gate names are grounded in the SHIPPED manifests:
-  - research-loop.json  (data/examples/demo-research/research-loop.json)
-  - lit-review-loop.json (data/examples/demo-litreview/lit-review-loop.json)
-  - rv manuscript new  → 16-node drafting DAG (SR-MS-1a §5J.2)
-  - rv figure new      → figure DAG (SR-FIG)
+★ GROUNDING — every gate node_id is taken from the REAL scaffolder emit code,
+not from memory or design docs. Verified against:
+  experiment : data/examples/demo-research/research-loop.json
+               (human-go-plan, human-go-conditionals-main*, human-go-findings)
+  lit-review : review/__init__.py _build_phase1_manifest + _build_phase2_manifest
+               Phase-1 gates: approve-protocol, coverage-gate
+               Phase-2 gate:  approve-review
+  figure     : data/examples/demo-figures/demo-figures.json
+               (data-check — IN THE MIDDLE, not terminal)
+  manuscript : manuscript/__init__.py _build_drafting_dag
+               (approve-thesis, approve-framing, approve-manuscript)
+
+A grounding test (test_sr_hub_dag_rails.py::TestCatalogGrounding) asserts every
+human_go_gate.node_id appears as a real "human-go" typed node in the corresponding
+shipped manifest or scaffolded manifest — this test is the canonical drift detector.
 
 Stdlib only.
 sr: SR-HUB-DAG
@@ -36,7 +46,7 @@ class LoopGate:
     Attributes
     ----------
     node_id : str
-        The exact node id used in the manifest (e.g. ``"human-go-plan"``).
+        The exact node id used in the manifest (grounded in the real scaffolders).
     label : str
         Short human-readable description of what is approved here.
     freeze_action : str | None
@@ -83,7 +93,7 @@ class LoopEntry:
         The ``rv`` command that EMITS the manifest AND registers the run.
         None when the manifest is created manually (legacy / advanced path).
     human_go_gates : list[LoopGate]
-        Ordered list of human-go gates from the shipped manifest shape.
+        Ordered list of human-go gates from the REAL shipped manifest shape.
         Empty list = no human-go nodes (loop is fully automated).
     topology_summary : str
         One-line description of the overall loop structure.
@@ -122,23 +132,26 @@ class LoopEntry:
 
 
 # ---------------------------------------------------------------------------
-# The catalog  (grounded in shipped manifests — SR-HUB-DAG §A1)
+# The catalog  (SR-HUB-DAG §A1 — grounded in real scaffolders, NOT design docs)
 # ---------------------------------------------------------------------------
 #
-# Gate node IDs are EXACT strings from the shipped JSON manifests.
-# research-loop.json gate IDs: human-go-plan, human-go-conditionals-main*, human-go-findings
-# lit-review-loop.json gate IDs: okf-coverage-gate, human-go-synthesis
-# manuscript DAG gate IDs come from rv manuscript new output (SR-MS-1a §5J.2):
-#   human-go-outline, human-go-draft, approve-manuscript
-# figure DAG gate IDs come from rv figure new output (SR-FIG):
-#   human-go-figure
+# Grounding sources (read these if you need to verify or update gates):
+#   experiment : src/research_vault/data/examples/demo-research/research-loop.json
+#   lit-review : src/research_vault/review/__init__.py
+#                _build_phase1_manifest (approve-protocol, coverage-gate)
+#                _build_phase2_manifest (approve-review)
+#   figure     : src/research_vault/data/examples/demo-figures/demo-figures.json
+#   manuscript : src/research_vault/manuscript/__init__.py _build_drafting_dag
+#
+# ★ Do NOT update gate IDs from memory or design docs — read the source files
+# and update the grounding test (TestCatalogGrounding) in parallel.
 
 LOOP_CATALOG: list[LoopEntry] = [
 
     LoopEntry(
         key="experiment",
         entry_verb="rv dag run <project-notes-dir>/experiments/<id>-loop.json",
-        scaffolder="rv experiment new <project> <id> --question '...' [--mains N]",
+        scaffolder="rv experiment <project> new <id> --question '...' [--mains N]",
         human_go_gates=[
             LoopGate(
                 node_id="human-go-plan",
@@ -154,11 +167,6 @@ LOOP_CATALOG: list[LoopEntry] = [
                 freeze_action=None,
             ),
             LoopGate(
-                node_id="human-go-conditionals-main2",
-                label="Main 2 results + conditional triggers ratified (decision-not-diff)",
-                freeze_action=None,
-            ),
-            LoopGate(
                 node_id="human-go-findings",
                 label=(
                     "All findings reviewed; covers:-hash re-verified (K-3: automatic on "
@@ -169,11 +177,14 @@ LOOP_CATALOG: list[LoopEntry] = [
         ],
         topology_summary=(
             "plan → plan-critic → [HG:human-go-plan] → "
-            "{per-main: run→score→analyze (+ablations)} → "
-            "[HG:human-go-conditionals-*] → [HG:human-go-findings] → methods-update"
+            "{per-main: run→score→analyze (+ablation-run→score→analyze)} → "
+            "[HG:human-go-conditionals-main*] → [HG:human-go-findings] → methods-update"
         ),
     ),
 
+    # Lit-review gates grounded in review/__init__.py:
+    #   Phase-1: approve-protocol (line ~152), coverage-gate (line ~199)
+    #   Phase-2: approve-review (line ~356)
     LoopEntry(
         key="lit-review",
         entry_verb="rv dag run <project-notes-dir>/reviews/<scope>/phase1-dag.json",
@@ -188,71 +199,79 @@ LOOP_CATALOG: list[LoopEntry] = [
                 freeze_action=None,
             ),
             LoopGate(
-                node_id="okf-coverage-gate",
+                node_id="coverage-gate",
                 label=(
-                    "OKF coverage gate — every in-scope paper has a literature note or is "
+                    "OKF coverage gate — every in-scope paper has a relate slot or is "
                     "MENTION-ONLY; Phase-2 fan-out authorized here "
                     "(run `rv review <project> expand <scope>` after approval)"
                 ),
                 freeze_action=None,
             ),
             LoopGate(
-                node_id="human-go-synthesis",
-                label="Synthesis quality and OKF links resolved",
+                node_id="approve-review",
+                label="Gate 3: Approve review — [BLOCK] count + counter-position verdict",
                 freeze_action=None,
             ),
         ],
         topology_summary=(
             "review-scope → [HG:approve-protocol] → review-search → review-snowball → "
-            "[HG:okf-coverage-gate] → (Phase-2) relate-* → review-synthesize → "
-            "synthesis-critic → [HG:human-go-synthesis]"
+            "[HG:coverage-gate] → (Phase-2) relate-* → review-synthesize → "
+            "review-coverage-critic → [HG:approve-review]"
         ),
     ),
 
+    # Figure gates grounded in data/examples/demo-figures/demo-figures.json:
+    #   data-check is in the MIDDLE (extract → [HG:data-check] → render)
     LoopEntry(
         key="figure",
         entry_verb="rv dag run <project-notes-dir>/figures/<fig-id>-loop.json",
         scaffolder="rv figure <project> new <fig-id> --experiment <exp-id>",
         human_go_gates=[
             LoopGate(
-                node_id="human-go-figure",
-                label="Figure reviewed for perceptual encoding + provenance completeness",
+                node_id="data-check",
+                label=(
+                    "Review the exact data frame before rendering "
+                    "(operator eyeballs the view.csv — §5E.3 inspection surface)"
+                ),
                 freeze_action=None,
             ),
         ],
         topology_summary=(
-            "figure-spec → figure-preview → figure-render → [HG:human-go-figure]"
+            "extract → [HG:data-check] → render"
         ),
     ),
 
+    # Manuscript gates grounded in manuscript/__init__.py _build_drafting_dag:
+    #   approve-thesis (line ~217), approve-framing (line ~247),
+    #   approve-manuscript (line ~569)
     LoopEntry(
         key="manuscript",
         entry_verb="rv dag run <project-notes-dir>/manuscript/<id>-loop.json",
         scaffolder="rv manuscript <project> new <id> --thesis '...'",
         human_go_gates=[
             LoopGate(
-                node_id="human-go-outline",
-                label="Outline structure approved before full draft",
+                node_id="approve-thesis",
+                label="Gate 1: thesis + gather-scope approved before related-work",
                 freeze_action=None,
             ),
             LoopGate(
-                node_id="human-go-draft",
-                label="Draft quality approved before support-matcher + critic pass",
+                node_id="approve-framing",
+                label="Gate 2: framing (related-work) approved before body sections",
                 freeze_action=None,
             ),
             LoopGate(
                 node_id="approve-manuscript",
                 label=(
-                    "Final manuscript approved — support-matcher (J-1), "
+                    "Gate 3: final manuscript approved — support-matcher (J-1), "
                     "strength-mono (K-1), and critic pass all green"
                 ),
                 freeze_action=None,
             ),
         ],
         topology_summary=(
-            "outline → [HG:human-go-outline] → draft-* sections → "
-            "[HG:human-go-draft] → support-matcher → strength-mono → "
-            "manuscript-critic → [HG:approve-manuscript]"
+            "gather-scope → [HG:approve-thesis] → related-work + appendix-repro → "
+            "[HG:approve-framing] → body-sections → abstract → assemble → compile → "
+            "critic → [HG:approve-manuscript]"
         ),
     ),
 ]
