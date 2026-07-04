@@ -582,8 +582,63 @@ _REVIEWER_LENS_L3: str = (
     "on your watch."
 )
 
+# L3-PROXY — Proxy/re-analysis variant of L3 (SR-MS-GATE-ALIGN Slice B).
+# Attacks ANALYSIS-provenance instead of hunting seeds/run-ids.
+# Used when the study is a re-analysis of published aggregate results and the
+# C5 run-provenance binding is replaced by the analysis-provenance binding
+# (see _REPRO_PROXY_CLAUSE). Seeds/GPU-configs/run-ids are N/A for proxy studies.
+_REVIEWER_LENS_L3_PROXY: str = (
+    "You review as the fresh reader who must understand and extend this RE-ANALYSIS. "
+    "This is a proxy study (re-analysis of published aggregate results — no new model runs). "
+    "Attack REPRO on ANALYSIS-PROVENANCE: is the analysis-code or script pointer present "
+    "and locatable? Is the cited source of the aggregated results explicit and traceable "
+    "(original publications cited and accessible)? Are the formulas, transformations, and "
+    "aggregation steps described with sufficient detail to reproduce the analysis from the "
+    "published data alone? Run-provenance (random seeds, GPU configs, W&B run-ids) is NOT "
+    "APPLICABLE to a proxy study — their absence does NOT cap REPRO. Score REPRO ≥ 3 if "
+    "analysis-provenance is present; score low only if the analysis methods are opaque or "
+    "the data source is uncited. Also attack CLARITY and LIMIT as in standard L3: can you "
+    "follow the exposition from the paper alone, and does it honestly state its scope?"
+)
 
-def get_reviewer_lens_spec(k: int, K: int) -> str:
+# ---------------------------------------------------------------------------
+# SR-MS-GATE-ALIGN Slice B: C5-override proxy clause for REPRO binding
+# ---------------------------------------------------------------------------
+
+# Injected into the reviewer rubric when is_proxy_study=True.
+# Overrides C5's run-provenance binding for REPRO with analysis-provenance.
+# The canary (_CANARY_STRONG_PASSAGE / _CANARY_WEAK_PASSAGE) stays UNCHANGED —
+# it calibrates judge harshness in a study-type-independent manner.
+# A proxy-specific canary is a future enhancement; the existing calibration
+# is sufficient to guard against positivity bias and blind rejection for real runs.
+_REPRO_PROXY_CLAUSE: str = (
+    "\n"
+    "★ C5-OVERRIDE FOR PROXY/RE-ANALYSIS STUDIES\n"
+    "────────────────────────────────────────────\n"
+    "This study is a RE-ANALYSIS of published aggregate results — no new experimental\n"
+    "runs were executed by the authors. REPRODUCIBILITY therefore binds to\n"
+    "ANALYSIS-PROVENANCE, NOT run-provenance.\n"
+    "\n"
+    "For a proxy study, score REPRO on:\n"
+    "  (a) ANALYSIS-CODE / SCRIPT pointer — does the paper or appendix point to an\n"
+    "      analysis script, notebook, or code repository that implements the\n"
+    "      transformations and aggregation steps?\n"
+    "  (b) CITED SOURCE of the aggregated data — are the original publications from\n"
+    "      which aggregated results were drawn explicitly cited and traceable?\n"
+    "  (c) IN-TEXT METHOD SUFFICIENCY — are the formulas, transformations, and\n"
+    "      aggregation procedures described in sufficient detail that a reader could\n"
+    "      reproduce the analysis from published data?\n"
+    "\n"
+    "RUN-PROVENANCE (random seeds, GPU configs, W&B run-ids, hyperparameter configs)\n"
+    "is NOT APPLICABLE to a proxy study. The ABSENCE of run-provenance does NOT cap\n"
+    "REPRO at 2. A proxy study can score REPRO ≥ 3 if analysis-provenance is present.\n"
+    "\n"
+    "Judge REPRO for this study on (a), (b), and (c) above ONLY.\n"
+    "────────────────────────────────────────────────────────────────────────\n"
+)
+
+
+def get_reviewer_lens_spec(k: int, K: int, *, is_proxy_study: bool = False) -> str:
     """Return the lens posture string for reviewer k in a round of K reviewers.
 
     Lens assignment:
@@ -595,19 +650,26 @@ def get_reviewer_lens_spec(k: int, K: int) -> str:
     auto-gating dimensions. L2 (significance) is the surface-only dimension; its
     adversarial angle is less critical when K is constrained.
 
-    sr: SR-MS-REVIEW-b §5J.17.2
+    is_proxy_study: when True, the L3 position returns _REVIEWER_LENS_L3_PROXY —
+    the analysis-provenance variant that attacks analysis-code/cited-source instead
+    of hunting seeds/run-ids. L1 and L2 positions are unchanged.
+
+    sr: SR-MS-REVIEW-b §5J.17.2; SR-MS-GATE-ALIGN Slice B (proxy variant)
     """
     if K == 1:
         return _REVIEWER_LENS_L1
     if K == 2:
-        return _REVIEWER_LENS_L1 if k == 1 else _REVIEWER_LENS_L3
+        if k == 1:
+            return _REVIEWER_LENS_L1
+        # k=2 → L3 position (floor-carrying pair)
+        return _REVIEWER_LENS_L3_PROXY if is_proxy_study else _REVIEWER_LENS_L3
     # K >= 3: cycle L1, L2, L3
     idx = ((k - 1) % 3) + 1  # 1,2,3,1,2,3,...
     if idx == 1:
         return _REVIEWER_LENS_L1
     if idx == 2:
         return _REVIEWER_LENS_L2
-    return _REVIEWER_LENS_L3
+    return _REVIEWER_LENS_L3_PROXY if is_proxy_study else _REVIEWER_LENS_L3
 
 
 # ---------------------------------------------------------------------------
@@ -634,6 +696,8 @@ def run_reviewer_node(
     rubric_override: str | None = None,
     config: Any | None = None,
     run_state_meta: dict[str, Any] | None = None,
+    is_proxy_study: bool = False,
+    lens_spec: str | None = None,
 ) -> dict[str, Any]:
     """Run a single reviewer agent node for round round_num, lens lens_num.
 
@@ -646,6 +710,14 @@ def run_reviewer_node(
     scores, or the author's rebuttal as inputs. The caller (the DAG runner / test)
     is responsible for not feeding them; the function signature enforces the boundary.
 
+    SR-MS-GATE-ALIGN Slice B:
+      is_proxy_study: when True, appends _REPRO_PROXY_CLAUSE to the rubric so the
+        judge sees the analysis-provenance binding (not the run-provenance C5 cap).
+        Absent run-provenance (seeds/configs/run-ids) does NOT cap REPRO at 2.
+      lens_spec: when provided, prepended to the prompt before the rubric body.
+        run_review_board threads the per-reviewer lens spec (including the proxy
+        L3 lens for L3-positioned reviewers in proxy studies).
+
     Args:
         pdf_text:         rendered PDF text (pdftotext output or fallback)
         round_num:        round index (1-based)
@@ -655,6 +727,8 @@ def run_reviewer_node(
         rubric_override:  optional rubric override (researcher's rubric via seam default in -b)
         config:           optional Config for rubric lookup
         run_state_meta:   optional RunState.meta dict for skip short-circuit
+        is_proxy_study:   when True, appends _REPRO_PROXY_CLAUSE to rubric (analysis-provenance)
+        lens_spec:        optional lens posture string prepended to the judge prompt
 
     Returns dict with:
         round:         int
@@ -684,7 +758,20 @@ def run_reviewer_node(
             }
 
     rubric = get_review_rubric(override=rubric_override, config=config)
-    prompt = _build_reviewer_prompt(pdf_text, rubric)
+    # SR-MS-GATE-ALIGN Slice B: proxy clause injection
+    # When is_proxy_study=True, append the proxy clause so the judge scores REPRO
+    # on analysis-provenance instead of run-provenance. The canary rubric is NOT
+    # modified here — canary fires with its own rubric (run_canary_scaffold).
+    if is_proxy_study:
+        rubric = rubric + _REPRO_PROXY_CLAUSE
+
+    # Build the reviewer prompt: replace {PDF_TEXT} slot with the paper text
+    base_prompt = _build_reviewer_prompt(pdf_text, rubric)
+    # Prepend lens spec if provided (from run_review_board per-reviewer assignment)
+    if lens_spec:
+        prompt = lens_spec + "\n\n" + base_prompt
+    else:
+        prompt = base_prompt
     prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
     raw_response = judge_fn(prompt)
@@ -995,6 +1082,7 @@ def run_review_board(
     cold_read_pdf_text: str | None = None,
     canary_judge_fn: Callable[[str], str] | None = None,
     canary_rubric: str = "",
+    is_proxy_study: bool | None = None,
 ) -> dict[str, Any]:
     """Run the full bounded N-round review-board loop.
 
@@ -1010,6 +1098,15 @@ def run_review_board(
     real reviews should be passed as canary_judge_fn (§5J.17.5).
     In tests (default): canary_judge_fn=None → canary skips (backward-compat).
 
+    SR-MS-GATE-ALIGN Slice B (is_proxy_study):
+      None (default) → self-determine from notes_root/experiments/*.md via
+        appendix._is_proxy_study. Notes with all-empty results_location → proxy.
+        Notes with any populated results_location → real run. No notes_root → False.
+      True/False → explicit override wins; no auto-detection performed.
+      When True: each reviewer node receives the _REPRO_PROXY_CLAUSE (analysis-
+        provenance binding) and the L3 position uses the proxy lens.
+      Canary is NEVER affected by is_proxy_study (study-type-independent).
+
     Args:
         pdf_text:           rendered PDF text (pdftotext output or fallback)
         tree_root:          manuscript artifact tree root
@@ -1022,10 +1119,11 @@ def run_review_board(
         judge_model:        model-id to log
         rubric_override:    optional rubric override
         config:             optional Config
-        notes_root:         project notes dir (for revise honesty re-fire)
+        notes_root:         project notes dir (for revise honesty re-fire + proxy self-detection)
         cold_read_pdf_text: optional PDF text for cold-read re-fire
         canary_judge_fn:    judge for the bidirectional canary probes (None → skip canary)
         canary_rubric:      rubric string with {PDF_TEXT} slot for canary probes
+        is_proxy_study:     None → self-determine; True/False → explicit override
 
     Returns dict with:
         cleared:        bool
@@ -1035,9 +1133,9 @@ def run_review_board(
         honest_report:  str — never says "approved"; says "cleared at r" or "NOT cleared"
         n_rounds_run:   int
         n_reviewers_per_round: int
-        meta:           RunState.meta["review_board"] dict
+        meta:           RunState.meta["review_board"] dict — includes is_proxy_study
 
-    sr: SR-MS-REVIEW-a §5J.17.2–.6 + SR-MS-REVIEW-b §5J.17.5
+    sr: SR-MS-REVIEW-a §5J.17.2–.6 + SR-MS-REVIEW-b §5J.17.5 + SR-MS-GATE-ALIGN Slice B
     """
     _floor_dims = floor_dims if floor_dims is not None else list(_DEFAULT_FLOOR_DIMS)
     # Apply hard-cap
@@ -1049,6 +1147,21 @@ def run_review_board(
             "In production, set RV_JUDGE_MODEL and ANTHROPIC_API_KEY, then use the "
             "default _default_judge_fn (from support_matcher). In tests, pass a mock."
         )
+
+    # --- Proxy self-determination (SR-MS-GATE-ALIGN Slice B) ---
+    # Explicit bool wins; None → auto-detect from notes_root.
+    _is_proxy: bool
+    if is_proxy_study is not None:
+        _is_proxy = bool(is_proxy_study)
+    elif notes_root is not None and notes_root.exists():
+        try:
+            from research_vault.manuscript.appendix import _is_proxy_study as _detect_proxy
+            exp_notes = sorted(notes_root.glob("experiments/*.md"))
+            _is_proxy = _detect_proxy(exp_notes)
+        except Exception:
+            _is_proxy = False  # safe default on detection failure
+    else:
+        _is_proxy = False  # no notes_root → cannot determine → non-proxy (safe)
 
     run_state_meta: dict[str, Any] = {"review_board": {}}
     rounds: list[dict[str, Any]] = []
@@ -1072,6 +1185,8 @@ def run_review_board(
         # --- K reviewer nodes (parallel fan-out in real DAG; sequential here for mock) ---
         reviewer_results: list[dict[str, Any]] = []
         for k in range(1, K + 1):
+            # Compute per-reviewer lens spec (proxy L3 for L3-position in proxy studies)
+            reviewer_lens = get_reviewer_lens_spec(k, K, is_proxy_study=_is_proxy)
             reviewer_result = run_reviewer_node(
                 pdf_text=pdf_text,
                 round_num=r,
@@ -1081,6 +1196,8 @@ def run_review_board(
                 rubric_override=rubric_override,
                 config=config,
                 run_state_meta=run_state_meta,
+                is_proxy_study=_is_proxy,
+                lens_spec=reviewer_lens,
             )
             reviewer_results.append(reviewer_result)
         round_record["reviewers"] = reviewer_results
@@ -1180,6 +1297,9 @@ def run_review_board(
                 for d in _floor_dims
             )
         )
+
+    # Record is_proxy_study determination in meta (for callers + audit)
+    run_state_meta["review_board"]["is_proxy_study"] = _is_proxy
 
     return {
         "cleared": cleared,

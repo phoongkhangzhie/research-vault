@@ -1,3 +1,28 @@
+## 2026-07-04 (SR-MS-GATE-ALIGN Slice B — study-type-aware REPRO)
+
+### Done
+- **`review_board.py`**: `_REPRO_PROXY_CLAUSE` (C5-override injected into rubric for proxy studies),
+  `_REVIEWER_LENS_L3_PROXY` (analysis-provenance attack lens for L3 position), `is_proxy_study`
+  kwarg on `run_reviewer_node` + `run_review_board`. `run_review_board(is_proxy_study=None)`
+  self-determines from `notes_root/experiments/*.md` via `appendix._is_proxy_study`. Records flag
+  in `meta`. Canary passages unchanged.
+- **`appendix.py`**: enriched `_proxy_study_reframe_tex` with positive analysis-provenance section
+  (renders `repro_dataset_id` + `repro_config_location` from notes where non-sentinel). Template-honest.
+- **Tests**: 23 new in `test_sr_ms_review_repro_proxy.py`. Red-before-green: 21 RED before
+  implementation, 23 GREEN after. Full suite 2101 passed. `rv lint` PASS. Leakage clean.
+- **PR #83** open: `fix/review-repro-proxy`. CI green on HEAD.
+
+### Decisions
+- `_REPRO_PROXY_CLAUSE` appended to ALL reviewers in a proxy study (not just L3): every reviewer
+  needs to know the binding changed. The proxy L3 lens additionally targets analysis-provenance
+  attack angle. Both signals together give the judge the right prior.
+- Self-determination scopes to `notes_root/experiments/*.md` — same glob as `inject_appendix`'s
+  call path. No new mechanism, reuses `appendix._is_proxy_study` directly.
+- `_proxy_study_reframe_tex` now takes `experiment_notes` optionally; `inject_appendix` passes it
+  through. Backward-compat: no-arg call still works (generic fallback).
+
+### Open / next
+- PR #83 awaits Wren fit-check + operator merge.
 ## 2026-07-03 (SR-MS-GATE-ALIGN Slice A, take 2: structural zone-1 .tex selection)
 
 ### Done
