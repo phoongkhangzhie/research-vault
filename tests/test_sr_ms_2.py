@@ -979,6 +979,78 @@ class TestRunCritic:
         # Should have at least one finding (fallback message) and not crash
         assert len(result["findings"]) >= 1
 
+    def test_content_past_old_final_cap_reaches_judge(self, tmp_path):
+        """Red-before-green: content past the old 10000-char final cap must reach the judge.
+
+        Old code applied [:10000] to the joined text, silently dropping anything
+        past position 10000.  A sentinel planted at ~12000 chars never appeared in
+        the critic prompt → gate was certifying a truncated view.  With the raised
+        cap the sentinel IS in the prompt and the test passes.
+        """
+        from research_vault.manuscript.check_gates import run_critic
+
+        note_path, tree_root = _make_ms_tree(tmp_path)
+
+        # padding puts the sentinel comfortably past the old 10000-char final cap
+        padding = "word " * 2300  # ≈11 500 chars
+        sentinel = "CRITIC_SENTINEL_PAST_OLD_CAP"
+        (tree_root / "main.tex").write_text(
+            padding + "\n" + sentinel + "\n",
+            encoding="utf-8",
+        )
+
+        captured: list[str] = []
+
+        def _capture_judge(prompt: str) -> str:
+            captured.append(prompt)
+            return (
+                "FINDING 1: [PARTIAL] — A.\n"
+                "FINDING 2: [ABSENT] — B.\n"
+                "FINDING 3: [PARTIAL] — C.\n"
+                "SUMMARY: Done."
+            )
+
+        result = run_critic(tree_root, judge_fn=_capture_judge)
+        assert captured, "judge_fn was never called"
+        assert sentinel in captured[0], (
+            "Critic silently truncated main.tex: sentinel past the old 10000-char "
+            "final cap did not reach the judge.  Content was reviewed incompletely "
+            "without any warning — vacuous gate."
+        )
+
+    def test_fail_loud_exceeds_new_total_cap(self, tmp_path):
+        """Red-before-green: content exceeding the new total cap must emit a WARN.
+
+        Old code: [:10000] silently truncates with result['warnings'] == [].
+        New code: raises cap AND emits a loud warning when the new cap is exceeded,
+        so the human knows content was not fully reviewed.
+        """
+        from research_vault.manuscript.check_gates import run_critic
+
+        note_path, tree_root = _make_ms_tree(tmp_path)
+
+        # ≈120 000 chars — comfortably exceeds any reasonable total-input cap
+        big_content = "This is a very long manuscript section. " * 3000
+        (tree_root / "main.tex").write_text(big_content, encoding="utf-8")
+
+        def _mock(prompt: str) -> str:
+            return (
+                "FINDING 1: [PARTIAL] — A.\n"
+                "FINDING 2: [ABSENT] — B.\n"
+                "FINDING 3: [PARTIAL] — C.\n"
+                "SUMMARY: Done."
+            )
+
+        result = run_critic(tree_root, judge_fn=_mock)
+        assert result["warnings"], (
+            "Critic silently truncated a large manuscript with no warning — "
+            "fail-loud contract violated."
+        )
+        warn_text = " ".join(result["warnings"])
+        assert "NOT reviewed" in warn_text or "cap" in warn_text.lower(), (
+            f"Warning does not mention truncation or cap: {result['warnings']}"
+        )
+
 
 # ===========================================================================
 # 13. check_manuscript extended (structural gates 5–7 wired)
