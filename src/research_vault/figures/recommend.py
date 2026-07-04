@@ -16,7 +16,7 @@ Key contracts:
   - recommend() → list of Suggestion dicts, ranked best-first (rank=1 is best)
   - Each Suggestion: {rank, plot_type, principle, colormap_class}
   - colormap_class ∈ {"sequential", "diverging", "qualitative", None}
-    — the CORRECTNESS call; Iris picks the palette within the class
+    — the CORRECTNESS call; the designer picks the palette within the class
   - integrity_warns() → list of WARN strings (never empty-but-truthy, never raises)
   - infer_task() → (primary_task, [alternatives]) — inference from descriptor shape
   - infer_view(df) → list of ViewColumn dicts from a pandas DataFrame

@@ -42,15 +42,15 @@ from .config import Config, load_config, reset_config_cache, _find_config_path, 
 # ---------------------------------------------------------------------------
 
 # The canonical dispatchable crew for every project.
-# Hub (Alfred) and architect (Wren) are vault-level; all other named-crew
-# roles are project-scoped and always appear per-project.
-# Slug convention matches the functional role name (not the personal name).
+# Hub and architect are vault-level; all other roles are project-scoped
+# and always appear per-project.
+# Slug convention matches the functional role name.
 DEFAULT_ROSTER: list[str] = [
-    "manager",    # Atlas
-    "engineer",   # Mason
-    "researcher", # Ada
-    "designer",   # Iris
-    "reviewer",   # Argus
+    "manager",
+    "engineer",
+    "researcher",
+    "designer",
+    "reviewer",
 ]
 
 # Required fields on every project record

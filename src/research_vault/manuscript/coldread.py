@@ -25,8 +25,8 @@ VERDICT TOKENS (3 — separate from SR-MS-2's 4-verdict set)
 
 RUBRIC SEAM
 ===========
-Ada's adversarial cold-read rubric ships as DEFAULT_COLDREAD_RUBRIC — the seam
-default, exactly as DEFAULT_SUPPORT_RUBRIC sits in support_matcher.py.
+The researcher's adversarial cold-read rubric ships as DEFAULT_COLDREAD_RUBRIC —
+the seam default, exactly as DEFAULT_SUPPORT_RUBRIC sits in support_matcher.py.
 
   - get_coldread_rubric(override=None, config=None) — returns the active rubric.
   - The config key is [manuscript_coldread] in research_vault.toml.
@@ -41,7 +41,7 @@ verdict is trusted:
   (b) Known leaky probe → MUST emit [DANGLING], BLOCK_COUNT≥2.
       If the judge waves it through → judge is BLIND → ABORT.
 
-FLAG-A (Wren — belt-and-suspenders)
+FLAG-A (belt-and-suspenders)
 ====================================
 The AUDIENCE Layer-1 body leak-scan runs on .tex source. COLDREAD has pdftotext,
 so ALSO run the same deterministic patterns (sha256/covers_hash/results_hash,
@@ -109,7 +109,7 @@ def _extract_coldread_verdict(verdict_val: str) -> str | None:
 # Rubric seam
 # ---------------------------------------------------------------------------
 
-# Ada-authored default rubric — the seam default (Ada, SR-MS-COLDREAD).
+# Researcher-authored default rubric — the seam default (SR-MS-COLDREAD).
 # Mirrors get_support_rubric() / DEFAULT_SUPPORT_RUBRIC in support_matcher.py.
 #
 # Runtime slot filled by _build_coldread_prompt before the judge call:
@@ -268,7 +268,7 @@ def get_coldread_rubric(
 
     Priority: override arg > [manuscript_coldread].rubric in config > DEFAULT.
 
-    Ada's authored rubric ships as DEFAULT_COLDREAD_RUBRIC. To override:
+    The researcher's rubric ships as DEFAULT_COLDREAD_RUBRIC. To override:
       (a) pass rubric_override="..." to run_cold_read(), OR
       (b) set [manuscript_coldread] rubric = "..." in research_vault.toml.
     """
@@ -308,7 +308,7 @@ _FA_ABS_PATH_RE = re.compile(
 
 
 def flag_a_scan(pdf_text: str) -> list[str]:
-    """Deterministic Flag-A scan over pdftotext output (§5J.16.3 Wren addendum).
+    """Deterministic Flag-A scan over pdftotext output (§5J.16.3 architect addendum).
 
     Runs the same leak-detection patterns as check_body_leakage() (check_gates.py)
     but applied to the pdftotext-extracted PDF text, not the .tex source.
@@ -376,7 +376,7 @@ def flag_a_scan(pdf_text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Canary probes (Ada's bidirectional probes)
+# Canary probes (bidirectional calibration probes)
 # ---------------------------------------------------------------------------
 
 # Canary (a): known self-contained — guards against a TRIGGER-HAPPY judge.
@@ -414,7 +414,7 @@ def _build_coldread_prompt(pdf_text: str, rubric: str) -> str:
     """Build the full judge prompt for a cold-read assessment.
 
     Fills the {PDF_TEXT} slot in the rubric with the pdftotext output.
-    The rubric is Ada's adversarial cold-read rubric by default.
+    The rubric is the researcher's adversarial cold-read rubric by default.
     """
     if "{PDF_TEXT}" in rubric:
         return rubric.replace("{PDF_TEXT}", pdf_text)
@@ -705,7 +705,7 @@ def run_cold_read(
 
     Args:
         pdf_text:        pdftotext-extracted text of the compiled paper.
-        rubric_override: optional complete rubric replacement (drops in Ada's rubric).
+        rubric_override: optional complete rubric replacement (drops in the researcher's rubric).
         config:          optional Config for rubric lookup via [manuscript_coldread].
         judge_fn:        injectable LLM call (prompt: str) -> str.
                          Defaults to urllib Anthropic API call.

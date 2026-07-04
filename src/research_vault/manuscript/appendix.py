@@ -4,7 +4,7 @@ Reads the structured ``repro_*`` fields from experiment notes (added by
 SR-EXP-REPRO) and injects them into sections/appendix-repro.tex as a
 machine-populated reproducibility table.
 
-Anti-fabrication contract (§5J.5c + Ada #2):
+Anti-fabrication contract (§5J.5c + researcher §2):
   - A ``not-recorded-in-provenance`` sentinel renders as an EXPLICIT GAP
     in the table ("not recorded in provenance") — NEVER omitted or faked.
   - The LLM is NEVER allowed to fill a seed/hyperparameter table.

@@ -668,7 +668,7 @@ def _check_reopen_signal(
 ) -> None:
     """Evaluate whether a re-firing detector should trigger a 'reopened' status.
 
-    SR-GAP-CLOSE §5L.21(3) — CONSERVATIVE structural reopen (Ada's two signals):
+    SR-GAP-CLOSE §5L.21(3) — CONSERVATIVE structural reopen (two signals, §5L.21):
 
     Signal 1 — absent_row re-fires on a CLOSED-SUPPORTED gap:
         The SR-MS-2 matcher verdict flipped back to [ABSENT]. A closed-supported
@@ -682,7 +682,7 @@ def _check_reopen_signal(
         → stamp 'reopened' + 'reopened_reason: contradictory_edges_reacquired'.
         Only machine-closed statuses trigger auto-reopen: {closed-supported, closed-filled}.
         Human-blessed states (proven-open, promoted) WARN-only — the machine must not
-        silently reverse a human decision (Ada ruling: automation-authority + COPE).
+        silently reverse a human decision (§5L.21 ruling: automation-authority + COPE).
         A loud UserWarning is emitted for the human-blessed case so the operator is
         informed that a contribution may be built on a now-contradicted concept.
 
@@ -713,7 +713,7 @@ def _check_reopen_signal(
         return
 
     # Signal 2: contradictory on a MACHINE-CLOSED status (both edges re-acquired — pure structural)
-    # Ada ruling §5L.21 / #30: narrow to machine-closed only (closed-supported, closed-filled).
+    # §5L.21 ruling / #30: narrow to machine-closed only (closed-supported, closed-filled).
     # proven-open and promoted are HUMAN-BLESSED states — a machine must not silently reverse a
     # human decision (automation-authority + COPE ruling).  Those fall through to WARN-only below.
     if is_contradictory and existing_status in {"closed-supported", "closed-filled"}:
@@ -1129,7 +1129,7 @@ def _stamp_frontmatter_field(text: str, field: str, value: str) -> str:
 def _append_closes_to_note(note_path: Path, gap_id: str) -> None:
     """Append ``closes: <gap-id>`` to the closing note's frontmatter (the backward link).
 
-    Implements Ada ruling 2 (W3C PROV + Gotel & Finkelstein): the failure mode
+    Implements §5L.21 ruling 2 (W3C PROV + Gotel & Finkelstein): the failure mode
     is the MISSING backward link — write both edges, never just the forward one.
 
     If the note file does not exist, emits a UserWarning (charter §2: surface,
@@ -1174,12 +1174,12 @@ def cmd_gap_close(
       Providing --by for proven-open is a logic error (and would silently mislead
       the audit trail).
 
-    When ``closer_ref`` is provided, writes BOTH edges (Ada ruling 2, W3C PROV +
+    When ``closer_ref`` is provided, writes BOTH edges (§5L.21 ruling 2, W3C PROV +
     Gotel & Finkelstein — the failure mode is the MISSING backward link):
       (a) ``closed_by: <closer_ref>`` into the GAP frontmatter (forward edge)
       (b) ``closes: <gap_id>`` appended into the CLOSING NOTE's frontmatter (back edge)
 
-    In-place, never moves/archives the gap note (Ada ruling 1 — load-bearing on
+    In-place, never moves/archives the gap note (§5L.21 ruling 1 — load-bearing on
     the idempotent-preserve guard: moving the note breaks the _existing_gap_ids glob
     and causes the detector to re-create the gap as fresh-open, destroying closure).
 

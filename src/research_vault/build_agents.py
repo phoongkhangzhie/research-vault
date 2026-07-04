@@ -42,15 +42,15 @@ if TYPE_CHECKING:
 # Hat composition — charter + role (SR-LENS-RM)
 # ---------------------------------------------------------------------------
 
-# Map from functional role name → personal role-doc filename under doctrine/roles/.
-# Personal names are crew identity — we use a map rather than renaming the docs.
+# Map from functional role name → role-doc filename under doctrine/roles/.
+# Files use role-based names so the shipped framework carries no crew narrative-names.
 _ROLE_DOC: dict[str, str] = {
-    "manager":    "atlas.md",
-    "engineer":   "mason.md",
-    "researcher": "ada.md",
-    "designer":   "iris.md",
-    "reviewer":   "argus.md",
-    "architect":  "wren.md",
+    "manager":    "manager.md",
+    "engineer":   "engineer.md",
+    "researcher": "researcher.md",
+    "designer":   "designer.md",
+    "reviewer":   "reviewer.md",
+    "architect":  "architect.md",
     "hub":        "alfred.md",
 }
 

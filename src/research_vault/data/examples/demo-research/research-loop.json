@@ -13,7 +13,7 @@
       "needs": [],
       "reads": [
         "doctrine/plan-critic-spec.md#plan-critic spec",
-        "doctrine/roles/ada.md"
+        "doctrine/roles/researcher.md"
       ]
     },
     {
@@ -25,7 +25,7 @@
       "needs": [{"from": "plan", "edge": "afterok"}],
       "reads": [
         "doctrine/plan-critic-spec.md",
-        "doctrine/roles/argus.md"
+        "doctrine/roles/reviewer.md"
       ]
     },
     {

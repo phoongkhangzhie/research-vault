@@ -1383,7 +1383,7 @@ def check_cold_read_tally(
       Layer 1 (hermetic): Flag-A deterministic scan over pdftotext output —
         same leak patterns as check_body_leakage() on .tex source, but applied
         to the rendered PDF text (belt-and-suspenders). Runs inside run_cold_read().
-      Layer 2 (LLM): Ada's cold-read judge reads ONLY the pdftotext output and
+      Layer 2 (LLM): the cold-read judge reads ONLY the pdftotext output and
         flags every reference that doesn't resolve from the paper alone.
 
     Bidirectional canary probes run before trusting any real verdict:
@@ -1394,7 +1394,7 @@ def check_cold_read_tally(
         tree_root:       path to the manuscript artifact tree (manuscripts/<id>/).
         judge_fn:        injectable LLM call (prompt: str) -> str. Mock in tests.
         judge_model:     the model-id to log (D-AUD-5: Opus-tier).
-        rubric_override: optional rubric override (Ada's rubric via seam default).
+        rubric_override: optional rubric override (researcher's rubric via seam default).
         config:          optional Config for rubric key lookup.
         pdf_text:        optional pre-extracted pdftotext output. When None, this
                          function attempts to call pdftotext on any PDF in tree_root;

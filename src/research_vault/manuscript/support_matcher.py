@@ -37,7 +37,7 @@ Anti-positivity moves (baked into the rubric and enforced in build_prompt):
 
 RUBRIC SEAM
 ===========
-Ada's authored adversarial rubric ships as DEFAULT_SUPPORT_RUBRIC — the seam
+The researcher's adversarial rubric ships as DEFAULT_SUPPORT_RUBRIC — the seam
 default, exactly like per_section_tips in style.py (SR-MS-2 §5J.13-D).
 
   - get_support_rubric(override=None, config=None) — returns the active rubric.
@@ -132,7 +132,7 @@ def _extract_support_verdict(verdict_val: str) -> str | None:
 # Rubric seam
 # ---------------------------------------------------------------------------
 
-# Ada-authored default rubric — the seam default (Ada, SR-MS-2 §5J.13-D).
+# Researcher-authored default rubric — the seam default (SR-MS-2 §5J.13-D).
 # Mirrors the get_style_preamble() pattern in style.py.
 #
 # Runtime slots filled by _build_judge_prompt before the judge call:
@@ -269,7 +269,7 @@ def get_support_rubric(
 
     Priority: override arg > [manuscript_support].rubric in config > DEFAULT.
 
-    Ada's authored rubric drops in via:
+    The researcher's rubric drops in via:
       (a) override="..." (direct pass), OR
       (b) [manuscript_support] rubric = "..." in research_vault.toml.
     """
@@ -470,7 +470,7 @@ def _build_judge_prompt(
 
     J-2 stance context is injected when stance is not None/MISSING.
 
-    If the rubric uses Ada-style {CLAIM}/{NOTE_CONTENT} slots, they are filled
+    If the rubric uses {CLAIM}/{NOTE_CONTENT} slots, they are filled
     by substitution before appending the structured blocks. The structured
     === CLAIM === / === CITED SOURCE === markers are ALWAYS appended so the
     parser and test mocks can reliably locate claim + note content.
@@ -517,7 +517,7 @@ def _build_judge_prompt(
             " that is evidence for [PARTIAL] or [CONTRADICTS].\n"
         )
 
-    # Fill Ada-style slots if present (non-destructive — old rubrics without slots pass through)
+    # Fill {CLAIM}/{NOTE_CONTENT} slots if present (non-destructive — old rubrics without slots pass through)
     filled_rubric = rubric
     if "{CLAIM}" in filled_rubric:
         filled_rubric = filled_rubric.replace("{CLAIM}", claim)
@@ -562,7 +562,7 @@ def _parse_judge_response(raw: str) -> tuple[str, str | None, str, str]:
         if extracted:
             verdict = extracted
 
-    # Extract VERBATIM_SPAN: or SPAN: (Ada's rubric uses SPAN:)
+    # Extract VERBATIM_SPAN: or SPAN: (the researcher's rubric uses SPAN:)
     m = re.search(
         r"(?:VERBATIM_SPAN|SPAN):\s*(.+?)(?=\n(?:POLARITY|CLAIM_CORE|DISCONFIRM|GAP):|$)",
         raw, re.IGNORECASE | re.DOTALL,
@@ -572,19 +572,19 @@ def _parse_judge_response(raw: str) -> tuple[str, str | None, str, str]:
         if span.lower() not in ("none", "n/a", "no quote", ""):
             verbatim_span = span[:500]
 
-    # Extract POLARITY: (legacy rubric) — Ada's rubric does not emit POLARITY
+    # Extract POLARITY: (legacy rubric) — the researcher's rubric does not emit POLARITY
     m = re.search(r"POLARITY:\s*(\w+)", raw, re.IGNORECASE)
     if m:
         pol = m.group(1).lower()
         if pol in ("positive", "negative", "neutral", "mixed"):
             polarity = pol
 
-    # Extract REASONING: (legacy) or synthesise from Ada-style DISCONFIRM + GAP fields
+    # Extract REASONING: (legacy) or synthesise from DISCONFIRM + GAP fields
     m = re.search(r"REASONING:\s*(.+)", raw, re.IGNORECASE | re.DOTALL)
     if m:
         reasoning = m.group(1).strip()[:500]
     else:
-        # Ada-style: stitch DISCONFIRM + GAP into reasoning field
+        # stitch DISCONFIRM + GAP into reasoning field
         parts = []
         md = re.search(r"DISCONFIRM:\s*(.+?)(?=\nGAP:|\Z)", raw, re.IGNORECASE | re.DOTALL)
         if md:
@@ -687,7 +687,7 @@ def match_support(
         note_path:       path to the literature/ OKF note for this source.
         stance:          optional stance: field from the note (for J-2 gate; None → skip).
         plan_role:       optional plan_role: field (for J-2 gate context; None → skip).
-        rubric_override: optional complete rubric replacement (Ada's rubric drops in here).
+        rubric_override: optional complete rubric replacement (the researcher's rubric drops in here).
         config:          optional Config for rubric lookup via [manuscript_support].
         judge_fn:        injectable LLM call (prompt: str) -> str. Defaults to
                          the urllib Anthropic API call. Pass a mock in tests.

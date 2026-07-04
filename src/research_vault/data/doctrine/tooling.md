@@ -101,7 +101,7 @@ is intended. A role-specific identity system (planned for a later increment) clo
 3. Adding a structural self-vs-author guard on PR-write subcommands.
 
 Until that adapter ships, use plain `gh` with a role-specific token and enforce the grounding
-gate manually — see [mason.md](./roles/mason.md) and [argus.md](./roles/argus.md) for the
+gate manually — see [engineer.md](./roles/engineer.md) and [reviewer.md](./roles/reviewer.md) for the
 per-role session sequence.
 
 ---

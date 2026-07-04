@@ -24,9 +24,9 @@ Requires the optional [figures] extra for preview/render/recommend (data-frame o
   (matplotlib>=3.8, seaborn>=0.13, pandas>=2.2)
 
 The style seam: render calls `figures.style.apply_style(preset, skin=<project>)` before
-plotting. The plumbing calls it; Iris replaces the stub with the real aesthetic.
+plotting. The plumbing calls it; the designer replaces the stub with the real aesthetic.
 The recommend seam: emits colormap_class (sequential/diverging/qualitative) — the
-CORRECTNESS call; Iris picks the concrete palette within that class in apply_style.
+CORRECTNESS call; the designer picks the concrete palette within that class in apply_style.
 
 figures are PROJECT-SCOPED: figures/<id>.md lives in project_notes_dir(project)/figures/.
 This is deliberately NOT a shared root (only datasets/ gets the SR-8 shared treatment).
@@ -426,7 +426,7 @@ def cmd_recommend(
     Output:
       - Ranked suggestions (best-first) with plot_type + principle string
       - colormap_class emitted (sequential/diverging/qualitative) — NOT a palette
-        (Iris picks the palette within the class via apply_style)
+        (the designer picks the palette within the class via apply_style)
       - When --task omitted: prints "task inferred: <t> (pass --task to override)"
 
     Integrity WARNs fire for obvious pitfalls (non-blocking, advisory).
@@ -504,7 +504,7 @@ def cmd_recommend(
     # colormap_class seam confirmation
     top = suggestions[0]
     print(f"\ncolormap_class (correctness): {top.get('colormap_class')!r}")
-    print("  (Iris picks the concrete palette within this class via apply_style — "
+    print("  (the designer picks the concrete palette within this class via apply_style — "
           "not the recommender's job)")
 
     return 0
@@ -759,12 +759,12 @@ def cmd_render(
             print(f"rv figure render: filter error ({filter_str!r}): {e}", file=sys.stderr)
             return 1
 
-    # Apply style via the seam — Iris replaces this stub
+    # Apply style via the seam — the designer replaces this stub
     from .figures.style import apply_style
     preset = fields.get("style", "publication")
     apply_style(preset, project)
 
-    # Basic render (Iris's implementation will be richer — plot_type→seaborn mapping)
+    # Basic render (designer's implementation will be richer — plot_type→seaborn mapping)
     plot_type = fields.get("plot_type", "line")
     fig, ax = plt.subplots()
     numeric_cols = df.select_dtypes("number").columns.tolist()
@@ -1024,7 +1024,7 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
             "Get ranked plot-type suggestions for a data-view CSV (from rv figure preview). "
             "Grounded in Cleveland–McGill perceptual-accuracy ladder + Mackinlay "
             "expressiveness→effectiveness. Emits colormap_class (correctness) — "
-            "NOT a concrete palette (Iris's job via apply_style). Requires [figures] extra."
+            "NOT a concrete palette (designer's job via apply_style). Requires [figures] extra."
         ),
     )
     rec_p.add_argument(

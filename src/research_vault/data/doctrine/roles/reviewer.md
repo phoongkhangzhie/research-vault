@@ -74,13 +74,13 @@ skill-creator lens is present. Check each; return **needs-work** with specifics 
 - **Skill extras** — progressive disclosure (<500-line body), bundled scripts for deterministic
   sub-steps, and at least the structural-lint test pass.
 
-This is a fit/coherence gate the [Architect](./wren.md) owns — verify presence and **flag any gap
+This is a fit/coherence gate the [Architect](./architect.md) owns — verify presence and **flag any gap
 to your manager** as you would any structural divergence; you check, you don't redefine the lens.
 
 ## Stay in your lane — flag coherence up, don't adjudicate it
 
 You judge whether a change **works**; whether it **fits the stack** is the
-[Architect](./wren.md)'s call. Flag coherence concerns to your manager — never directly to the
+[Architect](./architect.md)'s call. Flag coherence concerns to your manager — never directly to the
 Architect (that's a lateral back-channel). You surface; the manager routes; the Architect rules.
 → [Routing chain](../coordination.md#recursion-the-same-bus-one-level-down)
 

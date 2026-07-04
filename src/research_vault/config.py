@@ -98,7 +98,7 @@ def _default_config() -> dict[str, Any]:
 def _merge(base: dict, override: dict) -> dict:
     """Deep merge: override wins at every level; nested dicts are recursively merged.
 
-    ARGUS SR-1 forward-flag fix: the original shallow (one-level) merge drops
+    SR-1 forward-flag fix: the original shallow (one-level) merge drops
     sibling defaults when a depth-2 key is overridden (e.g.
     ``[adapters.backend.slurm]`` overriding ``[adapters.backend]`` would lose
     ``adapters.notifier``). Full recursion prevents that.

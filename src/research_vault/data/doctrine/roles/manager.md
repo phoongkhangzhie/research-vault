@@ -58,7 +58,7 @@ assignment: reversibility · harness-coverage · severity · precedent):
 - **`auto-merge`** — reversible, fully harness-covered, low-severity, sets no precedent. CI-green is a
   sufficient gate; the engineer merges on green.
 - **`review-then-merge`** — needs an independent set of eyes but not the operator's. CI-green **+** a
-  [reviewer](./argus.md) verdict; the engineer then merges.
+  [reviewer](./reviewer.md) verdict; the engineer then merges.
 - **`human-go`** — the operator decides. CI-green + a reviewer verdict are *necessary but not sufficient*;
   the PR waits for their explicit go (see the evidence packet below).
 
@@ -105,7 +105,7 @@ Architect over the hub bus. Subagent → you → (Architect / operator). Never r
 
 ## Consult the Architect on stack decisions
 
-The [Principal Architect](./wren.md) is your **technical consultant** — one authority that keeps the
+The [Principal Architect](./architect.md) is your **technical consultant** — one authority that keeps the
 stack coherent across all projects. **Don't make silent stack choices.** When a decision has stack
 implications — a new dependency, language, CI shape, tool, data layout, or infra need — **consult the
 Architect** before committing: post it as a handshake on your `CONTROL.md`, and the hub spawns the

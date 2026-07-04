@@ -2,7 +2,7 @@
 
 REJECTS-ONLY structural screen (charter §9): can only FAIL an ill-formed plan,
 never certify a good one.  The semantic completeness judgment (is the diagnosis
-table *sensible*?) stays with the plan-critic (Argus); this lint catches what
+table *sensible*?) stays with the plan-critic (reviewer); this lint catches what
 does NOT need an LLM.
 
 Three rules (§5K.5.5 + SR-PLAN-2):
