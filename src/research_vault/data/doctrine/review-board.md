@@ -78,6 +78,25 @@ A cross-project rollup tracks what critique is still unresolved across all work,
 (open / addressed / **dismissed-with-reason**). Findings don't evaporate — they sit on
 the board until you resolve them.
 
+## Manuscript gates are orthogonal — do not double-penalize
+
+The manuscript pipeline has three distinct LLM-judged gates: **support-matcher** (are individual
+claims grounded in a structured note?), **cold-read** (do references resolve for a stranger?), and
+the **review-board** (is the paper good enough — sound + reproducible at the floor?). These gates
+are **orthogonal by construction** and each enforces a different contract:
+
+- A raw hash or filesystem path dumped in prose is a **cold-read leak** (blocks on [DANGLING]).
+  The review-board rubric (C5) deliberately declines to credit it as reproducibility apparatus —
+  but also does **NOT** further penalize it on the REPRO dimension. The cold-read gate already
+  blocks it; the review-board's REPRO score measures the positive presence of scholarly
+  reproducibility apparatus (seeds, configs, availability statement), not the absence of leaks.
+- A claim that has already been blocked by the support-matcher for lacking a grounding note is
+  **not re-litigated** on Soundness. The review-board Soundness score is the methodological-rigor
+  layer ON TOP of that upstream guarantee: is the design valid, are comparisons fair?
+
+**Rule:** when assessing a manuscript's gates, never count the same deficiency in two gates.
+Each gate enforces its own contract; a finding belongs to exactly one gate.
+
 ## Boundaries
 
 The board exists to find where you're **wrong**, never to validate you. It reports;

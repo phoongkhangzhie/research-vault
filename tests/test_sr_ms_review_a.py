@@ -879,20 +879,22 @@ def test_get_review_rubric_config_key_wins(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 23: get_review_rubric — falls back to PLACEHOLDER_REVIEW_RUBRIC
+# Test 23: get_review_rubric — falls back to DEFAULT_REVIEW_RUBRIC (Ada's real rubric, -b)
 # ---------------------------------------------------------------------------
 
-def test_get_review_rubric_fallback_to_placeholder():
-    """Falls back to PLACEHOLDER_REVIEW_RUBRIC (not Ada's real rubric — that's SR-MS-REVIEW-b)."""
+def test_get_review_rubric_fallback_to_default():
+    """Falls back to DEFAULT_REVIEW_RUBRIC when no override or config (SR-MS-REVIEW-b)."""
     from research_vault.manuscript.review_board import (
         get_review_rubric,
-        PLACEHOLDER_REVIEW_RUBRIC,
+        DEFAULT_REVIEW_RUBRIC,
     )
 
     result = get_review_rubric(override=None, config=None)
-    assert result == PLACEHOLDER_REVIEW_RUBRIC
-    # The placeholder must mention it's a placeholder (honest boundary)
-    assert "PLACEHOLDER" in result.upper() or "placeholder" in result.lower()
+    assert result == DEFAULT_REVIEW_RUBRIC
+    # In SR-MS-REVIEW-b the default is Ada's real rubric — must NOT be the placeholder
+    assert "PLACEHOLDER" not in result.upper(), (
+        "In -b, DEFAULT_REVIEW_RUBRIC is Ada's real rubric — the placeholder is removed"
+    )
 
 
 # ---------------------------------------------------------------------------
