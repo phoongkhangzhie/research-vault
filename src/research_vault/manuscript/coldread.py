@@ -3,15 +3,28 @@
 SCOPE AND HONEST BOUNDARY
 ==========================
 This module gives a SELF-CONTAINMENT judgment, not a truth judgment:
-  - STRUCTURAL (deterministic, sound, no LLM): Flag-A scan over pdftotext output —
-    the same leak patterns as the .tex body scan, applied to the rendered PDF text.
-    Belt-and-suspenders: catches any leak the render introduces that .tex scan missed.
-  - SEMANTIC (LLM-judged, assisted): whether a fresh reader with ONLY the PDF text
-    can follow every reference, term, and cross-reference without external help.
+  - STRUCTURAL (deterministic, sound, no LLM): Flag-A scan over the zone-1 LaTeX
+    source text — same leak patterns as check_body_leakage(), applied to the gathered
+    zone-1 .tex content. Deterministic BLOCK, independent of the LLM judge.
+  - SEMANTIC (LLM-judged, assisted): whether a fresh reader with ONLY the zone-1
+    LaTeX source can follow every reference, term, and cross-reference without help.
+
+TEXT SELECTION — STRUCTURAL (SR-MS-GATE-ALIGN):
+  check_cold_read_tally() gathers zone-1 .tex sources (main.tex + sections/*.tex,
+  excluding stems in _ZONE2_FILENAMES). Zone-2 files (appendix-repro.tex,
+  data-code-availability.tex) are excluded by stem name — the same frozenset check
+  as check_body_leakage(). No pdftotext call; no substring body-scoping.
+
+RUBRIC/DOCSTRING MODE NOTE:
+  Broken cross-ref adjudication (unresolved \\ref{}) is delegated to the deterministic
+  check_cite_resolution / check_figure_existence gates — the LLM judge must NOT be
+  relied on for \\ref detection (a resolved \\ref looks identical to a broken one in
+  .tex source). The judge targets undefined-term / provenance-pointer / internal-plumbing
+  prose, which reads identically in source vs rendered form.
 
 This is ORTHOGONAL to SR-MS-2 (support-matcher):
   - support-matcher: are claims TRUE (claim ↔ the cited note's structured fields).
-  - cold-read: do references RESOLVE for a stranger (reads ONLY the pdftotext output).
+  - cold-read: do references RESOLVE for a stranger (zone-1 .tex source view).
 
 VERDICT TOKENS (3 — separate from SR-MS-2's 4-verdict set)
 ===========================================================
@@ -34,7 +47,7 @@ the seam default, exactly as DEFAULT_SUPPORT_RUBRIC sits in support_matcher.py.
 
 BIDIRECTIONAL CANARY
 ====================
-Both canary probes run through the full pdftotext→judge pipeline before any real
+Both canary probes run through the full zone-1→judge pipeline before any real
 verdict is trusted:
   (a) Known self-contained probe → MUST emit [STANDS-ALONE], BLOCK_COUNT=0.
       If the judge flags it → judge is TRIGGER-HAPPY → ABORT.
@@ -43,11 +56,9 @@ verdict is trusted:
 
 FLAG-A (belt-and-suspenders)
 ====================================
-The AUDIENCE Layer-1 body leak-scan runs on .tex source. COLDREAD has pdftotext,
-so ALSO run the same deterministic patterns (sha256/covers_hash/results_hash,
-results/* paths) over the pdftotext OUTPUT — catching any leak the render
-introduces that the .tex scan could not see. Deterministic BLOCK, independent of
-the LLM judge.
+Runs the same deterministic leak-detection patterns as check_body_leakage()
+(sha256/covers_hash/results_hash, results/* paths, absolute filesystem paths)
+over the gathered zone-1 text. Deterministic BLOCK, independent of the LLM judge.
 
 LLM JUDGE CALL
 ==============
@@ -56,7 +67,7 @@ API urllib call, same ANTHROPIC_API_KEY requirement, same stdlib-only contract).
 Injectable via judge_fn parameter so tests can mock it hermetically.
 
 Stdlib only.
-sr: SR-MS-COLDREAD
+sr: SR-MS-COLDREAD, SR-MS-GATE-ALIGN
 """
 from __future__ import annotations
 
