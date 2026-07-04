@@ -192,9 +192,11 @@ def _has_baked_title(tree: ast.AST) -> bool:
         # Check first positional arg
         if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
             return True
-        # Check ``title=`` keyword arg
+        # Check keyword args: set_title uses ``label``, suptitle uses ``t``; keep
+        # ``title`` for completeness (harmless).  Old code checked only ``title``,
+        # which is neither function's real kwarg — both keyword forms bypassed V4.
         for kw in node.keywords:
-            if kw.arg == "title" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+            if kw.arg in ("title", "label", "t") and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
                 return True
     return False
 
