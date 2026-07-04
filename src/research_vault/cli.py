@@ -34,6 +34,7 @@ Stdlib only — no imports from private vault instances or project-specific path
 """
 
 import argparse
+import os
 import sys
 from typing import Callable
 
@@ -597,6 +598,24 @@ def _load_verb(name: str, registry: dict | None = None):
 # Plugin seam: instance verbs loaded from config
 # ---------------------------------------------------------------------------
 
+def _extract_config_arg(argv: list[str]) -> str | None:
+    """Pre-scan argv for --config PATH before the full argparse parse.
+
+    Needed because _load_instance_verbs() calls load_config() before main() can
+    parse the full argument list. We scan early so we can inject the value into
+    the environment before any load_config() call fires.
+
+    Handles both ``--config PATH`` (space-separated) and ``--config=PATH`` forms.
+    Returns None if --config is absent from argv.
+    """
+    for i, arg in enumerate(argv):
+        if arg == "--config" and i + 1 < len(argv):
+            return argv[i + 1]
+        if arg.startswith("--config="):
+            return arg[len("--config="):]
+    return None
+
+
 def _load_instance_verbs() -> dict[str, dict]:
     """Load instance-specific verb extensions from the config's [verbs] section.
 
@@ -763,6 +782,25 @@ def _build_top_parser(instance_verbs: dict | None = None) -> argparse.ArgumentPa
     parser.add_argument(
         "--version", action="version", version=f"rv {__version__}"
     )
+    parser.add_argument(
+        "--config",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Path to a research_vault.toml file. "
+            "Overrides RESEARCH_VAULT_CONFIG env var and CWD walk-up. "
+            "Errors loudly if the path does not exist."
+        ),
+    )
+    parser.add_argument(
+        "--show-instance",
+        action="store_true",
+        default=False,
+        help=(
+            "Print the resolved instance root and config file path, then exit. "
+            "Useful to confirm which vault 'rv' is targeting (multi-instance guard)."
+        ),
+    )
 
     sub = parser.add_subparsers(dest="verb", metavar="<verb>")
 
@@ -801,6 +839,17 @@ def _build_top_parser(instance_verbs: dict | None = None) -> argparse.ArgumentPa
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the `rv` CLI. Returns exit code."""
+    raw_argv = list(argv or sys.argv[1:])
+
+    # Pre-scan for --config PATH before _load_instance_verbs() calls load_config().
+    # Precedence: --config > RESEARCH_VAULT_CONFIG > CWD walk-up.
+    # We implement this by injecting --config into RESEARCH_VAULT_CONFIG (which
+    # load_config() already reads first), saving and restoring any prior value.
+    _early_config = _extract_config_arg(raw_argv)
+    _saved_env = os.environ.get("RESEARCH_VAULT_CONFIG")
+    if _early_config is not None:
+        os.environ["RESEARCH_VAULT_CONFIG"] = _early_config
+
     # Load instance verbs from config (plugin seam: portable vs instance verbs)
     instance_verbs = _load_instance_verbs()
     parser, _, merged_registry = _build_top_parser(instance_verbs)
@@ -808,9 +857,15 @@ def main(argv: list[str] | None = None) -> int:
     # Check if the verb is registered-but-unimplemented BEFORE argparse rejects it.
     # argparse only knows implemented verbs; future-SR verbs are in _VERB_REGISTRY
     # with module=None and must be handled here for a friendly error message.
-    raw_argv = list(argv or sys.argv[1:])
-    if raw_argv and raw_argv[0] in merged_registry:
-        verb = raw_argv[0]
+    # Strip global flags (--config PATH, --show-instance) to find the verb token.
+    _stripped = list(raw_argv)
+    if "--config" in _stripped:
+        i = _stripped.index("--config")
+        _stripped = _stripped[:i] + _stripped[i + 2:]  # remove flag + value
+    _stripped = [a for a in _stripped if not a.startswith("--config=")]
+    _stripped = [a for a in _stripped if a != "--show-instance"]
+    if _stripped and _stripped[0] in merged_registry:
+        verb = _stripped[0]
         entry = merged_registry[verb]
         if not entry.get("module"):
             sr = entry.get("sr", "a future SR")
@@ -824,6 +879,18 @@ def main(argv: list[str] | None = None) -> int:
         args = parser.parse_args(argv)
     except SystemExit as exc:
         return int(exc.code) if exc.code is not None else 2
+
+    # --- --show-instance global flag ---
+    if getattr(args, "show_instance", False):
+        try:
+            cfg = load_config()
+            config_src = str(cfg.config_file) if cfg.config_file else "(none — defaults)"
+            print(f"instance_root: {cfg.instance_root}")
+            print(f"config_file:   {config_src}")
+        except Exception as e:
+            print(f"rv --show-instance: config error: {e}", file=sys.stderr)
+            return 1
+        return 0
 
     if args.verb is None:
         parser.print_help()
