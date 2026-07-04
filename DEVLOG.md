@@ -1,3 +1,29 @@
+## 2026-07-04 (fix/remove-manager: drop manager role from 6→5 crew)
+
+### Done
+- Removed manager role from DEFAULT_ROSTER, _ROLE_DOC, _CC_ROLE_DESCRIPTIONS, _CC_GRANTS in `build_agents.py`
+- Deleted `doctrine/roles/manager.md`
+- Fixed dangling links in `engineer.md` (×2, pointed to coordination.md and inline) and `designer.md` (×1)
+- Updated prose throughout doctrine (agent-charter, coordination, alfred, architect, researcher, reviewer, standards, note-conventions) to reflect hub-coordinates-directly model
+- Updated CLAUDE.md.tmpl crew table (5 roles), QUICKSTART.md listing
+- Updated tests: test_sr_ccb.py (6→5, removed manager-no-bash test), test_sr_lens_rm.py (expected sets + guard), test_project.py (exclusion test added)
+
+### Decisions
+- Hub coordinates crew directly; no intermediate manager tier. Coordination/synthesis requires cross-project context only the hub has.
+- Rule 8 (doctrine link-integrity): 0 dangling links after removal. CI green on all 5 jobs.
+
+- Argus BLOCK (Argus review): scrubbed runtime Python templates (init.py, control.py, controllib.py),
+  architect.md prose, architecture.md crew list, regenerated control/acme.md
+- Optional prose-residue guard: SKIPPED — "manager" too common a word; lesson in DEVLOG instead
+
+### Decisions
+- Prose-residue lint guard not added: false-positive-prone (contextlib, package manager, historical charter text).
+  The lesson: after deleting a role, do a full `git grep -rn "role_name" src/ data/` pass, not just link-integrity.
+
+### Open / next
+- PR #84 (fix/remove-manager) awaits reviewer pass + hub merge — must merge before SR-HUB-DAG's doctrine slice
+
+---
 ## 2026-07-04 (SR-MS-GATE-ALIGN Slice B — study-type-aware REPRO)
 
 ### Done

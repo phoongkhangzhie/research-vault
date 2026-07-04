@@ -1,8 +1,8 @@
 # Note conventions
 
-Two layers: a **baseline** every project keeps, and a **profile** the manager adds on
+Two layers: a **baseline** every project keeps, and a **profile** the hub adds on
 top, optimized for the kind of work. The baseline is the keeper's to enforce; the
-profile is the manager's to shape.
+profile is the hub's to shape.
 
 > **Every project's notes vault is an OKF bundle.**
 > The note-vault format is **Open Knowledge Format** (markdown + YAML frontmatter + bundle-relative
@@ -39,7 +39,7 @@ profile is the manager's to shape.
    slugs. Broken links are *tolerated* (not-yet-written knowledge). **Structural edits go through
    the link-safe note tool, never by hand.**
 
-## Profiles — the manager's optimization
+## Profiles — the hub's optimization
 
 ### Research
 

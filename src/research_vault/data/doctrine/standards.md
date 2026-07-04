@@ -6,7 +6,7 @@ risk. If you find divergence, treat this file as correct and update the mirror. 
 CI check is not feasible from the OSS repo; drift-guard is a ~/vault-side follow-up. -->
 
 What "good" looks like, enforced two ways: **continuously** by linters and **deeply** by
-review passes. Each manager contract restates these; a project's profile decides which apply.
+review passes. Each project's control file restates these; a project's profile decides which apply.
 
 ## Every project
 
@@ -140,4 +140,4 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   weak claims, harness coverage where code is in scope. Report-only, never blocks.
 - **Deep & on demand** — a headless review pass (read-only, report mode) returns a ranked report
   you judge. Nothing is auto-applied.
-- **In the contract** — each manager's contract restates the bar with its project specifics.
+- **In the control file** — each project's control record restates the bar with its project specifics.

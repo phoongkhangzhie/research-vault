@@ -31,7 +31,7 @@ flowchart LR
         V1 --> ADP
         V2 --> ADP
         subgraph DATA["data/ (SR-PKG — loaded via importlib.resources + as_file;<br/>ships in the wheel · missing file = HARD ERROR, no silent skeleton)"]
-          DOC["doctrine/ (portable docs + the FULL named crew<br/>Alfred/Wren/Atlas/Mason/Argus/Iris/Ada — the headline)"]
+          DOC["doctrine/ (portable docs + the FULL named crew<br/>Alfred/Wren/Mason/Argus/Iris/Ada — the headline)"]
           TPL["templates/ (OKF + CONTRACT + QUICKSTART, placeholdered)"]
           EX["examples/ (≥2 demo projects: research + lit-review)"]
         end
@@ -147,7 +147,7 @@ first-project-pick namespacing hack are **all removed** (#64). Project emphasis 
 flowchart TB
     subgraph DOC["doctrine/ (package data)"]
       CH["agent-charter.md<br/>(universal values)"]
-      RD["roles/&lt;personal&gt;.md<br/>(atlas·mason·ada·iris·argus·wren·alfred<br/>via _ROLE_DOC map)"]
+      RD["roles/&lt;personal&gt;.md<br/>(mason·ada·iris·argus·wren·alfred<br/>via _ROLE_DOC map)"]
     end
     COMP["_compose_hat(role)<br/>= charter + role + read-fresh footer<br/>(NO project lens · build_agents.py:67)"]
     CH --> COMP
@@ -178,7 +178,7 @@ selected by `--target`). The `AgentBackend` seam (`render(role, composed_body) -
 is where v1.1 `codex`/`cursor`/`generic` backends slot in — same composed body, different path/format.
 
 **CC tool-grant policy (PUB-CCB.2 — least-privilege).** The `claude-code` projection stamps YAML
-frontmatter per role: **coordinator-class** (manager, architect) gets **no `Bash`** (structural, not
+frontmatter per role: **coordinator-class** (architect) gets **no `Bash`** (structural, not
 disciplinary); **doer-class** (engineer, designer) gets `Bash` + role tools; **reviewer** is read-only
 (`Read, Bash, Grep, Glob` — no Write/Edit); **researcher** carries `WebSearch`/`WebFetch` for
 retrieval-backed citations. Model values are **aliases only** (`sonnet`/`opus`/`haiku`) — never a

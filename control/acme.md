@@ -1,17 +1,17 @@
 # CONTROL — acme
 
-The manager bus for this project: an async, durable handshake file. The manager reads it
-at the top of each turn; the hub reads it to build the brief. Markdown, near-free, legible.
+The hub↔crew bus for this project: an async, durable handshake file. The hub reads it
+to build the brief; crew members read it at the top of each turn. Markdown, near-free, legible.
 
 > *Created 2026-06-30.*
 
-## Inbox  (hub/owner → manager)
+## Inbox  (hub/owner → crew)
   _(none)_
 
 ## Handshakes  (in-flight, needs the other side)
   _(none)_
 
-## Outbox  (manager → hub/owner)
+## Outbox  (crew → hub/owner)
   _(none)_
 
 ## Open / blockers

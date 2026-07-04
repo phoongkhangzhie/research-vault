@@ -109,19 +109,6 @@ class TestHatBodyCharterAndRole:
             "Charter+role composition is missing."
         )
 
-    def test_manager_hat_contains_charter_phrase(self, tmp_vault):
-        """manager.md must contain a charter phrase."""
-        body = self._get_body(tmp_vault, "manager")
-        assert "never fabricate" in body.lower(), \
-            "manager hat does not contain charter content"
-
-    def test_manager_hat_contains_role_phrase(self, tmp_vault):
-        """manager.md must contain a phrase from the atlas role doc."""
-        body = self._get_body(tmp_vault, "manager")
-        # "coordinate" or "scoping" are in atlas.md
-        assert "coordination" in body.lower() or "scoping" in body.lower() or "manager" in body.lower(), \
-            "manager hat does not contain atlas role-doc content"
-
     def test_architect_hat_contains_role_phrase(self, tmp_vault):
         """architect.md must contain a phrase from the wren role doc."""
         body = self._get_body(tmp_vault, "architect")
@@ -139,7 +126,7 @@ class TestHatBodyCharterAndRole:
 
     def test_hat_body_contains_no_contract_block(self, tmp_vault):
         """No hat should contain a CONTRACT block."""
-        for role in ("manager", "engineer", "researcher", "designer", "reviewer", "architect"):
+        for role in ("engineer", "researcher", "designer", "reviewer", "architect"):
             body = self._get_body(tmp_vault, role)
             assert "# Current project lens (CONTRACT)" not in body, \
                 f"{role}.md hat contains a CONTRACT block — should carry charter+role only"
@@ -297,8 +284,8 @@ class TestVaultLevelCrew:
         cc_dir = tmp_vault / ".claude" / "agents"
         assert cc_dir.is_dir(), ".claude/agents/ must exist"
         roles = {f.stem for f in cc_dir.glob("*.md")}
-        expected = {"manager", "engineer", "researcher", "designer", "reviewer", "architect"}
-        assert roles == expected, f"Expected flat 6-role crew, got: {sorted(roles)}"
+        expected = {"engineer", "researcher", "designer", "reviewer", "architect"}
+        assert roles == expected, f"Expected flat 5-role crew, got: {sorted(roles)}"
 
     def test_build_agents_dir_writes_flat_hats(self, tmp_vault):
         """build-agents (agents-dir target) writes flat .agents/<role>.md."""
@@ -316,9 +303,9 @@ class TestVaultLevelCrew:
 
         agents_dir = tmp_vault / ".agents"
         roles = {f.stem for f in agents_dir.glob("*.md")}
-        expected = {"manager", "engineer", "researcher", "designer", "reviewer", "architect"}
+        expected = {"engineer", "researcher", "designer", "reviewer", "architect"}
         assert roles == expected, (
-            f"agents-dir build must write flat 6-role files, got: {sorted(roles)}"
+            f"agents-dir build must write flat 5-role files, got: {sorted(roles)}"
         )
 
 
@@ -470,11 +457,8 @@ class TestDoctrineNoContractTerms:
         assert "rv status" in text, \
             "coordination.md must reference rv status as the read-fresh path"
 
-    def test_atlas_role_no_contract_roadmap(self):
-        """manager.md must not reference 'CONTRACT roadmap' (self-contradiction in hat body)."""
+    def test_manager_role_doc_deleted(self):
+        """manager.md must NOT exist — manager role removed; hub coordinates directly."""
         manager_md = self._DOCTRINE_DIR / "roles" / "manager.md"
-        assert manager_md.is_file(), f"manager.md not found at {manager_md}"
-        text = manager_md.read_text(encoding="utf-8")
-        assert "CONTRACT roadmap" not in text, \
-            ("manager.md still says 'CONTRACT roadmap' — this composes verbatim into the "
-             "manager hat, which self-contradicts the read-fresh footer.")
+        assert not manager_md.is_file(), \
+            "manager.md still exists — it should have been deleted (hub coordinates directly)"
