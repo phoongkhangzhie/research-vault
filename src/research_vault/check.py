@@ -9,7 +9,6 @@ Checks:
   2. ANTHROPIC_API_KEY — must be set in env or resolvable via keyring
   3. asta (optional) — the literature-search integration package
   4. Zotero / ZOTERO_KEY (optional) — for citation management
-  5. figures extra (optional) — matplotlib/seaborn/pandas for rv figure preview/render
 
 Exit codes:
   0 — all required prerequisites present (optional checks may warn)
@@ -158,78 +157,6 @@ def _check_zotero() -> tuple[bool, str, bool]:
     ), False
 
 
-def _check_figures() -> tuple[bool, str, bool]:
-    """Return (ok, message, required) for the [figures] optional extra check.
-
-    The figures extra (matplotlib/seaborn/pandas) is OPTIONAL — core loops
-    run without it; `rv figure preview/render` requires it.
-    SR-FIG: this is the first dependency-bearing capability in Research Vault.
-    """
-    try:
-        import matplotlib  # type: ignore[import]
-        import pandas  # type: ignore[import]
-        return True, "figures extra (matplotlib+pandas): found", False
-    except ImportError:
-        return False, (
-            "figures extra: NOT FOUND (optional)\n"
-            "  Install: pip install research-vault[figures]\n"
-            "  Required for `rv figure preview` and `rv figure render`.\n"
-            "  Includes: matplotlib>=3.8, seaborn>=0.13, pandas>=2.2"
-        ), False
-
-
-def _check_latex() -> tuple[bool, str, bool]:
-    """Return (ok, message, required) for the LaTeX/texlive optional check.
-
-    texlive-full + chktex are SYSTEM PREREQUISITES for `rv manuscript compile`
-    (not pip-installable). This is an OPTIONAL probe — core research loops run
-    without it; manuscript compilation requires it.
-
-    SR-MS-1b: mirrors the figures optional prereq pattern (SR-FIG).
-
-    Discovery: calls ``shutil.which`` with an augmented PATH that includes
-    ``/opt/homebrew/bin`` (standard Homebrew prefix for macOS TeX Live installs).
-    Using ``shutil.which(path=...)`` keeps the probe monkeypatch-friendly — tests
-    can patch ``shutil.which`` to control the result without the probe falling
-    back to a direct ``os.path.isfile`` check that bypasses the patch.
-    """
-    import shutil
-    import os
-
-    # Augment PATH with /opt/homebrew/bin for Homebrew TeX Live on macOS.
-    # Pass it explicitly to shutil.which so the probe is monkeypatch-friendly.
-    current_path = os.environ.get("PATH", "/usr/bin:/bin")
-    homebrew_bin = "/opt/homebrew/bin"
-    augmented_path = (
-        f"{homebrew_bin}:{current_path}"
-        if homebrew_bin not in current_path
-        else current_path
-    )
-
-    pdflatex = shutil.which("pdflatex", path=augmented_path)
-    bibtex = shutil.which("bibtex", path=augmented_path)
-    chktex = shutil.which("chktex", path=augmented_path)
-
-    if pdflatex and bibtex:
-        chktex_note = f" (chktex: {'found' if chktex else 'not found — install for lint'})"
-        return True, (
-            f"LaTeX (pdflatex + bibtex): found{chktex_note}"
-        ), False
-    else:
-        missing = []
-        if not pdflatex:
-            missing.append("pdflatex")
-        if not bibtex:
-            missing.append("bibtex")
-        return False, (
-            f"LaTeX: NOT FOUND (optional) — missing: {', '.join(missing)}\n"
-            "  Required for `rv manuscript compile` (system package, NOT pip-installable):\n"
-            "    macOS:   brew install --cask mactex   or   brew install basictex\n"
-            "    Ubuntu:  sudo apt-get install texlive-full chktex\n"
-            "    Other:   https://www.tug.org/texlive/"
-        ), False
-
-
 # ---------------------------------------------------------------------------
 # Main preflight runner
 # ---------------------------------------------------------------------------
@@ -247,8 +174,6 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
         "asta": bool,
         "zotero": bool,
         "wandb_key": bool,
-        "figures": bool,
-        "latex": bool,          (SR-MS-1b: optional manuscript compile prereq)
         "all_required_ok": bool,
         "report": str,          human-readable multi-line report
       }
@@ -266,8 +191,6 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     asta_ok, asta_msg, _ = _check_asta()
     zotero_ok, zotero_msg, _ = _check_zotero()
     wandb_ok, wandb_msg, _ = _check_wandb()
-    figures_ok, figures_msg, _ = _check_figures()
-    latex_ok, latex_msg, _ = _check_latex()
 
     all_required = claude_ok and apikey_ok
 
@@ -287,10 +210,6 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     lines.append(f"  [{status}] {zotero_msg}")
     status = "OK" if wandb_ok else "WARN"
     lines.append(f"  [{status}] {wandb_msg}")
-    status = "OK" if figures_ok else "WARN"
-    lines.append(f"  [{status}] {figures_msg}")
-    status = "OK" if latex_ok else "WARN"
-    lines.append(f"  [{status}] {latex_msg}")
 
     # Summary
     # --- Compute manifest nudge (SR-CO) ---
@@ -307,10 +226,7 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     lines.append("")
     if all_required:
         lines.append("Result: OK — all required prerequisites present.")
-        optional_missing = (
-            not asta_ok or not zotero_ok or not wandb_ok
-            or not figures_ok or not latex_ok
-        )
+        optional_missing = not asta_ok or not zotero_ok or not wandb_ok
         if optional_missing:
             lines.append("  (optional tools not found — some features limited)")
     else:
@@ -334,8 +250,6 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
         "asta": asta_ok,
         "zotero": zotero_ok,
         "wandb_key": wandb_ok,
-        "figures": figures_ok,
-        "latex": latex_ok,
         "compute_manifest": compute_manifest_present,
         "all_required_ok": all_required,
         "report": report,
@@ -352,14 +266,13 @@ def build_parser(
     """Build the argument parser for the ``check`` verb.
 
     When to use: ``rv check`` before running any research loop. Verifies that
-    the Claude CLI, API key, and optional tools (asta, Zotero, figures extra)
-    are available. Fail-fast: reports all failures with clear install instructions.
+    the Claude CLI, API key, and optional tools (asta, Zotero) are available.
+    Fail-fast: reports all failures with clear install instructions.
     """
     desc = (
         "Preflight check — verify Research Vault prerequisites. "
         "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
-        "asta (optional, for literature search), Zotero/ZOTERO_KEY (optional, for citations), "
-        "figures extra (optional, for rv figure preview/render). "
+        "asta (optional, for literature search), Zotero/ZOTERO_KEY (optional, for citations). "
         "Exit 0 if all required prerequisites are present; exit 1 if any are missing."
     )
     if parent is not None:
