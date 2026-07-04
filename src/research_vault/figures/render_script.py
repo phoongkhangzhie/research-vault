@@ -27,7 +27,7 @@ of violation:
 
 ``emit_scaffold`` emits an AUTHOR-ME template.  CRITICAL: the scaffold deliberately does
 NOT satisfy ``static_check`` — a machine-generated always-green script makes the gate
-vacuous (Wren's ruling).  The scaffold is a starting point for a human/LLM to author;
+vacuous (honesty gate ruling).  The scaffold is a starting point for a human/LLM to author;
 the check runs on the AUTHORED result.
 
 Authored-script contract (summary; full details in the scaffold docstring):
@@ -300,7 +300,7 @@ def emit_scaffold(fig_note_fields: dict[str, Any]) -> str:
 
     CRITICAL: this scaffold deliberately does NOT satisfy static_check.
     A machine-generated always-green script makes the honesty gate vacuous
-    (Wren's ruling).  The scaffold is a starting point — a human or LLM fills
+    (honesty gate ruling).  The scaffold is a starting point — a human or LLM fills
     in the FILL markers; static_check runs on the AUTHORED result.
 
     The scaffold structure:

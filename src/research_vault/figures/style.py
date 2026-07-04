@@ -2,7 +2,7 @@
 
 SEAM CONTRACT — DO NOT CHANGE THE SIGNATURE.
   apply_style(preset, skin) is the hook that render calls before plotting.
-  The designer (Iris) owns the aesthetic; the plumbing calls this hook.
+  The designer owns the aesthetic; the plumbing calls this hook.
 
   The two halves are INDEPENDENTLY MERGEABLE via this seam:
     - Engineer ships this implementation (SR-FIG-METHOD-AB Slice A).
@@ -20,7 +20,7 @@ Presets:
 Skin:
   A per-project palette accent applied on top of the shared preset grammar.
   ``skin="culturebench"`` (or any slug containing "culturebench") → teal/clay
-  tokens from Iris's design prototype.  Unknown or None → project default palette.
+  tokens from the design prototype.  Unknown or None → project default palette.
   The designer extends this mapping as new projects are added.
 
 R-COLOR: seaborn's set_theme / despine / context MACHINERY is adopted, but the
@@ -42,7 +42,7 @@ from typing import Any
 
 
 # ---------------------------------------------------------------------------
-# Culturebench / project palette tokens (Iris's design prototype)
+# Culturebench / project palette tokens (design prototype)
 # ---------------------------------------------------------------------------
 
 # Background / text
