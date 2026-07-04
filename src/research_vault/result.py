@@ -39,6 +39,8 @@ import sys
 import time
 from pathlib import Path
 
+from .hashing import hash_file as _hash_file  # canonical file hasher — never duplicate
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -89,11 +91,7 @@ def _verify_results_hash(results_location: str, results_hash: str) -> str | None
 
     expected_hex = results_hash[len("sha256:"):]
     try:
-        h = hashlib.sha256()
-        with open(artifact, "rb") as fh:
-            while chunk := fh.read(1 << 20):
-                h.update(chunk)
-        actual_hex = h.hexdigest()
+        actual_hex = _hash_file(artifact)[len("sha256:"):]
     except OSError as e:
         return f"cannot read results artifact: {e}"
 
