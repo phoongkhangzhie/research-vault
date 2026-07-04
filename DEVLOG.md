@@ -17,6 +17,25 @@
 ### Open / next
 - Slice C (honesty gate + doctrine) — separate PR after this lands.
 - Iris deploy-and-judge-live (rendered output aesthetics) — separate task.
+## 2026-07-04 (SR-HUB-DAG slices A+B+D: catalog + rv experiment new + orphan-guardrail)
+
+### Done
+- `dag/catalog.py`: static SSOT registry for 4 built-in research loops; gate IDs grounded in shipped manifests.
+- `dag/verbs.py`: `rv dag templates` subcommand — discovery entry, pure read.
+- `experiment.py`: `rv experiment new` scaffolder (the missing rail). Authors plan note skeleton + REGISTERED DAG manifest mirroring research-loop.json topology. Prints exact freeze commands.
+- `status.py`: orphan-guardrail — scans experiments/*.md for plan_kind: preregistration, warns when no covering run is registered.
+- `cli.py`: registered `experiment` verb with anti-pattern; dag `when_to_use` mentions templates.
+- 42 new tests (catalog, rv experiment new, freeze round-trip, orphan-guardrail). Full suite: 2147 passed.
+- PR #86: https://github.com/khangzhie-vault/research-vault/pull/86
+
+### Decisions
+- Slice C (doctrine) is a SEPARATE follow-up PR that depends on this catalog — not included here per scope.
+- `rv experiment new` uses `source_dir` (via `cfg.project_notes_dir`) as the notes base — consistent with all other scaffolders.
+- Orphan detection derives expected `run_id` as `<stem-without-plan>-loop` with an any()-OR fallback for alternate run IDs.
+
+### Open / next
+- Slice C: doctrine (CLAUDE.md.tmpl, alfred.md, research-dags.md, CHK-CREW-CLEAN) — depends on catalog (this PR).
+- PR #86 needs reviewer-gate pass + Wren architect fit-check before merge.
 
 ## 2026-07-04 (fix/remove-manager: drop manager role from 6→5 crew)
 

@@ -544,6 +544,61 @@ def cmd_status(
     except Exception:
         pass
 
+    # --- Research-loop drift check: orphan preregistration plans (SR-HUB-DAG §D) ---
+    # A preregistration plan note with no registered DAG run means rv plan freeze
+    # cannot bind (no run_id to hash into meta). This is the guardrail that would
+    # have caught the original root cause (ad-hoc dispatch of pre-registered studies).
+    # Reuses DagRunSource.summary() — no new aggregation.
+    try:
+        from .note import _parse_frontmatter as _pfm
+        experiments_dir: Path | None = None
+        try:
+            experiments_dir = cfg.project_notes_dir(project) / "experiments"
+        except (KeyError, Exception):
+            experiments_dir = None
+
+        if experiments_dir and experiments_dir.is_dir():
+            dag_src = DagRunSource()
+            runs = dag_src.summary(cfg)
+            # run_ids that are live (in-flight or terminal) — any registered run
+            registered_run_ids: set[str] = {r["run_id"] for r in runs}
+
+            orphans: list[str] = []
+            for note_path in sorted(experiments_dir.glob("*.md")):
+                try:
+                    text = note_path.read_text(encoding="utf-8")
+                    fields, _ = _pfm(text)
+                except Exception:
+                    continue
+                if fields.get("plan_kind", "").strip() != "preregistration":
+                    continue
+                # Derive the expected run_id: "<stem-without-plan>-loop"
+                # Convention: plan note is "<id>-plan.md" → run_id is "<id>-loop"
+                stem = note_path.stem  # e.g. "q1-plan"
+                if stem.endswith("-plan"):
+                    exp_id = stem[:-5]  # strip "-plan"
+                else:
+                    exp_id = stem
+                expected_run_id = f"{exp_id}-loop"
+                # Exact match on the canonical "<id>-loop" convention only.
+                # A loose startswith() match would suppress warnings for unrelated
+                # runs whose id happens to share the same prefix.
+                covered = expected_run_id in registered_run_ids
+                if not covered:
+                    orphans.append(note_path.name)
+
+            for orphan_name in orphans:
+                exp_id_hint = orphan_name.replace("-plan.md", "")
+                attention.append(
+                    f"WARN: pre-registration plan `{orphan_name}` has no registered "
+                    f"DAG run — `rv plan freeze` cannot bind (no run_id to hash). "
+                    f"Run `rv experiment new {project} {exp_id_hint} --question '...'` "
+                    f"or `rv dag run <manifest>` BEFORE dispatching crew. "
+                    f"(SR-HUB-DAG §D)"
+                )
+    except Exception:
+        pass
+
     if attention:
         lines.append("## Needs Attention")
         for a in attention:
