@@ -1,6 +1,6 @@
 # Coordination
 
-How the hub talks to managers — one front door, an async file bus, hot/cold sessions.
+How the hub coordinates the crew — one front door, an async file bus, hot/cold sessions.
 
 ## The pieces
 
@@ -8,10 +8,10 @@ How the hub talks to managers — one front door, an async file bus, hot/cold se
   small project *cards* (see the registry), never a full prompt. It reads the control files
   to brief and route work.
 - **Control files — the bus.** One `CONTROL.md` per project: a markdown handshake
-  surface. The hub posts requests; the manager posts results. **Async** (nobody has to
+  surface. The hub posts requests; crew members post results. **Async** (nobody has to
   be live at once), **durable** (survives any session dying), **legible** (you can read
   the whole exchange), and near-free.
-- **Managers — hot or cold.** The project you're actively in runs a **hot** session
+- **Crew sessions — hot or cold.** The project you're actively in runs a **hot** session
   (full context loaded once, holds working state). Dormant projects have **no open
   session** — their state lives in the control file + devlog, woken on demand. Idle costs
   nothing.
@@ -31,19 +31,19 @@ project's own repo. For a single operator that's the right call:
   alongside the doctrine and the task board it coordinates with.
 - **Rests on its own.** A dormant project's control file is its state-at-rest until woken.
 
-Fixed sections so the hub and manager always know where to look:
+Fixed sections so the hub and crew always know where to look:
 
 ```md
 # Control — <project>
 
-## Inbox  (hub → manager: do these)
+## Inbox  (hub → crew: do these)
 - [ ] 2026-06-24 review: the compose-stage fabrication guard  ·#R12
 - [ ] 2026-06-24 decision needed: ship Sonnet on apply flows?
 
 ## Handshakes  (needs a yes/no before proceeding)
 - [ ] <project>: OK to add `finding` type to store?  (awaiting operator)
 
-## Outbox  (manager → hub: done / blocked / found)
+## Outbox  (crew → hub: done / blocked / found)
 - 2026-06-24 done: regenerated panels A–D with provenance  ·#R09
 - 2026-06-24 blocked: needs the WVS license file to proceed
 
@@ -53,23 +53,15 @@ Fixed sections so the hub and manager always know where to look:
 
 The hub reads every project's `Inbox`/`Outbox`/`Open findings` to build its brief.
 
-## Recursion: the same bus, one level down
+## Communication chain
 
-The control-file pattern is **self-similar**. The hub coordinates managers over
-`control/<project>.md`; **each manager coordinates its own subagents the same way**, over a
-project-local team bus at `<repo>/.agents/CONTROL.md` (same sections: Inbox · Handshakes ·
-Outbox · Open findings). A subagent posts its `⟦RETURN⟧` and any flags to *its manager's* bus —
-making the manager's coordination state durable, just as the manager's outbox makes the hub's
-view durable.
-
-This fixes the **communication chain**: everything flows to your coordinator, never laterally.
-A reviewer with a stack-coherence concern flags **its manager** (not the Architect directly);
-the manager decides to act or escalate **up** to the Architect over the hub bus; a genuine
-conflict goes to the operator. So:
+Everything flows **up** to the hub, never laterally. A reviewer with a stack-coherence concern
+flags the hub (not the Architect directly); the hub decides to act or escalate to the Architect;
+a genuine conflict goes to the operator as completed staff work. So:
 
 ```text
-reviewer/engineer ──▶ manager ──▶ Architect ──▶ operator
-   (team bus)      (hub bus handshake)   (completed staff work)
+reviewer/engineer ──▶ hub ──▶ Architect ──▶ operator
+  (control bus)    (hub bus handshake)   (completed staff work)
 ```
 
 Each arrow is a node talking to the one above it. No agent reaches across to a peer authority —
@@ -77,7 +69,7 @@ that would be the back-channel the whole bus exists to prevent.
 
 ## Merge authority — split by class
 
-The **manager classifies** each PR — `auto-merge` / `review-then-merge` / `human-go`, with a
+The **hub classifies** each PR — `auto-merge` / `review-then-merge` / `human-go`, with a
 grounded `basis` (reversibility · harness-coverage · severity · precedent). The **engineer
 executes** the merge **on the authorizing gate** (CI-green, ± a reviewer verdict, ± the
 operator's go). **Coordinators never run a merge** (no shell — the boundary is structural).
@@ -95,7 +87,7 @@ system and a constitution.
 
 ## Routing
 
-**Routing is computed, not recalled.** The manager fills its spawn-request `hat` from the
+**Routing is computed, not recalled.** The hub fills its spawn-request `hat` from the
 build-agents roster (the subagent name in `.claude/agents/<role>.md` IS the canonical hat),
 and the hub *executes* the named hat without re-deriving. The roster is the single source of
 truth, so the computed hat can't drift — no hand-recall, no stale registry.
@@ -114,7 +106,7 @@ A specific does not become fact by being passed along. Two rules, one principle 
 
 ## The cheap trigger
 
-A manager **reads its control file at the top of each turn** — a one-line discipline, so
+The hub **reads all project control files at the top of each turn** — a one-line discipline, so
 handshakes get picked up without a watcher. Want true auto-wake (a dormant project pings
 when something lands)? Add a file-change hook — optional machinery to add only if manual
 nudging annoys you.
@@ -123,7 +115,7 @@ nudging annoys you.
 
 Dormant projects cost nothing (no session). The active project is one warm session,
 loaded once. Coordination is tiny file I/O. The hub stays thin. That beats both
-*reloading a full prompt on every switch* and *keeping every manager hot*.
+*reloading a full prompt on every switch* and *keeping every crew role hot*.
 
 ## Dispatch: fresh + pointed by default; resume is the justified exception
 

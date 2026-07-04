@@ -99,4 +99,4 @@ to generate the agent hat files.
 - `examples/demo-litreview/README.md` — lit-review loop walkthrough
 - `doctrine/agent-charter.md` — the values and epistemics of the system
 - `doctrine/coordination.md` — how the control plane works
-- `doctrine/roles/` — the crew role docs (hub, manager, engineer, researcher, designer, reviewer, architect)
+- `doctrine/roles/` — the crew role docs (hub, engineer, researcher, designer, reviewer, architect)

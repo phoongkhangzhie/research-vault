@@ -5,7 +5,7 @@ to regenerate agent hat files from the role registry and role-doc templates.
 
 ``--target agents-dir`` (default) writes prose hat files to
 ``agents_dir/<role>.md`` — the target-neutral, harness-agnostic
-source-of-record for the ONE vault-level crew (6 roles, flat).
+source-of-record for the ONE vault-level crew (5 roles, flat).
 
 ``--target claude-code`` writes Claude Code subagent files to
 ``.claude/agents/<role>.md`` at the instance root (CC YAML frontmatter +
@@ -45,7 +45,6 @@ if TYPE_CHECKING:
 # Map from functional role name → role-doc filename under doctrine/roles/.
 # Files use role-based names so the shipped framework carries no crew narrative-names.
 _ROLE_DOC: dict[str, str] = {
-    "manager":    "manager.md",
     "engineer":   "engineer.md",
     "researcher": "researcher.md",
     "designer":   "designer.md",
@@ -137,10 +136,6 @@ def _compose_hat(role: str, doctrine_dir: Path) -> str:
 # ---------------------------------------------------------------------------
 
 _CC_ROLE_DESCRIPTIONS: dict[str, str] = {
-    "manager": (
-        "Planning, scoping, and coordination. Delegate for task cards, "
-        "CONTROL bus updates, and coordinating the crew across a project."
-    ),
     "engineer": (
         "Code, tests, and CI. Delegate for feature implementation, bug fixes, "
         "refactoring, and running the authorized merge."
@@ -167,7 +162,6 @@ _CC_ROLE_DESCRIPTIONS: dict[str, str] = {
 # (tools_string, model_alias)
 # Model alias only — never a full versioned ID (leakage class-6).
 _CC_GRANTS: dict[str, tuple[str, str]] = {
-    "manager":    ("Read, Write, Edit, Glob, Grep",                             "sonnet"),
     "engineer":   ("Read, Write, Edit, Bash, Glob, Grep",                      "sonnet"),
     "researcher": ("Read, Write, Edit, Bash, WebSearch, WebFetch, Glob, Grep", "opus"),
     "designer":   ("Read, Write, Edit, Bash, Glob, Grep",                      "sonnet"),
@@ -245,8 +239,8 @@ _BACKENDS: dict[str, AgentsDirBackend | ClaudeCodeBackend] = {
     "claude-code": ClaudeCodeBackend(),
 }
 
-# The 6 vault roles emitted for both targets:
-# DEFAULT_ROSTER (5 project roles) + architect (vault-level coordinator).
+# The 5 vault roles emitted for both targets:
+# DEFAULT_ROSTER (4 project roles) + architect (vault-level coordinator).
 _VAULT_ROLES = list(DEFAULT_ROSTER) + ["architect"]
 
 
@@ -264,7 +258,7 @@ def cmd_build(
 ) -> int:
     """Generate agent hat files from the vault-level crew doctrine.
 
-    Builds the ONE general crew (6 roles) from charter + role doctrine.
+    Builds the ONE general crew (5 roles) from charter + role doctrine.
     No per-project lens is baked; project context is read fresh at work time.
 
     target:
@@ -373,7 +367,7 @@ def build_parser(
     """
     desc = (
         "Regenerate agent hat files from the charter + role doctrine. "
-        "Builds the ONE vault-level crew (6 roles); no per-project lens. "
+        "Builds the ONE vault-level crew (5 roles); no per-project lens. "
         "Default (--target agents-dir): writes flat hat files to agents_dir/<role>.md. "
         "With --target claude-code: writes CC subagent files to "
         ".claude/agents/<role>.md at the instance root."

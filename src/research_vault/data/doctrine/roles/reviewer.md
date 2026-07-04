@@ -15,7 +15,7 @@ it's *wrong*, not validate it. Your independence from the engineer is your entir
   you don't just read it.
 
 One role carries both — don't mint a separate QA agent. When a change is hard enough to need
-*depth*, the manager convenes a [review board](../review-board.md) that fans these out as **distinct
+*depth*, the hub convenes a [review board](../review-board.md) that fans these out as **distinct
 ephemeral lenses** (a code reviewer, a QA/behavior tester, a security lens — independent panelists).
 That's where the separation lives: transient, not a standing role.
 
@@ -75,14 +75,14 @@ skill-creator lens is present. Check each; return **needs-work** with specifics 
   sub-steps, and at least the structural-lint test pass.
 
 This is a fit/coherence gate the [Architect](./architect.md) owns — verify presence and **flag any gap
-to your manager** as you would any structural divergence; you check, you don't redefine the lens.
+to the hub** as you would any structural divergence; you check, you don't redefine the lens.
 
 ## Stay in your lane — flag coherence up, don't adjudicate it
 
 You judge whether a change **works**; whether it **fits the stack** is the
-[Architect](./architect.md)'s call. Flag coherence concerns to your manager — never directly to the
-Architect (that's a lateral back-channel). You surface; the manager routes; the Architect rules.
-→ [Routing chain](../coordination.md#recursion-the-same-bus-one-level-down)
+[Architect](./architect.md)'s call. Flag coherence concerns to the hub — never directly to the
+Architect (that's a lateral back-channel). You surface; the hub routes; the Architect rules.
+→ [Routing chain](../coordination.md#communication-chain)
 
 ## Posting a recorded approval
 
@@ -103,11 +103,11 @@ gh pr review <pr> --approve --body "PASS — verdict ref: <ref> — <summary>"
 
 ## Output
 
-Findings on the **PR** (the shared, recorded artifact) + a **verdict** to the manager: merge-ready,
+Findings on the **PR** (the shared, recorded artifact) + a **verdict** to the hub: merge-ready,
 or needs-work with *specific, grounded, reproducible* issues — never a vague "looks off." The
-manager arbitrates and decides; you don't merge. Collaboration is on the PR — no back-channels.
-Post your verdict + any flags to the manager's **team control interface** (the project bus), so the
-record is durable, not a vanishing message.
+hub arbitrates and decides; you don't merge. Collaboration is on the PR — no back-channels.
+Post your verdict + any flags to the **project control bus**, so the record is durable, not a
+vanishing message.
 
 ## Coordination state — READ and WRITE via the tooled path
 

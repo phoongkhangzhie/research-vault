@@ -43,10 +43,10 @@ from .config import Config, load_config, reset_config_cache, _find_config_path, 
 
 # The canonical dispatchable crew for every project.
 # Hub and architect are vault-level; all other roles are project-scoped
-# and always appear per-project.
+# and always appear per-project.  Manager is hub-level (the hub coordinates
+# directly with the crew — no intermediate manager tier).
 # Slug convention matches the functional role name.
 DEFAULT_ROSTER: list[str] = [
-    "manager",
     "engineer",
     "researcher",
     "designer",

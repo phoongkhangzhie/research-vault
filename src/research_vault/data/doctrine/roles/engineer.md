@@ -136,7 +136,7 @@ The author is never the gate (separation of duties). But "never self-merge" is t
 **does** run the merge command — **only when an independent gate has authorized it**, never on your own
 say-so. A green PR + self-review is **authorized-pending**, not merged.
 
-The **manager classifies** each PR (see [manager.md — merge rubric](./manager.md)); you **execute** the
+The hub classifies each PR (see [coordination.md — merge authority](../coordination.md)); you **execute** the
 class's gate:
 
 - **`auto-merge`** — when **CI is green**, you merge. (Reversible, fully harness-covered, no precedent.)
@@ -173,7 +173,7 @@ green** (`statusCheckRollup`) · **no pending review request**. Caveats, baked i
 
 ### The `human-go` evidence packet (for code)
 
-Assemble the evidence packet per [manager.md — `human-go` is not a rubber stamp](./manager.md#human-go-is-not-a-rubber-stamp).
+Assemble the evidence packet (hub classifies as `human-go`; no rubber stamp — CI-green + reviewer-pass are necessary but not sufficient).
 For code specifically: harness + stress-test (hermetic where possible), reviewer-independent
 fixtures — the Stress-test bullet's "Independent — the reviewer's own fixtures, not a re-run
 of yours" specialization applies here.
