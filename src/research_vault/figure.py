@@ -40,7 +40,9 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -66,8 +68,13 @@ def _check_figures_extra() -> int | None:
     Returns 1 (exit code) if any required package is absent — prints friendly message.
     NEVER raises ImportError — always returns a printable error.
     """
+    # C1 (SR-FIG-METHOD-AB): probe seaborn here in addition to pandas + matplotlib.
+    # Without this, an env with mpl-but-not-seaborn passes the guard then
+    # apply_style blows up mid-render.  Two-layer defence:
+    #   Layer 1 (here): _check_figures_extra probes seaborn BEFORE render runs.
+    #   Layer 2: apply_style itself has a try/except ImportError → returns None.
     missing = []
-    for pkg in ("pandas", "matplotlib"):
+    for pkg in ("pandas", "matplotlib", "seaborn"):
         try:
             __import__(pkg)
         except ImportError:
@@ -668,6 +675,114 @@ def cmd_preview(
     return 0
 
 
+def _cmd_render_via_script(
+    render_script_str: str,
+    fields: dict[str, str],
+    exp_fields: dict[str, str],
+    *,
+    project: str,
+    fig_id: str,
+    cfg: Config,
+    note_path: Path,
+    location: str,
+) -> int:
+    """Run an authored render script (Slice B seam).
+
+    Runs ONLY after ``static_check`` passes — never executes untrusted code to
+    check it.  Injects the required variables into the script's execution
+    namespace via a Python preamble (no temp files; uses ``-c``).
+
+    Variables injected into the script namespace:
+      results_location        — absolute path to the frozen CSV
+      experiment_results_hash — ``"sha256:<hex>"`` from the experiment note
+      fig_id                  — figure identifier
+      state_figures_dir       — absolute path to ``state/figures/``
+      preset                  — style preset name (from figure note)
+      project                 — project slug
+
+    Returns 0 on success, 1 on static-check violations or non-zero exit.
+    """
+    from .figures.render_script import static_check
+
+    script_path = Path(render_script_str)
+    if not script_path.is_absolute():
+        # Resolve relative paths against the figure note's directory
+        script_path = note_path.parent / render_script_str
+
+    if not script_path.exists():
+        print(
+            f"rv figure render: render_script not found: {script_path}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Static check — must pass BEFORE execution
+    try:
+        violations = static_check(script_path)
+    except SyntaxError as e:
+        print(
+            f"rv figure render: render_script has a syntax error: {e}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if violations:
+        print(
+            f"rv figure render: render_script failed static_check "
+            f"({len(violations)} violation(s)) — NOT executed:",
+            file=sys.stderr,
+        )
+        for v in violations:
+            print(f"  {v}", file=sys.stderr)
+        return 1
+
+    # Build the injection preamble — these names are available as globals in the script
+    preset = fields.get("style", "publication")
+    experiment_results_hash = exp_fields.get(
+        "results_hash", fields.get("experiment_results_hash", "")
+    )
+    state_figs_dir = cfg.state_dir / "figures"
+    state_figs_dir.mkdir(parents=True, exist_ok=True)
+
+    preamble = (
+        f"results_location = {json.dumps(location)}\n"
+        f"experiment_results_hash = {json.dumps(experiment_results_hash)}\n"
+        f"fig_id = {json.dumps(fig_id)}\n"
+        f"state_figures_dir = {json.dumps(str(state_figs_dir))}\n"
+        f"preset = {json.dumps(preset)}\n"
+        f"project = {json.dumps(project)}\n"
+    )
+    full_source = preamble + script_path.read_text(encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "-c", full_source],
+        capture_output=True,
+        text=True,
+    )
+
+    # Surface stdout/stderr regardless of exit code
+    if result.stdout:
+        print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+
+    if result.returncode != 0:
+        print(
+            f"rv figure render: render_script exited with code {result.returncode}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Update figure note with render provenance
+    from . import __version__ as rv_version
+    render_ts = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    svg_path = state_figs_dir / f"{fig_id}.svg"
+    png_path = state_figs_dir / f"{fig_id}.png"
+    _update_figure_note_rendered(note_path, render_ts, rv_version, svg_path, png_path)
+    print(f"Updated:  {note_path}")
+    return 0
+
+
 def cmd_render(
     project: str,
     fig_id: str,
@@ -698,10 +813,6 @@ def cmd_render(
     rc = _check_figures_extra()
     if rc is not None:
         return rc
-
-    import pandas as pd  # guarded
-    import matplotlib  # noqa: F401 — guarded import
-    import matplotlib.pyplot as plt
 
     cfg = config or load_config()
     note_path = _figure_note_path(project, fig_id, cfg)
@@ -738,6 +849,29 @@ def cmd_render(
             file=sys.stderr,
         )
         return 1
+
+    # --- Slice B: render_script seam (SR-FIG-METHOD-AB) ---
+    # When render_script: is present in the figure note, run the authored script
+    # (after static_check).  When absent, fall through to the df.plot stub (C3).
+    render_script_str = fields.get("render_script", "").strip()
+    if render_script_str:
+        return _cmd_render_via_script(
+            render_script_str,
+            fields,
+            exp_fields,
+            project=project,
+            fig_id=fig_id,
+            cfg=cfg,
+            note_path=note_path,
+            location=location,
+        )
+
+    # --- C3: existing df.plot stub (UNCHANGED — zero-config back-compat, opt-in) ---
+    # No render_script: field → identical behaviour to before this PR.
+    # The stub stays so existing figure specs without a render_script continue to work.
+    import pandas as pd  # guarded
+    import matplotlib  # noqa: F401 — guarded import
+    import matplotlib.pyplot as plt
 
     try:
         df = pd.read_csv(location)

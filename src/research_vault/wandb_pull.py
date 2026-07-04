@@ -31,7 +31,6 @@ SR-EXP-REPRO: fetch_run now returns dict(run.config) + run.metadata; wandb_pull
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -41,6 +40,7 @@ from typing import Any
 
 from .adapters.base import EnvSecretStore
 from .config import Config, load_config
+from .hashing import hash_file as _hash_file  # C2: shared hasher — never duplicate
 from .note import REPRO_SENTINEL
 
 
@@ -197,19 +197,6 @@ def fetch_run(entity: str, project: str, run_name: str, api_key: str) -> dict[st
         "config": run_config,
         "metadata": run_metadata,
     }
-
-
-# ---------------------------------------------------------------------------
-# Hash helper (streaming — same pattern as _verify_local_file_hash in wait_for)
-# ---------------------------------------------------------------------------
-
-def _hash_file(path: Path) -> str:
-    """Compute sha256 hash of a file via streaming chunked read. Returns 'sha256:<hex>'."""
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        while chunk := fh.read(1 << 20):  # 1 MiB chunks
-            h.update(chunk)
-    return "sha256:" + h.hexdigest()
 
 
 # ---------------------------------------------------------------------------
