@@ -13,9 +13,13 @@ Verbs:
   rv dag complete <run_id> <node_id> [--status succeeded|failed|blocked]
       Mark a node complete and re-print the frontier.
 
-  rv dag approve <run_id> <node_id>
-      Approve a human-go node that is in 'awaiting-go' state.
-      Moves it to 'succeeded' and re-prints the frontier.
+  rv dag approve <run_id> <node_id> [--reject] [--note TEXT] [--output k=v]…
+      Approve (or reject) a human-go node in 'awaiting-go' state.
+      Default: moves to 'succeeded' and re-prints the frontier.
+      --reject: moves to 'blocked' (terminal); downstream afterok gates halt.
+      --note TEXT: store decision rationale in node_states (audit trail).
+      --output k=v: store a decision output (repeatable); downstream nodes
+        read these from node_states["outputs"] to branch the experiment loop.
 
   rv dag add <run_id> <manifest_patch>
       Add a node (from a JSON patch file) to an existing run's manifest in-place.
@@ -638,7 +642,22 @@ def cmd_complete(args: argparse.Namespace) -> int:
     if status == "succeeded" and "produces" in node:
         produces = node["produces"]
         if "note" in produces:
-            issues = _check_okf_note_type(produces["note"], cfg.notes_root)
+            # F21 (adopter fix): resolve produces.note against the project's
+            # source_dir, not the shared notes_root.  The manifest may declare
+            # a "project" slug at the top level; when it does, use
+            # cfg.project_notes_dir(slug) as the resolution base so that
+            # multi-repo adopters (source_dir != notes_root) are handled
+            # correctly.  Falls back to cfg.notes_root for manifests with no
+            # "project" field (demo case; source_dir == notes_root stays green).
+            _project_slug = manifest.get("project")
+            if _project_slug:
+                try:
+                    _note_root = cfg.project_notes_dir(_project_slug)
+                except KeyError:
+                    _note_root = cfg.notes_root
+            else:
+                _note_root = cfg.notes_root
+            issues = _check_okf_note_type(produces["note"], _note_root)
             if issues:
                 print(f"rv dag complete: OKF vault check FAILED for node {node_id!r}:", file=sys.stderr)
                 for issue in issues:
@@ -707,9 +726,25 @@ def cmd_complete(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_approve(args: argparse.Namespace) -> int:
-    """Approve a human-go node in 'awaiting-go' state → 'succeeded'."""
+    """Approve (or reject) a human-go node in 'awaiting-go' state.
+
+    Approve path (default):  node → 'succeeded'; frontier advances.
+    Reject  path (--reject): node → 'blocked';   frontier halts on this gate.
+
+    Optional flags:
+      --note TEXT      Decision rationale (stored in node_states for audit trail).
+      --output k=v     Decision output key=value pair (repeatable).  Stored in
+                       node_states["outputs"] — downstream nodes that implement
+                       human-go-conditional logic read these to branch.
+      --reject         Mark as rejected/blocked instead of approved/succeeded.
+    """
     run_id = args.run_id
     node_id = args.node_id
+    # F13: read the new optional flags (safe getattr — tests that don't set them
+    # still work; bare approve calls are backward-compatible).
+    decision_note: str | None = getattr(args, "note", None) or None
+    raw_outputs: list[str] = getattr(args, "output", None) or []
+    reject: bool = bool(getattr(args, "reject", False))
 
     try:
         cfg = load_config()
@@ -808,10 +843,45 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 )
                 return 1
 
-    run_state.set_node_status(node_id, "succeeded")
+    # F13: parse --output k=v pairs into a dict.
+    # Reject malformed entries so the human gets a clear error.
+    parsed_outputs: dict[str, str] = {}
+    for kv in raw_outputs:
+        if "=" not in kv:
+            print(
+                f"rv dag approve: --output must be in 'k=v' format, got {kv!r}",
+                file=sys.stderr,
+            )
+            return 1
+        k, _, v = kv.partition("=")
+        if not k:
+            print(
+                f"rv dag approve: --output key cannot be empty in {kv!r}",
+                file=sys.stderr,
+            )
+            return 1
+        parsed_outputs[k] = v
+
+    # F13: determine final status (approve → succeeded; reject → blocked).
+    final_status = "blocked" if reject else "succeeded"
+
+    run_state.set_node_status(node_id, final_status)
+
+    # F13: persist decision_note and outputs into the node state so they
+    # are available to downstream agents and the audit trail.
+    ns = run_state.node_states.setdefault(node_id, {})
+    if decision_note is not None:
+        ns["decision_note"] = decision_note
+    if parsed_outputs:
+        ns["outputs"] = parsed_outputs
+
     store.save(run_state)
 
-    print(f"Node {node_id!r} approved → succeeded")
+    if reject:
+        note_suffix = f" — {decision_note}" if decision_note else ""
+        print(f"Node {node_id!r} REJECTED → blocked{note_suffix}")
+    else:
+        print(f"Node {node_id!r} approved → succeeded")
     frontier = _recompute_awaiting_go(run_state, manifest, store)
     print("Frontier:")
     _print_frontier(frontier, run_id)
@@ -1189,10 +1259,43 @@ def build_parser(
         ),
     )
 
-    # approve
-    app_p = sub.add_parser("approve", help="Approve a human-go node.")
+    # approve  (F13: --note / --output / --reject)
+    app_p = sub.add_parser(
+        "approve",
+        help="Approve (or reject) a human-go node.",
+    )
     app_p.add_argument("run_id", help="The run_id.")
     app_p.add_argument("node_id", help="The human-go node id to approve.")
+    app_p.add_argument(
+        "--note",
+        metavar="TEXT",
+        default=None,
+        help=(
+            "Decision rationale (stored in node_states for the audit trail). "
+            "Use for recording why you approved or rejected this gate."
+        ),
+    )
+    app_p.add_argument(
+        "--output",
+        metavar="k=v",
+        action="append",
+        default=None,
+        help=(
+            "Decision output key=value pair (repeatable, e.g. --output tier=A --output n=50). "
+            "Stored in node_states['outputs']; downstream human-go-conditional nodes read "
+            "these to branch the experiment loop."
+        ),
+    )
+    app_p.add_argument(
+        "--reject",
+        action="store_true",
+        default=False,
+        help=(
+            "Reject (block) this gate instead of approving it. "
+            "Moves the node to 'blocked' (terminal) — downstream nodes that "
+            "depend on this gate via afterok will NOT advance."
+        ),
+    )
 
     # add
     add_p = sub.add_parser("add", help="Add a node from a JSON patch file.")
