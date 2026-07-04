@@ -471,10 +471,10 @@ class TestDoctrineNoContractTerms:
             "coordination.md must reference rv status as the read-fresh path"
 
     def test_atlas_role_no_contract_roadmap(self):
-        """atlas.md must not reference 'CONTRACT roadmap' (self-contradiction in hat body)."""
-        atlas_md = self._DOCTRINE_DIR / "roles" / "atlas.md"
-        assert atlas_md.is_file(), f"atlas.md not found at {atlas_md}"
-        text = atlas_md.read_text(encoding="utf-8")
+        """manager.md must not reference 'CONTRACT roadmap' (self-contradiction in hat body)."""
+        manager_md = self._DOCTRINE_DIR / "roles" / "manager.md"
+        assert manager_md.is_file(), f"manager.md not found at {manager_md}"
+        text = manager_md.read_text(encoding="utf-8")
         assert "CONTRACT roadmap" not in text, \
-            ("atlas.md still says 'CONTRACT roadmap' — this composes verbatim into the "
+            ("manager.md still says 'CONTRACT roadmap' — this composes verbatim into the "
              "manager hat, which self-contradicts the read-fresh footer.")
