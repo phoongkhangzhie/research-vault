@@ -33,6 +33,7 @@ from research_vault.dag.verbs import (
     cmd_run,
     cmd_tick,
 )
+from research_vault.dag.walker import compute_frontier
 
 
 # ---------------------------------------------------------------------------
@@ -256,12 +257,12 @@ secrets = "env"
             else:
                 os.environ["RESEARCH_VAULT_CONFIG"] = old
 
-    def test_project_field_unknown_slug_falls_back_to_notes_root(self, tmp_path: Path, capsys):
+    def test_project_field_unknown_slug_fails_fast(self, tmp_path: Path, capsys):
         """
         If manifest has a "project" field but the slug is not in the config registry,
-        we fall back to notes_root (KeyError → graceful fallback, not a hard crash).
-
-        Note is planted in notes_root/experiments/ so the fallback resolves it correctly.
+        cmd_complete must FAIL FAST (rc=1) with the precise "Unknown project" message
+        rather than silently falling back to notes_root (which would hide the real cause
+        when the note lives in a separate source_dir, not notes_root).
         """
         notes_root = tmp_path / "notes"
         notes_root.mkdir()
@@ -296,7 +297,7 @@ secrets = "env"
             )
             m = _manifest(
                 [_agent_node("fb-node", produces={"note": str(note)})],
-                run_id="f21-fallback-run",
+                run_id="f21-failfast-run",
                 project="unknown-project",  # not in registry
             )
             mf = tmp_path / "manifest.json"
@@ -306,10 +307,17 @@ secrets = "env"
             capsys.readouterr()
 
             rc = cmd_complete(
-                _argns(run_id="f21-fallback-run", node_id="fb-node", status="succeeded")
+                _argns(run_id="f21-failfast-run", node_id="fb-node", status="succeeded")
             )
-            # Falls back to notes_root where the note exists → should pass
-            assert rc == 0, "Unknown slug falls back to notes_root; note is there → must pass"
+            err = capsys.readouterr().err
+            # Unknown slug → must fail fast, not silently fall back to notes_root
+            assert rc == 1, (
+                "Unknown project slug must produce rc=1; "
+                f"silent fallback hides the real cause. rc={rc!r}, err={err!r}"
+            )
+            assert "Unknown project" in err or "unknown-project" in err, (
+                f"Error output must surface the unknown slug. err={err!r}"
+            )
         finally:
             if old is None:
                 os.environ.pop("RESEARCH_VAULT_CONFIG", None)
@@ -598,7 +606,21 @@ class TestF13ApproveFlags:
 
         store = RunStore(simple_instance / "state")
         rs = store.load(run_id)
-        assert rs.node_status("downstream") == "pending"
+        # node_status("downstream") == "pending" is true for BOTH the reject and
+        # approve cases (dispatchable-pending vs blocked-pending look identical).
+        # The real halt signal is frontier non-membership: a blocked downstream
+        # must NOT appear in compute_frontier's dispatch items.
+        frontier = compute_frontier(
+            manifest=m,
+            node_states=rs.node_states,
+            edge_registered_ts=rs.edge_registered_ts,
+            global_cap=m.get("global_cap", 4),
+        )
+        frontier_ids = {fn.node_id for fn in frontier}
+        assert "downstream" not in frontier_ids, (
+            f"After --reject, 'downstream' must be absent from the frontier; "
+            f"got frontier_ids={frontier_ids!r}"
+        )
 
     def test_output_malformed_returns_error(self, simple_instance: Path, capsys):
         """--output without '=' returns rc=1 and a clear error."""

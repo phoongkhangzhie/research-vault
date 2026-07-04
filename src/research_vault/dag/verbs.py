@@ -653,8 +653,12 @@ def cmd_complete(args: argparse.Namespace) -> int:
             if _project_slug:
                 try:
                     _note_root = cfg.project_notes_dir(_project_slug)
-                except KeyError:
-                    _note_root = cfg.notes_root
+                except KeyError as _e:
+                    print(
+                        f"rv dag complete: {_e}",
+                        file=sys.stderr,
+                    )
+                    return 1
             else:
                 _note_root = cfg.notes_root
             issues = _check_okf_note_type(produces["note"], _note_root)
