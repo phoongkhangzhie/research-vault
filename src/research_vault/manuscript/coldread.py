@@ -307,6 +307,47 @@ _FA_ABS_PATH_RE = re.compile(
 )
 
 
+def _body_scope_pdf_text(pdf_text: str, zone2_headings: list[str]) -> str:
+    """Truncate *pdf_text* at the first occurrence of any zone-2 section heading.
+
+    Repro/availability appendices are always trailing in the compiled PDF.
+    Truncating from the first zone-2 heading removes all appendix content from
+    what the cold-read judge (and Flag-A) see, so both layers operate only on
+    the manuscript body (zone-1).
+
+    This mirrors the zone-2 exclusion in check_body_leakage() for .tex source:
+    ``if stem in _ZONE2_FILENAMES: continue`` — the same gate, applied to the
+    rendered PDF text.
+
+    Args:
+        pdf_text:       raw pdftotext output (or fallback .tex concat).
+        zone2_headings: heading title strings extracted from zone-2 .tex files
+                        (e.g. "Reproducibility Appendix").  When empty, the
+                        function is a no-op — the canary texts have no zone-2
+                        headings, so canary calibration is unaffected.
+
+    Returns:
+        The body-only portion of *pdf_text* (up to, not including, the first
+        zone-2 heading), or *pdf_text* unchanged when no heading is found.
+
+    HERMETIC: pure string operation — no I/O, no network, no LLM.
+    sr: SR-MS-GATE-ALIGN
+    """
+    if not zone2_headings:
+        return pdf_text
+    # Find the earliest occurrence of any zone-2 heading in the text.
+    earliest = len(pdf_text)
+    for heading in zone2_headings:
+        if not heading:
+            continue
+        pos = pdf_text.find(heading)
+        if pos != -1 and pos < earliest:
+            earliest = pos
+    if earliest == len(pdf_text):
+        return pdf_text  # no heading found → no-op
+    return pdf_text[:earliest]
+
+
 def flag_a_scan(pdf_text: str) -> list[str]:
     """Deterministic Flag-A scan over pdftotext output (§5J.16.3 architect addendum).
 

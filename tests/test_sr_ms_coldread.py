@@ -762,3 +762,260 @@ class TestStylePySectionTips:
         assert "disconfirm" in cr_tips.lower() or "sweep" in cr_tips.lower(), (
             "cold-read tips must mention disconfirm-first / disconfirming sweep."
         )
+
+
+# ---------------------------------------------------------------------------
+# SR-MS-GATE-ALIGN Slice A: body-scoping — _body_scope_pdf_text + tally wiring
+# ---------------------------------------------------------------------------
+
+class TestBodyScopePdfText:
+    """_body_scope_pdf_text: truncates pdftotext at the first zone-2 heading.
+
+    Pure string helper — no I/O, no LLM. Unit-testable in isolation.
+    red-before-green: these tests FAIL before _body_scope_pdf_text is added.
+    sr: SR-MS-GATE-ALIGN
+    """
+
+    def test_empty_headings_noop(self) -> None:
+        """Empty heading list → return text unchanged (no-op)."""
+        from research_vault.manuscript.coldread import _body_scope_pdf_text
+        text = "Body text. sha256:a3f9c1e28b7d46f0 is here."
+        assert _body_scope_pdf_text(text, []) == text
+
+    def test_heading_absent_noop(self) -> None:
+        """Zone-2 heading not present in text → return text unchanged."""
+        from research_vault.manuscript.coldread import _body_scope_pdf_text
+        text = "Body text. This is the main body section."
+        assert _body_scope_pdf_text(text, ["Reproducibility Appendix"]) == text
+
+    def test_truncates_at_zone2_heading(self) -> None:
+        """Zone-2 heading found → truncate from that position (inclusive)."""
+        from research_vault.manuscript.coldread import _body_scope_pdf_text
+        body = "This is the main body. HFS is 71.4."
+        appendix_heading = "Reproducibility Appendix"
+        appendix_body = "\nThis appendix was machine-generated from repro_* fields. sha256:abc123"
+        text = body + "\n\n" + appendix_heading + appendix_body
+        result = _body_scope_pdf_text(text, ["Reproducibility Appendix"])
+        assert result == body + "\n\n"
+        assert "machine-generated" not in result
+        assert "sha256:abc123" not in result
+        assert body in result
+
+    def test_truncates_at_earliest_of_multiple_headings(self) -> None:
+        """Multiple zone-2 headings → truncate at the EARLIEST occurrence."""
+        from research_vault.manuscript.coldread import _body_scope_pdf_text
+        text = (
+            "Body text. "
+            "Reproducibility Appendix\nrepro content sha256:aaaa. "
+            "Data and Code Availability\navailability sha256:bbbb."
+        )
+        result = _body_scope_pdf_text(
+            text,
+            ["Reproducibility Appendix", "Data and Code Availability"],
+        )
+        assert "repro content" not in result
+        assert "availability" not in result
+        assert "sha256:aaaa" not in result
+        assert "Body text." in result
+
+    def test_canary_a_text_noop(self) -> None:
+        """_CANARY_A_TEXT contains no zone-2 headings → body-scope is a no-op."""
+        from research_vault.manuscript.coldread import _body_scope_pdf_text, _CANARY_A_TEXT
+        zone2 = ["Reproducibility Appendix", "Data and Code Availability"]
+        assert _body_scope_pdf_text(_CANARY_A_TEXT, zone2) == _CANARY_A_TEXT
+
+    def test_canary_b_text_noop(self) -> None:
+        """_CANARY_B_TEXT contains no zone-2 headings → body-scope is a no-op."""
+        from research_vault.manuscript.coldread import _body_scope_pdf_text, _CANARY_B_TEXT
+        zone2 = ["Reproducibility Appendix", "Data and Code Availability"]
+        assert _body_scope_pdf_text(_CANARY_B_TEXT, zone2) == _CANARY_B_TEXT
+
+    def test_case_sensitive(self) -> None:
+        """Heading search is case-sensitive (matches LaTeX-extracted title exactly)."""
+        from research_vault.manuscript.coldread import _body_scope_pdf_text
+        text = "Body. reproducibility appendix\nappendix content."
+        # lowercase heading given, uppercase in text → no match → no-op
+        result = _body_scope_pdf_text(text, ["Reproducibility Appendix"])
+        assert result == text
+
+    def test_empty_pdf_text_noop(self) -> None:
+        """Empty pdf_text → return empty string unchanged."""
+        from research_vault.manuscript.coldread import _body_scope_pdf_text
+        assert _body_scope_pdf_text("", ["Reproducibility Appendix"]) == ""
+
+
+class TestBodyScopingInTally:
+    """check_cold_read_tally applies body-scoping before the judge.
+
+    Gate-align: appendix zone-2 content must NOT trigger Flag-A or LLM flags;
+    body zone-1 content with the SAME patterns MUST still trigger them.
+    red-before-green: these tests FAIL before the wiring is in check_cold_read_tally.
+    sr: SR-MS-GATE-ALIGN
+    """
+
+    def _make_ms_tree_with_zone2(
+        self, tmp_path: Path, heading: str = "Reproducibility Appendix"
+    ) -> Path:
+        """Scaffold a minimal manuscript tree with an appendix-repro.tex zone-2 file."""
+        tree_root = tmp_path / "manuscripts" / "ms-test"
+        sections_dir = tree_root / "sections"
+        sections_dir.mkdir(parents=True, exist_ok=True)
+        (sections_dir / "appendix-repro.tex").write_text(
+            f"\\section*{{{heading}}}\n"
+            "This appendix was machine-generated from the experiment notes' repro_* fields.\n"
+            "The sha256 verification hash is sha256:a3f9c1e28b7d46f0a3f9c1e28b7d46f0a3f9\n",
+            encoding="utf-8",
+        )
+        return tree_root
+
+    def test_sha256_in_appendix_section_not_flagged(self, tmp_path: Path) -> None:
+        """sha256: hash in zone-2 appendix portion → NOT a Flag-A hit after body-scoping.
+
+        This is the core dogfood false-flag: appendix has legit sha256 provenance
+        verification text → should NOT BLOCK.
+        """
+        from research_vault.manuscript.check_gates import check_cold_read_tally
+
+        tree_root = self._make_ms_tree_with_zone2(tmp_path)
+        body = "We evaluate holistic fidelity score (HFS). See Table 1 for results.\n\n"
+        appendix = (
+            "Reproducibility Appendix\n"
+            "sha256:a3f9c1e28b7d46f0a3f9c1e28b7d46f0 is the verification hash.\n"
+            "machine-generated from the experiment notes' repro_* fields.\n"
+        )
+        pdf_text = body + appendix
+
+        result = check_cold_read_tally(
+            tree_root,
+            judge_fn=_discriminating_judge,
+            judge_model="mock",
+            pdf_text=pdf_text,
+        )
+        assert result["flag_a_hits"] == [], (
+            f"sha256: in appendix zone-2 must NOT be a Flag-A hit after body-scoping. "
+            f"Got: {result['flag_a_hits']}"
+        )
+        assert not result["errors"], (
+            f"Expected no errors for clean-body with sha256 only in appendix zone. "
+            f"Got: {result['errors']}"
+        )
+
+    def test_sha256_in_body_still_flagged(self, tmp_path: Path) -> None:
+        """sha256: hash in body zone-1 → still a Flag-A hit (body-scoping keeps body)."""
+        from research_vault.manuscript.check_gates import check_cold_read_tally
+
+        tree_root = self._make_ms_tree_with_zone2(tmp_path)
+        pdf_text = (
+            "The main result hash is sha256:a3f9c1e28b7d46f0a3f9c1e28b7d46f0 "
+            "as verified by the pipeline.\n\n"
+            "Reproducibility Appendix\nClean appendix content only.\n"
+        )
+
+        result = check_cold_read_tally(
+            tree_root,
+            judge_fn=_discriminating_judge,
+            judge_model="mock",
+            pdf_text=pdf_text,
+        )
+        # The sha256 is in the body (before the appendix heading) → still flagged
+        assert result["flag_a_hits"] or result["errors"], (
+            "sha256: in body zone-1 must still be a Flag-A hit after body-scoping"
+        )
+
+    def test_repro_prose_in_appendix_not_dangling(self, tmp_path: Path) -> None:
+        """'machine-generated from repro_* fields' in appendix → NOT [DANGLING].
+
+        This is the exact dogfood prose that false-flagged as a provenance pointer.
+        """
+        from research_vault.manuscript.check_gates import check_cold_read_tally
+
+        tree_root = self._make_ms_tree_with_zone2(tmp_path)
+        # Leaky-looking prose that is LEGITIMATE in an appendix
+        appendix_prose = "machine-generated from the experiment notes' repro_* fields"
+
+        # The LLM judge (_discriminating_judge) checks for known leak markers:
+        # covers_hash, results/*.csv, sha256:, bare 64-hex, not-recorded-in-provenance.
+        # The appendix prose above doesn't match those patterns, but adding a sentinel
+        # would — test that a sentinel in the appendix is also scoped out.
+        pdf_text = (
+            "We evaluate HFS across three models. See Table 1.\n\n"
+            "Reproducibility Appendix\n"
+            f"{appendix_prose}\n"
+            "not-recorded-in-provenance\n"  # sentinel: legitimate in appendix, not body
+        )
+
+        result = check_cold_read_tally(
+            tree_root,
+            judge_fn=_discriminating_judge,
+            judge_model="mock",
+            pdf_text=pdf_text,
+        )
+        assert result["flag_a_hits"] == [], (
+            f"Appendix sentinel in zone-2 must NOT be a Flag-A hit. "
+            f"Got: {result['flag_a_hits']}"
+        )
+        assert not result["errors"], (
+            f"Expected no errors for sentinel-only-in-appendix. Got: {result['errors']}"
+        )
+
+    def test_no_zone2_tex_files_noop(self, tmp_path: Path) -> None:
+        """When no zone-2 tex files exist, body-scoping is a no-op (graceful)."""
+        from research_vault.manuscript.check_gates import check_cold_read_tally
+
+        tree_root = tmp_path / "manuscripts" / "ms-no-appendix"
+        (tree_root / "sections").mkdir(parents=True, exist_ok=True)
+        # No appendix-repro.tex — no zone-2 files at all
+        pdf_text = "Clean self-contained body with no leaks whatsoever."
+
+        result = check_cold_read_tally(
+            tree_root,
+            judge_fn=_discriminating_judge,
+            judge_model="mock",
+            pdf_text=pdf_text,
+        )
+        assert result["flag_a_hits"] == []
+        assert not result["errors"]
+
+    def test_fallback_tex_gather_skips_zone2_files(self, tmp_path: Path) -> None:
+        """Fallback .tex gather (no pdftotext) must skip zone-2 files.
+
+        Verifies that a sha256: in appendix-repro.tex doesn't reach the judge
+        when the fallback gather path is used (pdf_text=None, no pdftotext).
+        """
+        from research_vault.manuscript.check_gates import check_cold_read_tally
+
+        tree_root = tmp_path / "manuscripts" / "ms-test"
+        sections_dir = tree_root / "sections"
+        sections_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write clean body section
+        (sections_dir / "introduction.tex").write_text(
+            "\\section{Introduction}\nWe evaluate HFS. See Table 1.\n",
+            encoding="utf-8",
+        )
+        # Write zone-2 section with a sha256 hash (legitimate in appendix)
+        (sections_dir / "appendix-repro.tex").write_text(
+            "\\section*{Reproducibility Appendix}\n"
+            "sha256:a3f9c1e28b7d46f0a3f9c1e28b7d46f0 verification hash.\n",
+            encoding="utf-8",
+        )
+        (tree_root / "main.tex").write_text(
+            "\\documentclass{article}\n\\title{A Paper}\n\\begin{document}\n"
+            "\\input{sections/introduction}\\input{sections/appendix-repro}\n"
+            "\\end{document}\n",
+            encoding="utf-8",
+        )
+
+        # pdf_text=None with no pdftotext → uses fallback .tex gather
+        # The zone-2 file must be excluded from the gathered text
+        result = check_cold_read_tally(
+            tree_root,
+            judge_fn=_discriminating_judge,
+            judge_model="mock",
+            pdf_text=None,  # force fallback path
+        )
+        # The sha256 is only in the zone-2 file — after skip, it must not appear
+        assert result["flag_a_hits"] == [], (
+            f"sha256: in zone-2 .tex (fallback path) must be skipped. "
+            f"Got flag_a_hits: {result['flag_a_hits']}"
+        )

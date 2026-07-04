@@ -676,6 +676,10 @@ _RUN_ID_SHAPE_RE = re.compile(
 # Matches \title{...} in a .tex file (single-line, non-greedy)
 _TITLE_CMD_RE = re.compile(r"\\title\{([^}]*)\}")
 
+# Matches \section*{...} or \section{...} — used to extract zone-2 headings
+# for cold-read body-scoping (SR-MS-GATE-ALIGN).
+_SECTION_TITLE_RE = re.compile(r"\\section\*?\{([^}]+)\}")
+
 
 def _extract_title_value(tex_text: str) -> str | None:
     """Extract the value of \\title{...} from a .tex file, or None if absent."""
@@ -1418,7 +1422,11 @@ def check_cold_read_tally(
     import shutil
     import subprocess
 
-    from research_vault.manuscript.coldread import run_cold_read, ColdReadFlag
+    from research_vault.manuscript.coldread import (
+        run_cold_read,
+        ColdReadFlag,
+        _body_scope_pdf_text,
+    )
 
     # ── Resolve pdftotext text ───────────────────────────────────────────────
     resolved_pdf_text = pdf_text
@@ -1447,6 +1455,8 @@ def check_cold_read_tally(
             sections_dir = tree_root / "sections"
             if sections_dir.exists():
                 for tex in sorted(sections_dir.glob("*.tex"))[:6]:
+                    if tex.stem in _ZONE2_FILENAMES:
+                        continue  # mirror check_body_leakage:752 — zone-2 excluded
                     try:
                         ms_text_parts.append(tex.read_text(encoding="utf-8", errors="replace")[:1500])
                     except OSError:
@@ -1466,6 +1476,27 @@ def check_cold_read_tally(
             "canary_aborted": False,
             "meta": {},
         }
+
+    # ── Body-scope: strip zone-2 (appendix/availability) from the PDF text ───
+    # Mirror check_body_leakage's zone-2 exclusion (stem in _ZONE2_FILENAMES).
+    # For each zone-2 stem, read its .tex file to extract the rendered section
+    # heading, then truncate resolved_pdf_text at the earliest heading found.
+    # Repro/availability appendices are always trailing, so truncation is safe.
+    # If no zone-2 .tex files exist the list is empty and _body_scope_pdf_text
+    # is a no-op — canary texts and papers without appendices are unaffected.
+    _zone2_headings: list[str] = []
+    for _z2_stem in _ZONE2_FILENAMES:
+        _z2_tex = tree_root / "sections" / f"{_z2_stem}.tex"
+        if _z2_tex.exists():
+            try:
+                _z2_src = _z2_tex.read_text(encoding="utf-8", errors="replace")
+                for _m in _SECTION_TITLE_RE.finditer(_z2_src):
+                    _title = _m.group(1).strip()
+                    if _title:
+                        _zone2_headings.append(_title)
+            except OSError:
+                pass
+    resolved_pdf_text = _body_scope_pdf_text(resolved_pdf_text, _zone2_headings)
 
     # ── Run the cold-read judge ───────────────────────────────────────────────
     result = run_cold_read(
