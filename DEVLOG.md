@@ -1,3 +1,28 @@
+## 2026-07-03 (hygiene-batch: crew-name scrub + leakage gate + checklist fix + pyc doctrine)
+
+### Done
+- **Crew-name scrub** (fix #1): replaced session-narrative attributions (researcher/architect/
+  engineer/reviewer/designer/manager) throughout `src/**/*.py`. Renamed 6 role doc files to
+  role-based filenames (`researcher.md`, `engineer.md`, `reviewer.md`, `designer.md`,
+  `manager.md`, `architect.md`) and updated all 18+ cross-references in doctrine docs,
+  examples JSON, and QUICKSTART.
+- **Leakage gate extension** (fix #1): added `_grep_py_word` helper (`.py`-only) + class 10
+  (crew narrative-names) to `scripts/leakage_scan.sh`. Added CI step scanning `src/research_vault`.
+  Red-before-green proved: 6 new tests failed before class 10, pass after. All 53 leakage tests pass.
+- **Stale checklist label** (fix #2): replaced stale `"CHECKLIST PLACEHOLDER — ...ships in SR-MS-REVIEW-b"`
+  string in `run_meta_review` with accurate label pointing to reviewer raw_response fields.
+- **pyc-mutation doctrine** (fix #3): added test-isolation rule to `data/doctrine/standards.md` —
+  each mutation needs its own process (or explicit `__pycache__` bust) to avoid same-second `.pyc`
+  mtime staleness giving false survivors.
+
+### Decisions
+- Role doc filenames → role-based (`manager.md` not `atlas.md` etc.): cleanest fix to prevent
+  `build_agents.py`'s `_ROLE_DOC` dict from containing crew names as Python string literals.
+- Class 10 scan is `.py`-only (not `.md`) so role docs in `data/doctrine/roles/` are exempt.
+
+### Open / next
+- PR `fix/hygiene-batch` pushed; awaits reviewer-gate (Argus) then human-go merge.
+
 ## 2026-07-03 (SR-MS-REVIEW-b: real rubric + lenses + calibrated canary)
 
 ### Done
