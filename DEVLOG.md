@@ -12,8 +12,16 @@
 - Hub coordinates crew directly; no intermediate manager tier. Coordination/synthesis requires cross-project context only the hub has.
 - Rule 8 (doctrine link-integrity): 0 dangling links after removal. CI green on all 5 jobs.
 
+- Argus BLOCK (Argus review): scrubbed runtime Python templates (init.py, control.py, controllib.py),
+  architect.md prose, architecture.md crew list, regenerated control/acme.md
+- Optional prose-residue guard: SKIPPED — "manager" too common a word; lesson in DEVLOG instead
+
+### Decisions
+- Prose-residue lint guard not added: false-positive-prone (contextlib, package manager, historical charter text).
+  The lesson: after deleting a role, do a full `git grep -rn "role_name" src/ data/` pass, not just link-integrity.
+
 ### Open / next
-- PR #fix/remove-manager awaits hub to open — must merge before SR-HUB-DAG's doctrine slice
+- PR #84 (fix/remove-manager) awaits reviewer pass + hub merge — must merge before SR-HUB-DAG's doctrine slice
 
 ---
 
