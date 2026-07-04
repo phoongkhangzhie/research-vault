@@ -4,7 +4,14 @@ When to use: import `load_config()` whenever a verb needs to resolve a path or a
 Every data path in Research Vault reads from config — zero hardcoded paths, zero codenames.
 
 Config file: `research_vault.toml` (TOML format) in the instance root.
-Override via: `RESEARCH_VAULT_CONFIG` env var (absolute path to the TOML file).
+
+Resolution precedence (highest → lowest):
+  1. ``--config PATH`` CLI flag  (wired via RESEARCH_VAULT_CONFIG env by the CLI)
+  2. ``RESEARCH_VAULT_CONFIG`` env var (absolute path to the TOML file)
+  3. CWD walk-up — search current directory and parents for ``research_vault.toml``
+
+Both ``--config`` and ``RESEARCH_VAULT_CONFIG`` error loudly when the path does not
+exist, rather than silently falling through to the CWD walk-up.
 
 Multi-project registry: config["projects"] is a dict mapping project-slug → project record.
 Verb invocations are project-scoped: `rv task <project> …` resolves paths via the registry.

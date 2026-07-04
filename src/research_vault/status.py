@@ -366,7 +366,14 @@ def cmd_status(
     NO gh / PR / CI in core.
     """
     cfg = config or load_config()
-    lines: list[str] = [f"# rv status — {project}", ""]
+    # Surface the resolved instance so "which vault am I hitting?" is never a mystery.
+    _config_src = str(cfg.config_file) if cfg.config_file else "(none — defaults)"
+    lines: list[str] = [
+        f"# rv status — {project}",
+        f"  instance_root: {cfg.instance_root}",
+        f"  config_file:   {_config_src}",
+        "",
+    ]
 
     # --- Control file ---
     try:
@@ -613,9 +620,14 @@ def cmd_status(
 def cmd_status_all(*, config: Config | None = None) -> str:
     """Return status for all registered projects."""
     cfg = config or load_config()
+    _config_src = str(cfg.config_file) if cfg.config_file else "(none — defaults)"
     slugs = cfg.all_project_slugs()
     if not slugs:
-        return "rv status --all: no projects registered."
+        return (
+            f"rv status --all: no projects registered.\n"
+            f"  instance_root: {cfg.instance_root}\n"
+            f"  config_file:   {_config_src}"
+        )
     parts = []
     for slug in slugs:
         parts.append(cmd_status(slug, config=cfg))

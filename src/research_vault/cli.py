@@ -34,6 +34,7 @@ Stdlib only — no imports from private vault instances or project-specific path
 """
 
 import argparse
+import os
 import sys
 from typing import Callable
 
@@ -597,6 +598,24 @@ def _load_verb(name: str, registry: dict | None = None):
 # Plugin seam: instance verbs loaded from config
 # ---------------------------------------------------------------------------
 
+def _extract_config_arg(argv: list[str]) -> str | None:
+    """Pre-scan argv for --config PATH before the full argparse parse.
+
+    Needed because _load_instance_verbs() calls load_config() before main() can
+    parse the full argument list. We scan early so we can inject the value into
+    the environment before any load_config() call fires.
+
+    Handles both ``--config PATH`` (space-separated) and ``--config=PATH`` forms.
+    Returns None if --config is absent from argv.
+    """
+    for i, arg in enumerate(argv):
+        if arg == "--config" and i + 1 < len(argv):
+            return argv[i + 1]
+        if arg.startswith("--config="):
+            return arg[len("--config="):]
+    return None
+
+
 def _load_instance_verbs() -> dict[str, dict]:
     """Load instance-specific verb extensions from the config's [verbs] section.
 
@@ -763,6 +782,25 @@ def _build_top_parser(instance_verbs: dict | None = None) -> argparse.ArgumentPa
     parser.add_argument(
         "--version", action="version", version=f"rv {__version__}"
     )
+    parser.add_argument(
+        "--config",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Path to a research_vault.toml file. "
+            "Overrides RESEARCH_VAULT_CONFIG env var and CWD walk-up. "
+            "Errors loudly if the path does not exist."
+        ),
+    )
+    parser.add_argument(
+        "--show-instance",
+        action="store_true",
+        default=False,
+        help=(
+            "Print the resolved instance root and config file path, then exit. "
+            "Useful to confirm which vault 'rv' is targeting (multi-instance guard)."
+        ),
+    )
 
     sub = parser.add_subparsers(dest="verb", metavar="<verb>")
 
@@ -801,133 +839,171 @@ def _build_top_parser(instance_verbs: dict | None = None) -> argparse.ArgumentPa
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the `rv` CLI. Returns exit code."""
-    # Load instance verbs from config (plugin seam: portable vs instance verbs)
-    instance_verbs = _load_instance_verbs()
-    parser, _, merged_registry = _build_top_parser(instance_verbs)
-
-    # Check if the verb is registered-but-unimplemented BEFORE argparse rejects it.
-    # argparse only knows implemented verbs; future-SR verbs are in _VERB_REGISTRY
-    # with module=None and must be handled here for a friendly error message.
     raw_argv = list(argv or sys.argv[1:])
-    if raw_argv and raw_argv[0] in merged_registry:
-        verb = raw_argv[0]
-        entry = merged_registry[verb]
-        if not entry.get("module"):
+
+    # Pre-scan for --config PATH before _load_instance_verbs() calls load_config().
+    # Precedence: --config > RESEARCH_VAULT_CONFIG > CWD walk-up.
+    # We implement this by injecting --config into RESEARCH_VAULT_CONFIG (which
+    # load_config() already reads first), saving and restoring any prior value.
+    _early_config = _extract_config_arg(raw_argv)
+    _saved_env = os.environ.get("RESEARCH_VAULT_CONFIG")
+    if _early_config is not None:
+        os.environ["RESEARCH_VAULT_CONFIG"] = _early_config
+
+    try:
+        # Load instance verbs from config (plugin seam: portable vs instance verbs)
+        instance_verbs = _load_instance_verbs()
+        parser, _, merged_registry = _build_top_parser(instance_verbs)
+
+        # Check if the verb is registered-but-unimplemented BEFORE argparse rejects it.
+        # argparse only knows implemented verbs; future-SR verbs are in _VERB_REGISTRY
+        # with module=None and must be handled here for a friendly error message.
+        # Strip global flags (--config PATH, --show-instance) to find the verb token.
+        _stripped = list(raw_argv)
+        if "--config" in _stripped:
+            i = _stripped.index("--config")
+            _stripped = _stripped[:i] + _stripped[i + 2:]  # remove flag + value
+        _stripped = [a for a in _stripped if not a.startswith("--config=")]
+        _stripped = [a for a in _stripped if a != "--show-instance"]
+        if _stripped and _stripped[0] in merged_registry:
+            verb = _stripped[0]
+            entry = merged_registry[verb]
+            if not entry.get("module"):
+                sr = entry.get("sr", "a future SR")
+                print(
+                    f"rv: verb {verb!r} is not yet implemented (ships at {sr}).",
+                    file=sys.stderr,
+                )
+                return 1
+
+        try:
+            args = parser.parse_args(argv)
+        except SystemExit as exc:
+            return int(exc.code) if exc.code is not None else 2
+
+        # --- --show-instance global flag ---
+        if getattr(args, "show_instance", False):
+            try:
+                cfg = load_config()
+                config_src = str(cfg.config_file) if cfg.config_file else "(none — defaults)"
+                print(f"instance_root: {cfg.instance_root}")
+                print(f"config_file:   {config_src}")
+            except Exception as e:
+                print(f"rv --show-instance: config error: {e}", file=sys.stderr)
+                return 1
+            return 0
+
+        if args.verb is None:
+            parser.print_help()
+            return 0
+
+        # --- help verb ---
+        if args.verb == "help":
+            if args.check:
+                docstring_violations = _check_verb_docstrings()
+                snippet_violations = _check_example_snippets(merged_registry)
+                all_violations = docstring_violations + snippet_violations
+                if all_violations:
+                    print("rv help --check: FAIL")
+                    for v in all_violations:
+                        print(f"  {v}")
+                    return 1
+                total = len(merged_registry)
+                print(
+                    f"rv help --check: OK — {total} verbs, "
+                    "when_to_use present, all examples parse."
+                )
+                return 0
+
+            # Print verb table grouped by workflow phase.
+            print("Research Vault verbs:\n")
+            _RULE = "─"
+            _HEADER_WIDTH = 52
+
+            # Track verbs already rendered (review appears in Lit-review AND Gap loop).
+            printed: set[str] = set()
+
+            for phase_name, phase_verbs in _HELP_PHASE_MAP:
+                header = f"── {phase_name} {_RULE * max(0, _HEADER_WIDTH - len(phase_name) - 4)}"
+                print(header)
+
+                if "__gap_loop__" in phase_verbs:
+                    # Gap loop: surface review gap-* subcommands explicitly.
+                    print(
+                        "  (rv review gap-* subcommands — detect, route, and close research gaps)"
+                    )
+                    for subcmd in _GAP_LOOP_SUBCMDS:
+                        print(f"    rv review {subcmd}")
+                    print()
+                    continue
+
+                for verb_name in phase_verbs:
+                    entry = merged_registry.get(verb_name)
+                    if not entry:
+                        continue  # verb absent from this merged registry
+                    printed.add(verb_name)
+
+                    sr = entry.get("sr", "")
+                    status = "" if entry.get("module") else f"  [{sr}]"
+                    tag = " [instance]" if sr == "instance" else ""
+                    first_sent = _first_sentence(entry.get("when_to_use", ""))
+
+                    print(f"  rv {verb_name:<20} {first_sent}{status}{tag}")
+
+                    # Subcommands: special-case review to show only main subcommands here.
+                    if verb_name == "review":
+                        subcmds = _REVIEW_MAIN_SUBCMDS
+                    else:
+                        subcmds = _verb_subcommands(verb_name, merged_registry)
+                    if subcmds:
+                        print(f"    {'subcommands:':<14} {' · '.join(subcmds)}")
+
+                print()
+
+            # Show any instance verbs not covered by the phase map.
+            ungrouped = [
+                v for v in merged_registry
+                if v not in printed and merged_registry[v].get("sr") == "instance"
+            ]
+            if ungrouped:
+                print(f"── Instance verbs {_RULE * max(0, _HEADER_WIDTH - 18)}")
+                for verb_name in ungrouped:
+                    entry = merged_registry[verb_name]
+                    first_sent = _first_sentence(entry.get("when_to_use", ""))
+                    print(f"  rv {verb_name:<20} {first_sent} [instance]")
+                print()
+
+            print(
+                "Validation: leakage/config → rv lint · "
+                "OKF links → rv mdstore check · "
+                "note frontmatter → rv note <p> check"
+            )
+            print(
+                "\nRun `rv <verb> --help` for details. "
+                "`rv help --check` validates docstrings and example snippets."
+            )
+            return 0
+
+        # --- dispatch to verb (merged registry: instance verbs shadow portable) ---
+        _, run_fn = _load_verb(args.verb, merged_registry)
+        if run_fn is None:
+            entry = _VERB_REGISTRY.get(args.verb, {})
             sr = entry.get("sr", "a future SR")
             print(
-                f"rv: verb {verb!r} is not yet implemented (ships at {sr}).",
+                f"rv: verb {args.verb!r} is not yet implemented (ships at {sr}).",
                 file=sys.stderr,
             )
             return 1
 
-    try:
-        args = parser.parse_args(argv)
-    except SystemExit as exc:
-        return int(exc.code) if exc.code is not None else 2
-
-    if args.verb is None:
-        parser.print_help()
-        return 0
-
-    # --- help verb ---
-    if args.verb == "help":
-        if args.check:
-            docstring_violations = _check_verb_docstrings()
-            snippet_violations = _check_example_snippets(merged_registry)
-            all_violations = docstring_violations + snippet_violations
-            if all_violations:
-                print("rv help --check: FAIL")
-                for v in all_violations:
-                    print(f"  {v}")
-                return 1
-            total = len(merged_registry)
-            print(
-                f"rv help --check: OK — {total} verbs, "
-                "when_to_use present, all examples parse."
-            )
-            return 0
-
-        # Print verb table grouped by workflow phase.
-        print("Research Vault verbs:\n")
-        _RULE = "─"
-        _HEADER_WIDTH = 52
-
-        # Track verbs already rendered (review appears in Lit-review AND Gap loop).
-        printed: set[str] = set()
-
-        for phase_name, phase_verbs in _HELP_PHASE_MAP:
-            header = f"── {phase_name} {_RULE * max(0, _HEADER_WIDTH - len(phase_name) - 4)}"
-            print(header)
-
-            if "__gap_loop__" in phase_verbs:
-                # Gap loop: surface review gap-* subcommands explicitly.
-                print(
-                    "  (rv review gap-* subcommands — detect, route, and close research gaps)"
-                )
-                for subcmd in _GAP_LOOP_SUBCMDS:
-                    print(f"    rv review {subcmd}")
-                print()
-                continue
-
-            for verb_name in phase_verbs:
-                entry = merged_registry.get(verb_name)
-                if not entry:
-                    continue  # verb absent from this merged registry
-                printed.add(verb_name)
-
-                sr = entry.get("sr", "")
-                status = "" if entry.get("module") else f"  [{sr}]"
-                tag = " [instance]" if sr == "instance" else ""
-                first_sent = _first_sentence(entry.get("when_to_use", ""))
-
-                print(f"  rv {verb_name:<20} {first_sent}{status}{tag}")
-
-                # Subcommands: special-case review to show only main subcommands here.
-                if verb_name == "review":
-                    subcmds = _REVIEW_MAIN_SUBCMDS
-                else:
-                    subcmds = _verb_subcommands(verb_name, merged_registry)
-                if subcmds:
-                    print(f"    {'subcommands:':<14} {' · '.join(subcmds)}")
-
-            print()
-
-        # Show any instance verbs not covered by the phase map.
-        ungrouped = [
-            v for v in merged_registry
-            if v not in printed and merged_registry[v].get("sr") == "instance"
-        ]
-        if ungrouped:
-            print(f"── Instance verbs {_RULE * max(0, _HEADER_WIDTH - 18)}")
-            for verb_name in ungrouped:
-                entry = merged_registry[verb_name]
-                first_sent = _first_sentence(entry.get("when_to_use", ""))
-                print(f"  rv {verb_name:<20} {first_sent} [instance]")
-            print()
-
-        print(
-            "Validation: leakage/config → rv lint · "
-            "OKF links → rv mdstore check · "
-            "note frontmatter → rv note <p> check"
-        )
-        print(
-            "\nRun `rv <verb> --help` for details. "
-            "`rv help --check` validates docstrings and example snippets."
-        )
-        return 0
-
-    # --- dispatch to verb (merged registry: instance verbs shadow portable) ---
-    _, run_fn = _load_verb(args.verb, merged_registry)
-    if run_fn is None:
-        entry = _VERB_REGISTRY.get(args.verb, {})
-        sr = entry.get("sr", "a future SR")
-        print(
-            f"rv: verb {args.verb!r} is not yet implemented (ships at {sr}).",
-            file=sys.stderr,
-        )
-        return 1
-
-    return run_fn(args)
+        return run_fn(args)
+    finally:
+        # Restore RESEARCH_VAULT_CONFIG to its pre-call value so that re-entrant
+        # main() calls (e.g. rv init's post-init CC build) don't leak the injected
+        # --config path forward into subsequent invocations.
+        if _saved_env is None:
+            os.environ.pop("RESEARCH_VAULT_CONFIG", None)
+        else:
+            os.environ["RESEARCH_VAULT_CONFIG"] = _saved_env
 
 
 if __name__ == "__main__":
