@@ -398,8 +398,8 @@ class TestDefaultRosterConstant:
         assert "hub" not in DEFAULT_ROSTER
 
     def test_default_roster_contains_core_doer_roles(self) -> None:
-        """The core project doer roles must be present."""
-        for role in ("manager", "engineer", "researcher", "designer"):
+        """The core project doer roles must be present (manager removed — hub coordinates directly)."""
+        for role in ("engineer", "researcher", "designer"):
             assert role in DEFAULT_ROSTER, f"doer role {role!r} must be in DEFAULT_ROSTER"
 
     def test_default_roster_contains_reviewer(self) -> None:
@@ -409,6 +409,10 @@ class TestDefaultRosterConstant:
     def test_default_roster_excludes_architect(self) -> None:
         """Architect (Wren) is vault-level (cross-project stack) — NOT per-project."""
         assert "architect" not in DEFAULT_ROSTER, "architect must not be in DEFAULT_ROSTER (vault-level)"
+
+    def test_default_roster_excludes_manager(self) -> None:
+        """Manager is hub-level — the hub coordinates directly; no intermediate manager tier."""
+        assert "manager" not in DEFAULT_ROSTER, "manager must not be in DEFAULT_ROSTER (hub coordinates directly)"
 
 
 class TestProjectAddDefaultRoster:

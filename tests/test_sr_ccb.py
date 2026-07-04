@@ -2,8 +2,8 @@
 
 Acceptance criteria (from PUB-CCB.5, updated for SR-LENS-RM):
 1. rv init -> CLAUDE.md exists + names Alfred / the hub; .claude/agents/ dir exists.
-2. rv build-agents --target claude-code -> .claude/agents/{manager,engineer,
-   researcher,designer,reviewer,architect}.md — 6 files, valid CC frontmatter.
+2. rv build-agents --target claude-code -> .claude/agents/{engineer,
+   researcher,designer,reviewer,architect}.md — 5 files, valid CC frontmatter.
 3. Tool grants match the PUB-CCB.2 policy table.
 4. Model values are aliases (sonnet/opus/haiku), never versioned IDs.
 5. --target agents-dir (default) writes flat .agents/<role>.md (vault-level crew;
@@ -159,9 +159,9 @@ class TestInitColdPathCacheResistance:
         assert agents_dir.is_dir(), ".claude/agents/ must exist"
 
         files = {f.stem for f in agents_dir.glob("*.md")}
-        expected = {"manager", "engineer", "researcher", "designer", "reviewer", "architect"}
+        expected = {"engineer", "researcher", "designer", "reviewer", "architect"}
         assert files == expected, (
-            f"Expected 6 agent files in instance .claude/agents/, got: {sorted(files)}.\n"
+            f"Expected 5 agent files in instance .claude/agents/, got: {sorted(files)}.\n"
             f"Bug: stale _CACHE (instance_root={tmp_path!r}) caused auto-build to write "
             f"to wrong location instead of {str(instance)!r}."
         )
@@ -186,12 +186,11 @@ class TestInitColdPathCacheResistance:
 
 
 # ---------------------------------------------------------------------------
-# SR-CCB-2: build-agents --target claude-code emits 6 CC subagent files
+# SR-CCB-2: build-agents --target claude-code emits 5 CC subagent files
 # ---------------------------------------------------------------------------
 
-# Tool-grant policy table from PUB-CCB.2
+# Tool-grant policy table from PUB-CCB.2 (manager removed — hub coordinates directly)
 _POLICY: dict[str, dict] = {
-    "manager":    {"tools": {"Read", "Write", "Edit", "Glob", "Grep"}, "model": "sonnet"},
     "engineer":   {"tools": {"Read", "Write", "Edit", "Bash", "Glob", "Grep"}, "model": "sonnet"},
     "researcher": {"tools": {"Read", "Write", "Edit", "Bash", "WebSearch", "WebFetch", "Glob", "Grep"}, "model": "opus"},
     "designer":   {"tools": {"Read", "Write", "Edit", "Bash", "Glob", "Grep"}, "model": "sonnet"},
@@ -213,13 +212,13 @@ def cc_agents(tmp_vault):
 
 
 class TestClaudeCodeBackendEmit:
-    def test_six_agent_files_emitted(self, cc_agents):
-        """build-agents --target claude-code must emit exactly 6 .md files."""
+    def test_five_agent_files_emitted(self, cc_agents):
+        """build-agents --target claude-code must emit exactly 5 .md files."""
         files = sorted(cc_agents.glob("*.md"))
         roles = {f.stem for f in files}
         assert roles == _ALL_ROLES, \
             f"Expected roles {_ALL_ROLES}, got {roles}"
-        assert len(files) == 6
+        assert len(files) == 5
 
     def test_each_file_has_valid_frontmatter(self, cc_agents):
         """Every subagent file must have parseable YAML frontmatter."""
@@ -303,13 +302,6 @@ class TestToolGrantPolicy:
 
 class TestPolicyConstraints:
     """Structural policy invariants: coordinator-class vs doer-class."""
-
-    def test_manager_has_no_bash(self, cc_agents):
-        """Manager (coordinator-class) must NOT have Bash."""
-        text = (cc_agents / "manager.md").read_text(encoding="utf-8")
-        fm, _ = _parse_frontmatter(text)
-        tools = {t.strip() for t in fm.get("tools", "").split(",")}
-        assert "Bash" not in tools, "manager must NOT have Bash (coordinator-class)"
 
     def test_architect_has_no_bash(self, cc_agents):
         """Architect (coordinator-class) must NOT have Bash."""
@@ -400,7 +392,7 @@ class TestClaudeCodeBackendUnit:
         from research_vault.build_agents import ClaudeCodeBackend
         backend = ClaudeCodeBackend()
         result = backend.render(
-            role="manager",
+            role="engineer",
             composed_body="# Hat content\n\nsome body text",
         )
         assert isinstance(result, list)
@@ -422,7 +414,7 @@ class TestClaudeCodeBackendUnit:
         """render() output must begin with '---' YAML frontmatter."""
         from research_vault.build_agents import ClaudeCodeBackend
         backend = ClaudeCodeBackend()
-        _, contents = backend.render("manager", "# Body")[0]
+        _, contents = backend.render("engineer", "# Body")[0]
         assert contents.startswith("---\n"), \
             f"Expected YAML frontmatter, got: {contents[:60]!r}"
 
@@ -440,7 +432,7 @@ class TestClaudeCodeBackendUnit:
         from research_vault.build_agents import ClaudeCodeBackend
         backend = ClaudeCodeBackend()
         marker = "UNIQUE-MARKER-FOR-BODY-CHECK-12345"
-        _, contents = backend.render("manager", f"# Hat\n\n{marker}")[0]
+        _, contents = backend.render("engineer", f"# Hat\n\n{marker}")[0]
         assert marker in contents, \
             "Composed body not embedded in the render output"
 
