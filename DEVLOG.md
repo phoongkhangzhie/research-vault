@@ -1,3 +1,27 @@
+## 2026-07-03 (SR-MS-GATE-ALIGN Slice A: cold-read body-scoping)
+
+### Done
+- **`_body_scope_pdf_text`** in `coldread.py`: pure helper that truncates pdftotext
+  at the first zone-2 section heading (appendix-repro / data-code-availability) — no-op
+  when no heading matches, so canary calibration texts are unaffected.
+- **`check_cold_read_tally` wiring**: extracts zone-2 headings from
+  `tree_root/sections/{stem}.tex` via new `_SECTION_TITLE_RE`, applies body-scoping
+  before `run_cold_read` (scopes both Flag-A and LLM judge coherently). Also skips
+  zone-2 `.tex` files in the fallback gather path, mirroring `check_body_leakage`.
+- 13 new tests (all red-before-green): `TestBodyScopePdfText` (8 unit tests on the
+  pure helper) + `TestBodyScopingInTally` (5 integration tests). Full suite 2091/2091.
+
+### Decisions
+- Body-scoping truncates at the heading position (not line-start): `str.find()` locates
+  the heading's character position in the flat pdftotext; all content from that position
+  is appendix-zone and excluded. Correct because the heading itself is not body prose.
+- Heading search is case-sensitive: the extracted LaTeX title is the ground truth;
+  pdftotext renders it verbatim. A mismatch (e.g. different capitalisation in the PDF)
+  means no truncation — safe-direction (over-includes rather than over-truncates).
+
+### Open / next
+- Slice B (sibling): review_board.py / appendix.py body-scoping (not touched here per spec).
+
 ## 2026-07-03 (hygiene-batch: crew-name scrub + leakage gate + checklist fix + pyc doctrine)
 
 ### Done
