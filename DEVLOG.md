@@ -1,3 +1,15 @@
+## 2026-07-04 (fix/dag-verbs-adopter: F21 produces.note + F13 approve flags)
+
+### Done
+- F21: `cmd_complete` now reads `manifest.get("project")` and resolves `produces.note` against `cfg.project_notes_dir(slug)` instead of `cfg.notes_root`. Fallback to `notes_root` when no project declared (demo case). `KeyError` on unknown slug → graceful fallback.
+- F13: `cmd_approve` gains `--note TEXT` (decision rationale), `--output k=v` (repeatable, stored in `node_states["outputs"]`), and `--reject` (sets node to `blocked`; downstream `afterok` gates halt). Module docstring updated to reflect real signature.
+- 14 RED-before-GREEN tests in `tests/test_dag_adopter_fixes.py`. Full suite: 2208 passed. `rv lint`: PASS. `rv help --check`: OK. CI green on PR #91.
+
+### Decisions
+- `produces.note` resolution falls back to `notes_root` on unknown slug (graceful, not hard error) — conservative; human will see the OKF check fail if the file isn't there.
+- `--output` values stored as strings (no type inference) — keeps the storage simple; downstream nodes cast as needed.
+- `--reject` maps to status `blocked` (existing terminal status) — no new status needed.
+
 ## 2026-07-04 (feat/sr-fig-method-ab: seaborn skin + render-script seam)
 
 ### Done
