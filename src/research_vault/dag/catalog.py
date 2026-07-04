@@ -1,0 +1,275 @@
+"""dag/catalog.py — static catalog SSOT for the four built-in research loops (SR-HUB-DAG).
+
+Purpose
+-------
+A structured registry that makes every loop discoverable WITHOUT running anything.
+Captures:
+  - key            : stable slug
+  - entry_verb     : the command to start a new DAG run (after the manifest exists)
+  - scaffolder     : the command that EMITS the manifest + registers the run
+                     (None when no scaffold verb exists)
+  - human_go_gates : ordered list of human-go node IDs from the shipped manifests,
+                     annotated with the freeze/verify action that each gate triggers
+  - topology_summary : one-line description of the loop shape
+
+Gate names are grounded in the SHIPPED manifests:
+  - research-loop.json  (data/examples/demo-research/research-loop.json)
+  - lit-review-loop.json (data/examples/demo-litreview/lit-review-loop.json)
+  - rv manuscript new  → 16-node drafting DAG (SR-MS-1a §5J.2)
+  - rv figure new      → figure DAG (SR-FIG)
+
+Stdlib only.
+sr: SR-HUB-DAG
+"""
+from __future__ import annotations
+
+from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# Gate descriptor
+# ---------------------------------------------------------------------------
+
+class LoopGate:
+    """One human-go gate in a loop manifest.
+
+    Attributes
+    ----------
+    node_id : str
+        The exact node id used in the manifest (e.g. ``"human-go-plan"``).
+    label : str
+        Short human-readable description of what is approved here.
+    freeze_action : str | None
+        If this gate triggers a freeze/verify action, the exact ``rv`` command
+        pattern to run after approval (e.g. ``"rv plan freeze <run_id> <plan-note>"``).
+        None when no freeze is associated.
+    """
+
+    __slots__ = ("node_id", "label", "freeze_action")
+
+    def __init__(
+        self,
+        node_id: str,
+        label: str,
+        freeze_action: str | None = None,
+    ) -> None:
+        self.node_id = node_id
+        self.label = label
+        self.freeze_action = freeze_action
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "label": self.label,
+            "freeze_action": self.freeze_action,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Loop descriptor
+# ---------------------------------------------------------------------------
+
+class LoopEntry:
+    """One entry in the loop catalog.
+
+    Attributes
+    ----------
+    key : str
+        Stable slug (``"experiment"``, ``"lit-review"``, ``"figure"``,
+        ``"manuscript"``).
+    entry_verb : str
+        The ``rv`` command to start a DAG run once the manifest exists.
+    scaffolder : str | None
+        The ``rv`` command that EMITS the manifest AND registers the run.
+        None when the manifest is created manually (legacy / advanced path).
+    human_go_gates : list[LoopGate]
+        Ordered list of human-go gates from the shipped manifest shape.
+        Empty list = no human-go nodes (loop is fully automated).
+    topology_summary : str
+        One-line description of the overall loop structure.
+    """
+
+    __slots__ = (
+        "key",
+        "entry_verb",
+        "scaffolder",
+        "human_go_gates",
+        "topology_summary",
+    )
+
+    def __init__(
+        self,
+        key: str,
+        entry_verb: str,
+        scaffolder: str | None,
+        human_go_gates: list[LoopGate],
+        topology_summary: str,
+    ) -> None:
+        self.key = key
+        self.entry_verb = entry_verb
+        self.scaffolder = scaffolder
+        self.human_go_gates = human_go_gates
+        self.topology_summary = topology_summary
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "key": self.key,
+            "entry_verb": self.entry_verb,
+            "scaffolder": self.scaffolder,
+            "human_go_gates": [g.as_dict() for g in self.human_go_gates],
+            "topology_summary": self.topology_summary,
+        }
+
+
+# ---------------------------------------------------------------------------
+# The catalog  (grounded in shipped manifests — SR-HUB-DAG §A1)
+# ---------------------------------------------------------------------------
+#
+# Gate node IDs are EXACT strings from the shipped JSON manifests.
+# research-loop.json gate IDs: human-go-plan, human-go-conditionals-main*, human-go-findings
+# lit-review-loop.json gate IDs: okf-coverage-gate, human-go-synthesis
+# manuscript DAG gate IDs come from rv manuscript new output (SR-MS-1a §5J.2):
+#   human-go-outline, human-go-draft, approve-manuscript
+# figure DAG gate IDs come from rv figure new output (SR-FIG):
+#   human-go-figure
+
+LOOP_CATALOG: list[LoopEntry] = [
+
+    LoopEntry(
+        key="experiment",
+        entry_verb="rv dag run <project-notes-dir>/experiments/<id>-loop.json",
+        scaffolder="rv experiment new <project> <id> --question '...' [--mains N]",
+        human_go_gates=[
+            LoopGate(
+                node_id="human-go-plan",
+                label=(
+                    "Plan quality approved, pre-registration filed, covers:-hash frozen "
+                    "(K-3: run `rv plan freeze <run_id> <plan-note>` immediately after approval)"
+                ),
+                freeze_action="rv plan freeze <run_id> <plan-note>",
+            ),
+            LoopGate(
+                node_id="human-go-conditionals-main1",
+                label="Main 1 results + conditional triggers ratified (decision-not-diff)",
+                freeze_action=None,
+            ),
+            LoopGate(
+                node_id="human-go-conditionals-main2",
+                label="Main 2 results + conditional triggers ratified (decision-not-diff)",
+                freeze_action=None,
+            ),
+            LoopGate(
+                node_id="human-go-findings",
+                label=(
+                    "All findings reviewed; covers:-hash re-verified (K-3: automatic on "
+                    "`rv dag approve <run_id> human-go-findings`)"
+                ),
+                freeze_action=None,
+            ),
+        ],
+        topology_summary=(
+            "plan → plan-critic → [HG:human-go-plan] → "
+            "{per-main: run→score→analyze (+ablations)} → "
+            "[HG:human-go-conditionals-*] → [HG:human-go-findings] → methods-update"
+        ),
+    ),
+
+    LoopEntry(
+        key="lit-review",
+        entry_verb="rv dag run <project-notes-dir>/reviews/<scope>/phase1-dag.json",
+        scaffolder="rv review <project> new <scope> --question '...'",
+        human_go_gates=[
+            LoopGate(
+                node_id="approve-protocol",
+                label=(
+                    "Review protocol approved (counter-position required before search fires — "
+                    "L-2 anti-fishing gate)"
+                ),
+                freeze_action=None,
+            ),
+            LoopGate(
+                node_id="okf-coverage-gate",
+                label=(
+                    "OKF coverage gate — every in-scope paper has a literature note or is "
+                    "MENTION-ONLY; Phase-2 fan-out authorized here "
+                    "(run `rv review <project> expand <scope>` after approval)"
+                ),
+                freeze_action=None,
+            ),
+            LoopGate(
+                node_id="human-go-synthesis",
+                label="Synthesis quality and OKF links resolved",
+                freeze_action=None,
+            ),
+        ],
+        topology_summary=(
+            "review-scope → [HG:approve-protocol] → review-search → review-snowball → "
+            "[HG:okf-coverage-gate] → (Phase-2) relate-* → review-synthesize → "
+            "synthesis-critic → [HG:human-go-synthesis]"
+        ),
+    ),
+
+    LoopEntry(
+        key="figure",
+        entry_verb="rv dag run <project-notes-dir>/figures/<fig-id>-loop.json",
+        scaffolder="rv figure <project> new <fig-id> --experiment <exp-id>",
+        human_go_gates=[
+            LoopGate(
+                node_id="human-go-figure",
+                label="Figure reviewed for perceptual encoding + provenance completeness",
+                freeze_action=None,
+            ),
+        ],
+        topology_summary=(
+            "figure-spec → figure-preview → figure-render → [HG:human-go-figure]"
+        ),
+    ),
+
+    LoopEntry(
+        key="manuscript",
+        entry_verb="rv dag run <project-notes-dir>/manuscript/<id>-loop.json",
+        scaffolder="rv manuscript <project> new <id> --thesis '...'",
+        human_go_gates=[
+            LoopGate(
+                node_id="human-go-outline",
+                label="Outline structure approved before full draft",
+                freeze_action=None,
+            ),
+            LoopGate(
+                node_id="human-go-draft",
+                label="Draft quality approved before support-matcher + critic pass",
+                freeze_action=None,
+            ),
+            LoopGate(
+                node_id="approve-manuscript",
+                label=(
+                    "Final manuscript approved — support-matcher (J-1), "
+                    "strength-mono (K-1), and critic pass all green"
+                ),
+                freeze_action=None,
+            ),
+        ],
+        topology_summary=(
+            "outline → [HG:human-go-outline] → draft-* sections → "
+            "[HG:human-go-draft] → support-matcher → strength-mono → "
+            "manuscript-critic → [HG:approve-manuscript]"
+        ),
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Lookup helpers
+# ---------------------------------------------------------------------------
+
+def get_loop(key: str) -> LoopEntry | None:
+    """Return the LoopEntry for ``key``, or None if not found."""
+    for entry in LOOP_CATALOG:
+        if entry.key == key:
+            return entry
+    return None
+
+
+def all_keys() -> list[str]:
+    """Return all loop keys in catalog order."""
+    return [e.key for e in LOOP_CATALOG]
