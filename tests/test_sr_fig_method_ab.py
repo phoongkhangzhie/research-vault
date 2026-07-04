@@ -601,6 +601,74 @@ class TestStaticCheckV4BakedTitle:
             f"got: {violations}"
         )
 
+    def test_v4_rejects_set_title_label_kwarg(self, tmp_path):
+        """static_check rejects ax.set_title(label='Baked claim') (keyword form).
+
+        matplotlib's real keyword for set_title is ``label``, not ``title``.
+        The old check only matched ``kw.arg == 'title'`` — a wrong kwarg name that
+        never fires. This test is the RED-before-GREEN pin for the keyword-bypass fix.
+
+        RED before fix: static_check returned [] (label= bypassed V4).
+        GREEN after fix: kw.arg in ('title', 'label', 't') catches the label= form.
+        """
+        script = tmp_path / "render_baked_label.py"
+        script.write_text(
+            "import hashlib\n"
+            "import sys\n"
+            "import matplotlib.pyplot as plt\n"
+            "from research_vault.figures.style import apply_style\n"
+            "h = hashlib.sha256()\n"
+            "with open(results_location, 'rb') as fh:\n"
+            "    while chunk := fh.read(1<<20): h.update(chunk)\n"
+            "actual = 'sha256:' + h.hexdigest()\n"
+            "if actual != experiment_results_hash: sys.exit(1)\n"
+            "apply_style(preset, project)\n"
+            "fig, ax = plt.subplots()\n"
+            "ax.set_title(label='Baked claim via label kwarg')  # keyword bypass!\n",
+            encoding="utf-8",
+        )
+        from research_vault.figures.render_script import static_check
+        violations = static_check(script)
+        v4 = [v for v in violations if "[V4-TITLE]" in v]
+        assert v4, (
+            "[V4-TITLE] violation must fire for set_title(label='...'); "
+            f"got: {violations}"
+        )
+
+    def test_v4_rejects_suptitle_t_kwarg(self, tmp_path):
+        """static_check rejects fig.suptitle(t='Baked claim') (keyword form).
+
+        matplotlib's real keyword for suptitle is ``t``, not ``title``.
+        The old check only matched ``kw.arg == 'title'`` — never fires on suptitle.
+        This test is the RED-before-GREEN pin for the keyword-bypass fix.
+
+        RED before fix: static_check returned [] (t= bypassed V4).
+        GREEN after fix: kw.arg in ('title', 'label', 't') catches the t= form.
+        """
+        script = tmp_path / "render_baked_suptitle_t.py"
+        script.write_text(
+            "import hashlib\n"
+            "import sys\n"
+            "import matplotlib.pyplot as plt\n"
+            "from research_vault.figures.style import apply_style\n"
+            "h = hashlib.sha256()\n"
+            "with open(results_location, 'rb') as fh:\n"
+            "    while chunk := fh.read(1<<20): h.update(chunk)\n"
+            "actual = 'sha256:' + h.hexdigest()\n"
+            "if actual != experiment_results_hash: sys.exit(1)\n"
+            "apply_style(preset, project)\n"
+            "fig, ax = plt.subplots()\n"
+            "fig.suptitle(t='Baked claim via t kwarg')  # keyword bypass!\n",
+            encoding="utf-8",
+        )
+        from research_vault.figures.render_script import static_check
+        violations = static_check(script)
+        v4 = [v for v in violations if "[V4-TITLE]" in v]
+        assert v4, (
+            "[V4-TITLE] violation must fire for suptitle(t='...'); "
+            f"got: {violations}"
+        )
+
     def test_v4_passes_no_title_call(self, tmp_path):
         """static_check passes a script with no set_title/suptitle call."""
         script = tmp_path / "render_no_title.py"

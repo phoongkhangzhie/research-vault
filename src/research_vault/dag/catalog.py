@@ -21,7 +21,7 @@ not from memory or design docs. Verified against:
                Phase-2 gate:  approve-review
   figure     : data/examples/demo-figures/demo-figures.json
                (data-check — IN THE MIDDLE, not terminal)
-  manuscript : manuscript/__init__.py _build_drafting_dag
+  manuscript : manuscript/__init__.py _build_manifest
                (approve-thesis, approve-framing, approve-manuscript)
 
 A grounding test (test_sr_hub_dag_rails.py::TestCatalogGrounding) asserts every
@@ -141,7 +141,7 @@ class LoopEntry:
 #                _build_phase1_manifest (approve-protocol, coverage-gate)
 #                _build_phase2_manifest (approve-review)
 #   figure     : src/research_vault/data/examples/demo-figures/demo-figures.json
-#   manuscript : src/research_vault/manuscript/__init__.py _build_drafting_dag
+#   manuscript : src/research_vault/manuscript/__init__.py _build_manifest
 #
 # ★ Do NOT update gate IDs from memory or design docs — read the source files
 # and update the grounding test (TestCatalogGrounding) in parallel.
@@ -241,7 +241,7 @@ LOOP_CATALOG: list[LoopEntry] = [
         ),
     ),
 
-    # Manuscript gates grounded in manuscript/__init__.py _build_drafting_dag:
+    # Manuscript gates grounded in manuscript/__init__.py _build_manifest:
     #   approve-thesis (line ~217), approve-framing (line ~247),
     #   approve-manuscript (line ~569)
     LoopEntry(

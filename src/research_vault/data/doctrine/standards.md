@@ -133,6 +133,15 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   live and will diverge. This is worse when the duplicated block is a safety contract. Review fit-check
   probe: confirm the pre-existing caller now CALLS the new helper; an independent copy is a failed
   extraction regardless of how clean the new function is.
+- **A cross-boundary read primitive must ship with its decision-criterion and provenance discipline in
+  the same SR.** A capability that lets a component reach across a project or trust boundary — reading
+  another project's notes, consuming a foreign dataset, pulling a cross-repo artifact — is an
+  *attractive nuisance* if it ships without two things: (1) the decision-criterion (under what
+  conditions is the reach correct and authorized?), and (2) the provenance discipline (how is the
+  cross-boundary dependency surfaced and traced so it cannot silently drift?). A read capability with
+  no decision is not a neutral primitive — it is an ungated coupling that accrues hidden dependencies.
+  Grounded in SR-XP: the cross-project read shipped in the same increment as the primitive, with no
+  stated decision gate and no provenance seam; consumers appeared immediately in the subsequent SR.
 
 ## How it's enforced
 
