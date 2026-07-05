@@ -95,6 +95,15 @@ def _default_config() -> dict[str, Any]:
             "secrets": "env",
         },
         "projects": {},
+        # SR-APPROVE-GATE: human-presence enforcement at rv dag approve.
+        # enforce=true (default): require TTY keystroke or valid RV_APPROVER_TOKEN.
+        # token_fingerprint: sha256 of the provisioned token (written by rv approval setup).
+        # enforce_sig: HMAC keyed on the token (written by rv approval disable — Slice 3).
+        "approval": {
+            "enforce": True,
+            "token_fingerprint": "",
+            "enforce_sig": "",
+        },
     }
 
 

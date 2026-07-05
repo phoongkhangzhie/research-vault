@@ -387,6 +387,12 @@ control_dir = "{tmp_path / 'control'}"
 notifier = "file"
 backend = "local"
 secrets = "env"
+
+# SR-APPROVE-GATE: token fingerprint for test-time token approval.
+[approval]
+enforce = true
+token_fingerprint = "d309a810bb5f40cef518202e46d197aa61e4dddafc5984c8c698da29ac8fd2bc"
+enforce_sig = ""
 """,
         encoding="utf-8",
     )
