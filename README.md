@@ -171,7 +171,7 @@ targets without a dedicated SDK.
 ### Prerequisites
 
 - **Python 3.12+**
-- **An agent runtime.** Claude Code (see *Adoption* below).
+- **An agent runtime.** Claude Code (see *Quick start* below).
 - **Model API keys** — via environment variables or your system keyring.
 - Run **`rv check`** to verify prerequisites and see the tier coverage matrix.
 
@@ -184,20 +184,27 @@ instructions. `rv check` reports full integration status including `asta`'s pres
 
 ## Quick start
 
+Research Vault runs on **Claude Code**.
+
 ```bash
+pip install research-vault
 rv init my-vault        # scaffold an instance: config, control bus, OKF note
 cd my-vault             #   dirs, doctrine, the crew, and two demo projects
 rv check                # preflight: verify prerequisites
 ```
 
-On **Claude Code**, `rv init` also writes a `CLAUDE.md` that boots your session
-as the hub and installs the crew as subagents — so the session becomes the
-coordinator, and the role hats become the specialists it dispatches. `rv init`
-ships two runnable demo projects (`demo-research`, `demo-litreview`) so you can
-walk a loop end-to-end before pointing it at real work.
+`rv init` scaffolds a `CLAUDE.md` and the crew under `.claude/agents/`, rendered
+with per-role tool grants and model aliases — so your Claude Code session boots
+as the hub, with the role hats installed as the subagents it dispatches. The
+human-only approval boundary holds mechanically: the approve-gate keys on an
+interactive TTY, which dispatched crew subagents never have.
 
-A real project is its own git repo; register it with `rv project add` (or stand
-up a fresh one with `rv project new`) after `rv init`.
+It also ships two runnable demo projects (`demo-research`, `demo-litreview`) so
+you can walk a loop end-to-end before pointing it at real work, and writes a
+**[`QUICKSTART.md`](src/research_vault/data/templates/QUICKSTART.md)** into the
+vault — the full walkthrough, including compute onboarding and an example session
+with Alfred. A real project is its own git repo; register it with `rv project add`
+(or stand up a fresh one with `rv project new`).
 
 ---
 
@@ -219,23 +226,6 @@ Least-privilege is stamped into each hat: coordinator-class gets no `Bash`;
 the reviewer is read-only; the researcher carries web retrieval for
 support-checked citations. Nobody merges on their own authority — a merge
 executes only when an independent gate authorizes it.
-
----
-
-## Adoption
-
-Research Vault runs on **Claude Code**.
-
-```bash
-pip install research-vault
-rv init my-vault
-```
-
-`rv init` scaffolds `CLAUDE.md` and the crew under `.claude/agents/`, rendered
-with per-role tool grants and model aliases — so your Claude Code session boots
-as the hub with the role hats installed as the subagents it dispatches.
-The human-only approval boundary holds mechanically: the approve-gate keys on an
-interactive TTY, which dispatched crew subagents never have.
 
 ---
 
