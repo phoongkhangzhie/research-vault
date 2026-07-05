@@ -73,9 +73,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/khangzhie-vault/research-vault"
-Repository = "https://github.com/khangzhie-vault/research-vault"
-Issues = "https://github.com/khangzhie-vault/research-vault/issues"
+# TODO: fill in the final private-git URL before publishing to PyPI.
+Homepage = "<repo-url>"
+Repository = "<repo-url>"
+Issues = "<repo-url>/issues"
 
 # ---------------------------------------------------------------------------
 # Extras — opt-in capabilities on top of the 27-package core.
