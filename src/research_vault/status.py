@@ -351,6 +351,244 @@ def _devlog_tail(devlog_path: Path, max_lines: int = 8) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Needs-attention roll-up — the shared SSOT for the plain + rich surfaces.
+# ---------------------------------------------------------------------------
+
+def _build_attention(project: str, cfg: Config) -> list[str]:
+    """Build the needs-attention roll-up lines for a project.
+
+    Extracted so :func:`cmd_status` (plain) and :func:`status_sections` (rich)
+    share ONE implementation — no drift between the two surfaces.
+    """
+    attention: list[str] = []
+    try:
+        ctl_path = cfg.project_control_file(project)
+        if ctl_path.exists():
+            cf = parse_control_file(ctl_path)
+            inbox_items = [it for it in section_items(cf, "Inbox")
+                           if it["text"] and "_(none)_" not in it["text"]]
+            if inbox_items:
+                attention.append(f"Inbox has {len(inbox_items)} item(s) — act or acknowledge")
+            if not cf.has_banner:
+                attention.append("Control file missing tooled-path banner — run `rv control heal`")
+    except Exception:
+        pass
+
+    # --- Open gap count (SR-LR-2 §5L.7 D-GAP-4) ---
+    # Surfaces the COUNT only — never inlines gap records into the control bus.
+    # A non-zero count is a prompt to run `rv review gap-scope` + human-go.
+    try:
+        from research_vault.review.gap_scan import open_gap_count
+        n_open_gaps = open_gap_count(project, config=cfg)
+        if n_open_gaps > 0:
+            attention.append(
+                f"{n_open_gaps} open gap(s) detected — run "
+                f"`rv review gap-scan {project}` to inspect, then "
+                f"`rv review gap-scope {project} <gap-id> <scope>` to author "
+                f"a targeted review pass (human-go required)"
+            )
+    except Exception:
+        pass
+
+    # --- Proven-open run-candidate count (SR-GAP-ROUTE §5L.16) ---
+    # Surfaces the COUNT only — proven-open gaps are run-candidates that survived
+    # the read cascade without closing. A non-zero count is a prompt to author
+    # an experiment via `rv review gap-scope --target experiment` (human-go required).
+    # The run NEVER auto-fires; this is a rejects-only screen surfacing decided work.
+    try:
+        from research_vault.review.gap_scan import proven_open_count
+        n_proven_open = proven_open_count(project, config=cfg)
+        if n_proven_open > 0:
+            attention.append(
+                f"{n_proven_open} proven-open gap(s) are run-candidates — "
+                f"targeted lit pass saturated without closing. "
+                f"Run `rv review gap-scope {project} <gap-id> <scope> --target experiment` "
+                f"to author an experiment plan (human-go required; run never auto-fires)"
+            )
+    except Exception:
+        pass
+
+    # --- Research-loop drift check: orphan preregistration plans (SR-HUB-DAG §D) ---
+    # A preregistration plan note with no registered DAG run means rv plan freeze
+    # cannot bind (no run_id to hash into meta). This is the guardrail that would
+    # have caught the original root cause (ad-hoc dispatch of pre-registered studies).
+    # Reuses DagRunSource.summary() — no new aggregation.
+    try:
+        from .note import _parse_frontmatter as _pfm
+        experiments_dir: Path | None = None
+        try:
+            experiments_dir = cfg.project_notes_dir(project) / "experiments"
+        except (KeyError, Exception):
+            experiments_dir = None
+
+        if experiments_dir and experiments_dir.is_dir():
+            dag_src = DagRunSource()
+            runs = dag_src.summary(cfg)
+            # run_ids that are live (in-flight or terminal) — any registered run
+            registered_run_ids: set[str] = {r["run_id"] for r in runs}
+
+            orphans: list[str] = []
+            for note_path in sorted(experiments_dir.glob("*.md")):
+                try:
+                    text = note_path.read_text(encoding="utf-8")
+                    fields, _ = _pfm(text)
+                except Exception:
+                    continue
+                if fields.get("plan_kind", "").strip() != "preregistration":
+                    continue
+                # Derive the expected run_id: "<stem-without-plan>-loop"
+                # Convention: plan note is "<id>-plan.md" → run_id is "<id>-loop"
+                stem = note_path.stem  # e.g. "q1-plan"
+                if stem.endswith("-plan"):
+                    exp_id = stem[:-5]  # strip "-plan"
+                else:
+                    exp_id = stem
+                expected_run_id = f"{exp_id}-loop"
+                # Exact match on the canonical "<id>-loop" convention only.
+                # A loose startswith() match would suppress warnings for unrelated
+                # runs whose id happens to share the same prefix.
+                covered = expected_run_id in registered_run_ids
+                if not covered:
+                    orphans.append(note_path.name)
+
+            for orphan_name in orphans:
+                exp_id_hint = orphan_name.replace("-plan.md", "")
+                attention.append(
+                    f"WARN: pre-registration plan `{orphan_name}` has no registered "
+                    f"DAG run — `rv plan freeze` cannot bind (no run_id to hash). "
+                    f"Run `rv experiment new {project} {exp_id_hint} --question '...'` "
+                    f"or `rv dag run <manifest>` BEFORE dispatching crew. "
+                    f"(SR-HUB-DAG §D)"
+                )
+    except Exception:
+        pass
+
+    return attention
+
+
+# ---------------------------------------------------------------------------
+# Structured section builder — the SSOT dict for the rich surface (S3)
+# ---------------------------------------------------------------------------
+
+def status_sections(
+    project: str,
+    *,
+    config: Config | None = None,
+    extra_sources: list | None = None,
+) -> dict:
+    """Return the structured status sections for a project (rich-render input).
+
+    Reads the SAME source helpers :func:`cmd_status` formats — the plain string
+    surface is unchanged; this is a parallel structured view for the rich
+    renderer.  Keys:
+
+      ``project`` / ``instance_root`` / ``config_file`` — header metadata
+      ``coordination`` — {sections: [{name, count, items[]}], banner_ok, error?, missing?}
+      ``task_board``   — {total, counts, active[], error?}
+      ``devlog``       — {tail: str|None, error?}
+      ``git``          — {branches[], commits[], error?}
+      ``dag``          — {runs: [{run_id, terminal}], error?}
+      ``pointers``     — {path, lines[]} | {message}
+      ``attention``    — list[str]  (via the shared :func:`_build_attention`)
+    """
+    cfg = config or load_config()
+    out: dict = {
+        "project": project,
+        "instance_root": str(cfg.instance_root),
+        "config_file": str(cfg.config_file) if cfg.config_file else "(none — defaults)",
+    }
+
+    # --- Coordination state ---
+    coord: dict = {"sections": [], "banner_ok": True}
+    try:
+        ctl_path = cfg.project_control_file(project)
+        if ctl_path.exists():
+            cf = parse_control_file(ctl_path)
+            for sec_name in REQUIRED_SECTIONS:
+                items = section_items(cf, sec_name)
+                non_empty = [it for it in items if it["text"] and "_(none)_" not in it["text"]]
+                coord["sections"].append({
+                    "name": sec_name,
+                    "count": len(non_empty),
+                    "items": [
+                        {"text": it["text"], "resolved": bool(it.get("resolved"))}
+                        for it in non_empty[:3]
+                    ],
+                })
+            coord["banner_ok"] = bool(cf.has_banner)
+        else:
+            coord["missing"] = True
+    except Exception as e:
+        coord["error"] = str(e)
+    out["coordination"] = coord
+
+    # --- Task board ---
+    task: dict = {}
+    try:
+        summary = TaskBoardSource().summary(cfg, project)
+        task = {"total": summary["total"], "counts": summary["counts"],
+                "active": summary["active"]}
+    except Exception as e:
+        task = {"error": str(e)}
+    out["task_board"] = task
+
+    # --- DEVLOG tail ---
+    devlog: dict = {}
+    try:
+        devlog = {"tail": _devlog_tail(cfg.project_devlog(project))}
+    except Exception as e:
+        devlog = {"error": str(e)}
+    out["devlog"] = devlog
+
+    # --- Local git state ---
+    git: dict = {}
+    try:
+        gs = LocalGitSource()
+        git = {"branches": gs.recent_branches(cfg, project, n=5),
+               "commits": gs.recent_commits(cfg, project, n=3)}
+    except Exception as e:
+        git = {"error": str(e)}
+    out["git"] = git
+
+    # --- DAG runs ---
+    dag: dict = {}
+    try:
+        dag = {"runs": [{"run_id": r["run_id"], "terminal": r["terminal"]}
+                        for r in DagRunSource().summary(cfg)[:5]]}
+    except Exception as e:
+        dag = {"error": str(e)}
+    out["dag"] = dag
+
+    # --- Pointers.md head ---
+    pointers: dict = {}
+    try:
+        try:
+            source_dir = cfg.project(project).get("source_dir")
+        except (KeyError, Exception):
+            source_dir = None
+        if source_dir:
+            pp = Path(source_dir) / "pointers.md"
+            if pp.is_file():
+                content_lines = [
+                    ln for ln in pp.read_text(encoding="utf-8").splitlines()
+                    if ln.strip() and not ln.startswith("# ")
+                ][:5]
+                pointers = {"path": str(pp), "lines": content_lines}
+            else:
+                pointers = {"message": f"none yet — add them to `{source_dir}/pointers.md`"}
+        else:
+            pointers = {"message": "source_dir not set — cannot locate pointers.md"}
+    except Exception as e:
+        pointers = {"error": str(e)}
+    out["pointers"] = pointers
+
+    # --- Needs-attention roll-up (shared SSOT) ---
+    out["attention"] = _build_attention(project, cfg)
+
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Core status command
 # ---------------------------------------------------------------------------
 
@@ -503,108 +741,7 @@ def cmd_status(
     lines.append("")
 
     # --- Needs-attention roll-up ---
-    attention: list[str] = []
-    try:
-        ctl_path = cfg.project_control_file(project)
-        if ctl_path.exists():
-            cf = parse_control_file(ctl_path)
-            inbox_items = [it for it in section_items(cf, "Inbox")
-                           if it["text"] and "_(none)_" not in it["text"]]
-            if inbox_items:
-                attention.append(f"Inbox has {len(inbox_items)} item(s) — act or acknowledge")
-            if not cf.has_banner:
-                attention.append("Control file missing tooled-path banner — run `rv control heal`")
-    except Exception:
-        pass
-
-    # --- Open gap count (SR-LR-2 §5L.7 D-GAP-4) ---
-    # Surfaces the COUNT only — never inlines gap records into the control bus.
-    # A non-zero count is a prompt to run `rv review gap-scope` + human-go.
-    try:
-        from research_vault.review.gap_scan import open_gap_count
-        n_open_gaps = open_gap_count(project, config=cfg)
-        if n_open_gaps > 0:
-            attention.append(
-                f"{n_open_gaps} open gap(s) detected — run "
-                f"`rv review gap-scan {project}` to inspect, then "
-                f"`rv review gap-scope {project} <gap-id> <scope>` to author "
-                f"a targeted review pass (human-go required)"
-            )
-    except Exception:
-        pass
-
-    # --- Proven-open run-candidate count (SR-GAP-ROUTE §5L.16) ---
-    # Surfaces the COUNT only — proven-open gaps are run-candidates that survived
-    # the read cascade without closing. A non-zero count is a prompt to author
-    # an experiment via `rv review gap-scope --target experiment` (human-go required).
-    # The run NEVER auto-fires; this is a rejects-only screen surfacing decided work.
-    try:
-        from research_vault.review.gap_scan import proven_open_count
-        n_proven_open = proven_open_count(project, config=cfg)
-        if n_proven_open > 0:
-            attention.append(
-                f"{n_proven_open} proven-open gap(s) are run-candidates — "
-                f"targeted lit pass saturated without closing. "
-                f"Run `rv review gap-scope {project} <gap-id> <scope> --target experiment` "
-                f"to author an experiment plan (human-go required; run never auto-fires)"
-            )
-    except Exception:
-        pass
-
-    # --- Research-loop drift check: orphan preregistration plans (SR-HUB-DAG §D) ---
-    # A preregistration plan note with no registered DAG run means rv plan freeze
-    # cannot bind (no run_id to hash into meta). This is the guardrail that would
-    # have caught the original root cause (ad-hoc dispatch of pre-registered studies).
-    # Reuses DagRunSource.summary() — no new aggregation.
-    try:
-        from .note import _parse_frontmatter as _pfm
-        experiments_dir: Path | None = None
-        try:
-            experiments_dir = cfg.project_notes_dir(project) / "experiments"
-        except (KeyError, Exception):
-            experiments_dir = None
-
-        if experiments_dir and experiments_dir.is_dir():
-            dag_src = DagRunSource()
-            runs = dag_src.summary(cfg)
-            # run_ids that are live (in-flight or terminal) — any registered run
-            registered_run_ids: set[str] = {r["run_id"] for r in runs}
-
-            orphans: list[str] = []
-            for note_path in sorted(experiments_dir.glob("*.md")):
-                try:
-                    text = note_path.read_text(encoding="utf-8")
-                    fields, _ = _pfm(text)
-                except Exception:
-                    continue
-                if fields.get("plan_kind", "").strip() != "preregistration":
-                    continue
-                # Derive the expected run_id: "<stem-without-plan>-loop"
-                # Convention: plan note is "<id>-plan.md" → run_id is "<id>-loop"
-                stem = note_path.stem  # e.g. "q1-plan"
-                if stem.endswith("-plan"):
-                    exp_id = stem[:-5]  # strip "-plan"
-                else:
-                    exp_id = stem
-                expected_run_id = f"{exp_id}-loop"
-                # Exact match on the canonical "<id>-loop" convention only.
-                # A loose startswith() match would suppress warnings for unrelated
-                # runs whose id happens to share the same prefix.
-                covered = expected_run_id in registered_run_ids
-                if not covered:
-                    orphans.append(note_path.name)
-
-            for orphan_name in orphans:
-                exp_id_hint = orphan_name.replace("-plan.md", "")
-                attention.append(
-                    f"WARN: pre-registration plan `{orphan_name}` has no registered "
-                    f"DAG run — `rv plan freeze` cannot bind (no run_id to hash). "
-                    f"Run `rv experiment new {project} {exp_id_hint} --question '...'` "
-                    f"or `rv dag run <manifest>` BEFORE dispatching crew. "
-                    f"(SR-HUB-DAG §D)"
-                )
-    except Exception:
-        pass
+    attention = _build_attention(project, cfg)
 
     if attention:
         lines.append("## Needs Attention")
@@ -679,8 +816,22 @@ def run(args: argparse.Namespace) -> int:
         print(f"rv status: config error: {e}", file=sys.stderr)
         return 1
 
+    from .richui import should_render_rich, render_status
+    rich = should_render_rich()
+
     try:
         if getattr(args, "all", False):
+            if rich:
+                try:
+                    slugs = cfg.all_project_slugs()
+                    if not slugs:
+                        print(cmd_status_all(config=cfg))
+                        return 0
+                    for slug in slugs:
+                        render_status(status_sections(slug, config=cfg))
+                    return 0
+                except Exception:
+                    pass  # fall through to the plain --all string
             print(cmd_status_all(config=cfg))
             return 0
 
@@ -689,6 +840,12 @@ def run(args: argparse.Namespace) -> int:
             print("rv status: provide a project slug or --all", file=sys.stderr)
             return 1
 
+        if rich:
+            try:
+                render_status(status_sections(project, config=cfg))
+                return 0
+            except Exception:
+                pass  # fall through to the plain string
         print(cmd_status(project, config=cfg))
         return 0
 

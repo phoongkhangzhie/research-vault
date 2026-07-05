@@ -530,6 +530,141 @@ def render_doctor(result: dict[str, Any], console: Any = None) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# S3 — rv status (sectioned panels + tables from the structured dict)
+# ---------------------------------------------------------------------------
+
+def render_status(sections: dict[str, Any], console: Any = None) -> None:
+    """Render ``rv status <project>`` as sectioned panels + tables.
+
+    Reads the dict :func:`status.status_sections` returns (the SSOT the plain
+    :func:`status.cmd_status` string is built from).  All data-bearing text is
+    escaped so control-item / branch / devlog brackets are never eaten as markup.
+    """
+    from rich.markup import escape
+
+    con = console if console is not None else get_console()
+    project = escape(str(sections.get("project", "?")))
+    make_header(
+        f"rv status — {project}",
+        escape(f"{sections.get('instance_root', '?')} · {sections.get('config_file', '?')}"),
+        console=con,
+    )
+
+    # ── Coordination state ───────────────────────────────────────────────────
+    coord = sections.get("coordination", {})
+    if coord.get("error"):
+        make_panel(f"[{_STYLE['fail']}]read error:[/] {escape(coord['error'])}",
+                   title="Coordination State", kind="fail", console=con)
+    elif coord.get("missing"):
+        make_panel(f"[{_STYLE['locked']}]No control file.[/] Run [bold]rv control {project} init[/bold].",
+                   title="Coordination State", kind="neutral", console=con)
+    else:
+        columns = [
+            {"name": "Section", "style": _STYLE["header"], "no_wrap": True},
+            {"name": "Items", "justify": "right", "no_wrap": True},
+            {"name": "First entries"},
+        ]
+        rows: list[tuple[Any, ...]] = []
+        for sec in coord.get("sections", []):
+            first = "\n".join(
+                ("[x] " if it["resolved"] else "") + escape(it["text"][:80])
+                for it in sec.get("items", [])
+            ) or "[dim]—[/dim]"
+            count = sec["count"]
+            count_cell = f"[{_STYLE['locked']}]{count}[/]" if count else f"[dim]{count}[/dim]"
+            rows.append((sec["name"], count_cell, first))
+        con.print(make_status_table(columns, rows, title="Coordination State"))
+        if not coord.get("banner_ok", True):
+            con.print(f"  [{_STYLE['fail']}]⚠ banner missing[/] — run [bold]rv control heal[/bold]")
+
+    # ── Task board ───────────────────────────────────────────────────────────
+    task = sections.get("task_board", {})
+    if task.get("error"):
+        make_panel(f"[{_STYLE['fail']}]error:[/] {escape(task['error'])}",
+                   title="Task Board", kind="fail", console=con)
+    else:
+        counts = task.get("counts", {})
+        counts_str = "  ".join(f"{escape(str(s))}={n}" for s, n in counts.items()) or "[dim]—[/dim]"
+        active = task.get("active", [])
+        body = f"[bold]Total:[/bold] {task.get('total', 0)}    {counts_str}"
+        if active:
+            body += "\n[dim]active:[/dim] " + escape(", ".join(active[:5]))
+        make_panel(body, title="Task Board", kind="neutral", console=con)
+
+    # ── DEVLOG tail ──────────────────────────────────────────────────────────
+    devlog = sections.get("devlog", {})
+    if devlog.get("error"):
+        make_panel(f"[{_STYLE['fail']}]error:[/] {escape(devlog['error'])}",
+                   title="DEVLOG (latest entry)", kind="fail", console=con)
+    else:
+        tail = devlog.get("tail")
+        body = escape(tail) if tail else "[dim](none or missing)[/dim]"
+        make_panel(body, title="DEVLOG (latest entry)", kind="neutral", console=con)
+
+    # ── Local git state ──────────────────────────────────────────────────────
+    git = sections.get("git", {})
+    if git.get("error"):
+        make_panel(f"[{_STYLE['fail']}]error:[/] {escape(git['error'])}",
+                   title="Local Git State", kind="fail", console=con)
+    else:
+        branches = git.get("branches", [])
+        commits = git.get("commits", [])
+        parts: list[str] = []
+        if branches:
+            parts.append("[dim]recent branches:[/dim]\n" + "\n".join("  " + escape(b) for b in branches))
+        else:
+            parts.append("[dim](no branches)[/dim]")
+        if commits:
+            parts.append("[dim]recent commits:[/dim]\n" + "\n".join("  " + escape(c) for c in commits))
+        make_panel("\n".join(parts), title="Local Git State  (posted local only, no gh)",
+                   kind="neutral", console=con)
+
+    # ── DAG runs ─────────────────────────────────────────────────────────────
+    dag = sections.get("dag", {})
+    if dag.get("error"):
+        make_panel(f"[{_STYLE['fail']}]error:[/] {escape(dag['error'])}",
+                   title="DAG Runs", kind="fail", console=con)
+    else:
+        runs = dag.get("runs", [])
+        if runs:
+            columns = [
+                {"name": "Run", "style": _STYLE["header"], "no_wrap": True},
+                {"name": "State", "no_wrap": True},
+            ]
+            rows = []
+            for r in runs:
+                if r["terminal"]:
+                    state = f"[{_STYLE['ok']}]terminal[/]"
+                else:
+                    state = f"[{_STYLE['locked']}]in-flight[/]"
+                rows.append((escape(str(r["run_id"])), state))
+            con.print(make_status_table(columns, rows, title="DAG Runs"))
+        else:
+            make_panel("[dim](none)[/dim]", title="DAG Runs", kind="neutral", console=con)
+
+    # ── Pointers ─────────────────────────────────────────────────────────────
+    pointers = sections.get("pointers", {})
+    if pointers.get("lines") is not None:
+        body = f"[dim]from {escape(pointers.get('path', '?'))}[/dim]\n" + "\n".join(
+            "  " + escape(ln) for ln in pointers["lines"]
+        )
+    elif pointers.get("error"):
+        body = f"[{_STYLE['fail']}]error:[/] {escape(pointers['error'])}"
+    else:
+        body = f"[dim]{escape(pointers.get('message', 'none'))}[/dim]"
+    make_panel(body, title="Pointers", kind="neutral", console=con)
+
+    # ── Needs attention ──────────────────────────────────────────────────────
+    attention = sections.get("attention", [])
+    if attention:
+        body = "\n".join(f"[{_STYLE['locked']}]![/] {escape(a)}" for a in attention)
+        make_panel(body, title="Needs Attention", kind="fail", console=con)
+    else:
+        make_panel(f"[{_STYLE['ok']}]— nothing flagged[/]", title="Needs Attention",
+                   kind="ok", console=con)
+
+
 def render_closing(body: str, title: str = "Done", kind: str = "ok", console: Any = None) -> None:
     """Render a generic closing summary panel (S2 scaffold-summary surfaces).
 
