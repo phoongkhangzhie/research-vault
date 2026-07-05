@@ -653,6 +653,94 @@ def cmd_relate(
         return 1
 
 
+def cmd_relate_suggest(
+    *,
+    top_k: int = 5,
+    config_path: Path | None = None,
+) -> int:
+    """Suggest candidate cross-project edges based on corpus similarity.
+
+    Runs the Slice-4 TF-IDF ranker across ALL project pairs' note corpora and
+    surfaces high cross-corpus-similarity pairs as candidates for the hub to
+    declare.
+
+    Prints proposals ONLY — NEVER auto-declares.  The hub inspects suggestions
+    and declares with ``rv project relate <a> <b> --kind <why>`` on chosen pairs.
+
+    Returns 0 on success, 1 on error.
+    """
+    from .config import load_config
+    from .cross_project import rank_candidates
+    from pathlib import Path as _Path
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv project relate --suggest: config error: {e}", file=sys.stderr)
+        return 1
+
+    all_slugs = cfg.all_project_slugs()
+    if len(all_slugs) < 2:
+        print("rv project relate --suggest: fewer than 2 projects registered — no pairs to rank.")
+        return 0
+
+    # Build corpus text for each project (concatenate all .md files)
+    def _project_corpus(slug: str) -> str:
+        proj = cfg.projects[slug]
+        source_dir_str = proj.get("source_dir", "")
+        if not source_dir_str:
+            return ""
+        source_dir = _Path(source_dir_str)
+        if not source_dir.exists():
+            return ""
+        parts = []
+        for note_path in sorted(source_dir.rglob("*.md")):
+            try:
+                parts.append(note_path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                pass
+        return " ".join(parts)
+
+    corpora: dict[str, str] = {slug: _project_corpus(slug) for slug in all_slugs}
+
+    # Score all pairs
+    import itertools
+    from .project_edges import load_edges, _normalise_pair
+
+    already_declared = {
+        _normalise_pair(e["a"], e["b"]) for e in load_edges(cfg)
+    }
+
+    pair_scores: list[tuple[float, str, str]] = []
+    for a, b in itertools.combinations(all_slugs, 2):
+        if _normalise_pair(a, b) in already_declared:
+            continue  # already declared — skip
+        ca, cb = corpora[a], corpora[b]
+        if not ca.strip() or not cb.strip():
+            continue
+        # Use rank_candidates: treat corpus_a as the "claim", corpus_b as a candidate
+        candidates = [{"body": cb, "excerpt": cb[:120], "anchor": "", "project": b,
+                       "note_path": "", "note_rel": "", "provenance": f"@{b}:corpus"}]
+        ranked = rank_candidates(ca, candidates, min_score=0.0, top_k=1)
+        score = ranked[0]["score"] if ranked else 0.0
+        pair_scores.append((score, a, b))
+
+    pair_scores.sort(reverse=True)
+    top = pair_scores[:top_k]
+
+    if not top:
+        print("No undeclared project pairs found (all pairs already declared, or empty corpora).")
+        return 0
+
+    print(f"Top {len(top)} candidate edge(s) by corpus similarity:")
+    print("  (proposals only — declare with: rv project relate <a> <b> --kind <why>)\n")
+    for score, a, b in top:
+        print(f"  {a} ↔ {b}   similarity={score:.3f}")
+        print(f"    → rv project relate {a} {b} --kind <describe-the-genuine-relatedness>")
+    print()
+    return 0
+
+
 def cmd_edges(
     project: str | None = None,
     *,
@@ -775,8 +863,14 @@ def build_parser(
             "ANTI-PATTERN: do not blanket-relate all projects — declare on genuine relatedness only."
         ),
     )
-    relate_p.add_argument("project_a", metavar="a", help="First project slug.")
-    relate_p.add_argument("project_b", metavar="b", help="Second project slug.")
+    relate_p.add_argument(
+        "project_a", metavar="a", nargs="?", default=None,
+        help="First project slug. Not required when --suggest is used.",
+    )
+    relate_p.add_argument(
+        "project_b", metavar="b", nargs="?", default=None,
+        help="Second project slug. Not required when --suggest is used.",
+    )
     relate_p.add_argument(
         "--kind", default=None,
         help=(
@@ -787,6 +881,18 @@ def build_parser(
     relate_p.add_argument(
         "--remove", action="store_true", default=False,
         help="Prune the declared edge instead of declaring it.",
+    )
+    relate_p.add_argument(
+        "--suggest", action="store_true", default=False,
+        help=(
+            "Suggest candidate cross-project edges based on corpus similarity. "
+            "Prints proposals only — NEVER auto-declares. "
+            "No project arguments needed when --suggest is used."
+        ),
+    )
+    relate_p.add_argument(
+        "--top-k", dest="top_k", type=int, default=5,
+        help="Number of candidate pairs to surface with --suggest (default 5).",
     )
 
     # edges — list declared cross-project edges (SR-XPB)
@@ -864,6 +970,15 @@ def run(args: argparse.Namespace) -> int:
         return cmd_list()
 
     elif args.project_cmd == "relate":
+        if getattr(args, "suggest", False):
+            return cmd_relate_suggest(top_k=getattr(args, "top_k", 5))
+        if not args.project_a or not args.project_b:
+            print(
+                "rv project relate: project slugs <a> and <b> are required "
+                "(or use --suggest for corpus-based suggestions).",
+                file=sys.stderr,
+            )
+            return 1
         return cmd_relate(
             a=args.project_a,
             b=args.project_b,
