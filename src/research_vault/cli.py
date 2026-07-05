@@ -226,14 +226,20 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-GD",
     },
-    # --- SR-3 / SR-HUB-DAG ---
+    # --- SR-3 / SR-HUB-DAG / SR-DAG-BRIEF ---
     "dag": {
         "module": "research_vault.dag.verbs",
         "when_to_use": (
-            "When you need to run, tick, complete, approve, add, or insert nodes in a "
+            "When you need to run, tick, complete, approve, add, insert, or brief nodes in a "
             "multi-node research-loop DAG. The human-go node is the solo decision gate: "
             "it blocks until ALL transitive upstream nodes are terminal, then `dag approve` "
             "is the exact command to run (printed by `dag status`). "
+            "Walk protocol (hub): (1) `rv dag status <run_id>` — read current state; "
+            "(2) `rv dag brief <run_id> <node_id>` — emit the deterministic dispatch brief "
+            "for the node; (3) dispatch the EMITTED brief verbatim to the crew subagent; "
+            "(4) `rv dag complete <run_id> <node_id>` — advance after the subagent returns. "
+            "EMIT, DON'T HAND-ROLL: never hand-transcribe a node's spec/reads into a brief — "
+            "use `rv dag brief`. The brief is a deterministic function of the node + run state. "
             "Use `rv dag templates` to discover the built-in research loops (experiment, "
             "lit-review) with their scaffolder verb, entry command, and "
             "human-go gate locations — the discovery entry before starting any new loop. "
@@ -252,8 +258,9 @@ _VERB_REGISTRY: dict[str, dict] = {
             "with an unbounded reading-scope (no 'reads:') will re-ground by broad exploration, "
             "re-inflating the token cost fresh dispatch was meant to kill — bound it with the "
             "artifacts the agent must read."
+            " Anti-pattern: (4) hand-writing the dispatch brief — use `rv dag brief` instead."
         ),
-        "sr": "SR-3, SR-DISP, SR-SCOPE, SR-HUB-DAG",
+        "sr": "SR-3, SR-DISP, SR-SCOPE, SR-HUB-DAG, SR-DAG-BRIEF",
     },
     # --- SR-5 ---
     "init": {
