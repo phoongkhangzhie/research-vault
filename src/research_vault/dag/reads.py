@@ -98,6 +98,70 @@ def _anchor_found(text: str, anchor: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# SR-DAG-BRIEF: _parse_pointer — SSOT for pointer grammar decomposition
+# ---------------------------------------------------------------------------
+#
+# Extracted from resolve_reads_pointer so the SAME grammar (scheme tuple,
+# path:symbol detection, #anchor split) is used by ALL pointer-handling code
+# in this module.  Adding a new scheme prefix here fixes it everywhere.
+#
+# Grammar (typed by form):
+#   bare path          → (path, None, None)
+#   file#anchor        → (path, anchor, None)
+#   path:symbol        → (path, None, symbol) — only when NOT a URL scheme
+#   file#anchor:symbol → (path, anchor, symbol)
+#
+# Caller is responsible for empty-string / None ref guards before calling.
+
+#: URL-scheme prefixes that are NOT path:symbol — scheme list is the SSOT.
+_URL_SCHEMES: frozenset[str] = frozenset(
+    ("http", "https", "artifact", "sacct", "pr", "cmd", "url", "note")
+)
+
+
+def _parse_pointer(ref: str) -> tuple[str, str | None, str | None]:
+    """Decompose a reads: pointer ref into (path_part, anchor, symbol).
+
+    Returns
+    -------
+    (path_part, anchor, symbol)  — all strings or None.
+
+    path_part is always a non-empty string (may still be invalid as a path).
+    anchor    is the fragment after '#', or None.
+    symbol    is the right side of a path:symbol form, or None.
+    """
+    # ── Detect path:symbol form ───────────────────────────────────────────────
+    # Heuristic: has ':' not preceded by a known URL scheme,
+    # and left side looks like a file path.
+    symbol: str | None = None
+    ptr_for_resolution = ref
+
+    if ":" in ref:
+        left, _, right = ref.partition(":")
+        is_scheme = left.lower() in _URL_SCHEMES
+        looks_like_path = (
+            not is_scheme
+            and bool(left)
+            and bool(right)
+            and ("/" in left or "." in left)
+        )
+        if looks_like_path:
+            ptr_for_resolution = left.strip()
+            symbol = right.strip()
+
+    # ── Split off anchor ──────────────────────────────────────────────────────
+    anchor: str | None = None
+    if "#" in ptr_for_resolution:
+        file_part, _, anchor_part = ptr_for_resolution.partition("#")
+        path_part = file_part.strip()
+        anchor = anchor_part.strip() or None
+    else:
+        path_part = ptr_for_resolution
+
+    return path_part, anchor, symbol
+
+
+# ---------------------------------------------------------------------------
 # Single-pointer resolution
 # ---------------------------------------------------------------------------
 
@@ -119,40 +183,15 @@ def resolve_reads_pointer(
       file#anchor          → file must exist AND anchor found in markdown headings.
       path:symbol          → file must exist (hard); symbol existence is soft WARN.
                              Detected heuristically: ':' in the path that is NOT a
-                             scheme prefix (http:// etc.) and the left part looks like
-                             a file path (.py, .md, or contains /).
+                             scheme prefix (see _URL_SCHEMES) and the left part looks
+                             like a file path (.py, .md, or contains /).
     """
     ptr = ptr.strip()
     if not ptr:
         return "empty pointer", None
 
-    # ── Detect path:symbol form ───────────────────────────────────────────────
-    # Heuristic: has ':' not preceded by common scheme prefixes,
-    # and left side looks like a file path.
-    symbol: str | None = None
-    ptr_for_resolution = ptr
-
-    if ":" in ptr:
-        left, _, right = ptr.partition(":")
-        is_scheme = left.lower() in ("http", "https", "artifact", "sacct", "pr", "cmd", "url", "note")
-        looks_like_path = (
-            not is_scheme
-            and bool(left)
-            and bool(right)
-            and ("/" in left or "." in left)
-        )
-        if looks_like_path:
-            ptr_for_resolution = left.strip()
-            symbol = right.strip()
-
-    # ── Split off anchor ──────────────────────────────────────────────────────
-    anchor: str | None = None
-    if "#" in ptr_for_resolution:
-        file_part, _, anchor_part = ptr_for_resolution.partition("#")
-        file_part = file_part.strip()
-        anchor = anchor_part.strip() or None
-    else:
-        file_part = ptr_for_resolution
+    # ── Decompose via SSOT ────────────────────────────────────────────────────
+    file_part, anchor, symbol = _parse_pointer(ptr)
 
     # ── Resolve file ──────────────────────────────────────────────────────────
     p = Path(file_part)
@@ -280,23 +319,8 @@ def resolve_reads_paths(
         if not ref:
             continue
 
-        # Determine the file portion (strip symbol and anchor for path resolution)
-        path_part = ref
-        symbol: str | None = None
-        if ":" in ref:
-            left, _, right = ref.partition(":")
-            is_scheme = left.lower() in (
-                "http", "https", "artifact", "sacct", "pr", "cmd", "url", "note"
-            )
-            if not is_scheme and ("/" in left or "." in left):
-                path_part = left.strip()
-                symbol = right.strip()
-
-        anchor: str | None = None
-        if "#" in path_part:
-            file_part, _, anchor_part = path_part.partition("#")
-            path_part = file_part.strip()
-            anchor = anchor_part.strip() or None
+        # Decompose via _parse_pointer SSOT (no duplicate grammar here)
+        path_part, _anchor, _symbol = _parse_pointer(ref)
 
         p = Path(path_part)
         if not p.is_absolute():

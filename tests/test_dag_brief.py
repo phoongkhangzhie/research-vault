@@ -641,6 +641,127 @@ class TestSSOT:
         for p in paths_from_ssot:
             assert str(p) in brief
 
+    def test_gate_path_equals_brief_path_by_construction(self, tmp_path: Path):
+        """PIN: gate-resolved produces.result path == build_brief's path BY CONSTRUCTION.
+
+        Both _check_project_scoped_note (the cmd_complete gate) and
+        resolve_produces_paths (used by build_brief) call _project_scoped_note_path.
+        This test proves the IDENTICAL path is computed — not just asserted by docstring.
+        """
+        from research_vault.dag.verbs import _project_scoped_note_path
+
+        proj_dir = tmp_path / "projects" / "my-proj"
+        proj_dir.mkdir(parents=True)
+        notes_dir = tmp_path / "notes" / "my-proj"
+        notes_dir.mkdir(parents=True)
+        (notes_dir / "experiments").mkdir(exist_ok=True)
+        (tmp_path / "state").mkdir(exist_ok=True)
+
+        raw = {
+            "instance_root": str(tmp_path),
+            "notes_root": str(tmp_path / "notes"),
+            "state_dir": str(tmp_path / "state"),
+            "agents_dir": str(tmp_path / ".agents"),
+            "tasks_dir": str(tmp_path / "tasks"),
+            "control_dir": str(tmp_path / "control"),
+            "adapters": {"notifier": "file", "backend": "local", "secrets": "env"},
+            "projects": {
+                "my-proj": {
+                    "source_dir": str(proj_dir),
+                    "tasks_dir": str(tmp_path / "tasks" / "my-proj"),
+                },
+            },
+        }
+        cfg = Config(raw)
+
+        note_ref = "my-proj/q1-main1"
+        pkey = "result"
+
+        # Path from the shared primitive (what _check_project_scoped_note uses)
+        gate_path = _project_scoped_note_path(pkey, note_ref, cfg)
+
+        # Path from resolve_produces_paths (what build_brief uses)
+        node = _make_agent_node(produces={pkey: note_ref})
+        brief_paths = resolve_produces_paths(node, cfg)
+
+        assert len(brief_paths) == 1, f"Expected 1 path, got: {brief_paths}"
+        assert brief_paths[0] == gate_path, (
+            f"SSOT BROKEN: gate_path={gate_path} != brief_path={brief_paths[0]}"
+        )
+
+    def test_parse_pointer_ssot_no_inline_scheme_tuples(self):
+        """PIN: resolve_reads_paths must NOT contain an inline scheme tuple.
+
+        The pointer grammar (scheme detection, anchor split) lives in
+        _parse_pointer ONLY.  Both resolve_reads_pointer and resolve_reads_paths
+        must call it.  We verify by checking that no tuple with "http" as a
+        first element appears in the AST of resolve_reads_paths.
+        """
+        import inspect
+        import ast
+        from research_vault.dag import reads as reads_mod
+
+        assert hasattr(reads_mod, "_URL_SCHEMES"), "_URL_SCHEMES SSOT constant missing"
+        assert isinstance(reads_mod._URL_SCHEMES, frozenset)
+        assert "http" in reads_mod._URL_SCHEMES
+
+        src = inspect.getsource(reads_mod.resolve_reads_paths)
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Tuple):
+                if node.elts and isinstance(node.elts[0], ast.Constant):
+                    if node.elts[0].value == "http":
+                        raise AssertionError(
+                            "resolve_reads_paths contains an inline scheme tuple "
+                            "— violates _parse_pointer SSOT"
+                        )
+
+    def test_manifest_project_field_uses_manifest_source_dir(self, tmp_path: Path):
+        """PIN: build_brief uses the manifest's 'project' field to resolve source_dir.
+
+        When a manifest declares 'project: <slug>', the CONTEXT block must show
+        THAT project's source_dir — not projects[0]'s source_dir (inference fallback).
+        A two-project instance proves we pick the right one.
+        """
+        proj_a_dir = tmp_path / "projects" / "proj-a"
+        proj_b_dir = tmp_path / "projects" / "proj-b"
+        proj_a_dir.mkdir(parents=True)
+        proj_b_dir.mkdir(parents=True)
+        (tmp_path / "state").mkdir(exist_ok=True)
+
+        raw = {
+            "instance_root": str(tmp_path),
+            "notes_root": str(tmp_path / "notes"),
+            "state_dir": str(tmp_path / "state"),
+            "agents_dir": str(tmp_path / ".agents"),
+            "tasks_dir": str(tmp_path / "tasks"),
+            "control_dir": str(tmp_path / "control"),
+            "adapters": {"notifier": "file", "backend": "local", "secrets": "env"},
+            "projects": {
+                "proj-a": {"source_dir": str(proj_a_dir), "tasks_dir": str(tmp_path / "tasks")},
+                "proj-b": {"source_dir": str(proj_b_dir), "tasks_dir": str(tmp_path / "tasks")},
+            },
+        }
+        cfg = Config(raw)
+
+        # Node belongs to proj-b (NOT the first registered project proj-a)
+        node = _make_agent_node(spec="Run analysis for proj-b.")
+        # We pass manifest_project explicitly so brief.py uses the manifest field
+        brief = build_brief(
+            node=node,
+            node_state={},
+            cfg=cfg,
+            run_id="r1",
+            project_root=tmp_path,
+            manifest_project="proj-b",
+        )
+        # The CONTEXT must show proj-b's source_dir
+        assert str(proj_b_dir) in brief, "proj-b source_dir not in brief CONTEXT"
+        # And must NOT show proj-a's source_dir (the inference fallback target)
+        assert str(proj_a_dir) not in brief, (
+            "proj-a source_dir appeared — inference branch used instead of manifest field"
+        )
+
 
 # ---------------------------------------------------------------------------
 # E1/E2: experiment.py task:// purge
@@ -703,6 +824,85 @@ class TestExperimentNoBareTaskPointers:
                 assert not spec.startswith("task://"), (
                     f"Agent node {node['id']!r} still uses bare task:// pointer: {spec!r}"
                 )
+
+    def test_scaffolded_manifest_has_project_field(self, tmp_path: Path):
+        """PIN (BLOCK-2): scaffolded experiment manifest declares 'project' field.
+
+        Without this field, build_brief falls into the inference branch (projects[0])
+        which prints the WRONG source_dir in a multi-project instance.  The manifest
+        must carry an explicit 'project' key so build_brief can use it directly.
+        """
+        manifest = self._scaffold_manifest(tmp_path)
+        assert "project" in manifest, (
+            "Scaffolded manifest missing 'project' field — build_brief will use "
+            "inference (projects[0]) instead of the declared project"
+        )
+        assert manifest["project"] == "proj1"
+
+    def test_scaffolded_manifest_project_used_in_brief(self, tmp_path: Path):
+        """PIN (BLOCK-2): build_brief on the scaffolded manifest uses manifest project.
+
+        Uses a two-project instance to prove the right source_dir is shown.
+        """
+        from research_vault.experiment import cmd_new
+
+        proj_dir_a = tmp_path / "projects" / "other-proj"
+        proj_dir_b = tmp_path / "projects" / "real-proj"
+        proj_dir_a.mkdir(parents=True)
+        proj_dir_b.mkdir(parents=True)
+        (tmp_path / "notes" / "real-proj" / "experiments").mkdir(parents=True)
+        (tmp_path / "state").mkdir(exist_ok=True)
+
+        raw = {
+            "instance_root": str(tmp_path),
+            "notes_root": str(tmp_path / "notes"),
+            "state_dir": str(tmp_path / "state"),
+            "agents_dir": str(tmp_path / ".agents"),
+            "tasks_dir": str(tmp_path / "tasks"),
+            "control_dir": str(tmp_path / "control"),
+            "adapters": {"notifier": "file", "backend": "local", "secrets": "env"},
+            "projects": {
+                "other-proj": {
+                    "source_dir": str(proj_dir_a),
+                    "tasks_dir": str(tmp_path / "tasks"),
+                },
+                "real-proj": {
+                    "source_dir": str(proj_dir_b),
+                    "tasks_dir": str(tmp_path / "tasks"),
+                },
+            },
+        }
+        cfg = Config(raw)
+
+        _, manifest_path = cmd_new(
+            project="real-proj",
+            exp_id="test-exp",
+            question="Does X cause Y?",
+            n_mains=1,
+            config=cfg,
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        # Pick first agent node to build brief
+        agent_node = next(n for n in manifest["nodes"] if n.get("type", "agent") == "agent")
+        manifest_project = manifest.get("project")
+
+        brief = build_brief(
+            node=agent_node,
+            node_state={},
+            cfg=cfg,
+            run_id=manifest["run_id"],
+            project_root=tmp_path,
+            manifest_project=manifest_project,
+        )
+        # Must show real-proj's source_dir (proj_dir_b)
+        assert str(proj_dir_b) in brief, (
+            f"real-proj source_dir ({proj_dir_b}) not in brief — wrong project used"
+        )
+        # Must NOT show other-proj's source_dir (inference fallback would use projects[0])
+        assert str(proj_dir_a) not in brief, (
+            f"other-proj source_dir appeared — inference branch fired instead of manifest field"
+        )
 
     def test_no_task_dereferencer_added(self):
         """No task:// dereferencer mechanism was added to the dag package."""

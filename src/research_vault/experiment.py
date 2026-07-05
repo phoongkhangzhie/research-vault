@@ -491,6 +491,7 @@ def _build_experiment_manifest(
 
     return {
         "run_id": run_id,
+        "project": project,          # BLOCK-2 fix: explicit field → build_brief uses it
         "name": f"Experiment loop — {exp_id} (pre-registration: {n_mains} mains)",
         "global_cap": 4,
         "nodes": nodes,

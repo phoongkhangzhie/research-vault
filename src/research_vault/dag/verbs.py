@@ -342,6 +342,45 @@ _PRODUCES_KEY_TO_OKF_DIR: dict[str, str] = {
 }
 
 
+def _project_scoped_note_path(
+    pkey: str,
+    note_ref: str,
+    cfg,
+) -> Path:
+    """Resolve a project-scoped produces.* ref to an ABSOLUTE Path.
+
+    note_ref format: "<project>/<id>" (id may or may not include .md extension).
+    Resolves to: project_notes_dir(project) / <type_dir> / "<id>.md"
+
+    This is the SSOT for produces.result path resolution — used by BOTH:
+      • _check_project_scoped_note  (the complete-gate validator)
+      • resolve_produces_paths      (the brief's expected-output context)
+
+    By routing both callers through this single function, the gate-checked
+    path and the brief's declared path are IDENTICAL BY CONSTRUCTION.
+
+    Raises
+    ------
+    ValueError   if note_ref is not in "<project>/<id>" format.
+    KeyError     if the project slug is not in the config registry.
+    """
+    if "/" not in note_ref:
+        raise ValueError(
+            f"produces.{pkey}: expected '<project>/<id>' format, got {note_ref!r}"
+        )
+
+    project_slug, note_id = note_ref.split("/", 1)
+    if not project_slug or not note_id:
+        raise ValueError(
+            f"produces.{pkey}: empty project or id in {note_ref!r}"
+        )
+
+    type_dir = _PRODUCES_KEY_TO_OKF_DIR[pkey]
+    proj_notes = cfg.project_notes_dir(project_slug)  # raises KeyError if unknown
+    note_id_with_ext = note_id if note_id.endswith(".md") else f"{note_id}.md"
+    return proj_notes / type_dir / note_id_with_ext
+
+
 def _check_project_scoped_note(
     pkey: str,
     note_ref: str,
@@ -349,56 +388,47 @@ def _check_project_scoped_note(
 ) -> list[str]:
     """Validate a project-scoped produces.result note.
 
-    note_ref format: "<project>/<id>" where id may or may not include .md.
-    Resolves to: project_notes_dir(project) / <type_dir> / "<id>.md"
-    then validates via _check_okf_note_type (type:dir match).
+    Resolves the path via _project_scoped_note_path (SSOT) then validates
+    via _check_okf_note_type (type:dir match).
 
     Returns a list of issue strings (empty = OK).
     SR-RESOLVE-SCOPE.
     """
-    if "/" not in note_ref:
-        return [
-            f"produces.{pkey}: expected '<project>/<id>' format, got {note_ref!r}"
-        ]
-
-    project_slug, note_id = note_ref.split("/", 1)
-    if not project_slug or not note_id:
-        return [
-            f"produces.{pkey}: empty project or id in {note_ref!r}"
-        ]
-
-    type_dir = _PRODUCES_KEY_TO_OKF_DIR[pkey]
-
     try:
-        proj_notes = cfg.project_notes_dir(project_slug)
+        note_path = _project_scoped_note_path(pkey, note_ref, cfg)
+    except ValueError as e:
+        return [str(e)]
     except KeyError:
+        project_slug = note_ref.split("/", 1)[0]
         return [
             f"produces.{pkey}: unknown project slug {project_slug!r} "
             f"(not in config projects registry)"
         ]
 
-    note_id_with_ext = note_id if note_id.endswith(".md") else f"{note_id}.md"
-    note_path = proj_notes / type_dir / note_id_with_ext
+    # Resolve the project notes dir for _check_okf_note_type (notes_root arg)
+    project_slug = note_ref.split("/", 1)[0]
+    try:
+        proj_notes = cfg.project_notes_dir(project_slug)
+    except Exception:
+        proj_notes = note_path.parent.parent  # best-effort fallback
 
     # _check_okf_note_type takes an absolute path; notes_root unused for absolute.
     return _check_okf_note_type(str(note_path), proj_notes)
 
 
 # ---------------------------------------------------------------------------
-# SR-DAG-BRIEF: resolve_produces_paths — SSOT for produces→abs-path
+# SR-DAG-BRIEF: resolve_produces_paths — informational path list for build_brief
 # ---------------------------------------------------------------------------
 #
-# Called from BOTH cmd_complete's gate AND build_brief (dag/brief.py).
-# Extracting this prevents drift between the complete-time check and the
-# brief's "expected output path(s)" — the operator sees the same paths.
+# Used by build_brief (dag/brief.py) to populate the CONTEXT block with the
+# expected output path(s) for the node.
 #
-# Returns a list of absolute Path objects for all declared produces entries
-# that have a resolvable path.  Note-type entries are resolved via
-# cfg.project_notes_dir (when a project slug is present in the manifest's
-# manifest-level "project" key) or cfg.notes_root.  Dataset entries are
-# resolved via cfg.datasets_root.
+# For produces.result (project-scoped typed notes), this function calls
+# _project_scoped_note_path — THE SAME PRIMITIVE as _check_project_scoped_note.
+# The gate-checked path and the brief's declared path are therefore IDENTICAL
+# BY CONSTRUCTION (one code path, not two independent re-implementations).
 #
-# Callers that need the validation errors should call _check_okf_note_type /
+# For validation errors, callers use _check_okf_note_type /
 # _check_project_scoped_note directly (the complete-gate path).  This function
 # is INFORMATIONAL — it resolves what it can and silently skips unknowns.
 
@@ -422,6 +452,12 @@ def resolve_produces_paths(
     -------
     A list of absolute Path objects.  One entry per produces sub-key that
     resolves to a deterministic path.  Returns [] when produces is absent.
+
+    SSOT guarantee
+    --------------
+    For produces.result entries, this function calls _project_scoped_note_path —
+    the SAME primitive used by the complete-gate's _check_project_scoped_note.
+    The gate-checked path == the brief's "expected output" path by construction.
     """
     produces = node.get("produces")
     if not produces or not isinstance(produces, dict):
@@ -429,7 +465,7 @@ def resolve_produces_paths(
 
     paths: list[Path] = []
 
-    # Determine note root
+    # Determine note root for produces.note
     if manifest_project:
         try:
             note_root: Path = cfg.project_notes_dir(manifest_project)
@@ -443,7 +479,7 @@ def resolve_produces_paths(
             continue
 
         if key == "note":
-            # Relative note path within notes_root
+            # Relative note path within notes_root (same rule as cmd_complete gate)
             p = Path(value)
             if not p.is_absolute():
                 p = note_root / value
@@ -457,16 +493,12 @@ def resolve_produces_paths(
             paths.append(p)
 
         elif key in _PRODUCES_KEY_TO_OKF_DIR:
-            # Project-scoped typed note: "<project>/<id>"
-            if "/" in value:
-                project_slug, note_id = value.split("/", 1)
-                type_dir = _PRODUCES_KEY_TO_OKF_DIR[key]
-                try:
-                    proj_notes = cfg.project_notes_dir(project_slug)
-                    note_id_ext = note_id if note_id.endswith(".md") else f"{note_id}.md"
-                    paths.append(proj_notes / type_dir / note_id_ext)
-                except Exception:
-                    pass
+            # Project-scoped typed note — use SSOT primitive (_project_scoped_note_path)
+            # so this path is IDENTICAL to what _check_project_scoped_note computes.
+            try:
+                paths.append(_project_scoped_note_path(key, value, cfg))
+            except (ValueError, KeyError):
+                pass  # Bad format or unknown project — informational, don't abort
 
         else:
             # Arbitrary file key (e.g. "_protocol.md": "/abs/path/…")

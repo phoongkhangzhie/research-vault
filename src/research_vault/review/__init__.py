@@ -208,6 +208,7 @@ def _build_phase1_manifest(
 
     manifest: dict[str, Any] = {
         "run_id": f"review-{scope_id}-phase1",
+        "project": project,          # BLOCK-2 fix: explicit field → build_brief uses it
         "name": (
             f"Lit-review Phase-1 ({scope_id}): "
             f"{question[:60]}{'...' if len(question) > 60 else ''}"
@@ -362,6 +363,7 @@ def _build_phase2_manifest(
     # Handle empty corpus gracefully (no [NEW] papers → direct path to synthesize)
     manifest: dict[str, Any] = {
         "run_id": f"review-{scope_id}-phase2",
+        "project": project,          # BLOCK-2 fix: explicit field → build_brief uses it
         "name": (
             f"Lit-review Phase-2 ({scope_id}): "
             f"{len(new_citekeys)} paper(s) → relate fan-out + synthesize + critic"
