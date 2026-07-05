@@ -28,7 +28,10 @@ import pytest
 pytestmark = pytest.mark.live
 
 
-_MODEL = os.environ.get("RV_LIVE_MODEL", "claude-3-5-haiku-latest")
+# litellm routes by a PROVIDER-PREFIXED model name. A bare "claude-…" does not route
+# (no provider) and an invalid/stale id 404s. Default to a valid, current, documented
+# Anthropic model in litellm's ``anthropic/`` namespace; override with RV_LIVE_MODEL.
+_MODEL = os.environ.get("RV_LIVE_MODEL", "anthropic/claude-haiku-4-5")
 
 
 def _has_provider_key() -> bool:

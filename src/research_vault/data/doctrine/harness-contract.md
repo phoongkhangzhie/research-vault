@@ -22,6 +22,10 @@ while the study is entirely invalidated.
   to W&B).  The seam auto-logs both planes (Plane A traces + Plane B `rv wandb pull`-able
   run).  Run `rv observability probe` before the live run to confirm the seam is wired; the
   seam also fires a loud warn at teardown if calls were made but nothing was observed.
+  - **Pass a PROVIDER-PREFIXED model name.**  `complete(model=...)` goes through litellm,
+    which routes by provider prefix: use `anthropic/claude-…`, `openai/gpt-…`,
+    `gemini/…`, etc.  A bare `claude-…` does not route (no provider) and an invalid or
+    stale id 404s.  The seam does not guess a provider for you.
 
 - **Separate output directories.**  Mock runs (`--mock` / `dryrun` mode) MUST write
   to a distinct path from live runs.  The convention is:
