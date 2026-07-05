@@ -77,7 +77,7 @@ Subcommands (SR-LR-2 — the gap-driven pass):
       Requires --to <manuscript-section/claim> (unauditable without a target).
       Anti-pattern: do NOT hand-write a contribution claim from a proven-open gap —
       run gap-promote first so the claim round-trips the SR-MS-2 support-matcher
-      (the honesty backstop that polices its own promotions via the absent_row loop).
+      (the honesty backstop that polices its own promotions).
 
 Anti-pattern: do NOT hand-collect papers without running ``rv review new`` — a
 hand-collected corpus has no ``_protocol.md`` freeze, no saturation measurement,
@@ -749,8 +749,8 @@ def _run_gap_promote(args: argparse.Namespace) -> int:
         print(
             "rv review gap-promote: the promoted claim must round-trip the SR-MS-2 "
             "support-matcher when cited in the manuscript. If the manuscript sentence "
-            "asserting significance is unsupported, the matcher returns [ABSENT] and "
-            "the claim re-enters the gap loop as an absent_row — the honesty backstop."
+            "asserting significance is unsupported, the matcher returns [ABSENT] — "
+            "the honesty backstop."
         )
         return 0
     except (FileNotFoundError, ValueError, TypeError) as e:

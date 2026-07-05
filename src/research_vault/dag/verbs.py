@@ -692,7 +692,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                 )
                 return 1
         # SR-RESOLVE-SCOPE: project-scoped typed produces gate.
-        # produces.result / .figure / .manuscript = "<project>/<id>"
+        # produces.result = "<project>/<id>"
         # Each resolves to project_notes_dir(project) / <type_dir> / <id>.md
         # and validates type:dir frontmatter match (same gate as produces.note).
         for _pkey in _PRODUCES_KEY_TO_OKF_DIR:
