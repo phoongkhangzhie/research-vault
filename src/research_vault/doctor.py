@@ -1702,6 +1702,19 @@ def run(args: argparse.Namespace) -> int:
     report = format_report(result)
     print(report)
 
+    # SR-APPROVE-GATE: print approval gate status.
+    try:
+        from .dag.approval import approval_status_lines
+        from .adapters.base import EnvSecretStore
+        approval_lines = approval_status_lines(cfg, EnvSecretStore())
+        if approval_lines:
+            print("=== approval gate ===")
+            for line in approval_lines:
+                print(line)
+            print()
+    except Exception:
+        pass  # Non-fatal: doctor must not crash on approval import failure.
+
     # Print proposal if we have one (LEARN-informed)
     proposal = _build_proposal(cfg)
     if proposal is not None:

@@ -234,6 +234,10 @@ _VERB_REGISTRY: dict[str, dict] = {
             "multi-node research-loop DAG. The human-go node is the solo decision gate: "
             "it blocks until ALL transitive upstream nodes are terminal, then `dag approve` "
             "is the exact command to run (printed by `dag status`). "
+            "IMPORTANT: `rv dag approve` is a HUMAN-GO gate — crew agents cannot call it on "
+            "their own behalf. A dispatched subagent has NO controlling TTY and no provisioned "
+            "token — the gate will refuse and return 1 (state unchanged). The human operator "
+            "runs approve at their terminal or via a provisioned token. [crew-cannot-self-approve] "
             "Walk protocol (hub): (1) `rv dag status <run_id>` — read current state; "
             "(2) `rv dag brief <run_id> <node_id>` — emit the deterministic dispatch brief "
             "for the node; (3) dispatch the EMITTED brief verbatim to the crew subagent; "
@@ -374,6 +378,24 @@ _VERB_REGISTRY: dict[str, dict] = {
             "adapters are wired — rv plugins list already shows the registry."
         ),
         "sr": "SR-6",
+    },
+    # --- SR-APPROVE-GATE ---
+    "approval": {
+        "module": "research_vault.approval",
+        "when_to_use": (
+            "When you need to manage the human-presence gate at rv dag approve. "
+            "Use `rv approval setup` (ONCE at a TTY) to provision a token + write the "
+            "fingerprint to config — required before non-interactive approve calls work. "
+            "Use `rv approval disable` to turn the gate off (signed when token is "
+            "provisioned; unsigned 'trust-me mode' without one). "
+            "Use `rv approval enable` to re-arm. "
+            "Use `rv approval status` to see current gate state. "
+            "Anti-pattern: do NOT edit research_vault.toml directly to set enforce=false — "
+            "a raw toml edit is INERT when a token is provisioned (the gate verifies the "
+            "HMAC enforce_sig). Only `rv approval disable` writes the valid sig. "
+            "Crew agents CANNOT self-approve — by design. [crew-cannot-self-approve]"
+        ),
+        "sr": "SR-APPROVE-GATE",
     },
     # --- SR-HUB-DAG §B / SR-HARNESS-P2 ---
     "experiment": {
@@ -520,7 +542,7 @@ _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
     ("Lit-review",   ["research", "cite", "review"]),
     ("Experiment",   ["experiment", "dag", "result", "plan", "wandb", "compute", "doctor"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS
-    ("Infra/git",    ["lint", "mdstore", "wait-for", "plugins"]),
+    ("Infra/git",    ["lint", "mdstore", "wait-for", "plugins", "approval"]),
     ("Coordination", ["status", "control", "task", "note", "devlog", "role", "build-agents"]),
 ]
 
