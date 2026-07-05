@@ -49,7 +49,7 @@ _TOOLKIT_MODULES = frozenset({
     # Tier-1: utils
     "tenacity", "tqdm", "orjson", "pydantic", "jinja2", "rich", "dotenv",
     # Tier-1: integrations
-    "wandb", "pyzotero", "asta",
+    "wandb", "weave", "pyzotero", "asta",
     # Extras: providers (opt-in, but still blocked to verify no eager import)
     "openai", "google", "google.genai", "mistralai", "cohere",
     # Extras: figures (opt-in)
@@ -214,10 +214,10 @@ class TestCheckTierMatrix:
     """rv check extends to report Tier-1/2 coverage matrix."""
 
     def test_tier1_packages_registry_count(self):
-        """_TIER1_PACKAGES has exactly 27 packages (SR-PKG-TRIM re-tiering)."""
+        """_TIER1_PACKAGES has exactly 28 packages (SR-MODEL-SEAM: weave promoted to core)."""
         from research_vault.check import _TIER1_PACKAGES
-        assert len(_TIER1_PACKAGES) == 27, (
-            f"Expected exactly 27 Tier-1 core packages, got {len(_TIER1_PACKAGES)}"
+        assert len(_TIER1_PACKAGES) == 28, (
+            f"Expected exactly 28 Tier-1 core packages, got {len(_TIER1_PACKAGES)}"
         )
 
     def test_tier1_packages_registry_is_non_empty(self):
@@ -567,15 +567,18 @@ class TestRegistryAndHelpCheck:
         )
 
     def test_pyproject_tier1_not_empty(self):
-        """pyproject.toml [project].dependencies has exactly 27 Tier-1 core packages."""
+        """pyproject.toml [project].dependencies has exactly 28 Tier-1 core packages.
+
+        SR-MODEL-SEAM: weave promoted from [observability] extra to core — count is 28.
+        """
         import tomllib
         pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
         # Count only real package entries (skip comment-only lines — toml strips those)
         deps = data["project"]["dependencies"]
-        assert len(deps) == 27, (
-            f"Expected exactly 27 Tier-1 default dependencies (SR-PKG-TRIM), got {len(deps)}"
+        assert len(deps) == 28, (
+            f"Expected exactly 28 Tier-1 default dependencies (SR-MODEL-SEAM: weave core), got {len(deps)}"
         )
 
     def test_pyproject_has_local_extra(self):
@@ -615,6 +618,47 @@ class TestRegistryAndHelpCheck:
         optional = data["project"].get("optional-dependencies", {})
         assert "analysis" not in optional, (
             "[analysis] extra must be removed — scipy is now a Tier-1 default dep"
+        )
+
+    def test_pyproject_no_observability_extra(self):
+        """pyproject.toml must NOT have [observability] extra (weave promoted to core).
+
+        SR-MODEL-SEAM: weave is now a CORE dependency (framework observability
+        guarantee). The [observability] extra is removed. This test is the regression
+        pin: prevents accidentally re-adding it and re-demoting weave to opt-in.
+        """
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        optional = data["project"].get("optional-dependencies", {})
+        assert "observability" not in optional, (
+            "[observability] extra must be removed — weave is now a Tier-1 core dep"
+        )
+
+    def test_pyproject_weave_in_core_deps(self):
+        """weave is in pyproject.toml core dependencies (SR-MODEL-SEAM framework guarantee).
+
+        Weave was moved from [observability] extra to core deps so that observability
+        ships by default. This test pins that — moving weave back to an extra would
+        silently break the observability guarantee.
+        """
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        deps = data["project"]["dependencies"]
+        assert any("weave" in d for d in deps), (
+            "weave must be in Tier-1 core dependencies (not an extra) — "
+            "SR-MODEL-SEAM observability is a framework guarantee"
+        )
+
+    def test_tier1_registry_includes_weave(self):
+        """_TIER1_PACKAGES includes weave (promoted to core in SR-MODEL-SEAM)."""
+        from research_vault.check import _TIER1_PACKAGES
+        pip_names = [entry[0] for entry in _TIER1_PACKAGES]
+        assert "weave" in pip_names, (
+            "weave must be in _TIER1_PACKAGES — it is now a core dep (SR-MODEL-SEAM)"
         )
 
     def test_keyring_declared(self):

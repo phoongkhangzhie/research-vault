@@ -7,7 +7,7 @@ instructions. Fail-fast: reports ALL failures, not just the first.
 Checks:
   1. Claude CLI — ``claude --version`` must succeed (the agent runtime)
   2. ANTHROPIC_API_KEY — must be set in env or resolvable via keyring
-  3. Toolkit Tier-1 — 27-package research-toolkit core (installed by default)
+  3. Toolkit Tier-1 — 28-package research-toolkit core (installed by default)
   4. Toolkit Tier-2 — GPU-fragile local-inference stack ([local] extra)
   5. asta / Zotero / W&B — integration checks (optional)
 
@@ -31,7 +31,7 @@ from typing import Any
 
 
 # ---------------------------------------------------------------------------
-# Tier-1 package registry — 27-package research-toolkit core
+# Tier-1 package registry — 28-package research-toolkit core
 # ---------------------------------------------------------------------------
 # Each entry: (pip_name, import_name, group_label, purpose)
 _TIER1_PACKAGES: list[tuple[str, str, str, str]] = [
@@ -58,6 +58,7 @@ _TIER1_PACKAGES: list[tuple[str, str, str, str]] = [
     ("langdetect",      "langdetect",    "multilingual", "language detection"),
     # Integrations (pip-installable)
     ("wandb",           "wandb",         "integrations", "W&B experiment tracking"),
+    ("weave",           "weave",         "integrations", "W&B Weave Plane-A traces (SR-MODEL-SEAM)"),
     ("pyzotero",        "pyzotero",      "integrations", "Zotero citation management"),
     ("keyring",         "keyring",       "integrations", "secret-store adapter (API key resolution)"),
     # Utilities / harness
@@ -375,7 +376,7 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
     # Tier-1 section
     lines.append("")
     lines.append(
-        "Toolkit Tier-1 (27-package core — pip install research-vault):"
+        "Toolkit Tier-1 (28-package core — pip install research-vault):"
     )
     tier1_lines, tier1_missing = _fmt_tier_section(tier1_results, warn_missing=False)
     lines.extend(tier1_lines)
@@ -477,7 +478,7 @@ def build_parser(
     """Build the argument parser for the ``check`` verb.
 
     When to use: ``rv check`` before running any research loop. Verifies that
-    the Claude CLI, API key, and toolkit tiers (Tier-1 27-package core + Tier-1
+    the Claude CLI, API key, and toolkit tiers (Tier-1 28-package core + Tier-1
     extras + Tier-2 GPU) are available. Reports missing packages with install
     instructions. Run `rv bootstrap` if Tier-1 packages are missing.
     Exit 0 if all required prerequisites are present; exit 1 if any are missing.
@@ -485,7 +486,7 @@ def build_parser(
     desc = (
         "Preflight check — verify Research Vault prerequisites. "
         "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
-        "Toolkit Tier-1 (27-package core defaults), "
+        "Toolkit Tier-1 (28-package core defaults), "
         "Tier-2 (GPU/local inference — [local] extra), "
         "asta (optional), Zotero/ZOTERO_KEY (optional), W&B (optional). "
         "Per-provider SDKs and figure libs are not checked (adopter installs directly). "

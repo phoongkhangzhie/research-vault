@@ -44,8 +44,8 @@ only supported path; a harness that instantiates its own provider client **fails
 The seam produces **two distinct** artifacts when configured — do not conflate them:
 
 - **Plane A — traces.** Per-call request/response traces. Backend is `[observability].backend`:
-  `weave` (W&B Weave — needs `pip install research-vault[observability]`), `langfuse`
-  (adopter's own install), `local` (zero-infra default — one JSONL line per call at
+  `weave` (W&B Weave — shipped as core; set `WANDB_API_KEY` + `[observability].wandb_project`),
+  `langfuse` (adopter's own install), `local` (zero-infra default — one JSONL line per call at
   `<state_dir>/llm_calls.jsonl`), or `none`. **Weave traces do NOT appear in `rv wandb pull`.**
 - **Plane B — runs.** A classic W&B **run** readable by `rv wandb pull` (score/aggregate
   provenance). Opt-in via `[observability].run_logging = true`; uses core `wandb` (no new dep).

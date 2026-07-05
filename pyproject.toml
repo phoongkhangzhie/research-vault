@@ -35,6 +35,7 @@ dependencies = [
     "langdetect>=1.0",
     # -- Integrations (pip-installable) --
     "wandb>=0.16",
+    "weave>=0.53.1",  # SR-MODEL-SEAM: Plane-A traces (W&B Weave); shipped as core (framework guarantee)
     "pyzotero>=1.5",
     "keyring>=24.0",  # secret-store adapter (API-key resolution in check.py + adapters/base.py)
     # NOTE: asta is a documented external prerequisite, not a pip dep.
@@ -79,7 +80,7 @@ Repository = "<repo-url>"
 Issues = "<repo-url>/issues"
 
 # ---------------------------------------------------------------------------
-# Extras — opt-in capabilities on top of the 27-package core.
+# Extras — opt-in capabilities on top of the 28-package core.
 #
 # [local]     — GPU-fragile local inference. NEVER installed by default.
 #   CUDA-pinned wheels break installs on CPU-only machines (incl. CI runners).
@@ -88,6 +89,10 @@ Issues = "<repo-url>/issues"
 #     plus bert-score and lm-eval (both require torch transitively).
 #   Sub-extras for serving stacks (vllm or sglang) — docs default to vllm.
 #   Install serving: pip install research-vault[local,serve-vllm]
+#
+# weave is now a CORE dep (SR-MODEL-SEAM: framework observability guarantee).
+# Default backend remains local (zero-infra); set [observability].backend = "weave"
+# + WANDB_API_KEY to enable Plane-A traces. No [observability] extra needed.
 #
 # Third-party SDKs and figure libs are NOT shipped — install directly at your
 # discretion. litellm (core) covers most API targets without a dedicated SDK.
@@ -101,15 +106,6 @@ local = [
     "fasttext>=0.9",
     "lm-eval>=0.4",     # requires torch transitively
     "bert-score>=0.3",  # requires torch transitively
-]
-# [observability] — Plane A (W&B Weave) tracing on top of the litellm seam.
-#   SR-MODEL-SEAM. NEVER installed by default (import-light: `rv` runs with
-#   backend=local and no weave installed). weave pulls wandb transitively.
-#   Plane B (classic `rv wandb pull`-readable run) uses core `wandb` — NO new dep.
-#   Langfuse is the adopter's own install (append "langfuse" to litellm callbacks).
-#   Install: pip install research-vault[observability]
-observability = [
-    "weave>=0.53.1",
 ]
 serve-vllm = [
     "vllm>=0.3",
