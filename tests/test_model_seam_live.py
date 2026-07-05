@@ -186,3 +186,6 @@ def test_live_plane_b_run_roundtrip(tmp_path):
     cfgback = data["config"]
     assert cfgback.get("model") == _MODEL
     assert int(cfgback.get("seed")) == 12345
+    # repro_* alias mapping (model → repro_model_id, seed → repro_seed) is exercised
+    # hermetically in tests/test_sr_exp_repro.py (TestAliasMap, items 7–11). Not
+    # repeated here to avoid duplicating coverage of wandb_pull._REPRO_CONFIG_ALIAS_TABLE.

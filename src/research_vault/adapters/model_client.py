@@ -99,7 +99,11 @@ class ModelClient:
         self._start_once()
         # 3. Belt-and-suspenders: assert at interpreter exit even if the caller
         #    forgets the context manager / explicit assert_observed().
-        atexit.register(self._atexit_assert)
+        #    Store the handler so __exit__ can unregister it — without unregister,
+        #    each ModelClient constructed in a long-lived process accumulates one
+        #    atexit entry that holds a strong reference to self until interpreter exit.
+        self._atexit_handler = self._atexit_assert
+        atexit.register(self._atexit_handler)
 
     # --- setup ---
 
@@ -166,8 +170,19 @@ class ModelClient:
     def assert_observed(self) -> None:
         """Surface a silently-broken seam. Idempotent.
 
-        backend != "none" AND completions > 0 AND emission counter saw 0 events
-        → the callback pipeline never fired → loud warn (raise under require=True).
+        Detects **total** emission loss only — the P1 failure where a run produced
+        *zero* records: backend != "none" AND completions > 0 AND events == 0.
+        This triggers when the litellm callback pipeline never fired at all (seam
+        bypassed, callbacks reset between init and the first call, etc.).
+
+        Partial loss (0 < events < completions) passes silently — and this is BY
+        DESIGN. litellm may legitimately fire a callback count that does not equal
+        completions (e.g. retries generate multiple callback events per completion,
+        or streaming emits one event per chunk). A strict events == completions check
+        would false-positive on normal litellm behaviour. If you need to detect
+        partial loss, compare ``stats.events`` against ``completions`` yourself.
+
+        Raises ``ObservabilityError`` instead of warning when ``require=True``.
         """
         if self._asserted:
             return
@@ -210,6 +225,11 @@ class ModelClient:
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        # Unregister first so the atexit fallback does not double-fire after an
+        # explicit context-manager use. This also releases the strong reference to
+        # self that the atexit module would otherwise hold until interpreter exit —
+        # preventing handler/instance accumulation across many short-lived clients.
+        atexit.unregister(self._atexit_handler)
         self.assert_observed()
         return False
 
