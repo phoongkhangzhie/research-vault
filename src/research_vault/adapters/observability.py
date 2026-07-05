@@ -440,6 +440,65 @@ def resolve_observability_backend(cfg: Any, *, key_present: bool = False) -> Obs
     )
 
 
+def resolve_run_logging_target(cfg: Any) -> tuple[bool, str, str]:
+    """Resolve the Plane-B (classic W&B run) logging target.
+
+    Returns (enabled, entity, project):
+      enabled — ``[observability].run_logging`` is True.
+      entity / project — from [observability].wandb_project ("entity/project" or bare
+        "project"), else the compute manifest results.wandb block (the entity/project
+        SSOT, via wandb_pull's resolver). Either may be "" when unresolved.
+    Never imports wandb — pure config resolution.
+    """
+    obs = getattr(cfg, "observability", None) or {}
+    enabled = bool(obs.get("run_logging", False))
+    explicit = str(obs.get("wandb_project", "")).strip()
+    entity, project = "", ""
+    if explicit:
+        if "/" in explicit:
+            entity, project = explicit.split("/", 1)
+        else:
+            project = explicit
+    else:
+        try:
+            from ..wandb_pull import _resolve_wandb_from_manifest
+            entity, project = _resolve_wandb_from_manifest(cfg)
+        except Exception:
+            entity, project = "", ""
+    return enabled, entity, project
+
+
+def probe_run_logging(cfg: Any) -> tuple[bool, str]:
+    """Rejects-only probe for Plane-B run logging. Returns (ok, message). No network.
+
+    ok=True means: run_logging disabled (nothing to check) OR wandb importable + a
+    project resolvable + WANDB_API_KEY present. ok=False surfaces the specific gap
+    (would produce no ``rv wandb pull``-able run). Never raises.
+    """
+    enabled, entity, project = resolve_run_logging_target(cfg)
+    if not enabled:
+        return True, "run-logging (Plane B): disabled ([observability].run_logging=false)"
+    try:
+        import wandb  # noqa: F401 — core dep, but guard anyway (import-light stance)
+    except Exception:
+        return False, (
+            "run-logging (Plane B): `wandb` not importable — install core deps. "
+            "A run now would produce NO rv wandb pull-able run."
+        )
+    if not project.strip():
+        return False, (
+            "run-logging (Plane B): no W&B project resolvable — set "
+            "[observability].wandb_project or the compute manifest results.wandb block."
+        )
+    if not os.environ.get("WANDB_API_KEY", "").strip():
+        return False, (
+            "run-logging (Plane B): WANDB_API_KEY not set — a run now would fail to "
+            "log a classic run (rv wandb pull would have nothing to read)."
+        )
+    target = f"{entity}/{project}" if entity else project
+    return True, f"run-logging (Plane B): classic W&B run → {target}"
+
+
 def _resolve_weave_project(cfg: Any) -> str:
     """Resolve the weave.init project target for the weave backend.
 

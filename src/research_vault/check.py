@@ -253,6 +253,38 @@ def _check_wandb() -> tuple[bool, str, bool]:
     ), False
 
 
+def _check_observability(cfg: Any = None) -> tuple[bool, str, bool]:
+    """Return (ok, message, required) for the SR-MODEL-SEAM observability wiring.
+
+    Reuses the backend's own ``probe()`` (the SSOT) — backend selection + key
+    resolution + import wiring, WITHOUT any network call. Reports which backend is
+    configured and whether a run now would produce records. Never raises.
+
+    ``required`` is False here; `rv check --require-observability` promotes the
+    observability gate into ``all_required_ok`` (the experiment-preflight path).
+    """
+    try:
+        from .config import load_config as _load_config
+        _cfg = cfg if cfg is not None else _load_config()
+    except Exception as exc:
+        return False, f"observability: config error — {exc}", False
+
+    backend_name = str((getattr(_cfg, "observability", {}) or {}).get("backend", "local"))
+
+    try:
+        from .adapters.observability import resolve_observability_backend
+        backend = resolve_observability_backend(_cfg)
+        ok, msg = backend.probe()
+    except ValueError as exc:
+        # Unknown backend name in config — surface loudly.
+        return False, f"observability: {exc}", False
+    except Exception as exc:
+        return False, f"observability({backend_name}): probe error — {exc}", False
+
+    # backend=none is a deliberate opt-out → OK (not a warning).
+    return ok, msg, False
+
+
 def _check_zotero() -> tuple[bool, str, bool]:
     """Return (ok, message, required) for the Zotero key check."""
     key = os.environ.get("ZOTERO_KEY", "").strip()
@@ -281,11 +313,14 @@ def _check_zotero() -> tuple[bool, str, bool]:
 # Main preflight runner
 # ---------------------------------------------------------------------------
 
-def run_preflight(cfg: Any = None) -> dict[str, Any]:
+def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> dict[str, Any]:
     """Run all preflight checks and return a result dict.
 
     cfg: optional Config object (accepted for backward compat; no longer used
          for project-integrity checks — the CONTRACT check is removed, SR-LENS-RM).
+    require_observability: SR-MODEL-SEAM — when True, the observability wiring check
+         is promoted into ``all_required_ok`` (the experiment-preflight gate: refuse
+         to green if a run would produce ZERO records).
 
     Returns:
       {
@@ -296,12 +331,14 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
         "asta":             bool,
         "zotero":           bool,
         "wandb_key":        bool,
+        "observability":    bool,       observability wiring ok (probe passed)
         "compute_manifest": bool,
         "all_required_ok":  bool,
         "report":           str,        human-readable multi-line report
       }
 
-    all_required_ok is governed ONLY by claude_cli and api_key.
+    all_required_ok is governed by claude_cli and api_key (+ observability when
+    require_observability=True).
     Per-provider SDKs and figure libs are not checked — they are the adopter's own install.
     This is the programmatic entrypoint (used by tests and `rv check`).
     """
@@ -319,8 +356,11 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     asta_ok, asta_msg, _ = _check_asta()
     zotero_ok, zotero_msg, _ = _check_zotero()
     wandb_ok, wandb_msg, _ = _check_wandb()
+    obs_ok, obs_msg, _ = _check_observability(cfg)
 
     all_required = claude_ok and apikey_ok
+    if require_observability:
+        all_required = all_required and obs_ok
 
     # Required section
     lines.append("Required:")
@@ -328,6 +368,9 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     lines.append(f"  [{status}] {claude_msg}")
     status = "OK" if apikey_ok else "FAIL"
     lines.append(f"  [{status}] {apikey_msg}")
+    if require_observability:
+        status = "OK" if obs_ok else "FAIL"
+        lines.append(f"  [{status}] {obs_msg}  (required: --require-observability)")
 
     # Tier-1 section
     lines.append("")
@@ -359,6 +402,9 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     lines.append(f"  [{status}] {zotero_msg}")
     status = "OK" if wandb_ok else "WARN"
     lines.append(f"  [{status}] {wandb_msg}")
+    # SR-MODEL-SEAM: observability wiring line (INFO unless --require-observability).
+    status = "OK" if obs_ok else ("FAIL" if require_observability else "WARN")
+    lines.append(f"  [{status}] {obs_msg}")
 
     # Compute manifest nudge
     compute_manifest_present = False
@@ -414,6 +460,7 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
         "asta": asta_ok,
         "zotero": zotero_ok,
         "wandb_key": wandb_ok,
+        "observability": obs_ok,
         "compute_manifest": compute_manifest_present,
         "all_required_ok": all_required,
         "report": report,
@@ -456,11 +503,26 @@ def build_parser(
     else:
         p = argparse.ArgumentParser(prog="rv check", description=desc)
 
+    p.add_argument(
+        "--require-observability",
+        dest="require_observability",
+        action="store_true",
+        default=False,
+        help=(
+            "SR-MODEL-SEAM: promote the observability wiring check into the required "
+            "gate — exit 1 if the configured backend would produce ZERO records "
+            "(missing dep/key). Use in an experiment preflight so a run cannot start "
+            "silently un-observed. Use `rv observability probe` for a standalone check."
+        ),
+    )
+
     return p
 
 
 def run(args: argparse.Namespace) -> int:
     """Dispatch: rv check."""
-    result = run_preflight()
+    result = run_preflight(
+        require_observability=getattr(args, "require_observability", False)
+    )
     print(result["report"])
     return 0 if result["all_required_ok"] else 1

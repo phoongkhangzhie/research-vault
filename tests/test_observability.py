@@ -285,3 +285,165 @@ def test_resolve_langfuse(tmp_path):
 def test_resolve_unknown_raises(tmp_path):
     with pytest.raises(ValueError, match="Unknown observability backend"):
         resolve_observability_backend(_cfg(tmp_path, {"backend": "bogus"}))
+
+
+# ---------------------------------------------------------------------------
+# S3 — rv check --require-observability
+# ---------------------------------------------------------------------------
+
+def test_check_observability_local_ok(tmp_path):
+    from research_vault.check import _check_observability
+    ok, msg, required = _check_observability(_cfg(tmp_path, {"backend": "local"}))
+    assert ok is True
+    assert required is False
+    assert "local" in msg.lower()
+
+
+def test_check_observability_none_is_ok(tmp_path):
+    from research_vault.check import _check_observability
+    ok, msg, _ = _check_observability(_cfg(tmp_path, {"backend": "none"}))
+    assert ok is True
+    assert "disabled" in msg
+
+
+def test_check_observability_unknown_backend_fails(tmp_path):
+    from research_vault.check import _check_observability
+    ok, msg, _ = _check_observability(_cfg(tmp_path, {"backend": "bogus"}))
+    assert ok is False
+    assert "Unknown observability backend" in msg
+
+
+def test_check_observability_weave_without_key_fails(tmp_path, monkeypatch):
+    pytest.importorskip("weave")
+    monkeypatch.delenv("WANDB_API_KEY", raising=False)
+    from research_vault.check import _check_observability
+    ok, msg, _ = _check_observability(
+        _cfg(tmp_path, {"backend": "weave", "wandb_project": "e/p"})
+    )
+    assert ok is False
+
+
+def test_run_preflight_includes_observability_key(tmp_path):
+    from research_vault.check import run_preflight
+    result = run_preflight(_cfg(tmp_path, {"backend": "local"}))
+    assert "observability" in result
+    assert result["observability"] is True
+
+
+def test_require_observability_promotes_to_required_fail(tmp_path, monkeypatch):
+    """--require-observability + broken weave wiring → all_required_ok False."""
+    pytest.importorskip("weave")
+    monkeypatch.delenv("WANDB_API_KEY", raising=False)
+    from research_vault.check import run_preflight
+    # weave backend, no key → obs_ok False → required gate fails.
+    result = run_preflight(
+        _cfg(tmp_path, {"backend": "weave", "wandb_project": "e/p"}),
+        require_observability=True,
+    )
+    assert result["observability"] is False
+    assert result["all_required_ok"] is False
+    assert "required: --require-observability" in result["report"]
+
+
+def test_require_observability_false_does_not_gate(tmp_path, monkeypatch):
+    """Without the flag, a broken observability wiring does NOT fail all_required
+    on the observability axis (claude/api may still fail — check obs axis only)."""
+    from research_vault.check import run_preflight
+    result = run_preflight(_cfg(tmp_path, {"backend": "local"}), require_observability=False)
+    # local backend is ok; the report must not contain the required-observability tag.
+    assert "required: --require-observability" not in result["report"]
+
+
+def test_check_parser_accepts_require_observability_flag():
+    from research_vault.check import build_parser
+    p = build_parser()
+    args = p.parse_args(["--require-observability"])
+    assert args.require_observability is True
+    args2 = p.parse_args([])
+    assert args2.require_observability is False
+
+
+# ---------------------------------------------------------------------------
+# rv observability verb (coordinator add) — discovery + wiring test surface
+# ---------------------------------------------------------------------------
+
+def test_observability_verb_parser_subcommands():
+    from research_vault.observability_cli import build_parser
+    p = build_parser()
+    for subcmd in ("status", "probe"):
+        args = p.parse_args([subcmd])
+        assert args.obs_cmd == subcmd
+
+
+def test_observability_verb_probe_local_ok(tmp_path, monkeypatch, capsys):
+    from research_vault import observability_cli
+    cfg = _cfg(tmp_path, {"backend": "local"})
+    monkeypatch.setattr(observability_cli, "_load_cfg", lambda: cfg)
+    import argparse as _ap
+    rc = observability_cli.run(_ap.Namespace(obs_cmd="probe"))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Safe to run" in out
+    assert "Plane B" in out
+
+
+def test_observability_verb_probe_weave_no_key_fails(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("weave")
+    monkeypatch.delenv("WANDB_API_KEY", raising=False)
+    from research_vault import observability_cli
+    cfg = _cfg(tmp_path, {"backend": "weave", "wandb_project": "e/p"})
+    monkeypatch.setattr(observability_cli, "_load_cfg", lambda: cfg)
+    import argparse as _ap
+    rc = observability_cli.run(_ap.Namespace(obs_cmd="probe"))
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "ZERO records" in out
+
+
+def test_observability_verb_status_shows_reach_recipe(tmp_path, monkeypatch, capsys):
+    from research_vault import observability_cli
+    cfg = _cfg(tmp_path, {"backend": "local"})
+    monkeypatch.setattr(observability_cli, "_load_cfg", lambda: cfg)
+    import argparse as _ap
+    rc = observability_cli.run(_ap.Namespace(obs_cmd="status"))
+    out = capsys.readouterr().out
+    assert rc == 0
+    # The copy-paste reach path must be surfaced (reachability, coordinator add #2).
+    assert "load_adapters(cfg).model" in out or "adapters.model.complete" in out
+
+
+# ---------------------------------------------------------------------------
+# Plane-B run-logging resolution
+# ---------------------------------------------------------------------------
+
+def test_resolve_run_logging_target_disabled_by_default(tmp_path):
+    from research_vault.adapters.observability import resolve_run_logging_target
+    enabled, entity, project = resolve_run_logging_target(_cfg(tmp_path, {"backend": "local"}))
+    assert enabled is False
+
+
+def test_resolve_run_logging_target_parses_entity_project(tmp_path):
+    from research_vault.adapters.observability import resolve_run_logging_target
+    enabled, entity, project = resolve_run_logging_target(
+        _cfg(tmp_path, {"backend": "local", "run_logging": True, "wandb_project": "acme/proj"})
+    )
+    assert enabled is True
+    assert entity == "acme"
+    assert project == "proj"
+
+
+def test_probe_run_logging_disabled_is_ok(tmp_path):
+    from research_vault.adapters.observability import probe_run_logging
+    ok, msg = probe_run_logging(_cfg(tmp_path, {"backend": "local"}))
+    assert ok is True
+    assert "disabled" in msg
+
+
+def test_probe_run_logging_enabled_no_key_fails(tmp_path, monkeypatch):
+    monkeypatch.delenv("WANDB_API_KEY", raising=False)
+    from research_vault.adapters.observability import probe_run_logging
+    ok, msg = probe_run_logging(
+        _cfg(tmp_path, {"backend": "local", "run_logging": True, "wandb_project": "e/p"})
+    )
+    assert ok is False
+    assert "WANDB_API_KEY" in msg
