@@ -59,6 +59,119 @@ def _table_box() -> Any:
     return box.SIMPLE_HEAD
 
 
+# Panel-border resolution by semantic kind — the single dispatch every panel uses.
+_PANEL_BORDER: dict[str, str] = {
+    "ok": _STYLE["panel_ok_border"],
+    "fail": _STYLE["panel_fail_border"],
+    "init": _STYLE["panel_init_border"],
+    "neutral": _STYLE["border"],
+}
+
+
+# ---------------------------------------------------------------------------
+# Shared primitives — the design-system factory (S1).
+#
+# Every human renderer builds on these helpers so the palette, box style, and
+# panel borders live in exactly ONE place (:data:`_STYLE` / :data:`_PANEL_BORDER`).
+# NO verb imports ``rich.*`` colours directly; NO renderer hand-rolls a Table/Panel.
+# ---------------------------------------------------------------------------
+
+def make_header(title: str, subtitle: str = "", console: Any = None) -> None:
+    """Emit a section header rule — brass title + optional dim subtitle.
+
+    Generalises the ``con.rule(...)`` opener that :func:`render_check` uses.
+    """
+    con = console if console is not None else get_console()
+    text = f"[{_STYLE['title']}]{title}[/]"
+    if subtitle:
+        text += f" [dim]— {subtitle}[/dim]"
+    con.rule(text, style=_STYLE["border"])
+
+
+def make_panel(
+    body: Any,
+    *,
+    title: str,
+    kind: str = "neutral",
+    console: Any = None,
+) -> None:
+    """Print a bordered panel with a brass title and a kind-tinted border.
+
+    ``kind`` ∈ {``ok``, ``fail``, ``init``, ``neutral``} selects the border via
+    :data:`_PANEL_BORDER`.  Generalises the closing/required/result panels.
+    """
+    from rich.panel import Panel
+    con = console if console is not None else get_console()
+    con.print(
+        Panel(
+            body,
+            title=f"[{_STYLE['title']}]{title}[/]",
+            border_style=_PANEL_BORDER.get(kind, _STYLE["border"]),
+            padding=(0, 1),
+        )
+    )
+
+
+def make_status_table(
+    columns: list[dict[str, Any]],
+    rows: list[tuple[Any, ...]],
+    *,
+    title: str = "",
+    Table: Any = None,
+) -> Any:
+    """Build a bordered status Table from a column spec + pre-rendered rows.
+
+    ``columns`` is a list of dicts, each: ``name`` (required) + optional
+    ``style`` / ``justify`` / ``no_wrap``.  Row cells are strings that may
+    already carry rich markup (the caller owns per-cell status colouring so the
+    factory stays generic).  Generalises ``_tier_matrix_table`` /
+    ``_integrations_table``.  Returns the Table; the caller prints it.
+    """
+    if Table is None:
+        from rich.table import Table as _T
+        Table = _T
+    table = Table(
+        title=(f"[{_STYLE['title']}]{title}[/]" if title else None),
+        box=_table_box(),
+        show_lines=False,
+        header_style=_STYLE["header"],
+        border_style=_STYLE["border"],
+        title_justify="left",
+        pad_edge=False,
+        padding=(0, 1),
+    )
+    for col in columns:
+        table.add_column(
+            col["name"],
+            style=col.get("style"),
+            justify=col.get("justify", "left"),
+            no_wrap=col.get("no_wrap", False),
+        )
+    for row in rows:
+        table.add_row(*row)
+    return table
+
+
+def make_kv_table(
+    pairs: list[tuple[str, Any]],
+    *,
+    label_style: str | None = None,
+    value_style: str | None = None,
+) -> Any:
+    """Build a borderless 2-column key/value grid — label | value.
+
+    Labels align, values start at a common column and never truncate (fold).
+    The detail-panel workhorse (compute explain, approval status, doctor rows).
+    """
+    from rich.table import Table
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style=label_style if label_style is not None else _STYLE["muted"], no_wrap=True)
+    grid.add_column(style=value_style, overflow="fold")
+    for label, value in pairs:
+        grid.add_row(label, value)
+    return grid
+
+
 # ---------------------------------------------------------------------------
 # Console detection
 # ---------------------------------------------------------------------------
@@ -102,15 +215,11 @@ def render_check(result: dict[str, Any], console: Any = None) -> None:
       4. Integrations Table — Capability | Unlocks | Class | Status.
       5. Result Panel (OK/FAIL, with locked-feature nudge).
     """
-    from rich.panel import Panel
     from rich.table import Table
 
     con = console if console is not None else get_console()
 
-    con.rule(
-        f"[{_STYLE['title']}]rv check[/] [dim]— Research Vault preflight[/dim]",
-        style=_STYLE["border"],
-    )
+    make_header("rv check", "Research Vault preflight", console=con)
 
     # ── 2. Required (runtime only) ───────────────────────────────────────────
     runtime_ok = bool(result.get("claude_cli"))
@@ -118,14 +227,12 @@ def render_check(result: dict[str, Any], console: Any = None) -> None:
         "Claude CLI" + (" found" if runtime_ok else " NOT FOUND")
     )
     mark = f"[{_STYLE['ok']}]OK[/]" if runtime_ok else f"[{_STYLE['fail']}]FAIL[/]"
-    con.print(
-        Panel(
-            f"{mark}  {runtime_msg}\n"
-            "[dim]The agent runtime is the ONLY hard requirement — no API key is required.[/dim]",
-            title=f"[{_STYLE['title']}]Required[/]",
-            border_style=_STYLE["panel_ok_border"] if runtime_ok else _STYLE["panel_fail_border"],
-            padding=(0, 1),
-        )
+    make_panel(
+        f"{mark}  {runtime_msg}\n"
+        "[dim]The agent runtime is the ONLY hard requirement — no API key is required.[/dim]",
+        title="Required",
+        kind="ok" if runtime_ok else "fail",
+        console=con,
     )
 
     # ── 3. Toolkit tier-matrix ───────────────────────────────────────────────
@@ -145,33 +252,25 @@ def render_check(result: dict[str, Any], console: Any = None) -> None:
                 f"\n[dim]{len(locked)} feature(s) locked: {', '.join(locked)}.[/dim]"
                 "\nRun [bold]rv onboard[/bold] for a guided, idempotent setup."
             )
-        border = _STYLE["panel_ok_border"]
+        kind = "ok"
     else:
         culprits = ", ".join(result.get("required_failed", [])) or "unknown"
         body = f"[{_STYLE['fail']}]Result: FAIL[/] — required prerequisite missing: {culprits}."
-        border = _STYLE["panel_fail_border"]
-    con.print(Panel(body, title=f"[{_STYLE['title']}]Result[/]", border_style=border, padding=(0, 1)))
+        kind = "fail"
+    make_panel(body, title="Result", kind=kind, console=con)
 
 
 def _tier_matrix_table(result: dict[str, Any], Table: Any) -> Any:
     """Build the toolkit tier-matrix Table (group coverage per tier)."""
     from collections import defaultdict
 
-    table = Table(
-        title=f"[{_STYLE['title']}]Toolkit tiers[/]",
-        box=_table_box(),
-        show_lines=False,
-        header_style=_STYLE["header"],
-        border_style=_STYLE["border"],
-        title_justify="left",
-        pad_edge=False,
-        padding=(0, 1),
-    )
-    table.add_column("Tier", style=_STYLE["header"], no_wrap=True)
-    table.add_column("Group")
-    table.add_column("Coverage", justify="right", no_wrap=True)
-    table.add_column("Status", no_wrap=True)
-
+    columns = [
+        {"name": "Tier", "style": _STYLE["header"], "no_wrap": True},
+        {"name": "Group"},
+        {"name": "Coverage", "justify": "right", "no_wrap": True},
+        {"name": "Status", "no_wrap": True},
+    ]
+    rows: list[tuple[Any, ...]] = []
     for tier_label, key in (("Tier-1 (core)", "tier1"), ("Tier-2 (GPU/local)", "tier2")):
         groups: dict[str, list[bool]] = defaultdict(list)
         for item in result.get(key, []):
@@ -184,9 +283,9 @@ def _tier_matrix_table(result: dict[str, Any], Table: Any) -> Any:
                 status = f"[{_STYLE['info']}]optional[/]"
             else:
                 status = f"[{_STYLE['locked']}]missing[/]"
-            table.add_row(tier_label, group, f"{ok_n}/{total}", status)
+            rows.append((tier_label, group, f"{ok_n}/{total}", status))
             tier_label = ""  # only label the first row of each tier
-    return table
+    return make_status_table(columns, rows, title="Toolkit tiers", Table=Table)
 
 
 def _integrations_table(result: dict[str, Any], Table: Any) -> Any:
@@ -197,20 +296,13 @@ def _integrations_table(result: dict[str, Any], Table: Any) -> Any:
     (:func:`_print_unlock_links`) so a URL never has to wrap-and-truncate inside a
     narrow table cell — it stays whole and copy-pasteable.
     """
-    table = Table(
-        title=f"[{_STYLE['title']}]Integrations[/]  [dim]— each a feature you unlock, locked until you add it[/dim]",
-        box=_table_box(),
-        header_style=_STYLE["header"],
-        border_style=_STYLE["border"],
-        title_justify="left",
-        pad_edge=False,
-        padding=(0, 1),
-    )
-    table.add_column("Capability", style=_STYLE["header"], no_wrap=True)
-    table.add_column("Unlocks")
-    table.add_column("Class", style=_STYLE["muted"], no_wrap=True)
-    table.add_column("Status", no_wrap=True)
-
+    columns = [
+        {"name": "Capability", "style": _STYLE["header"], "no_wrap": True},
+        {"name": "Unlocks"},
+        {"name": "Class", "style": _STYLE["muted"], "no_wrap": True},
+        {"name": "Status", "no_wrap": True},
+    ]
+    rows: list[tuple[Any, ...]] = []
     for feat in result.get("features", []):
         if feat["status"] == "unlocked":
             status = f"[{_STYLE['ok']}]● unlocked[/]"
@@ -218,8 +310,11 @@ def _integrations_table(result: dict[str, Any], Table: Any) -> Any:
                 status += f" [dim]{feat['detail']}[/dim]"
         else:
             status = f"[{_STYLE['locked']}]○ locked[/]"
-        table.add_row(feat["title"], feat["unlocks"], feat["class"], status)
-    return table
+        rows.append((feat["title"], feat["unlocks"], feat["class"], status))
+    title = (
+        "Integrations  [dim]— each a feature you unlock, locked until you add it[/dim]"
+    )
+    return make_status_table(columns, rows, title=title, Table=Table)
 
 
 def _print_unlock_links(result: dict[str, Any], con: Any) -> None:
@@ -265,36 +360,21 @@ def _print_unlock_links(result: dict[str, Any], con: Any) -> None:
 
 def render_init_header(target: str, console: Any = None) -> None:
     """Render the ``rv init`` opening panel."""
-    from rich.panel import Panel
-    con = console if console is not None else get_console()
-    con.print(
-        Panel(
-            f"Initialising a Research Vault instance in:\n[bold]{target}[/bold]",
-            title=f"[{_STYLE['title']}]rv init[/]",
-            border_style=_STYLE["panel_init_border"],
-            padding=(0, 1),
-        )
+    make_panel(
+        f"Initialising a Research Vault instance in:\n[bold]{target}[/bold]",
+        title="rv init",
+        kind="init",
+        console=console,
     )
 
 
 def render_onboard_header(header: str, console: Any = None) -> None:
     """Render the ``rv onboard`` header panel (identity border + brass title)."""
-    from rich.panel import Panel
-    con = console if console is not None else get_console()
-    con.print(
-        Panel(
-            header,
-            title=f"[{_STYLE['title']}]rv onboard[/]",
-            border_style=_STYLE["border"],
-            padding=(0, 1),
-        )
-    )
+    make_panel(header, title="rv onboard", kind="neutral", console=console)
 
 
 def render_init_closing(target: str, offer_onboard: bool, console: Any = None) -> None:
     """Render the ``rv init`` closing panel with next steps."""
-    from rich.panel import Panel
-    con = console if console is not None else get_console()
     body = (
         "[bold]Research Vault instance initialised.[/bold]\n\n"
         "Run [bold]rv start[/bold] to launch Claude Code here — you'll be Alfred, the hub.\n"
@@ -306,4 +386,4 @@ def render_init_closing(target: str, offer_onboard: bool, console: Any = None) -
         "  4. [bold]rv dag run examples/demo-research/research-loop.json[/bold] — the demo loop\n\n"
         "See [dim]QUICKSTART.md[/dim] for the full walkthrough."
     )
-    con.print(Panel(body, title=f"[{_STYLE['title']}]Done[/]", border_style=_STYLE["panel_ok_border"], padding=(0, 1)))
+    make_panel(body, title="Done", kind="ok", console=console)
