@@ -234,53 +234,48 @@ class TestReproProxyAffordance:
 # ---------------------------------------------------------------------------
 
 class TestScipyAnalysisExtra:
-    """Fix 2: scipy in [analysis] extra (not core), plan-tips grounding has stdlib fallback note."""
+    """SR-PKG: scipy folded into Tier-1 defaults (was [analysis] extra pre-SR-PKG).
 
-    def test_analysis_extra_defined_in_pyproject(self):
-        """pyproject.toml defines an [analysis] optional extra."""
-        import importlib.resources
-        # Read pyproject.toml from the repo root (two levels up from this file)
+    SR-PKG reverses the old stdlib-only-core golden rule for the research surface.
+    scipy (and the full stats stack) are now Tier-1 default dependencies.
+    The old [analysis] optional extra is gone — it is intentionally removed.
+    """
+
+    def test_scipy_in_tier1_defaults_not_analysis_extra(self):
+        """After SR-PKG, scipy is a Tier-1 default dep, not in an [analysis] extra.
+
+        The [analysis] extra is intentionally removed — scipy ships by default.
+        """
+        import tomllib
         pyproject = Path(__file__).parent.parent / "pyproject.toml"
-        text = pyproject.read_text(encoding="utf-8")
-        assert "[project.optional-dependencies]" in text
-        # The 'analysis' extra must be defined
-        assert "analysis" in text, (
-            "pyproject.toml must define an 'analysis' optional extra."
+        with open(pyproject, "rb") as f:
+            data = tomllib.load(f)
+
+        # scipy must be in the default dependencies
+        deps = data["project"]["dependencies"]
+        assert any("scipy" in d for d in deps), (
+            "scipy must be in Tier-1 default [project.dependencies] after SR-PKG"
         )
 
-    def test_scipy_in_analysis_extra_not_core(self):
-        """scipy must appear in the [analysis] extra block in [project.optional-dependencies]."""
+        # The [analysis] extra must be GONE (folded in)
+        optional = data["project"].get("optional-dependencies", {})
+        assert "analysis" not in optional, (
+            "[analysis] extra must be removed after SR-PKG — "
+            "scipy is a Tier-1 default dep, not an optional extra."
+        )
+
+    def test_scipy_not_in_optional_analysis_block(self):
+        """Regression guard: scipy must NOT appear in an 'analysis' optional block."""
+        import tomllib
         pyproject = Path(__file__).parent.parent / "pyproject.toml"
-        text = pyproject.read_text(encoding="utf-8")
+        with open(pyproject, "rb") as f:
+            data = tomllib.load(f)
 
-        assert "scipy" in text, "scipy must appear somewhere in pyproject.toml"
-
-        # Scan line-by-line: track when we enter the 'analysis = [' block under optional-deps.
-        # A section header ("[...")  other than [project.optional-dependencies] resets tracking.
-        in_optional_deps = False
-        in_analysis_block = False
-        scipy_in_analysis = False
-
-        for line in text.splitlines():
-            stripped = line.strip()
-            # A new TOML section header resets which block we're in
-            if stripped.startswith("["):
-                in_optional_deps = stripped.startswith("[project.optional-dependencies]")
-                in_analysis_block = False
-                continue
-            if in_optional_deps:
-                # The 'analysis = [' key starts the analysis block
-                if stripped.startswith("analysis") and "=" in stripped:
-                    in_analysis_block = True
-                elif stripped.startswith("[") or (stripped and not stripped.startswith('"') and "=" in stripped and not stripped.startswith(" ")):
-                    # A new key in the same section resets the analysis-block tracker
-                    in_analysis_block = False
-            if in_analysis_block and "scipy" in stripped.lower() and not stripped.startswith("#"):
-                scipy_in_analysis = True
-
-        assert scipy_in_analysis, (
-            "scipy must appear in the 'analysis = [...]' block under "
-            "[project.optional-dependencies], not in the core dependencies."
+        optional = data["project"].get("optional-dependencies", {})
+        analysis_deps = optional.get("analysis", [])
+        assert not analysis_deps, (
+            "analysis extra must be empty/absent — "
+            f"but found: {analysis_deps}"
         )
 
     def test_plan_tips_grounding_mentions_scipy_fallback(self):
