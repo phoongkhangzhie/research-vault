@@ -989,6 +989,17 @@ def cmd_approve(args: argparse.Namespace) -> int:
             return 1
         parsed_outputs[k] = v
 
+    # SR-APPROVE-GATE: human-presence check — BEFORE any state write.
+    # Covers both approve (→ succeeded) and --reject (→ blocked).
+    # Fail-closed: non-TTY + no valid token → return 1, state UNCHANGED.
+    from .approval import check_human_presence
+    from ..adapters.base import EnvSecretStore
+    _secrets = EnvSecretStore()
+    _ok, _method, _approver, _reason = check_human_presence(args, cfg, _secrets)
+    if not _ok:
+        print(_reason, file=sys.stderr)
+        return 1
+
     # F13: determine final status (approve → succeeded; reject → blocked).
     final_status = "blocked" if reject else "succeeded"
 
@@ -1001,6 +1012,12 @@ def cmd_approve(args: argparse.Namespace) -> int:
         ns["decision_note"] = decision_note
     if parsed_outputs:
         ns["outputs"] = parsed_outputs
+
+    # SR-APPROVE-GATE Slice 2: record approval provenance.
+    import datetime as _dt
+    ns["approved_by"] = _approver
+    ns["approval_method"] = _method
+    ns["approved_at"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat(timespec="seconds")
 
     store.save(run_state)
 
@@ -1279,6 +1296,16 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"  {sym} {nid}  ({status}){err_str}{retry_str}")
         if node.get("type") != "human-go" and label != nid:
             print(f"      {label}")
+        # SR-APPROVE-GATE Slice 2: show approval provenance for decided human-go nodes.
+        if node.get("type") == "human-go" and status in ("succeeded", "blocked"):
+            _by = ns.get("approved_by", "")
+            _meth = ns.get("approval_method", "")
+            _at = ns.get("approved_at", "")
+            if _by or _meth:
+                _prov = f"      approved_by={_by!r} method={_meth!r}"
+                if _at:
+                    _prov += f" at={_at}"
+                print(_prov)
         # SR-RETRY: for pending nodes with prior failures, print last_failure
         if status == "pending" and attempts > 0:
             last_failure = ns.get("last_failure")
@@ -1495,6 +1522,16 @@ def build_parser(
             "Reject (block) this gate instead of approving it. "
             "Moves the node to 'blocked' (terminal) — downstream nodes that "
             "depend on this gate via afterok will NOT advance."
+        ),
+    )
+    app_p.add_argument(
+        "--yes",
+        action="store_true",
+        default=False,
+        help=(
+            "SR-APPROVE-GATE: skip the confirmation keystroke when a TTY is present. "
+            "Has NO EFFECT when stdin is not a TTY — the gate still fails closed "
+            "(use a provisioned token for non-interactive approval instead)."
         ),
     )
 

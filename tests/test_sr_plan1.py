@@ -804,7 +804,11 @@ class TestK3HookInApprove:
             f'agents_dir = "{tmp_path / ".agents"}"\n'
             f'tasks_dir = "{tmp_path / "tasks"}"\n'
             f'control_dir = "{tmp_path / "control"}"\n'
-            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n',
+            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n'
+            # SR-APPROVE-GATE: token fingerprint for test-time token approval.
+            '[approval]\nenforce = true\n'
+            'token_fingerprint = "d309a810bb5f40cef518202e46d197aa61e4dddafc5984c8c698da29ac8fd2bc"\n'
+            'enforce_sig = ""\n',
             encoding="utf-8",
         )
         old = os.environ.get("RESEARCH_VAULT_CONFIG")
@@ -847,7 +851,11 @@ class TestK3HookInApprove:
             f'agents_dir = "{tmp_path / ".agents"}"\n'
             f'tasks_dir = "{tmp_path / "tasks"}"\n'
             f'control_dir = "{tmp_path / "control"}"\n'
-            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n',
+            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n'
+            # SR-APPROVE-GATE: token fingerprint for test-time token approval.
+            '[approval]\nenforce = true\n'
+            'token_fingerprint = "d309a810bb5f40cef518202e46d197aa61e4dddafc5984c8c698da29ac8fd2bc"\n'
+            'enforce_sig = ""\n',
             encoding="utf-8",
         )
         old = os.environ.get("RESEARCH_VAULT_CONFIG")
@@ -897,7 +905,11 @@ class TestK3HookInApprove:
             f'agents_dir = "{tmp_path / ".agents"}"\n'
             f'tasks_dir = "{tmp_path / "tasks"}"\n'
             f'control_dir = "{tmp_path / "control"}"\n'
-            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n',
+            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n'
+            # SR-APPROVE-GATE: token fingerprint for test-time token approval.
+            '[approval]\nenforce = true\n'
+            'token_fingerprint = "d309a810bb5f40cef518202e46d197aa61e4dddafc5984c8c698da29ac8fd2bc"\n'
+            'enforce_sig = ""\n',
             encoding="utf-8",
         )
         old = os.environ.get("RESEARCH_VAULT_CONFIG")
@@ -1027,7 +1039,11 @@ class TestPlanVerbsCLI:
             f'agents_dir = "{tmp_path / ".agents"}"\n'
             f'tasks_dir = "{tmp_path / "tasks"}"\n'
             f'control_dir = "{tmp_path / "control"}"\n'
-            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n',
+            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n'
+            # SR-APPROVE-GATE: token fingerprint for test-time token approval.
+            '[approval]\nenforce = true\n'
+            'token_fingerprint = "d309a810bb5f40cef518202e46d197aa61e4dddafc5984c8c698da29ac8fd2bc"\n'
+            'enforce_sig = ""\n',
             encoding="utf-8",
         )
         old = os.environ.get("RESEARCH_VAULT_CONFIG")
@@ -1074,7 +1090,11 @@ class TestPlanVerbsCLI:
             f'agents_dir = "{tmp_path / ".agents"}"\n'
             f'tasks_dir = "{tmp_path / "tasks"}"\n'
             f'control_dir = "{tmp_path / "control"}"\n'
-            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n',
+            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n'
+            # SR-APPROVE-GATE: token fingerprint for test-time token approval.
+            '[approval]\nenforce = true\n'
+            'token_fingerprint = "d309a810bb5f40cef518202e46d197aa61e4dddafc5984c8c698da29ac8fd2bc"\n'
+            'enforce_sig = ""\n',
             encoding="utf-8",
         )
         old = os.environ.get("RESEARCH_VAULT_CONFIG")
@@ -1132,7 +1152,11 @@ class TestVerbRegistry:
             f'agents_dir = "{tmp_path / ".agents"}"\n'
             f'tasks_dir = "{tmp_path / "tasks"}"\n'
             f'control_dir = "{tmp_path / "control"}"\n'
-            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n',
+            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n'
+            # SR-APPROVE-GATE: token fingerprint for test-time token approval.
+            '[approval]\nenforce = true\n'
+            'token_fingerprint = "d309a810bb5f40cef518202e46d197aa61e4dddafc5984c8c698da29ac8fd2bc"\n'
+            'enforce_sig = ""\n',
             encoding="utf-8",
         )
         env = {**os.environ, "RESEARCH_VAULT_CONFIG": str(cfg_file)}

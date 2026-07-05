@@ -89,7 +89,11 @@ def _cfg_file(tmp_path: Path, notes_root: Path | None = None) -> Path:
         f'agents_dir = "{tmp_path / ".agents"}"\n'
         f'tasks_dir = "{tmp_path / "tasks"}"\n'
         f'control_dir = "{tmp_path / "control"}"\n'
-        '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n',
+        '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n'
+        # SR-APPROVE-GATE: token fingerprint for test-time token approval.
+        '[approval]\nenforce = true\n'
+        'token_fingerprint = "d309a810bb5f40cef518202e46d197aa61e4dddafc5984c8c698da29ac8fd2bc"\n'
+        'enforce_sig = ""\n',
         encoding="utf-8",
     )
     return f
