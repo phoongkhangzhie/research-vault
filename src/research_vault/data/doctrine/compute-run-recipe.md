@@ -17,8 +17,9 @@ response = litellm.completion(
 )
 ```
 
-Per-provider SDKs (`anthropic`, `openai`, `google-generativeai`, `mistralai`, `cohere`) are
-installed by default as secondary dependencies — use them for provider-specific features not
+`anthropic` is installed by default (core SDK). Per-provider SDKs for other providers
+(`openai`, `google-genai`, `mistralai`, `cohere`) are **opt-in** via
+`pip install research-vault[providers]` — use them for provider-specific features not
 exposed by litellm.
 
 **Anti-pattern:** do NOT hard-wire `anthropic.Anthropic()` or `openai.OpenAI()` directly into
