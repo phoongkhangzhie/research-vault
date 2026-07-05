@@ -224,6 +224,34 @@ def _build_phase1_manifest(
 # Phase-2 DAG manifest builder
 # ---------------------------------------------------------------------------
 
+def _count_corpus_data_rows(text: str) -> int:
+    """Count annotation-bearing table rows in a _corpus.md text.
+
+    A data row is a markdown table row whose first non-empty column starts with
+    ``[`` — i.e. it carries an annotation like ``[NEW]`` or ``[IN-CORPUS:...]``.
+    Header rows (e.g. ``| Annotation | Citekey | Title |``) and separator rows
+    (``| --- | --- | --- |``) are excluded by this definition.
+
+    Used by cmd_expand to detect a rows-present-but-none-parseable mismatch.
+
+    sr: SR-LR-1
+    """
+    count = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        # Split on pipes and get non-empty columns
+        cols = [c.strip() for c in stripped.split("|") if c.strip()]
+        if not cols:
+            continue
+        annotation_col = cols[0]
+        # Data rows start their annotation column with [
+        if annotation_col.startswith("["):
+            count += 1
+    return count
+
+
 def _parse_new_citekeys(corpus_path: Path) -> list[str]:
     """Parse _corpus.md and return citekeys annotated [NEW] (not [IN-CORPUS:*]).
 
@@ -231,22 +259,43 @@ def _parse_new_citekeys(corpus_path: Path) -> list[str]:
       | [NEW] | citekey | title |
       | [IN-CORPUS:old2019] | old2019 | ... |
 
-    Only rows with annotation exactly ``[NEW]`` are returned as citekeys for
-    the Phase-2 fan-out.
+    Only rows with annotation exactly ``[NEW]`` (case-insensitive; tolerates
+    extra whitespace and table-pipe variants) are returned as citekeys for the
+    Phase-2 fan-out.  ``[IN-CORPUS:*]`` rows are deliberately excluded — do NOT
+    widen this to include them.
 
     sr: SR-LR-1
     """
     text = corpus_path.read_text(encoding="utf-8")
+    return _parse_new_citekeys_from_text(text)
+
+
+def _parse_new_citekeys_from_text(text: str) -> list[str]:
+    """Parse a _corpus.md text and return citekeys annotated [NEW].
+
+    Tolerates: extra whitespace in columns, mixed case ``[new]``/``[NEW]``,
+    leading/trailing spaces around the pipe delimiters, and varying column count.
+
+    Strict: only ``[NEW]`` (or case variant) passes — ``[IN-CORPUS:*]`` is excluded.
+
+    sr: SR-LR-1
+    """
     citekeys: list[str] = []
     for line in text.splitlines():
-        # Match table rows starting with | [NEW] |
-        # The annotation column is the first column; citekey is the second.
-        m = re.match(
-            r"\|\s*\[NEW\]\s*\|\s*([A-Za-z0-9_:\-\.]+)\s*\|",
-            line.strip(),
-        )
-        if m:
-            citekeys.append(m.group(1))
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        # Split on pipes, strip each column, skip empty
+        cols = [c.strip() for c in stripped.split("|") if c.strip()]
+        if len(cols) < 2:
+            continue
+        annotation = cols[0]
+        # Case-insensitive exact match on [NEW]
+        if annotation.upper() == "[NEW]":
+            citekey = cols[1]
+            # Validate: citekey must look like a valid identifier
+            if re.match(r"^[A-Za-z0-9_:\-\.]+$", citekey):
+                citekeys.append(citekey)
     return citekeys
 
 
@@ -570,7 +619,24 @@ def cmd_expand(
             f"Run the Phase-1 review-snowball node first, then approve coverage-gate."
         )
 
-    new_citekeys = _parse_new_citekeys(corpus_path)
+    corpus_text = corpus_path.read_text(encoding="utf-8")
+    total_data_rows = _count_corpus_data_rows(corpus_text)
+    new_citekeys = _parse_new_citekeys_from_text(corpus_text)
+
+    # F15: green-but-vacuous guard — if the corpus has annotation rows but none
+    # parsed as [NEW], there is a format mismatch.  Do NOT write a 0-relate
+    # phase2-dag.json; raise loud so the operator can fix the corpus format.
+    # A truly empty corpus (0 annotation rows) still degrades gracefully (direct
+    # path to synthesize with no relate nodes — existing behavior preserved).
+    if total_data_rows > 0 and not new_citekeys:
+        raise ValueError(
+            f"rv review expand: _corpus.md has {total_data_rows} annotation row(s) "
+            f"at {corpus_path} but none parsed as [NEW] citekeys.\n"
+            f"Expected row format:  | [NEW] | citekey | title |\n"
+            f"Rows annotated [IN-CORPUS:*] are excluded from the Phase-2 fan-out by design.\n"
+            f"If all papers are already in-corpus, the corpus is fully covered — "
+            f"run review-synthesize directly rather than expanding."
+        )
 
     manifest = _build_phase2_manifest(
         project=project,
