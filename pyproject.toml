@@ -133,6 +133,7 @@ artifacts = [
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.0",
+    "pytest-forked>=1.6.0",
 ]
 
 [tool.pytest.ini_options]
@@ -141,4 +142,5 @@ dev-dependencies = [
 markers = [
     "slow: isolated wheel build+install+run smoke tests (may take 30s+)",
     "live: real-network model-seam acceptance tests (SR-MODEL-SEAM); SKIPPED without API keys; operator runs `pytest -m live`.",
+    "forked: run this test in a forked subprocess (pytest-forked); used on live tests to isolate weave/litellm global state.",
 ]
