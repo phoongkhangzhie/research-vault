@@ -1286,21 +1286,12 @@ def cmd_status(args: argparse.Namespace) -> int:
                 print(f"      PRIOR FAILURE: {last_failure[:200]}"
                       + ("..." if len(last_failure) > 200 else ""))
 
-    # Print awaiting-go commands
-    awaiting = [
-        n for n in manifest["nodes"]
-        if run_state.node_status(n["id"]) == "awaiting-go"
-    ]
-    if awaiting:
-        print()
-        print("Awaiting human approval:")
-        for node in awaiting:
-            nid = node["id"]
-            label = node.get("label", nid)
-            print(f"  [{nid}] {label}")
-            print(f"      run: rv dag approve {run_id} {nid}")
-
     # Show current frontier
+    # F6: include awaiting-go nodes that have already been promoted by a prior
+    # _recompute_awaiting_go call (from dag run/tick/complete).  compute_frontier
+    # skips them because "awaiting-go" is in _NON_ADVANCEABLE — so they would
+    # silently disappear from the status display even though they still need human
+    # action.  We append them explicitly so dag status and dag complete agree.
     print()
     print("Current frontier:")
     frontier = compute_frontier(
@@ -1309,6 +1300,16 @@ def cmd_status(args: argparse.Namespace) -> int:
         run_state.edge_registered_ts,
         manifest_global_cap(manifest),
     )
+    _frontier_ids = {item.node_id for item in frontier}
+    _nodes_by_id = manifest_nodes_by_id(manifest)
+    _extra_await: list[FrontierNode] = [
+        FrontierNode(node_id=nid, action="await-go", node=_nodes_by_id[nid])
+        for nid, ns in run_state.node_states.items()
+        if ns.get("status") == "awaiting-go"
+        and nid not in _frontier_ids
+        and nid in _nodes_by_id
+    ]
+    frontier = frontier + _extra_await
     _print_frontier(frontier, run_id, node_states=run_state.node_states)
 
     return 0

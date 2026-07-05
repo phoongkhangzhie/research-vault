@@ -31,6 +31,7 @@ from research_vault.dag.verbs import (
     cmd_complete,
     cmd_approve,
     cmd_run,
+    cmd_status,
     cmd_tick,
 )
 from research_vault.dag.walker import compute_frontier
@@ -658,3 +659,121 @@ class TestF13ApproveFlags:
         assert rs.node_status("gate") == "succeeded"
         assert ns.get("decision_note") == "All conditions met."
         assert ns.get("outputs") == {"alpha": "1", "beta": "2"}
+
+
+# ===========================================================================
+# F6: dag status and dag complete agree on a pending human-go frontier
+# ===========================================================================
+
+
+class TestF6StatusCompleteFrontierAgreement:
+    """
+    F6 regression test.
+
+    Defect: after dag complete advances the work node (which calls
+    _recompute_awaiting_go and promotes the human-go node to "awaiting-go"),
+    dag status's "Current frontier" section called compute_frontier directly.
+    compute_frontier skips "awaiting-go" nodes (they are in _NON_ADVANCEABLE),
+    so the human-go node silently disappeared from the status frontier even
+    though it still required human action.
+
+    Fix: dag status appends already-promoted "awaiting-go" nodes to the
+    frontier it displays, so BOTH dag complete and dag status show the same
+    pending-human-go information (including the exact `rv dag approve` command).
+    """
+
+    def test_complete_shows_human_go_in_frontier(self, simple_instance: Path, capsys):
+        """dag complete's frontier output includes the human-go node as AWAIT-GO."""
+        run_id = "f6-complete"
+        _boot_run_to_awaiting_go(simple_instance, run_id)
+        # _boot_run_to_awaiting_go does: cmd_run, cmd_complete(work), cmd_tick
+        # After that the gate node is "awaiting-go". Drain output.
+        captured = capsys.readouterr().out
+
+        # The cmd_complete call inside _boot_run_to_awaiting_go should have
+        # printed a frontier that includes the AWAIT-GO line for the gate node.
+        assert "AWAIT-GO" in captured, (
+            "dag complete must include AWAIT-GO in its frontier output when a "
+            f"human-go node is ready.\nGot output:\n{captured}"
+        )
+        assert f"rv dag approve {run_id} gate" in captured, (
+            "dag complete must print the exact rv dag approve command for the "
+            f"pending human-go node.\nGot output:\n{captured}"
+        )
+
+    def test_status_shows_human_go_in_frontier_after_complete(
+        self, simple_instance: Path, capsys
+    ):
+        """dag status's Current frontier includes the human-go node after dag complete promotes it.
+
+        This is the red-before-green anchor for F6:
+        - OLD code: compute_frontier skips "awaiting-go" nodes → Current frontier empty
+        - NEW  code: awaiting-go nodes injected back → Current frontier shows AWAIT-GO + approve command
+        """
+        run_id = "f6-status"
+        _boot_run_to_awaiting_go(simple_instance, run_id)
+        capsys.readouterr()  # drain output from boot
+
+        # At this point the gate node is "awaiting-go" in the run state.
+        rc = cmd_status(_argns(run_id=run_id))
+        assert rc == 0
+        out = capsys.readouterr().out
+
+        # The Current frontier section must include the AWAIT-GO entry and approve command.
+        assert "AWAIT-GO" in out, (
+            "dag status's Current frontier must include AWAIT-GO for a promoted "
+            f"human-go node.\nGot output:\n{out}"
+        )
+        assert f"rv dag approve {run_id} gate" in out, (
+            "dag status must print the exact rv dag approve command for the "
+            f"pending human-go node.\nGot output:\n{out}"
+        )
+
+    def test_status_and_complete_both_show_approve_command(
+        self, simple_instance: Path, capsys
+    ):
+        """Both dag complete and dag status print the rv dag approve command for the same node.
+
+        This is the agreement test: the same approve command appears in both outputs,
+        confirming the two verbs agree on the frontier.
+        """
+        run_id = "f6-agreement"
+        m = {
+            "run_id": run_id,
+            "name": "F6 agreement test",
+            "global_cap": 4,
+            "nodes": [
+                {
+                    "id": "work",
+                    "type": "agent",
+                    "spec": "fixture://test",
+                    "label": "Work node",
+                },
+                {
+                    "id": "gate",
+                    "type": "human-go",
+                    "label": "Approval gate",
+                    "needs": [{"from": "work", "edge": "afterok"}],
+                },
+            ],
+        }
+        mf = simple_instance / f"{run_id}.json"
+        mf.write_text(json.dumps(m), encoding="utf-8")
+
+        cmd_run(_argns(manifest=str(mf)))
+        capsys.readouterr()
+
+        # Complete the work node — the frontier in the complete output should show AWAIT-GO
+        cmd_complete(_argns(run_id=run_id, node_id="work", status="succeeded"))
+        complete_out = capsys.readouterr().out
+        approve_cmd = f"rv dag approve {run_id} gate"
+        assert approve_cmd in complete_out, (
+            f"dag complete must show '{approve_cmd}' in frontier.\nGot:\n{complete_out}"
+        )
+
+        # Now dag status — the gate is already "awaiting-go" in the run state
+        cmd_status(_argns(run_id=run_id))
+        status_out = capsys.readouterr().out
+        assert approve_cmd in status_out, (
+            f"dag status must also show '{approve_cmd}' in Current frontier.\nGot:\n{status_out}"
+        )

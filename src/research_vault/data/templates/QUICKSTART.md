@@ -6,10 +6,24 @@ Run `rv check` first to verify your prerequisites.
 ## Prerequisites
 
 - **Claude CLI** — the agent runtime (`claude --version`)
-- **ANTHROPIC_API_KEY** — your API key (or use keyring)
-- **asta** (optional) — for literature search integration
+- **ANTHROPIC_API_KEY** — required; see _Credentials_ below
+- **asta** (optional) — enables `rv research find --deep`; plain `rv research find` works without it
 - **Zotero + ZOTERO_KEY** (optional) — for citation management
 - **wandb** (optional) — for experiment results (`rv wandb pull`); `pip install wandb`
+
+### Credentials
+
+All API keys are resolved in this order (highest priority first):
+
+1. **Environment variable** — `export ANTHROPIC_API_KEY=sk-ant-…`  
+   (session-scoped; add to your shell profile to persist)
+
+2. **System keyring** — `keyring set research_vault ANTHROPIC_API_KEY`  
+   (persists across sessions; requires the `keyring` package)
+
+Same pattern applies to other keys: `ZOTERO_KEY` (service `research_vault`) and `WANDB_API_KEY` (service `research-vault`).
+
+`rv check` reports which source resolved each key so you can verify the provisioning path.
 
 ## Compute onboarding — DECLARE → DISCOVER
 

@@ -79,7 +79,20 @@ the entire plan once per experiment (~2× overspend) while still appearing corre
 
 ---
 
-## 3. Why these are standing doctrine (not per-project choices)
+## 3. Pre-registration estimand formula (F20)
+
+**The rule:** a pre-registration MUST state the credited residual/estimand as an
+**explicit formula** (e.g. `accuracy(arm_A) − accuracy(arm_B)`, or a named statistical
+test applied to a specific outcome variable), not prose.  A prose description
+("we will compare group means") is not a formula: it cannot be evaluated mechanically
+against results, which is the whole point of pre-registering the analysis.
+
+This is a BLOCK in the plan-critic review (see `plan-critic-spec.md §1`): a missing
+or prose-only estimand statement prevents the gate from passing.
+
+---
+
+## 4. Why these are standing doctrine (not per-project choices)
 
 Both F26 and F27 produced real study-invalidating defects that were invisible until
 post-hoc review:
