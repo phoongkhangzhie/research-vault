@@ -1017,6 +1017,47 @@ def _probe_remote_backend(
 
 
 # ---------------------------------------------------------------------------
+# Secrets-forward resolvability probe (names-not-values)
+# ---------------------------------------------------------------------------
+
+def _build_doctor_secret_store(cfg: Config) -> Any:
+    """Build the SecretStore selected by ``cfg.adapters.secrets`` (default env)."""
+    from .adapters.base import _SECRETS_REGISTRY
+    name = (getattr(cfg, "adapters", None) or {}).get("secrets", "env")
+    cls = _SECRETS_REGISTRY.get(name) or _SECRETS_REGISTRY["env"]
+    return cls()
+
+
+def _probe_secrets_forward(
+    profile: dict[str, Any],
+    store: Any,
+) -> list[dict[str, Any]]:
+    """Probe resolvability of each forwarded secret NAME. NEVER returns the value.
+
+    For each declared name: validate the name, then attempt ``store.get(name)``.
+    Returns ``[{"name": <NAME>, "resolvable": bool, ["invalid_name": True]}]`` —
+    a boolean + the name only, so the report can flag missing secrets without
+    ever printing, logging, or returning the plaintext value.
+    """
+    from .adapters.secret_forward import validate_secret_name
+    names = profile.get("secrets_forward") or []
+    out: list[dict[str, Any]] = []
+    for n in names:
+        entry: dict[str, Any] = {"name": n}
+        try:
+            validate_secret_name(n)
+            store.get(n)  # value intentionally discarded — never captured
+            entry["resolvable"] = True
+        except ValueError:
+            entry["resolvable"] = False
+            entry["invalid_name"] = True
+        except KeyError:
+            entry["resolvable"] = False
+        out.append(entry)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Main probe runner — env-aware (iterates declared backends)
 # ---------------------------------------------------------------------------
 
@@ -1065,6 +1106,17 @@ def _probe_capabilities(cfg: Config) -> dict[str, dict[str, Any]]:
                 "probe_status": "unknown-archetype",
                 "message": f"archetype {archetype!r} has no probe handler",
             }
+
+    # Secrets-forward resolvability probe — attach per profile that declares it.
+    # Names + a resolvable bool only; the value is never captured or returned.
+    _secret_store: Any = None
+    for backend_name, prof in profiles.items():
+        if prof.get("secrets_forward") and backend_name in result:
+            if _secret_store is None:
+                _secret_store = _build_doctor_secret_store(cfg)
+            result[backend_name]["secrets_forward"] = _probe_secrets_forward(
+                prof, _secret_store
+            )
 
     # Ensure "local" is always present (even if not declared) so the cache
     # is always useful for local-only adopters who haven't run compute init yet.
@@ -1309,6 +1361,15 @@ def format_report(result: dict[str, Any]) -> str:
         else:
             # Local (or generic) — full detail
             lines.extend(_format_local_caps(caps))
+
+        # Secrets-forward resolvability (names + a mark only, never the value).
+        sf = caps.get("secrets_forward")
+        if sf:
+            lines.append(f"  Secrets forward ({len(sf)}):")
+            for e in sf:
+                mark = "resolvable ✓" if e.get("resolvable") else "MISSING ✗"
+                extra = " [invalid name]" if e.get("invalid_name") else ""
+                lines.append(f"    {e.get('name', '?')}: [{mark}]{extra}")
 
         lines.append("")
 

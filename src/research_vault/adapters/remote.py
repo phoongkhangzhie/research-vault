@@ -28,6 +28,7 @@ from __future__ import annotations
 import re
 import shlex
 import subprocess
+import sys
 from typing import Any
 
 
@@ -252,6 +253,24 @@ class RemoteBackend:
             self._manifest = compute_load_manifest(self._cfg)
         return self._manifest
 
+    def _build_secret_store(self) -> Any:
+        """Build a SecretStore from ``cfg.adapters.secrets`` via the registry.
+
+        Used only by the secrets_forward path. Lazily constructed per submit so
+        no store is built when a profile declares no forwarded secrets.
+        """
+        from .base import _SECRETS_REGISTRY
+        name = "env"
+        if self._cfg is not None:
+            name = (getattr(self._cfg, "adapters", None) or {}).get("secrets", "env")
+        cls = _SECRETS_REGISTRY.get(name)
+        if cls is None:
+            known = ", ".join(sorted(_SECRETS_REGISTRY))
+            raise RuntimeError(
+                f"secrets_forward: unknown secrets adapter {name!r}. Known: {known}"
+            )
+        return cls()
+
     def _active_profile(self, name: str = "") -> dict[str, Any]:
         """Return the merged (defaults + declared) profile for the active backend.
 
@@ -302,6 +321,39 @@ class RemoteBackend:
                 "state_dir/compute_manifest.json."
             )
 
+        # --- Secret forwarding (command-line-clean) ---------------------------
+        # A forwarded secret's VALUE must never touch any argv. When a profile
+        # declares secrets_forward (a list of env-var NAMES), we:
+        #   1. Resolve-all-first, fail-closed — every name → validated → looked
+        #      up in the SecretStore BEFORE any ssh call (a miss aborts here, so
+        #      no job is ever sent).
+        #   2. Stage over ssh STDIN — build the blob in memory, deliver it with
+        #      input= (never argv, never local disk) to a mode-600 remote file.
+        #   3. Activate — force the sh -c wrapper below (native_env is IGNORED
+        #      when secrets are present; its --export would leak the value). The
+        #      wrapper sources the file, deletes it, and traps EXIT/INT/TERM.
+        # Absent secrets_forward, secret_plan stays None → behavior is unchanged.
+        secrets_forward = profile.get("secrets_forward") or []
+        secret_plan = None
+        if secrets_forward:
+            from .secret_forward import (
+                build_secret_blob,
+                make_plan,
+                resolve_secrets,
+                stage_over_stdin,
+            )
+            # 1. Resolve-all-first, fail-closed BEFORE any ssh call.
+            resolved = resolve_secrets(secrets_forward, self._build_secret_store())
+            # 2. Stage over ssh STDIN (values via input=, never argv, never disk).
+            secret_plan = make_plan(
+                profile.get("secrets_scratch", "$HOME/.rv-secrets"),
+                profile.get("secrets_ttl_minutes", 720),
+            )
+            blob = build_secret_blob(resolved)
+            stage_over_stdin(host, secret_plan, blob)
+            # Drop the plaintext refs from the local frame promptly.
+            del resolved, blob
+
         # Resolve interpolation variables for the submit pattern
         interp: dict[str, Any] = {"name": name}
         if self._cfg and name:
@@ -327,7 +379,14 @@ class RemoteBackend:
             # the remote side.  We wrap in 'sh -c ...' when either is set so
             # that nohup/background mechanics in the template still work
             # (nohup cannot directly receive a compound shell expression).
-            if env or cwd:
+            if secret_plan is not None:
+                # Secrets present: the wrapper sources the staged file and wires
+                # env/cwd itself — the secret value never reaches the argv.
+                wrapper = secret_plan.activation_wrapper(
+                    cwd=cwd, nonsecret_env=env, cmd=cmd
+                )
+                cmd_str = "sh -c " + shlex.quote(wrapper)
+            elif env or cwd:
                 shell_parts: list[str] = []
                 if cwd:
                     shell_parts.append("cd " + shlex.quote(cwd))
@@ -393,7 +452,16 @@ class RemoteBackend:
             #
             # Without env/cwd, cmd passes through unchanged in both modes.
             native_env: bool = bool(profile.get("native_env", False))
-            use_native = native_env and bool(env or cwd)
+            # native_env is IGNORED when secrets are present: its --export would
+            # place the secret value on the scheduler argv (visible via ps/scontrol).
+            # Force the sh -c wrapper instead (built below from secret_plan).
+            use_native = native_env and bool(env or cwd) and secret_plan is None
+            if native_env and secret_plan is not None:
+                print(
+                    "note: native_env ignored for this submit — secrets_forward "
+                    "requires the sh -c wrapper to keep secret values off the argv.",
+                    file=sys.stderr,
+                )
 
             if use_native:
                 # Guard: reject unsafe env values BEFORE building argv.
@@ -437,7 +505,15 @@ class RemoteBackend:
                 image = container.get("image", "")
                 ssh_argv += [runtime, "exec", image]
 
-            if not use_native and (env or cwd):
+            if secret_plan is not None:
+                # Secrets present: source the staged file, delete it, then run
+                # cmd — the value is sourced, never on the argv. env/cwd are
+                # wired inside the wrapper (the native/std paths are bypassed).
+                wrapper = secret_plan.activation_wrapper(
+                    cwd=cwd, nonsecret_env=env, cmd=cmd
+                )
+                effective_cmd: list[str] = ["/bin/sh", "-c", wrapper]
+            elif not use_native and (env or cwd):
                 std_parts: list[str] = []
                 if cwd:
                     std_parts.append("cd " + shlex.quote(cwd))
@@ -446,7 +522,7 @@ class RemoteBackend:
                 )
                 std_inner = (std_env + " " if std_env else "") + shlex.join(cmd)
                 std_parts.append(std_inner)
-                effective_cmd: list[str] = [
+                effective_cmd = [
                     "/bin/sh", "-c",
                     " && ".join(std_parts) if cwd else std_inner,
                 ]
@@ -454,6 +530,14 @@ class RemoteBackend:
                 effective_cmd = list(cmd)
 
             ssh_argv += ["--"] + effective_cmd
+
+        def _cleanup_staged_secret() -> None:
+            # Best-effort remote rm of the staged secret when the submit failed
+            # (the wrapper's trap never fires — the job never started). Never
+            # masks the original error; the TTL sweeper is the final backstop.
+            if secret_plan is not None:
+                from .secret_forward import best_effort_cleanup
+                best_effort_cleanup(host, secret_plan)
 
         try:
             result = subprocess.run(
@@ -463,12 +547,14 @@ class RemoteBackend:
                 timeout=60,
             )
         except FileNotFoundError:
+            _cleanup_staged_secret()
             raise RuntimeError(
                 "ssh not found. RemoteBackend requires ssh for remote submission. "
                 "Install openssh-client or use backend=local."
             )
 
         if result.returncode != 0:
+            _cleanup_staged_secret()
             raise RuntimeError(
                 f"Remote submission failed (exit {result.returncode}):\n"
                 f"  cmd: {ssh_argv}\n"

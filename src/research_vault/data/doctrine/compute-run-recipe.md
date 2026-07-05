@@ -91,6 +91,36 @@ One command, no guessing.
 The crew submits through the seam (the configured adapter in research_vault.toml +
 the compute manifest). The backend handles the ssh + sbatch/qsub mechanics.
 
+## Remote jobs + secrets (forwarding a credential to the compute node)
+
+A remote job that logs to W&B (or hits any authed service) needs the credential in
+its **process env on the compute node**. Declare the env-var **NAMES** to forward in
+the profile — never the values:
+
+```json
+"compute-node": {
+  "archetype": "ssh+slurm",
+  "host": "my-cluster-login",
+  "submit_pattern": "sbatch --partition=gpu",
+  "secrets_forward": ["WANDB_API_KEY"],
+  "secrets_scratch": "$HOME/.rv-secrets",   // optional; must be visible from the compute node
+  "secrets_ttl_minutes": 720                 // optional; orphan-sweep age
+}
+```
+
+At submit time the value is resolved from your **local env / keyring** (the same
+`SecretStore` seam as the rest of `rv`), staged to the remote over **ssh STDIN** into a
+mode-600 file, and the job **sources then deletes** it. The value never touches any
+argv — not `--export`, not `ps aux`, not `scontrol show job`, not SLURM accounting.
+A missing secret **fails the submit before any ssh call** (fail-closed).
+
+- **Names, not values.** `secrets_forward` holds env-var names only; the value stays in
+  your keyring/env. `rv compute show` prints `forwards=<names>`; `rv doctor` reports each
+  name as `[resolvable ✓]` / `[MISSING ✗]` — never the value.
+- **`native_env` is ignored** for a submit that forwards secrets (its `--export` would
+  leak the value); the `sh -c` wrapper is forced instead.
+- Set `secrets_forward: []` (or omit it) to disable — behavior is then unchanged.
+
 ## Anti-patterns — NEVER do these
 
 - **Do NOT trial-submit** to discover what partition/GPU/env to use. `rv compute show`

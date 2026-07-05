@@ -1,3 +1,34 @@
+## 2026-07-05 (secrets-forward: command-line-clean secret forwarding to remote jobs — feat/secrets-forward)
+
+### Done
+- `adapters/secret_forward.py` — new stdlib-only module. Pure seam: `validate_secret_name`
+  (`^[A-Za-z_][A-Za-z0-9_]*$`, rejects injection), `resolve_secrets` (resolve-all-first,
+  fail-closed BEFORE any ssh, RuntimeError naming the missing secret), `build_secret_blob`
+  (`export NAME='<shlex.quote(value)>'`), `SecretForwardPlan` (nonce via `secrets.token_hex`,
+  `stage_script` = `umask 077`/`mkdir`/`cat >`/`chmod 600`/TTL-sweep, `activation_wrapper` =
+  `trap`+source+immediate-rm), `stage_over_stdin` (ssh STDIN `input=`, never argv),
+  `best_effort_cleanup` (fire-and-forget, never masks the original error).
+- `RemoteBackend.submit()` — resolve+stage before the submit subprocess; the sh -c wrapper
+  slots into the existing `{cmd}` (ssh) / `["--"]+cmd` (slurm/pbs) machinery. `native_env` is
+  IGNORED when secrets are present (its `--export` would leak the value) — forced sh -c + a
+  one-line stderr note. Cleanup on submit failure. `_build_secret_store` from `cfg.adapters.secrets`.
+- Discovery: `compute.py` scaffold seeds `secrets_forward: ["WANDB_API_KEY"]` + rationale in the
+  compute-node profile; `cmd_show` renders `forwards=<names>`; `doctor.py` adds a resolvability
+  probe (`NAME [resolvable ✓ / MISSING ✗]`, value never captured); recipe doc "Remote jobs + secrets".
+- Manifest schema (per-profile): `secrets_forward` (NAMES only, validated), `secrets_scratch`
+  (default `$HOME/.rv-secrets`), `secrets_ttl_minutes` (default 720). Absent = unchanged behavior.
+
+### Decisions
+- Security spine = command-line-clean: the value appears on NO argv (local ssh argv, `--export`,
+  or node process argv). It lives only in memory + the kernel pipe (ssh STDIN) + a mode-600
+  remote file sourced-then-deleted. Names-not-values everywhere (manifest / show / doctor / logs).
+- Refined `test_init_no_secret_literals` (leakage gate): a validated forwarded env-var NAME is not
+  a credential (the whole security model), so it is excised before the VALUE scan; the gate still
+  catches `sk-ant-…`, `password`, and any `NAME=value` credential assignment elsewhere. FLAGGED for
+  reviewer — this loosens an existing leakage assertion to admit the legitimate new field.
+
+### Open / next
+- CI disabled for this branch; verified via full `pytest` (2128 passed) + `rv lint` + leakage scan.
 ## 2026-07-05 (onboarding UX: rv onboard + rv check reframe — feat/onboarding-ux)
 
 ### Done
