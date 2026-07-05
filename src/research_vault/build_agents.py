@@ -146,8 +146,9 @@ _CC_ROLE_DESCRIPTIONS: dict[str, str] = {
         "research-methodology judgement."
     ),
     "designer": (
-        "Visual figures, surfaces, and deploy-and-judge-live. Delegate for "
-        "plot design, figure DAG runs, and any visual-quality work."
+        "Visual identity, design system, and OSS documentation surfaces. "
+        "Delegate for visual-design direction, system coherence, and any "
+        "public-facing design work."
     ),
     "reviewer": (
         "Independent verification. Delegate for adversarial code review, "

@@ -1,4 +1,4 @@
-"""dag/catalog.py — static catalog SSOT for the four built-in research loops (SR-HUB-DAG).
+"""dag/catalog.py — static catalog SSOT for the two built-in research loops (SR-HUB-DAG).
 
 Purpose
 -------
@@ -19,10 +19,6 @@ not from memory or design docs. Verified against:
   lit-review : review/__init__.py _build_phase1_manifest + _build_phase2_manifest
                Phase-1 gates: approve-protocol, coverage-gate
                Phase-2 gate:  approve-review
-  figure     : data/examples/demo-figures/demo-figures.json
-               (data-check — IN THE MIDDLE, not terminal)
-  manuscript : manuscript/__init__.py _build_manifest
-               (approve-thesis, approve-framing, approve-manuscript)
 
 A grounding test (test_sr_hub_dag_rails.py::TestCatalogGrounding) asserts every
 human_go_gate.node_id appears as a real "human-go" typed node in the corresponding
@@ -85,8 +81,7 @@ class LoopEntry:
     Attributes
     ----------
     key : str
-        Stable slug (``"experiment"``, ``"lit-review"``, ``"figure"``,
-        ``"manuscript"``).
+        Stable slug (``"experiment"``, ``"lit-review"``).
     entry_verb : str
         The ``rv`` command to start a DAG run once the manifest exists.
     scaffolder : str | None

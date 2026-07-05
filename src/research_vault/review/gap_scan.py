@@ -29,8 +29,6 @@ Robinson et al. (2011) as related secondary taxonomies):
   knowledge_void    — finding with support-degree < threshold (D-GAP-2)
   contradictory     — concept with both supported_by AND contradicted_by edges
   evaluation_void   — finding asserting an effect with no comparator edge
-  absent_row        — support_matcher [ABSENT]/[CONTRADICTS] verdict
-                      (the loop-closer that makes manuscript↔lit-review a cycle, §5L.10)
 
 Support-degree (D-GAP-2): count of entries in a finding's ``backed_by:`` frontmatter
 field (the citekeys of literature/ notes that support the finding, as authored
@@ -43,9 +41,9 @@ Closure statuses (§5L.8):
   proven-open       — targeted pass saturated without closing → candidate contribution
 
 Suggested routes (§5L.14–5L.15, SR-GAP-ROUTE):
-  literature  — read-first (knowledge_void, contradictory, absent_row in intro/background)
-  experiment  — run-first fast-path (evaluation_void, absent_row in results section)
-  triage      — human decides (absent_row with unknown/absent section)
+  literature  — read-first (knowledge_void, contradictory in intro/background)
+  experiment  — run-first fast-path (evaluation_void in results section)
+  triage      — human decides (gaps with unknown/absent section)
 
 The router SUGGESTS; it never auto-fires a run.  cmd_gap_scope is the human-authorized
 step; the experiment route additionally rides SR-PLAN-1's own human-go-plan gate.
@@ -73,8 +71,8 @@ from research_vault.note import _parse_frontmatter as _pfm
 
 # Suggested-route tokens (SR-GAP-ROUTE §5L.14)
 ROUTE_LITERATURE = "literature"   # read-first (low-regret default)
-ROUTE_EXPERIMENT = "experiment"   # run-first fast-path (evaluation_void + our-result absent_row)
-ROUTE_TRIAGE = "triage"           # human decides (absent_row with unknown/absent section)
+ROUTE_EXPERIMENT = "experiment"   # run-first fast-path (evaluation_void in results)
+ROUTE_TRIAGE = "triage"           # human decides (unknown/absent section)
 
 # Tier-B section-to-route maps (§5L.15 — case-insensitive match after lowering tex.stem)
 # READ sections: claim is about FIELD / prior work → find the cite in lit
@@ -1138,8 +1136,8 @@ def cmd_gap_promote(
     The honesty backstop (zero new mechanism — §5L.21(2)):
     A contribution claim written from a promoted gap is ultimately a drafted manuscript
     sentence that round-trips through the SR-MS-2 support-matcher. If the significance
-    is asserted without backing, the matcher returns [ABSENT] → re-enters the gap loop
-    as an absent_row. The loop polices its own promotions; gap-promote is a data-write.
+    is asserted without backing, the matcher returns [ABSENT]. The honesty backstop
+    polices its own promotions; gap-promote is a data-write.
 
     Returns the updated gap note path.
     """
