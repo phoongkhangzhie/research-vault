@@ -171,11 +171,16 @@ def _check_claude_cli() -> tuple[bool, str]:
 
 
 def _check_api_key() -> tuple[bool, str]:
-    """Return (ok, message) for the ANTHROPIC_API_KEY check."""
+    """Return (ok, message) for the ANTHROPIC_API_KEY check.
+
+    Resolution order (highest priority first):
+      1. ANTHROPIC_API_KEY env var
+      2. System keyring: keyring set research_vault ANTHROPIC_API_KEY
+    """
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if key:
         prefix = key[:8] + "…" if len(key) > 8 else "***"
-        return True, f"ANTHROPIC_API_KEY: set ({prefix})"
+        return True, f"ANTHROPIC_API_KEY: set via env ({prefix})"
 
     try:
         import keyring  # type: ignore[import]
@@ -189,9 +194,11 @@ def _check_api_key() -> tuple[bool, str]:
 
     return False, (
         "ANTHROPIC_API_KEY: NOT SET\n"
-        "  Set via: export ANTHROPIC_API_KEY=sk-ant-…\n"
-        "  Or store in keyring: keyring set research_vault ANTHROPIC_API_KEY\n"
-        "  Get a key at: https://console.anthropic.com/"
+        "  Provision options (pick one):\n"
+        "    export ANTHROPIC_API_KEY=sk-ant-…          (env var — session only)\n"
+        "    keyring set research_vault ANTHROPIC_API_KEY  (keyring — persists across sessions)\n"
+        "  Get a key at: https://console.anthropic.com/\n"
+        "  Note: env var takes precedence over keyring when both are set."
     )
 
 
@@ -199,12 +206,12 @@ def _check_asta() -> tuple[bool, str, bool]:
     """Return (ok, message, required) for the asta check."""
     try:
         import asta  # type: ignore[import]
-        return True, "asta: found", False
+        return True, "asta: installed", False
     except ImportError:
         return False, (
-            "asta: NOT FOUND (optional)\n"
-            "  Install: pip install asta  or  uv add asta\n"
-            "  Required for `rv research` literature-search integration."
+            "asta: not installed"
+            " (optional — enables `rv research find --deep`;"
+            " plain `rv research find` works without it)"
         ), False
 
 
@@ -346,7 +353,7 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     # Optional integrations section
     lines.append("")
     lines.append("Integrations (keys / API access):")
-    status = "OK" if asta_ok else "WARN"
+    status = "OK" if asta_ok else "INFO"
     lines.append(f"  [{status}] {asta_msg}")
     status = "OK" if zotero_ok else "WARN"
     lines.append(f"  [{status}] {zotero_msg}")
@@ -430,7 +437,10 @@ def build_parser(
         "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
         "Toolkit Tier-1 (portable pip defaults), Tier-2 (GPU/local inference), "
         "asta (optional), Zotero/ZOTERO_KEY (optional), W&B (optional). "
-        "Exit 0 if all required prerequisites are present; exit 1 if any are missing."
+        "Exit 0 if all required prerequisites are present; exit 1 if any are missing. "
+        "API keys are resolved from env vars (highest priority) or the system keyring "
+        "(e.g. `keyring set research_vault ANTHROPIC_API_KEY`). "
+        "Run `rv check` before starting any research loop."
     )
     if parent is not None:
         p = parent.add_parser(
