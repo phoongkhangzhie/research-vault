@@ -151,6 +151,134 @@ tier recommendations.
 > **Note:** model-call provider routing and observability wiring are evolving. See
 > `doctrine/compute-run-recipe.md` for the current recipe on how harnesses call providers.
 
+## Example: a session with Alfred
+
+After `rv init` writes `CLAUDE.md`, opening Claude Code in the instance directory starts
+Alfred — the hub. Alfred is the operator's **single front door**: it runs the control-plane
+verbs, walks the DAG, dispatches crew subagents for scoped work, and stops at every
+human-go gate to ask for explicit approval. The operator converses in natural language;
+everything else is coordinated through the file bus and the DAG.
+
+Here is a representative slice of a literature review session.
+
+---
+
+**Operator:** Alfred, start a literature review on cross-lingual transfer in LLMs. Project
+is `my-research`. Research question: "Does pre-training language distribution drive
+cross-lingual transfer in decoder-only LLMs?"
+
+**Alfred:** On it. First I'll scaffold the review loop.
+
+```
+rv review my-research new scope-xling-transfer \
+  --question "Does pre-training language distribution drive cross-lingual transfer in decoder-only LLMs?"
+```
+
+Output:
+
+```
+Created: notes/my-research/reviews/scope-xling-transfer.md
+Scaffolded: reviews/scope-xling-transfer/phase1-dag.json
+Phase-1 DAG: review-scope → [HG:approve-protocol] → review-search → review-snowball → [HG:coverage-gate]
+```
+
+Now starting the loop:
+
+```
+rv dag run reviews/scope-xling-transfer/phase1-dag.json
+```
+
+```
+Run 'review-scope-xling-transfer-phase1' started.
+  nodes: 5
+
+Initial frontier:
+  → DISPATCH  [review-scope] Define review scope and pre-registration protocol (researcher)
+      FRESH — spec:reviews/scope-xling-transfer/_protocol.md
+```
+
+---
+
+**Step 1 of the walk: emit the brief, dispatch the researcher.**
+
+```
+rv dag status review-scope-xling-transfer-phase1
+```
+
+```
+Nodes:
+  ○ review-scope         (pending)   ← frontier
+  ○ approve-protocol     (pending, human-go)
+  ○ review-search        (pending)
+  ○ review-snowball      (pending)
+  ○ coverage-gate        (pending, human-go)
+```
+
+```
+rv dag brief review-scope-xling-transfer-phase1 review-scope
+```
+
+Alfred captures the emitted brief — a deterministic output of the node spec, run state,
+and grounding pointers. Alfred does **not** hand-write a brief; `rv dag brief` is the
+only path. Alfred dispatches the researcher subagent with the emitted brief verbatim.
+
+The researcher runs `rv review`, `rv research find`, and `rv note` to author the protocol
+note, then returns a `⟦RETURN⟧` with the deliverable path.
+
+```
+rv dag complete review-scope-xling-transfer-phase1 review-scope
+```
+
+```
+Node 'review-scope' → SUCCEEDED.
+
+Frontier:
+  → HUMAN-GO  [approve-protocol] Review and approve the pre-registration protocol
+      Waiting for: rv dag approve review-scope-xling-transfer-phase1 approve-protocol
+```
+
+---
+
+**Step 2: human-go gate — Alfred stops here.**
+
+**Alfred:** The researcher has filed the protocol note at
+`notes/my-research/reviews/scope-xling-transfer/_protocol.md`. It covers:
+
+- Research question and inclusion/exclusion criteria
+- Seed queries and planned sources
+- Saturation stopping rule
+
+This is **Gate 1** (a cheap screen before the expensive search). I can't approve this
+myself — the crew cannot self-approve. Please review the protocol note and, if it looks
+right, approve the gate:
+
+```
+rv dag approve review-scope-xling-transfer-phase1 approve-protocol
+```
+
+Once you approve, I'll dispatch the researcher for `review-search`, then `review-snowball`
+(the saturation loop), and surface `coverage-gate` for your final review before synthesis
+begins.
+
+---
+
+That is the operating pattern throughout: Alfred walks the DAG four steps at a time
+(status → brief → dispatch → complete), advances automatically through agent nodes, and
+**surfaces every human-go node to the operator** with the drafted artifact and the exact
+`rv dag approve` command needed. The operator reads, decides, and approves; Alfred proceeds.
+
+The same pattern applies to the experiment loop — `rv experiment my-research new q1
+--question "..."` scaffolds a pre-registration plan DAG with a `human-go-plan` gate after
+the plan and plan-critic nodes, and a `human-go-harness-main1` gate before any run fires.
+No run executes until the human has approved both the plan and the harness.
+
+**The disciplines in action:**
+
+- Alfred grounds everything — the brief is emitted by `rv dag brief`, not hand-rolled.
+- Crew do the scoped work; Alfred coordinates, never re-implements what a role knows.
+- Irreversible steps (search, run) are gated behind explicit human approval.
+- The crew cannot self-approve: human-go gates are the operator's decision, not Alfred's.
+
 ## Two runnable example loops
 
 This instance includes two demo projects under `examples/`:
