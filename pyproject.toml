@@ -102,6 +102,15 @@ local = [
     "lm-eval>=0.4",     # requires torch transitively
     "bert-score>=0.3",  # requires torch transitively
 ]
+# [observability] — Plane A (W&B Weave) tracing on top of the litellm seam.
+#   SR-MODEL-SEAM. NEVER installed by default (import-light: `rv` runs with
+#   backend=local and no weave installed). weave pulls wandb transitively.
+#   Plane B (classic `rv wandb pull`-readable run) uses core `wandb` — NO new dep.
+#   Langfuse is the adopter's own install (append "langfuse" to litellm callbacks).
+#   Install: pip install research-vault[observability]
+observability = [
+    "weave>=0.53.1",
+]
 serve-vllm = [
     "vllm>=0.3",
 ]
