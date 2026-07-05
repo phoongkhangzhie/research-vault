@@ -38,8 +38,11 @@ from .config import Config
 # ---------------------------------------------------------------------------
 
 def _edges_path(cfg: Config) -> Path:
-    """Return the path to the edge store JSON file."""
-    return cfg.state_dir / "project_edges.json"
+    """Return the path to the edge store JSON file.
+
+    Delegates to ``cfg.project_edges_path()`` — single source of truth for the path.
+    """
+    return cfg.project_edges_path()
 
 
 # ---------------------------------------------------------------------------

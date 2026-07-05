@@ -112,9 +112,12 @@ def rank_candidates(
     """Score and sort corroboration candidates by relevance to ``claim``.
 
     Scoring strategy:
-      1. TF-IDF cosine similarity (``sklearn`` lazy-imported from Tier-1 extras).
-      2. If ``sklearn`` is unavailable, falls back to Jaccard token-overlap and
-         prints a notice — surfaces the degradation, never silently degrades.
+      1. TF-IDF cosine similarity (``sklearn`` lazy-imported; core dep, always present
+         in a correct install).
+      2. If ``sklearn`` is NOT importable (broken or ``--no-deps`` install), falls back
+         to Jaccard token-overlap with a DEGRADED-ranking notice to stderr — surfaces the
+         degradation explicitly, never silently degrades.  Jaccard can rank coincidental
+         hits above topically-relevant ones; the notice tells the user to reinstall.
 
     Parameters
     ----------
@@ -141,7 +144,7 @@ def rank_candidates(
 
     scored: list[dict[str, Any]] = []
 
-    # Try TF-IDF (sklearn Tier-1 optional)
+    # Try TF-IDF (sklearn is a core dep — only falls back on broken/--no-deps installs)
     try:
         from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore[import]
         from sklearn.metrics.pairwise import cosine_similarity  # type: ignore[import]
@@ -152,10 +155,13 @@ def rank_candidates(
         sims = cosine_similarity(query_vec, tfidf[1:]).flatten()
         for c, sim in zip(candidates, sims):
             scored.append({**c, "score": float(sim), "ranker": "tfidf"})
-    except (ImportError, Exception):
-        # Stdlib fallback — Jaccard token overlap
+    except ImportError:
+        # Stdlib fallback — Jaccard token overlap.
+        # Only triggers when sklearn is not importable (broken or --no-deps install).
+        # Jaccard ranking quality is DEGRADED — coincidental hits can outrank relevant ones.
         print(
-            "ranker: lexical-fallback (install research-vault[analysis] for tf-idf)",
+            "ranker: scikit-learn not importable — using degraded lexical fallback "
+            "(ranking quality reduced); reinstall research-vault to restore TF-IDF",
             file=sys.stderr,
         )
         for c in candidates:

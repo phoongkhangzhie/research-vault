@@ -9,7 +9,7 @@ SR-XP acceptance criteria (per spec §5B-XP):
      matching finding is surfaced with its cross-project provenance).
   4. ~/vault never read/written.
 
-SR-XPB additional criteria (Wren D1–D5):
+SR-XPB additional criteria (architect D1–D5):
   - corroborate_across_projects requires from_slug (D3).
   - Default universe = declared peers only; non-peer --against raises (D3).
   - No declared peers → empty result (caller prints nudge).
@@ -467,3 +467,72 @@ def test_ranker_beats_substring_coincidental_hit(
         f"Ranker must score the relevant note higher than the coincidental hit. "
         f"relevant={relevant_score:.4f}, coincidental={coincidental_score:.4f}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 5. Ranker fallback path — sklearn blocked → Jaccard degraded notice (Slice 4)
+# ---------------------------------------------------------------------------
+
+def test_ranker_fallback_fires_to_stderr_when_sklearn_blocked(
+    two_project_cfg_with_edge: Config, tmp_path: Path, capsys
+) -> None:
+    """When sklearn is not importable, Jaccard fallback fires with a degraded-notice to stderr.
+
+    Uses a _BlockingFinder on sys.meta_path + evicts any cached sklearn modules to simulate
+    a broken/--no-deps install.  rank_candidates is called directly (no module reload needed —
+    the lazy `from sklearn import ...` inside the try block re-runs the import each call when
+    the cached entry is absent).  The notice must mention 'degraded' and 'reinstall'; the
+    ranker must still return results with ranker='jaccard'.
+    """
+    import sys
+    from research_vault.cross_project import rank_candidates
+
+    candidates = [
+        {
+            "project": "project-beta",
+            "note_path": "methods/fallback-test.md",
+            "note_rel": "methods/fallback-test.md",
+            "body": "This method uses attention mechanisms.",
+            "excerpt": "This method uses attention mechanisms.",
+            "anchor": "Fallback Test",
+            "provenance": "@project-beta:methods/fallback-test.md:Fallback Test",
+        }
+    ]
+
+    class _SklearnBlocker:
+        """Meta path finder that blocks sklearn imports."""
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname == "sklearn" or fullname.startswith("sklearn."):
+                raise ImportError(f"blocked by test: {fullname}")
+            return None
+
+    blocker = _SklearnBlocker()
+    # Save and evict any already-imported sklearn entries from the module cache
+    saved = {k: v for k, v in list(sys.modules.items())
+             if k == "sklearn" or k.startswith("sklearn.")}
+    for k in saved:
+        del sys.modules[k]
+
+    sys.meta_path.insert(0, blocker)
+    try:
+        results = rank_candidates("attention mechanisms", candidates, min_score=0.0, top_k=5)
+    finally:
+        sys.meta_path.remove(blocker)
+        # Restore evicted sklearn modules
+        sys.modules.update(saved)
+
+    captured = capsys.readouterr()
+    # Fallback notice must appear on stderr
+    assert "degraded" in captured.err.lower(), (
+        f"Fallback notice must mention 'degraded'. Got stderr: {captured.err!r}"
+    )
+    assert "reinstall" in captured.err.lower(), (
+        f"Fallback notice must mention 'reinstall'. Got stderr: {captured.err!r}"
+    )
+    # Must still return results (not crash)
+    assert isinstance(results, list), "rank_candidates must return a list even in fallback mode"
+    # Fallback ranker label must be 'jaccard'
+    if results:
+        assert results[0].get("ranker") == "jaccard", (
+            f"Fallback results must use ranker='jaccard'. Got: {results[0].get('ranker')!r}"
+        )

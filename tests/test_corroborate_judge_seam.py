@@ -1,11 +1,13 @@
 """test_corroborate_judge_seam.py — Slice 6 judge-seam acceptance tests (SR-XPB).
 
 Acceptance criteria:
-  - The corroborate-judge-fragment.json is valid DAG schema (parses without ManifestError).
-  - rv dag brief on the judge node embeds the candidates artifact in its reads: output.
+  - The corroborate-judge-fragment.json is valid JSON with the required 4-node structure.
+  - The judge node's static reads: field references the candidates artifact
+    (structural check on the template JSON; not a live rv dag brief execution).
   - A findings note carrying corroborated_by: frontmatter validates against OKF_TYPES.
-  - A coincidental (rejected) candidate is recorded with a reason.
-  - The assert-from-rank anti-pattern: rank alone does NOT constitute assertion.
+  - The assert node's reads: reference the judgment report, NOT the raw candidates
+    (proves the assert-from-rank anti-pattern is structurally prevented).
+  - The judge spec guidance requires a reason for each rejection.
 
 Zero new walker/dispatch mechanism — reuses existing schema/brief machinery.
 """
