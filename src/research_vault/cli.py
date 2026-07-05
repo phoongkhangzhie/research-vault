@@ -279,11 +279,30 @@ _VERB_REGISTRY: dict[str, dict] = {
         "when_to_use": (
             "When you need to verify prerequisites before running any research loop. "
             "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
-            "asta (optional), Zotero/ZOTERO_KEY (optional). "
+            "Toolkit Tier-1 (portable pip defaults), Tier-2 (GPU/local inference), "
+            "asta (optional), Zotero/ZOTERO_KEY (optional), W&B (optional). "
             "Run `rv check` at the start of every new session or after environment changes. "
-            "Exit 0 = all required present; exit 1 = missing prerequisites."
+            "Exit 0 = all required present; exit 1 = missing prerequisites. "
+            "Run `rv bootstrap` if Tier-1 packages are missing."
         ),
         "sr": "SR-5",
+    },
+    # --- SR-PKG ---
+    "bootstrap": {
+        "module": "research_vault.bootstrap",
+        "when_to_use": (
+            "When Tier-1 toolkit packages are missing (e.g. after `pip install research-vault "
+            "--no-deps`, or on a fresh machine). Creates a `.venv` in the current directory "
+            "and pip-installs the research toolkit — Tier-1 (model SDKs, data, stats, eval, "
+            "multilingual, utilities) as a hard requirement; Tier-2 (GPU-fragile: torch, "
+            "transformers, accelerate, etc.) best-effort + tolerated. "
+            "Run `rv check` after to verify the installed stack. "
+            "Anti-pattern: do NOT pip-install Tier-2 on a CPU-only laptop — "
+            "install it on your GPU box with `pip install research-vault[local]` instead. "
+            "Anti-pattern: do NOT install into the system Python — `rv bootstrap` always "
+            "uses an isolated `.venv`."
+        ),
+        "sr": "SR-PKG",
     },
     # --- SR-WB ---
     "wandb": {
@@ -487,7 +506,7 @@ _VERB_REGISTRY: dict[str, dict] = {
 # Phase grouping for `rv help` display — render-time only.
 # Collision-safe: groups reference verb names; do not alter the registry order.
 _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
-    ("Setup",        ["init", "check", "project", "wt", "git-discipline", "git-health"]),
+    ("Setup",        ["init", "check", "bootstrap", "project", "wt", "git-discipline", "git-health"]),
     ("Lit-review",   ["research", "cite", "review"]),
     ("Experiment",   ["experiment", "dag", "result", "plan", "wandb", "compute", "doctor"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS

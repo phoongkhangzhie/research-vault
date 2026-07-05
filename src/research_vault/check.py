@@ -7,14 +7,15 @@ instructions. Fail-fast: reports ALL failures, not just the first.
 Checks:
   1. Claude CLI — ``claude --version`` must succeed (the agent runtime)
   2. ANTHROPIC_API_KEY — must be set in env or resolvable via keyring
-  3. asta (optional) — the literature-search integration package
-  4. Zotero / ZOTERO_KEY (optional) — for citation management
+  3. Toolkit Tier-1 — portable pip packages installed by default
+  4. Toolkit Tier-2 — GPU-fragile local-inference stack ([local] extra)
+  5. asta / Zotero / W&B — integration checks (optional)
 
 Exit codes:
   0 — all required prerequisites present (optional checks may warn)
   1 — one or more REQUIRED prerequisites missing
 
-Stdlib only (plus optional keyring import for secret resolution).
+Stdlib only for the module itself — all toolkit checks use guarded imports.
 """
 from __future__ import annotations
 
@@ -26,7 +27,134 @@ from typing import Any
 
 
 # ---------------------------------------------------------------------------
-# Preflight checks
+# Tier-1 package registry
+# ---------------------------------------------------------------------------
+# Each entry: (pip_name, import_name, group_label, purpose)
+_TIER1_PACKAGES: list[tuple[str, str, str, str]] = [
+    # Model SDKs
+    ("anthropic",           "anthropic",           "model",        "Anthropic API client"),
+    ("openai",              "openai",              "model",        "OpenAI API client"),
+    ("litellm",             "litellm",             "model",        "unified provider seam (primary)"),
+    ("google-generativeai", "google.generativeai", "model",        "Google Generative AI client"),
+    ("mistralai",           "mistralai",           "model",        "Mistral AI client"),
+    ("cohere",              "cohere",              "model",        "Cohere client"),
+    ("tiktoken",            "tiktoken",            "model",        "token counting"),
+    # Data
+    ("datasets",            "datasets",            "data",         "HuggingFace Datasets"),
+    ("pandas",              "pandas",              "data",         "DataFrame"),
+    ("numpy",               "numpy",               "data",         "arrays"),
+    ("pyarrow",             "pyarrow",             "data",         "columnar data / Parquet"),
+    # Stats
+    ("scipy",               "scipy",               "stats",        "statistical tests"),
+    ("statsmodels",         "statsmodels",         "stats",        "regression / inference"),
+    ("scikit-learn",        "sklearn",             "stats",        "ML utilities"),
+    # Figures
+    ("matplotlib",          "matplotlib",          "figures",      "plotting"),
+    ("seaborn",             "seaborn",             "figures",      "statistical figures"),
+    # Eval (torch-free; bert-score + lm-eval require torch → Tier-2 [local])
+    ("inspect-ai",          "inspect_ai",          "eval",         "inspect-ai evaluation framework"),
+    ("evaluate",            "evaluate",            "eval",         "HuggingFace Evaluate"),
+    ("sacrebleu",           "sacrebleu",           "eval",         "BLEU / chrF scores"),
+    ("rouge-score",         "rouge_score",         "eval",         "ROUGE scores"),
+    # Multilingual
+    ("sentencepiece",       "sentencepiece",       "multilingual", "SentencePiece tokenizer"),
+    ("sacremoses",          "sacremoses",          "multilingual", "Moses tokenizer / detokenizer"),
+    ("langdetect",          "langdetect",          "multilingual", "language detection"),
+    # Utilities
+    ("tenacity",            "tenacity",            "utils",        "retry logic"),
+    ("tqdm",                "tqdm",                "utils",        "progress bars"),
+    ("orjson",              "orjson",              "utils",        "fast JSON"),
+    ("pydantic",            "pydantic",            "utils",        "data validation"),
+    ("jinja2",              "jinja2",              "utils",        "templating"),
+    ("rich",                "rich",                "utils",        "terminal formatting"),
+    ("python-dotenv",       "dotenv",              "utils",        ".env loading"),
+    # Integrations (pip-installable)
+    ("wandb",               "wandb",               "integrations", "W&B experiment tracking"),
+    ("pyzotero",            "pyzotero",            "integrations", "Zotero citation management"),
+]
+# Note: asta is reported as an optional integration via _check_asta() — not in _TIER1_PACKAGES
+# because it may not be available on PyPI. rv check surfaces it in the Integrations section.
+
+_TIER2_PACKAGES: list[tuple[str, str, str, str]] = [
+    ("torch",          "torch",          "local", "PyTorch (GPU)"),
+    ("transformers",   "transformers",   "local", "HuggingFace Transformers"),
+    ("accelerate",     "accelerate",     "local", "multi-GPU training"),
+    ("huggingface_hub","huggingface_hub","local", "HuggingFace Hub client"),
+    ("fasttext",       "fasttext",       "local", "FastText embeddings"),
+    ("lm-eval",        "lm_eval",        "local", "lm-evaluation-harness (requires torch)"),
+    ("bert-score",     "bert_score",     "local", "BERTScore (requires torch)"),
+    ("vllm",           "vllm",           "serve", "vLLM serving (GPU)"),
+    ("sglang",         "sglang",         "serve", "SGLang serving (GPU)"),
+]
+
+
+def _probe_import(import_name: str) -> bool:
+    """Return True if the module is importable. Never raises."""
+    import importlib
+    try:
+        importlib.import_module(import_name)
+        return True
+    except ImportError:
+        return False
+    except Exception:
+        # Some packages raise non-ImportError on import (e.g. CUDA init failures).
+        return False
+
+
+def _check_tier1() -> list[tuple[str, str, str, bool]]:
+    """Probe all Tier-1 packages. Returns list of (pip_name, purpose, group, ok)."""
+    results = []
+    for pip_name, import_name, group, purpose in _TIER1_PACKAGES:
+        ok = _probe_import(import_name)
+        results.append((pip_name, purpose, group, ok))
+    return results
+
+
+def _check_tier2() -> list[tuple[str, str, str, bool]]:
+    """Probe all Tier-2 packages. Returns list of (pip_name, purpose, group, ok)."""
+    results = []
+    for pip_name, import_name, group, purpose in _TIER2_PACKAGES:
+        ok = _probe_import(import_name)
+        results.append((pip_name, purpose, group, ok))
+    return results
+
+
+def _fmt_tier_section(
+    results: list[tuple[str, str, str, bool]],
+    warn_missing: bool = False,
+) -> tuple[list[str], list[str]]:
+    """Format a tier section for the report. Returns (lines, missing_pip_names)."""
+    from collections import defaultdict
+
+    lines: list[str] = []
+    missing: list[str] = []
+
+    groups: dict[str, list[tuple[str, str, bool]]] = defaultdict(list)
+    for pip_name, purpose, group, ok in results:
+        groups[group].append((pip_name, purpose, ok))
+
+    for group_name, items in groups.items():
+        ok_count = sum(1 for _, _, ok in items if ok)
+        total = len(items)
+        group_ok = ok_count == total
+        if group_ok:
+            group_tag = "OK"
+        elif warn_missing:
+            group_tag = "WARN"
+        else:
+            group_tag = "MISS"
+        lines.append(f"  [{group_tag}] {group_name}: {ok_count}/{total}")
+        for pip_name, purpose, ok in items:
+            tag = "+" if ok else "-"
+            lines.append(f"         {tag} {pip_name}  ({purpose})")
+            if not ok:
+                missing.append(pip_name)
+
+    return lines, missing
+
+
+# ---------------------------------------------------------------------------
+# Required checks (carried over from SR-5)
 # ---------------------------------------------------------------------------
 
 def _check_claude_cli() -> tuple[bool, str]:
@@ -46,11 +174,9 @@ def _check_api_key() -> tuple[bool, str]:
     """Return (ok, message) for the ANTHROPIC_API_KEY check."""
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if key:
-        # Don't print the key; just confirm it's set
         prefix = key[:8] + "…" if len(key) > 8 else "***"
         return True, f"ANTHROPIC_API_KEY: set ({prefix})"
 
-    # Try keyring (optional dependency)
     try:
         import keyring  # type: ignore[import]
         val = keyring.get_password("research_vault", "ANTHROPIC_API_KEY")
@@ -70,10 +196,7 @@ def _check_api_key() -> tuple[bool, str]:
 
 
 def _check_asta() -> tuple[bool, str, bool]:
-    """Return (ok, message, required) for the asta check.
-
-    asta is OPTIONAL — literature search degrades gracefully without it.
-    """
+    """Return (ok, message, required) for the asta check."""
     try:
         import asta  # type: ignore[import]
         return True, "asta: found", False
@@ -93,12 +216,9 @@ def _check_wandb() -> tuple[bool, str, bool]:
     If either fails, the W&B feature set is unavailable.
     Not blocking `all_required_ok` (W&B features degrade gracefully for non-W&B workflows).
     """
-    # 1. SDK importable?
     try:
         import wandb  # type: ignore[import]
         wandb_ver = getattr(wandb, "__version__", "?")
-        sdk_ok = True
-        sdk_msg = f"wandb SDK: found (v{wandb_ver})"
     except ImportError:
         return False, (
             "wandb SDK: NOT INSTALLED (required for `rv wandb`)\n"
@@ -106,7 +226,6 @@ def _check_wandb() -> tuple[bool, str, bool]:
             "  Get a free account at: https://wandb.ai"
         ), False
 
-    # 2. WANDB_API_KEY resolvable?
     key = os.environ.get("WANDB_API_KEY", "").strip()
     if key:
         prefix = key[:8] + "…" if len(key) > 8 else "***"
@@ -131,10 +250,7 @@ def _check_wandb() -> tuple[bool, str, bool]:
 
 
 def _check_zotero() -> tuple[bool, str, bool]:
-    """Return (ok, message, required) for the Zotero key check.
-
-    Zotero is OPTIONAL — citation management is not required for the core loops.
-    """
+    """Return (ok, message, required) for the Zotero key check."""
     key = os.environ.get("ZOTERO_KEY", "").strip()
     if key:
         return True, "ZOTERO_KEY: set", False
@@ -169,13 +285,16 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
 
     Returns:
       {
-        "claude_cli": bool,
-        "api_key": bool,
-        "asta": bool,
-        "zotero": bool,
-        "wandb_key": bool,
-        "all_required_ok": bool,
-        "report": str,          human-readable multi-line report
+        "claude_cli":       bool,
+        "api_key":          bool,
+        "tier1_missing":    list[str],  pip names of missing Tier-1 packages
+        "tier2_missing":    list[str],  pip names of missing Tier-2 packages
+        "asta":             bool,
+        "zotero":           bool,
+        "wandb_key":        bool,
+        "compute_manifest": bool,
+        "all_required_ok":  bool,
+        "report":           str,        human-readable multi-line report
       }
 
     all_required_ok is governed ONLY by claude_cli and api_key.
@@ -187,7 +306,11 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     claude_ok, claude_msg = _check_claude_cli()
     apikey_ok, apikey_msg = _check_api_key()
 
-    # Optional checks
+    # Toolkit tier probes
+    tier1_results = _check_tier1()
+    tier2_results = _check_tier2()
+
+    # Optional integration checks
     asta_ok, asta_msg, _ = _check_asta()
     zotero_ok, zotero_msg, _ = _check_zotero()
     wandb_ok, wandb_msg, _ = _check_wandb()
@@ -201,9 +324,28 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     status = "OK" if apikey_ok else "FAIL"
     lines.append(f"  [{status}] {apikey_msg}")
 
-    # Optional section
+    # Tier-1 section
     lines.append("")
-    lines.append("Optional:")
+    lines.append("Toolkit Tier-1 (portable pip defaults — pip install research-vault):")
+    tier1_lines, tier1_missing = _fmt_tier_section(tier1_results, warn_missing=False)
+    lines.extend(tier1_lines)
+
+    # Tier-2 section
+    lines.append("")
+    lines.append(
+        "Toolkit Tier-2 (GPU-fragile local inference — pip install research-vault[local]):"
+    )
+    tier2_lines, tier2_missing = _fmt_tier_section(tier2_results, warn_missing=True)
+    lines.extend(tier2_lines)
+    if tier2_missing:
+        lines.append(
+            "  [INFO] Tier-2 missing packages need a GPU box — "
+            "install on your compute node, not your laptop."
+        )
+
+    # Optional integrations section
+    lines.append("")
+    lines.append("Integrations (keys / API access):")
     status = "OK" if asta_ok else "WARN"
     lines.append(f"  [{status}] {asta_msg}")
     status = "OK" if zotero_ok else "WARN"
@@ -211,9 +353,7 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     status = "OK" if wandb_ok else "WARN"
     lines.append(f"  [{status}] {wandb_msg}")
 
-    # Summary
-    # --- Compute manifest nudge (SR-CO) ---
-    # Check if compute_manifest.json exists; nudge if absent (not a blocking FAIL).
+    # Compute manifest nudge
     compute_manifest_present = False
     try:
         from .compute import _manifest_path
@@ -223,16 +363,28 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     except Exception:
         pass
 
+    # Summary
     lines.append("")
     if all_required:
         lines.append("Result: OK — all required prerequisites present.")
-        optional_missing = not asta_ok or not zotero_ok or not wandb_ok
-        if optional_missing:
-            lines.append("  (optional tools not found — some features limited)")
+        if tier1_missing or not asta_ok or not zotero_ok or not wandb_ok:
+            lines.append("  (some optional tools not found — some features limited)")
     else:
         lines.append("Result: FAIL — required prerequisites missing (see FAIL items above).")
 
-    # Nudge: compute manifest (advisory, not a blocking gate)
+    # Nudge: missing Tier-1 → bootstrap
+    if tier1_missing:
+        lines.append("")
+        lines.append(
+            f"Tier-1 missing ({len(tier1_missing)} packages). "
+            "Run `rv bootstrap` to auto-install:"
+        )
+        lines.append("  rv bootstrap")
+        lines.append(
+            "  (best-effort venv install; Tier-1 hard-required, Tier-2 attempted + tolerated)"
+        )
+
+    # Nudge: compute manifest
     if not compute_manifest_present:
         lines.append("")
         lines.append(
@@ -247,6 +399,8 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
     return {
         "claude_cli": claude_ok,
         "api_key": apikey_ok,
+        "tier1_missing": tier1_missing,
+        "tier2_missing": tier2_missing,
         "asta": asta_ok,
         "zotero": zotero_ok,
         "wandb_key": wandb_ok,
@@ -266,13 +420,16 @@ def build_parser(
     """Build the argument parser for the ``check`` verb.
 
     When to use: ``rv check`` before running any research loop. Verifies that
-    the Claude CLI, API key, and optional tools (asta, Zotero) are available.
-    Fail-fast: reports all failures with clear install instructions.
+    the Claude CLI, API key, and toolkit tiers (Tier-1 portable + Tier-2 GPU) are
+    available. Reports missing packages with install instructions.
+    Run `rv bootstrap` if Tier-1 packages are missing.
+    Exit 0 if all required prerequisites are present; exit 1 if any are missing.
     """
     desc = (
         "Preflight check — verify Research Vault prerequisites. "
         "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
-        "asta (optional, for literature search), Zotero/ZOTERO_KEY (optional, for citations). "
+        "Toolkit Tier-1 (portable pip defaults), Tier-2 (GPU/local inference), "
+        "asta (optional), Zotero/ZOTERO_KEY (optional), W&B (optional). "
         "Exit 0 if all required prerequisites are present; exit 1 if any are missing."
     )
     if parent is not None:

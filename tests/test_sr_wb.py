@@ -31,6 +31,41 @@ from research_vault.wait_for import resolve_watch
 
 
 # ---------------------------------------------------------------------------
+# Fixture: wandb_absent — simulate wandb SDK not installed
+# ---------------------------------------------------------------------------
+
+class _WandbBlocker:
+    """Meta-path finder that raises ImportError for wandb — simulates absent SDK.
+
+    Works even when wandb IS pip-installed (needed now that wandb is Tier-1).
+    """
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "wandb" or fullname.startswith("wandb."):
+            raise ImportError("[test] wandb simulated absent by _WandbBlocker")
+        return None
+
+
+@pytest.fixture()
+def wandb_absent():
+    """Simulate the wandb SDK being absent, even when it is pip-installed.
+
+    Full sys.modules snapshot + restore so downstream tests are unaffected.
+    """
+    saved_all = dict(sys.modules)
+    # Remove any cached wandb modules so the blocker intercepts on next import
+    for name in list(sys.modules.keys()):
+        if name == "wandb" or name.startswith("wandb."):
+            del sys.modules[name]
+    blocker = _WandbBlocker()
+    sys.meta_path.insert(0, blocker)
+    yield
+    sys.meta_path.remove(blocker)
+    sys.modules.clear()
+    sys.modules.update(saved_all)
+
+
+# ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
 
@@ -172,17 +207,11 @@ class TestFetchRun:
             with pytest.raises(ValueError, match="not found"):
                 fetch_run("e", "p", "run1", "key")
 
-    def test_fetch_run_sdk_unavailable_raises_import_error(self):
+    def test_fetch_run_sdk_unavailable_raises_import_error(self, wandb_absent):
         """When wandb SDK is not installed, fetch_run raises ImportError with help msg."""
         from research_vault.wandb_pull import fetch_run
-        # Remove wandb from sys.modules to simulate not installed
-        original = sys.modules.pop("wandb", None)
-        try:
-            with pytest.raises(ImportError, match="prerequisite"):
-                fetch_run("e", "p", "run1", "key")
-        finally:
-            if original is not None:
-                sys.modules["wandb"] = original
+        with pytest.raises(ImportError, match="prerequisite"):
+            fetch_run("e", "p", "run1", "key")
 
 
 # ---------------------------------------------------------------------------
@@ -296,20 +325,14 @@ class TestWandbPull:
         with pytest.raises((KeyError, ValueError)):
             wandb_pull("myentity/myproject/run1", config=cfg)
 
-    def test_pull_sdk_unavailable_raises_import_error(self, tmp_instance, monkeypatch):
+    def test_pull_sdk_unavailable_raises_import_error(self, tmp_instance, monkeypatch, wandb_absent):
         """When wandb SDK is not installed, wandb_pull raises ImportError with a help msg."""
         from research_vault.wandb_pull import wandb_pull
         monkeypatch.setenv("WANDB_API_KEY", "key")
         monkeypatch.setenv("VAULT_SKIP_KEYRING", "1")
         cfg = load_config(reload=True)
-        # Simulate wandb not installed by removing it from sys.modules
-        original = sys.modules.pop("wandb", None)
-        try:
-            with pytest.raises(ImportError, match="prerequisite"):
-                wandb_pull("e/p/run1", config=cfg)
-        finally:
-            if original is not None:
-                sys.modules["wandb"] = original
+        with pytest.raises(ImportError, match="prerequisite"):
+            wandb_pull("e/p/run1", config=cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -379,20 +402,14 @@ class TestWandbPredicate:
         assert result["ready"] is False
         assert result["error"] is not None
 
-    def test_sdk_unavailable_clean_error(self, monkeypatch):
+    def test_sdk_unavailable_clean_error(self, monkeypatch, wandb_absent):
         """When wandb SDK is not installed, predicate returns clean not-ready — no traceback."""
         monkeypatch.setenv("WANDB_API_KEY", "test-key")
         monkeypatch.setenv("VAULT_SKIP_KEYRING", "1")
-        # Remove wandb from sys.modules to simulate not installed
-        original = sys.modules.pop("wandb", None)
-        try:
-            result = resolve_watch("wandb:e/p/run10")
-            assert result["ready"] is False
-            assert result["state"] == "sdk-unavailable"
-            assert result["error"] is not None
-        finally:
-            if original is not None:
-                sys.modules["wandb"] = original
+        result = resolve_watch("wandb:e/p/run10")
+        assert result["ready"] is False
+        assert result["state"] == "sdk-unavailable"
+        assert result["error"] is not None
 
     def test_wandb_known_prefix_accepted_by_wait_for(self, monkeypatch):
         """rv wait-for validates wandb: as a known prefix (not rejected as unknown)."""
@@ -651,24 +668,19 @@ class TestCheckWandbPrereq:
         assert result.get("wandb_key") is False
         # WANDB_API_KEY missing must NOT flip all_required_ok (W&B is not globally required)
         report_lines = result["report"].splitlines()
-        optional_idx = next(
-            (i for i, l in enumerate(report_lines) if l.strip() == "Optional:"),
+        integrations_idx = next(
+            (i for i, l in enumerate(report_lines) if "Integrations" in l and "API access" in l),
             None,
         )
-        assert optional_idx is not None, "report must have an 'Optional:' section"
-        optional_section = "\n".join(report_lines[optional_idx:])
-        assert "wandb" in optional_section.lower()
+        assert integrations_idx is not None, "report must have an 'Integrations (keys / API access):' section"
+        integrations_section = "\n".join(report_lines[integrations_idx:])
+        assert "wandb" in integrations_section.lower()
 
-    def test_wandb_sdk_not_installed_reports_install(self, monkeypatch):
+    def test_wandb_sdk_not_installed_reports_install(self, monkeypatch, wandb_absent):
         """When wandb SDK isn't installed, rv check reports a clear install message."""
         from research_vault.check import run_preflight
         monkeypatch.setenv("VAULT_SKIP_KEYRING", "1")
-        original = sys.modules.pop("wandb", None)
-        try:
-            result = run_preflight()
-        finally:
-            if original is not None:
-                sys.modules["wandb"] = original
+        result = run_preflight()
         assert result.get("wandb_key") is False
         # Should suggest pip install
         assert "pip install wandb" in result["report"] or "wandb" in result["report"].lower()
@@ -681,25 +693,20 @@ class TestCheckWandbPrereq:
 class TestImportGuard:
     """When wandb SDK is unavailable, rv wandb pull exits cleanly — no traceback."""
 
-    def test_cli_run_sdk_unavailable(self, tmp_instance, monkeypatch, capsys):
+    def test_cli_run_sdk_unavailable(self, tmp_instance, monkeypatch, capsys, wandb_absent):
         """rv wandb pull with SDK unavailable prints friendly message, exits 1."""
         from research_vault.wandb_pull import run as wandb_run
         import argparse
         monkeypatch.setenv("WANDB_API_KEY", "key")
         monkeypatch.setenv("VAULT_SKIP_KEYRING", "1")
-        original = sys.modules.pop("wandb", None)
-        try:
-            args = argparse.Namespace(
-                wandb_cmd="pull",
-                run_id="e/p/run1",
-                experiment=None,
-                project=None,
-                json_out=False,
-            )
-            rc = wandb_run(args)
-        finally:
-            if original is not None:
-                sys.modules["wandb"] = original
+        args = argparse.Namespace(
+            wandb_cmd="pull",
+            run_id="e/p/run1",
+            experiment=None,
+            project=None,
+            json_out=False,
+        )
+        rc = wandb_run(args)
         assert rc == 1
         captured = capsys.readouterr()
         # Error message must be on stderr — no raw ImportError traceback
