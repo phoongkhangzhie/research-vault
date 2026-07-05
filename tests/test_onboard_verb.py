@@ -196,6 +196,121 @@ def test_onboard_registered_in_verb_registry():
     assert "Anti-pattern" in entry["when_to_use"]
 
 
+# ---------------------------------------------------------------------------
+# _step_compute — pure handoff, no in-process cmd_init invocation (F7 fix)
+# ---------------------------------------------------------------------------
+
+class _FakeComputeFeature:
+    """Minimal stand-in for the compute Feature dataclass."""
+    id = "compute"
+    title = "Remote compute"
+    unlocks = "remote-cluster experiments"
+    kind = "handoff"
+    handoff_cmd = "rv compute init"
+
+
+def _locked_status() -> dict:
+    return {"id": "compute", "status": "locked", "detail": "", "source": "", "handoff_cmd": "rv compute init"}
+
+
+def _unlocked_status() -> dict:
+    return {"id": "compute", "status": "unlocked", "detail": "compute_manifest.json present", "source": "manifest", "handoff_cmd": "rv compute init"}
+
+
+def test_step_compute_absent_manifest_prints_handoff(capsys):
+    """When compute_manifest is absent, _step_compute prints the handoff command and does NOT call cmd_init."""
+    from research_vault.onboard import _step_compute
+    import research_vault.compute as _compute_mod
+
+    cmd_init_calls = []
+
+    def _boom(*_a, **_kw):
+        cmd_init_calls.append(1)
+        raise AssertionError("cmd_init must never be called from _step_compute")
+
+    _orig = getattr(_compute_mod, "cmd_init", None)
+    _compute_mod.cmd_init = _boom  # type: ignore[attr-defined]
+    try:
+        _step_compute(_locked_status(), _FakeComputeFeature(), step_no=7)
+    finally:
+        if _orig is None:
+            del _compute_mod.cmd_init
+        else:
+            _compute_mod.cmd_init = _orig  # type: ignore[attr-defined]
+
+    out = capsys.readouterr().out
+    assert "rv compute init" in out, "handoff command must be printed"
+    assert "rv doctor" in out, "follow-up rv doctor must be mentioned"
+    # The structural proof: cmd_init was never invoked.
+    assert cmd_init_calls == [], "cmd_init must not be called in-process"
+
+
+def test_step_compute_absent_manifest_no_exception_interactive(capsys, monkeypatch):
+    """_step_compute raises no exception — not even in an interactive context."""
+    from research_vault.onboard import _step_compute
+
+    # Monkeypatch to make cmd_init raise if accidentally imported+called.
+    monkeypatch.setattr(
+        "research_vault.compute.cmd_init",
+        lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("[Errno 2] No such file")),
+        raising=False,
+    )
+
+    # No exception must escape.
+    _step_compute(_locked_status(), _FakeComputeFeature(), step_no=7)
+    out = capsys.readouterr().out
+    assert "rv compute init" in out
+    # Must never print the old error message.
+    assert "could not run" not in out
+
+
+def test_step_compute_manifest_present_skips(capsys):
+    """When compute_manifest.json is present, _step_compute prints 'already declared' and returns."""
+    from research_vault.onboard import _step_compute
+
+    _step_compute(_unlocked_status(), _FakeComputeFeature(), step_no=7)
+    out = capsys.readouterr().out
+    assert "already declared" in out
+    assert "rv compute init" not in out, "should not print handoff when already declared"
+
+
+def test_step_compute_via_cmd_onboard_no_cmd_init_called(capsys, clean_env, fake_keyring, monkeypatch):
+    """End-to-end: cmd_onboard in interactive mode must not invoke cmd_init for the compute step."""
+    from research_vault.onboard import cmd_onboard
+
+    cmd_init_calls = []
+
+    def _never_called(*_a, **_kw):
+        cmd_init_calls.append(1)
+        raise FileNotFoundError("[Errno 2] No such file or directory: '/fake/manifest'")
+
+    monkeypatch.setattr("research_vault.compute.cmd_init", _never_called, raising=False)
+
+    # Patch _compute_manifest_present to return False (manifest absent).
+    monkeypatch.setattr(
+        "research_vault.check._compute_manifest_present",
+        lambda cfg=None: False,
+    )
+
+    # Even interactive (assume_tty=True) + saying yes to everything must NOT call cmd_init.
+    with patch("shutil.which", return_value="/usr/bin/claude"):
+        rc = cmd_onboard(
+            assume_tty=True,
+            input_fn=lambda q: "y",  # say yes to everything
+            getpass_fn=lambda q: "sk-ant-dummy",
+        )
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert cmd_init_calls == [], f"cmd_init was called {len(cmd_init_calls)} time(s) — must be 0"
+    assert "could not run" not in out
+    assert "rv compute init" in out, "handoff message must still appear"
+
+
+# ---------------------------------------------------------------------------
+# (original test preserved below)
+# ---------------------------------------------------------------------------
+
 def test_onboard_no_plaintext_env_written(tmp_path, clean_env, fake_keyring, monkeypatch):
     """Onboard must NOT write a plaintext .env anywhere in the CWD."""
     from research_vault.onboard import cmd_onboard
