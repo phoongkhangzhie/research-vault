@@ -266,8 +266,7 @@ class TestSlugCollisionGuard:
         "methods",
         "findings",
         "mocs",
-        "figures",
-        "manuscript",
+        # SR-RM-FIGMS: figures and manuscript removed from OKF_TYPES
     ])
     def test_reserved_slug_raises_value_error(self, tmp_path, reserved_slug):
         """Config raises ValueError when a project slug matches an OKF type name."""

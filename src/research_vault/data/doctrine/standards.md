@@ -79,8 +79,7 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   a promise to the adopter. A help string that claims a behaviour the code does not perform is a
   **grounding violation** (charter §1 — never fabricate; a false help fabricates capability aimed at the
   person deciding whether to trust the tool), not cosmetic. The motivating case: SR-MS-1b's
-  `rv manuscript compile` help + the `inject_results` / `inject_appendix` docstrings claimed "builds
-  `.bib` from `library.json`, injects results macros" while the builders were **orphaned** (defined,
+  a verb's help + docstrings claimed behaviour while the builders were **orphaned** (defined,
   never called). Both #27 gates caught it — but `rv help --check` passed green, because it verifies a
   `when_to_use` is *present*, not that it is *true* (`_check_verb_docstrings`, cli.py). **Prove-it
   discipline (review-checklist item):** on any PR that touches a verb's help/docstring or the behaviour

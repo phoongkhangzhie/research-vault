@@ -669,7 +669,7 @@ def _check_example_snippets(registry: dict | None = None) -> list[str]:
             continue
         text = entry.get("when_to_use", "")
         for m in snippet_re.finditer(text):
-            raw = m.group(1)  # e.g. "rv figure <project> new <fig-id> --experiment <exp-id>"
+            raw = m.group(1)  # e.g. "rv note <project> new <type> --title <title>"
             # Only check snippets with <placeholder> patterns (real usage examples).
             if not placeholder_re.search(raw):
                 continue

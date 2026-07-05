@@ -5,17 +5,14 @@ Covers:
   2. note: resolver — legacy notes_root fallback still works (backward compat)
   3. note: resolver — datasets/ segment routes to datasets_root (shared)
   4. note: resolver — +fresh modifier works on project-scoped path
-  5. produces.result / .figure / .manuscript — schema validation (missing slash → error)
+  5. produces.result — schema validation (missing slash → error; SR-RM-FIGMS: figure/manuscript removed)
   6. produces.result resolves against project_notes_dir/experiments/ at complete-time
-  7. produces.figure  resolves against project_notes_dir/figures/   at complete-time
-  8. produces.manuscript resolves against project_notes_dir/manuscript/ at complete-time
+  7. (SR-RM-FIGMS: produces.figure removed)
+  8. (SR-RM-FIGMS: produces.manuscript removed)
   9. produces.result with WRONG type:dir fails (same gate as produces.note)
  10. produces.result with CORRECT type:dir passes
  11. produces.note (legacy) still resolves against notes_root (backward compat)
  12. Shared datasets/ pointer still resolves against datasets_root (not notes_root)
-
-Red-before-green: tests 1 and 6-8 also contain a pre-fix assertion showing that
-the OLD resolution path mis-resolves the project-scoped pointer.
 """
 from __future__ import annotations
 
@@ -76,7 +73,7 @@ def instance(tmp_path: Path):
     proj_b = tmp_path / "projects" / "demo-litreview"
     for proj in (proj_a, proj_b):
         proj.mkdir(parents=True)
-        for okf_dir in ("experiments", "findings", "figures", "manuscript",
+        for okf_dir in ("experiments", "findings",
                         "literature", "concepts", "methods", "mocs"):
             (proj / okf_dir).mkdir()
 
@@ -189,29 +186,6 @@ class TestNoteWatchProjectScoped:
         assert result["state"] == "exists"
         assert result["artifact_path"] == str(exp_note)
 
-    def test_project_scoped_figures(self, instance):
-        """note:<project>/figures/<id> resolves against project_notes_dir/figures/."""
-        cfg, tmp_path = instance
-
-        fig_note = cfg.project_notes_dir("demo-research") / "figures" / "fig-001.md"
-        fig_note.write_text("---\ntype: figures\ntitle: Fig\n---\n", encoding="utf-8")
-
-        result = resolve_watch("note:demo-research/figures/fig-001.md")
-        assert result["ready"] is True
-        assert result["artifact_path"] == str(fig_note)
-
-    def test_project_scoped_manuscript(self, instance):
-        """note:<project>/manuscript/<id> resolves against project_notes_dir/manuscript/."""
-        cfg, tmp_path = instance
-
-        ms_note = cfg.project_notes_dir("demo-research") / "manuscript" / "ms-001.md"
-        ms_note.write_text("---\ntype: manuscript\ntitle: MS\n---\n", encoding="utf-8")
-
-        result = resolve_watch("note:demo-research/manuscript/ms-001.md")
-        assert result["ready"] is True
-        assert result["artifact_path"] == str(ms_note)
-
-
 # ===========================================================================
 # 2. note: resolver — legacy notes_root fallback (backward compat)
 # ===========================================================================
@@ -314,26 +288,16 @@ class TestNoteWatchFreshProjectScoped:
 
 
 # ===========================================================================
-# 5. produces.result/.figure/.manuscript — schema validation
+# 5. produces.result — schema validation (SR-RM-FIGMS: figure/manuscript removed)
 # ===========================================================================
 
 class TestProducesTypedSchema:
-    """Schema validation for produces.result / .figure / .manuscript."""
+    """Schema validation for produces.result."""
 
     def test_schema_accepts_produces_result(self):
         """produces.result in '<project>/<id>' format passes schema validation."""
         m = _manifest([_agent_node("a", produces={"result": "demo-research/exp-001"})])
         validate_manifest(m)  # should not raise
-
-    def test_schema_accepts_produces_figure(self):
-        """produces.figure in '<project>/<id>' format passes schema validation."""
-        m = _manifest([_agent_node("a", produces={"figure": "demo-research/fig-001"})])
-        validate_manifest(m)
-
-    def test_schema_accepts_produces_manuscript(self):
-        """produces.manuscript in '<project>/<id>' format passes schema validation."""
-        m = _manifest([_agent_node("a", produces={"manuscript": "demo-research/ms-001"})])
-        validate_manifest(m)
 
     def test_schema_rejects_result_without_slash(self):
         """produces.result without '<project>/<id>' format is a ManifestError."""
@@ -345,12 +309,6 @@ class TestProducesTypedSchema:
         """produces.result = '' is a ManifestError."""
         m = _manifest([_agent_node("a", produces={"result": ""})])
         with pytest.raises(ManifestError, match="produces.result"):
-            validate_manifest(m)
-
-    def test_schema_rejects_figure_without_slash(self):
-        """produces.figure without slash is a ManifestError."""
-        m = _manifest([_agent_node("a", produces={"figure": "just-a-fig"})])
-        with pytest.raises(ManifestError, match="produces.figure"):
             validate_manifest(m)
 
 
@@ -434,79 +392,6 @@ class TestProducesTypedCompleteGate:
 
         rc = cmd_complete(_argns(run_id=run_id, node_id="writer", status="succeeded"))
         assert rc == 0
-
-    # ── Test 7: produces.figure resolves to figures/ ──────────────────────────
-
-    def test_produces_figure_correct_type_passes(self, tmp_instance: Path):
-        """produces.figure passes when note is in figures/ with type: figures."""
-        cfg = load_config()
-        run_id = "test-figure-pass"
-        m = _manifest(
-            [_agent_node("writer", produces={"figure": "demo-research/fig-001"})],
-            run_id=run_id,
-        )
-        mf = tmp_instance / "manifest.json"
-        mf.write_text(json.dumps(m), encoding="utf-8")
-        self._run_dag(mf, run_id)
-
-        note = cfg.project_notes_dir("demo-research") / "figures" / "fig-001.md"
-        self._write_note(note, "figures")
-
-        rc = cmd_complete(_argns(run_id=run_id, node_id="writer", status="succeeded"))
-        assert rc == 0
-
-    def test_produces_figure_wrong_type_fails(self, tmp_instance: Path):
-        """produces.figure fails when note type: does not match figures/."""
-        cfg = load_config()
-        run_id = "test-figure-wrong"
-        m = _manifest(
-            [_agent_node("writer", produces={"figure": "demo-research/fig-002"})],
-            run_id=run_id,
-        )
-        mf = tmp_instance / "manifest.json"
-        mf.write_text(json.dumps(m), encoding="utf-8")
-        self._run_dag(mf, run_id)
-
-        note = cfg.project_notes_dir("demo-research") / "figures" / "fig-002.md"
-        self._write_note(note, "experiments")  # wrong type
-
-        rc = cmd_complete(_argns(run_id=run_id, node_id="writer", status="succeeded"))
-        assert rc == 1
-
-    # ── Test 8: produces.manuscript resolves to manuscript/ ───────────────────
-
-    def test_produces_manuscript_correct_type_passes(self, tmp_instance: Path):
-        """produces.manuscript passes when note is in manuscript/ with type: manuscript."""
-        cfg = load_config()
-        run_id = "test-ms-pass"
-        m = _manifest(
-            [_agent_node("writer", produces={"manuscript": "demo-research/ms-001"})],
-            run_id=run_id,
-        )
-        mf = tmp_instance / "manifest.json"
-        mf.write_text(json.dumps(m), encoding="utf-8")
-        self._run_dag(mf, run_id)
-
-        note = cfg.project_notes_dir("demo-research") / "manuscript" / "ms-001.md"
-        self._write_note(note, "manuscript")
-
-        rc = cmd_complete(_argns(run_id=run_id, node_id="writer", status="succeeded"))
-        assert rc == 0
-
-    def test_produces_manuscript_missing_fails(self, tmp_instance: Path):
-        """produces.manuscript fails when note is absent."""
-        run_id = "test-ms-missing"
-        m = _manifest(
-            [_agent_node("writer", produces={"manuscript": "demo-research/ms-999"})],
-            run_id=run_id,
-        )
-        mf = tmp_instance / "manifest.json"
-        mf.write_text(json.dumps(m), encoding="utf-8")
-        self._run_dag(mf, run_id)
-
-        rc = cmd_complete(_argns(run_id=run_id, node_id="writer", status="succeeded"))
-        assert rc == 1
-
 
 # ===========================================================================
 # 11. produces.note (legacy) still resolves against notes_root

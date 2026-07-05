@@ -3,8 +3,8 @@
 Purpose
 -------
 The experiment loop is the ONLY built-in research loop that had NO scaffolder —
-``rv review``, ``rv manuscript``, and ``rv figure`` all scaffold their DAG and
-register the run.  The experiment loop was run ad-hoc, meaning:
+``rv review`` scaffolds its DAG and registers the run.  The experiment loop was run
+ad-hoc, meaning:
   - No ``rv plan freeze`` had a ``run_id`` to hash.
   - The K-3 covers:-hash guarantee was silently lost.
 

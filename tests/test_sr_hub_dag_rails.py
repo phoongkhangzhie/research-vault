@@ -2,7 +2,7 @@
 
 Coverage:
   Slice A — catalog SSOT + `rv dag templates`
-    A1. catalog.py — 4 loops, completeness, gate-location accuracy
+    A1. catalog.py — 2 loops (experiment + lit-review), completeness, gate-location accuracy
     A2. dag/verbs.py — `rv dag templates` subcommand present + output parseable
     A3. cli.py — dag when_to_use mentions `templates`
 
@@ -90,14 +90,22 @@ notes_dir = "{proj_notes}"
 
 
 class TestCatalogCompleteness:
-    """A1: catalog has exactly 4 loops with required structure."""
+    """A1: catalog has exactly 2 loops with required structure (SR-RM-FIGMS)."""
 
-    def test_four_loops(self):
-        assert len(LOOP_CATALOG) == 4
+    def test_two_loops(self):
+        assert len(LOOP_CATALOG) == 2
 
     def test_all_keys_match(self):
-        expected = {"experiment", "lit-review", "figure", "manuscript"}
+        expected = {"experiment", "lit-review"}
         assert set(all_keys()) == expected
+
+    def test_no_figure_loop(self):
+        """SR-RM-FIGMS: figure loop removed."""
+        assert get_loop("figure") is None
+
+    def test_no_manuscript_loop(self):
+        """SR-RM-FIGMS: manuscript loop removed."""
+        assert get_loop("manuscript") is None
 
     def test_each_entry_has_scaffolder_or_none(self):
         for entry in LOOP_CATALOG:
@@ -115,18 +123,6 @@ class TestCatalogCompleteness:
         assert lr is not None
         assert lr.scaffolder is not None
         assert "rv review" in lr.scaffolder
-
-    def test_figure_has_scaffolder(self):
-        fig = get_loop("figure")
-        assert fig is not None
-        assert fig.scaffolder is not None
-        assert "rv figure" in fig.scaffolder
-
-    def test_manuscript_has_scaffolder(self):
-        ms = get_loop("manuscript")
-        assert ms is not None
-        assert ms.scaffolder is not None
-        assert "rv manuscript" in ms.scaffolder
 
     def test_topology_summary_non_empty(self):
         for entry in LOOP_CATALOG:
@@ -238,19 +234,6 @@ class TestCatalogGrounding:
                     f"Real gates: {real_ids}"
                 )
 
-    def test_figure_gate_in_shipped_manifest(self):
-        """figure catalog gate must appear in demo-figures/demo-figures.json."""
-        shipped = self._examples_dir() / "demo-figures" / "demo-figures.json"
-        assert shipped.exists(), f"shipped manifest not found: {shipped}"
-        real_ids = self._real_human_go_ids_from_json(shipped)
-        fig = get_loop("figure")
-        assert fig is not None
-        for gate in fig.human_go_gates:
-            assert gate.node_id in real_ids, (
-                f"Catalog gate {gate.node_id!r} NOT in demo-figures.json. "
-                f"Real gates: {real_ids}"
-            )
-
     def test_litreview_gates_in_scaffolder_output(self, tmp_path):
         """lit-review catalog gates must appear in review/__init__.py scaffolder output.
 
@@ -289,33 +272,6 @@ class TestCatalogGrounding:
                 f"Phase-1 gates: {p1_ids}, Phase-2 gates: {p2_ids}"
             )
 
-    def test_manuscript_gates_in_scaffolder_output(self, tmp_path):
-        """manuscript catalog gates must appear in manuscript/__init__.py scaffolder output."""
-        from research_vault.manuscript import _build_manifest
-
-        notes_dir = tmp_path / "notes"
-        notes_dir.mkdir()
-        tree_root = tmp_path / "manuscripts" / "grounding-ms"
-        tree_root.mkdir(parents=True)
-
-        # Minimal scope (required sections only)
-        scope = ["introduction", "method", "results-discussion", "conclusion"]
-        manifest = _build_manifest(
-            "grounding-test", "grounding-ms", "Is this grounded?",
-            scope, notes_dir, tree_root,
-        )
-        real_ids = {
-            n["id"] for n in manifest.get("nodes", []) if n.get("type") == "human-go"
-        }
-        ms = get_loop("manuscript")
-        assert ms is not None
-        for gate in ms.human_go_gates:
-            assert gate.node_id in real_ids, (
-                f"Catalog gate {gate.node_id!r} NOT in manuscript scaffolder output. "
-                f"Real gates: {real_ids}"
-            )
-
-
 class TestDagTemplatesVerb:
     """A2: rv dag templates subcommand is registered and prints parseable output."""
 
@@ -326,7 +282,7 @@ class TestDagTemplatesVerb:
         args = p.parse_args(["templates"])
         assert args.dag_cmd == "templates"
 
-    def test_templates_prints_all_four_loops(self, capsys):
+    def test_templates_prints_two_loops(self, capsys):
         from research_vault.dag.verbs import build_parser, run
         p = build_parser()
         args = p.parse_args(["templates"])
@@ -335,8 +291,9 @@ class TestDagTemplatesVerb:
         assert rc == 0
         assert "experiment" in out
         assert "lit-review" in out
-        assert "figure" in out
-        assert "manuscript" in out
+        # SR-RM-FIGMS: figure and manuscript removed
+        assert "figure" not in out
+        assert "manuscript" not in out
 
     def test_templates_output_contains_gates(self, capsys):
         from research_vault.dag.verbs import build_parser, run
@@ -350,11 +307,6 @@ class TestDagTemplatesVerb:
         # Lit-review gates from review/__init__.py scaffolder
         assert "approve-protocol" in out
         assert "coverage-gate" in out
-        # Figure gate from demo-figures.json
-        assert "data-check" in out
-        # Manuscript gates from manuscript/__init__.py
-        assert "approve-thesis" in out
-        assert "approve-manuscript" in out
 
     def test_templates_output_mentions_scaffolders(self, capsys):
         from research_vault.dag.verbs import build_parser, run
@@ -364,8 +316,9 @@ class TestDagTemplatesVerb:
         out = capsys.readouterr().out
         assert "rv experiment" in out
         assert "rv review" in out
-        assert "rv manuscript" in out
-        assert "rv figure" in out
+        # SR-RM-FIGMS: rv manuscript and rv figure scaffolders removed
+        assert "rv manuscript" not in out
+        assert "rv figure" not in out
 
 
 class TestCliDagWhenToUse:
