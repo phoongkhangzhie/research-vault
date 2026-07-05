@@ -536,3 +536,96 @@ def test_ranker_fallback_fires_to_stderr_when_sklearn_blocked(
         assert results[0].get("ranker") == "jaccard", (
             f"Fallback results must use ranker='jaccard'. Got: {results[0].get('ranker')!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 6. SR-XPB-FIX: paraphrase surfaces without verbatim substring match
+#    (the exact scenario the substring pre-filter killed)
+# ---------------------------------------------------------------------------
+
+def test_paraphrase_claim_surfaces_relevant_note(
+    two_project_cfg_with_edge: Config, tmp_path: Path
+) -> None:
+    """End-to-end: a semantically relevant note surfaces for a PARAPHRASED claim.
+
+    Red-before-green proof: the test EXPLICITLY asserts that the claim is NOT a
+    verbatim substring of the relevant note.  With the old substring pre-filter in
+    place the function would return 0 hits (the relevant note is excluded before the
+    ranker ever sees it).  With the filter removed, rank_candidates scores all notes
+    and the relevant one surfaces above min_score.
+
+    Gated on sklearn so the TF-IDF ranker is exercised (Jaccard fallback can invert
+    ranking on small corpora — the fallback notice explains this; CI has sklearn).
+    """
+    pytest.importorskip("sklearn", reason="TF-IDF ranker requires scikit-learn")
+
+    cfg = two_project_cfg_with_edge
+    source_b = Path(cfg.projects["project-beta"]["source_dir"])
+
+    # Paraphrased claim: semantically about attention and sequence modeling.
+    # Deliberately uses "boost" — a word ABSENT from the relevant note — to guarantee
+    # the claim cannot appear verbatim as a substring.
+    claim = "attention mechanisms boost performance on sequence modeling"
+
+    # Relevant note body: shares key vocabulary (attention, mechanisms, performance,
+    # sequence, modeling) but does NOT contain the claim phrase verbatim (no "boost").
+    relevant_text = (
+        "---\ntype: methods\ntitle: Self-Attention for Sequential Data\n---\n\n"
+        "## Attention in Neural Architectures\n\n"
+        "Self-attention mechanisms allow transformer models to process sequential data effectively. "
+        "Attention mechanisms capture long-range dependencies across the input sequence. "
+        "Performance of attention-based models on sequence modeling tasks exceeds prior recurrent approaches. "
+        "Multi-head attention assigns relevance scores to each position in the input.\n"
+    )
+
+    # Unrelated note: agricultural topic — zero vocabulary overlap with the claim.
+    unrelated_text = (
+        "---\ntype: findings\ntitle: Crop Yield Study\n---\n\n"
+        "## Agricultural Factors\n\n"
+        "Rainfall and temperature determine crop yield in tropical regions. "
+        "Soil nitrogen levels correlate with harvest volume across farming zones. "
+        "Irrigation systems improve agricultural productivity in dry climates.\n"
+    )
+
+    # --- RED-BEFORE-GREEN PROOF ---
+    # Assert the claim is NOT a verbatim substring of the relevant note.
+    # This is what the old substring pre-filter checked: if this assert holds,
+    # the old code would have returned 0 hits for this note.
+    assert claim.lower() not in relevant_text.lower(), (
+        "Test design error: the claim must not appear verbatim in the relevant note — "
+        "otherwise this test does not prove the substring pre-filter is gone."
+    )
+
+    relevant = source_b / "methods" / "paraphrase-relevant.md"
+    relevant.parent.mkdir(parents=True, exist_ok=True)
+    relevant.write_text(relevant_text, encoding="utf-8")
+
+    unrelated = source_b / "findings" / "paraphrase-unrelated.md"
+    unrelated.parent.mkdir(parents=True, exist_ok=True)
+    unrelated.write_text(unrelated_text, encoding="utf-8")
+
+    hits = corroborate_across_projects(
+        claim=claim,
+        cfg=cfg,
+        from_slug="project-alpha",
+    )
+
+    # The relevant note MUST surface — substring pre-filter is gone, TF-IDF scores all notes.
+    # If this fails with the fix applied the pre-filter was not actually removed.
+    assert any("paraphrase-relevant.md" in h["note_path"] for h in hits), (
+        "Semantically relevant note must surface for a paraphrased claim. "
+        "With the old substring pre-filter this would return 0 hits; with the fix it must return ≥1. "
+        f"Hits: {[(h['note_rel'], h.get('score', '?')) for h in hits]}"
+    )
+
+    # The unrelated note must NOT surface (pure agricultural vocabulary → TF-IDF ≈ 0).
+    assert not any("paraphrase-unrelated.md" in h["note_path"] for h in hits), (
+        "The unrelated (agricultural) note must not surface for an attention/sequence claim. "
+        f"Hits: {[(h['note_rel'], h.get('score', '?')) for h in hits]}"
+    )
+
+    # Relevant note must score above min_score threshold.
+    relevant_hit = next(h for h in hits if "paraphrase-relevant.md" in h["note_path"])
+    assert relevant_hit["score"] > 0.05, (
+        f"Relevant note score must exceed min_score=0.05. Got: {relevant_hit['score']:.4f}"
+    )
