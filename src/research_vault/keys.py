@@ -13,9 +13,9 @@ Single source of truth for:
      one is "locked until you add the key", NEVER a FAIL.  Only the agent runtime
      is hard-REQUIRED, and it is not in this registry (checked directly).
 
-The corrected required-model (Khang): the agent runtime (Claude Code) is the ONLY
-hard requirement.  There is NO required API key.  A fresh adopter with the runtime
-and zero keys → ``rv check`` GREEN (exit 0), every feature shown "locked".
+The required-model: the agent runtime (Claude Code) is the ONLY hard requirement.
+There is NO required API key.  A fresh adopter with the runtime and zero keys →
+``rv check`` GREEN (exit 0), every feature shown "locked".
 
 Stdlib only (``os`` + a lazy ``keyring`` import).
 """

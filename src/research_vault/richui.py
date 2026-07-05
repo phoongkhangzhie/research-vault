@@ -70,7 +70,7 @@ def get_console(**kwargs: Any):
 def render_check(result: dict[str, Any], console: Any = None) -> None:
     """Render the ``rv check`` result dict as rich structure.
 
-    Layout (Wren's spec):
+    Layout (the architect's spec):
       1. Header rule.
       2. Required panel — the runtime (the ONLY hard requirement).
       3. Toolkit tier-matrix Table (group · tier · coverage).
