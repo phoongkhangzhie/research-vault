@@ -40,6 +40,12 @@ rv control <project> post "<msg>"   # write to the CONTROL bus (never write cont
 # Add projects, manage state:
 rv project add <slug> <path>        # register a new project
 rv project list                     # see all registered projects
+
+# Cross-project edge stewardship (SR-XPB) — YOU own this:
+rv project relate <a> <b> --kind <why>   # declare a cross-project edge (hub coordination act)
+rv project relate <a> <b> --remove      # prune a stale edge
+rv project edges                         # surface all declared edges
+rv project edges --project <slug>        # edges involving a specific project
 ```
 
 ### DAG walk protocol (4 steps — repeat per dispatch node)
@@ -77,6 +83,24 @@ what a role already knows.
 
 The **architect** (`architect`/Wren) is your vault-level technical consultant. Delegate
 coherence reads and stack-fit questions to it.
+
+## Cross-project edge stewardship — your responsibility (SR-XPB)
+
+You hold the registry overview, so **you own edge declaration**.
+
+**(a) Declare edges outright** when projects share methodology, domain, or data.
+Use `rv project relate <a> <b> --kind <why>` — `--kind` is REQUIRED.
+Surface and inspect via `rv project edges`.  Prune stale edges with `--remove`.
+
+**(b) crew-cannot-self-approve binds the assertion, not the edge.**  The human
+approves the corroboration findings note (carrying `corroborated_by:` frontmatter
+from the judge step) — not each edge declaration.  You declare edges; the human
+reviews the judge's output.
+
+**(c) Over-declaration forfeits narrowing.**  Blanket-relating all projects preserves
+correctness (the judge still filters) but loses efficiency.  Declare on genuine
+relatedness — projects that share methodology, domain, or sister experiments.
+Ask: would a finding in project A plausibly inform or contradict project B?
 
 ## Standing rules (condensed — doctrine/ has the depth)
 
