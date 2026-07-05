@@ -270,7 +270,23 @@ def _build_experiment_manifest(
             "type": "agent",
             "label": f"Run Main {k} — {main_id} (researcher)",
             "role": "researcher",
-            "spec": f"task://{project}#{main_id}-run",
+            "spec": (
+                f"Run the pre-registered Main {k} experiment: {main_id}.\n\n"
+                f"Research question: {question}\n\n"
+                f"Your task:\n"
+                f"1. Read the pre-registration plan note (experiments/{exp_id}-plan.md) "
+                f"— specifically the 'Main {k} — {main_id}' section.\n"
+                f"2. Follow the exact protocol declared there (manipulation, baseline, "
+                f"evaluation set, run configuration).\n"
+                f"3. Execute the run following the compute recipe "
+                f"(see reads: doctrine/compute-run-recipe.md).\n"
+                f"4. Record the run provenance in the experiment note: "
+                f"experiments/{main_id}.md (type: experiments, "
+                f"results_hash: sha256 of the results file, "
+                f"run_id: job id from the scheduler).\n"
+                f"5. Return ⟦RETURN⟧ then: "
+                f"rv dag complete <run_id> {main_id}-run"
+            ),
             "produces": {"note": f"experiments/{main_id}.md"},
             "needs": [
                 _afterok("human-go-plan"),
@@ -280,7 +296,7 @@ def _build_experiment_manifest(
                     "watch": f"note:experiments/{main_id}.md+fresh",
                 },
             ],
-            "reads": ["doctrine/compute-run-recipe.md#how to run here"],
+            "reads": [_abs("experiments"), "doctrine/compute-run-recipe.md#how to run here"],
         })
 
         # main score
@@ -289,8 +305,21 @@ def _build_experiment_manifest(
             "type": "agent",
             "label": f"Score Main {k} — {main_id} (researcher)",
             "role": "researcher",
-            "spec": f"task://{project}#{main_id}-score",
+            "spec": (
+                f"Score the completed Main {k} experiment: {main_id}.\n\n"
+                f"Your task:\n"
+                f"1. Read the experiment note experiments/{main_id}.md — confirm "
+                f"run provenance fields (results_hash, run_id) are filled.\n"
+                f"2. Run the pre-registered scoring procedure (as declared in the "
+                f"plan note experiments/{exp_id}-plan.md, Main {k} section).\n"
+                f"3. Verify the results_hash matches the results file on disk "
+                f"(hash it yourself to confirm).\n"
+                f"4. Attach the scored metrics to the experiment note.\n"
+                f"5. Return ⟦RETURN⟧ then: "
+                f"rv dag complete <run_id> {main_id}-score"
+            ),
             "needs": [_afterok(f"{main_id}-run")],
+            "reads": [_abs("experiments")],
         })
 
         # main analyze
@@ -299,9 +328,22 @@ def _build_experiment_manifest(
             "type": "agent",
             "label": f"Analyze Main {k} + write findings note (researcher)",
             "role": "researcher",
-            "spec": f"task://{project}#{main_id}-analyze",
+            "spec": (
+                f"Analyze Main {k} results and write the findings note: {main_id}.\n\n"
+                f"Your task:\n"
+                f"1. Read experiments/{main_id}.md (scored metrics) and the plan's "
+                f"Main {k} diagnosis table (experiments/{exp_id}-plan.md).\n"
+                f"2. Apply the pre-registered decision threshold — follow the "
+                f"diagnosis table rows exactly (no post-hoc reinterpretation).\n"
+                f"3. Write the findings note at findings/{main_id}.md (type: findings). "
+                f"Include: the named conclusion from the diagnosis table, the committed "
+                f"action, effect size, and backed_by: [{main_id}].\n"
+                f"4. Return ⟦RETURN⟧ then: "
+                f"rv dag complete <run_id> {main_id}-analyze"
+            ),
             "produces": {"note": f"findings/{main_id}.md"},
             "needs": [_afterok(f"{main_id}-score")],
+            "reads": [_abs("experiments"), _abs("findings")],
         })
 
         # ablation A run
@@ -310,7 +352,22 @@ def _build_experiment_manifest(
             "type": "agent",
             "label": f"Run ablation A of Main {k} — isolates one component (researcher)",
             "role": "researcher",
-            "spec": f"task://{project}#{abl_id}-run",
+            "spec": (
+                f"Run the pre-registered ablation A of Main {k}: {abl_id}.\n\n"
+                f"Ablation purpose: isolate EXACTLY ONE component to rule out a confound "
+                f"(as declared in the plan note, Supporting Ablation A section).\n\n"
+                f"Your task:\n"
+                f"1. Read the plan note experiments/{exp_id}-plan.md — specifically "
+                f"the 'Main {k} — Supporting Ablation A' section.\n"
+                f"2. Execute the ablation run — vary only the ONE declared component; "
+                f"all other conditions identical to {main_id}.\n"
+                f"3. Follow the compute recipe (see reads: "
+                f"doctrine/compute-run-recipe.md).\n"
+                f"4. Record run provenance in experiments/{abl_id}.md "
+                f"(type: experiments, results_hash, run_id).\n"
+                f"5. Return ⟦RETURN⟧ then: "
+                f"rv dag complete <run_id> {abl_id}-run"
+            ),
             "produces": {"note": f"experiments/{abl_id}.md"},
             "needs": [
                 _afterok("human-go-plan"),
@@ -320,7 +377,7 @@ def _build_experiment_manifest(
                     "watch": f"note:experiments/{abl_id}.md+fresh",
                 },
             ],
-            "reads": ["doctrine/compute-run-recipe.md#how to run here"],
+            "reads": [_abs("experiments"), "doctrine/compute-run-recipe.md#how to run here"],
         })
 
         # ablation A score
@@ -329,8 +386,19 @@ def _build_experiment_manifest(
             "type": "agent",
             "label": f"Score ablation A of Main {k} (researcher)",
             "role": "researcher",
-            "spec": f"task://{project}#{abl_id}-score",
+            "spec": (
+                f"Score the completed ablation A of Main {k}: {abl_id}.\n\n"
+                f"Your task:\n"
+                f"1. Read experiments/{abl_id}.md — confirm provenance fields filled.\n"
+                f"2. Run the pre-registered scoring procedure for this ablation "
+                f"(same procedure as {main_id}-score; ablation shares the metric).\n"
+                f"3. Verify results_hash matches the on-disk results file.\n"
+                f"4. Attach scored metrics to the experiment note.\n"
+                f"5. Return ⟦RETURN⟧ then: "
+                f"rv dag complete <run_id> {abl_id}-score"
+            ),
             "needs": [_afterok(f"{abl_id}-run")],
+            "reads": [_abs("experiments")],
         })
 
         # ablation A analyze
@@ -339,9 +407,25 @@ def _build_experiment_manifest(
             "type": "agent",
             "label": f"Analyze ablation A of Main {k} + write findings note (researcher)",
             "role": "researcher",
-            "spec": f"task://{project}#{abl_id}-analyze",
+            "spec": (
+                f"Analyze ablation A of Main {k} and write the findings note: {abl_id}.\n\n"
+                f"Your task:\n"
+                f"1. Read experiments/{abl_id}.md (scored) and the plan's "
+                f"ablation diagnosis table (experiments/{exp_id}-plan.md).\n"
+                f"2. Apply the pre-registered ablation diagnosis table rows: "
+                f"'Effect maintained / Effect reduced / Effect eliminated'.\n"
+                f"3. Write findings/{abl_id}.md (type: findings). Include: "
+                f"named conclusion, committed action, component isolated, "
+                f"backed_by: [{abl_id}].\n"
+                f"4. Cross-reference against {main_id} findings — the ablation "
+                f"should isolate exactly one factor; note if the effect "
+                f"disappeared (component necessary) or persisted (not the cause).\n"
+                f"5. Return ⟦RETURN⟧ then: "
+                f"rv dag complete <run_id> {abl_id}-analyze"
+            ),
             "produces": {"note": f"findings/{abl_id}.md"},
             "needs": [_afterok(f"{abl_id}-score")],
+            "reads": [_abs("experiments"), _abs("findings")],
         })
 
         # human-go-conditionals per main
@@ -383,9 +467,26 @@ def _build_experiment_manifest(
         "type": "agent",
         "label": "Update methods note if protocol changed (researcher — soft, non-blocking)",
         "role": "researcher",
-        "spec": f"task://{project}#methods-update",
+        "spec": (
+            f"Update the methods note for experiment {exp_id} if the protocol "
+            f"deviated from the pre-registration plan.\n\n"
+            f"This is a SOFT, NON-BLOCKING node — it fires after all findings are "
+            f"reviewed (human-go-findings) but does not block any downstream work.\n\n"
+            f"Your task:\n"
+            f"1. Compare the approved plan (experiments/{exp_id}-plan.md) against "
+            f"the actual run notes (experiments/{exp_id}-main*.md) to identify any "
+            f"protocol deviations.\n"
+            f"2. If there were NO deviations: write methods/method-{exp_id}.md "
+            f"(type: methods) with a brief summary confirming adherence.\n"
+            f"3. If there WERE deviations: document them explicitly — what changed, "
+            f"why, and what downstream interpretation impact they carry. "
+            f"Tag deviations as 'stance: exploratory' in the methods note.\n"
+            f"4. Return ⟦RETURN⟧ then: "
+            f"rv dag complete <run_id> methods-update"
+        ),
         "produces": {"note": f"methods/method-{exp_id}.md"},
         "needs": [{"from": "human-go-findings", "edge": "soft"}],
+        "reads": [_abs("experiments"), _abs("findings")],
     })
 
     return {
