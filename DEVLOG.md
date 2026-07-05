@@ -1,3 +1,39 @@
+## 2026-07-04 (SR-XPB: principled cross-project corroboration — Slices 1–8)
+
+### Done
+- S1: `project_edges.py` — hub-owned sidecar JSON edge store (`state_dir/project_edges.json`);
+  `add_edge/remove_edge/peers_of/load_edges`; atomic write; normalised undirected pairs.
+  `rv project relate <a> <b> --kind K` (declare), `--remove` (prune), `rv project edges` (list).
+  `Config.project_edges_path()` accessor. 17 unit tests.
+- S2: Doctrine — `coordination.md` + `roles/alfred.md` + `CLAUDE.md.tmpl` updated with:
+  (a) hub owns edges + `rv project edges` surface; (b) crew-cannot-self-approve binds the
+  assertion (findings note), not each edge; (c) over-declaration forfeits narrowing.
+- S3: Gate `corroborate_across_projects` to declared peers only (D3). `from_slug` REQUIRED;
+  `against_slugs` ⊆ peers (ValueError otherwise). No declared peers → empty + nudge.
+- S4: TF-IDF cosine ranker (lazy sklearn Tier-1) + Jaccard stdlib fallback (surfaced).
+  `rank_candidates()` in `cross_project.py`; `--min-score`/`--top-k` on `cmd_corroborate`.
+- S5: Anchor provenance `@slug:note_rel:anchor` (nearest preceding heading or `line-N`).
+  `--emit <path>` writes candidates JSON for judge hand-off.
+- S6: `corroborate-judge-fragment.json` DAG template (4 nodes: corroborate, judge, human-go,
+  assert). 9 tests proving judge-asserts-not-rank; findings note validates OKF_TYPES.
+- S7: `_VERB_REGISTRY` updated for `project` + `research` (SR-XPB); discovery nudges point
+  at `rv project relate`; demo-litreview README extended with corroborate→judge→assert guidance.
+  `rv lint` PASS; `rv help --check` PASS. Leakage-clean (crew-name scrub).
+- S8: `rv project relate --suggest` — ranks all undeclared project pairs by corpus similarity
+  (reuses S4 ranker); surfaces proposals only, never auto-declares. 4 tests.
+- Full CI: 1917 tests pass.
+
+### Decisions
+- D1: Sidecar JSON edge store (not embedded in TOML) — atomic write, separate concern.
+- D2: Undirected + `--kind` REQUIRED — no silent implicit edges; rationale on the record.
+- D3: `from_slug` required; universe = declared peers only. Non-peer `--against` → ValueError.
+- D4: Judge-gated assert. DAG fragment enforces: assert node reads judgment (not raw candidates).
+- D5: Hub declares outright; crew reads `peers_of`. Human approves the assertion.
+- Leakage rule: crew names (architect, etc.) in docstrings replaced with role names.
+
+### Open / next
+- PR #XPB on feat/xpb. Reviewer gate: Argus. Merge gate: human-go (doctrine slice in CLAUDE.md.tmpl).
+
 ## 2026-07-04 (SR-LR-POLISH: lit-review loop polish — F12/F14/F15/F16+F17)
 
 ### Done
