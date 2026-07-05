@@ -480,7 +480,6 @@ def test_rv_init_creates_instance_structure(tmp_path):
     assert (target / "research_vault.toml").exists(), "research_vault.toml must be created"
     assert (target / "QUICKSTART.md").exists(), "QUICKSTART.md must be created"
     assert (target / "DEVLOG.md").exists(), "DEVLOG.md must be created"
-    assert (target / "architecture.md").exists(), "architecture.md must be created"
 
     # Control and task dirs
     assert (target / "control").is_dir(), "control/ must be created"

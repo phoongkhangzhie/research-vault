@@ -265,9 +265,7 @@ principle the control file preaches, extended to the *whole* lens.
 - `rv status <slug>` — control sections (Inbox / Handshakes / Outbox / Open),
   task board, DEVLOG tail, local git, DAG runs, and the **"Pointers:" echo** (see below).
 - `<source_dir>/pointers.md` — a lightweight read-fresh file holding the project's key
-  pointers: design-of-record path, results source, architecture link.  Surfaces automatically
-  via `rv status`.
-- `<source_dir>/architecture.md` — the component/data-flow map.
+  pointers: design-of-record path, results source.  Surfaces automatically via `rv status`.
 - The project's notes and control board for in-progress context.
 
 **`pointers.md` is not a baked lens** — it is a plain file that accrues pointers as the
@@ -275,5 +273,5 @@ project develops.  `rv project new` scaffolds a minimal skeleton; the operator o
 pointers as scope emerges.  No fill-gate; nothing blocks on it.
 
 **On a milestone** (a phase boundary, a major deliverable, a significant scope change): update
-`pointers.md`, `architecture.md`, and the DEVLOG in the project repo.  The crew re-reads them
-fresh on the next session — no re-bake required, no mtime oracle needed.
+`pointers.md` and the DEVLOG in the project repo.  The crew re-reads them fresh on the next
+session — no re-bake required, no mtime oracle needed.
