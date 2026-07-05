@@ -129,12 +129,32 @@ def _preflight_zotero() -> None:
 
 
 def _preflight_asta() -> None:
-    """Check asta is authenticated. Exit with remediation if not."""
-    r = subprocess.run(["asta", "auth", "status"], capture_output=True, text=True)
-    if r.returncode != 0:
+    """Check asta access is configured.
+
+    Two checks, in order:
+    1. The asta API key is present (env ASTA_MCP_KEY or keyring "asta-mcp-key").
+    2. The asta CLI binary is on PATH (so subprocess calls can reach it).
+
+    Exit with remediation if either fails.
+    """
+    import shutil
+    from .keys import ASTA_KEY, resolve_key
+
+    present, _source, _masked = resolve_key(ASTA_KEY)
+    if not present:
         sys.exit(
-            "Not authenticated with asta.\n"
-            "  Fix: run 'asta auth login' then retry."
+            "asta access not configured — cannot use asta research commands.\n"
+            f"  Fix: export {ASTA_KEY.env_var}=<your-asta-api-key>\n"
+            f"  Or store via rv onboard (runs `keyring set research-vault {ASTA_KEY.keyring_username}`).\n"
+            f"  Request a key at: {ASTA_KEY.request_url}\n"
+            "  (institutional email required; see allenai.org/asta/resources/mcp)"
+        )
+
+    if not shutil.which("asta"):
+        sys.exit(
+            "asta CLI not found on PATH — install asta per your project's instructions.\n"
+            "  (Having the API key is not enough; the asta CLI must also be installed.)\n"
+            "  See: allenai.org/asta/resources/mcp"
         )
 
 

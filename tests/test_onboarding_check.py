@@ -17,7 +17,7 @@ def _env_without_any_keys() -> dict[str, str]:
     drop = {
         "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
         "MISTRAL_API_KEY", "COHERE_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY",
-        "S2_API_KEY", "WANDB_API_KEY", "ZOTERO_KEY",
+        "S2_API_KEY", "ASTA_MCP_KEY", "WANDB_API_KEY", "ZOTERO_KEY",
     }
     env = {k: v for k, v in os.environ.items() if k not in drop}
     env["VAULT_SKIP_KEYRING"] = "1"  # ignore the dev machine's real keyring
@@ -143,6 +143,100 @@ def test_f2_all_features_present_in_report():
             result = run_preflight()
     for feat in result["features"]:
         assert feat["title"] in result["report"], f"{feat['id']} missing from report"
+
+
+# ---------------------------------------------------------------------------
+# asta detection by key, not import (bug-guard for the pip-import regression)
+# ---------------------------------------------------------------------------
+
+def test_check_asta_uses_no_import():
+    """_check_asta must NOT import asta — asta is NOT a pip package."""
+    import ast, textwrap, inspect
+    from research_vault.check import _check_asta
+    src = textwrap.dedent(inspect.getsource(_check_asta))
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert alias.name != "asta", (
+                    "_check_asta must not contain 'import asta' — asta is not a pip package"
+                )
+        if isinstance(node, ast.ImportFrom):
+            assert node.module != "asta", (
+                "_check_asta must not contain 'from asta import ...' — asta is not a pip package"
+            )
+
+
+def test_check_asta_available_when_key_present(monkeypatch):
+    """_check_asta reports available when ASTA_MCP_KEY is set."""
+    monkeypatch.setenv("ASTA_MCP_KEY", "testastakey123")
+    monkeypatch.setenv("VAULT_SKIP_KEYRING", "1")
+    from research_vault.check import _check_asta
+    ok, msg, required = _check_asta()
+    assert ok is True
+    assert "available" in msg.lower()
+    assert required is False
+
+
+def test_check_asta_locked_when_key_absent(monkeypatch):
+    """_check_asta reports no access (with request URL) when key is absent."""
+    monkeypatch.delenv("ASTA_MCP_KEY", raising=False)
+    monkeypatch.setenv("VAULT_SKIP_KEYRING", "1")
+    from research_vault.check import _check_asta
+    ok, msg, required = _check_asta()
+    assert ok is False
+    assert "share.hsforms.com" in msg  # the request form URL must be in the message
+    assert "institutional" in msg.lower()
+    assert required is False
+
+
+def test_check_asta_round_trip_via_keyring(monkeypatch):
+    """Key stored by onboard (store_key(ASTA_KEY)) resolves in _check_asta (round-trip)."""
+    monkeypatch.delenv("ASTA_MCP_KEY", raising=False)
+    monkeypatch.delenv("VAULT_SKIP_KEYRING", raising=False)
+
+    # Inject a fake keyring backend.
+    import keyring as _kr
+    class _FakeKR:
+        _store: dict = {}
+        def get_password(self, svc, usr): return self._store.get((svc, usr))
+        def set_password(self, svc, usr, val): self._store[(svc, usr)] = val
+    fk = _FakeKR()
+    monkeypatch.setattr(_kr, "get_password", fk.get_password)
+    monkeypatch.setattr(_kr, "set_password", fk.set_password)
+
+    from research_vault.keys import ASTA_KEY, store_key
+    # Write the key exactly as onboard does.
+    store_key(ASTA_KEY, "my-asta-key-value")
+
+    # _check_asta must find it.
+    from research_vault.check import _check_asta
+    ok, msg, _ = _check_asta()
+    assert ok is True, f"round-trip failed — _check_asta returned: {msg}"
+    assert "keyring" in msg.lower()
+
+
+def test_asta_feature_status_locked_without_key(monkeypatch):
+    """The asta feature status is 'locked' (not 'unlocked') when ASTA_MCP_KEY is absent."""
+    from research_vault.check import run_preflight
+    with patch.dict(os.environ, _env_without_any_keys(), clear=True):
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            result = run_preflight()
+    asta = next(f for f in result["features"] if f["id"] == "asta")
+    assert asta["status"] == "locked"
+    assert asta["kind"] == "key", "asta feature kind must be 'key' after the fix"
+
+
+def test_asta_feature_status_unlocked_with_key(monkeypatch):
+    """The asta feature status is 'unlocked' when ASTA_MCP_KEY is present."""
+    from research_vault.check import run_preflight
+    env = _env_without_any_keys()
+    env["ASTA_MCP_KEY"] = "testastakey123"
+    with patch.dict(os.environ, env, clear=True):
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            result = run_preflight()
+    asta = next(f for f in result["features"] if f["id"] == "asta")
+    assert asta["status"] == "unlocked"
 
 
 # ---------------------------------------------------------------------------

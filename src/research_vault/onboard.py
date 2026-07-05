@@ -147,18 +147,6 @@ def _step_key_feature(
                 print(line)
 
 
-def _step_asta(feat_status: dict[str, Any], feature: Any, *, step_no: int) -> None:
-    """asta is a package, not a keyring key — install + access-request instructions."""
-    print(f"\n[{step_no}] {feature.title} — unlocks {feature.unlocks}")
-    if feat_status["status"] == "unlocked":
-        print("    already installed (skipping).")
-        return
-    print("    This feature won't work until asta is installed with access.")
-    print(f"    Request access: {feature.request_url}")
-    print(f"    Note: {feature.note}")
-    print("    Then install asta per your project's instructions (it is not a pip dep).")
-
-
 def _step_compute(
     feat_status: dict[str, Any],
     feature: Any,
@@ -250,8 +238,6 @@ def cmd_onboard(
                 getpass_fn=getpass_fn,
                 step_no=step_no,
             )
-        elif feature.kind == "package":
-            _step_asta(fs, feature, step_no=step_no)
         elif feature.kind == "handoff":
             _step_compute(fs, feature, step_no=step_no)
         step_no += 1
