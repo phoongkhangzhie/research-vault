@@ -113,8 +113,24 @@ ZOTERO_KEY = KeySpec(
     request_url="https://www.zotero.org/settings/keys",
 )
 
+# asta is the Allen AI MCP research server (asta-tools.allen.ai/mcp/v1, x-api-key header).
+# It is NOT a pip package — detected by resolving this key, never by `import asta`.
+# env_var == EnvSecretStore._env_name("asta-mcp-key") == "ASTA_MCP_KEY" (round-trip invariant).
+ASTA_KEY = KeySpec(
+    id="asta",
+    env_var="ASTA_MCP_KEY",
+    keyring_username="asta-mcp-key",
+    label="asta API key",
+    unlocks="`rv research find` and `rv research find --deep`",
+    request_url="https://share.hsforms.com/1L4hUh20oT3mu8iXJQMV77w3ioxm",
+    note=(
+        "needs an institutional email (not personal gmail); "
+        "see allenai.org/asta/resources/mcp"
+    ),
+)
+
 # All keyring-storable keys, in onboarding order.
-KEYRING_KEYS: tuple[KeySpec, ...] = PROVIDER_KEYS + (S2_KEY, WANDB_KEY, ZOTERO_KEY)
+KEYRING_KEYS: tuple[KeySpec, ...] = PROVIDER_KEYS + (S2_KEY, ASTA_KEY, WANDB_KEY, ZOTERO_KEY)
 
 _BY_ID: dict[str, KeySpec] = {k.id: k for k in KEYRING_KEYS}
 
@@ -176,10 +192,10 @@ FEATURES: tuple[Feature, ...] = (
     Feature(
         id="asta",
         title="asta",
-        unlocks="`rv research find --deep`",
-        kind="package",
-        import_name="asta",
-        request_url="https://share.hsforms.com/1L4hUh20oT3mu8iXJQMV77w3ioxm",
+        unlocks="`rv research find` and `rv research find --deep`",
+        kind="key",
+        keys=(ASTA_KEY,),
+        request_url=ASTA_KEY.request_url,
         note=(
             "the access request needs an institutional email (not a personal "
             "gmail); see allenai.org/asta/resources/mcp"

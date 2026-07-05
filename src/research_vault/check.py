@@ -36,6 +36,7 @@ import sys
 from typing import Any
 
 from .keys import (
+    ASTA_KEY,
     CLASS_FEATURE_REQUIRED,
     CLASS_REQUIRED,
     FEATURES,
@@ -87,8 +88,8 @@ _TIER1_PACKAGES: list[tuple[str, str, str, str]] = [
     ("rich",            "rich",          "utils",        "terminal formatting"),
     ("python-dotenv",   "dotenv",        "utils",        ".env loading"),
 ]
-# Note: asta is reported as an optional integration via _check_asta() — not in _TIER1_PACKAGES
-# because it may not be available on PyPI. rv check surfaces it in the Integrations section.
+# Note: asta is reported as an optional integration via _check_asta() — not in _TIER1_PACKAGES.
+# asta is the Allen AI MCP server (NOT a pip package); detected by key presence, not by import.
 
 _TIER2_PACKAGES: list[tuple[str, str, str, str]] = [
     ("torch",          "torch",          "local", "PyTorch (GPU)"),
@@ -211,16 +212,22 @@ def _check_api_key() -> tuple[bool, str]:
 
 
 def _check_asta() -> tuple[bool, str, bool]:
-    """Return (ok, message, required) for the asta check."""
-    try:
-        import asta  # type: ignore[import]
-        return True, "asta: installed", False
-    except ImportError:
-        return False, (
-            "asta: not installed"
-            " (optional — enables `rv research find --deep`;"
-            " plain `rv research find` works without it)"
-        ), False
+    """Return (ok, message, required) for the asta check.
+
+    asta is the Allen AI MCP research server (asta-tools.allen.ai/mcp/v1,
+    x-api-key header).  Detection: resolve the asta API key via the SecretStore
+    (env ASTA_MCP_KEY → keyring "asta-mcp-key").  No pip import — asta is NOT
+    a Python package.
+    """
+    present, source, masked = resolve_key(ASTA_KEY)
+    if present:
+        return True, f"asta: available (key via {source} — {masked})", False
+    return False, (
+        "asta: no access"
+        " (optional — enables `rv research find` and `rv research find --deep`;"
+        f" request a key at {ASTA_KEY.request_url}"
+        " — institutional email required; see allenai.org/asta/resources/mcp)"
+    ), False
 
 
 def _check_wandb() -> tuple[bool, str, bool]:
