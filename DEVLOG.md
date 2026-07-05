@@ -1,3 +1,24 @@
+## 2026-07-05 (rv-start: front-door verb to launch Claude Code in the vault — feat/rv-start)
+
+### Done
+- `start.py` — new `rv start [vault_path]` verb. Verifies vault (research_vault.toml + CLAUDE.md)
+  and runtime (claude on PATH) with actionable preflight errors, then exec-replaces with `claude`
+  in the vault dir so the session boots as Alfred. Passthrough args forwarded verbatim.
+- Registered in `_VERB_REGISTRY` with `when_to_use` + anti-pattern.
+- Updated `rv init` closing panel (richui.py), `rv onboard` completion message, and
+  QUICKSTART.md launch step to point at `rv start`.
+- 15 hermetic tests (test_sr_start.py); full suite 2191 passed; rv lint PASS; rv help --check OK.
+
+### Decisions
+- `os.execvp` exec-replace pattern (not subprocess): replaces the rv process entirely so the
+  interactive Claude Code session inherits the terminal cleanly — no wrapper process in the way.
+- Vault detection = both `research_vault.toml` AND `CLAUDE.md` required — CLAUDE.md is the
+  hub-bootstrap that makes the session Alfred; without it `rv start` would silently open a raw
+  Claude session.
+
+### Open / next
+- PR `feat/rv-start` pushed; awaiting human-go merge (public-facing verb + first-run entry point).
+
 ## 2026-07-05 (secrets-forward: command-line-clean secret forwarding to remote jobs — feat/secrets-forward)
 
 ### Done
