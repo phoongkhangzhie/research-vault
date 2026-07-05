@@ -104,6 +104,17 @@ def _default_config() -> dict[str, Any]:
             "token_fingerprint": "",
             "enforce_sig": "",
         },
+        # SR-MODEL-SEAM: observability layer for the provided ModelClient.
+        # backend: local (zero-infra JSONL default) | weave (Plane-A traces, needs
+        #   the [observability] extra) | langfuse (adopter's own install) | none.
+        # run_logging: Plane-B classic W&B run (rv wandb pull-readable) — opt-in.
+        # wandb_project: weave/run target ("entity/project"); empty → the compute
+        #   manifest results.wandb block is the SSOT.
+        "observability": {
+            "backend": "local",
+            "run_logging": False,
+            "wandb_project": "",
+        },
     }
 
 
@@ -183,6 +194,9 @@ class Config:
         else:
             self.datasets_root = self.notes_root / "datasets"
         self.adapters: dict[str, str] = raw.get("adapters", {})
+        # SR-MODEL-SEAM: observability config block (backend/run_logging/wandb_project).
+        # Empty dict when absent so callers can .get(...) with defaults.
+        self.observability: dict[str, Any] = raw.get("observability", {})
         self.projects: dict[str, dict[str, Any]] = raw.get("projects", {})
         # SR-HARDENING: slug-collision guard — reject project slugs that collide
         # with OKF type names. Such slugs silently shadow note routing (the project

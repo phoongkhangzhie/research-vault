@@ -35,6 +35,7 @@ dependencies = [
     "langdetect>=1.0",
     # -- Integrations (pip-installable) --
     "wandb>=0.16",
+    "weave>=0.53.1",  # SR-MODEL-SEAM: Plane-A traces (W&B Weave); shipped as core (framework guarantee)
     "pyzotero>=1.5",
     "keyring>=24.0",  # secret-store adapter (API-key resolution in check.py + adapters/base.py)
     # NOTE: asta is a documented external prerequisite, not a pip dep.
@@ -78,7 +79,7 @@ Repository = "https://github.com/phoongkhangzhie/research-vault"
 Issues = "https://github.com/phoongkhangzhie/research-vault/issues"
 
 # ---------------------------------------------------------------------------
-# Extras — opt-in capabilities on top of the 27-package core.
+# Extras — opt-in capabilities on top of the 28-package core.
 #
 # [local]     — GPU-fragile local inference. NEVER installed by default.
 #   CUDA-pinned wheels break installs on CPU-only machines (incl. CI runners).
@@ -87,6 +88,10 @@ Issues = "https://github.com/phoongkhangzhie/research-vault/issues"
 #     plus bert-score and lm-eval (both require torch transitively).
 #   Sub-extras for serving stacks (vllm or sglang) — docs default to vllm.
 #   Install serving: pip install research-vault[local,serve-vllm]
+#
+# weave is now a CORE dep (SR-MODEL-SEAM: framework observability guarantee).
+# Default backend remains local (zero-infra); set [observability].backend = "weave"
+# + WANDB_API_KEY to enable Plane-A traces. No [observability] extra needed.
 #
 # Third-party SDKs and figure libs are NOT shipped — install directly at your
 # discretion. litellm (core) covers most API targets without a dedicated SDK.
@@ -135,4 +140,5 @@ dev-dependencies = [
 # Run with: pytest -m slow  (CI: add a dedicated job in SR-META).
 markers = [
     "slow: isolated wheel build+install+run smoke tests (may take 30s+)",
+    "live: real-network model-seam acceptance tests (SR-MODEL-SEAM); SKIPPED without API keys; operator runs `pytest -m live`.",
 ]

@@ -2,29 +2,70 @@
 
 **Before submitting any experiment job, read the run-recipe and resolve the env/tier.**
 
-## Model seam — litellm is the primary provider interface
+## Model seam — the provided `ModelClient` (litellm under the hood)
 
-Research Vault harnesses call providers through **`litellm`** — the unified provider seam
-(SR-PKG). This makes cross-provider studies trivial: swap the `model=` parameter without
-changing harness logic.
+Research Vault harnesses call models through the **provided `ModelClient` seam**
+(SR-MODEL-SEAM), reached from the `AdapterSet`. The seam wraps `litellm` (the unified
+provider interface — swap `model=` without changing harness logic) AND makes observability
+**automatic and unforgettable**: every call is traced (Plane A) and aggregated (Plane B)
+with zero per-call logging code in the harness.
+
+**The exact reach — copy-paste this:**
 
 ```python
-import litellm
+from research_vault.adapters import load_adapters
+from research_vault.config import load_config
 
-response = litellm.completion(
+cfg = load_config()
+adapters = load_adapters(cfg)
+
+resp = adapters.model.complete(
     model="gpt-4o",            # or "claude-..." / "gemini/..." / "ollama/..."
     messages=[{"role": "user", "content": "..."}],
 )
 ```
 
+`adapters.model` is a first-class member alongside `adapters.secrets` / `adapters.notifier`.
+It resolves provider keys via the SecretStore into env, arms the configured observability
+backend once, and registers the always-on emission counter — so you never hand-wire a logger.
+
 `anthropic` is installed by default (core SDK). Per-provider SDKs for other providers
 (`openai`, `google-genai`, `mistralai`, `cohere`) are **the adopter's own install** — not
-shipped by research-vault. Install them directly when you need provider-specific features
-not covered by litellm. For most cross-provider research, litellm alone is sufficient.
+shipped by research-vault. For most cross-provider research, the seam alone is sufficient.
 
-**Anti-pattern:** do NOT hard-wire `anthropic.Anthropic()` or `openai.OpenAI()` directly into
-harnesses that run cross-provider comparisons — use litellm so provider-swap is a one-line
-config change, not a harness rewrite.
+**Anti-pattern (the P1 failure):** do NOT hand-roll `anthropic.Anthropic()`,
+`openai.OpenAI()`, or a raw `litellm.completion(...)` in a harness. A hand-rolled client
+**produces ZERO observability records** — the Haiku experiments logged nothing because the
+harness called the model directly and wrote only local JSONL. The `ModelClient` seam is the
+only supported path; a harness that instantiates its own provider client **fails review**.
+
+### Observability — traces ≠ runs (both planes come from ONE seam)
+
+The seam produces **two distinct** artifacts when configured — do not conflate them:
+
+- **Plane A — traces.** Per-call request/response traces. Backend is `[observability].backend`:
+  `weave` (W&B Weave — shipped as core; set `WANDB_API_KEY` + `[observability].wandb_project`),
+  `langfuse` (adopter's own install), `local` (zero-infra default — one JSONL line per call at
+  `<state_dir>/llm_calls.jsonl`), or `none`. **Weave traces do NOT appear in `rv wandb pull`.**
+- **Plane B — runs.** A classic W&B **run** readable by `rv wandb pull` (score/aggregate
+  provenance). Opt-in via `[observability].run_logging = true`; uses core `wandb` (no new dep).
+  The run's `summary` carries the emission aggregates (calls, tokens, cost, latency p50/p95);
+  `config` carries the pre-registered params. Wrap the calling work with the provided
+  `research_vault.experiment_run.log_experiment_run(cfg, adapters, config_params=...,
+  analysis_metrics=..., run_fn=...)` — it opens the run, runs your `run_fn(model_client)`,
+  logs `summary`+`config`, finishes, and surfaces `entity/project/<run_id>` for `rv wandb pull`.
+
+**Test the wiring BEFORE a long run — don't discover at teardown that you logged nothing:**
+
+```bash
+rv observability probe     # rejects-only check of BOTH planes (no network, no spend)
+rv observability status    # show backend / run-logging / W&B target / JSONL path
+rv check --require-observability   # promote observability into the required preflight gate
+```
+
+If the seam is bypassed at runtime (a harness that called the model directly, or callbacks
+reset), the `ModelClient` fires a **loud warn** at teardown (`assert_observed`) and raises
+under `--require-observability` — the passive safety net behind the active `probe`.
 
 ## Step 1: Check the declared run-recipe
 

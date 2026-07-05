@@ -382,6 +382,28 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-6, SR-CO",
     },
+    # --- SR-MODEL-SEAM ---
+    "observability": {
+        "module": "research_vault.observability_cli",
+        "when_to_use": (
+            "When you need to DISCOVER or TEST your model-seam observability wiring "
+            "before a run — so you don't discover at teardown that you logged zero "
+            "records (the P1 failure). Use `rv observability probe` for a rejects-only "
+            "check of BOTH planes (Plane A traces via weave/langfuse/local-JSONL + "
+            "Plane B classic W&B run for `rv wandb pull`) with NO network call or model "
+            "spend — exit 1 if a run would produce zero records. Use `rv observability "
+            "status` to see the configured backend, run-logging, W&B target, and the "
+            "local JSONL trace path. "
+            "The seam itself is reached from a harness via "
+            "load_adapters(cfg).model.complete(model=..., messages=...) — never a "
+            "hand-rolled anthropic/openai client (that produces ZERO records). "
+            "Anti-pattern: do NOT start a long run and find out at teardown you "
+            "produced zero records — `rv observability probe` first. "
+            "Anti-pattern: do NOT hand-wire litellm callbacks in a harness — the "
+            "ModelClient seam registers them once, automatically."
+        ),
+        "sr": "SR-MODEL-SEAM",
+    },
     "plugins": {
         "module": "research_vault.plugins",
         "when_to_use": (
@@ -558,7 +580,7 @@ _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
     ("Lit-review",   ["research", "cite", "review"]),
     ("Experiment",   ["experiment", "dag", "result", "plan", "wandb", "compute", "doctor"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS
-    ("Infra/git",    ["lint", "mdstore", "wait-for", "plugins", "approval"]),
+    ("Infra/git",    ["lint", "mdstore", "wait-for", "plugins", "approval", "observability"]),
     ("Coordination", ["status", "control", "task", "note", "devlog", "role", "build-agents"]),
 ]
 

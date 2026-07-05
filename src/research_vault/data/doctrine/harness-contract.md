@@ -14,6 +14,15 @@ while the study is entirely invalidated.
 
 ### Rules
 
+- **Models are called through the provided `ModelClient` seam (SR-MODEL-SEAM).**  A harness
+  reaches models via `load_adapters(cfg).model.complete(model=..., messages=...)`, NOT a
+  hand-rolled `anthropic.Anthropic()` / `openai.OpenAI()` / raw `litellm.completion`.  A
+  harness that instantiates its own provider client **fails review** — a hand-rolled client
+  produces ZERO observability records (the P1 failure: the Haiku experiments logged nothing
+  to W&B).  The seam auto-logs both planes (Plane A traces + Plane B `rv wandb pull`-able
+  run).  Run `rv observability probe` before the live run to confirm the seam is wired; the
+  seam also fires a loud warn at teardown if calls were made but nothing was observed.
+
 - **Separate output directories.**  Mock runs (`--mock` / `dryrun` mode) MUST write
   to a distinct path from live runs.  The convention is:
   - `<results_dir>/mock/` for mock output

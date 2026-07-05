@@ -339,11 +339,44 @@ class EnvSecretStore:
 
 @dataclass
 class AdapterSet:
-    """A resolved, bound set of adapters for a Research Vault instance."""
+    """A resolved, bound set of adapters for a Research Vault instance.
+
+    ``model`` (SR-MODEL-SEAM) is a first-class member alongside notifier / backend /
+    secrets, but resolved LAZILY on first access — constructing a ModelClient imports
+    litellm and arms the observability backend (``weave.init`` etc.), which must NOT
+    happen as a side effect of ``load_adapters`` (that would break import-light and
+    fire weave on every ``rv plugins list``). Set ``require_observability = True``
+    BEFORE the first ``.model`` access to make a broken seam a hard error (S3
+    ``--require-observability``).
+    """
 
     notifier: Notifier
     backend: ComputeBackend
     secrets: SecretStore
+    cfg: "Config | None" = None
+    require_observability: bool = False
+    _model_cache: Any = field(default=None, init=False, repr=False)
+
+    @property
+    def model(self) -> Any:
+        """The provided ModelClient seam (lazy, cached).
+
+        Harnesses call ``adapters.model.complete(model=..., messages=...)`` — the
+        seam auto-logs to both planes. First access resolves the observability
+        backend from ``cfg`` and constructs the ModelClient (imports litellm).
+        """
+        if self._model_cache is None:
+            from .model_client import ModelClient
+            from .observability import resolve_observability_backend
+            obs = resolve_observability_backend(self.cfg)
+            self._model_cache = ModelClient(
+                self.cfg,
+                self.secrets,
+                obs,
+                self.notifier,
+                require=self.require_observability,
+            )
+        return self._model_cache
 
 
 _NOTIFIER_REGISTRY: dict[str, type] = {
@@ -418,4 +451,6 @@ def load_adapters(cfg: Config) -> AdapterSet:
         )
     secrets: SecretStore = secrets_cls()  # type: ignore[call-arg]
 
-    return AdapterSet(notifier=notifier, backend=backend, secrets=secrets)
+    # cfg is threaded so AdapterSet.model can lazily resolve the observability
+    # backend + construct the ModelClient on first access (SR-MODEL-SEAM).
+    return AdapterSet(notifier=notifier, backend=backend, secrets=secrets, cfg=cfg)

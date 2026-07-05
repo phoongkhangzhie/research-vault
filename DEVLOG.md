@@ -1,3 +1,34 @@
+## 2026-07-05 (SR-MODEL-SEAM: first-class litellm ModelClient + automatic observability — feat/model-seam)
+
+### Done
+- S1: `adapters/observability.py` — `ObservabilityBackend` protocol (probe/start) + four
+  backends (Weave/Langfuse/Local-JSONL/None) + `_EmissionCounter` (litellm CustomLogger,
+  built via factory closure) feeding a litellm-free `EmissionStats`; one counter for both
+  planes. `[observability]` config block. weave moved to the `[observability]` extra.
+- S2: `adapters/model_client.py` — `ModelClient` (keys→env via SecretStore, probe+start once,
+  always-register counter, `complete()` with zero per-call logging, `assert_observed()` +
+  `__exit__`/`atexit` loud-warn / `ObservabilityError` under require). `AdapterSet.model` is a
+  first-class LAZY member (no eager litellm/weave.init on `load_adapters`).
+- S3: `_check_observability` in `rv check` + `--require-observability` gate; new `rv
+  observability` verb (status/probe) — active pre-run wiring test for both planes.
+- S4: harness engineer specs (per-main + shared) + `compute-run-recipe.md` +
+  `harness-contract.md` now REQUIRE the ModelClient seam; `rv dag brief` names it at dispatch.
+- S5/S6: `experiment_run.log_experiment_run` — Plane-B classic W&B run in the exact shapes
+  `rv wandb pull` reads (config=pre-reg params, summary=aggregates+metrics, auto commit).
+  `live`-marked no-mock acceptance tests (skip without keys): local-JSONL, weave-trace, and
+  the full Plane-B round-trip (log → `rv wandb pull` reads back repro_model/seed + aggregates).
+
+### Decisions
+- Import-light is load-bearing: litellm is in the toolkit-blocked set and `rv help` imports
+  every verb module, so ALL litellm/weave/wandb imports are lazy (inside functions); the
+  CustomLogger subclasses are factory closures. Proven: observability + verb + run modules
+  import with litellm/weave/wandb blocked.
+- One counter, two planes: `EmissionStats` (litellm-free) is the SSOT both planes read.
+- Two distinct guards feed "unforgettable": probe-time (backend wanted but unwired) and
+  `assert_observed` (calls made but counter saw nothing = seam bypassed).
+- 2073 pass / 3 live-skip; rv lint PASS; rv help --check OK (30 verbs); leakage clean; zero
+  ~/vault edits. human-go: D-1 (new `weave` dep) needs the operator's explicit go at merge.
+
 ## 2026-07-04 (SR-XPB-FIX: remove substring pre-filter from corroborate — PR #108)
 
 ### Done
