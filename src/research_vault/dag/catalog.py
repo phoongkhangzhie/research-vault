@@ -144,7 +144,7 @@ LOOP_CATALOG: list[LoopEntry] = [
     LoopEntry(
         key="experiment",
         entry_verb="rv dag run <project-notes-dir>/experiments/<id>-loop.json",
-        scaffolder="rv experiment <project> new <id> --question '...' [--mains N]",
+        scaffolder="rv experiment <project> new <id> --question '...' [--mains N] [--shared-harness]",
         human_go_gates=[
             LoopGate(
                 node_id="human-go-plan",
@@ -153,6 +153,19 @@ LOOP_CATALOG: list[LoopEntry] = [
                     "(K-3: run `rv plan freeze <run_id> <plan-note>` immediately after approval)"
                 ),
                 freeze_action="rv plan freeze <run_id> <plan-note>",
+            ),
+            # SR-HARNESS-P2: per-main harness gate between plan and run
+            LoopGate(
+                node_id="human-go-harness-main1",
+                label=(
+                    "Main 1 eval harness reviewed and approved "
+                    "(run `rv plan freeze-harness <run_id> <plan-note> "
+                    "--scope main1 --harness-commit <sha>` after approval)"
+                ),
+                freeze_action=(
+                    "rv plan freeze-harness <run_id> <plan-note> "
+                    "--scope main1 --harness-commit <sha>"
+                ),
             ),
             LoopGate(
                 node_id="human-go-conditionals-main1",
@@ -170,7 +183,8 @@ LOOP_CATALOG: list[LoopEntry] = [
         ],
         topology_summary=(
             "plan → plan-critic → [HG:human-go-plan] → "
-            "{per-main: run→score→analyze (+ablation-run→score→analyze)} → "
+            "{per-main: harness→harness-review→[HG:human-go-harness-main<k>] → "
+            "run→score→analyze (+ablation-run→score→analyze)} → "
             "[HG:human-go-conditionals-main*] → [HG:human-go-findings] → methods-update"
         ),
     ),
