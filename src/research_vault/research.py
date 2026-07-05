@@ -44,6 +44,71 @@ from .adapters.base import EnvSecretStore
 
 
 # ---------------------------------------------------------------------------
+# Paper-id normalization (F12 — arXiv/DOI scheme-prefix shim)
+# ---------------------------------------------------------------------------
+
+# Recognised scheme prefixes (checked case-insensitively)
+_ASTA_SCHEME_PREFIXES: tuple[str, ...] = (
+    "ARXIV:", "DOI:", "CORPUSID:", "MAG:", "PMID:", "URL:",
+)
+# 40-hex S2 corpus SHA
+_S2_SHA_RE: re.Pattern = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
+# Bare new-style arXiv: NNNN.NNNN[N] (optional vN version suffix)
+_ARXIV_NEW_RE: re.Pattern = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
+# Bare old-style arXiv: category/NNNNNNN  (category allows dots, e.g. cs.LG, hep-ph)
+_ARXIV_OLD_RE: re.Pattern = re.compile(r"^[a-zA-Z][a-zA-Z0-9._-]*/\d{7}$")
+# Bare DOI — publisher prefix starts with 10. followed by >=4 digits
+_DOI_BARE_RE: re.Pattern = re.compile(r"^10\.\d{4,}/")
+
+
+def _normalize_paper_id_for_asta(paper_id: str) -> str:
+    """Normalize a bare paper_id to the scheme-prefixed form asta expects.
+
+    Pass through unchanged if:
+      - Already has a scheme prefix (ARXIV:/DOI:/CorpusId:/MAG:/PMID:/URL:,
+        case-insensitive).
+      - Is a 40-hex S2 corpus SHA.
+      - Does not match any known bare pattern (pass through; do not guess).
+
+    Add prefix for:
+      - Bare new-style arXiv (NNNN.NNNNNvN?) → ``ARXIV:<id>``
+      - Bare old-style arXiv (category/NNNNNNN) → ``ARXIV:<id>``
+      - Bare DOI (10.NNNN/...) → ``DOI:<id>``
+
+    Why: asta requires the scheme prefix for disambiguation; bare ids are common
+    user input (e.g. copy-pasting from a browser URL).  This shim is the ONLY
+    place normalization happens — callers always pass the raw user input here.
+    """
+    if not paper_id:
+        return paper_id
+
+    # Already scheme-prefixed (case-insensitive)
+    upper = paper_id.upper()
+    for prefix in _ASTA_SCHEME_PREFIXES:
+        if upper.startswith(prefix):
+            return paper_id
+
+    # 40-hex S2 SHA — pass through as-is
+    if _S2_SHA_RE.match(paper_id):
+        return paper_id
+
+    # Bare new-style arXiv (e.g. "2005.14165" or "1706.03762v5")
+    if _ARXIV_NEW_RE.match(paper_id):
+        return f"ARXIV:{paper_id}"
+
+    # Bare old-style arXiv (e.g. "cs.LG/0604056" or "hep-ph/9901001")
+    if _ARXIV_OLD_RE.match(paper_id):
+        return f"ARXIV:{paper_id}"
+
+    # Bare DOI (e.g. "10.18653/v1/N19-1423")
+    if _DOI_BARE_RE.match(paper_id):
+        return f"DOI:{paper_id}"
+
+    # Unknown pattern — pass through unchanged; do not guess
+    return paper_id
+
+
+# ---------------------------------------------------------------------------
 # Auth preflight (SecretStore Protocol — no macOS binaries)
 # ---------------------------------------------------------------------------
 
@@ -383,9 +448,12 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
     if cfg and not project:
         project = _default_project(cfg)
 
+    # F12: normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
+    paper_id = _normalize_paper_id_for_asta(args.paper_id)
+
     fields = "title,year,authors,externalIds,citationCount"
     cmd = [
-        "asta", "papers", "citations", args.paper_id,
+        "asta", "papers", "citations", paper_id,
         "--format", "json", "--limit", str(args.limit),
         "--fields", fields,
     ]
@@ -394,6 +462,15 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
         sys.exit(f"asta papers citations failed:\n{r.stderr}")
     raw = json.loads(r.stdout)
     papers = [item.get("citingPaper", item) for item in (raw.get("data") or [])]
+
+    # F12: zero-result hint when the id was normalized (bare input may still be wrong)
+    if not papers and paper_id != args.paper_id:
+        print(
+            f"rv research cited-by: 0 results — bare id was normalized to {paper_id!r}. "
+            f"Did you mean ARXIV:{args.paper_id}?  "
+            f"Check the paper id format if this is unexpected.",
+            file=sys.stderr,
+        )
 
     refs_path = _refs_path_for_project(project, cfg) if cfg else None
     corpus_index = _load_corpus_index(refs_path)
@@ -424,12 +501,15 @@ def cmd_references(args: argparse.Namespace) -> int:
     if cfg and not project:
         project = _default_project(cfg)
 
+    # F12: normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
+    paper_id = _normalize_paper_id_for_asta(args.paper_id)
+
     fields = (
         "references.title,references.year,references.authors,"
         "references.externalIds,references.citationCount"
     )
     cmd = [
-        "asta", "papers", "get", args.paper_id,
+        "asta", "papers", "get", paper_id,
         "--fields", fields,
         "--format", "json",
     ]
@@ -438,6 +518,15 @@ def cmd_references(args: argparse.Namespace) -> int:
         sys.exit(f"asta papers get failed:\n{r.stderr}")
     raw = json.loads(r.stdout)
     papers = raw.get("references") or []
+
+    # F12: zero-result hint when the id was normalized (bare input may still be wrong)
+    if not papers and paper_id != args.paper_id:
+        print(
+            f"rv research references: 0 results — bare id was normalized to {paper_id!r}. "
+            f"Did you mean ARXIV:{args.paper_id}?  "
+            f"Check the paper id format if this is unexpected.",
+            file=sys.stderr,
+        )
 
     refs_path = _refs_path_for_project(project, cfg) if cfg else None
     corpus_index = _load_corpus_index(refs_path)
