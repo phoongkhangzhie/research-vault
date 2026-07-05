@@ -179,8 +179,8 @@ tier recommendations.
 
 ## Example: a session with Alfred
 
-After `rv init` writes `CLAUDE.md`, opening Claude Code in the instance directory starts
-Alfred — the hub. Alfred is the operator's **single front door**: it runs the control-plane
+After `rv init` writes `CLAUDE.md`, run `rv start` in the instance directory to launch
+Claude Code as Alfred — the hub. Alfred is the operator's **single front door**: it runs the control-plane
 verbs, walks the DAG, dispatches crew subagents for scoped work, and stops at every
 human-go gate to ask for explicit approval. The operator converses in natural language;
 everything else is coordinated through the file bus and the DAG.
@@ -353,6 +353,7 @@ to regenerate the agent hat files.
 
 | Verb | When to use |
 |------|-------------|
+| `rv start` | Front door — launch Claude Code in your vault so the session becomes Alfred |
 | `rv onboard` | Guided, idempotent setup — add the keys that unlock features |
 | `rv check` | Verify prerequisites before starting |
 | `rv dag run <manifest>` | Start a research loop |

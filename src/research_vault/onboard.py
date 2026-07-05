@@ -274,6 +274,7 @@ def cmd_onboard(
     else:
         print("Done. All features unlocked.")
     print("Verify any time with `rv check`.")
+    print("Launch your vault session with `rv start`.")
 
     # Only the runtime could ever block; onboard itself always exits 0.
     return 0

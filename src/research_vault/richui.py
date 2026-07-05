@@ -297,12 +297,13 @@ def render_init_closing(target: str, offer_onboard: bool, console: Any = None) -
     con = console if console is not None else get_console()
     body = (
         "[bold]Research Vault instance initialised.[/bold]\n\n"
-        "Open [bold]claude[/bold] in this directory to start — you'll be Alfred, the hub.\n"
+        "Run [bold]rv start[/bold] to launch Claude Code here — you'll be Alfred, the hub.\n"
         "The crew is stood up as subagents in [dim].claude/agents/[/dim]\n\n"
         "Next steps:\n"
         "  1. [bold]rv onboard[/bold]   — guided setup: add the keys that unlock features\n"
         "  2. [bold]rv check[/bold]     — verify prerequisites\n"
-        "  3. [bold]rv dag run examples/demo-research/research-loop.json[/bold] — the demo loop\n\n"
+        "  3. [bold]rv start[/bold]     — launch Claude Code in this vault (front door)\n"
+        "  4. [bold]rv dag run examples/demo-research/research-loop.json[/bold] — the demo loop\n\n"
         "See [dim]QUICKSTART.md[/dim] for the full walkthrough."
     )
     con.print(Panel(body, title=f"[{_STYLE['title']}]Done[/]", border_style=_STYLE["panel_ok_border"], padding=(0, 1)))
