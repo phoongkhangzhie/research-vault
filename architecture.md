@@ -90,11 +90,12 @@ guarded imports.** SR-PKG reverses the earlier stdlib-only-core golden rule for 
 `pip install research-vault` now installs the full portable Tier-1 stack — model SDKs (`anthropic`, `openai`,
 **`litellm`** as the primary unified provider seam, `google-generativeai`, `mistralai`, `cohere`, `tiktoken`),
 data (`datasets`, `pandas`, `numpy`, `pyarrow`), stats (`scipy`, `statsmodels`, `scikit-learn`), figures
-(`matplotlib`, `seaborn`), eval (`inspect-ai`, `lm-eval`, `evaluate`, `sacrebleu`, `rouge-score`, `bert-score`),
+(`matplotlib`, `seaborn`), eval (`inspect-ai`, `evaluate`, `sacrebleu`, `rouge-score`),
 multilingual (`sentencepiece`, `sacremoses`, `langdetect`), utilities (`tenacity`, `tqdm`, `orjson`, `pydantic`,
-`jinja2`, `rich`, `python-dotenv`), and integrations (`wandb`, `pyzotero`, `asta`). The GPU-fragile Tier-2
-stack (`torch`, `transformers`, `accelerate`, `huggingface_hub`, `fasttext`) is opt-in via `[local]`; serving
-sub-extras `[serve-vllm]` (docs default) / `[serve-sglang]` are available.
+`jinja2`, `rich`, `python-dotenv`), and integrations (`wandb`, `pyzotero`). The GPU-fragile Tier-2
+stack (`torch`, `transformers`, `accelerate`, `huggingface_hub`, `fasttext`, `lm-eval`, `bert-score`) is
+opt-in via `[local]`; serving sub-extras `[serve-vllm]` (docs default) / `[serve-sglang]` are available.
+`asta` is a documented external prerequisite for research corpus tooling — not a pip dep (may not be on PyPI).
 
 **The `rv` CLI + every verb runs clean with toolkit absent** — all toolkit imports are guarded (lazy, only at
 call sites), so `rv help`, `rv status`, `rv note`, `rv dag` and all other verbs work with `pip install

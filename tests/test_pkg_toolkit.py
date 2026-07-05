@@ -85,13 +85,21 @@ def toolkit_absent():
 
     This fixture simulates `pip install research-vault --no-deps`.
     It is scoped to a test (not session) to avoid cross-test contamination.
+
+    Full sys.modules snapshot + restore ensures that any research_vault.* modules
+    deleted inside test bodies are correctly restored on teardown, preventing global
+    state pollution (divergent module instances, stale config caches) in downstream
+    tests that run after this fixture.
     """
-    # Save + remove any already-imported toolkit modules
-    saved: dict[str, object] = {}
+    # Snapshot ALL of sys.modules before any mutation
+    saved_all = dict(sys.modules)
+
+    # Remove any already-imported toolkit modules (keeps research_vault.* — tests
+    # delete those inside their bodies; teardown restores from the full snapshot)
     for name in list(sys.modules.keys()):
         top = name.split(".")[0]
         if top in _TOOLKIT_MODULES or name in _TOOLKIT_MODULES:
-            saved[name] = sys.modules.pop(name)
+            del sys.modules[name]
 
     # Install the blocking finder at the FRONT of meta_path
     finder = _BlockingFinder()
@@ -99,9 +107,16 @@ def toolkit_absent():
 
     yield
 
-    # Restore
+    # Full restore: remove finder, then atomically restore the pre-test module state
     sys.meta_path.remove(finder)
-    sys.modules.update(saved)
+    sys.modules.clear()
+    sys.modules.update(saved_all)
+    # Belt + suspenders: reset config cache in case a re-import left it populated
+    try:
+        from research_vault.config import reset_config_cache
+        reset_config_cache()
+    except Exception:
+        pass
 
 
 class TestBareImportGuard:
