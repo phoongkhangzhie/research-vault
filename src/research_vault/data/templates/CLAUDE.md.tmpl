@@ -34,12 +34,28 @@ rv dag run examples/demo-research/research-loop.json   # launch the research loo
 rv dag tick <run-id>                # advance the DAG after a node completes
 rv dag complete <run-id> <node-id>  # mark a node complete
 rv dag approve <run-id> <node-id>   # approve a human-go gate node (after the human says go)
+rv dag brief <run-id> <node-id>     # emit the deterministic dispatch brief for a node (STEP 2)
 rv control <project> post "<msg>"   # write to the CONTROL bus (never write control/*.md by hand)
 
 # Add projects, manage state:
 rv project add <slug> <path>        # register a new project
 rv project list                     # see all registered projects
 ```
+
+### DAG walk protocol (4 steps — repeat per dispatch node)
+
+```
+1. rv dag status <run_id>               → read current run state; identify the next dispatch node
+2. rv dag brief <run_id> <node_id>      → emit the deterministic brief; capture its output
+3. dispatch the EMITTED brief verbatim  → send to the matching crew subagent; wait for ⟦RETURN⟧
+4. rv dag complete <run_id> <node_id>   → advance the run; re-print frontier
+```
+
+**Standing rule — Emit, don't hand-roll.**
+The crew brief is `rv dag brief` output: a deterministic function of the node + run state.
+Never hand-transcribe a node's spec/reads into a brief — that is the anti-pattern this
+verb exists to prevent. A hand-rolled brief can omit constraints, drift from the spec, or
+re-describe reads: in prose that mismatches what the resolver actually found.
 
 The **crew's rv verbs** (researcher: `rv review`, `rv research`, `rv note`, `rv plan`;
 engineer: `rv wt`, `rv git-discipline`) are carried in each
