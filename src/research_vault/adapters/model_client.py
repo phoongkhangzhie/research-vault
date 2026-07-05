@@ -54,9 +54,10 @@ class ObservabilityError(RuntimeError):
 # callback on a background ``ThreadPoolExecutor`` (and, for providers whose sync SDK
 # call rides an async HTTP path, via the async success handler) — so the counter LAGS
 # the synchronous return of ``complete()`` by up to a few seconds. Observed lag under
-# a weave-wrapped call: ~3s. 15s is a safe upper bound; ``flush`` returns the instant
-# the counter catches up, so the common path is fast.
-_FLUSH_TIMEOUT_S = 15.0
+# a weave-wrapped call: ~3s. 10s is a safe upper bound with headroom; ``flush``
+# returns the instant the counter catches up, so the common (healthy) path is fast —
+# the bound only bites for a genuinely un-observed call, which then reports loud.
+_FLUSH_TIMEOUT_S = 10.0
 _FLUSH_POLL_S = 0.02
 
 
@@ -92,12 +93,15 @@ class ModelClient:
         notifier: Any = None,
         *,
         require: bool = False,
+        flush_timeout_s: float = _FLUSH_TIMEOUT_S,
     ) -> None:
         self._cfg = cfg
         self._secrets = secrets
         self._observability = observability
         self._notifier = notifier
         self._require = require
+        # Bound for waiting on litellm's threaded/async callbacks (see flush()).
+        self._flush_timeout_s = flush_timeout_s
 
         self._stats = EmissionStats()
         self._counter: Any = None
@@ -179,7 +183,7 @@ class ModelClient:
 
     # --- reliability ---
 
-    def flush(self, timeout_s: float = _FLUSH_TIMEOUT_S) -> None:
+    def flush(self, timeout_s: float | None = None) -> None:
         """Wait (bounded) for litellm's threaded/async success callbacks to fire.
 
         litellm does NOT run success callbacks on the calling thread: the sync
@@ -193,12 +197,14 @@ class ModelClient:
         Plane-B ``run.summary["calls"] == 0`` defect.
 
         Poll until the counter catches up to the number of completions, bounded by
-        ``timeout_s``. One completion == one DE-DUPED event, so the target is
-        ``events >= completions``; the loop is a no-op when nothing is pending
-        (``completions == 0``) or already caught up. A genuinely un-observed call
-        (callback never fires) waits the full bound, then ``assert_observed`` reports
-        the failure — the correct loud direction (charter §2).
+        ``timeout_s`` (default: the client's ``flush_timeout_s``). One completion ==
+        one DE-DUPED event, so the target is ``events >= completions``; the loop is a
+        no-op when nothing is pending (``completions == 0``) or already caught up. A
+        genuinely un-observed call (callback never fires) waits the full bound, then
+        ``assert_observed`` reports the failure — the correct loud direction (§2).
         """
+        if timeout_s is None:
+            timeout_s = self._flush_timeout_s
         deadline = time.monotonic() + max(0.0, timeout_s)
         while self._stats.events < self._completions and time.monotonic() < deadline:
             time.sleep(_FLUSH_POLL_S)

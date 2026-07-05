@@ -175,8 +175,10 @@ def test_assert_observed_warns_when_calls_but_no_events(tmp_path, monkeypatch):
     monkeypatch.setattr(litellm, "completion", lambda model, messages, **kw: {"ok": 1})
     notifier = FakeNotifier()
     # backend=local (not none). We simulate the broken pipeline: complete() bumps
-    # _completions but the counter is NOT fed (no callback fired).
-    mc = ModelClient(_cfg(tmp_path), FakeSecrets({}), SpyBackend(name="local"), notifier)
+    # _completions but the counter is NOT fed (no callback fired). Short flush bound
+    # so assert_observed's wait-for-callbacks returns fast on this genuine-failure path.
+    mc = ModelClient(_cfg(tmp_path), FakeSecrets({}), SpyBackend(name="local"), notifier,
+                     flush_timeout_s=0.2)
     mc.complete("claude-x", [{"role": "user", "content": "hi"}])
     mc.assert_observed()
     assert any(level == "warn" and "OBSERVABILITY FAILURE" in msg for level, msg in notifier.events)
@@ -186,7 +188,7 @@ def test_assert_observed_raises_under_require_when_counter_zero(tmp_path, monkey
     import litellm
     monkeypatch.setattr(litellm, "completion", lambda model, messages, **kw: {"ok": 1})
     mc = ModelClient(_cfg(tmp_path), FakeSecrets({}), SpyBackend(name="local"),
-                     FakeNotifier(), require=True)
+                     FakeNotifier(), require=True, flush_timeout_s=0.2)
     mc.complete("claude-x", [{"role": "user", "content": "hi"}])
     with pytest.raises(ObservabilityError, match="OBSERVABILITY FAILURE"):
         mc.assert_observed()
@@ -208,7 +210,8 @@ def test_assert_observed_no_warn_when_events_present(tmp_path, monkeypatch):
 
 def test_assert_observed_idempotent(tmp_path):
     notifier = FakeNotifier()
-    mc = ModelClient(_cfg(tmp_path), FakeSecrets({}), SpyBackend(name="local"), notifier)
+    mc = ModelClient(_cfg(tmp_path), FakeSecrets({}), SpyBackend(name="local"), notifier,
+                     flush_timeout_s=0.2)
     mc._completions = 1  # simulate a call with no events
     mc.assert_observed()
     mc.assert_observed()  # second call is a no-op
@@ -224,7 +227,8 @@ def test_context_manager_asserts_on_exit(tmp_path, monkeypatch):
     import litellm
     monkeypatch.setattr(litellm, "completion", lambda model, messages, **kw: {"ok": 1})
     notifier = FakeNotifier()
-    with ModelClient(_cfg(tmp_path), FakeSecrets({}), SpyBackend(name="local"), notifier) as mc:
+    with ModelClient(_cfg(tmp_path), FakeSecrets({}), SpyBackend(name="local"), notifier,
+                     flush_timeout_s=0.2) as mc:
         mc.complete("claude-x", [{"role": "user", "content": "hi"}])
     # __exit__ ran assert_observed → warn present (counter never fed).
     assert any("OBSERVABILITY FAILURE" in msg for _, msg in notifier.events)
