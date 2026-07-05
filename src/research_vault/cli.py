@@ -375,7 +375,7 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-6",
     },
-    # --- SR-HUB-DAG §B ---
+    # --- SR-HUB-DAG §B / SR-HARNESS-P2 ---
     "experiment": {
         "module": "research_vault.experiment",
         "when_to_use": (
@@ -385,16 +385,19 @@ _VERB_REGISTRY: dict[str, dict] = {
             "(`experiments/<id>-plan.md`, plan_kind: preregistration, covers: skeleton) "
             "AND emit a REGISTERED experiment DAG manifest mirroring the research-loop.json "
             "topology (plan → plan-critic → [HG:human-go-plan] → "
+            "{per-main: harness→harness-review→[HG:human-go-harness-main<k>]} → "
             "{per-main: run→score→analyze (+ablations)} → [HG:human-go-conditionals-*] → "
             "[HG:human-go-findings] → methods-update). "
-            "Prints the exact next commands so the freeze cannot be silently skipped: "
-            "`rv dag run <manifest>`, then at the plan gate "
-            "`rv dag approve <run_id> human-go-plan && rv plan freeze <run_id> <plan-note>`. "
+            "Use `--shared-harness` when all mains share the same harness implementation "
+            "(emits one shared triple instead of one per main). "
+            "Prints the exact next commands including the harness sub-sequence: "
+            "`rv dag run <manifest>`, then plan freeze at human-go-plan, then per-main "
+            "`rv plan freeze-harness <run_id> <plan-note> --scope main<k> --harness-commit <sha>` "
+            "at each human-go-harness-main<k> gate. "
             "Anti-pattern: do NOT run a pre-registered study as ad-hoc crew dispatches — "
             "`rv experiment new` registers the DAG so `rv plan freeze` has a run_id to "
             "hash; hand-dispatching silently loses the pre-registration guarantee (K-3 "
-            "covers:-hash never gets bound to a run_id, so `rv dag approve human-go-findings` "
-            "cannot re-verify it)."
+            "covers:-hash + harness SHAs never get bound to a run_id)."
         ),
         "sr": "SR-HUB-DAG",
     },
