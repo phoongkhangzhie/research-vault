@@ -242,21 +242,21 @@ class TestCheckTierMatrix:
         assert "scipy" in pip_names, "scipy must be in Tier-1 (folded from [analysis])"
 
     def test_tier1_registry_excludes_provider_sdks(self):
-        """openai/google-genai/mistralai/cohere are NOT in Tier-1 (they moved to [providers])."""
+        """openai/google-genai/mistralai/cohere are NOT in Tier-1 (not shipped)."""
         from research_vault.check import _TIER1_PACKAGES
         pip_names = [p[0] for p in _TIER1_PACKAGES]
-        for moved_pkg in ("openai", "google-genai", "google-generativeai", "mistralai", "cohere"):
-            assert moved_pkg not in pip_names, (
-                f"{moved_pkg!r} must NOT be in Tier-1 (it moved to [providers] extra)"
+        for pkg in ("openai", "google-genai", "google-generativeai", "mistralai", "cohere"):
+            assert pkg not in pip_names, (
+                f"{pkg!r} must NOT be in Tier-1 (per-provider SDKs are not shipped)"
             )
 
     def test_tier1_registry_excludes_figure_libs(self):
-        """matplotlib/seaborn are NOT in Tier-1 (they moved to [figures])."""
+        """matplotlib/seaborn are NOT in Tier-1 (not shipped)."""
         from research_vault.check import _TIER1_PACKAGES
         pip_names = [p[0] for p in _TIER1_PACKAGES]
-        for moved_pkg in ("matplotlib", "seaborn"):
-            assert moved_pkg not in pip_names, (
-                f"{moved_pkg!r} must NOT be in Tier-1 (it moved to [figures] extra)"
+        for pkg in ("matplotlib", "seaborn"):
+            assert pkg not in pip_names, (
+                f"{pkg!r} must NOT be in Tier-1 (figure libs are not shipped)"
             )
 
     def test_tier1_registry_includes_keyring(self):
@@ -264,65 +264,6 @@ class TestCheckTierMatrix:
         from research_vault.check import _TIER1_PACKAGES
         pip_names = [p[0] for p in _TIER1_PACKAGES]
         assert "keyring" in pip_names, "keyring must be in Tier-1 integrations"
-
-    def test_extra_packages_registry_has_providers_and_figures(self):
-        """_EXTRA_PACKAGES has both [providers] and [figures] groups."""
-        from research_vault.check import _EXTRA_PACKAGES
-        extra_names = {entry[2] for entry in _EXTRA_PACKAGES}
-        assert "providers" in extra_names, "[providers] group must be in _EXTRA_PACKAGES"
-        assert "figures" in extra_names, "[figures] group must be in _EXTRA_PACKAGES"
-
-    def test_extra_packages_providers_uses_google_genai(self):
-        """_EXTRA_PACKAGES providers group uses google-genai (not google-generativeai)."""
-        from research_vault.check import _EXTRA_PACKAGES
-        provider_pip_names = [e[0] for e in _EXTRA_PACKAGES if e[2] == "providers"]
-        assert "google-genai" in provider_pip_names, (
-            "providers extra must include google-genai (not google-generativeai)"
-        )
-        assert "google-generativeai" not in provider_pip_names, (
-            "google-generativeai must NOT appear in _EXTRA_PACKAGES (renamed to google-genai)"
-        )
-
-    def test_extra_packages_providers_uses_google_genai_import(self):
-        """_EXTRA_PACKAGES google-genai import name is google.genai (not google.generativeai)."""
-        from research_vault.check import _EXTRA_PACKAGES
-        # Find the google entry in providers
-        google_entry = next(
-            (e for e in _EXTRA_PACKAGES if e[0] == "google-genai"), None
-        )
-        assert google_entry is not None, "google-genai entry must exist in _EXTRA_PACKAGES"
-        import_name = google_entry[1]
-        assert import_name == "google.genai", (
-            f"google-genai import name must be 'google.genai', got {import_name!r}"
-        )
-
-    def test_run_preflight_returns_extras_missing_key(self):
-        """run_preflight result dict has extras_missing key."""
-        from research_vault.check import run_preflight
-        result = run_preflight()
-        assert "extras_missing" in result, "result must have extras_missing key"
-        assert isinstance(result["extras_missing"], list)
-
-    def test_report_contains_extras_section(self):
-        """rv check report includes an Extras section."""
-        from research_vault.check import run_preflight
-        result = run_preflight()
-        assert "Extras" in result["report"], "report must contain Extras section"
-
-    def test_report_extras_missing_shows_install_hint(self):
-        """When extras packages are missing, report shows per-extra install hint."""
-        from research_vault.check import run_preflight
-
-        # Patch _probe_import so extras are missing
-        with patch("research_vault.check._probe_import", return_value=False):
-            result = run_preflight()
-
-        assert "research-vault[providers]" in result["report"] or \
-               "research-vault[figures]" in result["report"], (
-            "report must show per-extra install hint when extras are missing"
-        )
-        # Must NOT just say "rv bootstrap" for extras
-        # (bootstrap nudge is for Tier-1 missing, not extras)
 
     def test_tier2_packages_registry_includes_gpu_stack(self):
         """_TIER2_PACKAGES covers the GPU-fragile stack."""
@@ -452,27 +393,6 @@ class TestBootstrapVerb:
         args = p.parse_args(["--no-tier2"])
         assert args.no_tier2 is True
 
-    def test_bootstrap_parser_accepts_extras_providers(self):
-        """bootstrap parser accepts --extras providers."""
-        from research_vault.bootstrap import build_parser
-        p = build_parser()
-        args = p.parse_args(["--extras", "providers"])
-        assert args.extras == "providers"
-
-    def test_bootstrap_parser_accepts_extras_figures(self):
-        """bootstrap parser accepts --extras figures."""
-        from research_vault.bootstrap import build_parser
-        p = build_parser()
-        args = p.parse_args(["--extras", "figures"])
-        assert args.extras == "figures"
-
-    def test_bootstrap_parser_accepts_extras_all(self):
-        """bootstrap parser accepts --extras all."""
-        from research_vault.bootstrap import build_parser
-        p = build_parser()
-        args = p.parse_args(["--extras", "all"])
-        assert args.extras == "all"
-
     def test_bootstrap_parser_accepts_serve_vllm(self):
         """bootstrap parser accepts --serve vllm."""
         from research_vault.bootstrap import build_parser
@@ -560,7 +480,7 @@ class TestBootstrapVerb:
 
         result = _run_bootstrap(tmp_path / "venv_test")
         expected_keys = {
-            "tier1_ok", "extras_ok", "extras_reason",
+            "tier1_ok",
             "tier2_ok", "serve_ok", "tier2_reason",
             "serve_reason", "venv_dir", "report",
         }
@@ -708,22 +628,6 @@ class TestRegistryAndHelpCheck:
             "keyring must be in Tier-1 default dependencies (was undeclared; now explicit)"
         )
 
-    def test_providers_extra_uses_google_genai_not_generativeai(self):
-        """pyproject.toml [providers] extra uses google-genai, not google-generativeai."""
-        import tomllib
-        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
-        optional = data["project"].get("optional-dependencies", {})
-        assert "providers" in optional, "[providers] extra must exist in pyproject.toml"
-        providers_deps = optional["providers"]
-        assert any("google-genai" in d for d in providers_deps), (
-            "google-genai must be in [providers] extra"
-        )
-        assert not any("google-generativeai" in d for d in providers_deps), (
-            "google-generativeai must NOT appear in pyproject.toml (renamed to google-genai)"
-        )
-
     def test_no_provider_sdks_in_core(self):
         """openai/google-genai/mistralai/cohere are NOT in pyproject.toml core deps."""
         import tomllib
@@ -748,51 +652,72 @@ class TestRegistryAndHelpCheck:
                 f"{lib!r} must NOT be in core Tier-1 deps (it belongs in [figures] extra)"
             )
 
-    def test_figures_extra_exists(self):
-        """pyproject.toml has [figures] extra with matplotlib and seaborn."""
-        import tomllib
-        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
-        optional = data["project"].get("optional-dependencies", {})
-        assert "figures" in optional, "[figures] extra must exist in pyproject.toml"
-        figures_deps = optional["figures"]
-        assert any("matplotlib" in d for d in figures_deps), "matplotlib must be in [figures]"
-        assert any("seaborn" in d for d in figures_deps), "seaborn must be in [figures]"
-
-    def test_pyproject_has_all_extra(self):
-        """pyproject.toml has [all] extra that bundles providers + figures."""
-        import tomllib
-        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
-        optional = data["project"].get("optional-dependencies", {})
-        assert "all" in optional, "[all] extra must exist in pyproject.toml"
-        all_deps = optional["all"]
-        all_str = " ".join(all_deps)
-        assert "providers" in all_str, "[all] extra must reference [providers]"
-        assert "figures" in all_str, "[all] extra must reference [figures]"
-
-    def test_all_excludes_local(self):
-        """pyproject.toml [all] extra does NOT include [local] or serve packages."""
-        import tomllib
-        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
-        optional = data["project"].get("optional-dependencies", {})
-        assert "all" in optional, "[all] extra must exist"
-        all_deps = optional["all"]
-        all_str = " ".join(all_deps).lower()
-        assert "local" not in all_str, "[all] must NOT include [local] (GPU-fragile)"
-        assert "torch" not in all_str, "[all] must NOT include torch directly"
-        assert "serve" not in all_str, "[all] must NOT include serving extras"
-
     def test_no_google_generativeai_anywhere_in_pyproject(self):
         """google-generativeai must not appear anywhere in pyproject.toml (grep-zero)."""
         pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
         content = pyproject_path.read_text(encoding="utf-8")
         assert "google-generativeai" not in content, (
-            "google-generativeai must be purged from pyproject.toml (renamed to google-genai)"
+            "google-generativeai must be purged from pyproject.toml"
+        )
+
+    def test_no_provider_sdks_shipped(self):
+        """Per-provider SDKs must not appear ANYWHERE in pyproject.toml (not core, not extras).
+
+        openai/google-genai/google-generativeai/mistralai/cohere are NOT shipped.
+        The adopter installs them directly; litellm covers most providers without them.
+        """
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        content = pyproject_path.read_text(encoding="utf-8")
+        for sdk in ("openai", "google-genai", "google-generativeai", "mistralai", "cohere"):
+            assert sdk not in content, (
+                f"{sdk!r} must not appear ANYWHERE in pyproject.toml "
+                "(per-provider SDKs are not shipped; adopter installs directly)"
+            )
+
+    def test_no_figure_libs_shipped(self):
+        """Figure libs must not appear ANYWHERE in pyproject.toml (not core, not extras).
+
+        matplotlib/seaborn are NOT shipped. The adopter installs them directly.
+        """
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        content = pyproject_path.read_text(encoding="utf-8")
+        for lib in ("matplotlib", "seaborn"):
+            assert lib not in content, (
+                f"{lib!r} must not appear ANYWHERE in pyproject.toml "
+                "(figure libs are not shipped; adopter installs directly)"
+            )
+
+    def test_pyproject_no_providers_extra(self):
+        """pyproject.toml must NOT have [providers] optional dependency extra."""
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        optional = data["project"].get("optional-dependencies", {})
+        assert "providers" not in optional, (
+            "[providers] extra must be removed from pyproject.toml"
+        )
+
+    def test_pyproject_no_figures_extra(self):
+        """pyproject.toml must NOT have [figures] optional dependency extra."""
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        optional = data["project"].get("optional-dependencies", {})
+        assert "figures" not in optional, (
+            "[figures] extra must be removed from pyproject.toml"
+        )
+
+    def test_pyproject_no_all_extra(self):
+        """pyproject.toml must NOT have [all] optional dependency extra."""
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        optional = data["project"].get("optional-dependencies", {})
+        assert "all" not in optional, (
+            "[all] extra must be removed from pyproject.toml"
         )
 
     def test_pyproject_tier1_contains_litellm(self):

@@ -35,17 +35,8 @@ from typing import Any
 
 _TIER1_SPEC = "research-vault"              # pulls 27-package core (Tier-1)
 _TIER2_SPEC = "research-vault[local]"       # adds Tier-2 on top
-_PROVIDERS_SPEC = "research-vault[providers]"   # per-provider SDKs extra
-_FIGURES_SPEC = "research-vault[figures]"       # matplotlib + seaborn extra
-_ALL_SPEC = "research-vault[all]"              # providers + figures (full CPU-safe experience)
 _SERVE_VLLM_SPEC = "research-vault[local,serve-vllm]"
 _SERVE_SGLANG_SPEC = "research-vault[local,serve-sglang]"
-
-_EXTRAS_SPECS: dict[str, str] = {
-    "providers": _PROVIDERS_SPEC,
-    "figures": _FIGURES_SPEC,
-    "all": _ALL_SPEC,
-}
 
 
 def _find_pip(venv_dir: Path) -> Path:
@@ -120,7 +111,6 @@ def _run_bootstrap(
     venv_dir: Path,
     *,
     tier2: bool = True,
-    extras: str | None = None,
     serve: str | None = None,
     verbose: bool = False,
 ) -> dict[str, Any]:
@@ -128,14 +118,14 @@ def _run_bootstrap(
 
     venv_dir: where to create / reuse the .venv
     tier2: whether to attempt Tier-2 install
-    extras: None | "providers" | "figures" | "all" — extras to install on top of core
     serve: None | "vllm" | "sglang" — serving sub-extra to attempt
     verbose: whether to print pip output
+
+    Per-provider SDKs (openai/google-genai/mistralai/cohere) and figure libs
+    (matplotlib/seaborn) are NOT installed here — the adopter installs them directly.
     """
     lines: list[str] = ["=== rv bootstrap — Research Vault toolkit install ===", ""]
     tier1_ok = False
-    extras_ok = False
-    extras_reason = ""
     tier2_ok = False
     serve_ok = False
     tier2_reason = ""
@@ -149,8 +139,6 @@ def _run_bootstrap(
         lines.append("Result: FAIL — could not create .venv (see above).")
         return {
             "tier1_ok": False,
-            "extras_ok": False,
-            "extras_reason": "venv creation failed",
             "tier2_ok": False,
             "serve_ok": False,
             "tier2_reason": "venv creation failed",
@@ -169,8 +157,6 @@ def _run_bootstrap(
         lines.append("Result: FAIL — could not locate pip inside .venv.")
         return {
             "tier1_ok": False,
-            "extras_ok": False,
-            "extras_reason": "pip not found",
             "tier2_ok": False,
             "serve_ok": False,
             "tier2_reason": "pip not found",
@@ -202,8 +188,6 @@ def _run_bootstrap(
         )
         return {
             "tier1_ok": False,
-            "extras_ok": False,
-            "extras_reason": "tier1 failed",
             "tier2_ok": False,
             "serve_ok": False,
             "tier2_reason": "tier1 failed",
@@ -212,39 +196,7 @@ def _run_bootstrap(
             "report": "\n".join(lines),
         }
 
-    # 3. Extras best-effort (providers / figures / all)
-    if extras:
-        extra_spec = _EXTRAS_SPECS.get(extras)
-        if extra_spec:
-            lines.append("")
-            lines.append(f"Extras install ({extras}): {extra_spec}")
-            ok, stdout, stderr = _pip_install(pip, extra_spec)
-            if ok:
-                extras_ok = True
-                lines.append(f"  [OK] [{extras}] extras installed")
-            else:
-                extras_ok = False
-                extras_reason = (stderr or "unknown error").strip()[:200]
-                lines.append(
-                    f"  [WARN] [{extras}] extras skipped — install failed."
-                )
-                lines.append(f"  reason: {extras_reason}")
-                lines.append(
-                    f"  Retry: pip install research-vault[{extras}]"
-                )
-            if verbose and stdout:
-                for ln in stdout.strip().splitlines()[-10:]:
-                    lines.append(f"  | {ln}")
-        else:
-            lines.append(f"  [WARN] Unknown extras target {extras!r} — skipping.")
-    else:
-        lines.append("")
-        lines.append(
-            "Extras: not requested (core only). "
-            "For the full experience: pip install research-vault[all]"
-        )
-
-    # 4. Tier-2 best-effort
+    # 3. Tier-2 best-effort
     if tier2:
         lines.append("")
         lines.append(f"Tier-2 install (best-effort): {_TIER2_SPEC}")
@@ -308,14 +260,11 @@ def _run_bootstrap(
     lines.append("")
     lines.append(
         "Result: OK — Tier-1 installed."
-        + (f" Extras [{extras}]: " + ("installed." if extras_ok else "skipped (see above).") if extras else "")
         + ("" if not tier2 else " Tier-2: " + ("installed." if tier2_ok else "skipped (see above)."))
     )
 
     return {
         "tier1_ok": tier1_ok,
-        "extras_ok": extras_ok,
-        "extras_reason": extras_reason,
         "tier2_ok": tier2_ok,
         "serve_ok": serve_ok,
         "tier2_reason": tier2_reason,
@@ -337,14 +286,16 @@ def build_parser(
     When to use: ``rv bootstrap`` when Tier-1 toolkit packages are missing.
     Creates a `.venv` and pip-installs the research toolkit (Tier-1 hard,
     Tier-2 best-effort). Sidesteps PEP-668 (externally-managed envs).
+    Per-provider SDKs and figure libs are not installed — install directly.
     Run `rv check` after to verify the installed stack.
     """
     desc = (
         "Best-effort toolkit bootstrap — create .venv and pip-install Research Vault tiers. "
         "Tier-1 (27-package core: model seam, data, analysis, eval, multilingual, "
         "integrations, harness utilities) is installed as a hard requirement. "
-        "Extras ([providers]/[figures]/[all]) are opt-in — use --extras to install them. "
         "Tier-2 (GPU-fragile: torch, transformers, accelerate, etc.) is attempted + tolerated. "
+        "Per-provider SDKs (openai/google-genai/mistralai/cohere) and figure libs "
+        "(matplotlib/seaborn) are NOT installed — install them directly at your discretion. "
         "Never modifies your system Python. "
         "Run `rv check` after to verify the installed stack. "
         "Anti-pattern: do NOT pip-install Tier-2 on a CPU-only laptop — "
@@ -372,18 +323,6 @@ def build_parser(
         help="Skip the Tier-2 [local] install attempt (useful on CPU-only machines).",
     )
     p.add_argument(
-        "--extras",
-        metavar="EXTRA",
-        default=None,
-        choices=["providers", "figures", "all"],
-        help=(
-            "Also install an extras group on top of core: "
-            "providers (openai/google-genai/mistralai/cohere), "
-            "figures (matplotlib/seaborn), "
-            "or all (providers+figures — full CPU-safe experience)."
-        ),
-    )
-    p.add_argument(
         "--serve",
         metavar="BACKEND",
         default=None,
@@ -407,7 +346,6 @@ def run(args: argparse.Namespace) -> int:
     result = _run_bootstrap(
         venv_dir,
         tier2=not args.no_tier2,
-        extras=getattr(args, "extras", None),
         serve=args.serve,
         verbose=args.verbose,
     )

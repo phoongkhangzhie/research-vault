@@ -6,9 +6,8 @@ readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.12"
 # SR-PKG-TRIM: Tier-1 core — 27 packages: analysis/eval/integrations/harness.
-# Per-provider SDKs (openai/google-genai/mistralai/cohere) → [providers] extra.
-# Figure libs (matplotlib/seaborn) → [figures] extra.
-# [all] = [providers,figures] — full research experience (CPU-safe; excludes [local]).
+# Third-party SDKs and plotting libs are NOT shipped — the adopter installs
+# them directly. litellm (core) covers most API targets without a dedicated SDK.
 # The framework/CLI import path stays dep-light: all toolkit imports are guarded
 # (lazy, only at call sites) so `rv` runs clean with --no-deps.
 # See: architecture.md "Dependency posture" + data/doctrine/compute-run-recipe.md
@@ -81,16 +80,6 @@ Issues = "https://github.com/khangzhie-vault/research-vault/issues"
 # ---------------------------------------------------------------------------
 # Extras — opt-in capabilities on top of the 27-package core.
 #
-# [providers] — per-provider SDKs (litellm covers most without them; install
-#   only when you need provider-specific features not exposed by litellm).
-#   Install: pip install research-vault[providers]
-#
-# [figures]   — matplotlib + seaborn for plotting (standard; install directly).
-#   Install: pip install research-vault[figures]
-#
-# [all]       — providers + figures (full CPU-safe research experience).
-#   Install: pip install research-vault[all]
-#
 # [local]     — GPU-fragile local inference. NEVER installed by default.
 #   CUDA-pinned wheels break installs on CPU-only machines (incl. CI runners).
 #   Install: pip install research-vault[local]
@@ -98,21 +87,11 @@ Issues = "https://github.com/khangzhie-vault/research-vault/issues"
 #     plus bert-score and lm-eval (both require torch transitively).
 #   Sub-extras for serving stacks (vllm or sglang) — docs default to vllm.
 #   Install serving: pip install research-vault[local,serve-vllm]
+#
+# Third-party SDKs and figure libs are NOT shipped — install directly at your
+# discretion. litellm (core) covers most API targets without a dedicated SDK.
 # ---------------------------------------------------------------------------
 [project.optional-dependencies]
-providers = [
-    "openai>=1.14",
-    "google-genai>=1.0",
-    "mistralai>=0.4",
-    "cohere>=5.0",
-]
-figures = [
-    "matplotlib>=3.8",
-    "seaborn>=0.13",
-]
-all = [
-    "research-vault[providers,figures]",
-]
 local = [
     "torch>=2.2",
     "transformers>=4.38",

@@ -18,9 +18,9 @@ response = litellm.completion(
 ```
 
 `anthropic` is installed by default (core SDK). Per-provider SDKs for other providers
-(`openai`, `google-genai`, `mistralai`, `cohere`) are **opt-in** via
-`pip install research-vault[providers]` — use them for provider-specific features not
-exposed by litellm.
+(`openai`, `google-genai`, `mistralai`, `cohere`) are **the adopter's own install** — not
+shipped by research-vault. Install them directly when you need provider-specific features
+not covered by litellm. For most cross-provider research, litellm alone is sufficient.
 
 **Anti-pattern:** do NOT hard-wire `anthropic.Anthropic()` or `openai.OpenAI()` directly into
 harnesses that run cross-provider comparisons — use litellm so provider-swap is a one-line
