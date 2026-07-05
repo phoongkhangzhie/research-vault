@@ -1,3 +1,37 @@
+## 2026-07-05 (onboarding UX: rv onboard + rv check reframe — feat/onboarding-ux)
+
+### Done
+- S1/F3: `rv check` reframed to the corrected required-model — the **agent runtime is the
+  ONLY hard requirement**; there is no required API key. `all_required_ok` gates only on
+  the runtime (+ observability when `--require-observability`). Runtime + zero keys → OK
+  (exit 0). Provider/s2/asta/wandb/zotero/compute are FEATURE-REQUIRED: each shows
+  "locked", never FAIL. F2: one framing per feature (killed the Zotero optional/Required
+  contradiction), request-form URL per key, asta institutional-email note. F1:
+  `required_failed[]` carries culprits inline into the Result line.
+- S2/F4: `keys.py` — the credential/feature registry SSOT. One keyring service
+  (`research-vault`), per-key env-var + username, the FEATURES catalog. `EnvSecretStore`
+  and the check functions route through it, so a key written by `rv onboard` is read by
+  `rv check` AND the runtime (round-trip proven in tests).
+- S3/E1: `richui.py` — rich structure (tier-matrix + Integrations table + Required/Result
+  panels + init panels). Additive: reads the same result dict; NO_COLOR / RV_PLAIN /
+  --plain / non-TTY degrade to the plain report. Style knobs isolated for the designer's pass.
+- S4/E2: `rv onboard` — guided, idempotent (state re-derived, no state file), no-echo
+  (getpass → keyring, masked verify), non-TTY prints remediation, always exit 0, no
+  plaintext `.env`. Registered in `_VERB_REGISTRY` (when_to_use + anti-patterns). `rv init`
+  auto-offers it at the end (TTY-only prompt).
+- S5: README + QUICKSTART reframed to the feature-key request forms + "locked until you
+  add the key" framing; step 1 → `rv onboard`.
+
+### Decisions
+- Provider keys are provider-plural (Anthropic + OpenAI + …); ANY one unlocks API-model
+  experiments — not Anthropic-specific.
+- Keyring service unified onto the hyphen form (`research-vault`) — the runtime's existing
+  convention — so no reader/writer split remains.
+
+### Open / next
+- Iris visual-polish pass: palette/borders (the `_STYLE` dict in `richui.py`), URL-wrap in
+  the Integrations Status column, panel styling. Structure is built; palette is deliberately default.
+
 ## 2026-07-05 (SR-MODEL-SEAM: first-class litellm ModelClient + automatic observability — feat/model-seam)
 
 ### Done

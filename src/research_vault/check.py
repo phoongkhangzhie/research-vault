@@ -1,15 +1,21 @@
 """check.py — `rv check` — preflight prerequisite check.
 
-When to use: ``rv check`` before starting any research loop. Verifies that
-all prerequisites are available and reports missing items with clear install
-instructions. Fail-fast: reports ALL failures, not just the first.
+When to use: ``rv check`` before starting any research loop. Reports what is
+present vs. locked, with clear fix guidance for each locked item.
+
+The agent runtime (Claude CLI) is the ONLY hard requirement — there is no
+required API key. Everything else is FEATURE-REQUIRED: it unlocks a capability
+and shows "locked" (never FAIL) until the key/config is added.
 
 Checks:
-  1. Claude CLI — ``claude --version`` must succeed (the agent runtime)
-  2. ANTHROPIC_API_KEY — must be set in env or resolvable via keyring
+  1. Claude CLI — ``claude --version`` must succeed (the agent runtime; the sole
+     hard requirement — exit 1 only if this is missing)
+  2. Provider key(s) — feature-required for API-model experiments; provider-plural
+     (ANTHROPIC/OPENAI/…), resolvable via env var or keyring; "locked" if unset
   3. Toolkit Tier-1 — 28-package research-toolkit core (installed by default)
   4. Toolkit Tier-2 — GPU-fragile local-inference stack ([local] extra)
-  5. asta / Zotero / W&B — integration checks (optional)
+  5. s2 / asta / Zotero / W&B — feature-required integrations (each unlocks a
+     capability; shown "locked" until keyed, never a failure)
 
 Per-provider SDKs (openai/google-genai/mistralai/cohere) and figure libs
 (matplotlib/seaborn) are NOT shipped — the adopter installs them directly.
@@ -28,6 +34,17 @@ import os
 import shutil
 import sys
 from typing import Any
+
+from .keys import (
+    CLASS_FEATURE_REQUIRED,
+    CLASS_REQUIRED,
+    FEATURES,
+    PROVIDER_KEYS,
+    WANDB_KEY,
+    ZOTERO_KEY,
+    resolve_any,
+    resolve_key,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -169,34 +186,27 @@ def _check_claude_cli() -> tuple[bool, str]:
 
 
 def _check_api_key() -> tuple[bool, str]:
-    """Return (ok, message) for the ANTHROPIC_API_KEY check.
+    """Return (ok, message) for the provider-API-key check (provider-PLURAL).
 
-    Resolution order (highest priority first):
-      1. ANTHROPIC_API_KEY env var
-      2. System keyring: keyring set research_vault ANTHROPIC_API_KEY
+    F3: a provider key is NOT required — it is FEATURE-REQUIRED.  A missing one
+    means "API-model experiments locked", never a FAIL.  ANY one provider key
+    (Anthropic, OpenAI, …) satisfies the capability.
+
+    F4: resolution routes through the registry SSOT (env var → unified keyring
+    service), so a key written by `rv onboard` is seen here.
     """
-    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if key:
-        prefix = key[:8] + "…" if len(key) > 8 else "***"
-        return True, f"ANTHROPIC_API_KEY: set via env ({prefix})"
+    present, hits = resolve_any(PROVIDER_KEYS)
+    if present:
+        spec, source, masked = hits[0]
+        others = "" if len(hits) == 1 else f" (+{len(hits) - 1} more)"
+        return True, f"provider API key: {spec.label} set via {source} ({masked}){others}"
 
-    try:
-        import keyring  # type: ignore[import]
-        val = keyring.get_password("research_vault", "ANTHROPIC_API_KEY")
-        if val:
-            return True, "ANTHROPIC_API_KEY: found in system keyring"
-    except ImportError:
-        pass
-    except Exception:
-        pass
-
+    urls = "; ".join(f"{k.label} → {k.request_url}" for k in PROVIDER_KEYS)
     return False, (
-        "ANTHROPIC_API_KEY: NOT SET\n"
-        "  Provision options (pick one):\n"
-        "    export ANTHROPIC_API_KEY=sk-ant-…          (env var — session only)\n"
-        "    keyring set research_vault ANTHROPIC_API_KEY  (keyring — persists across sessions)\n"
-        "  Get a key at: https://console.anthropic.com/\n"
-        "  Note: env var takes precedence over keyring when both are set."
+        "provider API key: none set — API-model experiments locked until you add one\n"
+        f"  Add via `rv onboard`, or set an env var (e.g. export ANTHROPIC_API_KEY=sk-ant-…),\n"
+        f"  or keyring. Request a key: {urls}\n"
+        "  Skippable if you run local models or lit-review only."
     )
 
 
@@ -226,31 +236,21 @@ def _check_wandb() -> tuple[bool, str, bool]:
         wandb_ver = getattr(wandb, "__version__", "?")
     except ImportError:
         return False, (
-            "wandb SDK: NOT INSTALLED (required for `rv wandb`)\n"
+            "wandb SDK: NOT INSTALLED (needed for `rv wandb pull`)\n"
             "  Install: pip install wandb  or  uv add wandb\n"
             "  Get a free account at: https://wandb.ai"
         ), False
 
-    key = os.environ.get("WANDB_API_KEY", "").strip()
-    if key:
-        prefix = key[:8] + "…" if len(key) > 8 else "***"
-        return True, f"wandb: SDK ok (v{wandb_ver}), WANDB_API_KEY set ({prefix})", False
-
-    if not os.environ.get("VAULT_SKIP_KEYRING"):
-        try:
-            import keyring  # type: ignore[import]
-            val = keyring.get_password("research-vault", "wandb-api-key")
-            if val:
-                return True, f"wandb: SDK ok (v{wandb_ver}), WANDB_API_KEY found in keyring", False
-        except ImportError:
-            pass
-        except Exception:
-            pass
+    # F4: resolve WANDB_API_KEY through the registry SSOT (env → unified keyring).
+    present, source, masked = resolve_key(WANDB_KEY)
+    if present:
+        return True, f"wandb: SDK ok (v{wandb_ver}), WANDB_API_KEY set via {source} ({masked})", False
 
     return False, (
-        f"wandb: SDK ok (v{wandb_ver}) but WANDB_API_KEY not set\n"
-        "  Set via: export WANDB_API_KEY=<your-wandb-api-key>\n"
-        "  Get a key at: https://wandb.ai/settings"
+        f"wandb: SDK ok (v{wandb_ver}) but WANDB_API_KEY not set — "
+        "experiment observability + `rv wandb pull` locked until you add the key\n"
+        "  Add via `rv onboard`, or: export WANDB_API_KEY=<your-wandb-api-key>\n"
+        f"  Get a key at: {WANDB_KEY.request_url}"
     ), False
 
 
@@ -287,27 +287,99 @@ def _check_observability(cfg: Any = None) -> tuple[bool, str, bool]:
 
 
 def _check_zotero() -> tuple[bool, str, bool]:
-    """Return (ok, message, required) for the Zotero key check."""
-    key = os.environ.get("ZOTERO_KEY", "").strip()
-    if key:
-        return True, "ZOTERO_KEY: set", False
+    """Return (ok, message, required) for the Zotero key check.
 
-    try:
-        import keyring  # type: ignore[import]
-        val = keyring.get_password("research_vault", "ZOTERO_KEY")
-        if val:
-            return True, "ZOTERO_KEY: found in keyring", False
-    except ImportError:
-        pass
-    except Exception:
-        pass
+    F4: resolves through the registry SSOT (env → unified keyring), so a key
+    written by `rv onboard` is seen here.  Never required — one framing: needed
+    for `rv cite`, locked until you add it.
+    """
+    present, source, masked = resolve_key(ZOTERO_KEY)
+    if present:
+        return True, f"zotero: ZOTERO_KEY set via {source} ({masked})", False
 
     return False, (
-        "ZOTERO_KEY: NOT SET (optional)\n"
-        "  Set via: export ZOTERO_KEY=<your-zotero-api-key>\n"
-        "  Get a key at: https://www.zotero.org/settings/keys\n"
-        "  Required for `rv cite` and Zotero-backed literature management."
+        "zotero: ZOTERO_KEY not set — needed for `rv cite`, locked until you add it\n"
+        "  Add via `rv onboard`, or: export ZOTERO_KEY=<your-zotero-api-key>\n"
+        f"  Get a key at: {ZOTERO_KEY.request_url}"
     ), False
+
+
+# ---------------------------------------------------------------------------
+# Feature status builder (the FEATURE-REQUIRED catalog — F2/F3)
+# ---------------------------------------------------------------------------
+
+def _compute_manifest_present(cfg: Any = None) -> bool:
+    """Return True if a compute_manifest.json exists for this instance."""
+    try:
+        from .compute import _manifest_path
+        from .config import load_config as _load_config
+        _cfg = cfg if cfg is not None else _load_config()
+        return bool(_manifest_path(_cfg).exists())
+    except Exception:
+        return False
+
+
+def _feature_status(feature: Any, *, manifest_present: bool) -> dict[str, Any]:
+    """Resolve a single Feature to a structured status dict.
+
+    Returns:
+      {
+        "id", "title", "class", "unlocks", "kind",
+        "status":  "unlocked" | "locked",
+        "source":  "env" | "keyring" | "package" | "manifest" | "",
+        "detail":  short human string (masked prefix / version / "" ),
+        "urls":    [{"label", "url"}, ...]  (request forms for a locked feature),
+        "note":    extra caveat (e.g. asta institutional-email),
+        "handoff_cmd": str,  (compute only)
+      }
+    """
+    urls = [{"label": k.label, "url": k.request_url} for k in feature.keys]
+    if feature.request_url and not urls:
+        urls = [{"label": feature.title, "url": feature.request_url}]
+
+    status = "locked"
+    source = ""
+    detail = ""
+
+    if feature.kind == "key":
+        present, hits = resolve_any(feature.keys)
+        if present:
+            status = "unlocked"
+            spec, source, masked = hits[0]
+            extra = "" if len(hits) == 1 else f" (+{len(hits) - 1} more)"
+            detail = f"{spec.label} ({masked}){extra}"
+    elif feature.kind == "package":
+        if _probe_import(feature.import_name):
+            status, source = "unlocked", "package"
+            detail = "installed"
+    elif feature.kind == "handoff":
+        if manifest_present:
+            status, source = "unlocked", "manifest"
+            detail = "compute_manifest.json present"
+
+    return {
+        "id": feature.id,
+        "title": feature.title,
+        "class": feature.cls,
+        "unlocks": feature.unlocks,
+        "kind": feature.kind,
+        "status": status,
+        "source": source,
+        "detail": detail,
+        "urls": urls,
+        "note": feature.note,
+        "handoff_cmd": feature.handoff_cmd,
+    }
+
+
+def build_features(cfg: Any = None) -> list[dict[str, Any]]:
+    """Build the structured FEATURE-REQUIRED status list from the registry catalog.
+
+    Shared by ``rv check`` (read), the rich renderer, and ``rv onboard`` (which
+    re-derives its idempotent skip-state from these statuses — no state file).
+    """
+    manifest_present = _compute_manifest_present(cfg)
+    return [_feature_status(f, manifest_present=manifest_present) for f in FEATURES]
 
 
 # ---------------------------------------------------------------------------
@@ -317,63 +389,74 @@ def _check_zotero() -> tuple[bool, str, bool]:
 def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> dict[str, Any]:
     """Run all preflight checks and return a result dict.
 
-    cfg: optional Config object (accepted for backward compat; no longer used
-         for project-integrity checks — the CONTRACT check is removed, SR-LENS-RM).
-    require_observability: SR-MODEL-SEAM — when True, the observability wiring check
-         is promoted into ``all_required_ok`` (the experiment-preflight gate: refuse
-         to green if a run would produce ZERO records).
+    The corrected required-model (F3): the agent runtime (Claude CLI) is the ONLY
+    hard-REQUIRED item.  There is NO required API key.  A fresh adopter with the
+    runtime present and ZERO keys → ``all_required_ok = True`` (exit 0); every
+    feature key is FEATURE-REQUIRED and shows "locked", never FAIL.
 
-    Returns:
+    cfg: optional Config object (accepted for backward compat).
+    require_observability: SR-MODEL-SEAM — when True, the observability wiring
+         check is promoted into ``all_required_ok`` (the experiment-preflight gate).
+
+    Returns (contract stable — tests assert on the dict, not rendered output):
       {
-        "claude_cli":       bool,
-        "api_key":          bool,
-        "tier1_missing":    list[str],  pip names of missing Tier-1 packages
-        "tier2_missing":    list[str],  pip names of missing Tier-2 packages
+        "claude_cli":       bool,       the runtime (the ONLY hard requirement)
+        "runtime":          bool,       alias of claude_cli (clearer name)
+        "api_key":          bool,       ANY provider key present (feature, not required)
+        "tier1_missing":    list[str],
+        "tier2_missing":    list[str],
         "asta":             bool,
         "zotero":           bool,
         "wandb_key":        bool,
-        "observability":    bool,       observability wiring ok (probe passed)
+        "observability":    bool,
         "compute_manifest": bool,
-        "all_required_ok":  bool,
-        "report":           str,        human-readable multi-line report
+        "features":         list[dict],  the FEATURE-REQUIRED catalog statuses (F2/F3)
+        "required_failed":  list[str],   REQUIRED items that failed (F1 — culprits inline)
+        "all_required_ok":  bool,        governed ONLY by the runtime (+ obs when required)
+        "report":           str,         human-readable plain-text report
       }
-
-    all_required_ok is governed by claude_cli and api_key (+ observability when
-    require_observability=True).
-    Per-provider SDKs and figure libs are not checked — they are the adopter's own install.
-    This is the programmatic entrypoint (used by tests and `rv check`).
     """
     lines: list[str] = ["=== rv check — Research Vault preflight ===", ""]
 
-    # Required checks
+    # Hard-required check: the runtime ONLY.
     claude_ok, claude_msg = _check_claude_cli()
+    # Provider key is a FEATURE, not a requirement — resolved for the api_key field.
     apikey_ok, apikey_msg = _check_api_key()
 
     # Toolkit tier probes
     tier1_results = _check_tier1()
     tier2_results = _check_tier2()
 
-    # Optional integration checks
+    # Feature-required catalog (provider / s2 / asta / wandb / zotero / compute).
+    features = build_features(cfg)
+    compute_manifest_present = _compute_manifest_present(cfg)
+
+    # Individual integration checks (for the back-compat dict fields + report text).
     asta_ok, asta_msg, _ = _check_asta()
     zotero_ok, zotero_msg, _ = _check_zotero()
     wandb_ok, wandb_msg, _ = _check_wandb()
     obs_ok, obs_msg, _ = _check_observability(cfg)
 
-    all_required = claude_ok and apikey_ok
-    if require_observability:
-        all_required = all_required and obs_ok
+    # F3: all_required_ok gates ONLY on the runtime (+ observability when required).
+    required_failed: list[str] = []
+    if not claude_ok:
+        required_failed.append("agent runtime (Claude CLI)")
+    if require_observability and not obs_ok:
+        required_failed.append("observability wiring")
+    all_required = len(required_failed) == 0
 
-    # Required section
+    # ── Required section (runtime only) ──────────────────────────────────────
     lines.append("Required:")
     status = "OK" if claude_ok else "FAIL"
     lines.append(f"  [{status}] {claude_msg}")
-    status = "OK" if apikey_ok else "FAIL"
-    lines.append(f"  [{status}] {apikey_msg}")
+    lines.append(
+        "         (the agent runtime is the ONLY hard requirement — no API key is required)"
+    )
     if require_observability:
         status = "OK" if obs_ok else "FAIL"
         lines.append(f"  [{status}] {obs_msg}  (required: --require-observability)")
 
-    # Tier-1 section
+    # ── Tier-1 section ───────────────────────────────────────────────────────
     lines.append("")
     lines.append(
         "Toolkit Tier-1 (28-package core — pip install research-vault):"
@@ -381,7 +464,7 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
     tier1_lines, tier1_missing = _fmt_tier_section(tier1_results, warn_missing=False)
     lines.extend(tier1_lines)
 
-    # Tier-2 section
+    # ── Tier-2 section ───────────────────────────────────────────────────────
     lines.append("")
     lines.append(
         "Toolkit Tier-2 (GPU-fragile local inference — pip install research-vault[local]):"
@@ -394,40 +477,47 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
             "install on your compute node, not your laptop."
         )
 
-    # Optional integrations section
+    # ── Feature-required integrations (one framing: locked-until-you-add) ─────
     lines.append("")
-    lines.append("Integrations (keys / API access):")
-    status = "OK" if asta_ok else "INFO"
-    lines.append(f"  [{status}] {asta_msg}")
-    status = "OK" if zotero_ok else "WARN"
-    lines.append(f"  [{status}] {zotero_msg}")
-    status = "OK" if wandb_ok else "WARN"
-    lines.append(f"  [{status}] {wandb_msg}")
+    lines.append("Integrations (keys / API access) — each FEATURE-REQUIRED (locked until you add it):")
+    for feat in features:
+        tag = "OK" if feat["status"] == "unlocked" else "LOCKED"
+        detail = f" — {feat['detail']}" if feat["detail"] else ""
+        lines.append(f"  [{tag}] {feat['title']}: unlocks {feat['unlocks']}{detail}")
+        if feat["status"] == "locked":
+            for u in feat["urls"]:
+                lines.append(f"         request: {u['label']} → {u['url']}")
+            if feat["handoff_cmd"]:
+                lines.append(f"         run: {feat['handoff_cmd']}")
+            if feat["note"]:
+                lines.append(f"         note: {feat['note']}")
     # SR-MODEL-SEAM: observability wiring line (INFO unless --require-observability).
-    status = "OK" if obs_ok else ("FAIL" if require_observability else "WARN")
-    lines.append(f"  [{status}] {obs_msg}")
+    status = "OK" if obs_ok else ("FAIL" if require_observability else "INFO")
+    lines.append(f"  [{status}] observability: {obs_msg}")
 
-    # Compute manifest nudge
-    compute_manifest_present = False
-    try:
-        from .compute import _manifest_path
-        from .config import load_config as _load_config
-        _cfg = cfg if cfg is not None else _load_config()
-        compute_manifest_present = _manifest_path(_cfg).exists()
-    except Exception:
-        pass
-
-    # Summary
+    # ── Summary (F1: culprits travel inline) ─────────────────────────────────
     lines.append("")
     if all_required:
-        lines.append("Result: OK — all required prerequisites present.")
-        if tier1_missing or not asta_ok or not zotero_ok or not wandb_ok:
-            lines.append("  (some optional tools not found — some features limited)")
+        lines.append("Result: OK — the agent runtime is present (the only hard requirement).")
+        locked = [f["title"] for f in features if f["status"] == "locked"]
+        if locked:
+            lines.append(
+                f"  ({len(locked)} feature(s) locked: {', '.join(locked)} — "
+                "add keys via `rv onboard` to unlock)"
+            )
     else:
-        lines.append("Result: FAIL — required prerequisites missing (see FAIL items above).")
+        lines.append(
+            "Result: FAIL — required prerequisite missing: "
+            + ", ".join(required_failed)
+        )
 
-    # Note: per-provider SDKs (openai/google-genai/mistralai/cohere) and figure libs
-    # (matplotlib/seaborn) are NOT checked — the adopter installs them directly.
+    # Nudge: any locked feature → point at rv onboard.
+    if any(f["status"] == "locked" for f in features):
+        lines.append("")
+        lines.append(
+            "Locked capabilities above are optional — run `rv onboard` for a guided, "
+            "idempotent setup (adds keys to your keyring; never writes plaintext)."
+        )
 
     # Nudge: missing Tier-1 → bootstrap
     if tier1_missing:
@@ -455,14 +545,27 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
 
     return {
         "claude_cli": claude_ok,
+        "claude_msg": claude_msg,
+        "runtime": claude_ok,
         "api_key": apikey_ok,
         "tier1_missing": tier1_missing,
         "tier2_missing": tier2_missing,
+        # Structured tier data for the rich tier-matrix (list of dicts, additive).
+        "tier1": [
+            {"pip": p, "purpose": pur, "group": g, "ok": ok}
+            for (p, pur, g, ok) in tier1_results
+        ],
+        "tier2": [
+            {"pip": p, "purpose": pur, "group": g, "ok": ok}
+            for (p, pur, g, ok) in tier2_results
+        ],
         "asta": asta_ok,
         "zotero": zotero_ok,
         "wandb_key": wandb_ok,
         "observability": obs_ok,
         "compute_manifest": compute_manifest_present,
+        "features": features,
+        "required_failed": required_failed,
         "all_required_ok": all_required,
         "report": report,
     }
@@ -477,23 +580,23 @@ def build_parser(
 ) -> argparse.ArgumentParser:
     """Build the argument parser for the ``check`` verb.
 
-    When to use: ``rv check`` before running any research loop. Verifies that
-    the Claude CLI, API key, and toolkit tiers (Tier-1 28-package core + Tier-1
-    extras + Tier-2 GPU) are available. Reports missing packages with install
-    instructions. Run `rv bootstrap` if Tier-1 packages are missing.
-    Exit 0 if all required prerequisites are present; exit 1 if any are missing.
+    When to use: ``rv check`` before running any research loop. The agent
+    runtime (Claude CLI) is the only hard requirement; provider keys, s2, asta,
+    W&B, Zotero, and compute are feature-required (shown "locked" until keyed,
+    never a failure). Also reports toolkit tiers (Tier-1 28-package core +
+    Tier-2 GPU); run `rv bootstrap` if Tier-1 packages are missing, `rv onboard`
+    for guided setup of the locked features.
+    Exit 0 if the runtime is present; exit 1 only if the runtime is missing.
     """
     desc = (
         "Preflight check — verify Research Vault prerequisites. "
-        "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
-        "Toolkit Tier-1 (28-package core defaults), "
-        "Tier-2 (GPU/local inference — [local] extra), "
-        "asta (optional), Zotero/ZOTERO_KEY (optional), W&B (optional). "
-        "Per-provider SDKs and figure libs are not checked (adopter installs directly). "
-        "Exit 0 if all required prerequisites are present; exit 1 if any are missing. "
-        "API keys are resolved from env vars (highest priority) or the system keyring "
-        "(e.g. `keyring set research_vault ANTHROPIC_API_KEY`). "
-        "Run `rv check` before starting any research loop."
+        "The agent runtime (Claude CLI) is the ONLY hard requirement — there is no "
+        "required API key. Provider keys, s2, asta, W&B, Zotero, and compute are "
+        "FEATURE-REQUIRED: each unlocks a capability and shows 'locked' until you add "
+        "it (never a FAIL). Also reports Toolkit Tier-1 (core) + Tier-2 (GPU/local). "
+        "Exit 0 if the runtime is present; exit 1 only if the runtime (the sole "
+        "requirement) is missing. Keys resolve from env vars (highest priority) or the "
+        "system keyring. Run `rv onboard` for a guided setup of the locked features."
     )
     if parent is not None:
         p = parent.add_parser(
@@ -516,14 +619,35 @@ def build_parser(
             "silently un-observed. Use `rv observability probe` for a standalone check."
         ),
     )
+    p.add_argument(
+        "--plain",
+        dest="plain",
+        action="store_true",
+        default=False,
+        help="Force plain-text output (no rich rendering), even at a TTY.",
+    )
 
     return p
 
 
 def run(args: argparse.Namespace) -> int:
-    """Dispatch: rv check."""
+    """Dispatch: rv check.
+
+    Renders rich structure at an interactive TTY; falls back to the plain-text
+    ``report`` for pipes / redirects / NO_COLOR / --plain (the contract tests
+    assert on the dict + plain report, both unchanged).
+    """
     result = run_preflight(
         require_observability=getattr(args, "require_observability", False)
     )
-    print(result["report"])
+    plain = getattr(args, "plain", False)
+    from .richui import should_render_rich, render_check
+    if not plain and should_render_rich():
+        try:
+            render_check(result)
+        except Exception:
+            # Never let a rendering hiccup swallow the check — fall back to plain.
+            print(result["report"])
+    else:
+        print(result["report"])
     return 0 if result["all_required_ok"] else 1

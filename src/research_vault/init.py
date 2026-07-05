@@ -457,15 +457,43 @@ def cmd_init_in_dir(target_dir: str) -> int:
     print("The crew is stood up as subagents in .claude/agents/")
     print()
     print("Next steps:")
-    print("  1. rv check                     — verify prerequisites")
-    print("  2. rv compute init              — DECLARE your compute (scaffold manifest)")
+    print("  1. rv onboard                   — guided setup: add the keys that unlock features")
+    print("  2. rv check                     — verify prerequisites")
+    print("  3. rv compute init              — DECLARE your compute (scaffold manifest)")
     print("     rv doctor                    — DISCOVER capabilities per declared backend")
     print("     rv compute show              — VERIFY the merged recipe")
-    print("  3. rv dag run examples/demo-research/research-loop.json  — start the research loop demo")
-    print("  4. rv dag run examples/demo-litreview/lit-review-loop.json  — start the lit-review demo")
-    print("  5. rv project add <slug> <path> — add a real project")
+    print("  4. rv dag run examples/demo-research/research-loop.json  — start the research loop demo")
+    print("  5. rv dag run examples/demo-litreview/lit-review-loop.json  — start the lit-review demo")
+    print("  6. rv project add <slug> <path> — add a real project")
     print()
     print("See QUICKSTART.md for a full walkthrough.")
+
+    # ── Auto-offer the guided setup (TTY only; never blocks a scripted init) ──
+    # In a non-TTY (tests, CI, piped install) stdin.isatty() is False → no prompt,
+    # no hang. The adopter can always run `rv onboard` later.
+    try:
+        if sys.stdin.isatty():
+            print()
+            ans = input("Run guided setup now? [Y/n] ").strip().lower()
+            if ans in ("", "y", "yes"):
+                from .onboard import cmd_onboard
+                from .config import (
+                    Config as _Cfg, _load_toml as _lt, _expand_paths as _ep,
+                    _default_config as _dc, _merge as _mg,
+                )
+                try:
+                    _d = _dc()
+                    _r = _lt(config_path)
+                    _m = _mg(_d, _r)
+                    _ir = Path(_m.get("instance_root", str(target)))
+                    _m = _ep(_m, _ir)
+                    _oc = _Cfg(_m, config_file=config_path)
+                except Exception:
+                    _oc = None
+                cmd_onboard(_oc)
+    except (EOFError, KeyboardInterrupt):
+        pass
+
     return 0
 
 

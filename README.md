@@ -261,14 +261,28 @@ targets without a dedicated SDK.
 ### Prerequisites
 
 - **Python 3.12+**
-- **An agent runtime.** Claude Code (see *Quick start* below).
-- **Model API keys** — via environment variables or your system keyring.
-- Run **`rv check`** to verify prerequisites and see the tier coverage matrix.
+- **An agent runtime — the ONE hard requirement.** Claude Code (see *Quick start*
+  below). There is **no required API key**: with the runtime installed and zero keys,
+  `rv check` is GREEN (exit 0) and you can start immediately.
 
-`wandb`, `pyzotero` (Zotero API client), and `keyring` are **core pip dependencies** —
-shipped in the default `pip install research-vault`. `asta` (research corpus tooling) is
-the **one external prerequisite** that is not a pip dep: install it per your project's
-instructions. `rv check` reports full integration status including `asta`'s presence.
+Everything else is a **feature** you unlock when you need it. A missing feature key is
+never a failure — it is **locked until you add the key**:
+
+| Feature | Unlocks | Get a key / access |
+|---|---|---|
+| Provider API key(s) | API-model experiments (any ONE provider) | console.anthropic.com/settings/keys · platform.openai.com/api-keys |
+| s2 | `rv research find` retrieval | semanticscholar.org/product/api |
+| asta | `rv research find --deep` | share.hsforms.com (asta MCP access) |
+| wandb | experiment observability + `rv wandb pull` | wandb.ai/settings |
+| zotero | `rv cite` | zotero.org/settings/keys |
+| compute | remote-cluster experiments | `rv compute init` |
+
+Provider keys are **provider-plural** (Anthropic, OpenAI, …). The **asta** access
+request needs an **institutional email** (not a personal gmail). Run **`rv onboard`**
+for a guided, idempotent setup that stores each key in your system keyring (never a
+plaintext file), and **`rv check`** to verify — it points to `rv onboard` for anything
+still locked. `wandb`, `pyzotero`, and `keyring` are core pip dependencies; `asta` is
+the one external prerequisite that is not a pip dep.
 
 ---
 
@@ -280,8 +294,12 @@ Research Vault runs on **Claude Code**.
 pip install research-vault
 rv init my-vault        # scaffold an instance: config, control bus, OKF note
 cd my-vault             #   dirs, doctrine, the crew, and two demo projects
-rv check                # preflight: verify prerequisites
+rv onboard              # guided setup: add the keys that unlock features (idempotent)
+rv check                # preflight: verify prerequisites (GREEN with runtime + no keys)
 ```
+
+`rv init` offers to run `rv onboard` for you at the end. Onboarding is optional and
+re-runnable — the runtime alone is enough to start.
 
 On **Claude Code**, `rv init` scaffolds a `CLAUDE.md` and the crew under
 `.claude/agents/`, rendered with per-role tool grants and model aliases — so your
