@@ -23,7 +23,7 @@ exactly what the project exists to prevent.
 Research Vault targets **Python 3.12+** and uses [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/phoongkhangzhie/research-vault.git
 cd research-vault
 uv sync                     # create the environment + install dev deps (pytest)
 uv run rv --help            # confirm the CLI resolves
