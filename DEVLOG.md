@@ -1,3 +1,28 @@
+## 2026-07-04 (SR-PKG-TRIM corrective: remove [providers]/[figures]/[all] extras — PR #107)
+
+### Done
+- Removed [providers], [figures], [all] optional-dependency extras from pyproject.toml.
+  openai, google-genai, google-generativeai, mistralai, cohere, matplotlib, seaborn appear
+  NOWHERE in pyproject.toml (acceptance grep: zero hits).
+- Stripped _EXTRA_PACKAGES, _check_extras, _fmt_extras_section, and all extras display
+  from check.py; removed extras_missing from run_preflight result dict.
+- Removed _PROVIDERS_SPEC/_FIGURES_SPEC/_ALL_SPEC/_EXTRAS_SPECS and --extras argparse flag
+  from bootstrap.py; _run_bootstrap no longer accepts an extras parameter.
+- Updated tests/test_pkg_toolkit.py: removed [providers]/[figures]/[all] assertions;
+  added test_no_provider_sdks_shipped + test_no_figure_libs_shipped (parse+grep-zero) +
+  test_pyproject_no_{providers,figures,all}_extra as regression pins.
+- Updated architecture.md dependency-posture paragraph and SR-PKG-TRIM row.
+- Updated compute-run-recipe.md model-seam section.
+
+### Decisions
+- [providers]/[figures]/[all] extras are gone entirely; adopter installs SDKs/plotting libs
+  directly. litellm covers most API targets without a dedicated SDK.
+- Comments in pyproject.toml reworded to avoid naming the removed packages (acceptance grep
+  is a text grep, not a TOML-parse grep — comments count).
+
+### Open / next
+- PR #107 force-pushed to feat/pkg-trim; awaiting CI green + human-go before merge.
+
 ## 2026-07-04 (SR-FIND-RERANK: over-fetch + rerank for rv research find)
 
 ### Done
