@@ -1,29 +1,55 @@
 # Research Vault — Quick Start
 
 Welcome. This is a zero-infra AI research assistant framework.
-Run `rv check` first to verify your prerequisites.
+Run **`rv onboard`** first for guided setup, then `rv check` to verify.
 
-## Prerequisites
+## The one hard requirement
 
-- **Claude CLI** — the agent runtime (`claude --version`)
-- **ANTHROPIC_API_KEY** — required; see _Credentials_ below
-- **asta** (optional) — enables `rv research find --deep`; plain `rv research find` works without it
-- **Zotero + ZOTERO_KEY** (optional) — for citation management
-- **wandb** (optional) — for experiment results (`rv wandb pull`); `pip install wandb`
+The **agent runtime (Claude Code)** is the ONLY thing that must be present. There is
+**no required API key**. With the runtime installed and zero keys, `rv check` is
+GREEN (exit 0) — you can start immediately.
 
-### Credentials
+Everything else is a **feature** you unlock when you need it. A missing feature key is
+never a failure — it is simply **locked until you add the key**.
 
-All API keys are resolved in this order (highest priority first):
+| Feature | Unlocks | Get a key / access |
+|---|---|---|
+| **Provider API key(s)** | API-model experiments (any ONE provider) | `ANTHROPIC_API_KEY` → https://console.anthropic.com/settings/keys · `OPENAI_API_KEY` → https://platform.openai.com/api-keys |
+| **s2** | `rv research find` retrieval | https://www.semanticscholar.org/product/api |
+| **asta** | `rv research find --deep` | https://share.hsforms.com/1L4hUh20oT3mu8iXJQMV77w3ioxm |
+| **wandb** | experiment observability + `rv wandb pull` | https://wandb.ai/settings |
+| **zotero** | `rv cite` | https://www.zotero.org/settings/keys |
+| **compute** | remote-cluster experiments | run `rv compute init` |
 
-1. **Environment variable** — `export ANTHROPIC_API_KEY=sk-ant-…`  
+> **asta note:** the access request needs an **institutional email (not a personal
+> gmail)** — state your institution at the form. See allenai.org/asta/resources/mcp.
+
+Provider keys are **provider-plural** — Anthropic, OpenAI, and others. Any one unlocks
+API-model experiments; you can skip them entirely if you run local models or do
+lit-review only.
+
+### Guided setup — `rv onboard`
+
+```bash
+rv onboard          # walk every feature: explain, show the form, add the key
+```
+
+`rv onboard` is **idempotent** — re-run it any time; satisfied steps are skipped. At an
+interactive terminal it reads each secret with a hidden prompt (`getpass`, never echoed)
+and stores it in your **system keyring** — never a plaintext `.env`. In a non-interactive
+shell (or with `rv onboard --print`) it prints the exact remediation steps instead.
+
+### Credentials — resolution order
+
+Every key resolves in this order (highest priority first):
+
+1. **Environment variable** — e.g. `export ANTHROPIC_API_KEY=sk-ant-…`
    (session-scoped; add to your shell profile to persist)
+2. **System keyring** (service `research-vault`) — written by `rv onboard`, or manually
+   `keyring set research-vault anthropic-api-key`
 
-2. **System keyring** — `keyring set research_vault ANTHROPIC_API_KEY`  
-   (persists across sessions; requires the `keyring` package)
-
-Same pattern applies to other keys: `ZOTERO_KEY` (service `research_vault`) and `WANDB_API_KEY` (service `research-vault`).
-
-`rv check` reports which source resolved each key so you can verify the provisioning path.
+`rv check` reports which source resolved each key, and points to `rv onboard` for any
+capability still locked.
 
 ## Compute onboarding — DECLARE → DISCOVER
 
@@ -327,6 +353,7 @@ to regenerate the agent hat files.
 
 | Verb | When to use |
 |------|-------------|
+| `rv onboard` | Guided, idempotent setup — add the keys that unlock features |
 | `rv check` | Verify prerequisites before starting |
 | `rv dag run <manifest>` | Start a research loop |
 | `rv dag tick <run-id>` | Advance the loop after a completion |

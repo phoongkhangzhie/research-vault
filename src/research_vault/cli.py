@@ -298,14 +298,40 @@ _VERB_REGISTRY: dict[str, dict] = {
         "module": "research_vault.check",
         "when_to_use": (
             "When you need to verify prerequisites before running any research loop. "
-            "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
-            "Toolkit Tier-1 (portable pip defaults), Tier-2 (GPU/local inference), "
-            "asta (optional), Zotero/ZOTERO_KEY (optional), W&B (optional). "
+            "The agent runtime (Claude CLI) is the ONLY hard requirement — there is no "
+            "required API key. Provider keys, s2, asta, W&B, Zotero, and compute are "
+            "FEATURE-REQUIRED: each shows 'locked' until you add it, never a FAIL. "
+            "Also reports Toolkit Tier-1 (core) + Tier-2 (GPU/local). "
             "Run `rv check` at the start of every new session or after environment changes. "
-            "Exit 0 = all required present; exit 1 = missing prerequisites. "
-            "Run `rv bootstrap` if Tier-1 packages are missing."
+            "Exit 0 = the runtime is present; exit 1 only if the runtime is missing. "
+            "Run `rv onboard` for a guided setup of the locked features; "
+            "`rv bootstrap` if Tier-1 packages are missing. "
+            "Anti-pattern: do NOT treat a locked feature as a failure — a missing "
+            "provider/s2/wandb/zotero key never fails the check; it just gates that one "
+            "capability until you run `rv onboard`."
         ),
         "sr": "SR-5",
+    },
+    "onboard": {
+        "module": "research_vault.onboard",
+        "when_to_use": (
+            "When a fresh adopter needs a guided, idempotent first-run setup — the "
+            "front door that turns `rv check`'s locked features green. Walks runtime → "
+            "provider key(s) → s2 → asta → wandb → zotero → compute; explains what each "
+            "unlocks, shows its request-form URL, and (at a TTY) reads secrets via "
+            "getpass and stores them in the system keyring under the unified registry "
+            "SSOT — so `rv check` and the runtime read them back. Re-run any time: "
+            "satisfied steps are skipped (state is re-derived from `rv check`, no state "
+            "file). Use `rv onboard --print` to print remediation steps instead of "
+            "prompting (or in a non-TTY). "
+            "Anti-pattern: do NOT hand-write a plaintext `.env` of API keys — `rv "
+            "onboard` stores them in the OS keyring (never echoed, never a file); the "
+            "runtime + `rv check` resolve them from there. "
+            "Anti-pattern: do NOT `keyring set research_vault ...` (underscore) — the "
+            "unified service is `research-vault` (hyphen); `rv onboard` uses the right "
+            "one automatically."
+        ),
+        "sr": "SR-ONBOARD",
     },
     # --- SR-PKG ---
     "bootstrap": {
@@ -576,7 +602,7 @@ _VERB_REGISTRY: dict[str, dict] = {
 # Phase grouping for `rv help` display — render-time only.
 # Collision-safe: groups reference verb names; do not alter the registry order.
 _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
-    ("Setup",        ["init", "check", "bootstrap", "project", "wt", "git-discipline", "git-health"]),
+    ("Setup",        ["init", "onboard", "check", "bootstrap", "project", "wt", "git-discipline", "git-health"]),
     ("Lit-review",   ["research", "cite", "review"]),
     ("Experiment",   ["experiment", "dag", "result", "plan", "wandb", "compute", "doctor"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS

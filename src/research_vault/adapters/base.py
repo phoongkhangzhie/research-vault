@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
 
 from ..config import Config
+from ..keys import KEYRING_SERVICE as _KEYRING_SERVICE
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +292,9 @@ class EnvSecretStore:
     first, then a clear error is surfaced).
     """
 
-    _SERVICE = "research-vault"
+    # Service name is the registry SSOT (F4) — one place defines it, so a key
+    # written by `rv onboard` under this service is read back here.
+    _SERVICE = _KEYRING_SERVICE
 
     def __init__(self) -> None:
         pass
