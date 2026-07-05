@@ -36,10 +36,21 @@ from .base import (
 
 
 def __getattr__(name: str):  # noqa: ANN001
-    """PEP 562 lazy module attribute — resolves RemoteBackend on first access."""
+    """PEP 562 lazy module attribute — resolves heavy/optional members on first access.
+
+    ModelClient / ObservabilityError are resolved lazily so importing this package
+    never imports ``model_client``. The normal reach is ``AdapterSet.model``; these
+    exports are for direct typing/use.
+    """
     if name == "RemoteBackend":
         from .remote import RemoteBackend  # noqa: PLC0415
         return RemoteBackend
+    if name == "ModelClient":
+        from .model_client import ModelClient  # noqa: PLC0415
+        return ModelClient
+    if name == "ObservabilityError":
+        from .model_client import ObservabilityError  # noqa: PLC0415
+        return ObservabilityError
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -52,5 +63,7 @@ __all__ = [
     "LocalSubprocess",
     "EnvSecretStore",
     "load_adapters",
-    "RemoteBackend",  # Available lazily via __getattr__
+    "RemoteBackend",       # Available lazily via __getattr__
+    "ModelClient",         # Available lazily via __getattr__ (SR-MODEL-SEAM)
+    "ObservabilityError",  # Available lazily via __getattr__ (SR-MODEL-SEAM)
 ]
