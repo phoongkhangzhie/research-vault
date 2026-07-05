@@ -163,13 +163,15 @@ class TestComputeInit:
 
         Leakage gate: the manifest is publish-adjacent; credential values must
         NOT appear in it. Only FILL placeholders for the user-supplied address
-        bits — and, since feat/secrets-forward, forwarded env-var NAMES.
+        bits.
 
         Names-not-values: ``secrets_forward`` legitimately holds env-var NAMES
-        (e.g. ``WANDB_API_KEY``) — a name is not a credential (that is the whole
-        security model). Those validated names are excised before the value scan
-        so the gate still catches real secrets (``sk-ant-…``, ``KEY=value``
-        assignments) everywhere else in the manifest.
+        (e.g. ``WANDB_API_KEY``) — a name is not a credential.  We validate each
+        seed name then structurally DROP the ``secrets_forward`` list from the
+        parse tree before re-serialising for the value scan.  This removes only the
+        legitimate list entry; a credential VALUE keyed elsewhere (e.g. under a
+        profile key like ``"WANDB_API_KEY": "<token>"```) survives the scan and is
+        caught by the forbidden-pattern check.
         """
         import json as _json
         import re as _re
@@ -178,16 +180,19 @@ class TestComputeInit:
         cmd_init(cfg)
         content = _manifest_path(cfg).read_text(encoding="utf-8")
 
-        # Excise validated secrets_forward NAMES (names-not-values) before scan.
+        # Structural removal: validate every forwarded name, then drop the list.
         data = _json.loads(content)
-        scan = content
         for prof in data.get("backends", {}).get("profiles", {}).values():
-            for name in prof.get("secrets_forward", []) or []:
+            for name in (prof.get("secrets_forward") or []):
                 validate_secret_name(name)  # every seed must be a bare env-var name
-                scan = scan.replace(_json.dumps(name), '""')
+            prof.pop("secrets_forward", None)  # drop ONLY the legit list, not a global string
+        scan = _json.dumps(data, indent=2)
 
         # Credential VALUE patterns that must NOT appear anywhere else.
-        forbidden = ["password", "sk-ant-", "wandbapikey"]
+        forbidden = [
+            "api_key", "password", "token", "sk-ant-",
+            "ANTHROPIC_API_KEY", "WANDB_API_KEY", "wandbapikey",
+        ]
         for pattern in forbidden:
             assert pattern.lower() not in scan.lower(), (
                 f"Secret pattern {pattern!r} found in scaffold manifest — leakage violation"
@@ -195,6 +200,52 @@ class TestComputeInit:
         # No literal NAME=value credential assignment anywhere (the leak shape).
         assert not _re.search(r"[A-Z_]*(?:API_KEY|TOKEN|PASSWORD)[A-Z_]*\s*=\s*\S", scan), (
             "a NAME=value credential assignment leaked into the scaffold manifest"
+        )
+
+    def test_init_no_secret_literals_planted_value_caught(self, cfg: Config) -> None:
+        """Regression: a credential VALUE keyed under a forwarded name must redden the gate.
+
+        The loosened (global string-excise) gate had a hole: planting
+        ``{"WANDB_API_KEY": "<40-hex>"}`` in a profile dict would have the key
+        string excised from the whole document, blinding the value scan.  The
+        structural-drop fix closes this — the key survives in the scan (it is not
+        in ``secrets_forward``), so the forbidden pattern is found and the gate
+        blocks.
+
+        This test plants exactly that scenario and asserts the check FAILS (i.e.
+        ``pytest.raises(AssertionError)``), proving the leak is caught.
+        """
+        import json as _json
+        import re as _re
+        from research_vault.adapters.secret_forward import validate_secret_name
+        from research_vault.compute import cmd_init, _manifest_path
+        cmd_init(cfg)
+        manifest_path = _manifest_path(cfg)
+        data = _json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        # Plant a credential value keyed under a forwarded name — the reviewer-demonstrated attack.
+        profiles = data.get("backends", {}).get("profiles", {})
+        first_prof = next(iter(profiles.values()))
+        first_prof["WANDB_API_KEY"] = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"  # 40-hex value
+        manifest_path.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+
+        # Run the structural-drop gate logic inline and assert it catches the leak.
+        content = manifest_path.read_text(encoding="utf-8")
+        data2 = _json.loads(content)
+        for prof in data2.get("backends", {}).get("profiles", {}).values():
+            for name in (prof.get("secrets_forward") or []):
+                validate_secret_name(name)
+            prof.pop("secrets_forward", None)
+        scan = _json.dumps(data2, indent=2)
+
+        forbidden = [
+            "api_key", "password", "token", "sk-ant-",
+            "ANTHROPIC_API_KEY", "WANDB_API_KEY", "wandbapikey",
+        ]
+        found = [p for p in forbidden if p.lower() in scan.lower()]
+        assert found, (
+            f"Gate missed planted credential — the WANDB_API_KEY key should have been "
+            f"caught but was not.  scan excerpt: {scan[:500]}"
         )
 
     def test_init_detects_sbatch_locally(self, cfg: Config) -> None:
