@@ -1,3 +1,33 @@
+## 2026-07-04 (SR-LR-POLISH: lit-review loop polish — F12/F14/F15/F16+F17)
+
+### Done
+- S1/F12: `_normalize_paper_id_for_asta()` shim in `research.py`; bare arXiv/DOI ids
+  scheme-prefixed before asta calls; zero-result hint to stderr when normalized.
+- S2/F14: Fixed 3 wrong-order `rv review expand <project> <scope>` → correct form
+  in coverage-gate label, OKF note body, and parser description.
+- S3/F15: Hardened `_parse_new_citekeys_from_text` (case-insensitive, whitespace-tolerant);
+  added `_count_corpus_data_rows`; green-but-vacuous guard in `cmd_expand` — corpus with
+  annotation rows but 0 [NEW] parsed → loud ValueError, no 0-relate phase2-dag.json written.
+- S4/F16+F17: `coverage_report(project, scope, *, config)` sourced from frozen `_corpus.md`,
+  identity by `citekey:` frontmatter field (filename-agnostic). `rv review <project> coverage
+  <scope>` verb added. `cmd_expand` emits coverage one-liner. `review_critic_tips` axis-2
+  updated to reference the verb. Coverage-gate label gains self-check instruction.
+- PR #100 open on feat/lr-polish. Reviewer gate: Argus.
+
+### Decisions
+- F17: `citekey:` frontmatter field is identity; filename stem is fallback only. Prevents
+  false-orphan on descriptive filenames like `zheng2023-pride-mc-selectors.md`.
+- F16 source-of-truth: `_corpus.md` is the frozen manifest; unmaterialized = in corpus but
+  no matching lit note.
+- F15: truly empty corpus (0 annotation rows) still degrades gracefully to direct synthesize;
+  only rows-present-but-none-NEW is the error case.
+
+### Open / next
+- CI check-run API not accessible with current token (403) — verify green via Actions UI.
+- Argus review pending on PR #100.
+
+---
+
 ## 2026-07-04 (SR-PKG: batteries-included research toolkit)
 
 ### Done

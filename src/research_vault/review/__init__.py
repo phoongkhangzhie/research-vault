@@ -69,6 +69,180 @@ def _review_artifact_dir(project: str, scope_id: str, cfg: Config) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Coverage report (F16+F17) — deterministic, keyed by citekey
+# ---------------------------------------------------------------------------
+
+def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
+    """Return ALL citekeys in _corpus.md (both [NEW] and [IN-CORPUS:*]).
+
+    Used by coverage_report as the source-of-truth key set.
+    The corpus is the frozen manifest — it is always right.
+
+    sr: SR-LR-1
+    """
+    if not corpus_path.exists():
+        return []
+    text = corpus_path.read_text(encoding="utf-8")
+    citekeys: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cols = [c.strip() for c in stripped.split("|") if c.strip()]
+        if len(cols) < 2:
+            continue
+        annotation = cols[0]
+        # Both [NEW] and [IN-CORPUS:*] rows carry a citekey in column 2
+        if annotation.upper() == "[NEW]" or re.match(r"^\[IN-CORPUS:", annotation, re.IGNORECASE):
+            citekey = cols[1]
+            if re.match(r"^[A-Za-z0-9_:\-\.]+$", citekey):
+                citekeys.append(citekey)
+    return citekeys
+
+
+def _index_literature_notes_by_citekey(literature_dir: Path) -> dict[str, Path]:
+    """Build a citekey → note-path index from the project's literature/ OKF dir.
+
+    F17: identity is the ``citekey:`` frontmatter field (filename-agnostic).
+    Falls back to the filename stem ONLY if the field is absent or empty.
+    This allows descriptive filenames like ``zheng2023-pride-mc-selectors.md``
+    while matching the corpus citekey ``zheng2023-pride`` without false-orphaning.
+
+    Returns:
+        dict mapping citekey (str) → Path of the corresponding literature note.
+        If literature_dir does not exist, returns {}.
+    """
+    if not literature_dir.exists():
+        return {}
+
+    index: dict[str, Path] = {}
+    for note_path in sorted(literature_dir.glob("*.md")):
+        try:
+            text = note_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fields, _ = _parse_frontmatter(text)
+        # F17: prefer the citekey: field over the filename stem
+        citekey = (fields.get("citekey") or "").strip()
+        if not citekey:
+            citekey = note_path.stem
+        index[citekey] = note_path
+    return index
+
+
+def _collect_moc_citekey_mentions(mocs_dir: Path) -> set[str]:
+    """Collect all citekeys mentioned in any mocs/*.md file.
+
+    Used for orphan detection: a citekey that appears in at least one MOC
+    region is NOT an orphan.  A cheap text scan — we look for citekey-like
+    tokens (matching the same pattern as corpus citekeys) anywhere in the
+    MOC body.  A mention anywhere in the file counts.
+
+    Returns a frozenset of mentioned citekeys (strings).
+    """
+    mentions: set[str] = set()
+    if not mocs_dir.exists():
+        return mentions
+    for moc_path in sorted(mocs_dir.glob("*.md")):
+        try:
+            text = moc_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        # Scan for citekey-like tokens: alphanumeric + _ : - .
+        # A citekey appears when it follows a [ or is preceded by whitespace/pipe
+        for token in re.findall(r"\b([A-Za-z][A-Za-z0-9_:\-\.]{2,})\b", text):
+            mentions.add(token)
+    return mentions
+
+
+def coverage_report(
+    project: str,
+    scope: str,
+    *,
+    config: Config | None = None,
+) -> dict[str, Any]:
+    """Deterministic corpus-coverage check keyed by citekey (F16+F17).
+
+    Source-of-truth: the frozen ``_corpus.md`` manifest.  Identity of literature
+    notes is the ``citekey:`` frontmatter field (filename-agnostic — F17 fix).
+
+    Reports per citekey:
+      - ``materialized``:   a ``literature/`` note with matching citekey: field exists.
+      - ``unmaterialized``: corpus citekey with no matching note (gap — F16).
+      - ``orphan``:         materialized but absent from every ``mocs/`` region.
+      - ``mention_only``:   (placeholder — detection not yet implemented; [] always).
+      - ``counts``:         summary counts for all four categories.
+
+    Why filename-agnostic?
+      Descriptive filenames like ``zheng2023-pride-mc-selectors.md`` carrying
+      ``citekey: zheng2023-pride`` must match corpus entry ``zheng2023-pride``
+      without being flagged orphan.  Stem-based matching was the original bug (F17).
+
+    Args:
+        project: project slug (must be in config registry).
+        scope:   review scope identifier (used to locate ``_corpus.md``).
+        config:  optional Config (loaded if None).
+
+    Returns:
+        dict with keys:
+          corpus_citekeys:   list[str]   — all citekeys in _corpus.md
+          materialized:      list[str]   — corpus citekeys with a matching lit note
+          unmaterialized:    list[str]   — corpus citekeys with no matching lit note
+          orphan:            list[str]   — materialized citekeys absent from all MOCs
+          mention_only:      list[str]   — placeholder (always [])
+          counts:            dict        — summary counts
+
+    surface, never green-and-empty: returns structured data always;
+    empty corpus → empty lists, not None.
+
+    sr: SR-LR-1
+    """
+    cfg = config or load_config()
+    project_notes_dir = cfg.project_notes_dir(project)
+    review_dir = _review_artifact_dir(project, scope, cfg)
+    corpus_path = review_dir / "_corpus.md"
+    literature_dir = project_notes_dir / "literature"
+    mocs_dir = project_notes_dir / "mocs"
+
+    # Source-of-truth: corpus citekeys (all annotated rows)
+    corpus_citekeys: list[str] = _parse_corpus_citekeys(corpus_path)
+
+    # Index literature notes by citekey: field (F17 — filename-agnostic)
+    lit_index: dict[str, Path] = _index_literature_notes_by_citekey(literature_dir)
+
+    # Index MOC mentions for orphan detection
+    moc_mentions: set[str] = _collect_moc_citekey_mentions(mocs_dir)
+
+    materialized: list[str] = []
+    unmaterialized: list[str] = []
+    orphan: list[str] = []
+
+    for ck in corpus_citekeys:
+        if ck in lit_index:
+            materialized.append(ck)
+            # Orphan: materialized but absent from all MOC files
+            if ck not in moc_mentions:
+                orphan.append(ck)
+        else:
+            unmaterialized.append(ck)
+
+    return {
+        "corpus_citekeys": corpus_citekeys,
+        "materialized": materialized,
+        "unmaterialized": unmaterialized,
+        "orphan": orphan,
+        "mention_only": [],  # placeholder for future MENTION-ONLY detection
+        "counts": {
+            "corpus": len(corpus_citekeys),
+            "materialized": len(materialized),
+            "unmaterialized": len(unmaterialized),
+            "orphan": len(orphan),
+            "mention_only": 0,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Phase-1 DAG manifest builder
 # ---------------------------------------------------------------------------
 
@@ -201,7 +375,8 @@ def _build_phase1_manifest(
         "label": (
             "Gate 2: Approve discovered corpus (_corpus.md + _saturation.md); "
             "assert every [NEW] citekey has a relate slot or is recorded MENTION-ONLY. "
-            "Then run: rv review expand <project> <scope> to emit Phase-2."
+            "assert coverage via `rv review <project> coverage <scope>` — do not eyeball. "
+            "Then run: rv review <project> expand <scope> to emit Phase-2."
         ),
         "needs": [_afterok("review-snowball")],
     })
@@ -223,6 +398,34 @@ def _build_phase1_manifest(
 # Phase-2 DAG manifest builder
 # ---------------------------------------------------------------------------
 
+def _count_corpus_data_rows(text: str) -> int:
+    """Count annotation-bearing table rows in a _corpus.md text.
+
+    A data row is a markdown table row whose first non-empty column starts with
+    ``[`` — i.e. it carries an annotation like ``[NEW]`` or ``[IN-CORPUS:...]``.
+    Header rows (e.g. ``| Annotation | Citekey | Title |``) and separator rows
+    (``| --- | --- | --- |``) are excluded by this definition.
+
+    Used by cmd_expand to detect a rows-present-but-none-parseable mismatch.
+
+    sr: SR-LR-1
+    """
+    count = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        # Split on pipes and get non-empty columns
+        cols = [c.strip() for c in stripped.split("|") if c.strip()]
+        if not cols:
+            continue
+        annotation_col = cols[0]
+        # Data rows start their annotation column with [
+        if annotation_col.startswith("["):
+            count += 1
+    return count
+
+
 def _parse_new_citekeys(corpus_path: Path) -> list[str]:
     """Parse _corpus.md and return citekeys annotated [NEW] (not [IN-CORPUS:*]).
 
@@ -230,22 +433,43 @@ def _parse_new_citekeys(corpus_path: Path) -> list[str]:
       | [NEW] | citekey | title |
       | [IN-CORPUS:old2019] | old2019 | ... |
 
-    Only rows with annotation exactly ``[NEW]`` are returned as citekeys for
-    the Phase-2 fan-out.
+    Only rows with annotation exactly ``[NEW]`` (case-insensitive; tolerates
+    extra whitespace and table-pipe variants) are returned as citekeys for the
+    Phase-2 fan-out.  ``[IN-CORPUS:*]`` rows are deliberately excluded — do NOT
+    widen this to include them.
 
     sr: SR-LR-1
     """
     text = corpus_path.read_text(encoding="utf-8")
+    return _parse_new_citekeys_from_text(text)
+
+
+def _parse_new_citekeys_from_text(text: str) -> list[str]:
+    """Parse a _corpus.md text and return citekeys annotated [NEW].
+
+    Tolerates: extra whitespace in columns, mixed case ``[new]``/``[NEW]``,
+    leading/trailing spaces around the pipe delimiters, and varying column count.
+
+    Strict: only ``[NEW]`` (or case variant) passes — ``[IN-CORPUS:*]`` is excluded.
+
+    sr: SR-LR-1
+    """
     citekeys: list[str] = []
     for line in text.splitlines():
-        # Match table rows starting with | [NEW] |
-        # The annotation column is the first column; citekey is the second.
-        m = re.match(
-            r"\|\s*\[NEW\]\s*\|\s*([A-Za-z0-9_:\-\.]+)\s*\|",
-            line.strip(),
-        )
-        if m:
-            citekeys.append(m.group(1))
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        # Split on pipes, strip each column, skip empty
+        cols = [c.strip() for c in stripped.split("|") if c.strip()]
+        if len(cols) < 2:
+            continue
+        annotation = cols[0]
+        # Case-insensitive exact match on [NEW]
+        if annotation.upper() == "[NEW]":
+            citekey = cols[1]
+            # Validate: citekey must look like a valid identifier
+            if re.match(r"^[A-Za-z0-9_:\-\.]+$", citekey):
+                citekeys.append(citekey)
     return citekeys
 
 
@@ -452,7 +676,7 @@ def cmd_new(
         "<!--   _corpus.md    — discovered [NEW] citekey list (snowball output) -->\n"
         "<!--   _saturation.md — saturation curve (rounds × new citekeys) -->\n"
         "<!-- Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json -->\n"
-        "<!-- After coverage-gate: rv review expand <project> <scope> → Phase-2 -->\n"
+        "<!-- After coverage-gate: rv review <project> expand <scope> → Phase-2 -->\n"
         "\n"
         "## Review question\n\n"
         f"<!-- {question} -->\n\n"
@@ -537,7 +761,7 @@ def cmd_expand(
     ``[NEW]`` citekeys and emits one ``relate-<key>`` node per paper, joining into
     ``review-synthesize → review-coverage-critic → [HG:approve-review]``.
 
-    When to use: ``rv review expand <project> <scope>`` immediately after the
+    When to use: ``rv review <project> expand <scope>`` immediately after the
     operator approves the coverage-gate.  The Phase-2 manifest is saved as
     ``reviews/<scope>/phase2-dag.json``.
 
@@ -569,7 +793,24 @@ def cmd_expand(
             f"Run the Phase-1 review-snowball node first, then approve coverage-gate."
         )
 
-    new_citekeys = _parse_new_citekeys(corpus_path)
+    corpus_text = corpus_path.read_text(encoding="utf-8")
+    total_data_rows = _count_corpus_data_rows(corpus_text)
+    new_citekeys = _parse_new_citekeys_from_text(corpus_text)
+
+    # F15: green-but-vacuous guard — if the corpus has annotation rows but none
+    # parsed as [NEW], there is a format mismatch.  Do NOT write a 0-relate
+    # phase2-dag.json; raise loud so the operator can fix the corpus format.
+    # A truly empty corpus (0 annotation rows) still degrades gracefully (direct
+    # path to synthesize with no relate nodes — existing behavior preserved).
+    if total_data_rows > 0 and not new_citekeys:
+        raise ValueError(
+            f"rv review expand: _corpus.md has {total_data_rows} annotation row(s) "
+            f"at {corpus_path} but none parsed as [NEW] citekeys.\n"
+            f"Expected row format:  | [NEW] | citekey | title |\n"
+            f"Rows annotated [IN-CORPUS:*] are excluded from the Phase-2 fan-out by design.\n"
+            f"If all papers are already in-corpus, the corpus is fully covered — "
+            f"run review-synthesize directly rather than expanding."
+        )
 
     manifest = _build_phase2_manifest(
         project=project,
@@ -590,5 +831,22 @@ def cmd_expand(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+
+    # F16+F17: one-line coverage summary so the operator sees state immediately
+    # (non-fatal — if _corpus.md is absent or literature/ doesn't exist yet,
+    # we just print zeros rather than failing the expand step)
+    import sys as _sys
+    try:
+        cov = coverage_report(project, scope_id, config=cfg)
+        c = cov["counts"]
+        _sys.stdout.write(
+            f"rv review expand: coverage — "
+            f"{c['materialized']}/{c['corpus']} materialized, "
+            f"{c['unmaterialized']} unmaterialized, "
+            f"{c['orphan']} orphan. "
+            f"Run `rv review {project} coverage {scope_id}` for the full report.\n"
+        )
+    except Exception:
+        pass  # coverage summary is advisory only; never block the expand
 
     return manifest

@@ -123,7 +123,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         "'rv review new' is the ONLY path that creates the protocol-freeze +\n"
         "saturation-curve + coverage-critic framework.\n"
         "Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json\n"
-        "After coverage-gate: rv review expand <project> <scope> → Phase-2"
+        "After coverage-gate: rv review <project> expand <scope> → Phase-2"
     )
     if parent is not None:
         p = parent.add_parser(
@@ -369,6 +369,30 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         ),
     )
 
+    # ── coverage ──────────────────────────────────────────────────────────────
+    coverage_p = sub.add_parser(
+        "coverage",
+        help=(
+            "Deterministic corpus-coverage check keyed by citekey: field (F16+F17). "
+            "Source-of-truth: the frozen _corpus.md manifest. "
+            "Identity: literature note citekey: frontmatter field (NOT filename stem). "
+            "Reports: materialized (lit note exists), unmaterialized (missing), "
+            "orphan (materialized but absent from all mocs/). "
+            "When to use: run `rv review <project> coverage <scope>` to verify "
+            "corpus coverage after Phase-2 relate-<key> nodes complete and before "
+            "approve-review. Also: run from the coverage-gate node to confirm state. "
+            "Anti-pattern: do NOT hand-stem-match filenames to corpus citekeys — "
+            "a descriptive filename like zheng2023-pride-mc-selectors.md carrying "
+            "citekey: zheng2023-pride is materialized, not orphan; stem-matching "
+            "gives false-orphan flags."
+        ),
+    )
+    coverage_p.add_argument(
+        "scope",
+        metavar="<scope>",
+        help="Review scope identifier (same as used in rv review new).",
+    )
+
     return p
 
 
@@ -399,11 +423,14 @@ def run(args: argparse.Namespace) -> int:
         return _run_gap_close(args)
     elif subcommand == "gap-promote":
         return _run_gap_promote(args)
+    elif subcommand == "coverage":
+        return _run_coverage(args)
     else:
         print(
             "rv review: missing subcommand. "
             "Use `rv review <project> new <scope> --question '...'`, "
             "`rv review <project> expand <scope>`, "
+            "`rv review <project> coverage <scope>`, "
             "`rv review <project> list`, `rv review <project> tips`, "
             "`rv review <project> gap-scan`, `rv review <project> gap-scope [--target …]`, "
             "`rv review <project> gap-route [--target …]` (alias for gap-scope), "
@@ -721,6 +748,48 @@ def _run_gap_close(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"rv review gap-close: error: {e}", file=sys.stderr)
         return 1
+
+
+def _run_coverage(args: argparse.Namespace) -> int:
+    """Report deterministic corpus-coverage keyed by citekey: field (F16+F17)."""
+    from research_vault.config import load_config
+    from research_vault.review import coverage_report
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv review coverage: config error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        report = coverage_report(args.project, args.scope, config=cfg)
+    except Exception as e:
+        print(f"rv review coverage: error: {e}", file=sys.stderr)
+        return 1
+
+    c = report["counts"]
+    print(
+        f"rv review coverage ({args.project}/{args.scope}): "
+        f"{c['corpus']} corpus citekey(s) — "
+        f"{c['materialized']} materialized, "
+        f"{c['unmaterialized']} unmaterialized, "
+        f"{c['orphan']} orphan"
+    )
+
+    if report["unmaterialized"]:
+        print(f"\nUnmaterialized ({len(report['unmaterialized'])}):")
+        for ck in report["unmaterialized"]:
+            print(f"  [MISSING] {ck}")
+
+    if report["orphan"]:
+        print(f"\nOrphan ({len(report['orphan'])}):")
+        for ck in report["orphan"]:
+            print(f"  [ORPHAN]  {ck}")
+
+    if report["materialized"] and not report["unmaterialized"] and not report["orphan"]:
+        print("  All corpus citekeys materialized and referenced in MOCs.")
+
+    return 0
 
 
 def _run_gap_promote(args: argparse.Namespace) -> int:
