@@ -201,7 +201,8 @@ def _build_phase1_manifest(
         "label": (
             "Gate 2: Approve discovered corpus (_corpus.md + _saturation.md); "
             "assert every [NEW] citekey has a relate slot or is recorded MENTION-ONLY. "
-            "Then run: rv review expand <project> <scope> to emit Phase-2."
+            "assert coverage via `rv review <project> coverage <scope>` — do not eyeball. "
+            "Then run: rv review <project> expand <scope> to emit Phase-2."
         ),
         "needs": [_afterok("review-snowball")],
     })
@@ -452,7 +453,7 @@ def cmd_new(
         "<!--   _corpus.md    — discovered [NEW] citekey list (snowball output) -->\n"
         "<!--   _saturation.md — saturation curve (rounds × new citekeys) -->\n"
         "<!-- Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json -->\n"
-        "<!-- After coverage-gate: rv review expand <project> <scope> → Phase-2 -->\n"
+        "<!-- After coverage-gate: rv review <project> expand <scope> → Phase-2 -->\n"
         "\n"
         "## Review question\n\n"
         f"<!-- {question} -->\n\n"
@@ -537,7 +538,7 @@ def cmd_expand(
     ``[NEW]`` citekeys and emits one ``relate-<key>`` node per paper, joining into
     ``review-synthesize → review-coverage-critic → [HG:approve-review]``.
 
-    When to use: ``rv review expand <project> <scope>`` immediately after the
+    When to use: ``rv review <project> expand <scope>`` immediately after the
     operator approves the coverage-gate.  The Phase-2 manifest is saved as
     ``reviews/<scope>/phase2-dag.json``.
 

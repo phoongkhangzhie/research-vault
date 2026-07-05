@@ -123,7 +123,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         "'rv review new' is the ONLY path that creates the protocol-freeze +\n"
         "saturation-curve + coverage-critic framework.\n"
         "Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json\n"
-        "After coverage-gate: rv review expand <project> <scope> → Phase-2"
+        "After coverage-gate: rv review <project> expand <scope> → Phase-2"
     )
     if parent is not None:
         p = parent.add_parser(
