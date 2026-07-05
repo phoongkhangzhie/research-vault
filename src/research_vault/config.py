@@ -240,6 +240,10 @@ class Config:
         """Return all registered project slugs."""
         return list(self.projects.keys())
 
+    def project_edges_path(self) -> "Path":
+        """Return the path to the edge store JSON file (state_dir/project_edges.json)."""
+        return self.state_dir / "project_edges.json"
+
     def __repr__(self) -> str:  # pragma: no cover
         return f"Config(instance_root={self.instance_root!r}, projects={list(self.projects)!r})"
 

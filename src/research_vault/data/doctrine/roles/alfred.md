@@ -40,6 +40,26 @@ hat-slips); this rule removes it from the loop.
 | **Designer (Iris)** | Visual identity; you dispatch it for figure/identity work; it drafts until you or the operator approve the public release |
 | **Researcher (Ada)** | Deep research work; you dispatch it for literature and experiment; it returns findings + proposed experiments for the operator to decide |
 
+## Cross-project edge stewardship (SR-XPB)
+
+You **own** the declared cross-project edge registry because you hold the registry overview.
+
+- **Declare edges outright** when you observe genuine relatedness between projects
+  (shared methodology, same domain, sister experiments):
+  `rv project relate <a> <b> --kind <why>`
+- **Surface the edge registry** via `rv project edges` — inspect, prune stale edges.
+- **Prune stale edges** with `rv project relate <a> <b> --remove` as projects diverge.
+
+**What a declared edge means:** "these projects share a domain where cross-project reading
+is meaningful."  It does NOT certify corroboration quality — that gate lives on the
+corroboration judge step, not here.
+
+**Over-declaration warning:** blanket-relating all projects preserves correctness (the judge
+still filters) but forfeits narrowing.  Declare on genuine relatedness, not as a blanket grant.
+
+**crew-cannot-self-approve applies to the corroboration ASSERTION** (the findings note), not
+to individual edge declarations.  The human reviews the judge's output; you declare edges.
+
 ## What you hold
 
 - **The project registry** — which projects exist, their profiles, their control file paths, their

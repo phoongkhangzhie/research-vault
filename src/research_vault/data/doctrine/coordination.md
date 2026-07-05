@@ -217,6 +217,42 @@ When `reads:` is absent the suffix is omitted. A runtime that logs tool-calls co
 actual-reads vs declared and emit an "out-of-scope read" signal — that is a runtime feature,
 not an RV one. RV only *enables* it by surfacing `reads:` on the frontier.
 
+## Cross-project edge stewardship — hub responsibility (SR-XPB)
+
+The hub **owns** edge-declaration because it holds the registry overview.  Three rules:
+
+**(a) The hub declares edges outright.**  Use `rv project relate <a> <b> --kind <why>` to
+grant intentional cross-project reach.  Surface and inspect all declared edges via
+`rv project edges`.  Prune stale edges with `rv project relate <a> <b> --remove`.
+Crew members may propose a new edge (as a CONTROL bus request); the hub declares it.
+
+**(b) Human-go binds the *assertion*, not the reach-permission.**  A declared edge is a
+coordination signal — "these projects share a domain where cross-project reading is
+meaningful."  It does not certify scientific validity.  The `crew-cannot-self-approve`
+rule applies to the **corroboration output** (the findings note carrying `corroborated_by:`
+frontmatter), not to each individual edge declaration.  The human reviews the judge's
+output, not every edge.
+
+**(c) Over-declaration warning.**  Blanket-relating all projects to each other preserves
+correctness (the judge step still filters) but forfeits the narrowing and efficiency
+benefit of the declared-edge gate.  A corroboration search over 50 projects is
+semantically noisier and slower than one over 2 declared peers.  Declare on genuine
+relatedness only.  Ask: do these projects share methodology, domain, or data such that
+findings in one plausibly inform findings in the other?
+
+### The corroborate → judge → assert loop
+
+```
+rv research corroborate <claim> --from <project>     # search declared peers; emit candidates
+rv dag brief <run-id> <judge-node-id>                # emit brief for the judge agent
+# human reviews judge output; accepts or rejects candidates
+```
+
+The scientific gate lives on the **findings note**, not on the edge.  A candidate that
+passes the judge becomes a `corroborated_by:` entry in the findings note.  Rejected
+candidates are dropped with a recorded reason.  Anti-false-positive: rank narrows,
+judge confirms, human reviews — NEVER assert from rank alone.
+
 ## Project context — read fresh, never baked
 
 The crew is **one general vault-level set** (charter + role, built once at `rv init`).

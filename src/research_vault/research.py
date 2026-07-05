@@ -541,12 +541,32 @@ def cmd_references(args: argparse.Namespace) -> int:
 
 
 def cmd_corroborate(args: argparse.Namespace) -> int:
-    """corroborate: search peer projects' OKF notes for evidence matching a claim.
+    """corroborate: search DECLARED peer projects' OKF notes for evidence matching a claim.
 
-    Free cross-project reads — no gate, no disclosure scoping.
-    Everything in research-vault is public by construction.
+    SR-XPB: corroboration is gated to hub-declared cross-project edges.  The search
+    universe is ``peers_of(from_slug)`` — NOT all registered projects.
+
+    ``--from`` is REQUIRED.  If the originating project has no declared peers, a
+    discovery nudge is printed and 0 is returned (not an error — just no declared
+    reach yet).
+
+    Results are ranked by TF-IDF cosine similarity (Jaccard fallback if sklearn
+    is absent).  Use ``--emit <path>`` to write a candidates JSON for the judge node.
+
+    Anti-pattern: do NOT use ``rv research corroborate`` across undeclared projects —
+    declare an edge first via ``rv project relate <from> <peer> --kind <why>``.
     """
+    import json as _json
     from .cross_project import corroborate_across_projects
+
+    from_slug = getattr(args, "from_project", None)
+    if not from_slug:
+        print(
+            "rv research corroborate: --from <project> is REQUIRED (SR-XPB D3).\n"
+            "  Example: rv research corroborate \"<claim>\" --from <your-project>",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
         cfg = load_config()
@@ -554,12 +574,41 @@ def cmd_corroborate(args: argparse.Namespace) -> int:
         print(f"rv research corroborate: config error: {e}", file=sys.stderr)
         return 1
 
-    hits = corroborate_across_projects(
-        claim=args.claim,
-        cfg=cfg,
-        from_slug=getattr(args, "from_project", None),
-        against_slugs=getattr(args, "against_projects", None),
-    )
+    # Validate from_slug exists
+    try:
+        cfg.project(from_slug)
+    except KeyError as e:
+        print(f"rv research corroborate: {e}", file=sys.stderr)
+        return 1
+
+    against_slugs = getattr(args, "against_projects", None)
+    min_score = getattr(args, "min_score", 0.05)
+    top_k = getattr(args, "top_k", 10)
+    emit_path = getattr(args, "emit", None)
+
+    # Check declared peers before the call — print nudge if none
+    from .project_edges import peers_of as _peers_of
+    declared_peers = _peers_of(cfg, from_slug)
+    if not declared_peers and against_slugs is None:
+        print(
+            f"rv research corroborate: no declared edges for {from_slug!r}.\n"
+            f"  The hub can declare one:  rv project relate {from_slug} <peer> --kind <why>\n"
+            f"  Then re-run:  rv research corroborate \"{args.claim}\" --from {from_slug}"
+        )
+        return 0
+
+    try:
+        hits = corroborate_across_projects(
+            claim=args.claim,
+            cfg=cfg,
+            from_slug=from_slug,
+            against_slugs=against_slugs,
+            min_score=min_score,
+            top_k=top_k,
+        )
+    except ValueError as e:
+        print(f"rv research corroborate: {e}", file=sys.stderr)
+        return 1
 
     if not hits:
         print(f"No corroboration found for: {args.claim!r}")
@@ -567,10 +616,35 @@ def cmd_corroborate(args: argparse.Namespace) -> int:
 
     print(f"{len(hits)} corroborating note(s) for: {args.claim!r}\n")
     for hit in hits:
-        print(f"  {hit['provenance']}")
-        if hit["excerpt"]:
+        score_str = f"  score={hit.get('score', 0):.3f}" if "score" in hit else ""
+        print(f"  {hit['provenance']}{score_str}")
+        if hit.get("excerpt"):
             print(f"    excerpt: {hit['excerpt']}")
     print()
+
+    # --emit: write candidates JSON for the judge node (Slice 5)
+    if emit_path:
+        candidates_obj = {
+            "claim": args.claim,
+            "from": from_slug,
+            "candidates": [
+                {
+                    "provenance": h["provenance"],
+                    "project": h["project"],
+                    "note_rel": h["note_rel"],
+                    "anchor": h.get("anchor", ""),
+                    "excerpt": h.get("excerpt", ""),
+                    "score": round(h.get("score", 0.0), 4),
+                    "ranker": h.get("ranker", "unknown"),
+                }
+                for h in hits
+            ],
+        }
+        out_path = Path(emit_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(_json.dumps(candidates_obj, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"candidates written → {emit_path}")
+
     return 0
 
 
@@ -687,20 +761,45 @@ def build_parser(
     add_p.add_argument("--force", action="store_true", help="Bypass dedup gate (logs loudly).")
     add_p.add_argument("--dry-run", action="store_true", help="Preview without writing.")
 
-    # corroborate — cross-project OKF note search (SR-XP: free cross-project reads)
+    # corroborate — declared-peer search + ranker (SR-XPB: gated to declared edges)
     corr_p = sub.add_parser(
         "corroborate",
-        help="Search peer projects' OKF notes for evidence matching a claim (SR-XP).",
+        help=(
+            "Search DECLARED peer projects' OKF notes for evidence matching a claim "
+            "(SR-XPB: gated to hub-declared cross-project edges). "
+            "--from is REQUIRED. "
+            "Anti-pattern: do NOT search undeclared projects — "
+            "use rv project relate <from> <peer> --kind <why> first."
+        ),
     )
     corr_p.add_argument("claim", help="Claim or query string to corroborate.")
     corr_p.add_argument(
         "--from", dest="from_project", default=None,
-        help="Originating project slug (excluded from search).",
+        help="REQUIRED. Originating project slug (excluded from search; gates universe to declared peers).",
     )
     corr_p.add_argument(
         "--against", dest="against_projects", nargs="+", default=None,
         metavar="SLUG",
-        help="Project slug(s) to search. Default: all registered projects except --from.",
+        help=(
+            "Project slug(s) to search. Must be declared peers of --from. "
+            "Default: all declared peers."
+        ),
+    )
+    corr_p.add_argument(
+        "--min-score", dest="min_score", type=float, default=0.05,
+        help="Minimum relevance score threshold (default 0.05).",
+    )
+    corr_p.add_argument(
+        "--top-k", dest="top_k", type=int, default=10,
+        help="Maximum number of ranked candidates to return (default 10).",
+    )
+    corr_p.add_argument(
+        "--emit", dest="emit", default=None, metavar="PATH",
+        help=(
+            "Write a candidates JSON to PATH for the judge node. "
+            "The JSON carries claim, from, and ranked candidates with "
+            "provenance + score + excerpt. Feed this to the DAG judge node via reads:."
+        ),
     )
 
     return p

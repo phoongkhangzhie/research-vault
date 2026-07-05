@@ -579,6 +579,220 @@ def _append_project_key(config_path: Path, name: str, key: str, value: str) -> N
     config_path.write_text(updated, encoding="utf-8")
 
 
+# ---------------------------------------------------------------------------
+# project relate / edges — hub-owned cross-project edge management (SR-XPB)
+# ---------------------------------------------------------------------------
+
+def cmd_relate(
+    a: str,
+    b: str,
+    kind: str | None = None,
+    *,
+    remove: bool = False,
+    config_path: Path | None = None,
+) -> int:
+    """Declare or prune a cross-project edge.
+
+    ``rv project relate <a> <b> --kind K`` is a **hub coordination act**: the hub
+    holds the registry overview and grants intentional cross-project reach by
+    declaring edges.  Human operators may also declare or prune edges.
+
+    The *scientific gate* (corroboration quality) lives downstream on the
+    corroboration assertion (the judge step), NOT here.  Declaring an edge says
+    "these projects share a domain where cross-project reading is meaningful" —
+    not "any hit is valid."
+
+    Over-declaration warning: blanket-relating all projects to each other
+    preserves correctness (the judge still filters) but forfeits the narrowing and
+    efficiency benefit of the declared-edge gate.  Declare on genuine relatedness.
+
+    Parameters
+    ----------
+    a, b:
+        Project slugs to relate or un-relate.
+    kind:
+        Required when declaring (``--remove`` absent).  Describes the genuine
+        relatedness (e.g. ``"shares-methodology"``, ``"same-domain"``).
+    remove:
+        If True, prune the edge instead of declaring it.
+    config_path:
+        Override the config file location.
+
+    Returns
+    -------
+    int — exit code (0 success, 1 error).
+    """
+    from .project_edges import add_edge, remove_edge
+    from .config import load_config
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv project relate: config error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        if remove:
+            remove_edge(cfg, a, b)
+        else:
+            if not kind:
+                print(
+                    "rv project relate: --kind is REQUIRED when declaring an edge.\n"
+                    "  Describe the genuine relatedness, e.g.:\n"
+                    "    rv project relate <a> <b> --kind shares-methodology",
+                    file=sys.stderr,
+                )
+                return 1
+            add_edge(cfg, a, b, kind)
+        return 0
+    except KeyError as e:
+        print(f"rv project relate: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"rv project relate: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_relate_suggest(
+    *,
+    top_k: int = 5,
+    config_path: Path | None = None,
+) -> int:
+    """Suggest candidate cross-project edges based on corpus similarity.
+
+    Runs the Slice-4 TF-IDF ranker across ALL project pairs' note corpora and
+    surfaces high cross-corpus-similarity pairs as candidates for the hub to
+    declare.
+
+    Prints proposals ONLY — NEVER auto-declares.  The hub inspects suggestions
+    and declares with ``rv project relate <a> <b> --kind <why>`` on chosen pairs.
+
+    Returns 0 on success, 1 on error.
+    """
+    from .config import load_config
+    from .cross_project import rank_candidates
+    from pathlib import Path as _Path
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv project relate --suggest: config error: {e}", file=sys.stderr)
+        return 1
+
+    all_slugs = cfg.all_project_slugs()
+    if len(all_slugs) < 2:
+        print("rv project relate --suggest: fewer than 2 projects registered — no pairs to rank.")
+        return 0
+
+    # Build corpus text for each project (concatenate all .md files)
+    def _project_corpus(slug: str) -> str:
+        proj = cfg.projects[slug]
+        source_dir_str = proj.get("source_dir", "")
+        if not source_dir_str:
+            return ""
+        source_dir = _Path(source_dir_str)
+        if not source_dir.exists():
+            return ""
+        parts = []
+        for note_path in sorted(source_dir.rglob("*.md")):
+            try:
+                parts.append(note_path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                pass
+        return " ".join(parts)
+
+    corpora: dict[str, str] = {slug: _project_corpus(slug) for slug in all_slugs}
+
+    # Score all pairs
+    import itertools
+    from .project_edges import load_edges, _normalise_pair
+
+    already_declared = {
+        _normalise_pair(e["a"], e["b"]) for e in load_edges(cfg)
+    }
+
+    pair_scores: list[tuple[float, str, str]] = []
+    for a, b in itertools.combinations(all_slugs, 2):
+        if _normalise_pair(a, b) in already_declared:
+            continue  # already declared — skip
+        ca, cb = corpora[a], corpora[b]
+        if not ca.strip() or not cb.strip():
+            continue
+        # Use rank_candidates: treat corpus_a as the "claim", corpus_b as a candidate
+        candidates = [{"body": cb, "excerpt": cb[:120], "anchor": "", "project": b,
+                       "note_path": "", "note_rel": "", "provenance": f"@{b}:corpus"}]
+        ranked = rank_candidates(ca, candidates, min_score=0.0, top_k=1)
+        score = ranked[0]["score"] if ranked else 0.0
+        pair_scores.append((score, a, b))
+
+    pair_scores.sort(reverse=True)
+    top = pair_scores[:top_k]
+
+    if not top:
+        print("No undeclared project pairs found (all pairs already declared, or empty corpora).")
+        return 0
+
+    print(f"Top {len(top)} candidate edge(s) by corpus similarity:")
+    print("  (proposals only — declare with: rv project relate <a> <b> --kind <why>)\n")
+    for score, a, b in top:
+        print(f"  {a} ↔ {b}   similarity={score:.3f}")
+        print(f"    → rv project relate {a} {b} --kind <describe-the-genuine-relatedness>")
+    print()
+    return 0
+
+
+def cmd_edges(
+    project: str | None = None,
+    *,
+    config_path: Path | None = None,
+) -> int:
+    """List declared cross-project edges.
+
+    ``rv project edges`` prints all declared edges.
+    ``rv project edges --project SLUG`` prints only edges involving SLUG.
+
+    Returns 0 on success, 1 on error.
+    """
+    from .project_edges import load_edges
+    from .config import load_config
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv project edges: config error: {e}", file=sys.stderr)
+        return 1
+
+    edges = load_edges(cfg)
+
+    if project:
+        # Validate the slug exists
+        try:
+            cfg.project(project)
+        except KeyError as e:
+            print(f"rv project edges: {e}", file=sys.stderr)
+            return 1
+        edges = [
+            e for e in edges
+            if e.get("a") == project or e.get("b") == project
+        ]
+
+    if not edges:
+        if project:
+            print(
+                f"No declared edges for {project!r}.\n"
+                f"  The hub can declare one:  rv project relate {project} <peer> --kind <why>"
+            )
+        else:
+            print("No declared project edges.")
+        return 0
+
+    label = f" involving {project!r}" if project else ""
+    print(f"{len(edges)} declared edge(s){label}:")
+    for e in edges:
+        print(f"  {e['a']} ↔ {e['b']}   kind={e.get('kind', '?')!r}")
+    return 0
+
+
 def _print_next_steps(name: str, source_path: Path, gd_installed: bool) -> None:
     """Print the discovery/next-steps surface after a successful `project new`."""
     print(f"\nProject {name!r} is ready at {source_path}")
@@ -638,6 +852,58 @@ def build_parser(
 
     # list — real implementation (SR-XP)
     sub.add_parser("list", help="List all registered projects (slug, code, roster, source).")
+
+    # relate — declare or prune a cross-project edge (SR-XPB)
+    relate_p = sub.add_parser(
+        "relate",
+        help=(
+            "Declare or prune a cross-project edge (hub coordination act). "
+            "``rv project relate <a> <b> --kind K`` grants intentional cross-project reach. "
+            "``rv project relate <a> <b> --remove`` prunes a stale edge. "
+            "ANTI-PATTERN: do not blanket-relate all projects — declare on genuine relatedness only."
+        ),
+    )
+    relate_p.add_argument(
+        "project_a", metavar="a", nargs="?", default=None,
+        help="First project slug. Not required when --suggest is used.",
+    )
+    relate_p.add_argument(
+        "project_b", metavar="b", nargs="?", default=None,
+        help="Second project slug. Not required when --suggest is used.",
+    )
+    relate_p.add_argument(
+        "--kind", default=None,
+        help=(
+            "REQUIRED when declaring.  Describes the genuine relatedness "
+            "(e.g. 'shares-methodology', 'same-domain', 'sister-experiment')."
+        ),
+    )
+    relate_p.add_argument(
+        "--remove", action="store_true", default=False,
+        help="Prune the declared edge instead of declaring it.",
+    )
+    relate_p.add_argument(
+        "--suggest", action="store_true", default=False,
+        help=(
+            "Suggest candidate cross-project edges based on corpus similarity. "
+            "Prints proposals only — NEVER auto-declares. "
+            "No project arguments needed when --suggest is used."
+        ),
+    )
+    relate_p.add_argument(
+        "--top-k", dest="top_k", type=int, default=5,
+        help="Number of candidate pairs to surface with --suggest (default 5).",
+    )
+
+    # edges — list declared cross-project edges (SR-XPB)
+    edges_p = sub.add_parser(
+        "edges",
+        help="List all declared cross-project edges, or those involving a specific project.",
+    )
+    edges_p.add_argument(
+        "--project", default=None,
+        help="Filter to edges involving this project slug.",
+    )
 
     # new — stand-up-a-whole-project capstone (SR-NEW)
     new_p = sub.add_parser(
@@ -702,6 +968,26 @@ def run(args: argparse.Namespace) -> int:
 
     elif args.project_cmd == "list":
         return cmd_list()
+
+    elif args.project_cmd == "relate":
+        if getattr(args, "suggest", False):
+            return cmd_relate_suggest(top_k=getattr(args, "top_k", 5))
+        if not args.project_a or not args.project_b:
+            print(
+                "rv project relate: project slugs <a> and <b> are required "
+                "(or use --suggest for corpus-based suggestions).",
+                file=sys.stderr,
+            )
+            return 1
+        return cmd_relate(
+            a=args.project_a,
+            b=args.project_b,
+            kind=args.kind,
+            remove=args.remove,
+        )
+
+    elif args.project_cmd == "edges":
+        return cmd_edges(project=args.project)
 
     elif args.project_cmd == "new":
         return cmd_new(
