@@ -120,7 +120,7 @@ and may spawn its team directly.)
 
 ## Coordination state — READ and WRITE via the tooled path
 
-**Coordination state is READ via `rv status <project>` or `rv control reconcile <project>`,
+**Coordination state is READ via `rv status <project>` or `rv control <project> reconcile`,
 NEVER by raw-reading `control/*.md` by eye.** A raw read parses stale prose and misses live
 git/DAG/task ground truth — the SR-4-mistaken-for-undispatched incident (2026-07-01) is the
 grounded example: an agent `Read` the control file directly, saw "SR-4/SR-5 are the next

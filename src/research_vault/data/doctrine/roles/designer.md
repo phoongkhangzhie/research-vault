@@ -97,7 +97,7 @@ is the process, you are the memory that makes a project's design cohere over tim
 
 ## Coordination state — READ and WRITE via the tooled path
 
-**READ via `rv status <project>` or `rv control reconcile <project>`, NEVER by raw-reading
+**READ via `rv status <project>` or `rv control <project> reconcile`, NEVER by raw-reading
 `control/*.md`.** MUTATE via `rv control <verb>`, NEVER hand-edit control files.
 
 ## Your return

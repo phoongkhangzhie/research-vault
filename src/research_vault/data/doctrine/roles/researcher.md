@@ -104,7 +104,7 @@ open threads, and what you've learned about the project's evidence over time.
 
 ## Coordination state — READ and WRITE via the tooled path
 
-**READ via `rv status <project>` or `rv control reconcile <project>`, NEVER by raw-reading
+**READ via `rv status <project>` or `rv control <project> reconcile`, NEVER by raw-reading
 `control/*.md`.** MUTATE via `rv control <verb>`, NEVER hand-edit control files.
 
 ## Your return

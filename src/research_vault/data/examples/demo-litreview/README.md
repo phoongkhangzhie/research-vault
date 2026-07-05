@@ -35,10 +35,10 @@ rv dag complete lit-review-loop-topic scope
 rv dag complete lit-review-loop-topic survey
 
 # Distill each paper (must create literature/<key>.md first)
-rv note demo-litreview create literature smith2024 "Smith et al. 2024"
+rv note demo-litreview new literature "Smith et al. 2024" --id smith2024
 rv dag complete lit-review-loop-topic distill-paper-1
 
-rv note demo-litreview create literature jones2023 "Jones 2023"
+rv note demo-litreview new literature "Jones 2023" --id jones2023
 rv dag complete lit-review-loop-topic distill-paper-2
 
 # Tick and approve the coverage gate

@@ -29,16 +29,16 @@ the relevant file — do not answer from memory.
 
 ```bash
 # Control-plane verbs you run:
-rv status --project <slug>          # READ the control-plane state (never eyeball control/*.md directly)
+rv status <slug>                    # READ the control-plane state (never eyeball control/*.md directly)
 rv dag run examples/demo-research/research-loop.json   # launch the research loop DAG
 rv dag tick <run-id>                # advance the DAG after a node completes
 rv dag complete <run-id> <node-id>  # mark a node complete
 rv dag approve <run-id> <node-id>   # approve a human-go gate node (after the human says go)
 rv dag brief <run-id> <node-id>     # emit the deterministic dispatch brief for a node (STEP 2)
-rv control <project> post "<msg>"   # write to the CONTROL bus (never write control/*.md by hand)
+rv control <project> inbox <msg>    # append message to the Inbox (never write control/*.md by hand)
 
 # Add projects, manage state:
-rv project add <slug> <path>        # register a new project
+rv project add <slug> --code <code> --source <path>   # register a new project
 rv project list                     # see all registered projects
 
 # Cross-project edge stewardship (SR-XPB) — YOU own this:
