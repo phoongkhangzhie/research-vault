@@ -37,6 +37,15 @@ When to use: ``rv lint [--strict]`` to run the project linter. Checks:
      anchors (``#section``) are stripped before resolution.  A broken
      internal reference fails CI — a renamed file without updating its
      back-links would otherwise ship silently.
+  9. Shipped-doc noise (adopter-facing docs only): scans an explicit allow-list
+     of adopter-facing files (README.md, CONTRIBUTING.md, and everything under
+     ``data/templates/``) for internal build-noise that must never reach adopters:
+     - SR-tags: ``SR-[A-Z0-9]+`` (internal story references)
+     - Build-noise strings: ``scratchpad``, ``/private/tmp``, ``live vault``,
+       ``living-state``, ``dogfood``
+     Doctrine files (``data/doctrine/``) are explicitly NOT scanned — they
+     legitimately cite SR-tags as internal grounding.  The scope is an explicit
+     allow-list, not a repo-wide scan, so doctrine can never accidentally creep in.
 
 All path resolution goes through Config — zero hardcoded paths or codenames.
 Stdlib only.
@@ -71,6 +80,61 @@ _TESTS_DIR: Path = _FRAMEWORK_ROOT / "tests"
 _SRC_DIR: Path = _FRAMEWORK_ROOT / "src" / "research_vault"
 # Default doctrine directory for link-integrity scan; monkeypatched by integration tests.
 _DOCTRINE_DIR: Path = _FRAMEWORK_ROOT / "src" / "research_vault" / "data" / "doctrine"
+# Default shipped-docs root; monkeypatched by integration tests.
+# Rule 9 builds its file allow-list from this root.
+_SHIPPED_DOCS_ROOT: Path = _FRAMEWORK_ROOT
+
+# ---------------------------------------------------------------------------
+# Shipped-doc noise patterns (rule 9)
+# ---------------------------------------------------------------------------
+
+# SR-tag pattern: "SR-" followed by one or more uppercase letters or digits,
+# with optional additional hyphenated segments (e.g. SR-XPB, SR-CO-REMOTE, SR-1).
+_SR_TAG_PAT: re.Pattern[str] = re.compile(r"\bSR-[A-Z0-9]+(?:-[A-Z0-9]+)*\b")
+
+# Build-noise literal strings (case-insensitive).
+# Each entry is the human-readable token; we compile with re.IGNORECASE.
+_BUILD_NOISE_TOKENS: tuple[str, ...] = (
+    "scratchpad",
+    "/private/tmp",
+    "live vault",
+    "living-state",
+    "dogfood",
+)
+_BUILD_NOISE_PATS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(re.escape(tok), re.IGNORECASE), tok)
+    for tok in _BUILD_NOISE_TOKENS
+]
+
+
+def _get_shipped_doc_files(root: Path) -> list[Path]:
+    """Return the explicit allow-list of adopter-facing shipped docs to scan.
+
+    Scope (rule 9):
+    - ``README.md``, ``CONTRIBUTING.md`` — repo-root front door.
+    - All ``*.md`` and ``*.tmpl`` files directly under
+      ``src/research_vault/data/templates/`` — shipped templates scaffolded
+      into every adopter's vault.
+
+    Doctrine (``data/doctrine/``) is deliberately EXCLUDED — those files
+    legitimately cite SR-tags as internal grounding.  The scope is an explicit
+    allow-list, not a broad scan, so doctrine can never accidentally creep in.
+
+    Files that do not exist on disk are silently skipped (graceful on partial
+    installs / wheel contexts without the full source tree).
+    """
+    tmpl_dir = root / "src" / "research_vault" / "data" / "templates"
+    candidates: list[Path] = [
+        root / "README.md",
+        root / "CONTRIBUTING.md",
+    ]
+    # Every .md / .tmpl file in the templates directory is adopter-facing by
+    # construction — the directory exists solely to be scaffolded to adopters.
+    if tmpl_dir.exists():
+        for pat in ("*.md", "*.tmpl"):
+            candidates.extend(sorted(tmpl_dir.glob(pat)))
+    return [p for p in candidates if p.exists()]
+
 
 # Relative Markdown link pattern for the doctrine link-integrity check (rule 8).
 # Matches ](./path) and ](../path) — relative hrefs only.
@@ -587,6 +651,43 @@ def check_doctrine_links(
     return findings
 
 
+def check_shipped_doc_noise(
+    files: list[Path],
+) -> list[tuple[str, int, str, str]]:
+    """Scan *files* for SR-tags and build-noise strings (rule 9).
+
+    Adopter-facing shipped docs must never contain:
+    - **SR-tags** — internal story references (``SR-XPB``, ``SR-CO-REMOTE``, …).
+      These are build-time grounding markers that mean nothing to an adopter
+      and would confuse anyone cloning the framework.
+    - **Build-noise strings** — ``scratchpad``, ``/private/tmp``, ``live vault``,
+      ``living-state``, ``dogfood``.  These are operator-environment artefacts
+      that belong in DEVLOG / internal changelogs, not in docs a stranger reads.
+
+    The caller is responsible for passing only the adopter-facing allow-list
+    (see :func:`_get_shipped_doc_files`).  Doctrine files must NOT be passed
+    here — they legitimately contain SR-tags.
+
+    Returns a list of ``(file_path, lineno, token, matching_line)`` tuples,
+    one per offending occurrence.
+    """
+    findings: list[tuple[str, int, str, str]] = []
+    for f in files:
+        try:
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for lineno, line in enumerate(lines, start=1):
+            # SR-tag check — report every match on the line (a line may have several)
+            for m in _SR_TAG_PAT.finditer(line):
+                findings.append((str(f), lineno, m.group(0), line.rstrip()))
+            # Build-noise check
+            for pat, token in _BUILD_NOISE_PATS:
+                if pat.search(line):
+                    findings.append((str(f), lineno, token, line.rstrip()))
+    return findings
+
+
 def _collect_src_files(
     src_dir: Path,
 ) -> list[Path]:
@@ -802,6 +903,23 @@ def cmd_lint(cfg: Config, *, strict: bool = False) -> int:
     else:
         n = sum(1 for _ in _DOCTRINE_DIR.rglob("*.md")) if _DOCTRINE_DIR.exists() else 0
         print(f"Doctrine link-integrity (rule 8): OK ({n} doctrine file(s) checked)")
+
+    # 9. Shipped-doc noise (rule 9) — adopter-facing docs only (explicit allow-list)
+    shipped_doc_files = _get_shipped_doc_files(_SHIPPED_DOCS_ROOT)
+    noise_findings = check_shipped_doc_noise(shipped_doc_files)
+    if noise_findings:
+        print(
+            f"\nShipped-doc noise (rule 9): {len(noise_findings)} finding(s) "
+            f"(SR-tags or build-noise in adopter-facing docs — "
+            f"remove before publishing):"
+        )
+        for fpath, lineno, token, line in noise_findings:
+            print(f"  {fpath}:{lineno}: {token!r}")
+            print(f"    {line}")
+        issues_total += len(noise_findings)
+    else:
+        n = len(shipped_doc_files)
+        print(f"Shipped-doc noise (rule 9): OK ({n} adopter-facing file(s) checked)")
 
     if issues_total == 0:
         print("\nlint: PASS")

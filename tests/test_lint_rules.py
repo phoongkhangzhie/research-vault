@@ -32,6 +32,8 @@ from research_vault.lint import (
     check_unpinned_git_init,
     check_redefined_while_unused,
     check_getsource_guard,
+    check_shipped_doc_noise,
+    _get_shipped_doc_files,
 )
 
 
@@ -1443,3 +1445,284 @@ class TestDoctrineLinks:
 
         findings = check_doctrine_links(tmp_path / "does_not_exist")
         assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Rule 9 — Shipped-doc noise (check_shipped_doc_noise + _get_shipped_doc_files)
+# ---------------------------------------------------------------------------
+
+
+class TestShippedDocNoise:
+    """check_shipped_doc_noise flags SR-tags and build-noise in adopter-facing docs."""
+
+    def test_sr_tag_in_adopter_doc_is_flagged(self, tmp_path: Path) -> None:
+        """An SR-tag in an adopter-facing doc must be flagged (red proof)."""
+        f = tmp_path / "QUICKSTART.md"
+        f.write_text("See the SR-XPB release notes.\n")
+        findings = check_shipped_doc_noise([f])
+        assert len(findings) == 1, findings
+        _, lineno, token, line = findings[0]
+        assert token == "SR-XPB"
+        assert lineno == 1
+
+    def test_clean_adopter_doc_passes(self, tmp_path: Path) -> None:
+        """A doc with no SR-tags or build-noise produces no findings."""
+        f = tmp_path / "QUICKSTART.md"
+        f.write_text("# Quick Start\n\nRun `rv init` to get started.\n")
+        findings = check_shipped_doc_noise([f])
+        assert len(findings) == 0, findings
+
+    def test_build_noise_scratchpad_flagged(self, tmp_path: Path) -> None:
+        """The word 'scratchpad' must be flagged as build-noise."""
+        f = tmp_path / "README.md"
+        f.write_text("Put outputs in the scratchpad directory.\n")
+        findings = check_shipped_doc_noise([f])
+        assert len(findings) == 1, findings
+        _, _, token, _ = findings[0]
+        assert token == "scratchpad"
+
+    def test_build_noise_private_tmp_flagged(self, tmp_path: Path) -> None:
+        """/private/tmp must be flagged as build-noise."""
+        f = tmp_path / "QUICKSTART.md"
+        f.write_text("Temp files go to /private/tmp/.\n")
+        findings = check_shipped_doc_noise([f])
+        assert len(findings) == 1, findings
+
+    def test_build_noise_living_state_flagged(self, tmp_path: Path) -> None:
+        """'living-state' must be flagged as build-noise."""
+        f = tmp_path / "README.md"
+        f.write_text("This is a living-state document.\n")
+        findings = check_shipped_doc_noise([f])
+        assert len(findings) == 1, findings
+
+    def test_build_noise_dogfood_flagged(self, tmp_path: Path) -> None:
+        """'dogfood' must be flagged as build-noise."""
+        f = tmp_path / "QUICKSTART.md"
+        f.write_text("We dogfood this in our own projects.\n")
+        findings = check_shipped_doc_noise([f])
+        assert len(findings) == 1, findings
+
+    def test_multiple_sr_tags_on_one_line_all_reported(
+        self, tmp_path: Path
+    ) -> None:
+        """Multiple SR-tags on a single line are each reported separately."""
+        f = tmp_path / "QUICKSTART.md"
+        f.write_text("Added in SR-XPB and SR-CO-REMOTE.\n")
+        findings = check_shipped_doc_noise([f])
+        assert len(findings) == 2, findings
+        tokens = {t for _, _, t, _ in findings}
+        assert "SR-XPB" in tokens
+        assert "SR-CO-REMOTE" in tokens
+
+    def test_hyphenated_sr_tag_pattern(self, tmp_path: Path) -> None:
+        """SR-tags with multiple hyphenated segments are matched."""
+        f = tmp_path / "QUICKSTART.md"
+        f.write_text("Implemented via SR-CO-REMOTE backend.\n")
+        findings = check_shipped_doc_noise([f])
+        assert len(findings) == 1, findings
+        assert findings[0][2] == "SR-CO-REMOTE"
+
+    def test_empty_file_passes(self, tmp_path: Path) -> None:
+        """An empty file has no findings."""
+        f = tmp_path / "README.md"
+        f.write_text("")
+        findings = check_shipped_doc_noise([f])
+        assert len(findings) == 0, findings
+
+    def test_empty_file_list_passes(self) -> None:
+        """An empty file list yields no findings."""
+        findings = check_shipped_doc_noise([])
+        assert len(findings) == 0, findings
+
+    def test_findings_tuple_shape(self, tmp_path: Path) -> None:
+        """Each finding is a (file_path, lineno, token, matching_line) tuple."""
+        f = tmp_path / "QUICKSTART.md"
+        f.write_text("# Quick Start\nThis covers SR-CO.\n")
+        findings = check_shipped_doc_noise([f])
+        assert len(findings) == 1
+        fpath, lineno, token, line_text = findings[0]
+        assert str(f) in fpath
+        assert lineno == 2
+        assert token == "SR-CO"
+        assert "SR-CO" in line_text
+
+
+class TestGetShippedDocFiles:
+    """_get_shipped_doc_files returns the explicit allow-list; doctrine excluded."""
+
+    def test_readme_and_contributing_included_when_present(
+        self, tmp_path: Path
+    ) -> None:
+        """README.md and CONTRIBUTING.md are included when they exist."""
+        (tmp_path / "README.md").write_text("# README\n")
+        (tmp_path / "CONTRIBUTING.md").write_text("# Contributing\n")
+        files = _get_shipped_doc_files(tmp_path)
+        names = {f.name for f in files}
+        assert "README.md" in names
+        assert "CONTRIBUTING.md" in names
+
+    def test_templates_md_and_tmpl_included(self, tmp_path: Path) -> None:
+        """*.md and *.tmpl files in data/templates/ are included."""
+        tmpl_dir = tmp_path / "src" / "research_vault" / "data" / "templates"
+        tmpl_dir.mkdir(parents=True)
+        (tmpl_dir / "QUICKSTART.md").write_text("# Quick Start\n")
+        (tmpl_dir / "CLAUDE.md.tmpl").write_text("# Template\n")
+        files = _get_shipped_doc_files(tmp_path)
+        names = {f.name for f in files}
+        assert "QUICKSTART.md" in names
+        assert "CLAUDE.md.tmpl" in names
+
+    def test_doctrine_NOT_included(self, tmp_path: Path) -> None:
+        """★ Doctrine files are NOT in the allow-list (scope exclusion proof).
+
+        This is the discriminating test: doctrine legitimately cites SR-tags as
+        internal grounding.  The scope is an explicit allow-list, not a broad scan,
+        so doctrine is structurally excluded and can never accidentally creep in.
+        """
+        doctrine_dir = (
+            tmp_path / "src" / "research_vault" / "data" / "doctrine"
+        )
+        doctrine_dir.mkdir(parents=True)
+        (doctrine_dir / "concepts.md").write_text(
+            "This pattern was introduced in SR-XPB.\n"
+        )
+        files = _get_shipped_doc_files(tmp_path)
+        paths_str = {str(f) for f in files}
+        assert not any("doctrine" in p for p in paths_str), (
+            f"doctrine file incorrectly appeared in shipped-doc allow-list: {paths_str}"
+        )
+
+    def test_missing_files_silently_skipped(self, tmp_path: Path) -> None:
+        """Files not on disk are silently skipped — no crash on partial installs."""
+        # Empty root — no README, no CONTRIBUTING, no templates dir
+        files = _get_shipped_doc_files(tmp_path)
+        assert files == []
+
+
+# ---------------------------------------------------------------------------
+# Integration: cmd_lint runs rule 9 and non-zeroes on any shipped-doc noise
+# ---------------------------------------------------------------------------
+
+
+class TestCmdLintShippedDocNoise:
+    """cmd_lint runs rule 9 and non-zeroes on any finding in the allow-list."""
+
+    def _make_isolated_dirs(
+        self, tmp_path: Path
+    ) -> tuple[Path, Path]:
+        """Return (tmpl_dir, empty_dir) for test setup."""
+        tmpl_dir = tmp_path / "src" / "research_vault" / "data" / "templates"
+        tmpl_dir.mkdir(parents=True)
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        return tmpl_dir, empty
+
+    def _patch_all(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        lint_mod: object,
+        *,
+        shipped_docs_root: Path,
+        empty: Path,
+    ) -> None:
+        """Patch all module-level dir vars to isolate the test."""
+        monkeypatch.setattr(lint_mod, "_SHIPPED_DOCS_ROOT", shipped_docs_root)
+        monkeypatch.setattr(lint_mod, "_TESTS_DIR", empty)
+        monkeypatch.setattr(lint_mod, "_SRC_DIR", empty)
+        monkeypatch.setattr(lint_mod, "_DOCTRINE_DIR", empty)
+
+    def test_cmd_lint_fails_when_shipped_doc_has_sr_tag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cmd_lint exits 1 when an adopter-facing doc contains an SR-tag.
+
+        RED-before-GREEN proof: this test fails with rc==0 before rule 9 is
+        wired into cmd_lint, and passes once it is.
+        """
+        from research_vault.lint import cmd_lint
+        import research_vault.lint as lint_mod
+
+        tmpl_dir, empty = self._make_isolated_dirs(tmp_path)
+        (tmpl_dir / "QUICKSTART.md").write_text(
+            "See SR-CO-REMOTE for the remote backend.\n"
+        )
+        (tmp_path / "README.md").write_text("# README\n")
+
+        self._patch_all(
+            monkeypatch, lint_mod,
+            shipped_docs_root=tmp_path, empty=empty,
+        )
+        cfg = _make_minimal_config(tmp_path)
+        rc = cmd_lint(cfg)
+        assert rc == 1, (
+            "cmd_lint must return 1 when an adopter-facing doc contains an SR-tag"
+        )
+
+    def test_cmd_lint_passes_when_shipped_docs_clean(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cmd_lint exits 0 when all adopter-facing docs are noise-free."""
+        from research_vault.lint import cmd_lint
+        import research_vault.lint as lint_mod
+
+        tmpl_dir, empty = self._make_isolated_dirs(tmp_path)
+        (tmpl_dir / "QUICKSTART.md").write_text("# Quick Start\nRun `rv init`.\n")
+        (tmp_path / "README.md").write_text("# Research Vault\n")
+        (tmp_path / "CONTRIBUTING.md").write_text("# Contributing\n")
+
+        self._patch_all(
+            monkeypatch, lint_mod,
+            shipped_docs_root=tmp_path, empty=empty,
+        )
+        cfg = _make_minimal_config(tmp_path)
+        rc = cmd_lint(cfg)
+        assert rc == 0
+
+    def test_doctrine_file_with_sr_tag_not_flagged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """★ A doctrine file containing SR-tags is NOT flagged — scope exclusion proof.
+
+        Doctrine legitimately cites SR-tags as internal grounding references.
+        The rule 9 scope is an explicit allow-list so doctrine is structurally
+        excluded and can NEVER accidentally trigger rule 9.
+
+        This test is the discriminating check: even though the doctrine file has
+        multiple SR-tags, cmd_lint must return 0 (all shipped docs in the
+        allow-list are clean).
+        """
+        from research_vault.lint import cmd_lint
+        import research_vault.lint as lint_mod
+
+        # Doctrine WITH SR-tags — must not be flagged
+        doctrine_dir = (
+            tmp_path / "src" / "research_vault" / "data" / "doctrine"
+        )
+        doctrine_dir.mkdir(parents=True)
+        (doctrine_dir / "concepts.md").write_text(
+            "Pattern introduced in SR-XPB. Compute via SR-CO. Remote: SR-CO-REMOTE.\n"
+        )
+        (doctrine_dir / "standards.md").write_text(
+            "SR-MS-2 introduced the duplicate-check rule.\n"
+        )
+
+        # Shipped adopter docs are clean
+        tmpl_dir, _ = self._make_isolated_dirs(tmp_path)
+        (tmpl_dir / "QUICKSTART.md").write_text("# Quick Start\nRun `rv init`.\n")
+        (tmp_path / "README.md").write_text("# Research Vault\n")
+
+        monkeypatch.setattr(lint_mod, "_SHIPPED_DOCS_ROOT", tmp_path)
+        # Point _DOCTRINE_DIR at doctrine_dir so rule 8 sees it
+        # (no broken links → rule 8 passes cleanly; rule 9 must not scan doctrine)
+        monkeypatch.setattr(lint_mod, "_DOCTRINE_DIR", doctrine_dir)
+        # empty was already created by _make_isolated_dirs above
+        empty = tmp_path / "empty"
+        monkeypatch.setattr(lint_mod, "_TESTS_DIR", empty)
+        monkeypatch.setattr(lint_mod, "_SRC_DIR", empty)
+
+        cfg = _make_minimal_config(tmp_path)
+        rc = cmd_lint(cfg)
+        assert rc == 0, (
+            "cmd_lint must NOT flag doctrine files for SR-tags — "
+            "doctrine is explicitly excluded from the rule-9 allow-list"
+        )
