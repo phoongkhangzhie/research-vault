@@ -465,6 +465,38 @@ class TestNoDemoContracts:
 
 
 # ---------------------------------------------------------------------------
+# Helpers for arg-shape audit (SR-CCB-F4/F14)
+# ---------------------------------------------------------------------------
+
+def _action_choices_by_dest(parser, dest_name: str) -> set | None:
+    """Walk the parser's action tree to find a positional action's choices by dest.
+
+    Returns the choices as a plain set if a non-subparser action with the given
+    dest_name is found, or None otherwise.  Subparser dispatch actions (whose
+    .choices is a dict of {name → sub_parser}) are traversed recursively but
+    not themselves returned — we want only leaf enum-positional choices.
+
+    This is used structurally in _check_arg_shape_error to detect OKF-type enum
+    positionals without parsing the "(choose from …)" text in argparse error
+    messages (that text changed quoting between Python 3.12 and 3.13).
+    """
+    for action in parser._actions:
+        if action.choices is None:
+            continue
+        if isinstance(action.choices, dict):
+            # Subparser dispatch action — recurse into each sub-parser
+            for sub_parser in action.choices.values():
+                result = _action_choices_by_dest(sub_parser, dest_name)
+                if result is not None:
+                    return result
+        else:
+            # Leaf enum positional (e.g. `type` with choices=OKF_TYPES)
+            if action.dest == dest_name:
+                return set(action.choices)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # SR-CCB-7: Shipped docs must only reference real package verbs
 # (Wren gate — non-vacuous: fails on current files, passes only after fix)
 # ---------------------------------------------------------------------------
@@ -636,13 +668,6 @@ class TestShippedDocVerbAudit:
     # F4/F14: Arg-shape check — positional order matches registered parser
     # ------------------------------------------------------------------
 
-    # OKF type names — a valid-enum-placeholder set; "invalid choice" among these
-    # is a placeholder normalization artifact, not a real arg-shape error.
-    _OKF_TYPES: frozenset[str] = frozenset({
-        "concepts", "datasets", "experiments", "findings", "gaps",
-        "literature", "methods", "mocs",
-    })
-
     @staticmethod
     def _check_arg_shape_error(cmd_str: str, parser) -> str | None:
         """Check if a shipped command string has wrong arg shape/order.
@@ -656,8 +681,11 @@ class TestShippedDocVerbAudit:
           6. Try parse_args against the real registered parser.
           7. If error is "unrecognized arguments" (F4: extra positional) → report.
           8. If error is "invalid choice" (F14: subcommand in wrong position) →
-             report ONLY when the choices are NOT domain enum values (OKF types etc.);
-             otherwise it's a valid placeholder that can't be normalized blindly.
+             report ONLY when the failing positional's choices (looked up
+             structurally from the parser, NOT parsed from the error message) do
+             NOT overlap note.OKF_TYPES.  String-scraping the "(choose from …)"
+             text is deliberately avoided: that format changed between Python 3.12
+             (unquoted tokens) and 3.13 (quoted tokens), making it version-fragile.
           9. If error is only "required" missing args → inject dummies and retry
              (up to 5 times) to uncover underlying shape errors.
 
@@ -715,7 +743,10 @@ class TestShippedDocVerbAudit:
             return None
 
         _re_required = re.compile(r"required: ([-\w=, ]+)$")
-        _re_choices = re.compile(r"choose from ([^)]+)\)")
+        # Capture the argument dest name from "argument <name>: invalid choice…"
+        # This part is stable across Python versions; we deliberately do NOT
+        # parse the "(choose from …)" fragment because its quoting changed in 3.13.
+        _re_arg_dest = re.compile(r"argument (\S+?):")
 
         def _try(toks: list[str]) -> tuple[str | None, bool]:
             """Returns (error_msg_or_None, was_success)."""
@@ -738,23 +769,22 @@ class TestShippedDocVerbAudit:
             if "unrecognized arguments" in err:
                 return err
             # --- invalid choice = F14 (subcommand in wrong position) ---
-            # ONLY flag when the set of valid choices are subcommand names, not
-            # domain enum values (OKF types etc.) where dummy_val is a normalisation
-            # artifact for a valid placeholder.
+            # Structural check: look up the failing action's actual .choices from
+            # the parser tree (by dest name), then compare against note.OKF_TYPES.
+            # This avoids parsing the "(choose from …)" error text, which changed
+            # quoting between Python 3.12 and 3.13.
             if "invalid choice" in err:
-                m = _re_choices.search(err)
-                if m:
-                    choices_str = m.group(1)
-                    # Each choice is comma-space separated in argparse output
-                    choice_set = {c.strip() for c in choices_str.split(",")}
-                    # If ANY of the choices is an OKF type name, this is an enum
-                    # positional — the placeholder dummy_val is not meaningful here.
-                    if choice_set & TestShippedDocVerbAudit._OKF_TYPES:
-                        pass  # enum positional — skip
+                dest_m = _re_arg_dest.search(err)
+                if dest_m:
+                    dest_name = dest_m.group(1)
+                    action_choices = _action_choices_by_dest(parser, dest_name)
+                    from research_vault.note import OKF_TYPES as _okf_live
+                    if action_choices is not None and action_choices & _okf_live:
+                        pass  # OKF enum positional — placeholder can't be normalised
                     else:
                         return err  # subcommand positional — real F14 shape error
                 else:
-                    return err  # can't parse choices — flag it
+                    return err  # can't determine which arg — flag it
             # --- required named args missing → inject dummies and retry ---
             m2 = _re_required.search(err)
             if m2:
