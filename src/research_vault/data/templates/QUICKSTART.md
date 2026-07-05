@@ -88,8 +88,8 @@ rv project new my-project --code mp --source /path/to/new-project-dir
 ```
 
 Every project automatically gets the full default crew. Use any `rv` verb with
-`my-project` as the project slug, and `rv build-agents --project my-project`
-to generate the agent hat files.
+`my-project` as the project slug, and `rv build-agents` (vault-level, no project arg)
+to regenerate the agent hat files.
 
 ## Key verbs
 
@@ -101,9 +101,9 @@ to generate the agent hat files.
 | `rv dag complete <run-id> <node>` | Mark a node done (verifies OKF notes) |
 | `rv dag approve <run-id> <node>` | Approve a human-go gate |
 | `rv dag status <run-id>` | See the current state of a loop |
-| `rv note <project> create <type> <key> <title>` | Create an OKF note |
-| `rv control <project> post <text>` | Post to the coordination bus |
-| `rv task <project> create <title>` | Create a task card |
+| `rv note <project> new <type> <title>` | Create an OKF note (`--id <key>` for a custom slug) |
+| `rv control <project> inbox <text>` | Post to the Inbox section of the coordination bus |
+| `rv task <project> add <title>` | Create a task card |
 
 ## Learn more
 

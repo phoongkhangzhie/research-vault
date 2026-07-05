@@ -51,6 +51,14 @@ A raw toml edit (`enforce = false`) is **inert** when a token is provisioned:
 An agent that edits the toml gets nothing — it cannot compute a valid HMAC
 without the token, and the token never appears in code or config.
 
+**Important (N1): a signed disable does NOT remove the token requirement.**
+When `enforce=false` and a `token_fingerprint` is provisioned, `check_human_presence`
+still resolves `RV_APPROVER_TOKEN` to verify the `enforce_sig` HMAC.  If the
+token is absent (`KeyError`), the signed disable is treated as `enforce=true` and
+the gate remains fully up.  `rv approval disable` never grants tokenless approval —
+a non-TTY `rv dag approve` call still needs `RV_APPROVER_TOKEN` in the environment
+(to verify the sig).  The gate is strictly fail-closed: unable-to-verify = enforce.
+
 ## Honest limitation
 
 This mechanism defends the **normal dispatched path** (subagent called via

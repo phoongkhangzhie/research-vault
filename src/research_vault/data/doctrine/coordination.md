@@ -262,7 +262,7 @@ principle the control file preaches, extended to the *whole* lens.
 
 **Sources to read at the start of any project session:**
 
-- `rv status --project <slug>` — control sections (Inbox / Handshakes / Outbox / Open),
+- `rv status <slug>` — control sections (Inbox / Handshakes / Outbox / Open),
   task board, DEVLOG tail, local git, DAG runs, and the **"Pointers:" echo** (see below).
 - `<source_dir>/pointers.md` — a lightweight read-fresh file holding the project's key
   pointers: design-of-record path, results source, architecture link.  Surfaces automatically

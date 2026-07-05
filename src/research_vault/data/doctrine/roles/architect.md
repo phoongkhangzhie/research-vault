@@ -120,7 +120,7 @@ you author (the hub dispatches them), and a coherence read for any change that t
 
 ## Coordination state — READ and WRITE via the tooled path
 
-**READ coordination state via `rv status <project>` or `rv control reconcile <project>`.
+**READ coordination state via `rv status <project>` or `rv control <project> reconcile`.
 NEVER raw-read `control/*.md` by eye** — stale prose misses live git/DAG/task state
 (the SR-4-undispatched incident, 2026-07-01). **MUTATE via `rv control <verb>` only,
 NEVER hand-edit control files** — a raw edit races concurrent mutators and can write a

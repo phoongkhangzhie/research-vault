@@ -122,7 +122,7 @@ codenames; (2) a CI leakage scanner — private markers / secrets / non-template
 (3) placeholdered + linted templates. Acceptance: `rv init` → a valid stranger-runnable instance.
 
 ## SR sequence (build plan)
-Status verified against merged `main` (`src/research_vault/` modules + `note.OKF_TYPES`). **15 SRs merged; SR-PKG in flight.**
+Status verified against merged `main` (`src/research_vault/` modules + `note.OKF_TYPES`).
 
 | SR | What | Status |
 |---|---|---|
@@ -145,8 +145,103 @@ Status verified against merged `main` (`src/research_vault/` modules + `note.OKF
 | SR-CONTRACT → SR-LENS-RM (#64) | project-lens scaffold, then **REVERSED**: per-project lens + `_hub.lensByRole` + per-project hat-bake removed — ONE flat vault crew, hats = `charter + role`, project context read fresh | MERGED |
 | SR-CCB | Claude Code binding — `rv init` writes `CLAUDE.md` + populates `.claude/agents/` via `build-agents --target claude-code`; per-role tool grants + model aliases (PUB-CCB.2) | MERGED |
 | SR-RM-FIGMS | Remove figure + manuscript loops; `figures/`, `manuscript/` OKF types, `[figures]` extra, `absent_row` gap detector removed; OKF→8; honesty-gates doctrine harvested | MERGED |
-| SR-PKG | Batteries-included toolkit: Tier-1 deps (model SDKs, data, stats, eval, multilingual, utils, integrations); `[local]` + `[serve-vllm]`/`[serve-sglang]` extras; `rv check` tier matrix; `rv bootstrap`; bare-import guard; architecture + recipe docs | IN FLIGHT |
+| SR-DAG-BRIEF | Deterministic dispatch brief emitter (`dag/brief.py`): `BRIEF_PREAMBLE` + `build_brief`; promotes the DAG walk to a **4-step protocol** | MERGED |
+| SR-HARNESS-P2 | Experiment-loop harness sub-sequence + K-3 3rd canonical block (`harness_commit` via `rv plan freeze-harness`); re-verified at `human-go-findings` | MERGED |
+| SR-XPB | Cross-project reach seam: `project_edges.py` store + `cross_project.corroborate_across_projects`; TF-IDF rank NARROWS, judge CONFIRMS, human reviews | MERGED |
+| SR-APPROVE-GATE | Approval trust-boundary: `check_human_presence` (isatty + token), signed-disable (`enforce_sig` HMAC), `rv approval` verb; crew-cannot-self-approve is now MECHANICAL | MERGED |
+| SR-PKG | Batteries-included toolkit: Tier-1 deps (model SDKs, data, stats, eval, multilingual, utils, integrations); `[local]` + `[serve-vllm]`/`[serve-sglang]` extras; `rv check` tier matrix; `rv bootstrap`; bare-import guard; architecture + recipe docs | MERGED |
 | — next → | SR-10 (OSS docs site + README/LICENSE + public publish, human-go) | — |
+
+## DAG walk protocol (SR-DAG-BRIEF)
+The deterministic brief emitter (`dag/brief.py`) promotes the walk to a **4-step protocol** — repeat for every dispatch node:
+
+```
+1. rv dag status <run_id>           → identify the next node (PENDING; reads: paths verified)
+2. rv dag brief <run_id> <node_id>  → emit the deterministic dispatch brief (BRIEF_PREAMBLE + spec + context)
+3. dispatch the EMITTED brief       → send verbatim to the matching crew subagent; wait for ⟦RETURN⟧
+4. rv dag complete <run_id> <node_id>  → record SUCCEEDED/FAILED; walker advances the frontier
+```
+
+`build_brief(node, node_state, cfg, run_id, project_root, manifest_project) -> str` is **pure** (no I/O beyond
+path-resolution helpers). Outputs are byte-identical given the same inputs. `BRIEF_PREAMBLE` is the fixed
+structural layer every dispatch carries (role framing, instance boundary, anti-fabrication, `⟦RETURN⟧` schema)
+— modelled on `RETRY_DIAGNOSIS_DIRECTIVE` and unremovable. The diagnose-first block fires only on retries
+(`attempts > 0`), reusing `RETRY_DIAGNOSIS_DIRECTIVE` (D-RETRY-9). Context block includes resolved absolute
+`reads:` paths and `produces:` output paths — no re-transcription drift.
+
+```mermaid
+flowchart LR
+    S["rv dag status"] -->|"identifies next node"| B["rv dag brief\n(BRIEF_PREAMBLE\n+ spec verbatim\n+ resolved paths)"]
+    B -->|"dispatch verbatim"| A["crew subagent\n(⟦RETURN⟧)"]
+    A -->|"rv dag complete"| W["walker advances\nfrontier"]
+    W -->|"next node"| S
+```
+
+## Harness sub-sequence (SR-HARNESS-P2)
+The experiment loop inserts a **harness sub-sequence** per main BEFORE the run fires, gated by a dedicated
+human-go node (`human-go-harness-main<k>`). Per main the sequence is:
+
+```
+<id>-main<k>-harness  →  <id>-main<k>-harness-review  →  [HG:human-go-harness-main<k>]
+→ <id>-main<k>-run   →  …
+```
+
+`rv plan freeze-harness <run_id> <plan-note> --scope main<k> --harness-commit <sha>` writes the harness
+SHA into the `harness_commits:` frontmatter field of the plan note and adds it as the **3rd canonical block**
+of the K-3 covers-hash (`plan/freeze.py:HARNESS_SENTINEL`). This block is recomputed and re-verified at
+`human-go-findings`, making harness-commit drift a reportable kind (`"harness-commit drift"` vs
+`"covers edit"` vs `"retries edit"`). A plan note without `harness_commits:` produces the same 2-block
+hash as before SR-HARNESS-P2 (fully backward-compatible).
+
+The `harness_commits:` field uses the flat inline-list format: `harness_commits: [main1=<sha>, main2=<sha>]`.
+
+## Cross-project reach seam (SR-XPB)
+The cross-project seam (`project_edges.py` + `cross_project.py`) adds intentional reach between peer projects
+without any intra-framework disclosure boundary (everything in research-vault is public by construction).
+
+```mermaid
+flowchart LR
+    HUB["hub\n(rv project relate <a> <b> --kind <why>)"]
+    HUB -->|"writes"| ES["project_edges.json\n(state_dir sidecar;\nnormalised undirected pairs)"]
+    ES -->|"peers_of(cfg, slug)"| COR["corroborate_across_projects\n(from_slug + against ⊆ peers)"]
+    COR -->|"TF-IDF cosine rank\n(Jaccard fallback)"| RANK["ranked candidates\n(score + ranker field)"]
+    RANK -->|"judge CONFIRMS\nhuman reviews"| ASS["asserted cross-project finding\n(never auto-asserted)"]
+```
+
+Key design decisions (SR-XPB D1–D5):
+- **D1**: sidecar JSON at `state_dir/project_edges.json`; atomic write (tmp+replace).
+- **D2**: undirected (pairs normalised to sorted order); `kind` + rationale required on declare.
+- **D3**: `corroborate` requires `from_slug`; `against` ⊆ declared peers (enforced at call site, not just by convention).
+- **D4**: judge-gated assert — TF-IDF rank NARROWS candidates, LLM judge CONFIRMS each, human reviews. Never auto-assert.
+- **D5**: hub declares edges (`rv project relate`); crew reads via `peers_of`. Blanket-relating all projects forfeits the narrowing benefit — declare on genuine relatedness.
+
+`rv project edges` surfaces the registry; `rv project edges --project <slug>` shows edges involving one project. `rv project relate <a> <b> --remove` prunes stale edges.
+
+## Approval trust-boundary (SR-APPROVE-GATE)
+`rv dag approve` / `rv dag reject` are gated at a single chokepoint (`cmd_approve` in `dag/verbs.py` → `check_human_presence` in `dag/approval.py`). The security property: **`security = stdin.isatty()`, full stop** — a dispatched subagent has no controlling TTY and is refused regardless of flags.
+
+```mermaid
+flowchart TD
+    CA["cmd_approve\n(dag/verbs.py)"] --> CHP["check_human_presence\n(dag/approval.py)"]
+    CHP -->|"stdin.isatty()"| TTY["TTY path\n(one-keystroke prompt;\n--yes skips keystroke\nwhen TTY present)"]
+    CHP -->|"no TTY +\nfingerprint present"| TOK["token path\n(RV_APPROVER_TOKEN\nHMAC-verified vs\nstored fingerprint)"]
+    CHP -->|"no TTY +\nno fingerprint"| FAIL["FAIL CLOSED\n(state unchanged;\nfriendly nudge printed)"]
+    TTY --> OK["approve / reject\n(state written)"]
+    TOK --> OK
+
+    subgraph DISABLE["enforce=false escape hatch (Slice 3)"]
+      direction LR
+      DIS["rv approval disable\n(presence-checked;\nwrites enforce=false\n+ enforce_sig HMAC)"]
+      DIS -. "valid sig = gate off\nbad/absent sig = gate still on\nno token = trust-me mode (warns)" .-> CHP
+    end
+```
+
+Key invariants:
+- `--yes` is honoured **only** when a TTY is actually present — it is ignored for non-TTY callers.
+- **A signed disable does NOT remove the token requirement**: when `enforce=false` + `token_fingerprint` provisioned, `check_human_presence` still resolves `RV_APPROVER_TOKEN` to verify `enforce_sig`. If the token is absent (KeyError), the disable is treated as `enforce=True` — the gate remains up. `rv approval disable` never grants tokenless approval.
+- A raw toml edit (`enforce = false`, no `enforce_sig`) is **inert** when a token is provisioned.
+- `rv approval setup` provisions the token + writes the fingerprint. `rv approval enable/disable/status` manage the gate; all are presence-checked.
+- Doctrine: `data/doctrine/crew-cannot-self-approve.md`.
 
 ## Crew generation & the emit path (SR-LENS-RM, #64)
 **One general, VAULT-LEVEL crew — not one crew per project.** Each hat is composed **`charter + role`**

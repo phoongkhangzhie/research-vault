@@ -325,7 +325,12 @@ def build_parser(parent: argparse.ArgumentParser | None = None) -> argparse.Argu
     # disable  (also accept --yes for the gate ceremony)
     dis_p = sub.add_parser(
         "disable",
-        help="Disable the gate (presence-checked; signed when token is provisioned).",
+        help=(
+            "Disable the gate (presence-checked; signed when token is provisioned). "
+            "NOTE: a signed disable does NOT remove the token requirement — "
+            "non-TTY rv dag approve still needs RV_APPROVER_TOKEN present to verify "
+            "the enforce_sig HMAC.  disable never grants tokenless approval."
+        ),
     )
     dis_p.add_argument(
         "--yes",

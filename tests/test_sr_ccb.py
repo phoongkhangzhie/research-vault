@@ -465,6 +465,38 @@ class TestNoDemoContracts:
 
 
 # ---------------------------------------------------------------------------
+# Helpers for arg-shape audit (SR-CCB-F4/F14)
+# ---------------------------------------------------------------------------
+
+def _action_choices_by_dest(parser, dest_name: str) -> set | None:
+    """Walk the parser's action tree to find a positional action's choices by dest.
+
+    Returns the choices as a plain set if a non-subparser action with the given
+    dest_name is found, or None otherwise.  Subparser dispatch actions (whose
+    .choices is a dict of {name → sub_parser}) are traversed recursively but
+    not themselves returned — we want only leaf enum-positional choices.
+
+    This is used structurally in _check_arg_shape_error to detect OKF-type enum
+    positionals without parsing the "(choose from …)" text in argparse error
+    messages (that text changed quoting between Python 3.12 and 3.13).
+    """
+    for action in parser._actions:
+        if action.choices is None:
+            continue
+        if isinstance(action.choices, dict):
+            # Subparser dispatch action — recurse into each sub-parser
+            for sub_parser in action.choices.values():
+                result = _action_choices_by_dest(sub_parser, dest_name)
+                if result is not None:
+                    return result
+        else:
+            # Leaf enum positional (e.g. `type` with choices=OKF_TYPES)
+            if action.dest == dest_name:
+                return set(action.choices)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # SR-CCB-7: Shipped docs must only reference real package verbs
 # (Wren gate — non-vacuous: fails on current files, passes only after fix)
 # ---------------------------------------------------------------------------
@@ -631,3 +663,244 @@ class TestShippedDocVerbAudit:
             assert t in scanned, (
                 f"{t.name} is NOT in _iter_audit_files — the audit silently skips it."
             )
+
+    # ------------------------------------------------------------------
+    # F4/F14: Arg-shape check — positional order matches registered parser
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_arg_shape_error(cmd_str: str, parser) -> str | None:
+        """Check if a shipped command string has wrong arg shape/order.
+
+        Strategy:
+          1. Normalize placeholder tokens (<foo>, [foo], "<foo>") to dummy_val.
+          2. Skip shorthand notation (any non-flag token containing '/').
+          3. Skip error-message lines (any non-flag token ending with ':').
+          4. Strip line continuation tokens ('\\').
+          5. Use shlex.split for quoted-string-safe tokenization.
+          6. Try parse_args against the real registered parser.
+          7. If error is "unrecognized arguments" (F4: extra positional) → report.
+          8. If error is "invalid choice" (F14: subcommand in wrong position) →
+             report ONLY when the failing positional's choices (looked up
+             structurally from the parser, NOT parsed from the error message) do
+             NOT overlap note.OKF_TYPES.  String-scraping the "(choose from …)"
+             text is deliberately avoided: that format changed between Python 3.12
+             (unquoted tokens) and 3.13 (quoted tokens), making it version-fragile.
+          9. If error is only "required" missing args → inject dummies and retry
+             (up to 5 times) to uncover underlying shape errors.
+
+        Returns a non-empty error string on shape violation, None if OK or skipped.
+        """
+        import shlex
+        import sys
+        from io import StringIO
+
+        # --- Pre-tokenise with shlex for quoted-string safety ---
+        try:
+            tokens_raw = shlex.split(cmd_str)
+        except ValueError:
+            # Unbalanced quote (e.g. multi-line shell snippet) — skip gracefully
+            return None
+
+        if not tokens_raw or tokens_raw[0] != "rv":
+            return None
+
+        # Skip shorthand notation: any non-flag token containing '/' is a display
+        # shorthand (e.g. "run/tick/complete/approve"), not a real command.
+        for tok in tokens_raw[1:]:
+            if "/" in tok and not tok.startswith("-"):
+                return None
+
+        # Skip error-message lines: any non-flag, non-placeholder token ending with ':'
+        # (e.g. "rv dag approve: this human-go gate needs you." — not a command).
+        for tok in tokens_raw[1:]:
+            if tok.endswith(":") and not tok.startswith("-") and not tok.startswith("<"):
+                return None
+
+        def _norm(tok: str) -> str:
+            """Normalize a single token: replace placeholder patterns with dummy_val."""
+            # Bare placeholder: <foo>
+            if tok.startswith("<") and tok.endswith(">"):
+                return "dummy_val"
+            # Optional placeholder: [foo] or [--foo]
+            if tok.startswith("[") and tok.endswith("]"):
+                return "dummy_val"
+            return tok
+
+        current_toks = [_norm(t) for t in tokens_raw[1:]]  # drop leading "rv"
+
+        # Strip line continuation tokens (bash multi-line commands)
+        current_toks = [t for t in current_toks if t not in ("\\",)]
+
+        # Strip inline comments — anything after a bare "#" on the same line
+        try:
+            hash_idx = current_toks.index("#")
+            current_toks = current_toks[:hash_idx]
+        except ValueError:
+            pass
+
+        if not current_toks:
+            return None
+
+        _re_required = re.compile(r"required: ([-\w=, ]+)$")
+        # Capture the argument dest name from "argument <name>: invalid choice…"
+        # This part is stable across Python versions; we deliberately do NOT
+        # parse the "(choose from …)" fragment because its quoting changed in 3.13.
+        _re_arg_dest = re.compile(r"argument (\S+?):")
+
+        def _try(toks: list[str]) -> tuple[str | None, bool]:
+            """Returns (error_msg_or_None, was_success)."""
+            old_e = sys.stderr
+            sys.stderr = StringIO()
+            try:
+                parser.parse_args(toks)
+                return None, True
+            except SystemExit:
+                return sys.stderr.getvalue().strip(), False
+            finally:
+                sys.stderr = old_e
+
+        for _ in range(5):
+            err, ok = _try(current_toks)
+            if ok:
+                return None
+            assert err is not None
+            # --- unrecognized arguments = F4 (extra positional) ---
+            if "unrecognized arguments" in err:
+                return err
+            # --- invalid choice = F14 (subcommand in wrong position) ---
+            # Structural check: look up the failing action's actual .choices from
+            # the parser tree (by dest name), then compare against note.OKF_TYPES.
+            # This avoids parsing the "(choose from …)" error text, which changed
+            # quoting between Python 3.12 and 3.13.
+            if "invalid choice" in err:
+                dest_m = _re_arg_dest.search(err)
+                if dest_m:
+                    dest_name = dest_m.group(1)
+                    action_choices = _action_choices_by_dest(parser, dest_name)
+                    from research_vault.note import OKF_TYPES as _okf_live
+                    if action_choices is not None and action_choices & _okf_live:
+                        pass  # OKF enum positional — placeholder can't be normalised
+                    else:
+                        return err  # subcommand positional — real F14 shape error
+                else:
+                    return err  # can't determine which arg — flag it
+            # --- required named args missing → inject dummies and retry ---
+            m2 = _re_required.search(err)
+            if m2:
+                missing_part = m2.group(1)
+                flags = [
+                    s.strip().rstrip(":").split()[0]
+                    for s in missing_part.split(",")
+                    if s.strip().startswith("-")
+                ]
+                if not flags:
+                    break
+                for flag in flags:
+                    if flag not in current_toks:
+                        current_toks.extend([flag, "dummy_val"])
+            else:
+                # Other error class — not tracked by this check
+                break
+
+        return None
+
+    def test_arg_shape_bites_on_wrong_order(self):
+        """The arg-shape check flags a deliberately wrong positional order (F14 class).
+
+        RED-BEFORE-GREEN proof:
+          Wrong: 'rv review expand dummy_val'
+            → parser sees: verb=review, project='expand', subcommand='dummy_val'
+            → 'dummy_val' is not a valid review subcommand → 'invalid choice: dummy_val'
+            → _check_arg_shape_error returns a non-None error string ✓
+
+        This test proves the check HAS TEETH before we rely on it to green-gate docs.
+        If the check were vacuous this test would itself fail (it asserts a non-None result).
+        """
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        import os
+        os.environ.setdefault("RESEARCH_VAULT_CONFIG", "/dev/null")
+        from research_vault.cli import _build_top_parser, _load_instance_verbs  # noqa
+
+        try:
+            ivs = _load_instance_verbs()
+        except Exception:
+            ivs = {}
+        parser, _, _ = _build_top_parser(ivs)
+
+        # A deliberately wrong-order command: subcommand before project (F14 class).
+        wrong_cmd = "rv review expand <project>"
+        err = self._check_arg_shape_error(wrong_cmd, parser)
+        assert err is not None, (
+            f"_check_arg_shape_error returned None (not-flagged) for deliberately "
+            f"wrong-order command {wrong_cmd!r}.\n"
+            "The check has no teeth — it cannot flag the F14 class."
+        )
+        assert "invalid choice" in err or "unrecognized" in err, (
+            f"Expected 'invalid choice' or 'unrecognized' in error, got: {err!r}"
+        )
+
+    def test_no_wrong_shape_commands_in_shipped_docs(self):
+        """Every rv command in shipped docs must parse against its registered argparse parser.
+
+        Catches:
+          F14 — wrong positional ORDER (e.g. 'rv review expand <project>' instead of
+               'rv review <project> expand').
+          F4  — extra positional arg (e.g. 'rv project add <slug> <path>' instead of
+               'rv project add <slug> --code <code> --source <path>').
+
+        Shape violations are flagged; missing-required-args (common in brief doc examples)
+        are NOT flagged (they are injected as dummies and retried).
+        """
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        import os
+        os.environ.setdefault("RESEARCH_VAULT_CONFIG", "/dev/null")
+        from research_vault.cli import _build_top_parser, _load_instance_verbs  # noqa
+
+        try:
+            ivs = _load_instance_verbs()
+        except Exception:
+            ivs = {}
+        parser, _, _ = _build_top_parser(ivs)
+
+        real_verbs: set[str] = set()
+        try:
+            from research_vault.cli import _VERB_REGISTRY  # noqa
+            real_verbs = set(_VERB_REGISTRY.keys()) | self._EXTRA_ALLOWED
+        except Exception:
+            pass
+
+        data_dir = self._DATA_DIR
+        assert data_dir.is_dir(), f"Data dir not found: {data_dir}"
+
+        wrong_shape: list[str] = []
+        for f in self._iter_audit_files(data_dir):
+            for verb, lineno, line in self._collect_rv_verbs(f):
+                if verb not in real_verbs:
+                    continue  # already caught by test_no_fabricated_rv_verbs_in_shipped_docs
+                # Build the full command string from the raw line.
+                # Use a VERB-SPECIFIC backtick regex to avoid picking up a different
+                # rv command earlier on the same line (e.g. `rv <verb>` before `rv help`).
+                rv_match = re.search(
+                    rf"`(rv\s+{re.escape(verb)}(?:\s[^`]*)?)`", line
+                )
+                if rv_match:
+                    cmd_str = rv_match.group(1)
+                else:
+                    # Fenced code line — the line IS the command
+                    cmd_str = line.strip()
+                    if not cmd_str.startswith("rv "):
+                        continue
+                err = self._check_arg_shape_error(cmd_str, parser)
+                if err is not None:
+                    rel = f.relative_to(data_dir)
+                    wrong_shape.append(
+                        f"  {rel}:{lineno}: {cmd_str!r}\n"
+                        f"    → {err.splitlines()[-1] if err else ''}"
+                    )
+
+        assert not wrong_shape, (
+            f"\n{len(wrong_shape)} wrong-shape rv command(s) in shipped docs "
+            "(positional order or extra positional arg):\n"
+            + "\n".join(wrong_shape)
+        )
