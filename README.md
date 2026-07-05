@@ -2,21 +2,75 @@
 
 ![The Research Vault crew — Alfred (hub), Wren, Mason, Ada, Argus, and Iris](assets/hero-banner.png)
 
-**The discipline is the headline, not the code.** Research Vault is an open
-research tool that runs the full research loop — literature review, experiment
-planning, running, and synthesis — through a role-based agent crew coordinated
-by DAG loops.
+## An autonomous research crew you delegate to — not a tool you operate.
 
-The disciplines that make AI trustworthy for research — anti-fabrication, *every
-outcome is a finding*, verify the artifact not the signal, honest
-pre-registration, human-only approval gates — are what the tool **enforces**,
-mechanically, through commands and gates. The code is the proof those disciplines
-are actually runnable; they are not slogans in a CONTRIBUTING file.
+You hand Research Vault a research question. A hub agent — **Alfred** — plans the
+work, dispatches a crew of specialists, and runs the full research loop:
+literature review, experiment design, execution, analysis, synthesis. You stay in
+the conversation and approve at the gates that matter. **You never touch the CLI —
+Alfred does.**
 
-An adoptable AI research-assistant framework. A hub coordinates a crew of
-role-specialized agents (**architect, engineer, researcher, reviewer, designer**)
-through DAG-driven research loops, with the trust disciplines wired into the
-tooling so they *bite* instead of being aspirational.
+The aim is to give the scientist space to **think and collaborate** with the crew —
+not to worry about implementation and execution. The agents do the mechanical work;
+a human stays in the loop where judgment matters; and the disciplines that make
+research trustworthy are wired into the machinery so they *bite*.
+
+**The discipline is the headline. The autonomy is the point.**
+
+---
+
+## The crew
+
+One flat, vault-level crew — six named specialists, each a hat composed from a
+shared charter plus a role doctrine. You talk to **Alfred**; Alfred coordinates
+the rest.
+
+**Alfred** — *Hub.* After Alfred Pennyworth, the butler who runs the household. The
+single front door: he plans the work, dispatches the crew, walks the research loop,
+and surfaces every decision that needs you. He is the *only* agent that touches the
+control plane — and he never executes code or merges anything himself.
+
+**Wren** — *Architect.* After Sir Christopher Wren. Owns the stack and the
+architecture map; vets every new dependency and keeps the system coherent. Wren
+designs — he doesn't lay stone.
+
+**Mason** — *Engineer.* The master stonemason. Builds the code: features, tests,
+CI, and the authorized merge. Wren draws the plans; Mason builds them.
+
+**Ada** — *Researcher.* After Ada Lovelace. The science itself — literature review,
+experiment design, retrieval-backed citations, analysis, and synthesis.
+
+**Argus** — *Reviewer.* After Argus Panoptes, the hundred-eyed watchman.
+Independent verification: adversarial review and the honesty gates. Read-only by
+construction — and no agent reviews its own work.
+
+**Iris** — *Designer.* After Iris, goddess of the rainbow and messenger of the
+gods. Figures and the surfaces through which the work reaches the world.
+
+Least-privilege is stamped into each hat: coordinator-class hats get no shell
+(structural, not disciplinary), the reviewer is read-only, and the researcher
+carries web retrieval for support-checked citations. **Nobody merges on their own
+authority** — a merge executes only when an independent gate authorizes it.
+
+---
+
+## How you actually use it
+
+You never drive the tooling. The loop is a conversation:
+
+1. **You describe the work** to Alfred in natural language — a question to
+   investigate, a literature space to map, an experiment to run.
+2. **Alfred walks the DAG** — he plans the research loop, dispatches each node to
+   the specialist whose hat fits it (Ada for the science, Mason for the harness,
+   Argus for verification, Iris for figures), and threads the artifacts between
+   them.
+3. **You approve at the gates** — at each human-go gate Alfred pauses, hands you an
+   evidence packet, and waits. Nothing clears the gate without your explicit go;
+   the crew cannot approve its own work.
+
+The `rv` command line exists — but it is **Alfred's control surface**, not a human
+keyboard interface. You converse; Alfred runs the verbs. (The full verb reference
+is [below](#the-crews-control-surface), for the curious.)
 
 ---
 
@@ -26,7 +80,7 @@ Most "AI research assistant" tooling optimizes for output volume. The failure
 mode of an LLM in research is not slowness — it's *confident fabrication*: an
 invented citation, a metric that never traces to a run, a "passing" check that is
 green-and-empty, a result banked because it looked clean. Research Vault is built
-around stopping exactly that:
+around stopping exactly that, mechanically:
 
 - **Anti-fabrication.** Every specific — a number, a citation, a file — must
   trace to a real source. A citation needs a real retrieval, support-checked, not
@@ -42,15 +96,41 @@ around stopping exactly that:
   is a mechanical trust boundary keyed on an interactive terminal — a dispatched
   agent has no TTY and is refused, regardless of flags.
 
-Each discipline maps to a command and a gate.
+Each discipline maps to a command and a gate. The code is the proof those
+disciplines are actually runnable; they are not slogans in a CONTRIBUTING file.
 
 ---
 
-## The two loops
+## Where it fits
 
-Research Vault ships **two** research loops as DAGs. (Figure and manuscript loops
-were deliberately removed — a solo researcher owns those downstream, by hand,
-where taste matters more than automation.)
+Research Vault stands on a wave of work exploring agentic research and discovery —
+systems that let agents plan, run, and reason about scientific work:
+
+- **AlphaEvolve** — [A Gemini-powered coding agent for designing advanced
+  algorithms](https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms)
+  (DeepMind)
+- **AutoResearch** — [Andrej Karpathy](https://github.com/karpathy/autoresearch)
+- **The AI Scientist-v2** — [Workshop-Level Automated Scientific Discovery via
+  Agentic Tree Search](https://arxiv.org/abs/2504.08066)
+- **AutoResearchClaw** — [aiming-lab](https://github.com/aiming-lab/AutoResearchClaw)
+
+Our emphasis is a deliberate choice, not a verdict on any of these: **discipline
+and doctrine, with a human in the loop.** We want to give the scientist room to
+*think and collaborate* with the crew — freed from the mechanical work of
+retrieval, harness-building, running, and analysis, but never removed from the
+judgment. The agents do the mechanical work; the disciplines (anti-fabrication,
+honest pre-registration, verify-the-artifact, human-only approval) keep it
+trustworthy; and the human stays where human judgment belongs — the questions, the
+design, and the gates.
+
+---
+
+## What the crew runs — the two loops
+
+Research Vault ships **two** research loops as DAGs. Alfred walks each one node by
+node, dispatching every node to the specialist whose hat fits it. (Figure and
+manuscript loops were deliberately left out — a solo researcher owns those
+downstream, by hand, where taste matters more than automation.)
 
 ### Literature review (`rv review`)
 
@@ -91,13 +171,22 @@ flowchart LR
 ```
 
 Both loops use the same underlying machinery: a DAG walker over typed nodes, with a
-grounding manifest that binds each node to the artifacts it reads and produces.
+grounding manifest that binds each node to the artifacts it reads and produces. The
+`[HG]` nodes are the **human-go gates** — the points where Alfred pauses and waits
+for you.
 
-### How a loop actually runs (the DAG walk)
+---
 
-The hub walks the DAG one dispatchable node at a time, using a **deterministic
-brief emitter** so no dispatch is hand-transcribed (hand-transcription is where
-context drifts):
+## The crew's control surface
+
+Everything below is what **Alfred** runs on your behalf. You don't type these — but
+they are readable, so you can see exactly what the coordination is made of.
+
+### How a loop runs (the DAG walk)
+
+Alfred walks the DAG one dispatchable node at a time, using a **deterministic brief
+emitter** so no dispatch is hand-transcribed (hand-transcription is where context
+drifts):
 
 ```bash
 rv dag status <run_id>              # 1. identify the next node (PENDING; reads verified)
@@ -105,16 +194,14 @@ rv dag brief  <run_id> <node_id>    # 2. emit the deterministic dispatch brief
 #                                      3. dispatch that brief verbatim to the crew agent
 rv dag complete <run_id> <node_id>  # 4. record SUCCEEDED/FAILED; the walker advances
 rv dag tick   <run_id>              #    advance the frontier to the next gate
-rv dag approve <run_id> <node_id>   #    human-go: the solo decision gate (see below)
+rv dag approve <run_id> <node_id>   #    human-go: the solo decision gate
 ```
 
 The brief is a *pure function* of the node plus run state — byte-identical given
-the same inputs — so what an agent receives is grounded in resolved absolute
+the same inputs — so what a crew agent receives is grounded in resolved absolute
 paths, not a re-typed summary.
 
----
-
-## Core capabilities
+### Core capabilities
 
 - **DAG research loops** with typed nodes, afterok/watch edges that gate on
   artifact freshness, and in-session resolution (no background pollers/daemons).
@@ -126,7 +213,7 @@ paths, not a re-typed summary.
   one-component-per-ablation) *before* the human-go, then a content hash of the
   confirmatory `covers:` set that is re-verified at findings — a post-freeze edit
   to the frozen set is caught, not trusted.
-- **Cross-project corroboration** — declare a genuine edge between projects
+- **Cross-project corroboration** — Alfred declares a genuine edge between projects
   (`rv project relate <a> <b> --kind <why>`), then `rv research corroborate` ranks
   candidate evidence across declared peers by TF-IDF, an LLM judge confirms each,
   and a human reviews. Never auto-asserted.
@@ -191,34 +278,14 @@ rv check                # preflight: verify prerequisites
 ```
 
 On **Claude Code**, `rv init` also writes a `CLAUDE.md` that boots your session
-as the hub and installs the crew as subagents — so the session becomes the
-coordinator, and the role hats become the specialists it dispatches. `rv init`
-ships two runnable demo projects (`demo-research`, `demo-litreview`) so you can
-walk a loop end-to-end before pointing it at real work.
+as **Alfred** (the hub) and installs the crew as subagents — so the session
+becomes the coordinator you converse with, and the role hats become the specialists
+it dispatches. `rv init` ships two runnable demo projects (`demo-research`,
+`demo-litreview`) so the crew can walk a loop end-to-end before you point it at real
+work.
 
 A real project is its own git repo; register it with `rv project add` (or stand
 up a fresh one with `rv project new`) after `rv init`.
-
----
-
-## The crew
-
-One flat, vault-level crew — six hats composed from a shared charter plus a role
-doctrine:
-
-| Hat | Class | Role |
-|-----|-------|------|
-| **hub** | hub | Sole orchestrator — walks the DAG, dispatches, never executes or merges |
-| **architect** | coordinator | Owns the stack + architecture map; no shell (structural, not disciplinary) |
-| **engineer** | doer | Executes scoped changes; runs the authorized merge |
-| **researcher** | doer | Methodology, retrieval-backed citations, synthesis |
-| **reviewer** | doer | Read-only; verifies the work + the honesty gates |
-| **designer** | doer | Figures and surfaces |
-
-Least-privilege is stamped into each hat: coordinator-class gets no `Bash`;
-the reviewer is read-only; the researcher carries web retrieval for
-support-checked citations. Nobody merges on their own authority — a merge
-executes only when an independent gate authorizes it.
 
 ---
 
@@ -233,7 +300,7 @@ rv init my-vault
 
 `rv init` scaffolds `CLAUDE.md` and the crew under `.claude/agents/`, rendered
 with per-role tool grants and model aliases — so your Claude Code session boots
-as the hub with the role hats installed as the subagents it dispatches.
+as Alfred with the role hats installed as the subagents he dispatches.
 The human-only approval boundary holds mechanically: the approve-gate keys on an
 interactive TTY, which dispatched crew subagents never have.
 
@@ -253,3 +320,4 @@ MIT. See [LICENSE](./LICENSE).
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md). One rule above the rest: **changes to a
 discipline are doctrine changes** — they go through the doctrine, not around it.
+</content>
