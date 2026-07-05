@@ -1,11 +1,60 @@
 [project]
 name = "research-vault"
 version = "0.1.0"
-description = "Research Vault — an adoptable, zero-infra AI research-assistant framework"
+description = "Research Vault — an adoptable, batteries-included AI research-assistant framework"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.12"
-dependencies = []
+# SR-PKG: Tier-1 — portable pure-wheel defaults. Installed by `pip install research-vault`.
+# Reverses the earlier stdlib-only-core golden rule for the research surface.
+# The framework/CLI import path stays dep-light: all toolkit imports are guarded
+# (lazy, only at call sites) so `rv` runs clean with --no-deps.
+# See: architecture.md "Dependency posture" + data/doctrine/compute-run-recipe.md
+dependencies = [
+    # -- Model SDKs (litellm is the primary provider seam; per-SDK secondary) --
+    "anthropic>=0.25",
+    "openai>=1.14",
+    "litellm>=1.30",
+    "google-generativeai>=0.5",
+    "mistralai>=0.4",
+    "cohere>=5.0",
+    "tiktoken>=0.6",
+    # -- Data --
+    "datasets>=2.18",
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "pyarrow>=15.0",
+    # -- Stats --
+    "scipy>=1.11",
+    "statsmodels>=0.14",
+    "scikit-learn>=1.4",
+    # -- Figures --
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    # -- Eval --
+    "inspect-ai>=0.3",
+    "lm-eval>=0.4",
+    "evaluate>=0.4",
+    "sacrebleu>=2.3",
+    "rouge-score>=0.1",
+    "bert-score>=0.3",
+    # -- Multilingual --
+    "sentencepiece>=0.1",
+    "sacremoses>=0.1",
+    "langdetect>=1.0",
+    # -- Utilities --
+    "tenacity>=8.2",
+    "tqdm>=4.65",
+    "orjson>=3.9",
+    "pydantic>=2.5",
+    "jinja2>=3.1",
+    "rich>=13.7",
+    "python-dotenv>=1.0",
+    # -- Integrations (folded in from former extras: wandb, pyzotero, asta) --
+    "wandb>=0.16",
+    "pyzotero>=1.5",
+    "asta>=0.1",
+]
 authors = [
     {name = "The research-vault authors"},
 ]
@@ -14,7 +63,7 @@ keywords = [
     "ai",
     "llm",
     "research-assistant",
-    "zero-infra",
+    "batteries-included",
     "cli",
     "dag",
 ]
@@ -34,13 +83,27 @@ Homepage = "https://github.com/khangzhie-vault/research-vault"
 Repository = "https://github.com/khangzhie-vault/research-vault"
 Issues = "https://github.com/khangzhie-vault/research-vault/issues"
 
-# analysis: statistical tests for plan-driven inference (Shapiro-gated t vs Wilcoxon, etc.)
-# Core provides no scipy dependency — plans should note the stdlib signed-rank fallback
-# for small-n cases so they are runnable without this extra.
-# Install: pip install research-vault[analysis]
+# ---------------------------------------------------------------------------
+# Tier-2 — GPU-fragile, opt-in local inference. NEVER installed by default.
+# CUDA-pinned wheels break installs on CPU-only machines.
+# Install: pip install research-vault[local]
+# [local] includes: torch, transformers, accelerate, huggingface_hub, fasttext.
+# Sub-extras for serving stacks (vllm or sglang) — docs default to vllm.
+# Install serving: pip install research-vault[local,serve-vllm]
+# ---------------------------------------------------------------------------
 [project.optional-dependencies]
-analysis = [
-    "scipy>=1.11",
+local = [
+    "torch>=2.2",
+    "transformers>=4.38",
+    "accelerate>=0.27",
+    "huggingface_hub>=0.21",
+    "fasttext>=0.9",
+]
+serve-vllm = [
+    "vllm>=0.3",
+]
+serve-sglang = [
+    "sglang>=0.1",
 ]
 
 [project.scripts]

@@ -2,6 +2,29 @@
 
 **Before submitting any experiment job, read the run-recipe and resolve the env/tier.**
 
+## Model seam — litellm is the primary provider interface
+
+Research Vault harnesses call providers through **`litellm`** — the unified provider seam
+(SR-PKG). This makes cross-provider studies trivial: swap the `model=` parameter without
+changing harness logic.
+
+```python
+import litellm
+
+response = litellm.completion(
+    model="gpt-4o",            # or "claude-..." / "gemini/..." / "ollama/..."
+    messages=[{"role": "user", "content": "..."}],
+)
+```
+
+Per-provider SDKs (`anthropic`, `openai`, `google-generativeai`, `mistralai`, `cohere`) are
+installed by default as secondary dependencies — use them for provider-specific features not
+exposed by litellm.
+
+**Anti-pattern:** do NOT hard-wire `anthropic.Anthropic()` or `openai.OpenAI()` directly into
+harnesses that run cross-provider comparisons — use litellm so provider-swap is a one-line
+config change, not a harness rewrite.
+
 ## Step 1: Check the declared run-recipe
 
 ```bash

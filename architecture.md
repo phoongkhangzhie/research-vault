@@ -85,9 +85,23 @@ prompt defaults + adopter override).
 | `review/` | `rv review new/expand/list/gap-scan/gap-scope/gap-close` | Pre-registered, **saturation-gated lit-review DAG**: Phase-1 (review-scope → `[HG:approve-protocol]` → review-search → review-snowball → `[HG:coverage-gate]`) with `_protocol.md` freeze (non-empty `counter-position` = L-2 anti-fishing gate) + internal saturation loop (forward cited-by + backward refs); **two-phase fan-out** via `rv review expand` after the coverage human-go. **SR-LR-2 gap-driven pass**: `gap_scan.py` detects three typed gaps (knowledge_void / contradictory / evaluation_void); `gap-scan` is a **rejects-only screen** that writes `gaps/<id>.md` (8th OKF type, first-class lifecycle); `gap-scope` auto-authors a targeted Part-1 scope (question←claim, seed_queries, snowball_seeds) | `review_tips` + `style.py` |
 | `plan/` | `rv plan check/tips` | Pre-registration **freeze** (`freeze.py`) + structural **shape-lint** (`check.py`): rule (a) branch-presence, rule (b) one-component-per-ablation, **rule (c) bare-id `covers:` convention (SR-PLAN-2)** — run BEFORE `human-go-plan` | `plan_tips` + `style.py` |
 
-**Dependency posture: Core stays stdlib-only.** The `[analysis]` extra (`scipy`) is the only optional dep —
-for statistical tests in plan-driven inference. Every loop obeys leakage-by-construction (no private markers in
-prompts/seams/DEVLOG).
+**Dependency posture: Batteries-included toolkit default; the framework/CLI import path stays dep-light by
+guarded imports.** SR-PKG reverses the earlier stdlib-only-core golden rule for the *research surface*:
+`pip install research-vault` now installs the full portable Tier-1 stack — model SDKs (`anthropic`, `openai`,
+**`litellm`** as the primary unified provider seam, `google-generativeai`, `mistralai`, `cohere`, `tiktoken`),
+data (`datasets`, `pandas`, `numpy`, `pyarrow`), stats (`scipy`, `statsmodels`, `scikit-learn`), figures
+(`matplotlib`, `seaborn`), eval (`inspect-ai`, `lm-eval`, `evaluate`, `sacrebleu`, `rouge-score`, `bert-score`),
+multilingual (`sentencepiece`, `sacremoses`, `langdetect`), utilities (`tenacity`, `tqdm`, `orjson`, `pydantic`,
+`jinja2`, `rich`, `python-dotenv`), and integrations (`wandb`, `pyzotero`, `asta`). The GPU-fragile Tier-2
+stack (`torch`, `transformers`, `accelerate`, `huggingface_hub`, `fasttext`) is opt-in via `[local]`; serving
+sub-extras `[serve-vllm]` (docs default) / `[serve-sglang]` are available.
+
+**The `rv` CLI + every verb runs clean with toolkit absent** — all toolkit imports are guarded (lazy, only at
+call sites), so `rv help`, `rv status`, `rv note`, `rv dag` and all other verbs work with `pip install
+research-vault --no-deps`. This is enforced in CI via a hermetic bare-import test. Run `rv check` to see
+the tier coverage matrix; run `rv bootstrap` if Tier-1 packages are missing.
+
+Every loop obeys leakage-by-construction (no private markers in prompts/seams/DEVLOG).
 
 ## Adapter Protocols (adapters/base.py)
 | Adapter | Interface | Local-default (zero infra) | Advanced adapter |
@@ -107,7 +121,7 @@ codenames; (2) a CI leakage scanner — private markers / secrets / non-template
 (3) placeholdered + linted templates. Acceptance: `rv init` → a valid stranger-runnable instance.
 
 ## SR sequence (build plan)
-Status verified against merged `main` (`src/research_vault/` modules + `note.OKF_TYPES`). **15 SRs merged.**
+Status verified against merged `main` (`src/research_vault/` modules + `note.OKF_TYPES`). **15 SRs merged; SR-PKG in flight.**
 
 | SR | What | Status |
 |---|---|---|
@@ -130,6 +144,7 @@ Status verified against merged `main` (`src/research_vault/` modules + `note.OKF
 | SR-CONTRACT → SR-LENS-RM (#64) | project-lens scaffold, then **REVERSED**: per-project lens + `_hub.lensByRole` + per-project hat-bake removed — ONE flat vault crew, hats = `charter + role`, project context read fresh | MERGED |
 | SR-CCB | Claude Code binding — `rv init` writes `CLAUDE.md` + populates `.claude/agents/` via `build-agents --target claude-code`; per-role tool grants + model aliases (PUB-CCB.2) | MERGED |
 | SR-RM-FIGMS | Remove figure + manuscript loops; `figures/`, `manuscript/` OKF types, `[figures]` extra, `absent_row` gap detector removed; OKF→8; honesty-gates doctrine harvested | MERGED |
+| SR-PKG | Batteries-included toolkit: Tier-1 deps (model SDKs, data, stats, eval, multilingual, utils, integrations); `[local]` + `[serve-vllm]`/`[serve-sglang]` extras; `rv check` tier matrix; `rv bootstrap`; bare-import guard; architecture + recipe docs | IN FLIGHT |
 | — next → | SR-10 (OSS docs site + README/LICENSE + public publish, human-go) | — |
 
 ## Crew generation & the emit path (SR-LENS-RM, #64)
