@@ -207,17 +207,11 @@ class TestFetchRun:
             with pytest.raises(ValueError, match="not found"):
                 fetch_run("e", "p", "run1", "key")
 
-    def test_fetch_run_sdk_unavailable_raises_import_error(self):
+    def test_fetch_run_sdk_unavailable_raises_import_error(self, wandb_absent):
         """When wandb SDK is not installed, fetch_run raises ImportError with help msg."""
         from research_vault.wandb_pull import fetch_run
-        # Remove wandb from sys.modules to simulate not installed
-        original = sys.modules.pop("wandb", None)
-        try:
-            with pytest.raises(ImportError, match="prerequisite"):
-                fetch_run("e", "p", "run1", "key")
-        finally:
-            if original is not None:
-                sys.modules["wandb"] = original
+        with pytest.raises(ImportError, match="prerequisite"):
+            fetch_run("e", "p", "run1", "key")
 
 
 # ---------------------------------------------------------------------------
