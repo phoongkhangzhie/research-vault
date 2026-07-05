@@ -665,6 +665,90 @@ def render_status(sections: dict[str, Any], console: Any = None) -> None:
                    kind="ok", console=con)
 
 
+# ---------------------------------------------------------------------------
+# S4 — rv bootstrap (header + per-tier status lines + Result panel)
+# ---------------------------------------------------------------------------
+
+def render_bootstrap(result: dict[str, Any], console: Any = None) -> None:
+    """Render ``rv bootstrap`` — per-tier install status + a Result panel.
+
+    Reads the dict :func:`bootstrap._run_bootstrap` returns; mirrors the
+    :func:`render_check` shape (header → per-tier lines → Result panel).  The
+    plain ``report`` string is unchanged and used on the non-rich path.
+    """
+    from rich.markup import escape
+
+    con = console if console is not None else get_console()
+    make_header("rv bootstrap", "Research Vault toolkit install", console=con)
+
+    tier1_ok = bool(result.get("tier1_ok"))
+    venv_dir = escape(str(result.get("venv_dir", "?")))
+
+    # ── Per-tier status lines ────────────────────────────────────────────────
+    def _mark(ok: bool) -> str:
+        return f"[{_STYLE['ok']}]OK[/]" if ok else f"[{_STYLE['fail']}]FAIL[/]"
+
+    lines: list[str] = [f"[dim]venv:[/dim] {venv_dir}", ""]
+    lines.append(f"{_mark(tier1_ok)}  [bold]Tier-1[/bold] (core) — hard requirement")
+
+    if not tier1_ok:
+        # Tier-1 failed: surface the pip/venv error tail from the report.
+        report = str(result.get("report", ""))
+        err_tail = "\n".join(
+            escape(ln.strip()) for ln in report.splitlines()
+            if ln.strip().lower().startswith(("stderr", "venv:", "pip:"))
+        )
+        if err_tail:
+            lines.append("")
+            lines.append(err_tail)
+        con.print("\n".join(lines))
+        make_panel(
+            f"[{_STYLE['fail']}]Result: FAIL[/] — Tier-1 install failed. "
+            "Fix the error above and re-run [bold]rv bootstrap[/bold].",
+            title="Result",
+            kind="fail",
+            console=con,
+        )
+        return
+
+    # Tier-2 (best-effort)
+    if not result.get("tier2_attempted", True):
+        lines.append(f"[{_STYLE['info']}]— [/] [bold]Tier-2[/bold] (GPU/local) — skipped (--no-tier2)")
+    elif result.get("tier2_ok"):
+        lines.append(f"{_mark(True)}  [bold]Tier-2[/bold] (GPU/local) — installed")
+    else:
+        reason = escape(str(result.get("tier2_reason", "")).strip() or "GPU-fragile — needs a CUDA env")
+        lines.append(
+            f"[{_STYLE['locked']}]WARN[/]  [bold]Tier-2[/bold] (GPU/local) — skipped\n"
+            f"      [dim]{reason}[/dim]\n"
+            f"      [dim]install on your GPU box:[/dim] [bold]pip install research-vault[local][/bold]"
+        )
+
+    # Serve stack (optional sub-extra)
+    serve_target = result.get("serve_target")
+    if serve_target:
+        if result.get("serve_ok"):
+            lines.append(f"{_mark(True)}  [bold]Serve[/bold] ({escape(str(serve_target))}) — installed")
+        else:
+            reason = escape(str(result.get("serve_reason", "")).strip() or "GPU/CUDA-specific")
+            lines.append(
+                f"[{_STYLE['locked']}]WARN[/]  [bold]Serve[/bold] ({escape(str(serve_target))}) — skipped\n"
+                f"      [dim]{reason}[/dim]"
+            )
+
+    con.print("\n".join(lines))
+
+    # ── Result panel ─────────────────────────────────────────────────────────
+    body = f"[{_STYLE['ok']}]Result: OK[/] — Tier-1 installed."
+    if result.get("tier2_attempted", True):
+        body += " Tier-2: " + ("installed." if result.get("tier2_ok") else "skipped (see above).")
+    body += (
+        f"\n\n[dim]activate:[/dim] [bold]source {venv_dir}/bin/activate[/bold]"
+        "\n[dim]verify:[/dim] [bold]rv check[/bold]"
+    )
+    make_panel(body, title="Result", kind="ok", console=con)
+
+
 def render_closing(body: str, title: str = "Done", kind: str = "ok", console: Any = None) -> None:
     """Render a generic closing summary panel (S2 scaffold-summary surfaces).
 
