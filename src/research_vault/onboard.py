@@ -203,7 +203,7 @@ def cmd_onboard(
     ``input_fn`` / ``getpass_fn`` override the prompts.
     """
     from .check import run_preflight
-    from .richui import should_render_rich, get_console
+    from .richui import should_render_rich, render_onboard_header
 
     input_fn = input_fn or input
     getpass_fn = getpass_fn or _getpass.getpass
@@ -223,8 +223,10 @@ def cmd_onboard(
     )
     if interactive and should_render_rich():
         try:
-            from rich.panel import Panel
-            get_console().print(Panel(header, title="rv onboard"))
+            # The panel title already says "rv onboard"; drop the redundant first
+            # body line (kept in the plain path for the no-title case).
+            body = header.split("\n", 1)[1] if "\n" in header else header
+            render_onboard_header(body)
         except Exception:
             print(header)
     else:
