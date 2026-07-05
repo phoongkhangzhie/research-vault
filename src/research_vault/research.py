@@ -11,9 +11,12 @@ Key constraints (re-implemented fresh from vault's research.py as behavioral spe
   - Stdlib only for the module itself; asta and cite are called as subprocess tools.
 
 Commands:
-  rv research find <query>        search Semantic Scholar (annotated vs corpus)
+  rv research find <query>        search Semantic Scholar (over-fetch + rerank)
     --deep                        deep literature review (asta literature find)
-    --limit N                     result count (default 10)
+    --limit N                     result count shown (default 10; rerank truncates to this)
+    --pool N                      over-fetch size before rerank (default 50)
+    --rerank / --no-rerank        TF-IDF rerank candidates (default on)
+    --min-score FLOAT             minimum similarity threshold (default 0.0 = reorder-not-drop)
     --project NAME                match candidates against this project's corpus
   rv research cited-by <paper-id> forward snowball — papers that cite this paper
     --limit N                     result count (default 20)
@@ -385,7 +388,16 @@ def _print_candidates(
 # ---------------------------------------------------------------------------
 
 def cmd_find(args: argparse.Namespace) -> int:
-    """find: search Semantic Scholar (asta papers search or --deep)."""
+    """find: search Semantic Scholar (asta papers search or --deep).
+
+    Normal path (not --deep): over-fetches ``--pool`` candidates from asta, then
+    reranks by TF-IDF relevance to the query and shows the top ``--limit`` results.
+    This surfaces anchors that asta's recency/citation ordering buries past the
+    first page.  Use ``--no-rerank`` to reproduce the legacy asta-order output
+    (fetches exactly ``--limit`` candidates, no reranking).
+
+    ``--deep`` path is unchanged in v1 (asta literature find; no rerank applied).
+    """
     _preflight_asta()
     try:
         cfg = load_config()
@@ -395,6 +407,11 @@ def cmd_find(args: argparse.Namespace) -> int:
 
     project = getattr(args, "project", None) or _default_project(cfg)
     fields = "title,year,authors,externalIds,abstract,citationCount"
+
+    # --rerank flag (default True); pool size for over-fetch; min_score threshold
+    do_rerank = getattr(args, "rerank", True)
+    pool = getattr(args, "pool", 50)
+    min_score = getattr(args, "min_score", 0.0)
 
     if getattr(args, "deep", False):
         tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
@@ -409,10 +426,14 @@ def cmd_find(args: argparse.Namespace) -> int:
             )
         except Exception as e:
             sys.exit(f"failed to parse asta literature find output: {e}")
+        # --deep: no rerank in v1 (asta literature find manages its own ordering)
+        do_rerank = False
     else:
+        # Over-fetch: request pool candidates (or just limit when --no-rerank)
+        fetch_n = pool if do_rerank else args.limit
         cmd = [
             "asta", "papers", "search", args.query,
-            "--format", "json", "--limit", str(args.limit),
+            "--format", "json", "--limit", str(fetch_n),
             "--fields", fields,
         ]
         r = subprocess.run(cmd, capture_output=True, text=True)
@@ -420,6 +441,17 @@ def cmd_find(args: argparse.Namespace) -> int:
             sys.exit(f"asta papers search failed:\n{r.stderr}")
         raw = json.loads(r.stdout)
         papers = raw.get("data") or []
+
+    if do_rerank and papers:
+        # Build body for each paper: title + abstract (tolerate missing abstract)
+        for p in papers:
+            title = p.get("title") or ""
+            abstract = p.get("abstract") or ""
+            p["body"] = title + ("\n" + abstract if abstract else "")
+        from .cross_project import rank_candidates  # in-place import (no new cycle)
+        papers = rank_candidates(
+            args.query, papers, min_score=min_score, top_k=args.limit
+        )
 
     refs_path = _refs_path_for_project(project, cfg)
     corpus_index = _load_corpus_index(refs_path)
@@ -702,10 +734,44 @@ def build_parser(
     sub = p.add_subparsers(dest="research_cmd", required=True)
 
     # find
-    find_p = sub.add_parser("find", help="Search Semantic Scholar (annotated vs corpus).")
+    find_p = sub.add_parser(
+        "find",
+        help=(
+            "Search Semantic Scholar (over-fetch + TF-IDF rerank for on-topic recall). "
+            "Over-fetches --pool candidates from asta, reranks by TF-IDF relevance to "
+            "the query, and shows the top --limit results — surfacing anchors buried by "
+            "asta's recency/citation ordering. "
+            "Use --no-rerank to reproduce the legacy asta-order output. "
+            "--deep/WebSearch escalation still recommended for deep recall. "
+            "Anti-pattern: do NOT rely on find alone for systematic lit review — it is a "
+            "starting point; use rv research cited-by + rv research references for snowball."
+        ),
+    )
     find_p.add_argument("query")
     find_p.add_argument("--deep", action="store_true", help="Deep literature review via asta literature find.")
-    find_p.add_argument("--limit", type=int, default=10)
+    find_p.add_argument("--limit", type=int, default=10, help="Number of results to show (default 10).")
+    find_p.add_argument(
+        "--pool", type=int, default=50,
+        help=(
+            "Over-fetch size: number of candidates fetched from asta before reranking "
+            "(default 50; asta cap is 100). Only used when --rerank is on."
+        ),
+    )
+    find_p.add_argument(
+        "--rerank", action="store_true", default=True,
+        help="Rerank fetched candidates by TF-IDF relevance to the query (default on).",
+    )
+    find_p.add_argument(
+        "--no-rerank", dest="rerank", action="store_false",
+        help="Disable reranking; fetch --limit candidates in asta order (legacy output).",
+    )
+    find_p.add_argument(
+        "--min-score", type=float, default=0.0, dest="min_score",
+        help=(
+            "Minimum TF-IDF similarity score to include in results (default 0.0 = "
+            "reorder-not-drop; truncation to --limit is the noise filter)."
+        ),
+    )
     find_p.add_argument(
         "--project", default=None,
         help=(
