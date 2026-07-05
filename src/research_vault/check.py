@@ -7,9 +7,10 @@ instructions. Fail-fast: reports ALL failures, not just the first.
 Checks:
   1. Claude CLI — ``claude --version`` must succeed (the agent runtime)
   2. ANTHROPIC_API_KEY — must be set in env or resolvable via keyring
-  3. Toolkit Tier-1 — portable pip packages installed by default
-  4. Toolkit Tier-2 — GPU-fragile local-inference stack ([local] extra)
-  5. asta / Zotero / W&B — integration checks (optional)
+  3. Toolkit Tier-1 — 27-package research-toolkit core (installed by default)
+  4. Toolkit Extras — [providers] / [figures] extras (opt-in)
+  5. Toolkit Tier-2 — GPU-fragile local-inference stack ([local] extra)
+  6. asta / Zotero / W&B — integration checks (optional)
 
 Exit codes:
   0 — all required prerequisites present (optional checks may warn)
@@ -27,53 +28,62 @@ from typing import Any
 
 
 # ---------------------------------------------------------------------------
-# Tier-1 package registry
+# Tier-1 package registry — 27-package research-toolkit core
 # ---------------------------------------------------------------------------
 # Each entry: (pip_name, import_name, group_label, purpose)
 _TIER1_PACKAGES: list[tuple[str, str, str, str]] = [
-    # Model SDKs
-    ("anthropic",           "anthropic",           "model",        "Anthropic API client"),
-    ("openai",              "openai",              "model",        "OpenAI API client"),
-    ("litellm",             "litellm",             "model",        "unified provider seam (primary)"),
-    ("google-generativeai", "google.generativeai", "model",        "Google Generative AI client"),
-    ("mistralai",           "mistralai",           "model",        "Mistral AI client"),
-    ("cohere",              "cohere",              "model",        "Cohere client"),
-    ("tiktoken",            "tiktoken",            "model",        "token counting"),
-    # Data
-    ("datasets",            "datasets",            "data",         "HuggingFace Datasets"),
-    ("pandas",              "pandas",              "data",         "DataFrame"),
-    ("numpy",               "numpy",               "data",         "arrays"),
-    ("pyarrow",             "pyarrow",             "data",         "columnar data / Parquet"),
-    # Stats
-    ("scipy",               "scipy",               "stats",        "statistical tests"),
-    ("statsmodels",         "statsmodels",         "stats",        "regression / inference"),
-    ("scikit-learn",        "sklearn",             "stats",        "ML utilities"),
-    # Figures
-    ("matplotlib",          "matplotlib",          "figures",      "plotting"),
-    ("seaborn",             "seaborn",             "figures",      "statistical figures"),
+    # core-4: primary model seam + Anthropic SDK + tokenizer + ML utilities
+    ("anthropic",       "anthropic",     "core",         "Anthropic API client"),
+    ("litellm",         "litellm",       "core",         "unified provider seam (primary)"),
+    ("tiktoken",        "tiktoken",      "core",         "token counting"),
+    ("scikit-learn",    "sklearn",       "core",         "ML utilities"),
+    # Analysis
+    ("datasets",        "datasets",      "analysis",     "HuggingFace Datasets"),
+    ("pandas",          "pandas",        "analysis",     "DataFrame"),
+    ("numpy",           "numpy",         "analysis",     "arrays"),
+    ("pyarrow",         "pyarrow",       "analysis",     "columnar data / Parquet"),
+    ("scipy",           "scipy",         "analysis",     "statistical tests"),
+    ("statsmodels",     "statsmodels",   "analysis",     "regression / inference"),
     # Eval (torch-free; bert-score + lm-eval require torch → Tier-2 [local])
-    ("inspect-ai",          "inspect_ai",          "eval",         "inspect-ai evaluation framework"),
-    ("evaluate",            "evaluate",            "eval",         "HuggingFace Evaluate"),
-    ("sacrebleu",           "sacrebleu",           "eval",         "BLEU / chrF scores"),
-    ("rouge-score",         "rouge_score",         "eval",         "ROUGE scores"),
+    ("inspect-ai",      "inspect_ai",    "eval",         "inspect-ai evaluation framework"),
+    ("evaluate",        "evaluate",      "eval",         "HuggingFace Evaluate"),
+    ("sacrebleu",       "sacrebleu",     "eval",         "BLEU / chrF scores"),
+    ("rouge-score",     "rouge_score",   "eval",         "ROUGE scores"),
     # Multilingual
-    ("sentencepiece",       "sentencepiece",       "multilingual", "SentencePiece tokenizer"),
-    ("sacremoses",          "sacremoses",          "multilingual", "Moses tokenizer / detokenizer"),
-    ("langdetect",          "langdetect",          "multilingual", "language detection"),
-    # Utilities
-    ("tenacity",            "tenacity",            "utils",        "retry logic"),
-    ("tqdm",                "tqdm",                "utils",        "progress bars"),
-    ("orjson",              "orjson",              "utils",        "fast JSON"),
-    ("pydantic",            "pydantic",            "utils",        "data validation"),
-    ("jinja2",              "jinja2",              "utils",        "templating"),
-    ("rich",                "rich",                "utils",        "terminal formatting"),
-    ("python-dotenv",       "dotenv",              "utils",        ".env loading"),
+    ("sentencepiece",   "sentencepiece", "multilingual", "SentencePiece tokenizer"),
+    ("sacremoses",      "sacremoses",    "multilingual", "Moses tokenizer / detokenizer"),
+    ("langdetect",      "langdetect",    "multilingual", "language detection"),
     # Integrations (pip-installable)
-    ("wandb",               "wandb",               "integrations", "W&B experiment tracking"),
-    ("pyzotero",            "pyzotero",            "integrations", "Zotero citation management"),
+    ("wandb",           "wandb",         "integrations", "W&B experiment tracking"),
+    ("pyzotero",        "pyzotero",      "integrations", "Zotero citation management"),
+    ("keyring",         "keyring",       "integrations", "secret-store adapter (API key resolution)"),
+    # Utilities / harness
+    ("tenacity",        "tenacity",      "utils",        "retry logic"),
+    ("tqdm",            "tqdm",          "utils",        "progress bars"),
+    ("orjson",          "orjson",        "utils",        "fast JSON"),
+    ("pydantic",        "pydantic",      "utils",        "data validation"),
+    ("jinja2",          "jinja2",        "utils",        "templating"),
+    ("rich",            "rich",          "utils",        "terminal formatting"),
+    ("python-dotenv",   "dotenv",        "utils",        ".env loading"),
 ]
 # Note: asta is reported as an optional integration via _check_asta() — not in _TIER1_PACKAGES
 # because it may not be available on PyPI. rv check surfaces it in the Integrations section.
+
+# ---------------------------------------------------------------------------
+# Extras package registry — opt-in on top of Tier-1 core
+# ---------------------------------------------------------------------------
+# Each entry: (pip_name, import_name, extra_name, purpose)
+# extra_name maps to the pyproject [project.optional-dependencies] key.
+_EXTRA_PACKAGES: list[tuple[str, str, str, str]] = [
+    # [providers] — per-provider SDKs (litellm covers most; install for provider-specific features)
+    ("openai",       "openai",      "providers", "OpenAI API client"),
+    ("google-genai", "google.genai","providers", "Google Generative AI client"),
+    ("mistralai",    "mistralai",   "providers", "Mistral AI client"),
+    ("cohere",       "cohere",      "providers", "Cohere client"),
+    # [figures] — matplotlib + seaborn
+    ("matplotlib",   "matplotlib",  "figures",   "plotting"),
+    ("seaborn",      "seaborn",     "figures",   "statistical figures"),
+]
 
 _TIER2_PACKAGES: list[tuple[str, str, str, str]] = [
     ("torch",          "torch",          "local", "PyTorch (GPU)"),
@@ -107,6 +117,15 @@ def _check_tier1() -> list[tuple[str, str, str, bool]]:
     for pip_name, import_name, group, purpose in _TIER1_PACKAGES:
         ok = _probe_import(import_name)
         results.append((pip_name, purpose, group, ok))
+    return results
+
+
+def _check_extras() -> list[tuple[str, str, str, bool]]:
+    """Probe all extras packages. Returns list of (pip_name, purpose, extra_name, ok)."""
+    results = []
+    for pip_name, import_name, extra_name, purpose in _EXTRA_PACKAGES:
+        ok = _probe_import(import_name)
+        results.append((pip_name, purpose, extra_name, ok))
     return results
 
 
@@ -151,6 +170,43 @@ def _fmt_tier_section(
                 missing.append(pip_name)
 
     return lines, missing
+
+
+def _fmt_extras_section(
+    results: list[tuple[str, str, str, bool]],
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Format the extras section for the report.
+
+    Returns (lines, missing_by_extra) where missing_by_extra maps extra_name →
+    list of missing pip names. Missing packages include a per-extra install hint
+    so the operator knows exactly which extra to install — not a blanket nudge.
+    """
+    from collections import defaultdict
+
+    lines: list[str] = []
+    missing_by_extra: dict[str, list[str]] = defaultdict(list)
+
+    groups: dict[str, list[tuple[str, str, bool]]] = defaultdict(list)
+    for pip_name, purpose, extra_name, ok in results:
+        groups[extra_name].append((pip_name, purpose, ok))
+
+    for extra_name, items in groups.items():
+        ok_count = sum(1 for _, _, ok in items if ok)
+        total = len(items)
+        group_ok = ok_count == total
+        tag = "OK" if group_ok else "INFO"
+        lines.append(f"  [{tag}] [{extra_name}]: {ok_count}/{total}")
+        for pip_name, purpose, ok in items:
+            t = "+" if ok else "-"
+            lines.append(f"         {t} {pip_name}  ({purpose})")
+            if not ok:
+                missing_by_extra[extra_name].append(pip_name)
+        if not group_ok:
+            lines.append(
+                f"         → install: pip install research-vault[{extra_name}]"
+            )
+
+    return lines, dict(missing_by_extra)
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +351,7 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
         "claude_cli":       bool,
         "api_key":          bool,
         "tier1_missing":    list[str],  pip names of missing Tier-1 packages
+        "extras_missing":   list[str],  pip names of missing extras packages
         "tier2_missing":    list[str],  pip names of missing Tier-2 packages
         "asta":             bool,
         "zotero":           bool,
@@ -315,6 +372,7 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
 
     # Toolkit tier probes
     tier1_results = _check_tier1()
+    extras_results = _check_extras()
     tier2_results = _check_tier2()
 
     # Optional integration checks
@@ -333,9 +391,20 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
 
     # Tier-1 section
     lines.append("")
-    lines.append("Toolkit Tier-1 (portable pip defaults — pip install research-vault):")
+    lines.append(
+        "Toolkit Tier-1 (27-package core — pip install research-vault):"
+    )
     tier1_lines, tier1_missing = _fmt_tier_section(tier1_results, warn_missing=False)
     lines.extend(tier1_lines)
+
+    # Extras section
+    lines.append("")
+    lines.append(
+        "Toolkit Extras (opt-in — pip install research-vault[providers|figures|all]):"
+    )
+    extras_lines, extras_missing_by_extra = _fmt_extras_section(extras_results)
+    lines.extend(extras_lines)
+    extras_missing = [p for missing in extras_missing_by_extra.values() for p in missing]
 
     # Tier-2 section
     lines.append("")
@@ -407,6 +476,7 @@ def run_preflight(cfg: Any = None) -> dict[str, Any]:
         "claude_cli": claude_ok,
         "api_key": apikey_ok,
         "tier1_missing": tier1_missing,
+        "extras_missing": extras_missing,
         "tier2_missing": tier2_missing,
         "asta": asta_ok,
         "zotero": zotero_ok,
@@ -427,15 +497,17 @@ def build_parser(
     """Build the argument parser for the ``check`` verb.
 
     When to use: ``rv check`` before running any research loop. Verifies that
-    the Claude CLI, API key, and toolkit tiers (Tier-1 portable + Tier-2 GPU) are
-    available. Reports missing packages with install instructions.
-    Run `rv bootstrap` if Tier-1 packages are missing.
+    the Claude CLI, API key, and toolkit tiers (Tier-1 27-package core + Tier-1
+    extras + Tier-2 GPU) are available. Reports missing packages with install
+    instructions. Run `rv bootstrap` if Tier-1 packages are missing.
     Exit 0 if all required prerequisites are present; exit 1 if any are missing.
     """
     desc = (
         "Preflight check — verify Research Vault prerequisites. "
         "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
-        "Toolkit Tier-1 (portable pip defaults), Tier-2 (GPU/local inference), "
+        "Toolkit Tier-1 (27-package core defaults), "
+        "Toolkit Extras ([providers]/[figures] — opt-in per-provider SDKs + figure libs), "
+        "Tier-2 (GPU/local inference), "
         "asta (optional), Zotero/ZOTERO_KEY (optional), W&B (optional). "
         "Exit 0 if all required prerequisites are present; exit 1 if any are missing. "
         "API keys are resolved from env vars (highest priority) or the system keyring "
