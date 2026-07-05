@@ -385,6 +385,99 @@ def _check_project_scoped_note(
 
 
 # ---------------------------------------------------------------------------
+# SR-DAG-BRIEF: resolve_produces_paths — SSOT for produces→abs-path
+# ---------------------------------------------------------------------------
+#
+# Called from BOTH cmd_complete's gate AND build_brief (dag/brief.py).
+# Extracting this prevents drift between the complete-time check and the
+# brief's "expected output path(s)" — the operator sees the same paths.
+#
+# Returns a list of absolute Path objects for all declared produces entries
+# that have a resolvable path.  Note-type entries are resolved via
+# cfg.project_notes_dir (when a project slug is present in the manifest's
+# manifest-level "project" key) or cfg.notes_root.  Dataset entries are
+# resolved via cfg.datasets_root.
+#
+# Callers that need the validation errors should call _check_okf_note_type /
+# _check_project_scoped_note directly (the complete-gate path).  This function
+# is INFORMATIONAL — it resolves what it can and silently skips unknowns.
+
+def resolve_produces_paths(
+    node: dict[str, Any],
+    cfg: Any,
+    *,
+    manifest_project: str | None = None,
+) -> list[Path]:
+    """Resolve a node's produces: entries to absolute Path objects.
+
+    Parameters
+    ----------
+    node:              The node dict (may have a ``produces`` key).
+    cfg:               The loaded Config object.
+    manifest_project:  The manifest-level ``project`` slug (optional).
+                       When provided, produces.note is resolved via
+                       cfg.project_notes_dir(slug).  When absent, cfg.notes_root.
+
+    Returns
+    -------
+    A list of absolute Path objects.  One entry per produces sub-key that
+    resolves to a deterministic path.  Returns [] when produces is absent.
+    """
+    produces = node.get("produces")
+    if not produces or not isinstance(produces, dict):
+        return []
+
+    paths: list[Path] = []
+
+    # Determine note root
+    if manifest_project:
+        try:
+            note_root: Path = cfg.project_notes_dir(manifest_project)
+        except Exception:
+            note_root = cfg.notes_root
+    else:
+        note_root = cfg.notes_root
+
+    for key, value in produces.items():
+        if not isinstance(value, str) or not value:
+            continue
+
+        if key == "note":
+            # Relative note path within notes_root
+            p = Path(value)
+            if not p.is_absolute():
+                p = note_root / value
+            paths.append(p)
+
+        elif key == "dataset":
+            # Shared datasets store
+            p = Path(value)
+            if not p.is_absolute():
+                p = cfg.datasets_root / value
+            paths.append(p)
+
+        elif key in _PRODUCES_KEY_TO_OKF_DIR:
+            # Project-scoped typed note: "<project>/<id>"
+            if "/" in value:
+                project_slug, note_id = value.split("/", 1)
+                type_dir = _PRODUCES_KEY_TO_OKF_DIR[key]
+                try:
+                    proj_notes = cfg.project_notes_dir(project_slug)
+                    note_id_ext = note_id if note_id.endswith(".md") else f"{note_id}.md"
+                    paths.append(proj_notes / type_dir / note_id_ext)
+                except Exception:
+                    pass
+
+        else:
+            # Arbitrary file key (e.g. "_protocol.md": "/abs/path/…")
+            p = Path(value)
+            if p.is_absolute():
+                paths.append(p)
+
+    return paths
+
+
+# ---------------------------------------------------------------------------
 # Verb: run
 # ---------------------------------------------------------------------------
 
@@ -1190,6 +1283,79 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Verb: brief  (SR-DAG-BRIEF)
+# ---------------------------------------------------------------------------
+
+def cmd_brief(args: argparse.Namespace) -> int:
+    """Emit a deterministic crew dispatch brief for a DAG agent node.
+
+    Replaces hand-written dispatch briefs: the brief is a pure function of
+    (node, run_state, cfg) — same inputs → byte-identical output.
+
+    EMIT, DON'T HAND-ROLL:
+      rv dag brief <run_id> <node_id>
+    The output is the brief to pass verbatim to the dispatched crew subagent.
+    Never hand-transcribe a node's spec/reads into a brief — that is the
+    anti-pattern this verb exists to prevent.
+    """
+    run_id = args.run_id
+    node_id = args.node_id
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv dag brief: config error: {e}", file=sys.stderr)
+        return 1
+
+    store = RunStore.from_config(cfg)
+    try:
+        run_state = store.load(run_id)
+    except StoreError as e:
+        print(f"rv dag brief: {e}", file=sys.stderr)
+        return 1
+
+    manifest_path = Path(run_state.manifest_path)
+    try:
+        manifest = load_manifest(manifest_path)
+    except ManifestError as e:
+        print(f"rv dag brief: manifest error: {e}", file=sys.stderr)
+        return 1
+
+    nodes_lookup = manifest_nodes_by_id(manifest)
+    if node_id not in nodes_lookup:
+        print(f"rv dag brief: node {node_id!r} not in manifest", file=sys.stderr)
+        return 1
+
+    node = nodes_lookup[node_id]
+    node_type = node.get("type", "agent")
+    if node_type == "human-go":
+        print(
+            f"rv dag brief: node {node_id!r} is a human-go gate — "
+            "briefs are for agent nodes only. "
+            "Use `rv dag approve <run_id> <node_id>` to advance this gate.",
+            file=sys.stderr,
+        )
+        return 1
+
+    node_state = run_state.node_states.get(node_id, {})
+
+    # Detect the manifest-level project slug for produces-path resolution
+    manifest_project: str | None = manifest.get("project")
+
+    from .brief import build_brief
+    brief = build_brief(
+        node=node,
+        node_state=node_state,
+        cfg=cfg,
+        run_id=run_id,
+        project_root=manifest_path.parent,
+        manifest_project=manifest_project,
+    )
+    print(brief, end="")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI parser
 # ---------------------------------------------------------------------------
 
@@ -1326,6 +1492,18 @@ def build_parser(
         ),
     )
 
+    # brief  (SR-DAG-BRIEF — deterministic crew dispatch brief emitter)
+    brief_p = sub.add_parser(
+        "brief",
+        help=(
+            "Emit a deterministic crew dispatch brief for a DAG agent node. "
+            "EMIT, DON'T HAND-ROLL: never hand-transcribe a node's spec/reads "
+            "into a brief — use this verb."
+        ),
+    )
+    brief_p.add_argument("run_id", help="The run_id.")
+    brief_p.add_argument("node_id", help="The agent node id to brief.")
+
     return p
 
 
@@ -1340,6 +1518,7 @@ def run(args: argparse.Namespace) -> int:
         "insert": cmd_insert,
         "status": cmd_status,
         "templates": cmd_templates,
+        "brief": cmd_brief,
     }
     dag_cmd = getattr(args, "dag_cmd", None)
     fn = cmd_map.get(dag_cmd)
