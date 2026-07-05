@@ -97,10 +97,12 @@ def test_help_grouped_output(capsys):
     result = main(["help"])
     assert result == 0
     out = capsys.readouterr().out
-    # All phase headers present
-    for phase in ["Setup", "Lit-review", "Experiment", "Figure", "Manuscript",
-                  "Gap loop", "Infra/git", "Coordination"]:
+    # All phase headers present (Figure and Manuscript removed in SR-RM-FIGMS)
+    for phase in ["Setup", "Lit-review", "Experiment", "Gap loop", "Infra/git", "Coordination"]:
         assert phase in out, f"Phase header {phase!r} not found in rv help output"
+    # SR-RM-FIGMS: Figure and Manuscript phases must be gone
+    assert "── Figure" not in out
+    assert "── Manuscript" not in out
 
 
 def test_help_gap_loop_subcommands_visible(capsys):
@@ -121,7 +123,7 @@ def test_help_gap_loop_subcommands_visible(capsys):
 
 
 def test_help_shows_subcommands_for_multi_verb(capsys):
-    """rv help lists key subcommands for verbs like review/note/dag/manuscript/figure.
+    """rv help lists key subcommands for verbs like review/note/dag.
 
     RED before grouped renderer is implemented.
     """
@@ -131,12 +133,12 @@ def test_help_shows_subcommands_for_multi_verb(capsys):
     # review subcommands should appear in the output
     assert "new" in out          # review has 'new'
     assert "expand" in out       # review has 'expand'
-    # figure subcommands
-    assert "preview" in out      # figure has 'preview'
-    assert "render" in out       # figure has 'render'
     # dag subcommands
     assert "run" in out          # dag has 'run'
     assert "approve" in out      # dag has 'approve'
+    # SR-RM-FIGMS: figure and manuscript removed
+    assert "rv figure" not in out
+    assert "rv manuscript" not in out
 
 
 def test_help_no_60char_truncation(capsys):
@@ -180,47 +182,24 @@ def test_help_check_catches_broken_snippet(tmp_instance):
     """_check_example_snippets catches a deliberately-broken Use `rv ...` snippet.
 
     Non-vacuous RED-before-GREEN: the gate must actually fail on a bad snippet
-    (the figure example missing required positionals).
-
-    RED before _check_example_snippets is implemented (AttributeError on import).
+    (the note example with an unknown --wrong-flag argument with placeholder).
     """
     from research_vault.cli import _check_example_snippets
-    # Simulate the old broken figure example: missing <project> and <fig-id>
+    # Simulate a broken snippet: an unknown flag passed with a placeholder
     broken_registry = {
-        "figure": {
-            "module": "research_vault.figure",
+        "note": {
+            "module": "research_vault.note",
             "when_to_use": (
-                "When you need a figure. "
-                "Use `rv figure new --experiment <id>` to create one."
+                "When you need a note. "
+                "Use `rv note <project> new <type> --wrong-flag <value>` to create one."
             ),
-            "sr": "SR-FIG",
+            "sr": "SR-1",
         }
     }
     violations = _check_example_snippets(broken_registry)
     assert len(violations) > 0, (
-        "Expected violations from broken snippet 'rv figure new --experiment <id>' "
-        "(missing required <project> and <fig-id> positionals)"
+        "Expected violations from broken snippet with --wrong-flag"
     )
-
-
-def test_help_check_passes_corrected_figure_snippet(tmp_instance):
-    """_check_example_snippets passes on the corrected figure snippet.
-
-    RED before _check_example_snippets is implemented.
-    """
-    from research_vault.cli import _check_example_snippets
-    good_registry = {
-        "figure": {
-            "module": "research_vault.figure",
-            "when_to_use": (
-                "When you need a figure. "
-                "Use `rv figure <project> new <fig-id> --experiment <exp-id>` to create one."
-            ),
-            "sr": "SR-FIG",
-        }
-    }
-    violations = _check_example_snippets(good_registry)
-    assert violations == [], f"Unexpected violations on corrected figure snippet: {violations}"
 
 
 def test_help_check_snippet_gate_real_registry(tmp_instance):
@@ -251,38 +230,7 @@ def test_help_check_cli_now_covers_snippets(tmp_instance, capsys):
     assert result == 0
 
 
-def test_figure_when_to_use_snippet_parses(tmp_instance):
-    """The figure when_to_use 'Use `rv figure ...`' snippet parses without error.
-
-    RED until figure when_to_use is corrected to the full signature.
-    """
-    import re
-    import argparse
-    import shlex
-    from research_vault.figure import build_parser
-
-    dummy = argparse.ArgumentParser()
-    ds = dummy.add_subparsers()
-    vp = build_parser(ds)
-
-    text = _VERB_REGISTRY["figure"]["when_to_use"]
-    m = re.search(r"Use `rv figure ([^`]+)`", text)
-    assert m is not None, "No 'Use `rv figure ...' snippet found in figure when_to_use"
-    snippet = m.group(1)
-
-    # Normalize: replace <placeholder> with dummy values
-    normalized = re.sub(r"<[^>]+>", "dummy", snippet)
-    normalized = re.sub(r"\[[^\]]+\]", "", normalized).strip()
-    args = shlex.split(normalized)
-
-    # Should parse without raising SystemExit
-    try:
-        parsed = vp.parse_args(args)
-        assert parsed is not None
-    except SystemExit as exc:
-        raise AssertionError(
-            f"figure when_to_use snippet does not parse.\n"
-            f"  Snippet: {snippet!r}\n"
-            f"  Normalized: {normalized!r}\n"
-            f"  Exit code: {exc.code}"
-        ) from exc
+def test_figure_manuscript_removed_from_registry(tmp_instance):
+    """SR-RM-FIGMS: figure and manuscript must not be in _VERB_REGISTRY."""
+    assert "figure" not in _VERB_REGISTRY, "figure still in _VERB_REGISTRY after SR-RM-FIGMS"
+    assert "manuscript" not in _VERB_REGISTRY, "manuscript still in _VERB_REGISTRY after SR-RM-FIGMS"

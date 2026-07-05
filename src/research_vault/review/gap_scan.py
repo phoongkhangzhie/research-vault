@@ -95,13 +95,11 @@ _RUN_SECTIONS: frozenset[str] = frozenset({
 GAP_TYPE_KNOWLEDGE_VOID = "knowledge_void"
 GAP_TYPE_CONTRADICTORY = "contradictory"
 GAP_TYPE_EVALUATION_VOID = "evaluation_void"
-GAP_TYPE_ABSENT_ROW = "absent_row"
 
 GAP_TYPES: frozenset[str] = frozenset({
     GAP_TYPE_KNOWLEDGE_VOID,
     GAP_TYPE_CONTRADICTORY,
     GAP_TYPE_EVALUATION_VOID,
-    GAP_TYPE_ABSENT_ROW,
 })
 
 # Valid closure statuses (§5L.8 + §5L.20 SR-GAP-CLOSE)
@@ -119,10 +117,6 @@ GAP_STATUSES: frozenset[str] = frozenset({
 # Default support-degree threshold (D-GAP-2)
 DEFAULT_SUPPORT_THRESHOLD = 1
 
-# Bracketed verdict tokens that trigger absent_row detection (§5L.10)
-# These are the BLOCK-class verdicts from SupportVerdict.verdict.
-_ABSENT_ROW_TOKENS = frozenset({"ABSENT", "CONTRADICTS"})
-
 # Seed query templates per gap type (§5L.7 — targeted frontier)
 _SEED_QUERY_TEMPLATES: dict[str, list[str]] = {
     GAP_TYPE_KNOWLEDGE_VOID: [
@@ -139,11 +133,6 @@ _SEED_QUERY_TEMPLATES: dict[str, list[str]] = {
         '"{effect}" baseline comparison',
         '"{effect}" evaluation comparator',
         '"{effect}" benchmark ablation',
-    ],
-    GAP_TYPE_ABSENT_ROW: [
-        '"{claim_terms}" evidence',
-        '"{claim_terms}" empirical',
-        '"{claim_terms}" study',
     ],
 }
 
@@ -199,18 +188,10 @@ def suggest_route(gap_type: str, meta: dict[str, Any]) -> str:
       knowledge_void   → literature  (detection ≠ truth: corpus void ≠ field void)
       contradictory    → literature  (reconcile via abstraction / moderators first)
       evaluation_void  → experiment  (RUN fast-path: lit pass can only return proven-open)
-      absent_row       → Tier-A: triage (no section) / Tier-B: section-split
-
-    Tier-B section split for absent_row (§5L.15 D-ROUTE-2):
-      section in _READ_SECTIONS  → literature  (field/prior-work claim → find the cite)
-      section in _RUN_SECTIONS   → experiment  (our-own-result claim → run or capture)
-      else                       → triage       (ambiguous → human decides)
-
-    Back-compat: if ``meta`` has no ``section`` key (old detections) → triage (Tier-A).
 
     Args:
         gap_type: one of GAP_TYPES
-        meta:     the GapRecord._meta dict (may contain 'section' for absent_row Tier-B)
+        meta:     the GapRecord._meta dict
 
     Returns:
         ROUTE_LITERATURE | ROUTE_EXPERIMENT | ROUTE_TRIAGE
@@ -221,15 +202,6 @@ def suggest_route(gap_type: str, meta: dict[str, Any]) -> str:
         return ROUTE_LITERATURE
     if gap_type == GAP_TYPE_EVALUATION_VOID:
         return ROUTE_EXPERIMENT
-    if gap_type == GAP_TYPE_ABSENT_ROW:
-        # Tier-B: split by section context if available
-        section = meta.get("section", "").lower().strip()
-        if section in _READ_SECTIONS:
-            return ROUTE_LITERATURE
-        if section in _RUN_SECTIONS:
-            return ROUTE_EXPERIMENT
-        # Tier-A fallback: section absent or ambiguous → triage
-        return ROUTE_TRIAGE
     # Unknown type → safe default
     return ROUTE_TRIAGE
 
@@ -378,83 +350,6 @@ def _detect_evaluation_void(notes_dir: Path) -> list[GapRecord]:
     return gaps
 
 
-def _detect_absent_rows(
-    matcher_meta: dict[str, Any],
-    *,
-    run_id: str = "",
-) -> list[GapRecord]:
-    """Detect Absent Row gaps from the support_matcher structured verdicts (the loop-closer, §5L.10).
-
-    Consumes ``RunState.meta['support_matcher']`` — the structured output of
-    ``SupportMatchSummary.meta_dict()`` — instead of grepping prose (D-GAP-3 fix).
-
-    Filters verdicts where:
-      - ``verdict`` in {ABSENT, CONTRADICTS}  (BLOCK-class), OR
-      - ``j2_escalation`` is True (J-2 stance-mismatch BLOCK)
-
-    Builds each GapRecord from:
-      - ``claim``   ← verdict['claim_snippet']  (the guaranteed field)
-      - ``anchor``  ← ``literature/<citekey>``  (the cited note reference)
-      - ``citekey`` ← verdict['citekey']
-
-    [PARTIAL] without j2_escalation is WARN-only — NOT surfaced as a gap here.
-
-    Charter §2 guard: if the meta dict is non-empty but the ``verdicts`` key is
-    absent or None (indicating a missing or incomplete matcher run), emits a
-    ``warnings.warn`` at UserWarning level so the operator knows the gate may
-    have fired without data — never silently returns [] in that case.
-    """
-    verdicts_raw = matcher_meta.get("verdicts")
-
-    # §2 guard: non-empty meta but no verdicts list → likely an incomplete run
-    if verdicts_raw is None:
-        # The meta came from somewhere (caller passed it) but verdicts are absent.
-        k_block = matcher_meta.get("k_block", 0)
-        run_label = f" (run: {run_id!r})" if run_id else ""
-        warnings.warn(
-            f"support_matcher meta has no 'verdicts' key{run_label}; "
-            f"k_block={k_block} in meta — did the manuscript critic node complete? "
-            f"absent_row detection is skipped; review the run-state manually.",
-            UserWarning,
-            stacklevel=2,
-        )
-        return []
-
-    gaps: list[GapRecord] = []
-    for v in verdicts_raw:
-        verdict_str = str(v.get("verdict", "")).upper()
-        j2 = bool(v.get("j2_escalation", False))
-        blocks = verdict_str in _ABSENT_ROW_TOKENS or j2
-        if not blocks:
-            continue
-        claim_snippet = v.get("claim_snippet", "").strip()
-        citekey = v.get("citekey", "unknown")
-        anchor = f"literature/{citekey}"
-        run_label = f" run={run_id!r}" if run_id else ""
-        # SR-GAP-ROUTE Tier B: read section from verdict meta (SupportVerdict.to_meta_dict
-        # emits 'section' when check_support_tally threads tex.stem through match_support).
-        # Back-compat: old verdicts without 'section' key → "" → triage fallback.
-        section = v.get("section", "")
-        gaps.append(GapRecord(
-            type=GAP_TYPE_ABSENT_ROW,
-            anchor=anchor,
-            claim=claim_snippet or f"[no claim_snippet; citekey={citekey}]",
-            why=(
-                f"support_matcher verdict [{verdict_str}] on citekey={citekey!r}"
-                + (f" (J-2 escalation)" if j2 and verdict_str not in _ABSENT_ROW_TOKENS else "")
-                + f"{run_label} — drafted claim has no backing literature/ note "
-                f"(the loop-closer gap, §5L.10)"
-            ),
-            status="open",
-            _meta={
-                "verdict": verdict_str,
-                "citekey": citekey,
-                "j2_escalation": j2,
-                "run_id": run_id,
-                "section": section,  # Tier-B: manuscript section stem for absent_row routing
-            },
-        ))
-    return gaps
 
 
 # ---------------------------------------------------------------------------
@@ -595,22 +490,13 @@ def cmd_gap_scan(
     *,
     config: Any = None,
     threshold: int = DEFAULT_SUPPORT_THRESHOLD,
-    matcher_meta: dict[str, Any] | None = None,
-    run_id: str = "",
 ) -> list[GapRecord]:
     """Scan the project's OKF corpus for typed research gaps.
 
-    Runs four typed detectors (§5L.7):
+    Runs three typed detectors (§5L.7):
       1. Knowledge Void: findings with support-degree < threshold
       2. Contradictory Evidence: concepts with both supported_by + contradicted_by
       3. Evaluation Void: findings with effect but no comparator
-      4. Absent Row: support_matcher structured verdicts [ABSENT]/[CONTRADICTS]
-                     (the loop-closer gap, §5L.10; D-GAP-3 structured binding)
-
-    The ``matcher_meta`` parameter accepts ``RunState.meta['support_matcher']`` —
-    the structured output of ``SupportMatchSummary.meta_dict()``.  It is NOT a
-    prose file path (the old --critic-report pattern was removed because it silently
-    returned [] on real matcher output — charter §2 violation).
 
     Writes gaps/<id>.md for each *new* gap found (idempotent: existing gaps
     with the same anchor+claim are NOT re-created; closed gaps are preserved).
@@ -630,8 +516,6 @@ def cmd_gap_scan(
     all_gaps.extend(_detect_knowledge_void(pnd, threshold=threshold))
     all_gaps.extend(_detect_contradictory(pnd))
     all_gaps.extend(_detect_evaluation_void(pnd))
-    if matcher_meta is not None:
-        all_gaps.extend(_detect_absent_rows(matcher_meta, run_id=run_id))
 
     existing = _existing_gap_ids(pnd)
 
@@ -647,7 +531,6 @@ def cmd_gap_scan(
                 gid=gid,
                 existing_status=existing_status,
                 pnd=pnd,
-                matcher_meta=matcher_meta,
             )
             continue
         # SR-GAP-ROUTE: stamp suggested_route on the record before writing
@@ -664,19 +547,12 @@ def _check_reopen_signal(
     gid: str,
     existing_status: str,
     pnd: Path,
-    matcher_meta: "dict[str, Any] | None",
 ) -> None:
     """Evaluate whether a re-firing detector should trigger a 'reopened' status.
 
-    SR-GAP-CLOSE §5L.21(3) — CONSERVATIVE structural reopen (two signals, §5L.21):
+    SR-GAP-CLOSE §5L.21(3) — CONSERVATIVE structural reopen (one signal):
 
-    Signal 1 — absent_row re-fires on a CLOSED-SUPPORTED gap:
-        The SR-MS-2 matcher verdict flipped back to [ABSENT]. A closed-supported
-        gap is by definition a matcher-flip closure; re-firing means the flip reversed.
-        → stamp 'reopened' + 'reopened_reason: absent_row_flip_back'.
-        Requires matcher_meta at scan time; degrade-to-skip if None (§5M posture).
-
-    Signal 2 — contradictory re-fires on a MACHINE-CLOSED status (§5L.21 / #30):
+    Signal — contradictory re-fires on a MACHINE-CLOSED status (§5L.21 / #30):
         The concept note re-acquired both supported_by AND contradicted_by edges.
         Pure structural (OKF graph read via _detect_contradictory) → stamp 'reopened'.
         → stamp 'reopened' + 'reopened_reason: contradictory_edges_reacquired'.
@@ -688,31 +564,16 @@ def _check_reopen_signal(
 
     Everything else:
         A closed-filled gap re-fires on ANY detector type (knowledge_void,
-        evaluation_void, absent_row) → WARN on stderr, status UNCHANGED.
-        Rationale: closed-filled spans BOTH "backed_by threshold crossed" AND
-        "run-arm generated result" closures. The detector cannot distinguish them.
-        The human confirms from the closed_by: audit trail (§5L.22 caveat a).
+        evaluation_void) → WARN on stderr, status UNCHANGED.
         Any non-contradictory type re-firing on proven-open / promoted → also WARN only.
 
     Stamps 'reopened_reason: <signal>' and retains 'closed_by:' as history (charter §2:
     surface, never silently drop; the closure audit trail is a specific).
     """
     # Only structural signals authorize auto-reopen (NEVER semantic drift)
-    is_absent_row = rec.type == GAP_TYPE_ABSENT_ROW
     is_contradictory = rec.type == GAP_TYPE_CONTRADICTORY
 
-    # Signal 1: absent_row on closed-supported (matcher flip-back)
-    if is_absent_row and existing_status == "closed-supported":
-        if matcher_meta is None:
-            # Degrade-to-skip (§5M posture): no matcher_meta → can't confirm flip-back
-            return
-        # Signal 1 confirmed: the absent_row detector re-fired AND the gap was
-        # closed-supported (i.e. closed because the matcher said [SUPPORTS]/[PARTIAL]).
-        # Re-firing now means the verdict flipped back to [ABSENT]/[CONTRADICTS].
-        _stamp_reopened(pnd, gid, reason="absent_row_flip_back_on_closed_supported")
-        return
-
-    # Signal 2: contradictory on a MACHINE-CLOSED status (both edges re-acquired — pure structural)
+    # Signal: contradictory on a MACHINE-CLOSED status (both edges re-acquired — pure structural)
     # §5L.21 ruling / #30: narrow to machine-closed only (closed-supported, closed-filled).
     # proven-open and promoted are HUMAN-BLESSED states — a machine must not silently reverse a
     # human decision (automation-authority + COPE ruling).  Those fall through to WARN-only below.
@@ -736,10 +597,6 @@ def _check_reopen_signal(
         return
 
     # Everything else → WARN, status UNCHANGED (the FP guard)
-    # This covers:
-    #   - absent_row on closed-filled (run-arm ambiguity, §5L.22 caveat a)
-    #   - knowledge_void / evaluation_void on closed-filled
-    #   - any non-contradictory type on proven-open / promoted
     warnings.warn(
         f"gap {gid!r} (type={rec.type!r}) re-fired but its status is "
         f"{existing_status!r} — NOT auto-reopening (conservative posture §5L.21(3)). "

@@ -93,16 +93,7 @@ control_file = "{control_dir}/demo-litreview.md"
 # [projects.my-project]
 # source_dir = "/absolute/path/to/my-project-repo"
 
-# ── Manuscript review-board tuning (D-REV knobs) ─────────────────────────────
-# Uncomment and adjust to tune the adversarial review-board gate (rv manuscript review).
-# Defaults are safe; only change if you have a specific reason (see §5J.17.9 D-REV).
-#
-# [manuscript_review]
-# max_rounds         = 2     # N: review rounds before NOT-CLEARED (hard-cap 3)
-# reviewers_per_round = 3    # K: independent lenses per round (min 2; K=2 → L1+L3)
-# floor_dimensions   = ["SOUND", "REPRO"]  # dims that gate automatically (others surface-only)
-# floor_value        = 3     # minimum per-floor-dim score to clear (1–5 scale; 3=borderline)
-# aggregation        = "min" # MIN-across-reviewers (the worst reviewer gates — not the mean)
+# (Manuscript loop removed in SR-RM-FIGMS — no manuscript_review config needed.)
 """
 
 # ---------------------------------------------------------------------------

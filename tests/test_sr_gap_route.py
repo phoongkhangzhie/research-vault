@@ -5,19 +5,13 @@ Coverage:
      1a. knowledge_void → literature (read-first default)
      1b. contradictory → literature (reconcile via abstraction first)
      1c. evaluation_void → experiment (RUN fast-path)
-     1d. absent_row with no section → triage (Tier-A fallback)
-     1e. absent_row with background section → literature (Tier-B)
-     1f. absent_row with introduction section → literature (Tier-B)
-     1g. absent_row with results section → experiment (Tier-B)
-     1h. absent_row with results-discussion section → experiment (Tier-B)
-     1i. absent_row with unknown section → triage (Tier-B degrade)
-     1j. proven-open gap (knowledge_void) is a run-candidate (test separately)
+     1d. (SR-RM-FIGMS: absent_row removed)
 
   2. suggested_route field written to gap note frontmatter
      2a. cmd_gap_scan writes suggested_route: to gaps/<id>.md
      2b. suggested_route for knowledge_void is "literature"
      2c. suggested_route for evaluation_void is "experiment"
-     2d. suggested_route for absent_row without section is "triage"
+     2d. (SR-RM-FIGMS: absent_row removed)
 
   3. Route-aware cmd_gap_scope — literature target
      3a. --target literature = SR-LR-2 behavior (Phase-1 DAG + _gap-context.md)
@@ -39,14 +33,14 @@ Coverage:
      5c. rv status Needs Attention includes proven-open count when > 0
      5d. a run does NOT auto-fire on proven-open (human-go required — no auto experiment)
 
-  6. Tier B section threading (SupportVerdict.section + check_gates.py)
+  6. SupportVerdict section field (check_gates.py; absent_row sub-tests removed SR-RM-FIGMS)
      6a. SupportVerdict has optional section field (default "")
      6b. to_meta_dict() emits section field
      6c. match_support() accepts section= parameter
-     6d. _detect_absent_rows reads section from verdict meta → GapRecord._meta['section']
-     6e. absent_row in introduction.tex → suggested_route == "literature" (Tier-B split)
-     6f. absent_row in results-discussion.tex → suggested_route == "experiment" (Tier-B)
-     6g. absent_row with no section in meta → suggested_route == "triage" (back-compat)
+     6d. (SR-RM-FIGMS: absent_row removed)
+     6e. (SR-RM-FIGMS: absent_row removed)
+     6f. (SR-RM-FIGMS: absent_row removed)
+     6g. (SR-RM-FIGMS: absent_row removed)
      6h. check_support_tally threads tex.stem into each match_support call
 
   7. CLI subcommands (gap-route alias + gap-list)
@@ -75,7 +69,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -127,48 +120,6 @@ def _make_finding(pnd: Path, fid: str, **frontmatter) -> Path:
     return p
 
 
-def _make_verdict(
-    verdict: str,
-    claim_snippet: str = "Test claim",
-    citekey: str = "mock2023",
-    j2_escalation: bool = False,
-    section: str = "",
-) -> dict[str, Any]:
-    """Build a SupportVerdict meta dict (mirrors to_meta_dict output)."""
-    return {
-        "verdict": verdict,
-        "verbatim_span": None,
-        "polarity": "neutral",
-        "claim_snippet": claim_snippet,
-        "citekey": citekey,
-        "note_path": f"literature/{citekey}.md",
-        "judge_model": "mock-model",
-        "prompt_hash": "abc123",
-        "j2_escalation": j2_escalation,
-        "section": section,
-    }
-
-
-def _make_support_matcher_meta(
-    verdicts: "list[dict[str, Any]] | None" = None,
-) -> dict[str, Any]:
-    """Build a minimal support_matcher meta dict."""
-    vlist = verdicts or []
-    k_block = sum(
-        1 for v in vlist
-        if v.get("verdict") in ("ABSENT", "CONTRADICTS") or v.get("j2_escalation")
-    )
-    return {
-        "n_sentences": len(vlist),
-        "m_citations": len(vlist),
-        "k_block": k_block,
-        "j_warn": 0,
-        "judge_model": "mock-model",
-        "prompt_hashes": [],
-        "verdicts": vlist,
-    }
-
-
 # ---------------------------------------------------------------------------
 # 1. suggest_route pure function
 # ---------------------------------------------------------------------------
@@ -194,49 +145,6 @@ def test_suggest_route_evaluation_void():
     result = suggest_route("evaluation_void", {})
     assert result == ROUTE_EXPERIMENT
     assert result == "experiment"
-
-
-def test_suggest_route_absent_row_no_section():
-    """1d. absent_row with no section → triage (Tier-A fallback)."""
-    from research_vault.review.gap_scan import suggest_route, ROUTE_TRIAGE
-    result = suggest_route("absent_row", {})
-    assert result == ROUTE_TRIAGE
-    assert result == "triage"
-
-
-def test_suggest_route_absent_row_background():
-    """1e. absent_row background section → literature (Tier-B)."""
-    from research_vault.review.gap_scan import suggest_route, ROUTE_LITERATURE
-    result = suggest_route("absent_row", {"section": "background"})
-    assert result == ROUTE_LITERATURE
-
-
-def test_suggest_route_absent_row_introduction():
-    """1f. absent_row introduction section → literature (Tier-B)."""
-    from research_vault.review.gap_scan import suggest_route, ROUTE_LITERATURE
-    result = suggest_route("absent_row", {"section": "introduction"})
-    assert result == ROUTE_LITERATURE
-
-
-def test_suggest_route_absent_row_results():
-    """1g. absent_row results section → experiment (Tier-B)."""
-    from research_vault.review.gap_scan import suggest_route, ROUTE_EXPERIMENT
-    result = suggest_route("absent_row", {"section": "results"})
-    assert result == ROUTE_EXPERIMENT
-
-
-def test_suggest_route_absent_row_results_discussion():
-    """1h. absent_row results-discussion section → experiment (Tier-B)."""
-    from research_vault.review.gap_scan import suggest_route, ROUTE_EXPERIMENT
-    result = suggest_route("absent_row", {"section": "results-discussion"})
-    assert result == ROUTE_EXPERIMENT
-
-
-def test_suggest_route_absent_row_unknown_section():
-    """1i. absent_row with unknown section → triage (Tier-B degrade)."""
-    from research_vault.review.gap_scan import suggest_route, ROUTE_TRIAGE
-    result = suggest_route("absent_row", {"section": "appendix-b"})
-    assert result == ROUTE_TRIAGE
 
 
 # ---------------------------------------------------------------------------
@@ -300,28 +208,6 @@ def test_cmd_gap_scan_evaluation_void_suggested_route(tmp_instance):
             assert "suggested_route: experiment" in content
             return
     pytest.fail("No evaluation_void gap found")
-
-
-def test_cmd_gap_scan_absent_row_no_section_triage(tmp_instance):
-    """2d. absent_row without section gets suggested_route: triage."""
-    from research_vault.config import load_config
-    from research_vault.review.gap_scan import cmd_gap_scan
-
-    cfg = load_config()
-    pnd = cfg.project_notes_dir("demo-research")
-    matcher_meta = _make_support_matcher_meta([
-        _make_verdict("ABSENT", claim_snippet="Some claim without evidence", section=""),
-    ])
-
-    cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
-
-    gaps_dir = pnd / "gaps"
-    for p in gaps_dir.glob("*.md"):
-        content = p.read_text(encoding="utf-8")
-        if "absent_row" in content:
-            assert "suggested_route: triage" in content
-            return
-    pytest.fail("No absent_row gap found")
 
 
 # ---------------------------------------------------------------------------
@@ -788,207 +674,6 @@ def test_run_does_not_auto_fire(tmp_instance):
     _ = suggest_route("evaluation_void", {})
     after = list(exp_dir.glob("*.md")) if exp_dir.exists() else []
     assert len(before) == len(after), "suggest_route auto-created an experiment note — VIOLATION"
-
-
-# ---------------------------------------------------------------------------
-# 6. Tier B section threading
-# ---------------------------------------------------------------------------
-
-def test_support_verdict_has_section_field():
-    """6a. SupportVerdict has optional section field (default '')."""
-    from research_vault.manuscript.support_matcher import SupportVerdict
-    import dataclasses
-    fields = {f.name for f in dataclasses.fields(SupportVerdict)}
-    assert "section" in fields
-
-    # Default is empty string (back-compat)
-    v = SupportVerdict(
-        verdict="SUPPORTS",
-        verbatim_span="span text",
-        polarity="positive",
-        reasoning="supports",
-        claim="test claim",
-        citekey="key2023",
-        note_path="/fake/path.md",
-        judge_model="mock",
-        prompt_hash="abc",
-    )
-    assert v.section == ""
-
-
-def test_to_meta_dict_emits_section():
-    """6b. to_meta_dict() emits section field."""
-    from research_vault.manuscript.support_matcher import SupportVerdict
-    v = SupportVerdict(
-        verdict="ABSENT",
-        verbatim_span=None,
-        polarity="neutral",
-        reasoning="absent",
-        claim="test claim",
-        citekey="key2023",
-        note_path="/fake/path.md",
-        judge_model="mock",
-        prompt_hash="abc",
-        section="introduction",
-    )
-    d = v.to_meta_dict()
-    assert "section" in d
-    assert d["section"] == "introduction"
-
-
-def test_to_meta_dict_section_default_empty():
-    """6b-b. to_meta_dict() emits section = '' when not set (back-compat)."""
-    from research_vault.manuscript.support_matcher import SupportVerdict
-    v = SupportVerdict(
-        verdict="SUPPORTS",
-        verbatim_span="span",
-        polarity="positive",
-        reasoning="ok",
-        claim="test",
-        citekey="key",
-        note_path="/fake.md",
-        judge_model="mock",
-        prompt_hash="abc",
-    )
-    d = v.to_meta_dict()
-    assert d["section"] == ""
-
-
-def test_match_support_accepts_section_parameter(tmp_path):
-    """6c. match_support() accepts section= parameter."""
-    from research_vault.manuscript.support_matcher import match_support
-
-    note_path = tmp_path / "literature" / "key2023.md"
-    note_path.parent.mkdir()
-    note_path.write_text(
-        "---\ntype: literature\ntldr: Some finding\n---\n# Note\nSome content.",
-        encoding="utf-8",
-    )
-
-    def mock_judge(prompt: str) -> str:
-        return "VERDICT: [SUPPORTS]\nSPAN: Some finding\nCLAIM_CORE: test\nDISCONFIRM: none\nGAP: —"
-
-    verdict = match_support(
-        claim="Some claim",
-        citekey="key2023",
-        note_path=note_path,
-        judge_fn=mock_judge,
-        section="introduction",
-    )
-    assert verdict.section == "introduction"
-
-
-def test_detect_absent_rows_reads_section():
-    """6d. _detect_absent_rows reads section from verdict meta → GapRecord._meta['section']."""
-    from research_vault.review.gap_scan import _detect_absent_rows
-
-    matcher_meta = _make_support_matcher_meta([
-        _make_verdict("ABSENT", claim_snippet="Claim in intro", section="introduction"),
-    ])
-    gaps = _detect_absent_rows(matcher_meta)
-    assert len(gaps) == 1
-    assert gaps[0]._meta.get("section") == "introduction"
-
-
-def test_tier_b_introduction_suggests_literature():
-    """6e. absent_row in introduction.tex → suggested_route == 'literature'."""
-    from research_vault.review.gap_scan import _detect_absent_rows, suggest_route, ROUTE_LITERATURE
-
-    matcher_meta = _make_support_matcher_meta([
-        _make_verdict("ABSENT", claim_snippet="Background claim", section="introduction"),
-    ])
-    gaps = _detect_absent_rows(matcher_meta)
-    assert gaps
-    route = suggest_route(gaps[0].type, gaps[0]._meta)
-    assert route == ROUTE_LITERATURE
-
-
-def test_tier_b_results_discussion_suggests_experiment():
-    """6f. absent_row in results-discussion.tex → suggested_route == 'experiment'."""
-    from research_vault.review.gap_scan import _detect_absent_rows, suggest_route, ROUTE_EXPERIMENT
-
-    matcher_meta = _make_support_matcher_meta([
-        _make_verdict("ABSENT", claim_snippet="Our result claim", section="results-discussion"),
-    ])
-    gaps = _detect_absent_rows(matcher_meta)
-    assert gaps
-    route = suggest_route(gaps[0].type, gaps[0]._meta)
-    assert route == ROUTE_EXPERIMENT
-
-
-def test_tier_b_no_section_suggests_triage():
-    """6g. absent_row with no section in meta → triage (back-compat)."""
-    from research_vault.review.gap_scan import _detect_absent_rows, suggest_route, ROUTE_TRIAGE
-
-    # Old-style verdict dict without 'section' key (pre-Tier-B back-compat)
-    old_verdict = {
-        "verdict": "ABSENT",
-        "verbatim_span": None,
-        "polarity": "neutral",
-        "claim_snippet": "Old-style claim",
-        "citekey": "key2023",
-        "note_path": "literature/key2023.md",
-        "judge_model": "mock",
-        "prompt_hash": "abc",
-        "j2_escalation": False,
-        # NO 'section' key — old format
-    }
-    matcher_meta = _make_support_matcher_meta([old_verdict])
-    gaps = _detect_absent_rows(matcher_meta)
-    assert gaps
-    # Section should default to "" and thus route to triage
-    route = suggest_route(gaps[0].type, gaps[0]._meta)
-    assert route == ROUTE_TRIAGE
-
-
-def test_check_support_tally_threads_section(tmp_path):
-    """6h. check_support_tally threads tex.stem into each match_support call via section."""
-    from research_vault.manuscript.check_gates import check_support_tally
-
-    # Setup: a minimal .tex structure
-    sections_dir = tmp_path / "manuscripts" / "ms-001" / "sections"
-    sections_dir.mkdir(parents=True)
-    tex_file = sections_dir / "introduction.tex"
-    tex_file.write_text(
-        r"Some text \cite{key2023} about something.",
-        encoding="utf-8",
-    )
-
-    notes_root = tmp_path / "notes"
-    lit_dir = notes_root / "literature"
-    lit_dir.mkdir(parents=True)
-    (lit_dir / "key2023.md").write_text(
-        "---\ntype: literature\ntldr: Background finding\n---\n# Note\nContent.",
-        encoding="utf-8",
-    )
-
-    captured_sections: list[str] = []
-
-    def mock_judge(prompt: str) -> str:
-        return "VERDICT: [SUPPORTS]\nSPAN: Background finding\nCLAIM_CORE: test\nDISCONFIRM: none\nGAP: —"
-
-    # We patch match_support to capture the section argument
-    import unittest.mock as mock
-    from research_vault.manuscript import support_matcher as sm
-
-    original_match_support = sm.match_support
-
-    def capturing_match_support(*args, **kwargs):
-        captured_sections.append(kwargs.get("section", ""))
-        return original_match_support(*args, **kwargs)
-
-    tree_root = tmp_path / "manuscripts" / "ms-001"
-    with mock.patch.object(sm, "match_support", side_effect=capturing_match_support):
-        check_support_tally(
-            tree_root=tree_root,
-            notes_root=notes_root,
-            judge_fn=mock_judge,
-        )
-
-    # Section should be "introduction" (tex.stem of introduction.tex)
-    assert "introduction" in captured_sections, (
-        f"Section 'introduction' not captured; got: {captured_sections}"
-    )
 
 
 # ---------------------------------------------------------------------------

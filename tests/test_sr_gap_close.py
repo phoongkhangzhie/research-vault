@@ -29,14 +29,14 @@ Coverage (spec §5L.19–5L.24 + §5L-GAP-CLOSE-REQ):
      3e. promoted gap does not appear in open_gap_count
 
   4. reopened: structural re-detection (§5L.21(3))
-     4a. absent_row re-fire on "closed-supported" gap → status "reopened" (Signal 1)
+     4a. (SR-RM-FIGMS: absent_row removed)
      4b. reopened gap has reopened_reason: field stamped (provenance surface)
      4c. reopened gap retains its closed_by: field as history (not erased)
      4d. contradictory re-fire on ANY closed status → "reopened" (Signal 2: both edges re-acquired)
-     4e. AMBIGUOUS re-fire: absent_row on "closed-filled" → WARN only, status UNCHANGED
+     4e. (SR-RM-FIGMS: absent_row removed)
      4f. knowledge_void re-fire on "closed-filled" → WARN only, status UNCHANGED (FP guard)
      4g. evaluation_void re-fire on "closed-filled" → WARN only, status UNCHANGED
-     4h. absent_row re-fire on "closed-supported" without matcher_meta → degrade-to-skip (no reopen, no warn)
+     4h. (SR-RM-FIGMS: absent_row removed)
      4i. reopened gap re-enters open-routing: open_gap_count counts it
      4j. gap-route / gap-scope accepts a "reopened" gap (re-enters routing)
 
@@ -199,44 +199,6 @@ def _parse_fm(path: Path) -> dict[str, Any]:
     return fm
 
 
-def _make_verdict(
-    verdict: str,
-    claim_snippet: str = "Test claim",
-    citekey: str = "mock2023",
-    j2_escalation: bool = False,
-    section: str = "",
-) -> dict[str, Any]:
-    return {
-        "verdict": verdict,
-        "verbatim_span": None,
-        "polarity": "neutral",
-        "claim_snippet": claim_snippet,
-        "citekey": citekey,
-        "note_path": f"literature/{citekey}.md",
-        "judge_model": "mock-model",
-        "prompt_hash": "abc123",
-        "j2_escalation": j2_escalation,
-        "section": section,
-    }
-
-
-def _make_support_matcher_meta(verdicts: list | None = None) -> dict[str, Any]:
-    vlist = verdicts or []
-    k_block = sum(
-        1 for v in vlist
-        if v.get("verdict") in ("ABSENT", "CONTRADICTS") or v.get("j2_escalation")
-    )
-    return {
-        "n_sentences": len(vlist),
-        "m_citations": len(vlist),
-        "k_block": k_block,
-        "j_warn": 0,
-        "judge_model": "mock-model",
-        "prompt_hashes": [],
-        "verdicts": vlist,
-    }
-
-
 # ---------------------------------------------------------------------------
 # 1. GAP_STATUSES extension
 # ---------------------------------------------------------------------------
@@ -354,7 +316,7 @@ def test_gap_close_writes_closes_in_closing_note(tmp_instance):
 
     cfg = load_config()
     pnd = cfg.project_notes_dir("demo-research")
-    _make_gap_note(pnd, "gap-cs-002", "absent_row", "Absent claim")
+    _make_gap_note(pnd, "gap-cs-002", "knowledge_void", "Absent claim")
     lit_path = _make_literature_note(pnd, "brown2024")
 
     cmd_gap_close("demo-research", "gap-cs-002", "closed-supported",
@@ -480,7 +442,7 @@ def test_gap_promote_writes_promoted_to(tmp_instance):
 
     cfg = load_config()
     pnd = cfg.project_notes_dir("demo-research")
-    _make_gap_note(pnd, "gap-prom-002", "absent_row", "Another contribution",
+    _make_gap_note(pnd, "gap-prom-002", "knowledge_void", "Another contribution",
                    status="proven-open")
 
     cmd_gap_promote("demo-research", "gap-prom-002",
@@ -540,76 +502,37 @@ def test_gap_promote_not_in_open_gap_count(tmp_instance):
 # 4. reopened: structural re-detection
 # ---------------------------------------------------------------------------
 
-def test_reopened_absent_row_on_closed_supported(tmp_instance):
-    """4a. absent_row re-fire on 'closed-supported' gap → status 'reopened' (Signal 1)."""
-    from research_vault.config import load_config
-    from research_vault.review.gap_scan import (
-        cmd_gap_close, cmd_gap_scan, _gap_id, GAP_TYPE_ABSENT_ROW,
-    )
-
-    cfg = load_config()
-    pnd = cfg.project_notes_dir("demo-research")
-
-    # Create a literature note as anchor
-    _make_literature_note(pnd, "smith2024")
-    _make_literature_note(pnd, "closer2024")
-
-    # Build matcher_meta with ABSENT verdict for smith2024
-    claim = "LLMs underperform on cross-lingual tasks"
-    matcher_meta = _make_support_matcher_meta([
-        _make_verdict("ABSENT", claim_snippet=claim, citekey="smith2024"),
-    ])
-
-    # First scan: creates absent_row gap
-    new_gaps = cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
-    assert len(new_gaps) == 1
-    gid = _gap_id(GAP_TYPE_ABSENT_ROW, "literature/smith2024", claim)
-    gap_path = pnd / "gaps" / f"{gid}.md"
-    assert gap_path.exists()
-
-    # Close it as closed-supported
-    cmd_gap_close("demo-research", gid, "closed-supported",
-                  closer_ref="literature/closer2024", config=cfg)
-    fm = _parse_fm(gap_path)
-    assert fm.get("status") == "closed-supported"
-
-    # Re-scan with the same matcher_meta (matcher flip-back to ABSENT)
-    # → should reopen the gap
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
-
-    fm2 = _parse_fm(gap_path)
-    assert fm2.get("status") == "reopened"
-
-
 def test_reopened_has_reopened_reason(tmp_instance):
-    """4b. reopened gap has reopened_reason: field stamped (provenance surface)."""
+    """4b. reopened gap has reopened_reason: field stamped (provenance surface).
+
+    Uses contradictory re-fire as the mechanism (absent_row removed SR-RM-FIGMS).
+    """
     from research_vault.config import load_config
     from research_vault.review.gap_scan import (
-        cmd_gap_close, cmd_gap_scan, _gap_id, GAP_TYPE_ABSENT_ROW,
+        cmd_gap_close, cmd_gap_scan, _gap_id, GAP_TYPE_CONTRADICTORY,
     )
 
     cfg = load_config()
     pnd = cfg.project_notes_dir("demo-research")
-    _make_literature_note(pnd, "claim2024")
     _make_literature_note(pnd, "closer2024b")
 
-    claim = "Cultural bias exists in benchmark datasets"
-    matcher_meta = _make_support_matcher_meta([
-        _make_verdict("ABSENT", claim_snippet=claim, citekey="claim2024"),
-    ])
+    # Create concept with both edges (contradictory) → knowledge_void also fires
+    _make_concept(pnd, "c-contested-b", supported_by=["lit-A"], contradicted_by=["lit-B"])
 
-    cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
-    gid = _gap_id(GAP_TYPE_ABSENT_ROW, "literature/claim2024", claim)
+    new_gaps = cmd_gap_scan("demo-research", config=cfg)
+    contr_gaps = [g for g in new_gaps if g.type == GAP_TYPE_CONTRADICTORY]
+    assert contr_gaps, "No contradictory gap detected"
+    gap = contr_gaps[0]
+    gid = _gap_id(gap.type, gap.anchor, gap.claim)
     gap_path = pnd / "gaps" / f"{gid}.md"
 
     cmd_gap_close("demo-research", gid, "closed-supported",
                   closer_ref="literature/closer2024b", config=cfg)
 
+    # Re-scan: concept still has both edges → contradictory re-fires → reopened
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
+        cmd_gap_scan("demo-research", config=cfg)
 
     fm = _parse_fm(gap_path)
     assert fm.get("status") == "reopened"
@@ -617,24 +540,26 @@ def test_reopened_has_reopened_reason(tmp_instance):
 
 
 def test_reopened_retains_closed_by(tmp_instance):
-    """4c. reopened gap retains its closed_by: field as history (not erased)."""
+    """4c. reopened gap retains its closed_by: field as history (not erased).
+
+    Uses contradictory re-fire as the mechanism (absent_row removed SR-RM-FIGMS).
+    """
     from research_vault.config import load_config
     from research_vault.review.gap_scan import (
-        cmd_gap_close, cmd_gap_scan, _gap_id, GAP_TYPE_ABSENT_ROW,
+        cmd_gap_close, cmd_gap_scan, _gap_id, GAP_TYPE_CONTRADICTORY,
     )
 
     cfg = load_config()
     pnd = cfg.project_notes_dir("demo-research")
-    _make_literature_note(pnd, "orig2024")
     _make_literature_note(pnd, "closer2024c")
 
-    claim = "Evaluation metrics lack cultural validity"
-    matcher_meta = _make_support_matcher_meta([
-        _make_verdict("ABSENT", claim_snippet=claim, citekey="orig2024"),
-    ])
+    _make_concept(pnd, "c-contested-c", supported_by=["lit-A"], contradicted_by=["lit-B"])
 
-    cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
-    gid = _gap_id(GAP_TYPE_ABSENT_ROW, "literature/orig2024", claim)
+    new_gaps = cmd_gap_scan("demo-research", config=cfg)
+    contr_gaps = [g for g in new_gaps if g.type == GAP_TYPE_CONTRADICTORY]
+    assert contr_gaps, "No contradictory gap detected"
+    gap = contr_gaps[0]
+    gid = _gap_id(gap.type, gap.anchor, gap.claim)
     gap_path = pnd / "gaps" / f"{gid}.md"
 
     cmd_gap_close("demo-research", gid, "closed-supported",
@@ -642,7 +567,7 @@ def test_reopened_retains_closed_by(tmp_instance):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
+        cmd_gap_scan("demo-research", config=cfg)
 
     fm = _parse_fm(gap_path)
     assert fm.get("status") == "reopened"
@@ -684,55 +609,6 @@ def test_reopened_contradictory_re_fire_any_closed_status(tmp_instance):
 
     fm2 = _parse_fm(gap_path)
     assert fm2.get("status") == "reopened"
-
-
-def test_reopened_ambiguous_warn_only_absent_row_on_closed_filled(tmp_instance):
-    """4e. AMBIGUOUS re-fire: absent_row on 'closed-filled' → WARN only, status UNCHANGED.
-
-    This is the FP guard — the load-bearing conservatism test.
-    closed-filled spans both 'backed_by threshold crossed' AND 'run-arm generated result'
-    closures; the detector cannot distinguish them, so it warns rather than auto-reopens.
-    """
-    from research_vault.config import load_config
-    from research_vault.review.gap_scan import (
-        cmd_gap_close, cmd_gap_scan, _gap_id, GAP_TYPE_ABSENT_ROW,
-    )
-
-    cfg = load_config()
-    pnd = cfg.project_notes_dir("demo-research")
-    _make_literature_note(pnd, "cf-claim2024")
-    _make_literature_note(pnd, "cf-closer2024")
-
-    claim = "Claim needing evidence"
-    matcher_meta = _make_support_matcher_meta([
-        _make_verdict("ABSENT", claim_snippet=claim, citekey="cf-claim2024"),
-    ])
-
-    cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
-    gid = _gap_id(GAP_TYPE_ABSENT_ROW, "literature/cf-claim2024", claim)
-    gap_path = pnd / "gaps" / f"{gid}.md"
-
-    # Close as closed-filled (not closed-supported)
-    cmd_gap_close("demo-research", gid, "closed-filled",
-                  closer_ref="literature/cf-closer2024", config=cfg)
-    fm = _parse_fm(gap_path)
-    assert fm.get("status") == "closed-filled"
-
-    # Re-scan with ABSENT matcher meta on a closed-filled gap → WARN, NOT reopen
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
-
-    # Status must be UNCHANGED (still closed-filled)
-    fm2 = _parse_fm(gap_path)
-    assert fm2.get("status") == "closed-filled", (
-        "closed-filled gap MUST NOT be auto-reopened on absent_row re-fire — "
-        "this is the FP guard protecting the run-arm (caveat a, §5L.22)"
-    )
-    # A warn must have been emitted
-    assert any(issubclass(warning.category, UserWarning) for warning in w), (
-        "Expected a UserWarning for ambiguous closed-filled re-fire"
-    )
 
 
 def test_reopened_knowledge_void_on_closed_filled_warn_only(tmp_instance):
@@ -803,60 +679,29 @@ def test_reopened_evaluation_void_on_closed_filled_warn_only(tmp_instance):
     assert any(issubclass(warning.category, UserWarning) for warning in w)
 
 
-def test_reopened_absent_row_on_closed_supported_no_matcher_meta_skip(tmp_instance):
-    """4h. absent_row re-fire on 'closed-supported' without matcher_meta → degrade-to-skip."""
-    from research_vault.config import load_config
-    from research_vault.review.gap_scan import (
-        cmd_gap_close, cmd_gap_scan, _gap_id, GAP_TYPE_ABSENT_ROW,
-    )
-
-    cfg = load_config()
-    pnd = cfg.project_notes_dir("demo-research")
-    _make_literature_note(pnd, "nocheck2024")
-    _make_literature_note(pnd, "closer-nc2024")
-
-    claim = "Claim without matcher backing"
-    matcher_meta = _make_support_matcher_meta([
-        _make_verdict("ABSENT", claim_snippet=claim, citekey="nocheck2024"),
-    ])
-
-    cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
-    gid = _gap_id(GAP_TYPE_ABSENT_ROW, "literature/nocheck2024", claim)
-    gap_path = pnd / "gaps" / f"{gid}.md"
-
-    cmd_gap_close("demo-research", gid, "closed-supported",
-                  closer_ref="literature/closer-nc2024", config=cfg)
-    fm = _parse_fm(gap_path)
-    assert fm.get("status") == "closed-supported"
-
-    # Re-scan WITHOUT matcher_meta → no absent_row detection → gap not touched
-    cmd_gap_scan("demo-research", config=cfg, matcher_meta=None)
-
-    fm2 = _parse_fm(gap_path)
-    # Still closed-supported: degrade-to-skip (no matcher_meta → no Signal 1 check)
-    assert fm2.get("status") == "closed-supported"
-
-
 def test_reopened_enters_open_gap_count(tmp_instance):
-    """4i. reopened gap re-enters open-routing: open_gap_count counts it."""
+    """4i. reopened gap re-enters open-routing: open_gap_count counts it.
+
+    Uses contradictory re-fire as the mechanism (absent_row removed SR-RM-FIGMS).
+    """
     from research_vault.config import load_config
     from research_vault.review.gap_scan import (
         cmd_gap_close, cmd_gap_scan, open_gap_count,
-        _gap_id, GAP_TYPE_ABSENT_ROW,
+        _gap_id, GAP_TYPE_CONTRADICTORY,
     )
 
     cfg = load_config()
     pnd = cfg.project_notes_dir("demo-research")
-    _make_literature_note(pnd, "reopen2024")
     _make_literature_note(pnd, "closer-reopen2024")
 
-    claim = "Reopen count test claim"
-    matcher_meta = _make_support_matcher_meta([
-        _make_verdict("ABSENT", claim_snippet=claim, citekey="reopen2024"),
-    ])
+    # Concept with both edges → contradictory gap
+    _make_concept(pnd, "c-reopen", supported_by=["lit-A"], contradicted_by=["lit-B"])
 
-    cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
-    gid = _gap_id(GAP_TYPE_ABSENT_ROW, "literature/reopen2024", claim)
+    new_gaps = cmd_gap_scan("demo-research", config=cfg)
+    contr_gaps = [g for g in new_gaps if g.type == GAP_TYPE_CONTRADICTORY]
+    assert contr_gaps, "No contradictory gap detected"
+    gap = contr_gaps[0]
+    gid = _gap_id(gap.type, gap.anchor, gap.claim)
 
     cmd_gap_close("demo-research", gid, "closed-supported",
                   closer_ref="literature/closer-reopen2024", config=cfg)
@@ -864,10 +709,10 @@ def test_reopened_enters_open_gap_count(tmp_instance):
     # After closing, open count should be 0
     assert open_gap_count("demo-research", config=cfg) == 0
 
-    # Re-scan → reopened
+    # Re-scan: concept still has both edges → contradictory re-fires → reopened
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        cmd_gap_scan("demo-research", config=cfg, matcher_meta=matcher_meta)
+        cmd_gap_scan("demo-research", config=cfg)
 
     # After reopen, open count should be 1 again
     assert open_gap_count("demo-research", config=cfg) == 1
@@ -1043,7 +888,7 @@ def test_open_gap_count_includes_both_open_and_reopened(tmp_instance):
     cfg = load_config()
     pnd = cfg.project_notes_dir("demo-research")
     _make_gap_note(pnd, "gap-mix-001", "knowledge_void", "Open", status="open")
-    _make_gap_note(pnd, "gap-mix-002", "absent_row", "Reopened", status="reopened")
+    _make_gap_note(pnd, "gap-mix-002", "knowledge_void", "Reopened", status="reopened")
     _make_gap_note(pnd, "gap-mix-003", "contradictory", "Closed-supp", status="closed-supported")
 
     assert open_gap_count("demo-research", config=cfg) == 2

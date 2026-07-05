@@ -242,10 +242,8 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
                     )
             # SR-RESOLVE-SCOPE: project-scoped typed produces subkeys.
             # Each takes "<project>/<id>" — the resolver maps to the correct OKF type dir.
-            #   produces.result     → experiments/<id>.md  in project_notes_dir
-            #   produces.figure     → figures/<id>.md      in project_notes_dir
-            #   produces.manuscript → manuscript/<id>.md   in project_notes_dir
-            for _pkey in ("result", "figure", "manuscript"):
+            #   produces.result → experiments/<id>.md in project_notes_dir
+            for _pkey in ("result",):
                 if _pkey in produces:
                     _pval = produces[_pkey]
                     if not isinstance(_pval, str) or not _pval.strip():

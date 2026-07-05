@@ -2,13 +2,13 @@
 
 Coverage:
   1. gaps/ OKF type
-     1a. "gaps" in note.OKF_TYPES (the 10th type)
+     1a. "gaps" in note.OKF_TYPES (the 8th type, SR-RM-FIGMS)
      1b. "gaps" not in note.OKF_SHARED_TYPES (project-scoped, like findings/)
      1c. rv note new <project> gaps <id> creates gaps/<id>.md
   2. GapRecord dataclass
      2a. GapRecord has type, anchor, claim, why, status fields
      2b. status ∈ {open, closed-supported, closed-filled, proven-open}
-     2c. GAP_TYPES frozenset has all 4 gap type constants
+     2c. GAP_TYPES frozenset has 3 gap type constants (SR-RM-FIGMS removes absent_row)
   3. Gap detectors — Knowledge Void (D-GAP-2)
      3a. finding with backed_by empty/absent → knowledge_void gap detected
      3b. finding with backed_by ≥ threshold → NOT detected
@@ -21,12 +21,7 @@ Coverage:
      5a. finding with effect + no comparator → evaluation_void gap
      5b. finding with effect AND comparator → NOT detected
      5c. finding with no effect field → NOT detected
-  6. Gap detectors — Absent Row (loop-closer, §5L.10)
-     6a. critic report with FINDING: [ABSENT] row → absent_row gap detected
-     6b. critic report with FINDING: [CONTRADICTS] row → absent_row gap detected
-     6c. [PARTIAL] row is NOT an absent_row gap (PARTIAL is WARN, not BLOCK)
-     6d. [SUPPORTS] row is NOT an absent_row gap
-     6e. extracted claim text is the FINDING description, not the bracket token
+  6. (SR-RM-FIGMS: absent_row detector removed)
   7. cmd_gap_scan — writes gap records
      7a. scans project_notes_dir, returns list of GapRecord
      7b. writes gaps/<id>.md for each new gap (in project_notes_dir)
@@ -38,7 +33,6 @@ Coverage:
      8b. review question derived from gap.claim (exact words)
      8c. _gap-context.md written in reviews/<scope>/ with seed_queries + snowball_seeds
      8d. knowledge_void seed queries mention the concept/claim terms
-     8e. absent_row seed queries derive key terms from the claim
   9. cmd_gap_close stamps status (§5L.8)
      9a. close with "closed-supported" updates frontmatter status field
      9b. close with "proven-open" updates frontmatter status field
@@ -66,7 +60,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -117,51 +110,6 @@ def _make_concept(project_notes_dir: Path, cid: str, **frontmatter) -> Path:
     return p
 
 
-def _make_support_matcher_meta(
-    verdicts: "list[dict[str, Any]] | None" = None,
-) -> "dict[str, Any]":
-    """Build a minimal support_matcher meta dict (mirrors SupportMatchSummary.meta_dict()).
-
-    Used by tests for _detect_absent_rows structured binding (D-GAP-3 fix).
-    """
-    vlist = verdicts or []
-    k_block = sum(
-        1 for v in vlist
-        if v.get("verdict") in ("ABSENT", "CONTRADICTS") or v.get("j2_escalation")
-    )
-    j_warn = sum(
-        1 for v in vlist
-        if v.get("verdict") == "PARTIAL" and not v.get("j2_escalation")
-    )
-    return {
-        "n_sentences": len(vlist),
-        "m_citations": len(vlist),
-        "k_block": k_block,
-        "j_warn": j_warn,
-        "judge_model": "mock-model",
-        "prompt_hashes": [],
-        "verdicts": vlist,
-    }
-
-
-def _make_verdict(
-    verdict: str,
-    claim_snippet: str = "Test claim",
-    citekey: str = "mock2023",
-    j2_escalation: bool = False,
-) -> "dict[str, Any]":
-    """Build a minimal SupportVerdict meta dict (mirrors SupportVerdict.to_meta_dict())."""
-    return {
-        "verdict": verdict,
-        "verbatim_span": None,
-        "polarity": "neutral",
-        "claim_snippet": claim_snippet,
-        "citekey": citekey,
-        "note_path": f"literature/{citekey}.md",
-        "judge_model": "mock-model",
-        "prompt_hash": "abc123",
-        "j2_escalation": j2_escalation,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -224,13 +172,13 @@ def test_gap_status_values():
 
 
 def test_gap_types_frozenset():
-    """2c. GAP_TYPES frozenset has all 4 gap type constants."""
+    """2c. GAP_TYPES frozenset has all 3 gap type constants (SR-RM-FIGMS removes absent_row)."""
     from research_vault.review.gap_scan import GAP_TYPES
     assert "knowledge_void" in GAP_TYPES
     assert "contradictory" in GAP_TYPES
     assert "evaluation_void" in GAP_TYPES
-    assert "absent_row" in GAP_TYPES
-    assert len(GAP_TYPES) == 4
+    assert "absent_row" not in GAP_TYPES  # SR-RM-FIGMS: removed
+    assert len(GAP_TYPES) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -354,152 +302,6 @@ def test_evaluation_void_no_effect(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 6. Absent Row detector (the loop-closer, §5L.10)
-#    D-GAP-3 fix: _detect_absent_rows consumes RunState.meta['support_matcher']
-#    structured verdicts — NOT a bespoke prose regex.
-#    Red-before-green: these tests FAIL on the old prose-grep implementation.
-# ---------------------------------------------------------------------------
-
-def test_absent_row_finding_absent():
-    """6a. Matcher meta with ABSENT verdict → absent_row gap detected.
-
-    Binds to RunState.meta['support_matcher']['verdicts'] structured record.
-    Old code: expected a Path (prose file) and returned [] on any dict input.
-    """
-    from research_vault.review.gap_scan import _detect_absent_rows
-
-    meta = _make_support_matcher_meta(verdicts=[
-        _make_verdict(
-            "ABSENT",
-            claim_snippet="LLMs generalize cross-lingually",
-            citekey="smith2022",
-        )
-    ])
-    gaps = _detect_absent_rows(meta)
-    assert len(gaps) == 1
-    assert gaps[0].type == "absent_row"
-    assert "LLMs generalize cross-lingually" in gaps[0].claim
-
-
-def test_absent_row_finding_contradicts():
-    """6b. Matcher meta with CONTRADICTS verdict → absent_row gap detected."""
-    from research_vault.review.gap_scan import _detect_absent_rows
-
-    meta = _make_support_matcher_meta(verdicts=[
-        _make_verdict(
-            "CONTRADICTS",
-            claim_snippet="high accuracy on MultiNLI",
-            citekey="jones2023",
-        )
-    ])
-    gaps = _detect_absent_rows(meta)
-    assert len(gaps) == 1
-    assert gaps[0].type == "absent_row"
-    assert "high accuracy on MultiNLI" in gaps[0].claim
-
-
-def test_absent_row_partial_not_gap():
-    """6c. PARTIAL verdict is NOT an absent_row gap (PARTIAL is WARN, not BLOCK)."""
-    from research_vault.review.gap_scan import _detect_absent_rows
-
-    meta = _make_support_matcher_meta(verdicts=[
-        _make_verdict("PARTIAL", claim_snippet="Weakly supported claim", citekey="weak2022")
-    ])
-    gaps = _detect_absent_rows(meta)
-    assert len(gaps) == 0
-
-
-def test_absent_row_supports_not_gap():
-    """6d. SUPPORTS verdict is NOT an absent_row gap."""
-    from research_vault.review.gap_scan import _detect_absent_rows
-
-    meta = _make_support_matcher_meta(verdicts=[
-        _make_verdict("SUPPORTS", claim_snippet="Well-backed claim", citekey="good2022")
-    ])
-    gaps = _detect_absent_rows(meta)
-    assert len(gaps) == 0
-
-
-def test_absent_row_claim_from_verdict_not_bracket():
-    """6e. Gap claim comes from verdict.claim_snippet, not the raw bracket token."""
-    from research_vault.review.gap_scan import _detect_absent_rows
-
-    meta = _make_support_matcher_meta(verdicts=[
-        _make_verdict(
-            "ABSENT",
-            claim_snippet="model X achieves SOTA on benchmark Y",
-            citekey="sota2023",
-        )
-    ])
-    gaps = _detect_absent_rows(meta)
-    assert len(gaps) == 1
-    assert "[ABSENT]" not in gaps[0].claim
-    assert "model X achieves SOTA" in gaps[0].claim
-
-
-def test_absent_row_citekey_in_anchor():
-    """6f. Gap anchor references the citekey from the structured verdict."""
-    from research_vault.review.gap_scan import _detect_absent_rows
-
-    meta = _make_support_matcher_meta(verdicts=[
-        _make_verdict("ABSENT", claim_snippet="Claim C", citekey="ref2024")
-    ])
-    gaps = _detect_absent_rows(meta)
-    assert len(gaps) == 1
-    assert "ref2024" in gaps[0].anchor
-
-
-def test_absent_row_j2_escalation_blocks():
-    """6g. j2_escalation=True (J-2 stance-mismatch BLOCK) also triggers absent_row gap."""
-    from research_vault.review.gap_scan import _detect_absent_rows
-
-    meta = _make_support_matcher_meta(verdicts=[
-        _make_verdict("PARTIAL", claim_snippet="Escalated claim", citekey="esc2023",
-                      j2_escalation=True)
-    ])
-    gaps = _detect_absent_rows(meta)
-    assert len(gaps) == 1
-    assert gaps[0].type == "absent_row"
-
-
-def test_absent_row_empty_meta_warns(capsys):
-    """6h. §2 guard: empty/missing verdicts in non-empty meta → warns, doesn't silent-no-op."""
-    from research_vault.review.gap_scan import _detect_absent_rows
-    import warnings
-
-    # Meta with k_block > 0 but verdicts list absent → §2 must warn
-    meta = {"n_sentences": 5, "m_citations": 5, "k_block": 2, "j_warn": 0}
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        gaps = _detect_absent_rows(meta, run_id="test-run-01")
-    assert len(gaps) == 0
-    assert any("support_matcher" in str(w.message).lower() or
-               "verdicts" in str(w.message).lower() or
-               "no" in str(w.message).lower()
-               for w in caught), (
-        "§2 guard: missing/empty verdicts in non-empty meta must emit a warning"
-    )
-
-
-def test_absent_row_empty_verdicts_list_no_warn():
-    """6i. Empty verdicts list (k_block=0) is silent — no gaps, no warning (legitimate no-gaps)."""
-    from research_vault.review.gap_scan import _detect_absent_rows
-    import warnings
-
-    meta = _make_support_matcher_meta(verdicts=[
-        _make_verdict("SUPPORTS", claim_snippet="Good claim", citekey="good2023")
-    ])
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        gaps = _detect_absent_rows(meta)
-    assert len(gaps) == 0
-    # No warning expected when all verdicts are SUPPORTS
-    rv_warns = [w for w in caught if "support_matcher" in str(w.message).lower()
-                or "verdicts" in str(w.message).lower()]
-    assert len(rv_warns) == 0
-
-
-# ---------------------------------------------------------------------------
 # 7. cmd_gap_scan — writes gap records
 # ---------------------------------------------------------------------------
 
@@ -547,7 +349,7 @@ def test_gap_scan_note_frontmatter(tmp_instance):
     fm, _ = _parse_frontmatter(gap_files[0].read_text(encoding="utf-8"))
     # 'type' is the OKF note type ('gaps'); 'gap_type' is the taxonomy type
     assert fm.get("type") == "gaps"
-    assert fm.get("gap_type") in {"knowledge_void", "contradictory", "evaluation_void", "absent_row"}
+    assert fm.get("gap_type") in {"knowledge_void", "contradictory", "evaluation_void"}
     assert fm.get("anchor")
     assert fm.get("claim")
     assert fm.get("why")
@@ -664,17 +466,15 @@ def test_gap_scope_context_file_written(tmp_instance):
 
 
 def test_gap_scope_seed_queries_per_type(tmp_instance):
-    """8d. Different seed_query templates for different gap types."""
+    """8d. Different seed_query templates for different gap types (SR-RM-FIGMS: 3 types)."""
     from research_vault.review.gap_scan import _build_seed_queries
 
     kv_queries = _build_seed_queries("knowledge_void", claim="X outperforms Y on task Z")
-    ab_queries = _build_seed_queries("absent_row", claim="Model achieves SOTA on benchmark B")
     ev_queries = _build_seed_queries("evaluation_void", claim="Method X improves over baseline")
     co_queries = _build_seed_queries("contradictory", claim="Concept C causes D")
 
     # Each type produces non-empty queries
     assert kv_queries
-    assert ab_queries
     assert ev_queries
     assert co_queries
 
@@ -857,25 +657,6 @@ def test_status_no_gaps_no_mention(tmp_instance):
     lines_lower = [ln.lower() for ln in status_output.splitlines()]
     gap_attention_lines = [ln for ln in lines_lower if "open gap" in ln]
     assert len(gap_attention_lines) == 0
-
-
-# ---------------------------------------------------------------------------
-# 6j. cmd_gap_scan with matcher_meta (structured binding, §5L.10)
-# ---------------------------------------------------------------------------
-
-def test_gap_scan_with_matcher_meta(tmp_instance):
-    """6j. cmd_gap_scan accepts matcher_meta dict and detects absent_row gaps."""
-    from research_vault.config import load_config
-    from research_vault.review.gap_scan import cmd_gap_scan
-
-    cfg = load_config()
-    meta = _make_support_matcher_meta(verdicts=[
-        _make_verdict("ABSENT", claim_snippet="Claim with no lit backing", citekey="absent2023"),
-        _make_verdict("SUPPORTS", claim_snippet="Well-backed claim", citekey="good2022"),
-    ])
-    new_gaps = cmd_gap_scan("demo-research", config=cfg, matcher_meta=meta)
-    absent_types = [g.type for g in new_gaps]
-    assert "absent_row" in absent_types
 
 
 def test_gap_scan_parser_handles_list_values():
