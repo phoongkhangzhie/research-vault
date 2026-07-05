@@ -250,3 +250,61 @@ def resolve_reads_pointers(
                 warns.append(f"node {nid!r}: {warn}")
 
     return errors, warns
+
+
+# ---------------------------------------------------------------------------
+# SR-DAG-BRIEF: resolve_reads_paths — returns resolved ABSOLUTE path strings
+# ---------------------------------------------------------------------------
+
+def resolve_reads_paths(
+    node: dict[str, Any],
+    project_root: Path,
+) -> list[str]:
+    """Resolve a single node's reads: list to ABSOLUTE path strings.
+
+    Returns one entry per reads: item.  Items that resolve successfully are
+    the absolute path.  Items that fail resolution are included as
+    ``"<ref> (unresolved)"`` so the caller (build_brief) can surface them
+    rather than silently dropping them (charter §2: surface-never-silently-drop).
+
+    human-go nodes carry no reads: field — returns [] for them.
+    SSOT for per-node reads→abs-path resolution used by build_brief.
+    """
+    reads = node.get("reads")
+    if not reads or not isinstance(reads, list):
+        return []
+
+    result: list[str] = []
+    for item in reads:
+        ref = _pointer_ref(item)
+        if not ref:
+            continue
+
+        # Determine the file portion (strip symbol and anchor for path resolution)
+        path_part = ref
+        symbol: str | None = None
+        if ":" in ref:
+            left, _, right = ref.partition(":")
+            is_scheme = left.lower() in (
+                "http", "https", "artifact", "sacct", "pr", "cmd", "url", "note"
+            )
+            if not is_scheme and ("/" in left or "." in left):
+                path_part = left.strip()
+                symbol = right.strip()
+
+        anchor: str | None = None
+        if "#" in path_part:
+            file_part, _, anchor_part = path_part.partition("#")
+            path_part = file_part.strip()
+            anchor = anchor_part.strip() or None
+
+        p = Path(path_part)
+        if not p.is_absolute():
+            p = project_root / path_part
+
+        if p.exists():
+            result.append(str(p))
+        else:
+            result.append(f"{ref} (unresolved)")
+
+    return result
