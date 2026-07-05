@@ -163,26 +163,24 @@ def _step_compute(
     feat_status: dict[str, Any],
     feature: Any,
     *,
-    interactive: bool,
-    input_fn: Callable[[str], str],
-    cfg: Any,
     step_no: int,
 ) -> None:
-    """Compute is a handoff to the guided `rv compute init` flow."""
+    """Compute is a pure handoff to the guided `rv compute init` flow.
+
+    Never invokes ``cmd_init`` in-process — the adopter must run it themselves
+    so they see its output, edit the generated FILL values, and follow up with
+    ``rv doctor``.  The ``interactive`` / ``input_fn`` / ``cfg`` parameters are
+    intentionally absent: there is nothing to prompt for here.
+    """
     print(f"\n[{step_no}] {feature.title} — unlocks {feature.unlocks}")
     if feat_status["status"] == "unlocked":
         print("    already declared — compute_manifest.json present (skipping).")
         return
     print("    This feature won't work until you declare your compute environment.")
-    print(f"    Hand off to: {feature.handoff_cmd}")
-    if interactive and _prompt_yes(input_fn, "    Run `rv compute init` now?"):
-        try:
-            from .compute import cmd_init
-            from .config import load_config as _load_config
-            _cfg = cfg if cfg is not None else _load_config()
-            cmd_init(_cfg)
-        except Exception as exc:
-            print(f"    could not run `rv compute init`: {exc}. Run it manually.")
+    print(
+        "    → run `rv compute init` to declare your compute environment"
+        " (then edit the FILL values and run `rv doctor`)."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -255,13 +253,7 @@ def cmd_onboard(
         elif feature.kind == "package":
             _step_asta(fs, feature, step_no=step_no)
         elif feature.kind == "handoff":
-            _step_compute(
-                fs, feature,
-                interactive=interactive,
-                input_fn=input_fn,
-                cfg=cfg,
-                step_no=step_no,
-            )
+            _step_compute(fs, feature, step_no=step_no)
         step_no += 1
 
     # Closing: re-derive locked set (idempotent truth) and summarise.
@@ -274,6 +266,7 @@ def cmd_onboard(
     else:
         print("Done. All features unlocked.")
     print("Verify any time with `rv check`.")
+    print("Launch your vault session with `rv start`.")
 
     # Only the runtime could ever block; onboard itself always exits 0.
     return 0

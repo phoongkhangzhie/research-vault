@@ -283,6 +283,20 @@ _VERB_REGISTRY: dict[str, dict] = {
         "sr": "SR-3, SR-DISP, SR-SCOPE, SR-HUB-DAG, SR-DAG-BRIEF",
     },
     # --- SR-5 ---
+    "start": {
+        "module": "research_vault.start",
+        "when_to_use": (
+            "The front door — launch Claude Code in your vault so the session becomes "
+            "Alfred, the hub with the crew as subagents. Run `rv start [<vault_path>]` "
+            "to verify the vault (research_vault.toml + CLAUDE.md present) and the "
+            "runtime (claude on PATH) before exec-replacing with claude. Forwards any "
+            "extra args to claude. "
+            "Anti-pattern: do NOT run bare `claude` in a random directory — `rv start` "
+            "verifies the vault and the runtime first, so the session always boots "
+            "correctly as Alfred."
+        ),
+        "sr": "SR-5",
+    },
     "init": {
         "module": "research_vault.init",
         "when_to_use": (
