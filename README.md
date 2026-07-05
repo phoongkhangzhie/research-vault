@@ -1,5 +1,7 @@
 # Research Vault
 
+![The Research Vault crew — Alfred (hub), Wren, Mason, Ada, Argus, and Iris](assets/hero-banner.png)
+
 **The discipline is the headline, not the code.** Research Vault is an open
 research tool that runs the full research loop — literature review, experiment
 planning, running, and synthesis — through a role-based agent crew coordinated

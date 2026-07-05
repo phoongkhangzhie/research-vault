@@ -6,7 +6,7 @@ Acceptance checklist (per §5B-NEW-REQ):
   1. Happy-path: exit 0, repo is git-initialized on main, one chore: commit.
   2. Config has [projects.demo] with code, source_dir, roster, refs.
   3. control/<slug>.md exists and passes rv control check; DEVLOG.md,
-     library.json (== []) exist; OKF type dirs exist;
+     architecture.md, library.json (== []) exist; OKF type dirs exist;
      rv note succeeds (path resolves via registry).
   4. Roster non-empty → build-agents wrote .agents/<slug>/<role>.md.
   5. Zotero SKIPPED (no key) → collection unset, library.json == [], exit 0.
@@ -189,6 +189,14 @@ class TestProjectNewScaffold:
         assert (src / "DEVLOG.md").exists(), "DEVLOG.md must exist"
         text = (src / "DEVLOG.md").read_text()
         assert "DEVLOG" in text
+
+    def test_architecture_md_exists(self, rv_instance: Path) -> None:
+        src = rv_instance / "projects" / "demo"
+        cmd_new("demo", "dm", str(src), [])
+        arch = src / "architecture.md"
+        assert arch.exists(), "architecture.md must exist"
+        text = arch.read_text()
+        assert "demo" in text, "architecture.md must reference the project slug"
 
     def test_library_json_is_empty_list(self, rv_instance: Path) -> None:
         src = rv_instance / "projects" / "demo"

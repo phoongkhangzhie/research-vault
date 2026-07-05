@@ -59,7 +59,7 @@ _READ_FRESH_FOOTER = (
     "**Project context is not baked into this hat.**\n"
     "Read it fresh when you pick up work: "
     "`rv status --project <slug>`, the project's `pointers.md`, "
-    "and its notes/control board."
+    "`architecture.md`, and its notes/control board."
 )
 
 

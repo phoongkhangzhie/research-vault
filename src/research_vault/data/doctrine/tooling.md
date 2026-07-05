@@ -245,9 +245,9 @@ The following observations appeared once and have not recurred. Recorded here as
 if the same pattern bites a second time, promote to a numbered rule in the appropriate section above.
 
 - **Map-in-the-same-change** (SR-PKG): a data-relocation or structural SR that changes where files
-  live must update `pointers.md` (and DEVLOG decisions) in the same PR, so the structural picture
-  cannot merge stale. Caught downstream when SR-PKG merged without updating the pointer file.
-  Acceptance criterion template: "`pointers.md` updated to reflect new paths."
+  live must touch `architecture.md` in the same PR, so the map cannot merge stale. Caught downstream
+  when SR-PKG merged without updating the diagram. Acceptance criterion template: "architecture.md
+  updated to reflect new paths."
 
 - **Third-framing before escalating a tradeoff** (SR-PLAN-FREEZE hash): when two stated requirements
   appear mutually exclusive (e.g. "tamper-detect any change" vs "all-default hash unchanged"), spend
