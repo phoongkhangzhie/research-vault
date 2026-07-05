@@ -31,6 +31,38 @@
 ### Open / next
 - PR open for Argus review + Wren fit check (human-go class — public pyproject + golden-rule reversal).
 
+## 2026-07-04 (SR-HARNESS-P2: harness sub-sequence in experiment loop)
+
+### Done
+- Slices 1–6 complete; PR open (reviewer-gate: Argus on S1 hash + Wren fit check on S4 catalog).
+- S1 (`plan/freeze.py`): HARNESS_SENTINEL, `_parse_harness_commits`, `_build_harness_block`,
+  `_build_covers_canonical` (internal; `include_harness` flag); `compute_covers_hash` unchanged;
+  `store_freeze_hash` stores both `covers_hash` + `covers_retries_hash`; `verify_freeze_hash` adds
+  three-way mismatch logic (full match → pass; retries match + hash differs → harness-commit drift;
+  else → existing covers/retries). 29 tests.
+- S2 (`plan/verbs.py`): `rv plan freeze-harness --scope <scope> --harness-commit <sha>`;
+  `_upsert_frontmatter_list_field`; FAIL-CLOSED (no prior freeze → exit 1); baseline guard
+  (covers edit between freeze and freeze-harness → exit 1); updates `covers_hash` including
+  the new harness block. 19 tests.
+- S3 (`experiment.py`): per-main harness triple `{main_id}-harness → {main_id}-harness-review
+  → [HG:human-go-harness-main{k}]`; run/abl-A-run rewired to afterok harness gate (plan+watch
+  stub-freshness edge intact); `--shared-harness` flag for single shared triple; printed
+  next-steps include harness sub-sequence with exact freeze-harness commands. 20 tests.
+- S4 (`dag/catalog.py` + `research-loop.json`): catalog updated with harness gate; demo
+  manifest updated with per-main harness triples; `_make_research_states` updated in test_sr5.py.
+- S5: brief-grade specs (`_harness_engineer_spec`, `_harness_reviewer_spec`) already live in experiment.py.
+- S6: `rv help --check` green; `rv lint` PASS; `experiment` when_to_use updated.
+- 1777 tests pass.
+
+### Decisions
+- D2 confirmed: ablation shares its main's harness gate (no separate ablation harness node).
+- D3 confirmed: `--shared-harness` flag uses `human-go-harness-shared` as the single gate id.
+- D4 confirmed: `harness_commits: [main1=<sha>, main2=<sha>]` inline YAML in plan frontmatter.
+- Back-compat golden hash `b75a05a8f70baf776be6d87ee83c6c16c60e936e697d59fb629f43ba19c26aac` preserved.
+
+### Open / next
+- PR awaiting Argus review (S1 hash correctness) + Wren fit check (S4 catalog). Do NOT merge.
+
 ## 2026-07-04 (SR-RM-FIGMS: remove figure + manuscript loops)
 
 ### Done

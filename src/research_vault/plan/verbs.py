@@ -1,4 +1,4 @@
-"""plan/verbs.py — rv plan subcommand dispatcher (SR-PLAN-1/SR-PLAN-2).
+"""plan/verbs.py — rv plan subcommand dispatcher (SR-PLAN-1/SR-PLAN-2/SR-HARNESS-P2).
 
 When to use: use ``rv plan check <plan-note>`` to run the K-2 shape-lint on a
 pre-registration plan note before the ``human-go-plan`` approval gate.
@@ -30,6 +30,20 @@ Subcommands:
       BLOCKED if any violations are present (non-optional gate).
       Stores SHA-256 of (sorted child_id, stance, plan_role) tuples in
       run_state.meta["plan_freeze"]; checked at human-go-findings by ``rv dag approve``.
+
+  rv plan freeze-harness <run-id> <plan-note-path> --scope <main<k>|shared>
+                         --harness-commit <sha> [--notes-root <dir>]
+      SR-HARNESS-P2 (§5K.5.1): record the reviewed harness commit SHA(s) in
+      the plan note's harness_commits: field and re-derive the K-3 hash to
+      incorporate them.
+      Run after each harness review gate (human-go-harness-main<k> or
+      human-go-harness-shared) is approved and the engineer commits the harness.
+      FAIL-CLOSED: requires a prior ``rv plan freeze`` (plan_freeze in meta).
+      BASELINE GUARD: blocks if covers:/retries were edited since human-go-plan.
+      Updates covers_hash to the harness-inclusive value; covers_retries_hash
+      stays pinned at the plan-time baseline.
+      A post-approval harness SHA swap is caught at human-go-findings by
+      ``rv dag approve`` via verify_freeze_hash ("harness-commit drift").
 
   rv plan verify-freeze <run-id> <plan-note-path> [--notes-root <dir>]
       Re-derive the covers:-hash and compare to the stored value.
@@ -125,6 +139,47 @@ def build_parser(parent: argparse._SubParsersAction) -> argparse.ArgumentParser:
         help="Directory containing child experiment notes.",
     )
 
+    # freeze-harness (SR-HARNESS-P2)
+    fh_p = sub.add_parser(
+        "freeze-harness",
+        help=(
+            "SR-HARNESS-P2: record reviewed harness commit SHA in plan note "
+            "and re-derive K-3 hash. Run after human-go-harness-<k> approval."
+        ),
+    )
+    fh_p.add_argument(
+        "run_id",
+        metavar="<run-id>",
+        help="DAG run id (from the manifest's run_id field).",
+    )
+    fh_p.add_argument(
+        "plan_note",
+        metavar="<plan-note-path>",
+        help="Path to the plan master note (experiments/<id>-plan.md).",
+    )
+    fh_p.add_argument(
+        "--scope",
+        required=True,
+        metavar="<main<k>|shared>",
+        help=(
+            "Scope of this harness entry: 'main1', 'main2', …, or 'shared'. "
+            "Matches the DAG gate name 'human-go-harness-main<k>' or "
+            "'human-go-harness-shared'."
+        ),
+    )
+    fh_p.add_argument(
+        "--harness-commit",
+        required=True,
+        metavar="<sha>",
+        help="Git commit SHA of the reviewed harness (from engineer's ⟦RETURN⟧.provenance).",
+    )
+    fh_p.add_argument(
+        "--notes-root",
+        metavar="<dir>",
+        default=None,
+        help="Directory containing child experiment notes (default: auto from plan note's parent).",
+    )
+
     return p
 
 
@@ -143,11 +198,14 @@ def run(args: argparse.Namespace) -> int:
         return _run_freeze(args)
     elif subcommand == "verify-freeze":
         return _run_verify_freeze(args)
+    elif subcommand == "freeze-harness":
+        return _run_freeze_harness(args)
     else:
         print(
             "rv plan: missing subcommand. "
             "Use `rv plan check <note>`, `rv plan tips`, "
-            "`rv plan freeze <run-id> <note>`, or `rv plan verify-freeze <run-id> <note>`.",
+            "`rv plan freeze <run-id> <note>`, `rv plan verify-freeze <run-id> <note>`, "
+            "or `rv plan freeze-harness <run-id> <note> --scope <k> --harness-commit <sha>`.",
             file=sys.stderr,
         )
         return 1
@@ -277,6 +335,64 @@ def _run_freeze(args: argparse.Namespace) -> int:
     return 0
 
 
+def _upsert_frontmatter_list_field(
+    text: str,
+    field: str,
+    scope: str,
+    value: str,
+) -> str:
+    """Upsert ``<scope>=<value>`` in a YAML inline list field in frontmatter.
+
+    Behaviour:
+    - Field absent     → inject ``field: [scope=value]`` before the closing ``---``.
+    - Field present    → replace any existing ``scope=...`` entry with
+                         ``scope=value``; add if not present.
+    - All other frontmatter lines and the body are preserved BYTE-FOR-BYTE.
+
+    The list is sorted alphabetically after upsert for determinism.
+
+    Returns the updated text, or the original text if the frontmatter cannot
+    be parsed (malformed or absent — no crash).
+    """
+    import re
+
+    new_entry = f"{scope}={value}"
+
+    def _rebuild_list(raw_list: str) -> str:
+        """Parse inline list, upsert scope=value, return sorted inline list."""
+        s = raw_list.strip()
+        if s.startswith("[") and s.endswith("]"):
+            s = s[1:-1]
+        items = [item.strip() for item in s.split(",") if item.strip()]
+        # Remove any existing entry for this scope
+        items = [item for item in items if not item.startswith(f"{scope}=")]
+        items.append(new_entry)
+        items.sort()
+        return "[" + ", ".join(items) + "]"
+
+    # Try to replace an existing field line (single-line YAML inline list only)
+    pattern = re.compile(
+        r'^(' + re.escape(field) + r':\s*)(\[.*?\])\s*$',
+        re.MULTILINE,
+    )
+    new_text, n = pattern.subn(
+        lambda m: m.group(1) + _rebuild_list(m.group(2)),
+        text,
+        count=1,
+    )
+    if n > 0:
+        return new_text
+
+    # Field absent — inject before the closing "---" of the frontmatter block.
+    if not text.startswith("---"):
+        return text  # not a frontmatter note — return unchanged
+    fm_end = text.find("\n---", 3)
+    if fm_end == -1:
+        return text  # malformed frontmatter — return unchanged
+    injection = f"\n{field}: [{new_entry}]"
+    return text[:fm_end] + injection + text[fm_end:]
+
+
 def _run_verify_freeze(args: argparse.Namespace) -> int:
     """K-3: re-derive covers:-hash and compare to stored value (§5K.5.1).
 
@@ -327,3 +443,139 @@ def _run_verify_freeze(args: argparse.Namespace) -> int:
     else:
         print(f"rv plan verify-freeze: FAIL — {msg}", file=sys.stderr)
         return 1
+
+
+def _run_freeze_harness(args: argparse.Namespace) -> int:
+    """SR-HARNESS-P2: record reviewed harness commit SHA in plan note + re-hash (§5K.5.1).
+
+    Flow:
+    1. Load run; FAIL-CLOSED if plan_freeze absent (requires prior rv plan freeze).
+    2. Baseline guard: recompute harness-excluded hash; compare to stored
+       covers_retries_hash; BLOCK if they differ (covers:/retries edited since
+       human-go-plan — the plan must not drift between freeze and freeze-harness).
+    3. Upsert harness_commits[scope]=sha in the plan frontmatter (preserves all
+       other frontmatter+body bytes).
+    4. Re-run store_freeze_hash to update covers_hash to the harness-inclusive
+       value; covers_retries_hash is naturally re-derived to the same value
+       (covers/retries unchanged, harness-free path).
+    5. Print the updated hash + scope.
+    """
+    import hashlib
+
+    from .freeze import (
+        _build_covers_canonical,
+        store_freeze_hash,
+        verify_freeze_hash,
+    )
+
+    run_id = args.run_id
+    plan_note = Path(args.plan_note)
+    scope = args.scope
+    harness_sha = args.harness_commit
+    notes_root_arg = getattr(args, "notes_root", None)
+    notes_root = Path(notes_root_arg) if notes_root_arg else None
+
+    # Default notes_root: plan note's parent directory (same as rv plan freeze)
+    if notes_root is None:
+        notes_root = plan_note.parent
+
+    try:
+        from research_vault.config import load_config
+        from research_vault.dag.store import RunStore
+        cfg = load_config()
+        store = RunStore.from_config(cfg)
+    except Exception as e:
+        print(f"rv plan freeze-harness: config/store error: {e}", file=sys.stderr)
+        return 1
+
+    # --- Step 1: FAIL-CLOSED if never frozen ---
+    try:
+        run_state = store.load(run_id)
+    except Exception as e:
+        print(f"rv plan freeze-harness: cannot load run {run_id!r}: {e}", file=sys.stderr)
+        return 1
+
+    plan_freeze = run_state.meta.get("plan_freeze")
+    if not plan_freeze:
+        print(
+            f"rv plan freeze-harness: BLOCKED — run {run_id!r} has no plan_freeze "
+            f"(run `rv plan freeze {run_id} {plan_note}` first).",
+            file=sys.stderr,
+        )
+        return 1
+
+    stored_retries_hash = plan_freeze.get("covers_retries_hash")
+    if stored_retries_hash is None:
+        print(
+            f"rv plan freeze-harness: BLOCKED — plan_freeze for run {run_id!r} has no "
+            f"covers_retries_hash (legacy freeze format).  Re-run `rv plan freeze` with "
+            f"SR-HARNESS-P2 code to establish the baseline before freeze-harness.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # --- Step 2: Baseline guard — covers:/retries must not have changed ---
+    # Load manifest_nodes via the freeze module's helper
+    from .freeze import _load_manifest_nodes as _lmn
+    manifest_nodes = _lmn(run_state.manifest_path)
+
+    canon_no_harness = _build_covers_canonical(
+        plan_note,
+        notes_root=notes_root,
+        manifest_nodes=manifest_nodes,
+        include_harness=False,
+    )
+    if canon_no_harness is None:
+        print(
+            f"rv plan freeze-harness: cannot read plan note {plan_note} — "
+            f"check path and permissions.",
+            file=sys.stderr,
+        )
+        return 1
+
+    current_retries_hash = hashlib.sha256(canon_no_harness.encode("utf-8")).hexdigest()
+    if current_retries_hash != stored_retries_hash:
+        print(
+            f"rv plan freeze-harness: BLOCKED — covers:/retries edited since "
+            f"human-go-plan.  Stored baseline {stored_retries_hash[:16]}… ≠ "
+            f"current {current_retries_hash[:16]}….  "
+            f"A covers:/retries edit after the plan gate is a pre-registration "
+            f"integrity violation — issue a new pre-registration rather than "
+            f"patching the harness.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # --- Step 3: Upsert harness_commits[scope]=sha in plan frontmatter ---
+    try:
+        plan_text = plan_note.read_text(encoding="utf-8")
+    except OSError as e:
+        print(f"rv plan freeze-harness: cannot read plan note: {e}", file=sys.stderr)
+        return 1
+
+    updated_text = _upsert_frontmatter_list_field(
+        plan_text, "harness_commits", scope, harness_sha
+    )
+
+    try:
+        plan_note.write_text(updated_text, encoding="utf-8")
+    except OSError as e:
+        print(f"rv plan freeze-harness: cannot write plan note: {e}", file=sys.stderr)
+        return 1
+
+    # --- Step 4: Re-run store_freeze_hash to update covers_hash ---
+    try:
+        store_freeze_hash(store, run_id, plan_note, notes_root=notes_root)
+    except Exception as e:
+        print(f"rv plan freeze-harness: {e}", file=sys.stderr)
+        return 1
+
+    # --- Step 5: Report ---
+    run_state2 = store.load(run_id)
+    new_hash = run_state2.meta.get("plan_freeze", {}).get("covers_hash", "?")
+    print(
+        f"rv plan freeze-harness: OK — harness_commits[{scope}]={harness_sha[:12]}… "
+        f"recorded in run {run_id!r}."
+    )
+    print(f"  updated covers_hash: {new_hash}")
+    return 0

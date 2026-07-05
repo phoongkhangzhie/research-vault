@@ -375,7 +375,7 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-6",
     },
-    # --- SR-HUB-DAG §B ---
+    # --- SR-HUB-DAG §B / SR-HARNESS-P2 ---
     "experiment": {
         "module": "research_vault.experiment",
         "when_to_use": (
@@ -385,16 +385,19 @@ _VERB_REGISTRY: dict[str, dict] = {
             "(`experiments/<id>-plan.md`, plan_kind: preregistration, covers: skeleton) "
             "AND emit a REGISTERED experiment DAG manifest mirroring the research-loop.json "
             "topology (plan → plan-critic → [HG:human-go-plan] → "
+            "{per-main: harness→harness-review→[HG:human-go-harness-main<k>]} → "
             "{per-main: run→score→analyze (+ablations)} → [HG:human-go-conditionals-*] → "
             "[HG:human-go-findings] → methods-update). "
-            "Prints the exact next commands so the freeze cannot be silently skipped: "
-            "`rv dag run <manifest>`, then at the plan gate "
-            "`rv dag approve <run_id> human-go-plan && rv plan freeze <run_id> <plan-note>`. "
+            "Use `--shared-harness` when all mains share the same harness implementation "
+            "(emits one shared triple instead of one per main). "
+            "Prints the exact next commands including the harness sub-sequence: "
+            "`rv dag run <manifest>`, then plan freeze at human-go-plan, then per-main "
+            "`rv plan freeze-harness <run_id> <plan-note> --scope main<k> --harness-commit <sha>` "
+            "at each human-go-harness-main<k> gate. "
             "Anti-pattern: do NOT run a pre-registered study as ad-hoc crew dispatches — "
             "`rv experiment new` registers the DAG so `rv plan freeze` has a run_id to "
             "hash; hand-dispatching silently loses the pre-registration guarantee (K-3 "
-            "covers:-hash never gets bound to a run_id, so `rv dag approve human-go-findings` "
-            "cannot re-verify it)."
+            "covers:-hash + harness SHAs never get bound to a run_id)."
         ),
         "sr": "SR-HUB-DAG",
     },
@@ -415,22 +418,29 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-PLAN-2",
     },
-    # --- SR-PLAN-1 ---
+    # --- SR-PLAN-1 / SR-HARNESS-P2 ---
     "plan": {
         "module": "research_vault.plan.verbs",
         "when_to_use": (
-            "When you need to lint a pre-registration plan note or inspect the plan_tips "
-            "prompt seam. "
+            "When you need to lint a pre-registration plan note, freeze the K-3 hash, "
+            "or record a reviewed harness commit SHA. "
             "Use `rv plan check <experiments/<id>-plan.md>` to run the K-2 structural "
             "shape-lint BEFORE the human-go-plan approval gate: checks branch-presence "
             "(every diagnosis table row has a named conclusion + committed action — no "
             "empty cells, no 'fallback', no 'TBD') and one-component-per-ablation "
             "(each supporting ablation manipulates exactly ONE component). "
+            "Use `rv plan freeze <run-id> <plan-note>` immediately after "
+            "`rv dag approve <run-id> human-go-plan` to hash the covers:-freeze-set (K-3). "
+            "Use `rv plan freeze-harness <run-id> <plan-note> --scope main<k> "
+            "--harness-commit <sha>` after each human-go-harness-main<k> approval to "
+            "record the reviewed harness commit SHA and extend the K-3 hash. "
             "Use `rv plan tips [--key <key>]` to inspect the plan_tips seam (researcher's "
             "defaults or adopter override from [plan_style] in research_vault.toml). "
             "Anti-pattern: do NOT skip plan check before human-go-plan — the shape-lint "
             "is the rejects-only structural screen (charter §9); the plan-critic (reviewer) "
             "judges semantic completeness but cannot substitute for missing outcome rows. "
+            "Anti-pattern: do NOT call freeze-harness without a prior freeze — it is "
+            "FAIL-CLOSED on absent plan_freeze. "
             "This verb is note.py-FREE: plan fields (plan_kind/covers/plan_role/"
             "supports_main/stance) are agent-authored content, not cmd_new templates."
         ),

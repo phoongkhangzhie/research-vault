@@ -36,6 +36,37 @@
     },
 
     {
+      "id": "q1-main1-harness",
+      "type": "agent",
+      "label": "Write eval harness for Main 1 — q1-main1 (engineer)",
+      "role": "engineer",
+      "spec": "task://demo-research#harness-main1",
+      "needs": [{"from": "human-go-plan", "edge": "afterok"}],
+      "reads": [
+        "doctrine/harness-contract.md",
+        "experiments/"
+      ]
+    },
+    {
+      "id": "q1-main1-harness-review",
+      "type": "agent",
+      "label": "Review harness for Main 1 against harness-contract.md (reviewer)",
+      "role": "reviewer",
+      "spec": "task://demo-research#harness-review-main1",
+      "needs": [{"from": "q1-main1-harness", "edge": "afterok"}],
+      "reads": [
+        "doctrine/harness-contract.md",
+        "experiments/"
+      ]
+    },
+    {
+      "id": "human-go-harness-main1",
+      "type": "human-go",
+      "label": "Human approval gate — Main 1 harness reviewed and accepted. Run: rv plan freeze-harness <run_id> <plan-note> --scope main1 --harness-commit <sha>",
+      "needs": [{"from": "q1-main1-harness-review", "edge": "afterok"}]
+    },
+
+    {
       "id": "q1-main1-run",
       "type": "agent",
       "label": "Run Exp 1 (main 1) — claim A (Ada/researcher)",
@@ -43,7 +74,7 @@
       "spec": "task://demo-research#run",
       "produces": {"note": "experiments/q1-main1.md"},
       "needs": [
-        {"from": "human-go-plan", "edge": "afterok"},
+        {"from": "human-go-harness-main1", "edge": "afterok"},
         {"from": "plan", "edge": "afterok", "watch": "note:experiments/q1-main1.md+fresh"}
       ],
       "reads": ["doctrine/compute-run-recipe.md#how to run here"]
@@ -74,7 +105,7 @@
       "spec": "task://demo-research#run",
       "produces": {"note": "experiments/q1-main1-abl-A.md"},
       "needs": [
-        {"from": "human-go-plan", "edge": "afterok"},
+        {"from": "human-go-harness-main1", "edge": "afterok"},
         {"from": "plan", "edge": "afterok", "watch": "note:experiments/q1-main1-abl-A.md+fresh"}
       ],
       "reads": ["doctrine/compute-run-recipe.md#how to run here"]
@@ -143,6 +174,37 @@
     },
 
     {
+      "id": "q1-main2-harness",
+      "type": "agent",
+      "label": "Write eval harness for Main 2 — q1-main2 (engineer)",
+      "role": "engineer",
+      "spec": "task://demo-research#harness-main2",
+      "needs": [{"from": "human-go-plan", "edge": "afterok"}],
+      "reads": [
+        "doctrine/harness-contract.md",
+        "experiments/"
+      ]
+    },
+    {
+      "id": "q1-main2-harness-review",
+      "type": "agent",
+      "label": "Review harness for Main 2 against harness-contract.md (reviewer)",
+      "role": "reviewer",
+      "spec": "task://demo-research#harness-review-main2",
+      "needs": [{"from": "q1-main2-harness", "edge": "afterok"}],
+      "reads": [
+        "doctrine/harness-contract.md",
+        "experiments/"
+      ]
+    },
+    {
+      "id": "human-go-harness-main2",
+      "type": "human-go",
+      "label": "Human approval gate — Main 2 harness reviewed and accepted. Run: rv plan freeze-harness <run_id> <plan-note> --scope main2 --harness-commit <sha>",
+      "needs": [{"from": "q1-main2-harness-review", "edge": "afterok"}]
+    },
+
+    {
       "id": "q1-main2-run",
       "type": "agent",
       "label": "Run Exp 2 (main 2) — claim B (Ada/researcher)",
@@ -150,7 +212,7 @@
       "spec": "task://demo-research#run",
       "produces": {"note": "experiments/q1-main2.md"},
       "needs": [
-        {"from": "human-go-plan", "edge": "afterok"},
+        {"from": "human-go-harness-main2", "edge": "afterok"},
         {"from": "plan", "edge": "afterok", "watch": "note:experiments/q1-main2.md+fresh"}
       ],
       "reads": ["doctrine/compute-run-recipe.md#how to run here"]
@@ -181,7 +243,7 @@
       "spec": "task://demo-research#run",
       "produces": {"note": "experiments/q1-main2-abl-B.md"},
       "needs": [
-        {"from": "human-go-plan", "edge": "afterok"},
+        {"from": "human-go-harness-main2", "edge": "afterok"},
         {"from": "plan", "edge": "afterok", "watch": "note:experiments/q1-main2-abl-B.md+fresh"}
       ],
       "reads": ["doctrine/compute-run-recipe.md#how to run here"]

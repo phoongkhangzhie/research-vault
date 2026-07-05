@@ -95,11 +95,16 @@ def _plan_note_skeleton(
 **plan_kind:** preregistration
 **covers:** {", ".join(covers_items)}
 **Freeze gate:** human-go-plan (K-3 covers:-hash stored on approval)
+**Harness gate:** human-go-harness-main<k> per main (harness SHA recorded via
+  `rv plan freeze-harness <run_id> <plan-note> --scope main<k> --harness-commit <sha>`)
 **Research question:** {question}
 
 All confirmatory child notes listed in `covers:` must be written as stubs
 before any run fires.  The confirmatory set is frozen at `human-go-plan`;
 exploratory experiments may be added after the freeze with `stance: exploratory`.
+
+The `harness_commits:` field is written by `rv plan freeze-harness` after each
+harness review gate is approved.  Do NOT pre-write it here.
 
 ---
 
@@ -177,6 +182,51 @@ Component manipulated: [name the single component].
 # Manifest builder
 # ---------------------------------------------------------------------------
 
+def _harness_engineer_spec(main_id: str, k: int, exp_id: str) -> str:
+    """Brief-grade spec for the harness engineer node (§5K spec, SR-HARNESS-P2).
+
+    Enumerates harness-contract.md §1 constraints as build requirements.
+    """
+    return (
+        f"WRITE the eval harness for Main {k} ({main_id}) per the plan's "
+        f"Main-{k} protocol.\n\n"
+        f"Build requirements (harness-contract.md §1 — mandatory):\n"
+        f"  - Separate output directories: mock/ for mock runs, live/ for live "
+        f"runs. Mixing them in a single flat dir is forbidden.\n"
+        f"  - Resume key MUST include run_mode + served_model. A --live run "
+        f"MUST NOT reuse a record whose run_mode is 'mock'.\n"
+        f"  - --live fails loud on mock-tagged records (non-zero exit + named "
+        f"offending records).\n"
+        f"  - --exp flag filters to only that experiment's arms. Passing the "
+        f"unfiltered arm list is a bug.\n"
+        f"  - Suspiciously-complete halt: if already_done / planned >= 0.95 "
+        f"before any new calls, print WARN and HALT.\n\n"
+        f"MANDATORY test (non-skippable before merge):\n"
+        f"  Write and pass the mock-vs-live resume-isolation test:\n"
+        f"  (a) mock run writes to mock/ path;\n"
+        f"  (b) live run writes to a DISTINCT path;\n"
+        f"  (c) mock-tagged record in live resume set → non-zero exit + message.\n\n"
+        f"Commit-as-you-go. "
+        f"Return the harness commit SHA in ⟦RETURN⟧.provenance, then:\n"
+        f"  rv dag complete <run_id> {main_id}-harness"
+    )
+
+
+def _harness_reviewer_spec(main_id: str, k: int) -> str:
+    """Brief-grade spec for the harness reviewer node (SR-HARNESS-P2)."""
+    return (
+        f"Review the harness for Main {k} ({main_id}) AGAINST harness-contract.md.\n\n"
+        f"Verify (see reads: for the full contract):\n"
+        f"  §1 a–c: the mandatory mock-vs-live resume-isolation test exists and "
+        f"passes — confirm (a) mock/live dirs distinct, (b) live makes real calls, "
+        f"(c) mock-tagged record in live resume set → abort + message.\n"
+        f"  §2: --exp filter restricts to experiment's arms only; suspiciously-"
+        f"complete guard fires at 95% threshold.\n\n"
+        f"Return verdict and the reviewed commit SHA, then:\n"
+        f"  rv dag complete <run_id> {main_id}-harness-review"
+    )
+
+
 def _build_experiment_manifest(
     project: str,
     exp_id: str,
@@ -184,15 +234,22 @@ def _build_experiment_manifest(
     n_mains: int,
     plan_note_path: Path,
     notes_dir: Path,
+    shared_harness: bool = False,
 ) -> dict[str, Any]:
     """Build the experiment DAG manifest (mirrors research-loop.json topology).
 
     Nodes (for N mains, each with 1 supporting ablation):
       plan → plan-critic → [HG:human-go-plan]
-          → {per-main k:
-               <id>-main<k>-run → <id>-main<k>-score → <id>-main<k>-analyze
-               + <id>-main<k>-abl-A-run → <id>-main<k>-abl-A-score
-                 → <id>-main<k>-abl-A-analyze}
+          → (SR-HARNESS-P2, shared_harness=False):
+               {per-main k:
+                  <id>-main<k>-harness → <id>-main<k>-harness-review
+                  → [HG:human-go-harness-main<k>]}
+               → {<id>-main<k>-run, <id>-main<k>-abl-A-run} (afterok HG-harness-main<k>)
+          → (SR-HARNESS-P2, shared_harness=True):
+               shared-harness → shared-harness-review
+               → [HG:human-go-harness-shared]
+               → per-main run/abl-A-run (all afterok shared gate)
+          → {per-main k: run→score→analyze (+ablation-run→score→analyze)}
           → [HG:human-go-conditionals-main<k>]
       → [HG:human-go-findings]
       → methods-update
@@ -202,6 +259,7 @@ def _build_experiment_manifest(
     reads: uses absolute paths (Fix #34 pattern from review scaffold).
 
     Zero new walker/schema mechanism — standard afterok edges throughout.
+    The harness sub-sequence uses stock human-go and agent node types only.
     """
 
     def _abs(okf_type: str) -> str:
@@ -259,12 +317,113 @@ def _build_experiment_manifest(
         "needs": [_afterok("plan-critic")],
     })
 
+    # 3b. Shared harness triple (SR-HARNESS-P2) — emitted ONCE before the per-main loop
+    # when shared_harness=True.  When False, a per-main triple is emitted inside the loop.
+    # harness gate ID used by all main run/abl-run needs:
+    if shared_harness:
+        shared_harness_gate = "human-go-harness-shared"
+        nodes.append({
+            "id": "shared-harness",
+            "type": "agent",
+            "label": "Write shared eval harness — all mains (engineer)",
+            "role": "engineer",
+            "spec": (
+                f"WRITE the shared eval harness for all {n_mains} main(s) per the plan's "
+                f"protocol.\n\n"
+                f"Build requirements (harness-contract.md §1 — mandatory):\n"
+                f"  - Separate output directories: mock/ for mock runs, live/ for live runs.\n"
+                f"  - Resume key MUST include run_mode + served_model.\n"
+                f"  - --live fails loud on mock-tagged records.\n"
+                f"  - --exp flag filters to only that experiment's arms.\n"
+                f"  - Suspiciously-complete halt at 95% threshold.\n\n"
+                f"MANDATORY test: mock-vs-live resume-isolation test (§1 a-c).\n\n"
+                f"Commit-as-you-go. Return harness commit SHA in ⟦RETURN⟧.provenance, then:\n"
+                f"  rv dag complete <run_id> shared-harness"
+            ),
+            "needs": [_afterok("human-go-plan")],
+            "reads": [
+                "doctrine/harness-contract.md",
+                _abs("experiments"),
+            ],
+        })
+        nodes.append({
+            "id": "shared-harness-review",
+            "type": "agent",
+            "label": "Review shared eval harness against harness-contract.md (reviewer)",
+            "role": "reviewer",
+            "spec": (
+                f"Review the shared harness AGAINST harness-contract.md.\n\n"
+                f"Verify §1 a–c: mandatory mock-vs-live resume-isolation test exists and "
+                f"passes. Verify §2: --exp filter + suspiciously-complete guard.\n\n"
+                f"Return verdict and the reviewed commit SHA, then:\n"
+                f"  rv dag complete <run_id> shared-harness-review"
+            ),
+            "needs": [_afterok("shared-harness")],
+            "reads": [
+                "doctrine/harness-contract.md",
+                _abs("experiments"),
+            ],
+        })
+        nodes.append({
+            "id": "human-go-harness-shared",
+            "type": "human-go",
+            "label": (
+                "Human approval gate — shared harness reviewed and accepted. "
+                "Run: rv plan freeze-harness <run_id> <plan-note> --scope shared "
+                "--harness-commit <sha>"
+            ),
+            "needs": [_afterok("shared-harness-review")],
+        })
+
     # 4. Per-main branches
     for k in range(1, n_mains + 1):
         main_id = f"{exp_id}-main{k}"
         abl_id = f"{exp_id}-main{k}-abl-A"
 
-        # main run
+        # Per-main harness triple (SR-HARNESS-P2) — only when NOT shared_harness
+        if not shared_harness:
+            nodes.append({
+                "id": f"{main_id}-harness",
+                "type": "agent",
+                "label": f"Write eval harness for Main {k} — {main_id} (engineer)",
+                "role": "engineer",
+                "spec": _harness_engineer_spec(main_id, k, exp_id),
+                "needs": [_afterok("human-go-plan")],
+                "reads": [
+                    "doctrine/harness-contract.md",
+                    _abs("experiments"),
+                ],
+            })
+            nodes.append({
+                "id": f"{main_id}-harness-review",
+                "type": "agent",
+                "label": f"Review harness for Main {k} against harness-contract.md (reviewer)",
+                "role": "reviewer",
+                "spec": _harness_reviewer_spec(main_id, k),
+                "needs": [_afterok(f"{main_id}-harness")],
+                "reads": [
+                    "doctrine/harness-contract.md",
+                    _abs("experiments"),
+                ],
+            })
+            nodes.append({
+                "id": f"human-go-harness-main{k}",
+                "type": "human-go",
+                "label": (
+                    f"Human approval gate — Main {k} harness reviewed and accepted. "
+                    f"Run: rv plan freeze-harness <run_id> <plan-note> --scope main{k} "
+                    f"--harness-commit <sha>"
+                ),
+                "needs": [_afterok(f"{main_id}-harness-review")],
+            })
+
+        # Determine the harness gate that run/abl-A-run must depend on
+        if shared_harness:
+            harness_gate_id = "human-go-harness-shared"
+        else:
+            harness_gate_id = f"human-go-harness-main{k}"
+
+        # main run — afterok harness gate instead of human-go-plan
         nodes.append({
             "id": f"{main_id}-run",
             "type": "agent",
@@ -289,11 +448,11 @@ def _build_experiment_manifest(
             ),
             "produces": {"note": f"experiments/{main_id}.md"},
             "needs": [
-                _afterok("human-go-plan"),
+                _afterok(harness_gate_id),       # SR-HARNESS-P2: afterok harness gate
                 {
                     "from": "plan",
                     "edge": "afterok",
-                    "watch": f"note:experiments/{main_id}.md+fresh",
+                    "watch": f"note:experiments/{main_id}.md+fresh",  # stub-freshness (unchanged)
                 },
             ],
             "reads": [_abs("experiments"), "doctrine/compute-run-recipe.md#how to run here"],
@@ -346,7 +505,7 @@ def _build_experiment_manifest(
             "reads": [_abs("experiments"), _abs("findings")],
         })
 
-        # ablation A run
+        # ablation A run — afterok harness gate instead of human-go-plan (SR-HARNESS-P2)
         nodes.append({
             "id": f"{abl_id}-run",
             "type": "agent",
@@ -370,11 +529,11 @@ def _build_experiment_manifest(
             ),
             "produces": {"note": f"experiments/{abl_id}.md"},
             "needs": [
-                _afterok("human-go-plan"),
+                _afterok(harness_gate_id),       # SR-HARNESS-P2: afterok harness gate
                 {
                     "from": "plan",
                     "edge": "afterok",
-                    "watch": f"note:experiments/{abl_id}.md+fresh",
+                    "watch": f"note:experiments/{abl_id}.md+fresh",  # stub-freshness (unchanged)
                 },
             ],
             "reads": [_abs("experiments"), "doctrine/compute-run-recipe.md#how to run here"],
@@ -508,6 +667,7 @@ def cmd_new(
     question: str,
     n_mains: int = 1,
     scope: list[str] | None = None,
+    shared_harness: bool = False,
     config: Any = None,
 ) -> tuple[Path, Path]:
     """Scaffold a pre-registration plan note + experiment DAG manifest.
@@ -563,6 +723,7 @@ def cmd_new(
         n_mains=n_mains,
         plan_note_path=plan_note_path,
         notes_dir=notes_dir,
+        shared_harness=shared_harness,
     )
 
     try:
@@ -660,6 +821,17 @@ def build_parser(
             "Optional — stored in the plan note's scope: field."
         ),
     )
+    new_p.add_argument(
+        "--shared-harness",
+        action="store_true",
+        default=False,
+        help=(
+            "Emit a single shared harness triple (shared-harness → shared-harness-review "
+            "→ [HG:human-go-harness-shared]) instead of one triple per main. "
+            "Use when all mains share the same eval harness implementation. "
+            "Default: one harness triple per main (D2 ruling)."
+        ),
+    )
 
     return p
 
@@ -699,6 +871,7 @@ def run(args: argparse.Namespace) -> int:
                 question=args.question,
                 n_mains=n_mains,
                 scope=getattr(args, "scope", []) or [],
+                shared_harness=getattr(args, "shared_harness", False),
                 config=cfg,
             )
         except (ValueError, FileExistsError, ManifestError, OSError) as e:
@@ -717,7 +890,8 @@ def run(args: argparse.Namespace) -> int:
         print(f"rv experiment new: manifest   → {manifest_path}")
         print(f"rv experiment new: run_id     = {run_id!r}")
         print()
-        print("Next steps (in order — DO NOT skip the freeze):")
+        shared_harness_flag = getattr(args, "shared_harness", False)
+        print("Next steps (in order — DO NOT skip the freeze or harness gates):")
         print()
         print("  1. Fill in the plan note (claim arrows, decision thresholds, falsifiers,")
         print("     diagnosis tables for each main + ablation):")
@@ -731,8 +905,28 @@ def run(args: argparse.Namespace) -> int:
         print(f"     rv dag approve {run_id} human-go-plan")
         print(f"     rv plan freeze {run_id} {plan_note_path}")
         print()
-        print("  (The K-3 covers:-hash is RE-VERIFIED automatically at")
-        print(f"  human-go-findings — 'rv dag approve {run_id} human-go-findings'.)")
+        if shared_harness_flag:
+            print("  4. Harness sub-sequence (shared):")
+            print("     a. Engineer writes the shared harness → shared-harness node completes.")
+            print("     b. Reviewer checks harness-contract.md → shared-harness-review completes.")
+            print("     c. Approve the shared harness gate + record the commit SHA:")
+            print(f"        rv dag approve {run_id} human-go-harness-shared")
+            print(f"        rv plan freeze-harness {run_id} {plan_note_path} --scope shared --harness-commit <sha>")
+        else:
+            for ki in range(1, n_mains + 1):
+                print(f"  4.{ki}. Harness sub-sequence for Main {ki}:")
+                print(f"     a. Engineer writes harness → {exp_id}-main{ki}-harness node completes.")
+                print(f"     b. Reviewer checks harness-contract.md → {exp_id}-main{ki}-harness-review completes.")
+                print(f"     c. Approve the harness gate + record the commit SHA:")
+                print(f"        rv dag approve {run_id} human-go-harness-main{ki}")
+                print(f"        rv plan freeze-harness {run_id} {plan_note_path} --scope main{ki} --harness-commit <sha>")
+        print()
+        print("  5. The K-3 covers:-hash (including harness SHAs) is RE-VERIFIED")
+        print(f"     automatically at human-go-findings:")
+        print(f"     rv dag approve {run_id} human-go-findings")
+        print()
+        print("  NOTE: a post-approval harness SHA swap makes human-go-findings FAIL")
+        print("  with 'harness-commit drift' — issue a new pre-registration instead.")
         return 0
 
     print(f"rv experiment: unknown subcommand {args.experiment_cmd!r}", file=sys.stderr)

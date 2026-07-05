@@ -206,6 +206,7 @@ def test_litreview_loop_references_named_roles():
 
 def _make_research_states(plan_status: str = "succeeded",
                            human_go_status: str = "succeeded",
+                           harness_status: str = "succeeded",
                            run_status: str = "pending",
                            score_status: str = "pending",
                            analyze_status: str = "pending",
@@ -213,14 +214,23 @@ def _make_research_states(plan_status: str = "succeeded",
                            methods_status: str = "pending") -> dict[str, dict]:
     """Build node_states for the research loop.
 
-    Updated in SR-PLAN-1: the demo manifest is now multi-main (q1-main1-run,
-    q1-main2-run, ablations, conditionals, per-main gates).  All new nodes
-    default to 'pending' so tests exercising the early gates still work.
+    Updated in SR-PLAN-1: multi-main (q1-main1-run, q1-main2-run, ablations,
+    conditionals, per-main gates).
+    Updated in SR-HARNESS-P2: per-main harness triples added between
+    human-go-plan and the run nodes.  harness_status defaults to 'succeeded'
+    so existing tests that don't exercise the harness layer stay green.
     """
     return {
         "plan": {"status": plan_status},
         "plan-critic": {"status": "succeeded"},
         "human-go-plan": {"status": human_go_status},
+        # SR-HARNESS-P2: per-main harness triples
+        "q1-main1-harness": {"status": harness_status},
+        "q1-main1-harness-review": {"status": harness_status},
+        "human-go-harness-main1": {"status": harness_status},
+        "q1-main2-harness": {"status": harness_status},
+        "q1-main2-harness-review": {"status": harness_status},
+        "human-go-harness-main2": {"status": harness_status},
         # Main 1 + ablation A + conditional Y (all pending by default)
         "q1-main1-run": {"status": run_status},
         "q1-main1-score": {"status": score_status},

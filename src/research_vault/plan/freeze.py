@@ -10,8 +10,8 @@ PURPOSE (§5K.5.1 K-3 FIX)
   relabeled child) is caught structurally by the run-state hash, independently
   of git.
 
-WHAT IS HASHED (SR-PLAN-FREEZE-RETRY extension, #23)
-  SHA-256 of the canonical string built from two blocks:
+WHAT IS HASHED (SR-PLAN-FREEZE-RETRY extension, #23; SR-HARNESS-P2)
+  SHA-256 of the canonical string built from three blocks:
 
   Block 1 — covers block (unchanged from SR-PLAN-1):
     "<child_id> stance=<stance_or_MISSING> plan_role=<plan_role_or_MISSING>"
@@ -25,14 +25,26 @@ WHAT IS HASHED (SR-PLAN-FREEZE-RETRY extension, #23)
     Nodes with N=0 (or absent) are OMITTED — omit-defaults ruling — so an
     all-default manifest contributes an EMPTY retries block.
 
-  When the retries block is EMPTY:
+  Block 3 — harness block (new in SR-HARNESS-P2):
+    "<scope> harness_commit=<sha>"
+    for each entry in harness_commits: frontmatter field, sorted alphabetically
+    by scope.  OMITTED when harness_commits: is absent or blank — so a plan
+    without harness_commits: re-derives the SAME hash as before the extension.
+    Format: harness_commits: [main1=<sha>, main2=<sha>] or [shared=<sha>].
+
+  When Block 2 is EMPTY and Block 3 is EMPTY:
     canonical = covers_block           (BYTE-IDENTICAL to pre-extension SR-PLAN-1)
 
-  When the retries block is NON-EMPTY:
+  When Block 2 is NON-EMPTY, Block 3 is EMPTY:
     canonical = covers_block + "\\n" + RETRIES_SENTINEL + "\\n" + retries_block
 
-  This preserves back-compat: existing plans with no explicit max_retries
-  ceilings re-derive the SAME hash as before — no forced re-freeze.
+  When Block 3 is NON-EMPTY (Block 2 may be empty or non-empty):
+    canonical = <covers+retries> + "\\n" + HARNESS_SENTINEL + "\\n" + harness_block
+
+  store_freeze_hash stores BOTH covers_hash (full: blocks 1+2+3) AND
+  covers_retries_hash (harness-excluded baseline: blocks 1+2 only).
+  verify_freeze_hash uses covers_retries_hash to distinguish a harness-commit
+  swap (kind: "harness-commit drift") from a covers:/retries edit.
 
   "Missing" means the child note could not be read — the sentinel value
   MISSING_SENTINEL is used so a missing note is auditable but does not crash
@@ -87,6 +99,11 @@ MISSING_SENTINEL = "MISSING"
 # canonical hash input.  Low-collision: node ids are constrained identifiers
 # (no spaces, no "="); this string cannot appear in a valid covers-block line.
 RETRIES_SENTINEL = "---max_retries---"
+
+# Sentinel line separating the retries block from the harness block (SR-HARNESS-P2).
+# Added as a third canonical block; absent when no harness_commits: field is set.
+# Low-collision for the same reason as RETRIES_SENTINEL.
+HARNESS_SENTINEL = "---harness_commit---"
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +196,57 @@ def _build_retries_block(manifest_nodes: list[dict[str, Any]]) -> str:
     return "\n".join(retries_lines)
 
 
+def _parse_harness_commits(fields: dict[str, str]) -> list[str]:
+    """Parse the harness_commits frontmatter field into a list of 'scope=sha' strings.
+
+    Parses flat inline list ``harness_commits: [main1=<sha>, main2=<sha>]``
+    (or ``[shared=<sha>]``).  Reuses ``_parse_covers_list`` for the bracket/
+    comma split; each item must contain ``=`` to split into ``<scope>=<sha>``.
+
+    Malformed items (no ``=``) are included as MISSING-style sentinel entries
+    of the form ``"MISSING=<original-item>"`` — auditable but never crashing.
+
+    Returns an empty list when the field is absent or blank.
+    """
+    raw = fields.get("harness_commits", "").strip()
+    if not raw:
+        return []
+    items = _parse_covers_list(raw)
+    result: list[str] = []
+    for item in items:
+        if "=" in item:
+            result.append(item)
+        else:
+            # Malformed: include as sentinel so the block is non-empty
+            # (auditable) but clearly signals the problem.
+            result.append(f"MISSING={item}")
+    return result
+
+
+def _build_harness_block(commits: list[str]) -> str:
+    """Build the sorted harness block from a list of 'scope=sha' strings.
+
+    Returns a newline-joined string of ``"<scope> harness_commit=<sha>"``
+    lines, sorted by scope, for determinism.  Returns an empty string when
+    ``commits`` is empty.
+
+    Input entries must be ``"<scope>=<sha>"`` pairs (as returned by
+    ``_parse_harness_commits``).  Malformed entries (no ``=``) are written
+    as ``"MISSING harness_commit=<item>"``.
+    """
+    if not commits:
+        return ""
+    lines: list[str] = []
+    for item in commits:
+        if "=" in item:
+            scope, sha = item.split("=", 1)
+            lines.append(f"{scope} harness_commit={sha}")
+        else:
+            lines.append(f"MISSING harness_commit={item}")
+    lines.sort()
+    return "\n".join(lines)
+
+
 def _load_manifest_nodes(manifest_path: str) -> list[dict[str, Any]] | None:
     """Load the 'nodes' list from a manifest JSON file.
 
@@ -194,6 +262,79 @@ def _load_manifest_nodes(manifest_path: str) -> list[dict[str, Any]] | None:
         return None
     except (OSError, json.JSONDecodeError, AttributeError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Internal canonical builder (shared by compute_covers_hash + store_freeze_hash)
+# ---------------------------------------------------------------------------
+
+def _build_covers_canonical(
+    plan_note_path: Path,
+    notes_root: Path | None,
+    manifest_nodes: list[dict[str, Any]] | None,
+    *,
+    include_harness: bool = True,
+) -> str | None:
+    """Build the canonical hash-input string for the covers:-freeze-set.
+
+    Returns ``None`` if the plan note cannot be read (unreadable/absent).
+
+    When ``include_harness=False`` the harness block is omitted regardless of
+    whether ``harness_commits:`` is present in the plan frontmatter.  This
+    is the harness-EXCLUDED path used to compute ``covers_retries_hash``.
+
+    Block structure (SR-HARNESS-P2):
+      Block 1 — covers block (always present):
+        "<child_id> stance=... plan_role=..." sorted by child_id
+
+      Block 2 — retries block (omit-defaults; absent when all defaults):
+        RETRIES_SENTINEL + "\\n" + "<node_id> max_retries=<N>" sorted by node_id
+
+      Block 3 — harness block (absent when no harness_commits: field or
+                               when include_harness=False):
+        HARNESS_SENTINEL + "\\n" + "<scope> harness_commit=<sha>" sorted by scope
+
+    Back-compat guarantee: when Block 2 and Block 3 are both absent (either
+    naturally or by setting include_harness=False with no retries), the
+    returned string is the covers block only — BYTE-IDENTICAL to the
+    pre-SR-PLAN-FREEZE-RETRY / pre-SR-HARNESS-P2 canonical.
+    """
+    p = Path(plan_note_path)
+    try:
+        text = p.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    fields = _parse_frontmatter_flat(text)
+    covers_str = fields.get("covers", "")
+    child_ids = sorted(_parse_covers_list(covers_str))
+
+    lines: list[str] = []
+    for child_id in child_ids:
+        stance, plan_role = _read_child_fields(child_id, notes_root)
+        lines.append(f"{child_id} stance={stance} plan_role={plan_role}")
+
+    covers_canonical = "\n".join(lines)
+
+    # Block 2 — retries (SR-PLAN-FREEZE-RETRY)
+    if manifest_nodes is not None:
+        retries_block = _build_retries_block(manifest_nodes)
+    else:
+        retries_block = ""
+
+    if retries_block:
+        canonical = covers_canonical + "\n" + RETRIES_SENTINEL + "\n" + retries_block
+    else:
+        canonical = covers_canonical  # byte-identical to pre-extension
+
+    # Block 3 — harness (SR-HARNESS-P2); omitted when include_harness=False
+    if include_harness:
+        harness_commits = _parse_harness_commits(fields)
+        harness_block = _build_harness_block(harness_commits)
+        if harness_block:
+            canonical = canonical + "\n" + HARNESS_SENTINEL + "\n" + harness_block
+
+    return canonical
 
 
 # ---------------------------------------------------------------------------
@@ -216,9 +357,14 @@ def compute_covers_hash(
       "<node_id> max_retries=<N>" for each node where N > 0 (omit-defaults).
       Empty when manifest_nodes is None or all nodes are at default (0/absent).
 
-    When the retries block is empty, the canonical string is covers_block only
-    (BYTE-IDENTICAL to the pre-extension SR-PLAN-1 hash — back-compat guarantee).
-    When non-empty: covers_block + "\\n" + RETRIES_SENTINEL + "\\n" + retries_block.
+    Block 3 — harness block (SR-HARNESS-P2; sorted by scope):
+      "<scope> harness_commit=<sha>" for each entry in harness_commits:.
+      Empty when harness_commits: field is absent or blank in the plan note.
+
+    When Blocks 2 and 3 are both empty, the canonical string is the covers
+    block only — BYTE-IDENTICAL to the pre-extension SR-PLAN-1 hash.
+    Back-compat guarantee: a plan without harness_commits: re-derives the
+    SAME hash regardless of whether the retries block is populated.
 
     Args:
         plan_note_path: path to the plan master note (plan_kind: preregistration).
@@ -231,35 +377,12 @@ def compute_covers_hash(
     Returns:
         64-character lowercase hex SHA-256 string.
     """
-    p = Path(plan_note_path)
-    try:
-        text = p.read_text(encoding="utf-8")
-    except OSError:
-        # Return a deterministic hash of an empty covers set to avoid crashing.
+    canonical = _build_covers_canonical(
+        plan_note_path, notes_root, manifest_nodes, include_harness=True
+    )
+    if canonical is None:
+        # Plan note unreadable — return deterministic hash without crashing.
         return hashlib.sha256(b"<unreadable-plan-note>").hexdigest()
-
-    fields = _parse_frontmatter_flat(text)
-    covers_str = fields.get("covers", "")
-    child_ids = sorted(_parse_covers_list(covers_str))
-
-    lines: list[str] = []
-    for child_id in child_ids:
-        stance, plan_role = _read_child_fields(child_id, notes_root)
-        lines.append(f"{child_id} stance={stance} plan_role={plan_role}")
-
-    covers_canonical = "\n".join(lines)
-
-    # SR-PLAN-FREEZE-RETRY: append retries block when non-empty.
-    if manifest_nodes is not None:
-        retries_block = _build_retries_block(manifest_nodes)
-    else:
-        retries_block = ""
-
-    if retries_block:
-        canonical = covers_canonical + "\n" + RETRIES_SENTINEL + "\n" + retries_block
-    else:
-        canonical = covers_canonical  # byte-identical to pre-extension
-
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -277,11 +400,18 @@ def store_freeze_hash(
 
     Stores in run_state.meta["plan_freeze"]:
       {
-        "covers_hash": "<sha256-hex>",   — covers + retries block hash
+        "covers_hash":         "<sha256-hex>",  — covers + retries + harness block
+        "covers_retries_hash": "<sha256-hex>",  — covers + retries only (harness-EXCLUDED
+                                                   baseline; equals covers_hash when no
+                                                   harness_commits: field is present)
         "plan_note":   "<abs-path-str>",
         "notes_root":  "<abs-path-str>", — resolution input (caller-invariant pin)
         "frozen_at":   <unix-timestamp>,
       }
+
+    ``covers_retries_hash`` is the plan-time baseline hash (excludes the harness
+    block) and is used by ``verify_freeze_hash`` to distinguish a harness-commit
+    swap (only the harness block changed) from a covers:-set or retry-ceiling edit.
 
     The notes_root is stored as an absolute path so verify_freeze_hash can
     re-derive with the SAME resolution inputs regardless of caller/cwd.
@@ -294,13 +424,29 @@ def store_freeze_hash(
     """
     run_state = run_store.load(run_id)
     manifest_nodes = _load_manifest_nodes(run_state.manifest_path)
+
+    # Full hash (covers + retries + harness if present)
     covers_hash = compute_covers_hash(
         plan_note_path,
         notes_root=notes_root,
         manifest_nodes=manifest_nodes,
     )
+
+    # Harness-EXCLUDED hash (covers + retries only — the plan-time baseline)
+    canon_no_harness = _build_covers_canonical(
+        plan_note_path,
+        notes_root=notes_root,
+        manifest_nodes=manifest_nodes,
+        include_harness=False,
+    )
+    if canon_no_harness is None:
+        covers_retries_hash = hashlib.sha256(b"<unreadable-plan-note>").hexdigest()
+    else:
+        covers_retries_hash = hashlib.sha256(canon_no_harness.encode("utf-8")).hexdigest()
+
     run_state.meta["plan_freeze"] = {
         "covers_hash": covers_hash,
+        "covers_retries_hash": covers_retries_hash,
         "plan_note": str(Path(plan_note_path).resolve()),
         "notes_root": str(Path(notes_root).resolve()) if notes_root is not None else None,
         "frozen_at": time.time(),
@@ -420,16 +566,48 @@ def verify_freeze_hash(
     if current_hash == stored_hash:
         return True, None
 
-    # Hash mismatch — determine whether it's a covers drift or a retry-ceiling
-    # drift (or both), so the message names what changed.
+    frozen_at = plan_freeze.get("frozen_at", "?")
+
+    # --- SR-HARNESS-P2: harness-commit drift check ---
+    # When covers_retries_hash is stored (new format), we can distinguish a
+    # post-approval harness-SHA swap (only Block 3 changed) from a covers:/
+    # retries edit (Blocks 1/2 changed).  Legacy plan_freeze records without
+    # covers_retries_hash fall through to the existing covers/retries analysis.
+    stored_retries_hash = plan_freeze.get("covers_retries_hash")
+    if stored_retries_hash is not None:
+        canon_no_harness = _build_covers_canonical(
+            plan_note_path,
+            notes_root=effective_notes_root,
+            manifest_nodes=manifest_nodes,
+            include_harness=False,
+        )
+        if canon_no_harness is not None:
+            current_retries_hash = hashlib.sha256(
+                canon_no_harness.encode("utf-8")
+            ).hexdigest()
+            if current_retries_hash == stored_retries_hash:
+                # Covers + retries match the baseline; harness block alone changed.
+                return False, (
+                    f"K-3 freeze mismatch (harness-commit drift) for run "
+                    f"{run_id!r}: covers:/retries match the pre-registration "
+                    f"baseline but harness_commits: was changed after "
+                    f"human-go-plan approval. "
+                    f"stored hash {stored_hash[:16]}… ≠ "
+                    f"current hash {current_hash[:16]}… "
+                    f"(frozen at {frozen_at}). "
+                    f"A post-approval harness SHA swap is a pre-registration "
+                    f"integrity violation — issue a new pre-registration rather "
+                    f"than re-approving."
+                )
+
+    # --- Existing covers/retries drift analysis ---
+    # Determine whether it's a covers drift or a retry-ceiling drift (or both).
     covers_only_stored = plan_freeze.get("covers_hash", "")
     covers_only_current = compute_covers_hash(
         plan_note_path,
         notes_root=effective_notes_root,  # use stored pin, not caller's arg (diagnosis consistency)
         manifest_nodes=None,  # covers-only (pre-extension path)
     )
-
-    frozen_at = plan_freeze.get("frozen_at", "?")
 
     # Check if the covers block itself changed vs a retry-only drift.
     # We recompute stored covers-only hash by re-hashing with manifest_nodes=None
