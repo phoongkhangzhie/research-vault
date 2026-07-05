@@ -1,3 +1,23 @@
+## 2026-07-04 (SR-RM-FIGMS: remove figure + manuscript loops)
+
+### Done
+- S0–S6 complete; PR #94 open (human-go class — Argus review + Wren fit check required before merge).
+- Deleted `figure.py`, `figures/`, `manuscript/` modules; removed both verbs from CLI registry/help map.
+- DAG LOOP_CATALOG 4→2 (experiment + lit-review); `produces.figure`/`.manuscript` removed from schema.
+- OKF_TYPES 10→8 (removed "figures", "manuscript"); `pyproject.toml` `[figures]` extra deleted.
+- Doctrine: `figure-minimalism.md` deleted; `roles/designer.md` narrowed (kept — owns SR-10 OSS site/identity); `honesty-gates.md` harvested before deletion (S0).
+- Removed `absent_row` gap detector (was bound to deleted manuscript support-matcher); removed `--run-state`/`matcher_meta` from `cmd_gap_scan` signature.
+- 13 dedicated test suites deleted; 8 shared suites edited; 1640 tests pass.
+- `rv lint` PASS; `_check_verb_docstrings` + `_check_example_snippets` both return `[]`.
+
+### Decisions
+- `data/doctrine/review-board.md` kept — general adversarial-critique board, not manuscript-specific.
+- `absent_row` gap type removed cleanly (had no callers outside the deleted manuscript module).
+- Tests 4b/4c/4i in gap_close rewrote to use contradictory re-fire (not absent_row) — they test general reopened behavior, not absent_row specifically.
+
+### Open / next
+- PR #94 awaits Argus review + Wren fit check (human-go class).
+
 ## 2026-07-04 (fix/instance-resolution: F1/F2 footgun fix)
 
 ### Done
