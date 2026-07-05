@@ -34,6 +34,7 @@ from __future__ import annotations
 import atexit
 import os
 import sys
+import time
 from typing import Any
 
 from .observability import (
@@ -46,6 +47,17 @@ from .observability import (
 
 class ObservabilityError(RuntimeError):
     """Raised when a required observability guarantee is violated (require=True)."""
+
+
+# How long ``flush`` waits (bounded) for litellm's threaded/async success callbacks
+# to fire before reading the emission counter. litellm dispatches the success
+# callback on a background ``ThreadPoolExecutor`` (and, for providers whose sync SDK
+# call rides an async HTTP path, via the async success handler) — so the counter LAGS
+# the synchronous return of ``complete()`` by up to a few seconds. Observed lag under
+# a weave-wrapped call: ~3s. 15s is a safe upper bound; ``flush`` returns the instant
+# the counter catches up, so the common path is fast.
+_FLUSH_TIMEOUT_S = 15.0
+_FLUSH_POLL_S = 0.02
 
 
 # Provider (and weave/Plane-B auth) secret-name → env-var. The SecretStore resolves
@@ -167,6 +179,30 @@ class ModelClient:
 
     # --- reliability ---
 
+    def flush(self, timeout_s: float = _FLUSH_TIMEOUT_S) -> None:
+        """Wait (bounded) for litellm's threaded/async success callbacks to fire.
+
+        litellm does NOT run success callbacks on the calling thread: the sync
+        ``success_handler`` is submitted to a background ``ThreadPoolExecutor`` and,
+        for providers whose sync SDK call rides an async HTTP path, the async
+        ``async_success_handler`` fires on an event loop. So the emission counter
+        LAGS the synchronous return of ``complete()`` — reading ``stats`` (for the
+        Plane-B ``run.summary``) or judging it (``assert_observed``) immediately
+        after a call sees ZERO events even though the seam is healthy. This was the
+        root cause of both the weave-backend false ``ObservabilityError`` and the
+        Plane-B ``run.summary["calls"] == 0`` defect.
+
+        Poll until the counter catches up to the number of completions, bounded by
+        ``timeout_s``. One completion == one DE-DUPED event, so the target is
+        ``events >= completions``; the loop is a no-op when nothing is pending
+        (``completions == 0``) or already caught up. A genuinely un-observed call
+        (callback never fires) waits the full bound, then ``assert_observed`` reports
+        the failure — the correct loud direction (charter §2).
+        """
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        while self._stats.events < self._completions and time.monotonic() < deadline:
+            time.sleep(_FLUSH_POLL_S)
+
     def assert_observed(self) -> None:
         """Surface a silently-broken seam. Idempotent.
 
@@ -186,6 +222,9 @@ class ModelClient:
         """
         if self._asserted:
             return
+        # Wait for litellm's threaded/async callbacks to land BEFORE judging — else
+        # a healthy seam false-reports 0 events (the weave-backend defect).
+        self.flush()
         self._asserted = True
         backend_name = getattr(self._observability, "name", "none")
         if backend_name != "none" and self._completions > 0 and self._stats.events == 0:
