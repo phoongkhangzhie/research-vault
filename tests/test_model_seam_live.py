@@ -58,12 +58,21 @@ def _live_cfg(tmp_path: Path, observability: dict) -> "object":
 
 @pytest.fixture(autouse=True)
 def _clean_litellm_callbacks():
-    """Reset litellm callbacks around each live test."""
+    """Reset litellm callbacks AND completion around each live test.
+
+    ``weave.init()`` patches ``litellm.completion`` globally via its
+    ``SymbolPatcher`` and never un-patches it — so every test that runs AFTER
+    the weave-arming test in the same process would receive the patched version
+    and record zero events.  Saving and restoring ``litellm.completion`` here
+    contains that global mutation to the test that triggered it.
+    """
     import litellm
-    saved = list(getattr(litellm, "callbacks", []) or [])
+    saved_callbacks = list(getattr(litellm, "callbacks", []) or [])
+    saved_completion = litellm.completion
     litellm.callbacks = []
     yield
-    litellm.callbacks = saved
+    litellm.callbacks = saved_callbacks
+    litellm.completion = saved_completion
 
 
 # ---------------------------------------------------------------------------

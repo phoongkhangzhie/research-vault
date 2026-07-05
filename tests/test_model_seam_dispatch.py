@@ -37,8 +37,13 @@ from pathlib import Path
 
 import pytest
 
+import litellm as _litellm_mod  # module-level capture BEFORE any test can patch it
+
 from research_vault.adapters.model_client import ModelClient, ObservabilityError
 from research_vault.config import Config
+
+# Captured once at import time — used by the isolation-proof tests below.
+_ORIGINAL_LITELLM_COMPLETION = _litellm_mod.completion
 
 
 # ---------------------------------------------------------------------------
@@ -189,9 +194,18 @@ def _cfg(tmp_path: Path, observability: dict | None = None) -> Config:
 
 @pytest.fixture(autouse=True)
 def _clean_litellm_callbacks(monkeypatch):
+    """Reset litellm callbacks AND explicitly save/restore litellm.completion.
+
+    Individual dispatch tests use ``monkeypatch.setattr(litellm, "completion", fake)``
+    which auto-restores.  We ALSO save/restore here explicitly so the hermetic
+    isolation-proof tests below can use direct mutation (simulating weave's
+    ``SymbolPatcher``) and still be contained within a single test.
+    """
     import litellm
     monkeypatch.setattr(litellm, "callbacks", [], raising=False)
+    _saved_completion = litellm.completion
     yield
+    litellm.completion = _saved_completion
 
 
 # ---------------------------------------------------------------------------
@@ -391,3 +405,59 @@ def test_plane_b_summary_carries_real_calls_via_dispatch(tmp_path, monkeypatch):
     )
     assert summary["total_tokens"] == 18  # 11 + 7, counted once
     assert summary["demo_accuracy"] == 0.99  # analysis metric still merged
+
+
+# ---------------------------------------------------------------------------
+# Isolation proof — hermetic, no keys, no live mark
+# ---------------------------------------------------------------------------
+#
+# Demonstrates that the ``_clean_litellm_callbacks`` autouse fixture contains
+# DIRECT (non-monkeypatch) mutations to ``litellm.completion``.
+#
+# Background: ``weave.init()`` patches ``litellm.completion`` via its own
+# ``SymbolPatcher`` mechanism — NOT via pytest's monkeypatch — and never
+# un-patches it.  If the fixture only reset ``litellm.callbacks``, the weave
+# test would poison every subsequent test in the same process.
+#
+# Test 1 (below) simulates weave's direct patch: it replaces
+# ``litellm.completion`` with a sentinel WITHOUT using monkeypatch.  The
+# autouse fixture saves the original BEFORE the test body runs and restores it
+# in teardown.
+#
+# Test 2 (immediately after) verifies that after Test 1's teardown,
+# ``litellm.completion`` is the original module-level object again.
+# Tests in the same file run in definition order, so this ordering is stable.
+
+def test_direct_litellm_completion_patch_is_contained_by_fixture():
+    """Simulate weave's SymbolPatcher (direct mutation, not monkeypatch).
+
+    The autouse ``_clean_litellm_callbacks`` fixture saves ``litellm.completion``
+    before this test body runs and will restore it in teardown.  The assertion
+    here just confirms the patch is LIVE during the test — the isolation is
+    proved by the next test, which runs after this test's teardown.
+    """
+    import litellm
+
+    _sentinel = lambda *a, **k: None  # noqa: E731
+    # Direct mutation — exactly as weave's SymbolPatcher does it.
+    litellm.completion = _sentinel
+    assert litellm.completion is _sentinel, (
+        "direct mutation to litellm.completion did not take effect"
+    )
+    # Fixture teardown restores litellm.completion = _saved_completion (the original).
+
+
+def test_litellm_completion_is_original_after_direct_patch_teardown():
+    """After a test that directly patched litellm.completion, it must be restored.
+
+    If ``_clean_litellm_callbacks`` does NOT save/restore ``litellm.completion``,
+    this test will see the sentinel lambda from the prior test and FAIL — the exact
+    failure mode that caused the live-suite cross-test poisoning.
+    """
+    import litellm
+
+    assert litellm.completion is _ORIGINAL_LITELLM_COMPLETION, (
+        "litellm.completion was not restored after a direct-mutation test; "
+        "the _clean_litellm_callbacks fixture must save+restore litellm.completion, "
+        "not just litellm.callbacks. (This is the weave-patch isolation regression.)"
+    )
