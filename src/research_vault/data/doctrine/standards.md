@@ -142,6 +142,30 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   Grounded in SR-XP: the cross-project read shipped in the same increment as the primitive, with no
   stated decision gate and no provenance seam; consumers appeared immediately in the subsequent SR.
 
+## SR acceptance gates
+
+### Removal-class SRs
+
+A removal-class SR (deleting a role, verb, module, or public-facing surface) is **not done** until
+its acceptance gate includes:
+
+> *A residual-reference grep returns only intentional provenance (history, explicit attribution) —
+> no stale docstrings, comments, or prose in shipped surfaces that still describe the removed
+> thing as present.*
+
+The gate has two steps:
+
+1. **Grep the shipped surfaces** — `git grep -rn "<removed_name>" src/ data/ *.md control/` after
+   the deletion.  Every hit must be intentional (e.g., a DEVLOG entry, a historical note, or an
+   explicit "was removed in SR-X" sentence).  A hit in an active docstring or a shipped doc that
+   describes the removed thing as current is a **blocker**.
+2. **Doctrine link-integrity (rule 8)** — `rv lint` must report "Doctrine link-integrity (rule 8): OK"
+   (zero dangling cross-references).
+
+Rule 8 (`rv lint`) is *necessary but not sufficient*: it catches broken hyperlinks, not prose
+mentions.  The full residual-reference grep is the acceptance gate.  (Grounded in SR-RM-FIGMS:
+after rule 8 passed, six prose mentions of the removed role survived in shipped surfaces.)
+
 ## How it's enforced
 
 - **Continuous & deterministic** — `rv lint` runs cheap structural checks at the end of sync:
