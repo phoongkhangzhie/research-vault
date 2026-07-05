@@ -159,21 +159,43 @@ class TestComputeInit:
         assert "backends" in data  # proper scaffold
 
     def test_init_no_secret_literals(self, cfg: Config) -> None:
-        """Scaffold manifest must contain no key/password/token literals.
+        """Scaffold manifest must contain no credential VALUES.
 
-        Leakage gate: the manifest is publish-adjacent; credentials must NOT
-        appear in it. Only FILL placeholders for the user-supplied address bits.
+        Leakage gate: the manifest is publish-adjacent; credential values must
+        NOT appear in it. Only FILL placeholders for the user-supplied address
+        bits — and, since feat/secrets-forward, forwarded env-var NAMES.
+
+        Names-not-values: ``secrets_forward`` legitimately holds env-var NAMES
+        (e.g. ``WANDB_API_KEY``) — a name is not a credential (that is the whole
+        security model). Those validated names are excised before the value scan
+        so the gate still catches real secrets (``sk-ant-…``, ``KEY=value``
+        assignments) everywhere else in the manifest.
         """
+        import json as _json
+        import re as _re
+        from research_vault.adapters.secret_forward import validate_secret_name
         from research_vault.compute import cmd_init, _manifest_path
         cmd_init(cfg)
         content = _manifest_path(cfg).read_text(encoding="utf-8")
-        # Common secret patterns that must NOT appear
-        forbidden = ["api_key", "password", "token", "ANTHROPIC_API_KEY",
-                     "WANDB_API_KEY", "sk-ant-", "wandbapikey"]
+
+        # Excise validated secrets_forward NAMES (names-not-values) before scan.
+        data = _json.loads(content)
+        scan = content
+        for prof in data.get("backends", {}).get("profiles", {}).values():
+            for name in prof.get("secrets_forward", []) or []:
+                validate_secret_name(name)  # every seed must be a bare env-var name
+                scan = scan.replace(_json.dumps(name), '""')
+
+        # Credential VALUE patterns that must NOT appear anywhere else.
+        forbidden = ["password", "sk-ant-", "wandbapikey"]
         for pattern in forbidden:
-            assert pattern.lower() not in content.lower(), (
+            assert pattern.lower() not in scan.lower(), (
                 f"Secret pattern {pattern!r} found in scaffold manifest — leakage violation"
             )
+        # No literal NAME=value credential assignment anywhere (the leak shape).
+        assert not _re.search(r"[A-Z_]*(?:API_KEY|TOKEN|PASSWORD)[A-Z_]*\s*=\s*\S", scan), (
+            "a NAME=value credential assignment leaked into the scaffold manifest"
+        )
 
     def test_init_detects_sbatch_locally(self, cfg: Config) -> None:
         """When sbatch is found locally, compute-node profile uses ssh+slurm archetype."""

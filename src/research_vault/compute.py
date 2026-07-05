@@ -201,6 +201,17 @@ def _scaffold_manifest(*, has_scheduler: str | None = None) -> dict[str, Any]:
                     ),
                     # Built-in defaults (jobid_parse/status_cmd/status_parse/state_map)
                     # auto-apply from remote.py — omit unless overriding
+                    #
+                    # secrets_forward: OPTIONAL env-var NAMES (never values) to
+                    # forward to the remote job env command-line-clean — staged
+                    # via ssh STDIN → a mode-600 remote file that is sourced then
+                    # deleted; the value never touches any argv (not --export, not
+                    # ps/scontrol). For W&B logging FROM the compute node, keep
+                    # WANDB_API_KEY below. Values resolve from your local env /
+                    # keyring at submit time — never stored in this manifest.
+                    # Set to [] to disable. See also: secrets_scratch (remote dir,
+                    # default "$HOME/.rv-secrets") and secrets_ttl_minutes (720).
+                    "secrets_forward": ["WANDB_API_KEY"],
                 },
                 # === OPTIONAL: data-transfer node (DTN) — same filesystem as compute-node ===
                 # A DTN is archetype: ssh (plain ssh — no scheduler); use it for big downloads
@@ -405,6 +416,10 @@ def cmd_show(cfg: Config) -> int:
             extra.append(f"container={c.get('runtime','?')}:{c.get('image','?')}")
         if prof.get("native_env"):
             extra.append("native_env=true")
+        sf = prof.get("secrets_forward")
+        if sf:
+            # NAMES only — never the value (which is never stored here anyway).
+            extra.append(f"forwards={','.join(sf)}")
         suffix = f"  ({', '.join(extra)})" if extra else ""
         lines.append(f"  {name}: archetype={archetype}{suffix}")
         wtu = prof.get("when_to_use", "")
