@@ -1,3 +1,44 @@
+## 2026-07-04 (SR-FIND-RERANK: over-fetch + rerank for rv research find)
+
+### Done
+- Slice 1: `cmd_find` over-fetch + rerank. Added `--pool 50` (over-fetch size),
+  `--rerank/--no-rerank` (default on), `--min-score 0.0` (reorder-not-drop) flags.
+  Non-deep path now fetches `--pool` candidates from asta, builds `body = title + "\n" + abstract`
+  for each paper, calls `rank_candidates(query, pool, min_score, top_k=limit)` in-place
+  (import inside cmd_find — no new cycle; the `research→cross_project` edge already exists at
+  research.py:560). `--no-rerank` reproduces pre-SR output byte-for-byte (fetches `--limit`,
+  no reranking). `--deep` path unchanged in v1.
+- Slice 2 investigation: `asta papers search` exposes `--fields`, `--limit`, `--date` — NO
+  field-of-study or venue filter. Appending scope terms to the query would degrade S2 relevance.
+  Slice 2 is a no-op with rationale; no `--field` passthrough added. Finding recorded in test
+  `TestSlice2NoOp::test_find_parser_has_no_field_passthrough`.
+- Slice 3: Recall fixture captured. Query: "LLM cultural values alignment cross-cultural benchmark",
+  50-paper pool saved at `tests/fixtures/find_rerank_llm_cultural_values.json`. Known anchors
+  buried at asta positions 28, 30, 38; all 3 surface into reranked top-10. 22 tests pass.
+- Slice 4: Help text + module docstring updated. Pool, rerank, min-score documented in the `find`
+  subparser help. `rv help --check` PASS; `rv lint` PASS; leakage-clean.
+- Full test suite: 1983 tests pass.
+
+### Decisions
+- D1: In-place import `from .cross_project import rank_candidates` inside `cmd_find` (not at
+  module top). The import edge already exists (research.py:560 has `from .cross_project import
+  corroborate_across_projects`); in-place avoids any perception of a new cycle.
+- D2: `--min-score 0.0` = reorder-not-drop. Truncation to `--limit` is the noise filter.
+  Raising the threshold to e.g. 0.1 would silently drop papers from the result set; 0.0 is
+  the safe default.
+- D3: `--deep` path unchanged in v1. The `asta literature find` output format is opaque;
+  reranking would need a known schema. Future work.
+- D4: asta `--limit` cap is 100 (verified from `asta papers search --help`). `--pool 50`
+  default is well within the ceiling.
+- D5: Slice-2 no-op. asta provides no field-of-study filter; query mutation degrades S2 scoring;
+  the right long-term fix is a native asta addition, not a workaround.
+
+### Open / next
+- `--deep` + rerank (v2): requires asta literature find to return a stable JSON schema so
+  body strings can be built. Currently the deep path returns a variable structure (papers/
+  results/data key). Needs investigation before adding rerank.
+- Pool pagination: asta caps at 100 results per call. If `--pool > 100`, fetch is silently
+  capped. A future `--paginate` flag could batch multiple asta calls to achieve pools > 100.
 ## 2026-07-04 (F24: datasets-note discoverability)
 
 ### Done
