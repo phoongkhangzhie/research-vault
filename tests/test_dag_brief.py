@@ -20,6 +20,8 @@ Coverage:
   SSOT test:
   S1.  resolve_produces_paths: produces.note path matches cmd_complete's gate path.
   S2.  resolve_reads_paths: returns ABSOLUTE paths (no unresolved entries for existing files).
+  S3.  resolve_produces_paths: no inline _PRODUCES_KEY_TO_OKF_DIR subscript (typed-note
+       path assembly is encapsulated in _project_scoped_note_path — no re-duplication).
 
   experiment.py task:// purge:
   E1.  No node in scaffolded experiment manifest has spec starting with "task://".
@@ -715,6 +717,82 @@ class TestSSOT:
                             "resolve_reads_paths contains an inline scheme tuple "
                             "— violates _parse_pointer SSOT"
                         )
+
+    def test_resolve_produces_paths_no_inline_key_to_dir_subscript(self):
+        """PIN (S3): resolve_produces_paths must NOT inline _PRODUCES_KEY_TO_OKF_DIR[key].
+
+        The typed-note path assembly (project-slug split, type_dir lookup, path join) lives
+        in _project_scoped_note_path ONLY.  resolve_produces_paths must call that primitive
+        rather than re-implementing the lookup inline.
+
+        We verify by checking that the AST of resolve_produces_paths contains no Subscript
+        node whose value names _PRODUCES_KEY_TO_OKF_DIR.  The membership test
+        ``key in _PRODUCES_KEY_TO_OKF_DIR`` is an ast.Compare(op=In), not a Subscript, so
+        the routing check is permitted; only a direct lookup ``_PRODUCES_KEY_TO_OKF_DIR[key]``
+        (which implies the path assembly was inlined) is rejected.
+
+        MUTATION PROOF: if the _project_scoped_note_path call were replaced by an inline
+        ``type_dir = _PRODUCES_KEY_TO_OKF_DIR[key]; p = cfg.project_notes_dir(...) / type_dir
+        / ...``, this test would FAIL on the Subscript it introduces.
+        """
+        import inspect
+        import ast
+        from research_vault.dag import verbs as verbs_mod
+
+        # Positive check: the SSOT constant must exist
+        assert hasattr(verbs_mod, "_PRODUCES_KEY_TO_OKF_DIR"), (
+            "_PRODUCES_KEY_TO_OKF_DIR SSOT constant missing from dag.verbs"
+        )
+        assert isinstance(verbs_mod._PRODUCES_KEY_TO_OKF_DIR, dict)
+        assert "result" in verbs_mod._PRODUCES_KEY_TO_OKF_DIR, (
+            "'result' key absent from _PRODUCES_KEY_TO_OKF_DIR"
+        )
+
+        # Positive check: the shared primitive must exist
+        assert hasattr(verbs_mod, "_project_scoped_note_path"), (
+            "_project_scoped_note_path SSOT primitive missing from dag.verbs"
+        )
+
+        src = inspect.getsource(verbs_mod.resolve_produces_paths)
+        tree = ast.parse(src)
+
+        # Walk the AST and reject any Subscript on _PRODUCES_KEY_TO_OKF_DIR.
+        # Such a subscript means the function is doing its own key→dir lookup —
+        # the inline path assembly that should live only in _project_scoped_note_path.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Subscript):
+                val = node.value
+                name = None
+                if isinstance(val, ast.Name):
+                    name = val.id
+                elif isinstance(val, ast.Attribute):
+                    name = val.attr
+                if name == "_PRODUCES_KEY_TO_OKF_DIR":
+                    raise AssertionError(
+                        "resolve_produces_paths contains an inline "
+                        "_PRODUCES_KEY_TO_OKF_DIR[...] subscript — "
+                        "typed-note path assembly must go through "
+                        "_project_scoped_note_path (the SSOT primitive)"
+                    )
+
+        # Positive check: _project_scoped_note_path must actually be CALLED
+        # (not just imported or mentioned in a comment).
+        found_call = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                called = None
+                if isinstance(func, ast.Name):
+                    called = func.id
+                elif isinstance(func, ast.Attribute):
+                    called = func.attr
+                if called == "_project_scoped_note_path":
+                    found_call = True
+                    break
+        assert found_call, (
+            "resolve_produces_paths does not call _project_scoped_note_path — "
+            "SSOT primitive is declared but not used"
+        )
 
     def test_manifest_project_field_uses_manifest_source_dir(self, tmp_path: Path):
         """PIN: build_brief uses the manifest's 'project' field to resolve source_dir.

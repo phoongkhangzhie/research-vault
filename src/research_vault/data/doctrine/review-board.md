@@ -40,6 +40,21 @@ Each survivor, atomic:
 > **Why it survives.** What the refuters tried and failed to dismiss.
 > **Fix.** The concrete next action.
 
+## Harness PR checklist (mandatory — mock/live isolation and experiment-scoping)
+
+Any PR that introduces or modifies an experiment harness **must pass the checklist in
+[harness-contract.md](harness-contract.md) before it can merge.** The checklist covers:
+
+- **Mock/live resume isolation (§1)** — separate output directories, `run_mode`-keyed
+  resume records, loud abort when a `--live` run encounters a mock-tagged record.
+- **Experiment-scoping (§2)** — `run --exp <exp>` filters to only that experiment's arms;
+  suspiciously-complete sanity check halts before over-dispatching.
+
+These checklist items are **non-skippable**; a reviewer who sees a harness PR without the
+required isolation test returns **needs-work** regardless of other findings.
+
+---
+
 ## Proving a check has teeth (reviewer technique)
 
 A gate, scanner, or test PR must be shown to *add* teeth, not merely to be present — via **pre-image
@@ -56,6 +71,43 @@ replay**: run the check against the exact state it claims to catch.
   SHOW the failure. This converts "the test asserts X is accepted" into evidence that "the test CATCHES
   not-X being passed through." Without this, a conservatively-scoped gate looks correct while protecting
   nothing against the false signals it was designed to suppress.
+
+## Reviewer technique — call-graph verification (false-SSOT)
+
+For any PR that claims "function X is the SSOT used by A and B," **grep that both A and B
+literally call X** before trusting the claim.  A helper that is only called from one side, but
+whose docstring says "called from BOTH," is a **false SSOT** — the duplication is live and will
+diverge silently.  Never infer call-graph from docstrings; verify it from the actual code.
+
+```
+# Concrete verification move
+grep -n "_helper_name" src/module_a.py src/module_b.py
+```
+
+Both files must show a call-site, not just a comment or import.  If only one side calls it, the
+extraction is incomplete and the PR is **needs-work** regardless of how clean the new function is.
+(Grounded in PR #96: `resolve_produces_paths` docstring claimed SSOT parity with
+`_check_project_scoped_note`; the AST test in `test_dag_brief.py::TestSSOT` is the mechanized guard.)
+
+## Reviewer technique — PR-diff base (three-dot, not two-dot)
+
+When examining what a PR changes, always diff against the **merge base**, not the current tip of
+the target branch:
+
+```bash
+# Correct — three-dot: A...B diffs from the common ancestor of A and B
+git diff main...head
+# or
+gh pr view <pr> --json files
+
+# Wrong — two-dot: A..B diffs from the current tip of A, which may have moved
+git diff main..head   # false-flags deletions when main advanced past the branch point
+```
+
+A two-dot diff against a moved `main` false-flags files that were deleted on `main` after the
+branch was cut as "deleted by this PR."  This is a noisy distraction that can bury real findings.
+Always use `git diff <base>...<head>` (three dots) or `gh pr view --json files`.
+(Grounded in PR #94 review cycle.)
 
 ## The verdict header — gate-clean by construction
 
