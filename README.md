@@ -261,7 +261,7 @@ targets without a dedicated SDK.
 ### Prerequisites
 
 - **Python 3.12+**
-- **An agent runtime.** Claude Code (see *Adoption* below).
+- **An agent runtime.** Claude Code (see *Quick start* below).
 - **Model API keys** — via environment variables or your system keyring.
 - Run **`rv check`** to verify prerequisites and see the tier coverage matrix.
 
@@ -274,38 +274,29 @@ instructions. `rv check` reports full integration status including `asta`'s pres
 
 ## Quick start
 
+Research Vault runs on **Claude Code**.
+
 ```bash
+pip install research-vault
 rv init my-vault        # scaffold an instance: config, control bus, OKF note
 cd my-vault             #   dirs, doctrine, the crew, and two demo projects
 rv check                # preflight: verify prerequisites
 ```
 
-On **Claude Code**, `rv init` also writes a `CLAUDE.md` that boots your session
-as **Alfred** (the hub) and installs the crew as subagents — so the session
-becomes the coordinator you converse with, and the role hats become the specialists
-it dispatches. `rv init` ships two runnable demo projects (`demo-research`,
-`demo-litreview`) so the crew can walk a loop end-to-end before you point it at real
-work.
+On **Claude Code**, `rv init` scaffolds a `CLAUDE.md` and the crew under
+`.claude/agents/`, rendered with per-role tool grants and model aliases — so your
+session boots as **Alfred** (the hub), the coordinator you converse with, and the
+role hats become the subagents he dispatches. The human-only approval boundary
+holds mechanically: the approve-gate keys on an interactive TTY, which dispatched
+crew subagents never have.
 
-A real project is its own git repo; register it with `rv project add` (or stand
-up a fresh one with `rv project new`) after `rv init`.
-
----
-
-## Adoption
-
-Research Vault runs on **Claude Code**.
-
-```bash
-pip install research-vault
-rv init my-vault
-```
-
-`rv init` scaffolds `CLAUDE.md` and the crew under `.claude/agents/`, rendered
-with per-role tool grants and model aliases — so your Claude Code session boots
-as Alfred with the role hats installed as the subagents he dispatches.
-The human-only approval boundary holds mechanically: the approve-gate keys on an
-interactive TTY, which dispatched crew subagents never have.
+`rv init` also ships two runnable demo projects (`demo-research`,
+`demo-litreview`) so the crew can walk a loop end-to-end before you point it at
+real work, and writes a
+**[`QUICKSTART.md`](src/research_vault/data/templates/QUICKSTART.md)** into the
+vault — the full walkthrough, including compute onboarding and an example session
+with Alfred. A real project is its own git repo; register it with `rv project add`
+(or stand up a fresh one with `rv project new`).
 
 ---
 
