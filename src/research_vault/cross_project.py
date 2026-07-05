@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
+from .note import _parse_frontmatter as _pfm
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +86,38 @@ def _extract_anchor(text: str, match_start: int) -> str:
     # Fallback: line number
     line_num = text[:match_start].count("\n") + 1
     return f"line-{line_num}"
+
+
+def _first_heading(text: str) -> str:
+    """Return the first markdown heading in ``text``, else ``'line-1'``.
+
+    Used to produce a note-level anchor when there is no substring match
+    position (SR-XPB-FIX: substring pre-filter removed).
+    """
+    m = _HEADING_RE.search(text)
+    if m:
+        return m.group(2).strip()
+    return "line-1"
+
+
+def _note_excerpt(title: str, body: str) -> str:
+    """Return a short preview string for a note (up to 120 chars).
+
+    Priority order:
+      1. Frontmatter ``title`` (if non-empty).
+      2. First markdown heading in the body.
+      3. First non-empty, non-delimiter line in the body.
+    """
+    if title:
+        return title[:120]
+    m = _HEADING_RE.search(body)
+    if m:
+        return m.group(2).strip()[:120]
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("---"):
+            return stripped[:120]
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +255,9 @@ def corroborate_across_projects(
         project (str)      — slug of the project containing the match
         note_path (str)    — absolute path to the matching note
         note_rel (str)     — path relative to source_dir
-        body (str)         — full note body (used by the ranker)
-        excerpt (str)      — first matching line (up to 120 chars)
-        anchor (str)       — nearest preceding heading, or ``line-N`` fallback
+        body (str)         — title + parsed body (used by the ranker; no frontmatter noise)
+        excerpt (str)      — title, first heading, or first non-empty body line (preview)
+        anchor (str)       — first markdown heading in the note, or ``line-1`` fallback
         provenance (str)   — ``@slug:note_rel:anchor``
         score (float)      — relevance score (TF-IDF cosine or Jaccard)
         ranker (str)       — ``"tfidf"`` or ``"jaccard"``
@@ -237,8 +270,7 @@ def corroborate_across_projects(
             "Pass the originating project slug via --from <slug>."
         )
 
-    claim_lower = claim.lower()
-    if not claim_lower:
+    if not claim.strip():
         return []
 
     # Declared peers — the allowed universe
@@ -273,29 +305,26 @@ def corroborate_across_projects(
         if not source_dir.exists():
             continue
 
-        # Scan all .md files in the project's source directory
+        # Scan all .md files in the project's source directory.
+        # SR-XPB-FIX: no substring pre-filter — every note is a candidate.
+        # rank_candidates(min_score, top_k) does the filtering via TF-IDF.
         for note_path in sorted(source_dir.rglob("*.md")):
             try:
                 text = note_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
 
-            if claim_lower not in text.lower():
-                continue
+            # Parse frontmatter to get title and clean body for ranking.
+            # Ranking body = title + parsed body (strips YAML frontmatter noise).
+            fields, parsed_body = _pfm(text)
+            title = str(fields.get("title", "")).strip()
+            rank_body = (title + " " + parsed_body).strip() if title else parsed_body.strip()
 
-            # Find the first matching position for anchor extraction
-            text_lower = text.lower()
-            match_pos = text_lower.find(claim_lower)
+            # Excerpt: title, else first heading, else first meaningful line.
+            excerpt = _note_excerpt(title, parsed_body)
 
-            # Excerpt: first matching line (up to 120 chars)
-            excerpt = ""
-            for line in text.splitlines():
-                if claim_lower in line.lower():
-                    excerpt = line.strip()[:120]
-                    break
-
-            # Anchor: nearest preceding heading or line-N fallback
-            anchor = _extract_anchor(text, match_pos)
+            # Anchor: first markdown heading in the note, else line-1.
+            anchor = _first_heading(text)
 
             try:
                 note_rel = str(note_path.relative_to(source_dir))
@@ -306,7 +335,7 @@ def corroborate_across_projects(
                 "project": slug,
                 "note_path": str(note_path),
                 "note_rel": note_rel,
-                "body": text,
+                "body": rank_body,
                 "excerpt": excerpt,
                 "anchor": anchor,
                 "provenance": f"@{slug}:{note_rel}:{anchor}",

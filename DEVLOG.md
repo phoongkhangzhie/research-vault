@@ -1,3 +1,21 @@
+## 2026-07-04 (SR-XPB-FIX: remove substring pre-filter from corroborate — PR #108)
+
+### Done
+- Deleted substring pre-filter (`if claim_lower not in text.lower(): continue`) from
+  `corroborate_across_projects`; every `.md` note in declared peer projects is now a
+  candidate; `rank_candidates(min_score, top_k)` does all filtering.
+- Candidate `body` is now title + parsed body (via `_parse_frontmatter`) — not raw file
+  text — so TF-IDF is not polluted by YAML frontmatter keys.
+- Reworked excerpt (title > first heading > first non-empty body line) and anchor (first
+  heading in note, else line-1). Provenance format unchanged.
+- Added `test_paraphrase_claim_surfaces_relevant_note` with explicit red-before-green proof
+  (asserts claim is not a verbatim substring before calling corroborate). Gated on sklearn.
+- 2010 tests pass; rv lint OK; rv help --check OK; leakage clean.
+
+### Decisions
+- Kept `_extract_anchor(text, match_start)` as dead code (no callers after this change);
+  removing it is a separate cleanup to keep this diff reviewable.
+
 ## 2026-07-04 (SR-PKG-TRIM corrective: remove [providers]/[figures]/[all] extras — PR #107)
 
 ### Done
