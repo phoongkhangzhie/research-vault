@@ -387,3 +387,154 @@ def render_init_closing(target: str, offer_onboard: bool, console: Any = None) -
         "See [dim]QUICKSTART.md[/dim] for the full walkthrough."
     )
     make_panel(body, title="Done", kind="ok", console=console)
+
+
+# ---------------------------------------------------------------------------
+# S2 — quick wins (render from an existing dict / a closing panel)
+# ---------------------------------------------------------------------------
+
+def render_compute_explain(job: str, resolved: dict[str, Any], console: Any = None) -> None:
+    """Render ``rv compute explain <job>`` — the resolved env/tier/flags kv table.
+
+    Reads the same dict :func:`compute.cmd_explain` returns; mirrors the plain
+    :func:`compute._print_explain` selection (skip ``job`` + None values, nest
+    dict values one level).
+    """
+    con = console if console is not None else get_console()
+    make_header("rv compute explain", job, console=con)
+
+    from rich.markup import escape
+
+    pairs: list[tuple[str, Any]] = []
+    for key, val in resolved.items():
+        if key == "job" or val is None:
+            continue
+        if isinstance(val, dict):
+            if val:
+                pairs.append((f"{escape(str(key))}:", ""))
+                for k, v in val.items():
+                    pairs.append((f"  {escape(str(k))}", escape(str(v))))
+        else:
+            pairs.append((escape(str(key)), escape(str(val))))
+
+    if not pairs:
+        make_panel(
+            "[dim]No manifest entries found for this job — defaults apply.[/dim]",
+            title="Resolved",
+            kind="neutral",
+            console=con,
+        )
+        return
+    con.print(make_kv_table(pairs))
+
+
+def render_approval_status(state: dict[str, Any], console: Any = None) -> None:
+    """Render ``rv approval status`` — the gate-state panel.
+
+    Reads the dict :func:`dag.approval.approval_status_state` returns.  Enforce-on
+    is the safe state (ok border); enforce-off / env-warning tint the panel.
+    """
+    con = console if console is not None else get_console()
+    enforce = bool(state.get("enforce"))
+    token_present = bool(state.get("token_present"))
+
+    signal = _STYLE["ok"] if enforce else _STYLE["locked"]
+    tok_signal = _STYLE["ok"] if token_present else _STYLE["info"]
+    body = (
+        f"[{signal}]{state.get('enforce_label', '?')}[/]"
+        f"  ·  token=[{tok_signal}]{state.get('token_label', '?')}[/]"
+    )
+    kind = "ok" if enforce else "neutral"
+    if state.get("env_warning"):
+        body += (
+            f"\n\n[{_STYLE['fail']}]WARNING[/] — RV_APPROVER_TOKEN is set as a plain env var; "
+            "it may propagate into crew dispatch env.\n"
+            "Use [bold]rv approval setup --keyring[/bold] to store it in the keyring instead."
+        )
+        kind = "fail"
+    make_panel(body, title="Approval gate", kind=kind, console=con)
+
+
+def render_project_list(projects: list[dict[str, Any]], console: Any = None) -> None:
+    """Render ``rv project list`` — the registry table.
+
+    ``projects`` is a list of ``{slug, code, roster, source}`` dicts (built by
+    :func:`project.cmd_list` from the config registry).
+    """
+    con = console if console is not None else get_console()
+    make_header("rv project list", f"{len(projects)} project(s) registered", console=con)
+    columns = [
+        {"name": "Slug", "style": _STYLE["header"], "no_wrap": True},
+        {"name": "Code", "no_wrap": True},
+        {"name": "Roster"},
+        {"name": "Source", "style": _STYLE["muted"]},
+    ]
+    from rich.markup import escape
+
+    rows: list[tuple[Any, ...]] = []
+    for p in projects:
+        roster = p.get("roster", [])
+        roster_str = "[" + ", ".join(roster) + "]" if roster else "[]"
+        rows.append((
+            escape(str(p.get("slug", "?"))),
+            escape(str(p.get("code", "?"))),
+            escape(roster_str),
+            escape(str(p.get("source", ""))),
+        ))
+    con.print(make_status_table(columns, rows))
+
+
+def render_doctor(result: dict[str, Any], console: Any = None) -> None:
+    """Render ``rv doctor`` — the per-backend capability report.
+
+    Reuses :func:`doctor._backend_report_lines` (the SSOT for capability text) so
+    the rich surface never drifts from the plain report — each backend's lines go
+    into a kind-tinted panel.  Approval-gate + tier-proposal sections stay on the
+    plain print path in :func:`doctor.run` (they are supplementary).
+    """
+    from .doctor import _backend_report_lines, _backend_status_kind
+
+    con = console if console is not None else get_console()
+    from_cache = result.get("from_cache", False)
+    ts = result.get("ts", "?")
+    source = "from cache" if from_cache else "freshly probed"
+    subtitle = f"{ts} ({source})"
+    if result.get("_legacy"):
+        subtitle += " · legacy cache — run rv doctor --refresh"
+    make_header("rv doctor", subtitle, console=con)
+
+    backends = result.get("backends", {})
+    if not backends:
+        make_panel(
+            "[dim]No backends found in cache.[/dim]",
+            title="Capabilities",
+            kind="neutral",
+            console=con,
+        )
+        return
+
+    from rich.markup import escape
+
+    for backend_name, backend_entry in backends.items():
+        caps = backend_entry.get("capabilities", backend_entry)  # tolerate flat shape
+        lines = _backend_report_lines(backend_name, caps)
+        # Strip the leading two-space indent the plain formatter uses (panels indent).
+        # Escape the reused plain text — it may contain [brackets] that rich would
+        # otherwise parse as markup and silently drop.
+        body = escape("\n".join(line[2:] if line.startswith("  ") else line for line in lines))
+        make_panel(
+            body or "[dim](no detail)[/dim]",
+            title=escape(str(backend_name)),
+            kind=_backend_status_kind(caps),
+            console=con,
+        )
+
+
+def render_closing(body: str, title: str = "Done", kind: str = "ok", console: Any = None) -> None:
+    """Render a generic closing summary panel (S2 scaffold-summary surfaces).
+
+    A thin, named wrapper over :func:`make_panel` for the closing-panel-only
+    verbs (compute init, approval setup, project new/add) so their call sites
+    read intentionally and share one closing style.
+    """
+    make_panel(body, title=title, kind=kind, console=console)

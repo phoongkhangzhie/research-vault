@@ -298,6 +298,34 @@ def cmd_init(cfg: Config, *, force: bool = False) -> int:
     manifest = _scaffold_manifest(has_scheduler=detected_archetype)
     _save_manifest(cfg, manifest)
 
+    # Rich closing panel at a TTY; the full plain next-steps block otherwise.
+    from .richui import should_render_rich, render_closing
+    if should_render_rich():
+        try:
+            if detected_cli:
+                note = (
+                    f"[dim]'{detected_cli}' found locally — compute-node profile "
+                    f"pre-set to archetype={detected_archetype!r}.[/dim]"
+                )
+            else:
+                note = (
+                    "[dim]No scheduler CLI found locally — compute-node defaults to "
+                    "archetype='ssh+slurm' (change to 'ssh+pbs' for PBS clusters).[/dim]"
+                )
+            body = (
+                f"[bold]Compute manifest written:[/bold] {p}\n\n"
+                "Edit the FILL values (compute-node profile + results.wandb), then:\n"
+                "  1. [bold]rv doctor[/bold]         — discover capabilities per backend\n"
+                "  2. [bold]rv compute show[/bold]   — verify the merged declared+discovered recipe\n\n"
+                f"{note}\n"
+                "[dim]Credentials NEVER go in this file — SSH auth → ~/.ssh/config; "
+                "W&B key → keyring.[/dim]"
+            )
+            render_closing(body, title="rv compute init")
+            return 0
+        except Exception:
+            pass  # fall through to the plain next-steps block
+
     print(f"[OK] Compute manifest written: {p}")
     print()
     print("Next: edit the FILL values in the 'compute-node' profile + 'results.wandb' block:")
@@ -791,8 +819,15 @@ def run(args: argparse.Namespace) -> int:
         return cmd_show(cfg)
 
     if cmd == "explain":
-        resolved = cmd_explain(cfg, args.job)
-        _print_explain(args.job, resolved or {"job": args.job})
+        resolved = cmd_explain(cfg, args.job) or {"job": args.job}
+        from .richui import should_render_rich, render_compute_explain
+        if should_render_rich():
+            try:
+                render_compute_explain(args.job, resolved)
+                return 0
+            except Exception:
+                pass  # fall through to the plain path on any render hiccup
+        _print_explain(args.job, resolved)
         return 0
 
     if cmd == "lesson":

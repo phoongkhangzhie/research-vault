@@ -228,41 +228,57 @@ def check_human_presence(
 # Doctor / status surface (Slice 4)
 # ---------------------------------------------------------------------------
 
-def approval_status_lines(cfg: "Config", secrets: "SecretStore") -> list[str]:
-    """Return human-readable lines describing the current approval gate status.
+def approval_status_state(cfg: "Config", secrets: "SecretStore") -> dict[str, Any]:
+    """Return the structured approval-gate state (the SSOT for both surfaces).
 
-    Called by rv doctor to surface the gate state and warn on anti-leak risk.
+    Keys: ``enforce`` (bool), ``enforce_label`` (str), ``token_present`` (bool),
+    ``token_label`` (str), ``env_warning`` (bool — token set as a plain env var).
+    :func:`approval_status_lines` (plain) and ``richui.render_approval_status``
+    (rich) both build from this dict so they never drift.
     """
     approval_cfg: dict[str, Any] = cfg._raw.get("approval", {})
     enforce: bool = bool(approval_cfg.get("enforce", True))
     fingerprint: str = str(approval_cfg.get("token_fingerprint", "")).strip()
     enforce_sig: str = str(approval_cfg.get("enforce_sig", "")).strip()
 
-    lines: list[str] = []
-
-    # Token presence check (never print the token value itself).
     token_present = False
     try:
         secrets.get(_SECRET_NAME)
         token_present = True
     except KeyError:
         pass
-    token_label = "provisioned" if token_present else "absent"
 
-    # Enforce state label.
     if enforce:
         enforce_label = "enforce=on"
+    elif fingerprint and enforce_sig:
+        enforce_label = "enforce=off (signed)"
     else:
-        if fingerprint and enforce_sig:
-            enforce_label = "enforce=off (signed)"
-        else:
-            enforce_label = "enforce=off (unsigned — trust-me mode)"
+        enforce_label = "enforce=off (unsigned — trust-me mode)"
 
-    lines.append(f"  approval: {enforce_label} · token={token_label}")
+    env_warning = bool(os.environ.get("RV_APPROVER_TOKEN", "").strip())
 
-    # Anti-leak warning: is the token set as a plain env var?
-    raw_env = os.environ.get("RV_APPROVER_TOKEN", "").strip()
-    if raw_env:
+    return {
+        "enforce": enforce,
+        "enforce_label": enforce_label,
+        "token_present": token_present,
+        "token_label": "provisioned" if token_present else "absent",
+        "env_warning": env_warning,
+    }
+
+
+def approval_status_lines(cfg: "Config", secrets: "SecretStore") -> list[str]:
+    """Return human-readable lines describing the current approval gate status.
+
+    Called by rv doctor to surface the gate state and warn on anti-leak risk.
+    Builds from :func:`approval_status_state` (the SSOT) — output byte-identical.
+    """
+    state = approval_status_state(cfg, secrets)
+
+    lines: list[str] = [
+        f"  approval: {state['enforce_label']} · token={state['token_label']}"
+    ]
+
+    if state["env_warning"]:
         lines.append(
             "  WARNING [approval]: RV_APPROVER_TOKEN is set as a plain env var — "
             "it may propagate into crew dispatch env. "
