@@ -33,7 +33,7 @@ from typing import Any
 # Install helpers
 # ---------------------------------------------------------------------------
 
-_TIER1_SPEC = "research-vault"              # pulls default deps (Tier-1)
+_TIER1_SPEC = "research-vault"              # pulls 27-package core (Tier-1)
 _TIER2_SPEC = "research-vault[local]"       # adds Tier-2 on top
 _SERVE_VLLM_SPEC = "research-vault[local,serve-vllm]"
 _SERVE_SGLANG_SPEC = "research-vault[local,serve-sglang]"
@@ -120,6 +120,9 @@ def _run_bootstrap(
     tier2: whether to attempt Tier-2 install
     serve: None | "vllm" | "sglang" — serving sub-extra to attempt
     verbose: whether to print pip output
+
+    Per-provider SDKs (openai/google-genai/mistralai/cohere) and figure libs
+    (matplotlib/seaborn) are NOT installed here — the adopter installs them directly.
     """
     lines: list[str] = ["=== rv bootstrap — Research Vault toolkit install ===", ""]
     tier1_ok = False
@@ -218,7 +221,7 @@ def _run_bootstrap(
         lines.append("")
         lines.append("Tier-2 install: skipped (--no-tier2)")
 
-    # 4. Serving stack sub-extra (optional)
+    # 5. Serving stack sub-extra (optional)
     if serve:
         if serve == "vllm":
             spec = _SERVE_VLLM_SPEC
@@ -247,7 +250,7 @@ def _run_bootstrap(
                 for ln in stdout.strip().splitlines()[-10:]:
                     lines.append(f"  | {ln}")
 
-    # 5. Summary
+    # 6. Summary
     lines.append("")
     lines.append(
         f"Venv: {venv_dir}\n"
@@ -283,13 +286,16 @@ def build_parser(
     When to use: ``rv bootstrap`` when Tier-1 toolkit packages are missing.
     Creates a `.venv` and pip-installs the research toolkit (Tier-1 hard,
     Tier-2 best-effort). Sidesteps PEP-668 (externally-managed envs).
+    Per-provider SDKs and figure libs are not installed — install directly.
     Run `rv check` after to verify the installed stack.
     """
     desc = (
         "Best-effort toolkit bootstrap — create .venv and pip-install Research Vault tiers. "
-        "Tier-1 (portable: model SDKs, data, stats, eval, multilingual, utilities) is "
-        "installed as a hard requirement. "
+        "Tier-1 (27-package core: model seam, data, analysis, eval, multilingual, "
+        "integrations, harness utilities) is installed as a hard requirement. "
         "Tier-2 (GPU-fragile: torch, transformers, accelerate, etc.) is attempted + tolerated. "
+        "Per-provider SDKs (openai/google-genai/mistralai/cohere) and figure libs "
+        "(matplotlib/seaborn) are NOT installed — install them directly at your discretion. "
         "Never modifies your system Python. "
         "Run `rv check` after to verify the installed stack. "
         "Anti-pattern: do NOT pip-install Tier-2 on a CPU-only laptop — "

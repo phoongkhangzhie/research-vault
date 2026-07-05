@@ -38,15 +38,10 @@ import pytest
 # Modules that MUST be absent for the bare-import test to be valid.
 # These are the Tier-1 + Tier-2 package top-level import names.
 _TOOLKIT_MODULES = frozenset({
-    # Tier-1: model
-    "anthropic", "openai", "litellm", "google", "google.generativeai",
-    "mistralai", "cohere", "tiktoken",
-    # Tier-1: data
-    "datasets", "pandas", "numpy", "pyarrow",
-    # Tier-1: stats
-    "scipy", "statsmodels", "sklearn",
-    # Tier-1: figures
-    "matplotlib", "seaborn",
+    # Tier-1: core
+    "anthropic", "litellm", "tiktoken", "sklearn",
+    # Tier-1: analysis / data
+    "datasets", "pandas", "numpy", "pyarrow", "scipy", "statsmodels",
     # Tier-1: eval
     "inspect_ai", "lm_eval", "evaluate", "sacrebleu", "rouge_score", "bert_score",
     # Tier-1: multilingual
@@ -55,6 +50,10 @@ _TOOLKIT_MODULES = frozenset({
     "tenacity", "tqdm", "orjson", "pydantic", "jinja2", "rich", "dotenv",
     # Tier-1: integrations
     "wandb", "pyzotero", "asta",
+    # Extras: providers (opt-in, but still blocked to verify no eager import)
+    "openai", "google", "google.genai", "mistralai", "cohere",
+    # Extras: figures (opt-in)
+    "matplotlib", "seaborn",
     # Tier-2
     "torch", "transformers", "accelerate", "huggingface_hub", "fasttext",
     "vllm", "sglang",
@@ -214,13 +213,21 @@ class TestBareImportGuard:
 class TestCheckTierMatrix:
     """rv check extends to report Tier-1/2 coverage matrix."""
 
-    def test_tier1_packages_registry_is_non_empty(self):
-        """_TIER1_PACKAGES has at least the expected number of packages."""
+    def test_tier1_packages_registry_count(self):
+        """_TIER1_PACKAGES has exactly 27 packages (SR-PKG-TRIM re-tiering)."""
         from research_vault.check import _TIER1_PACKAGES
-        # Minimum sanity: we have all major groups (model, data, stats, figures, eval, etc.)
-        assert len(_TIER1_PACKAGES) >= 30, (
-            f"Expected >=30 Tier-1 packages, got {len(_TIER1_PACKAGES)}"
+        assert len(_TIER1_PACKAGES) == 27, (
+            f"Expected exactly 27 Tier-1 core packages, got {len(_TIER1_PACKAGES)}"
         )
+
+    def test_tier1_packages_registry_is_non_empty(self):
+        """_TIER1_PACKAGES has all major groups (core, analysis, eval, etc.)."""
+        from research_vault.check import _TIER1_PACKAGES
+        groups = {entry[2] for entry in _TIER1_PACKAGES}
+        for expected_group in ("core", "analysis", "eval", "multilingual", "integrations", "utils"):
+            assert expected_group in groups, (
+                f"Expected group {expected_group!r} in Tier-1 registry; got groups: {groups}"
+            )
 
     def test_tier1_registry_includes_litellm(self):
         """litellm (the primary model seam) is in the Tier-1 registry."""
@@ -233,6 +240,30 @@ class TestCheckTierMatrix:
         from research_vault.check import _TIER1_PACKAGES
         pip_names = [p[0] for p in _TIER1_PACKAGES]
         assert "scipy" in pip_names, "scipy must be in Tier-1 (folded from [analysis])"
+
+    def test_tier1_registry_excludes_provider_sdks(self):
+        """openai/google-genai/mistralai/cohere are NOT in Tier-1 (not shipped)."""
+        from research_vault.check import _TIER1_PACKAGES
+        pip_names = [p[0] for p in _TIER1_PACKAGES]
+        for pkg in ("openai", "google-genai", "google-generativeai", "mistralai", "cohere"):
+            assert pkg not in pip_names, (
+                f"{pkg!r} must NOT be in Tier-1 (per-provider SDKs are not shipped)"
+            )
+
+    def test_tier1_registry_excludes_figure_libs(self):
+        """matplotlib/seaborn are NOT in Tier-1 (not shipped)."""
+        from research_vault.check import _TIER1_PACKAGES
+        pip_names = [p[0] for p in _TIER1_PACKAGES]
+        for pkg in ("matplotlib", "seaborn"):
+            assert pkg not in pip_names, (
+                f"{pkg!r} must NOT be in Tier-1 (figure libs are not shipped)"
+            )
+
+    def test_tier1_registry_includes_keyring(self):
+        """keyring is declared in Tier-1 (newly added — was an undeclared guarded import)."""
+        from research_vault.check import _TIER1_PACKAGES
+        pip_names = [p[0] for p in _TIER1_PACKAGES]
+        assert "keyring" in pip_names, "keyring must be in Tier-1 integrations"
 
     def test_tier2_packages_registry_includes_gpu_stack(self):
         """_TIER2_PACKAGES covers the GPU-fragile stack."""
@@ -448,8 +479,11 @@ class TestBootstrapVerb:
             return m
 
         result = _run_bootstrap(tmp_path / "venv_test")
-        expected_keys = {"tier1_ok", "tier2_ok", "serve_ok", "tier2_reason",
-                         "serve_reason", "venv_dir", "report"}
+        expected_keys = {
+            "tier1_ok",
+            "tier2_ok", "serve_ok", "tier2_reason",
+            "serve_reason", "venv_dir", "report",
+        }
         assert expected_keys.issubset(result.keys()), (
             f"Missing keys: {expected_keys - result.keys()}"
         )
@@ -533,14 +567,15 @@ class TestRegistryAndHelpCheck:
         )
 
     def test_pyproject_tier1_not_empty(self):
-        """pyproject.toml [project].dependencies is non-empty (Tier-1 populated)."""
+        """pyproject.toml [project].dependencies has exactly 27 Tier-1 core packages."""
         import tomllib
         pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
+        # Count only real package entries (skip comment-only lines — toml strips those)
         deps = data["project"]["dependencies"]
-        assert len(deps) >= 30, (
-            f"Expected >=30 Tier-1 default dependencies, got {len(deps)}"
+        assert len(deps) == 27, (
+            f"Expected exactly 27 Tier-1 default dependencies (SR-PKG-TRIM), got {len(deps)}"
         )
 
     def test_pyproject_has_local_extra(self):
@@ -580,6 +615,109 @@ class TestRegistryAndHelpCheck:
         optional = data["project"].get("optional-dependencies", {})
         assert "analysis" not in optional, (
             "[analysis] extra must be removed — scipy is now a Tier-1 default dep"
+        )
+
+    def test_keyring_declared(self):
+        """keyring is in pyproject.toml Tier-1 dependencies (newly declared)."""
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        deps = data["project"]["dependencies"]
+        assert any("keyring" in d for d in deps), (
+            "keyring must be in Tier-1 default dependencies (was undeclared; now explicit)"
+        )
+
+    def test_no_provider_sdks_in_core(self):
+        """openai/google-genai/mistralai/cohere are NOT in pyproject.toml core deps."""
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        deps = data["project"]["dependencies"]
+        for sdk in ("openai", "google-generativeai", "google-genai", "mistralai", "cohere"):
+            assert not any(sdk in d for d in deps), (
+                f"{sdk!r} must NOT be in core Tier-1 deps (it belongs in [providers] extra)"
+            )
+
+    def test_no_figure_libs_in_core(self):
+        """matplotlib/seaborn are NOT in pyproject.toml core deps (moved to [figures])."""
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        deps = data["project"]["dependencies"]
+        for lib in ("matplotlib", "seaborn"):
+            assert not any(lib in d for d in deps), (
+                f"{lib!r} must NOT be in core Tier-1 deps (it belongs in [figures] extra)"
+            )
+
+    def test_no_google_generativeai_anywhere_in_pyproject(self):
+        """google-generativeai must not appear anywhere in pyproject.toml (grep-zero)."""
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        content = pyproject_path.read_text(encoding="utf-8")
+        assert "google-generativeai" not in content, (
+            "google-generativeai must be purged from pyproject.toml"
+        )
+
+    def test_no_provider_sdks_shipped(self):
+        """Per-provider SDKs must not appear ANYWHERE in pyproject.toml (not core, not extras).
+
+        openai/google-genai/google-generativeai/mistralai/cohere are NOT shipped.
+        The adopter installs them directly; litellm covers most providers without them.
+        """
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        content = pyproject_path.read_text(encoding="utf-8")
+        for sdk in ("openai", "google-genai", "google-generativeai", "mistralai", "cohere"):
+            assert sdk not in content, (
+                f"{sdk!r} must not appear ANYWHERE in pyproject.toml "
+                "(per-provider SDKs are not shipped; adopter installs directly)"
+            )
+
+    def test_no_figure_libs_shipped(self):
+        """Figure libs must not appear ANYWHERE in pyproject.toml (not core, not extras).
+
+        matplotlib/seaborn are NOT shipped. The adopter installs them directly.
+        """
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        content = pyproject_path.read_text(encoding="utf-8")
+        for lib in ("matplotlib", "seaborn"):
+            assert lib not in content, (
+                f"{lib!r} must not appear ANYWHERE in pyproject.toml "
+                "(figure libs are not shipped; adopter installs directly)"
+            )
+
+    def test_pyproject_no_providers_extra(self):
+        """pyproject.toml must NOT have [providers] optional dependency extra."""
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        optional = data["project"].get("optional-dependencies", {})
+        assert "providers" not in optional, (
+            "[providers] extra must be removed from pyproject.toml"
+        )
+
+    def test_pyproject_no_figures_extra(self):
+        """pyproject.toml must NOT have [figures] optional dependency extra."""
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        optional = data["project"].get("optional-dependencies", {})
+        assert "figures" not in optional, (
+            "[figures] extra must be removed from pyproject.toml"
+        )
+
+    def test_pyproject_no_all_extra(self):
+        """pyproject.toml must NOT have [all] optional dependency extra."""
+        import tomllib
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        optional = data["project"].get("optional-dependencies", {})
+        assert "all" not in optional, (
+            "[all] extra must be removed from pyproject.toml"
         )
 
     def test_pyproject_tier1_contains_litellm(self):

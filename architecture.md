@@ -85,16 +85,19 @@ prompt defaults + adopter override).
 | `review/` | `rv review new/expand/list/gap-scan/gap-scope/gap-close` | Pre-registered, **saturation-gated lit-review DAG**: Phase-1 (review-scope → `[HG:approve-protocol]` → review-search → review-snowball → `[HG:coverage-gate]`) with `_protocol.md` freeze (non-empty `counter-position` = L-2 anti-fishing gate) + internal saturation loop (forward cited-by + backward refs); **two-phase fan-out** via `rv review expand` after the coverage human-go. **SR-LR-2 gap-driven pass**: `gap_scan.py` detects three typed gaps (knowledge_void / contradictory / evaluation_void); `gap-scan` is a **rejects-only screen** that writes `gaps/<id>.md` (8th OKF type, first-class lifecycle); `gap-scope` auto-authors a targeted Part-1 scope (question←claim, seed_queries, snowball_seeds) | `review_tips` + `style.py` |
 | `plan/` | `rv plan check/tips` | Pre-registration **freeze** (`freeze.py`) + structural **shape-lint** (`check.py`): rule (a) branch-presence, rule (b) one-component-per-ablation, **rule (c) bare-id `covers:` convention (SR-PLAN-2)** — run BEFORE `human-go-plan` | `plan_tips` + `style.py` |
 
-**Dependency posture: Batteries-included toolkit default; the framework/CLI import path stays dep-light by
-guarded imports.** SR-PKG reverses the earlier stdlib-only-core golden rule for the *research surface*:
-`pip install research-vault` now installs the full portable Tier-1 stack — model SDKs (`anthropic`, `openai`,
-**`litellm`** as the primary unified provider seam, `google-generativeai`, `mistralai`, `cohere`, `tiktoken`),
-data (`datasets`, `pandas`, `numpy`, `pyarrow`), stats (`scipy`, `statsmodels`, `scikit-learn`), figures
-(`matplotlib`, `seaborn`), eval (`inspect-ai`, `evaluate`, `sacrebleu`, `rouge-score`),
-multilingual (`sentencepiece`, `sacremoses`, `langdetect`), utilities (`tenacity`, `tqdm`, `orjson`, `pydantic`,
-`jinja2`, `rich`, `python-dotenv`), and integrations (`wandb`, `pyzotero`). The GPU-fragile Tier-2
-stack (`torch`, `transformers`, `accelerate`, `huggingface_hub`, `fasttext`, `lm-eval`, `bert-score`) is
-opt-in via `[local]`; serving sub-extras `[serve-vllm]` (docs default) / `[serve-sglang]` are available.
+**Dependency posture: 27-package research-toolkit core + GPU `[local]` extras; per-provider SDKs and
+plotting libs are the adopter's own install.** SR-PKG established that the *research surface* carries a
+real dep-set (reversing the stdlib-only-core golden rule for this layer); SR-PKG-TRIM finalises it:
+`pip install research-vault` installs the **27-package core** — `anthropic` + **`litellm`**
+(unified provider seam, primary) + `tiktoken` + `scikit-learn`; analysis (`datasets`, `pandas`, `numpy`,
+`pyarrow`, `scipy`, `statsmodels`); eval (`inspect-ai`, `evaluate`, `sacrebleu`, `rouge-score`);
+multilingual (`sentencepiece`, `sacremoses`, `langdetect`); integrations (`wandb`, `pyzotero`, `keyring`);
+and harness utilities (`tenacity`, `tqdm`, `orjson`, `pydantic`, `jinja2`, `rich`, `python-dotenv`).
+Per-provider SDKs (`openai`, `google-genai`, `mistralai`, `cohere`) and figure libs (`matplotlib`,
+`seaborn`) are **NOT shipped** — the adopter installs them directly at their discretion. `litellm`
+covers most providers without a per-provider SDK. The GPU-fragile Tier-2 stack (`torch`, `transformers`,
+`accelerate`, `huggingface_hub`, `fasttext`, `lm-eval`, `bert-score`) is opt-in via `[local]`; serving
+sub-extras `[serve-vllm]` (docs default) / `[serve-sglang]` are available.
 `asta` is a documented external prerequisite for research corpus tooling — not a pip dep (may not be on PyPI).
 
 **The `rv` CLI + every verb runs clean with toolkit absent** — all toolkit imports are guarded (lazy, only at
@@ -150,6 +153,7 @@ Status verified against merged `main` (`src/research_vault/` modules + `note.OKF
 | SR-XPB | Cross-project reach seam: `project_edges.py` store + `cross_project.corroborate_across_projects`; TF-IDF rank NARROWS, judge CONFIRMS, human reviews | MERGED |
 | SR-APPROVE-GATE | Approval trust-boundary: `check_human_presence` (isatty + token), signed-disable (`enforce_sig` HMAC), `rv approval` verb; crew-cannot-self-approve is now MECHANICAL | MERGED |
 | SR-PKG | Batteries-included toolkit: Tier-1 deps (model SDKs, data, stats, eval, multilingual, utils, integrations); `[local]` + `[serve-vllm]`/`[serve-sglang]` extras; `rv check` tier matrix; `rv bootstrap`; bare-import guard; architecture + recipe docs | MERGED |
+| SR-PKG-TRIM | Finalise shipped deps: 27-package research-toolkit core; per-provider SDKs (openai/google-genai/mistralai/cohere) and figure libs (matplotlib/seaborn) NOT shipped — adopter installs directly; GPU `[local]`/`[serve-vllm]`/`[serve-sglang]` extras only; `keyring` newly declared; `rv check` tier matrix; `rv bootstrap` | MERGED |
 | — next → | SR-10 (OSS docs site + README/LICENSE + public publish, human-go) | — |
 
 ## DAG walk protocol (SR-DAG-BRIEF)
