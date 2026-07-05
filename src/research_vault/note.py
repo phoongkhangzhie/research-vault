@@ -481,6 +481,10 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # (surfaces manual gaps right after the run, not at paper-writing time)
                 repro_warnings = check_repro_sentinel_lint(p)
                 violations.extend(repro_warnings)
+                # F24: warn when experiment ran but dataset provenance is unrecorded
+                # (SURFACE, never block — researcher records via `rv note <p> new datasets`)
+                dataset_warnings = check_dataset_provenance_warn(p)
+                violations.extend(dataset_warnings)
                 # SR-PLAN-2: covers: link-validation for plan master notes
                 # (plan_kind: preregistration); resolves each covers: child,
                 # checks stance ∈ {confirmatory, exploratory} and plan_role ∈
@@ -816,6 +820,58 @@ def check_result_provenance(exp_note_path: Path) -> list[str]:
 # ---------------------------------------------------------------------------
 # SR-EXP-REPRO: repro sentinel lint
 # ---------------------------------------------------------------------------
+
+def check_dataset_provenance_warn(exp_note_path: Path) -> list[str]:
+    """F24: warn when a ran experiment has unrecorded dataset provenance.
+
+    Fires when:
+      - results_hash is non-empty AND not the sentinel (experiment ran)
+      - repro_dataset_id is still the sentinel (no datasets note linked)
+
+    This is a SURFACE, never a BLOCK — INFO/WARN only.
+    The researcher can silence it by:
+      (a) creating a datasets provenance note and setting
+          repro_dataset_id: datasets/<slug>, OR
+      (b) setting repro_dataset_id: not-applicable (proxy/no-external-dataset run)
+
+    Called by cmd_check alongside check_repro_sentinel_lint for experiments notes.
+    sr: F24
+    """
+    if not exp_note_path.exists():
+        return []
+
+    try:
+        text = exp_note_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    fields, _ = _parse_frontmatter(text)
+    results_hash = fields.get("results_hash", "").strip()
+
+    # No results yet → warn does not fire (experiment not yet run)
+    if not results_hash or results_hash == REPRO_SENTINEL:
+        return []
+
+    dataset_id = fields.get("repro_dataset_id", "").strip()
+
+    # Explicitly not-applicable (proxy/no-external-data) → no warn
+    if dataset_id == REPRO_NOT_APPLICABLE:
+        return []
+
+    # Filled (not sentinel, not empty) → no warn
+    if dataset_id and dataset_id != REPRO_SENTINEL:
+        return []
+
+    # Warn: ran but no dataset provenance note linked
+    return [
+        f"[dataset-provenance] WARN: {exp_note_path.name}: "
+        f"experiment ran (results_hash set) but repro_dataset_id is still the sentinel "
+        f"({REPRO_SENTINEL!r}) — record dataset provenance via "
+        f"`rv note <project> new datasets <title>` then set "
+        f"repro_dataset_id: datasets/<slug>, or set "
+        f"repro_dataset_id: {REPRO_NOT_APPLICABLE!r} if no external dataset was used"
+    ]
+
 
 def check_repro_sentinel_lint(exp_note_path: Path) -> list[str]:
     """Warn when results_hash is set but required repro_* fields are still the sentinel.
