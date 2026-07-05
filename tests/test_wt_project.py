@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -78,7 +79,7 @@ class TestWtProject:
     def _run_rv(self, args: list[str], env: dict, cwd: Path | None = None):
         """Run rv via python -m."""
         result = subprocess.run(
-            ["python", "-m", "research_vault.cli"] + args,
+            [sys.executable, "-m", "research_vault.cli"] + args,
             capture_output=True, text=True,
             env={**os.environ, **env},
             cwd=str(cwd) if cwd else None,
@@ -139,7 +140,7 @@ class TestWtAs:
 
     def _run_rv(self, args: list[str], env: dict, cwd: Path | None = None):
         result = subprocess.run(
-            ["python", "-m", "research_vault.cli"] + args,
+            [sys.executable, "-m", "research_vault.cli"] + args,
             capture_output=True, text=True,
             env={**os.environ, **env},
             cwd=str(cwd) if cwd else None,

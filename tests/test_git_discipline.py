@@ -31,7 +31,7 @@ import pytest
 
 def _run_rv(args: list[str], *, env: dict | None = None, cwd: Path | None = None) -> tuple[int, str]:
     """Run the rv CLI via uv run (subprocess) and return (exit_code, combined_output)."""
-    cmd = ["python", "-m", "research_vault.cli"] + args
+    cmd = [sys.executable, "-m", "research_vault.cli"] + args
     result = subprocess.run(
         cmd,
         capture_output=True,

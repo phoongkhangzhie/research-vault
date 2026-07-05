@@ -495,8 +495,9 @@ def test_review_verb_sr_is_sr_lr_1():
 def test_rv_help_check_passes(tmp_instance):
     """rv help --check passes with review verb present."""
     import subprocess
+    import sys as _sys
     result = subprocess.run(
-        ["python", "-m", "research_vault.cli", "help", "--check"],
+        [_sys.executable, "-m", "research_vault.cli", "help", "--check"],
         capture_output=True, text=True,
         env={**os.environ, "RESEARCH_VAULT_CONFIG": str(tmp_instance / "research_vault.toml")},
         cwd=str(Path(__file__).parent.parent),
