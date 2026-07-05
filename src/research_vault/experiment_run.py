@@ -131,6 +131,12 @@ def log_experiment_run(
     try:
         # Do the real work — the emission counter accrues during these calls.
         run_fn(model_client)
+        # Wait for litellm's threaded/async success callbacks to land BEFORE reading
+        # the aggregates — litellm dispatches them off the calling thread, so a naive
+        # read here sees calls=0/total_tokens=0 even for a healthy run (the Plane-B
+        # round-trip defect: run.summary["calls"] == 0). flush() is bounded + a no-op
+        # once the counter has caught up.
+        model_client.flush()
         # Teardown: aggregates (Plane B run.summary shape) merged with analysis metrics.
         summary: dict[str, Any] = dict(model_client.stats.as_summary())
         if analysis_metrics:

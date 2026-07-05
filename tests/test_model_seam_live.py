@@ -16,6 +16,24 @@ Required env:
 
 No mocks: a real ``adapters.model.complete`` call flows through litellm to the
 provider, the observability backend, and (S6) a classic W&B run.
+
+**Process isolation — pytest-forked required**
+
+Each test is also marked ``forked`` (via module-level ``pytestmark``).
+``pytest-forked`` (dev dependency) runs each test in its own forked subprocess, so
+no global state leaks between tests.
+
+Why this is necessary: ``weave.init()`` mutates litellm's and weave's internal
+globals (logging workers, callback managers, thread pools) in ways that cannot be
+reliably reset in-process. The weave test poisons every test that follows it in the
+same process — they record zero events and fail. The ``_clean_litellm_callbacks``
+fixture saves/restores ``litellm.completion`` (correct hygiene, kept), but that is
+insufficient against the deeper worker/event-loop state. A fresh forked process is
+the only reliable boundary.
+
+Each test passes individually; ``pytest -m live`` passes as a suite because every
+test is forked. The ``--forked`` CLI flag (``pytest --forked -m live``) also works
+but is redundant when tests carry the mark.
 """
 from __future__ import annotations
 
@@ -25,10 +43,13 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.live
+pytestmark = [pytest.mark.live, pytest.mark.forked]
 
 
-_MODEL = os.environ.get("RV_LIVE_MODEL", "claude-3-5-haiku-latest")
+# litellm routes by a PROVIDER-PREFIXED model name. A bare "claude-…" does not route
+# (no provider) and an invalid/stale id 404s. Default to a valid, current, documented
+# Anthropic model in litellm's ``anthropic/`` namespace; override with RV_LIVE_MODEL.
+_MODEL = os.environ.get("RV_LIVE_MODEL", "anthropic/claude-haiku-4-5")
 
 
 def _has_provider_key() -> bool:
@@ -55,12 +76,21 @@ def _live_cfg(tmp_path: Path, observability: dict) -> "object":
 
 @pytest.fixture(autouse=True)
 def _clean_litellm_callbacks():
-    """Reset litellm callbacks around each live test."""
+    """Reset litellm callbacks AND completion around each live test.
+
+    ``weave.init()`` patches ``litellm.completion`` globally via its
+    ``SymbolPatcher`` and never un-patches it — so every test that runs AFTER
+    the weave-arming test in the same process would receive the patched version
+    and record zero events.  Saving and restoring ``litellm.completion`` here
+    contains that global mutation to the test that triggered it.
+    """
     import litellm
-    saved = list(getattr(litellm, "callbacks", []) or [])
+    saved_callbacks = list(getattr(litellm, "callbacks", []) or [])
+    saved_completion = litellm.completion
     litellm.callbacks = []
     yield
-    litellm.callbacks = saved
+    litellm.callbacks = saved_callbacks
+    litellm.completion = saved_completion
 
 
 # ---------------------------------------------------------------------------

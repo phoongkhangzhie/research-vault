@@ -35,8 +35,9 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import threading
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +160,52 @@ def _extract_usage(response_obj: Any) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Per-completion de-dup — litellm fires a callback TWICE for one completion
+# ---------------------------------------------------------------------------
+
+def make_call_deduper() -> Callable[[Any], bool]:
+    """Return ``already_seen(kwargs) -> bool``, thread-safe, keyed on the completion id.
+
+    Why: for a SINGLE ``litellm.completion`` litellm dispatches the success callback
+    TWICE — once via the sync ``success_handler`` (submitted to a background
+    ``ThreadPoolExecutor``) and once via the async ``async_success_handler``
+    (providers whose sync SDK call rides an async HTTP path fire both;
+    ``should_run_logging`` gates them under SEPARATE ``sync_success`` /
+    ``async_success`` flags, so both run). A naive CustomLogger therefore counts /
+    logs one completion twice (the double-count defect: ``events == 2`` and two
+    JSONL lines for one call).
+
+    The dedupe keys on litellm's ``litellm_call_id`` (present in the callback
+    ``kwargs`` == ``model_call_details``, and IDENTICAL across the sync + async
+    fire of the same completion). The two fires happen on DIFFERENT threads (the
+    executor thread and the async-loop thread), so the check-and-add is guarded by
+    a lock to avoid a check/check/add/add race double-counting.
+
+    A missing ``litellm_call_id`` (unusual — some fakes / very old litellm) is
+    treated as "not seen" so the event is still counted (fail-open: never silently
+    drop a real event).
+    """
+    seen: set[str] = set()
+    lock = threading.Lock()
+
+    def already_seen(kwargs: Any) -> bool:
+        cid = None
+        try:
+            cid = kwargs.get("litellm_call_id") if hasattr(kwargs, "get") else None
+        except Exception:
+            cid = None
+        if cid is None:
+            return False  # can't dedupe — count it (fail-open)
+        with lock:
+            if cid in seen:
+                return True
+            seen.add(cid)
+            return False
+
+    return already_seen
+
+
+# ---------------------------------------------------------------------------
 # _EmissionCounter — built lazily so importing this module never imports litellm
 # ---------------------------------------------------------------------------
 
@@ -175,19 +222,35 @@ def make_emission_counter(stats: EmissionStats) -> Any:
     """
     from litellm.integrations.custom_logger import CustomLogger  # lazy — toolkit dep
 
+    already_seen = make_call_deduper()  # one completion == one counted event
+
     class _EmissionCounter(CustomLogger):  # type: ignore[misc, valid-type]
-        """ALWAYS-registered counter — increments per call + accrues usage/cost/latency."""
+        """ALWAYS-registered counter — increments per call + accrues usage/cost/latency.
+
+        De-duped per completion (``litellm_call_id``): litellm fires the success
+        callback on both the sync executor thread AND the async loop, so a naive
+        counter would double-count. The FIRST fire (sync or async) counts; the
+        second is skipped.
+        """
 
         def log_success_event(self, kwargs, response_obj, start_time, end_time):  # noqa: ANN001
+            if already_seen(kwargs):
+                return
             stats.record_event(kwargs, response_obj, start_time, end_time, success=True)
 
         def log_failure_event(self, kwargs, response_obj, start_time, end_time):  # noqa: ANN001
+            if already_seen(kwargs):
+                return
             stats.record_event(kwargs, response_obj, start_time, end_time, success=False)
 
         async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):  # noqa: ANN001
+            if already_seen(kwargs):
+                return
             stats.record_event(kwargs, response_obj, start_time, end_time, success=True)
 
         async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):  # noqa: ANN001
+            if already_seen(kwargs):
+                return
             stats.record_event(kwargs, response_obj, start_time, end_time, success=False)
 
     return _EmissionCounter()
@@ -201,8 +264,12 @@ def _make_jsonl_logger(jsonl_path: Path) -> Any:
     """
     from litellm.integrations.custom_logger import CustomLogger  # lazy — toolkit dep
 
+    already_seen = make_call_deduper()  # one completion == one JSONL line
+
     class _LocalJSONLLogger(CustomLogger):  # type: ignore[misc, valid-type]
         def _write(self, kwargs, response_obj, start_time, end_time, status):  # noqa: ANN001
+            if already_seen(kwargs):
+                return  # litellm's sync + async fire → one line, not two
             try:
                 usage = _extract_usage(response_obj)
                 record = {
