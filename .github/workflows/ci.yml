@@ -41,7 +41,7 @@ jobs:
   # Coverage broadened to the whole publish-bound tree (whole-tree by default,
   # opt-out by exception — the safe polarity for a public publish).
   # Scans: package data (doctrine/ + examples/), DEVLOG.md, root public-bound
-  # files (README.md, architecture.md, QUICKSTART.md, REFERENCES.md, SETUP.md),
+  # files (README.md, QUICKSTART.md, REFERENCES.md, SETUP.md),
   # and src/ for hardcoded private paths — all private marker classes:
   #   codenames · identity strings · site URLs · cluster paths ·
   #   secret-shaped strings · versioned model IDs · non-template memory slugs
@@ -70,10 +70,9 @@ jobs:
       - name: Run leakage scanner over root public-bound files
         run: |
           # Scan public-bound root files individually.
-          # architecture.md was previously unscanned (reviewer-gate gap).
           # REFERENCES.md and SETUP.md scanned when present (future artifacts).
           # LICENSE + pyproject.toml added (SR-SETUP: ship to PyPI — must be clean).
-          for f in README.md architecture.md QUICKSTART.md REFERENCES.md SETUP.md LICENSE pyproject.toml; do
+          for f in README.md QUICKSTART.md REFERENCES.md SETUP.md LICENSE pyproject.toml; do
             if [ -f "$f" ]; then
               echo "--- scanning $f ---"
               bash scripts/leakage_scan.sh "$f"

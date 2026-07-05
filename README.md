@@ -1,5 +1,7 @@
 # Research Vault
 
+![The Research Vault crew — Alfred (hub), Wren, Mason, Ada, Argus, and Iris](assets/hero-banner.png)
+
 **The discipline is the headline, not the code.** Research Vault is an open
 research tool that runs the full research loop — literature review, experiment
 planning, running, and synthesis — through a role-based agent crew coordinated
@@ -50,16 +52,45 @@ Research Vault ships **two** research loops as DAGs. (Figure and manuscript loop
 were deliberately removed — a solo researcher owns those downstream, by hand,
 where taste matters more than automation.)
 
-- **Literature review** (`rv review`) — a pre-registered, saturation-gated review:
-  scope → protocol freeze → search → snowball (forward cited-by + backward
-  references) → coverage gate, with a two-phase fan-out and a gap-driven pass that
-  detects typed research gaps from the corpus.
-- **Experiment** (`rv experiment`) — a pre-registered study: plan → independent
-  plan-critic → freeze → per-main harness (built + reviewed before the run fires)
-  → run → score → analyze → conditional ablations → findings, gated by human-go
-  nodes at every irreversible step.
+### Literature review (`rv review`)
 
-Both are the same underlying machinery: a DAG walker over typed nodes, with a
+A pre-registered, saturation-gated review. The protocol must be approved before
+search fires (L-2 anti-fishing gate), snowball walks forward (cited-by) and
+backward (references), and Phase-2 relate nodes fan out over every in-scope paper.
+OKF outputs: `literature/*.md` notes, `concepts/`, `mocs/`, and typed gap notes.
+
+```mermaid
+flowchart LR
+    scope[review-scope] --> HG1[["[HG] approve-protocol"]]
+    HG1 --> search[review-search] --> snowball[review-snowball]
+    snowball --> HG2[["[HG] coverage-gate"]]
+    HG2 --> relate["relate-*\n(Phase-2 fan-out)"]
+    relate --> synthesize[review-synthesize] --> critic[review-coverage-critic]
+    critic --> HG3[["[HG] approve-review"]]
+```
+
+### Experiment (`rv experiment`)
+
+A pre-registered study. The plan is critiqued and frozen before any harness is
+built; each main's harness is reviewed independently before the run fires; results
+gate conditional ablations; all findings are ratified before write-up.
+OKF outputs: `experiments/*.md` (pre-reg), `findings/*.md`.
+
+```mermaid
+flowchart LR
+    plan --> critic[plan-critic]
+    critic --> HG1[["[HG] human-go-plan"]]
+    HG1 --> harness["harness\n(×N mains)"] --> hr[harness-review]
+    hr --> HG2[["[HG] human-go-harness"]]
+    HG2 --> run --> score --> analyze
+    analyze --> HG3[["[HG] human-go-conditionals"]]
+    HG3 -->|if threshold| cabl["conditional\nablations"]
+    HG3 --> HG4[["[HG] human-go-findings"]]
+    cabl --> HG4
+    HG4 -.-> methods-update
+```
+
+Both loops use the same underlying machinery: a DAG walker over typed nodes, with a
 grounding manifest that binds each node to the artifacts it reads and produces.
 
 ### How a loop actually runs (the DAG walk)
@@ -122,7 +153,8 @@ imports are lazy) — so `pip install research-vault --no-deps` works, and
 The 27-package core covers the model seam (**litellm** as the unified provider
 interface, plus the Anthropic SDK and a tokenizer), analysis (pandas, numpy,
 pyarrow, scipy, statsmodels, datasets), eval (inspect-ai, evaluate, sacrebleu,
-rouge-score), a multilingual set, and harness utilities. GPU-fragile local
+rouge-score), a multilingual set, integrations (**wandb** for experiment tracking,
+**pyzotero** + **keyring** for Zotero citation management), and harness utilities. GPU-fragile local
 inference (torch, transformers, …) is **opt-in** behind an extra — it is never
 installed by default (CUDA-pinned wheels break CPU-only machines):
 
@@ -142,8 +174,10 @@ targets without a dedicated SDK.
 - **Model API keys** — via environment variables or your system keyring.
 - Run **`rv check`** to verify prerequisites and see the tier coverage matrix.
 
-`asta` (research corpus tooling) and Zotero (citation management) are **optional
-integrations**, not pip dependencies — `rv check` reports their presence.
+`wandb`, `pyzotero` (Zotero API client), and `keyring` are **core pip dependencies** —
+shipped in the default `pip install research-vault`. `asta` (research corpus tooling) is
+the **one external prerequisite** that is not a pip dep: install it per your project's
+instructions. `rv check` reports full integration status including `asta`'s presence.
 
 ---
 

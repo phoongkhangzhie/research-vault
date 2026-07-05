@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 # them directly. litellm (core) covers most API targets without a dedicated SDK.
 # The framework/CLI import path stays dep-light: all toolkit imports are guarded
 # (lazy, only at call sites) so `rv` runs clean with --no-deps.
-# See: architecture.md "Dependency posture" + data/doctrine/compute-run-recipe.md
+# See: data/doctrine/compute-run-recipe.md for the dependency posture rationale.
 dependencies = [
     # -- core-4: primary model seam + Anthropic SDK + tokenizer + ML utilities --
     "anthropic>=0.25",
