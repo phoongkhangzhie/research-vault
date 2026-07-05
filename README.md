@@ -7,8 +7,9 @@
 You hand Research Vault a research question. A hub agent — **Alfred** — plans the
 work, dispatches a crew of specialists, and runs the full research loop:
 literature review, experiment design, execution, analysis, synthesis. You stay in
-the conversation and approve at the gates that matter. **You never touch the CLI —
-Alfred does.**
+the conversation and approve at the gates that matter. **You never drive the
+research loop from the CLI — Alfred does.** (You run `rv init` once at setup; from
+there you converse.)
 
 The aim is to give the scientist space to **think and collaborate** with the crew —
 not to worry about implementation and execution. The agents do the mechanical work;
@@ -26,9 +27,10 @@ shared charter plus a role doctrine. You talk to **Alfred**; Alfred coordinates
 the rest.
 
 **Alfred** — *Hub.* After Alfred Pennyworth, the butler who runs the household. The
-single front door: he plans the work, dispatches the crew, walks the research loop,
-and surfaces every decision that needs you. He is the *only* agent that touches the
-control plane — and he never executes code or merges anything himself.
+single front door and **sole orchestrator**: the only agent that walks the DAG and
+the sole spawning authority. He plans the work, dispatches the crew, and surfaces
+every decision that needs you — and he never executes code or merges anything
+himself.
 
 **Wren** — *Architect.* After Sir Christopher Wren. Owns the stack and the
 architecture map; vets every new dependency and keeps the system coherent. Wren
@@ -56,7 +58,8 @@ authority** — a merge executes only when an independent gate authorizes it.
 
 ## How you actually use it
 
-You never drive the tooling. The loop is a conversation:
+Once you've run `rv init`, you never drive the research loop yourself. It is a
+conversation:
 
 1. **You describe the work** to Alfred in natural language — a question to
    investigate, a literature space to map, an experiment to run.
