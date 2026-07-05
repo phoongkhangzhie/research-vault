@@ -210,13 +210,35 @@ def test_feature_catalog_order():
     assert ids == ["provider", "s2", "asta", "wandb", "zotero", "compute"]
 
 
-def test_asta_feature_has_institutional_email_note():
-    from research_vault.keys import get_feature
+def test_asta_feature_is_key_not_package():
+    """asta is the Allen AI MCP server — detected by key, never by import."""
+    from research_vault.keys import get_feature, ASTA_KEY
     asta = get_feature("asta")
-    assert asta.kind == "package"
-    assert asta.import_name == "asta"
+    assert asta.kind == "key", (
+        "asta must be kind='key' — it is NOT a pip package (no import asta)"
+    )
+    assert not asta.import_name, "asta.import_name must be empty — no pip probe"
+    assert asta.keys == (ASTA_KEY,), "asta feature must reference ASTA_KEY"
     assert "institutional" in asta.note.lower()
     assert asta.request_url.startswith("https://")
+
+
+def test_asta_key_registered_in_keyring_keys():
+    """ASTA_KEY must appear in KEYRING_KEYS (covered by the round-trip invariant test)."""
+    from research_vault.keys import KEYRING_KEYS, ASTA_KEY
+    assert ASTA_KEY in KEYRING_KEYS
+
+
+def test_asta_key_env_var_round_trip():
+    """ASTA_KEY.env_var == EnvSecretStore derivation of keyring_username (F4 invariant)."""
+    from research_vault.keys import ASTA_KEY
+    from research_vault.adapters.base import EnvSecretStore
+    assert EnvSecretStore._env_name(ASTA_KEY.keyring_username) == ASTA_KEY.env_var, (
+        f"env_var {ASTA_KEY.env_var!r} must equal derived "
+        f"{EnvSecretStore._env_name(ASTA_KEY.keyring_username)!r}"
+    )
+    assert ASTA_KEY.env_var == "ASTA_MCP_KEY"
+    assert ASTA_KEY.keyring_username == "asta-mcp-key"
 
 
 def test_compute_feature_is_handoff():
