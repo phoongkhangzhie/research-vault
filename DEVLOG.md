@@ -1,3 +1,20 @@
+## 2026-07-05 (fix/init-git-repo: rv init now git-inits the vault)
+
+### Done
+- `init.py`: `_git_init_vault(target)` — runs `git init --initial-branch=main`, writes `.gitignore`, and makes an initial commit using `-c user.name/email/gpgsign` flags.
+- `.gitignore`: `state/*` (with `!state/compute_manifest.json` exception), `control/`, `.venv/`, `__pycache__/`, `*.pyc`.
+- Graceful git-missing path: warns on stderr, scaffold rc=0.
+- 25 tests in `tests/test_init_git_repo.py`. Full suite: 2199 passed.
+
+### Decisions
+- `state/*` not `state/` — git doesn't re-include files inside an excluded directory; wildcard form required for the `!compute_manifest.json` exception to fire. Structural test with `git check-ignore` (exit 1 = not ignored) proves the exception works.
+- `control/` ignored: coordination bus changes on every operation; not worth versioning.
+- git-init runs AFTER build-agents so the initial commit captures all generated files including agent hats.
+
+### Open / next
+- PR creation blocked by collaborator gap (mason can push but API token can't resolve repo for PR creation). Human needs to open the PR manually from branch `fix/init-git-repo`.
+
+---
 ## 2026-07-05 (rv-start: front-door verb to launch Claude Code in the vault — feat/rv-start)
 
 ### Done
