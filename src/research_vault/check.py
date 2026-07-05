@@ -51,13 +51,11 @@ _TIER1_PACKAGES: list[tuple[str, str, str, str]] = [
     # Figures
     ("matplotlib",          "matplotlib",          "figures",      "plotting"),
     ("seaborn",             "seaborn",             "figures",      "statistical figures"),
-    # Eval
+    # Eval (torch-free; bert-score + lm-eval require torch → Tier-2 [local])
     ("inspect-ai",          "inspect_ai",          "eval",         "inspect-ai evaluation framework"),
-    ("lm-eval",             "lm_eval",             "eval",         "lm-evaluation-harness"),
     ("evaluate",            "evaluate",            "eval",         "HuggingFace Evaluate"),
     ("sacrebleu",           "sacrebleu",           "eval",         "BLEU / chrF scores"),
     ("rouge-score",         "rouge_score",         "eval",         "ROUGE scores"),
-    ("bert-score",          "bert_score",          "eval",         "BERTScore"),
     # Multilingual
     ("sentencepiece",       "sentencepiece",       "multilingual", "SentencePiece tokenizer"),
     ("sacremoses",          "sacremoses",          "multilingual", "Moses tokenizer / detokenizer"),
@@ -70,11 +68,12 @@ _TIER1_PACKAGES: list[tuple[str, str, str, str]] = [
     ("jinja2",              "jinja2",              "utils",        "templating"),
     ("rich",                "rich",                "utils",        "terminal formatting"),
     ("python-dotenv",       "dotenv",              "utils",        ".env loading"),
-    # Integrations
+    # Integrations (pip-installable)
     ("wandb",               "wandb",               "integrations", "W&B experiment tracking"),
     ("pyzotero",            "pyzotero",            "integrations", "Zotero citation management"),
-    ("asta",                "asta",                "integrations", "Semantic Scholar literature search"),
 ]
+# Note: asta is reported as an optional integration via _check_asta() — not in _TIER1_PACKAGES
+# because it may not be available on PyPI. rv check surfaces it in the Integrations section.
 
 _TIER2_PACKAGES: list[tuple[str, str, str, str]] = [
     ("torch",          "torch",          "local", "PyTorch (GPU)"),
@@ -82,6 +81,8 @@ _TIER2_PACKAGES: list[tuple[str, str, str, str]] = [
     ("accelerate",     "accelerate",     "local", "multi-GPU training"),
     ("huggingface_hub","huggingface_hub","local", "HuggingFace Hub client"),
     ("fasttext",       "fasttext",       "local", "FastText embeddings"),
+    ("lm-eval",        "lm_eval",        "local", "lm-evaluation-harness (requires torch)"),
+    ("bert-score",     "bert_score",     "local", "BERTScore (requires torch)"),
     ("vllm",           "vllm",           "serve", "vLLM serving (GPU)"),
     ("sglang",         "sglang",         "serve", "SGLang serving (GPU)"),
 ]

@@ -31,16 +31,14 @@ dependencies = [
     # -- Figures --
     "matplotlib>=3.8",
     "seaborn>=0.13",
-    # -- Eval --
+    # -- Eval (torch-free only; bert-score + lm-eval require torch → [local]) --
     "inspect-ai>=0.3",
-    "lm-eval>=0.4",
     "evaluate>=0.4",
     "sacrebleu>=2.3",
     "rouge-score>=0.1",
-    "bert-score>=0.3",
     # -- Multilingual --
     "sentencepiece>=0.1",
-    "sacremoses>=0.1",
+    "sacremoses>=0.0.53",  # package uses 0.0.x versioning; >=0.1 matches nothing
     "langdetect>=1.0",
     # -- Utilities --
     "tenacity>=8.2",
@@ -50,10 +48,12 @@ dependencies = [
     "jinja2>=3.1",
     "rich>=13.7",
     "python-dotenv>=1.0",
-    # -- Integrations (folded in from former extras: wandb, pyzotero, asta) --
+    # -- Integrations --
     "wandb>=0.16",
     "pyzotero>=1.5",
-    "asta>=0.1",
+    # NOTE: asta is a documented external prerequisite, not a pip dep.
+    # It may not be available on PyPI; rv check reports its presence as an
+    # optional integration. Install via project-specific instructions.
 ]
 authors = [
     {name = "The research-vault authors"},
@@ -85,9 +85,10 @@ Issues = "https://github.com/khangzhie-vault/research-vault/issues"
 
 # ---------------------------------------------------------------------------
 # Tier-2 — GPU-fragile, opt-in local inference. NEVER installed by default.
-# CUDA-pinned wheels break installs on CPU-only machines.
+# CUDA-pinned wheels break installs on CPU-only machines (incl. CI runners).
 # Install: pip install research-vault[local]
-# [local] includes: torch, transformers, accelerate, huggingface_hub, fasttext.
+# [local] includes: torch, transformers, accelerate, huggingface_hub, fasttext,
+#   plus bert-score and lm-eval (both require torch transitively).
 # Sub-extras for serving stacks (vllm or sglang) — docs default to vllm.
 # Install serving: pip install research-vault[local,serve-vllm]
 # ---------------------------------------------------------------------------
@@ -98,6 +99,8 @@ local = [
     "accelerate>=0.27",
     "huggingface_hub>=0.21",
     "fasttext>=0.9",
+    "lm-eval>=0.4",     # requires torch transitively
+    "bert-score>=0.3",  # requires torch transitively
 ]
 serve-vllm = [
     "vllm>=0.3",

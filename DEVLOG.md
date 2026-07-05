@@ -22,7 +22,7 @@
 - rv lint PASS; rv help --check PASS (27 verbs); leakage scan clean.
 
 ### Decisions
-- Reverses stdlib-only-core golden rule for the research surface (Khang's explicit call).
+- Reverses stdlib-only-core golden rule for the research surface (operator's explicit decision).
 - litellm is the PRIMARY model seam — per-provider SDKs secondary.
 - Bare-import guard: all toolkit imports are guarded (lazy, inside functions only); verified by
   AST scan in tests and _BlockingFinder meta-path test.
