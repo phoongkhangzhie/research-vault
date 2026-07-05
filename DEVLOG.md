@@ -1,3 +1,36 @@
+## 2026-07-04 (SR-PKG: batteries-included research toolkit)
+
+### Done
+- `pyproject.toml`: Tier-1 default deps (~33 packages) — model SDKs (anthropic, openai, litellm,
+  google-generativeai, mistralai, cohere, tiktoken), data (datasets, pandas, numpy, pyarrow),
+  stats (scipy, statsmodels, scikit-learn), figures (matplotlib, seaborn), eval (inspect-ai,
+  lm-eval, evaluate, sacrebleu, rouge-score, bert-score), multilingual (sentencepiece, sacremoses,
+  langdetect), utils (tenacity, tqdm, orjson, pydantic, jinja2, rich, python-dotenv), integrations
+  (wandb, pyzotero, asta). [analysis] extra removed — scipy now default. [local] Tier-2 extra
+  (torch, transformers, accelerate, huggingface_hub, fasttext). [serve-vllm]/[serve-sglang] sub-extras.
+- `check.py`: extended rv check with Tier-1/2 coverage matrix (per-group OK/MISS/WARN probes);
+  bootstrap nudge when Tier-1 missing; Tier-2 missing prints GPU-box advisory.
+- `bootstrap.py` (new): rv bootstrap verb — creates .venv, pip-installs research-vault (Tier-1
+  hard, Tier-2 best-effort + tolerated); --no-tier2, --serve (vllm|sglang), --verbose flags.
+- `cli.py`: registered bootstrap in _VERB_REGISTRY (SR-PKG); added to Setup phase; updated check
+  when_to_use to mention Tier-1/2/bootstrap.
+- `architecture.md`: updated dependency posture section — batteries-included with guarded imports;
+  added SR-PKG to SR sequence table.
+- `data/doctrine/compute-run-recipe.md`: added litellm as primary model seam section.
+- 45 new tests: bare-import guard (simulates --no-deps via _BlockingFinder), check tier matrix,
+  bootstrap verb parser + logic, registry/help-check; stale [analysis] tests updated.
+- rv lint PASS; rv help --check PASS (27 verbs); leakage scan clean.
+
+### Decisions
+- Reverses stdlib-only-core golden rule for the research surface (Khang's explicit call).
+- litellm is the PRIMARY model seam — per-provider SDKs secondary.
+- Bare-import guard: all toolkit imports are guarded (lazy, inside functions only); verified by
+  AST scan in tests and _BlockingFinder meta-path test.
+- [analysis] extra folded into Tier-1; the dogfood-MED test updated to assert the removal.
+
+### Open / next
+- PR open for Argus review + Wren fit check (human-go class — public pyproject + golden-rule reversal).
+
 ## 2026-07-04 (SR-RM-FIGMS: remove figure + manuscript loops)
 
 ### Done
