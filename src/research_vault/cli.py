@@ -415,22 +415,29 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-PLAN-2",
     },
-    # --- SR-PLAN-1 ---
+    # --- SR-PLAN-1 / SR-HARNESS-P2 ---
     "plan": {
         "module": "research_vault.plan.verbs",
         "when_to_use": (
-            "When you need to lint a pre-registration plan note or inspect the plan_tips "
-            "prompt seam. "
+            "When you need to lint a pre-registration plan note, freeze the K-3 hash, "
+            "or record a reviewed harness commit SHA. "
             "Use `rv plan check <experiments/<id>-plan.md>` to run the K-2 structural "
             "shape-lint BEFORE the human-go-plan approval gate: checks branch-presence "
             "(every diagnosis table row has a named conclusion + committed action — no "
             "empty cells, no 'fallback', no 'TBD') and one-component-per-ablation "
             "(each supporting ablation manipulates exactly ONE component). "
+            "Use `rv plan freeze <run-id> <plan-note>` immediately after "
+            "`rv dag approve <run-id> human-go-plan` to hash the covers:-freeze-set (K-3). "
+            "Use `rv plan freeze-harness <run-id> <plan-note> --scope main<k> "
+            "--harness-commit <sha>` after each human-go-harness-main<k> approval to "
+            "record the reviewed harness commit SHA and extend the K-3 hash. "
             "Use `rv plan tips [--key <key>]` to inspect the plan_tips seam (researcher's "
             "defaults or adopter override from [plan_style] in research_vault.toml). "
             "Anti-pattern: do NOT skip plan check before human-go-plan — the shape-lint "
             "is the rejects-only structural screen (charter §9); the plan-critic (reviewer) "
             "judges semantic completeness but cannot substitute for missing outcome rows. "
+            "Anti-pattern: do NOT call freeze-harness without a prior freeze — it is "
+            "FAIL-CLOSED on absent plan_freeze. "
             "This verb is note.py-FREE: plan fields (plan_kind/covers/plan_role/"
             "supports_main/stance) are agent-authored content, not cmd_new templates."
         ),
