@@ -539,10 +539,20 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
 
     return {
         "claude_cli": claude_ok,
+        "claude_msg": claude_msg,
         "runtime": claude_ok,
         "api_key": apikey_ok,
         "tier1_missing": tier1_missing,
         "tier2_missing": tier2_missing,
+        # Structured tier data for the rich tier-matrix (list of dicts, additive).
+        "tier1": [
+            {"pip": p, "purpose": pur, "group": g, "ok": ok}
+            for (p, pur, g, ok) in tier1_results
+        ],
+        "tier2": [
+            {"pip": p, "purpose": pur, "group": g, "ok": ok}
+            for (p, pur, g, ok) in tier2_results
+        ],
         "asta": asta_ok,
         "zotero": zotero_ok,
         "wandb_key": wandb_ok,
@@ -572,15 +582,13 @@ def build_parser(
     """
     desc = (
         "Preflight check — verify Research Vault prerequisites. "
-        "Checks: Claude CLI (required), ANTHROPIC_API_KEY (required), "
-        "Toolkit Tier-1 (28-package core defaults), "
-        "Tier-2 (GPU/local inference — [local] extra), "
-        "asta (optional), Zotero/ZOTERO_KEY (optional), W&B (optional). "
-        "Per-provider SDKs and figure libs are not checked (adopter installs directly). "
-        "Exit 0 if all required prerequisites are present; exit 1 if any are missing. "
-        "API keys are resolved from env vars (highest priority) or the system keyring "
-        "(e.g. `keyring set research_vault ANTHROPIC_API_KEY`). "
-        "Run `rv check` before starting any research loop."
+        "The agent runtime (Claude CLI) is the ONLY hard requirement — there is no "
+        "required API key. Provider keys, s2, asta, W&B, Zotero, and compute are "
+        "FEATURE-REQUIRED: each unlocks a capability and shows 'locked' until you add "
+        "it (never a FAIL). Also reports Toolkit Tier-1 (core) + Tier-2 (GPU/local). "
+        "Exit 0 if the runtime is present; exit 1 only if the runtime (the sole "
+        "requirement) is missing. Keys resolve from env vars (highest priority) or the "
+        "system keyring. Run `rv onboard` for a guided setup of the locked features."
     )
     if parent is not None:
         p = parent.add_parser(
@@ -603,14 +611,35 @@ def build_parser(
             "silently un-observed. Use `rv observability probe` for a standalone check."
         ),
     )
+    p.add_argument(
+        "--plain",
+        dest="plain",
+        action="store_true",
+        default=False,
+        help="Force plain-text output (no rich rendering), even at a TTY.",
+    )
 
     return p
 
 
 def run(args: argparse.Namespace) -> int:
-    """Dispatch: rv check."""
+    """Dispatch: rv check.
+
+    Renders rich structure at an interactive TTY; falls back to the plain-text
+    ``report`` for pipes / redirects / NO_COLOR / --plain (the contract tests
+    assert on the dict + plain report, both unchanged).
+    """
     result = run_preflight(
         require_observability=getattr(args, "require_observability", False)
     )
-    print(result["report"])
+    plain = getattr(args, "plain", False)
+    from .richui import should_render_rich, render_check
+    if not plain and should_render_rich():
+        try:
+            render_check(result)
+        except Exception:
+            # Never let a rendering hiccup swallow the check — fall back to plain.
+            print(result["report"])
+    else:
+        print(result["report"])
     return 0 if result["all_required_ok"] else 1
