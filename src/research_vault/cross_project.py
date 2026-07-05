@@ -8,7 +8,7 @@ When to use:
   - ``rank_candidates`` — score and sort corroboration candidates by relevance
     (TF-IDF cosine; stdlib Jaccard fallback if sklearn absent).
 
-Design (SR-XPB Wren D1–D5):
+Design (SR-XPB architect D1–D5):
   D1: Sidecar JSON edge store (project_edges.py) backs the reach-permission gate.
   D2: Undirected edges with required ``kind``.
   D3: ``corroborate`` requires ``from_slug``; ``against`` ⊆ peers.

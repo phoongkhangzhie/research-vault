@@ -54,3 +54,49 @@ rv dag approve lit-review-loop-topic okf-coverage-gate
 | distill-paper-2 | literature note | `notes/literature/` |
 | synthesize | concepts (soft) | `notes/concepts/` |
 | synthesize | MOC links (soft) | `notes/mocs/` |
+
+## Cross-project corroboration (SR-XPB) — extending the synthesis stage
+
+After synthesis, the hub can wire in the `corroborate → judge → assert` fragment to
+corroborate findings against declared peer projects.  See
+`corroborate-judge-fragment.json` for the full DAG node fragment.
+
+### Prerequisites
+
+1. **Hub declares edges first** (one-time setup):
+   ```bash
+   rv project relate <your-project> <peer-project> --kind <why>
+   rv project edges   # verify the edge is declared
+   ```
+
+2. **Corroborate** (after synthesis node completes):
+   ```bash
+   rv research corroborate "<claim-from-synthesis>" \
+     --from <your-project> \
+     --emit state/corroboration-candidates.json
+   ```
+   If no declared peers: the tool prints a nudge; declare an edge first.
+
+3. **Dispatch the judge** via `rv dag brief <run-id> judge-corroboration`:
+   The brief embeds the candidates JSON in `reads:`.  The judge assesses each
+   candidate for GENUINE corroboration (same construct, compatible
+   operationalization) — accepts or rejects WITH a recorded reason.
+
+4. **Human reviews** the judgment (human-go gate).
+
+5. **Assert** — the researcher writes a findings note with `corroborated_by:`
+   frontmatter for accepted candidates only.
+
+**Anti-pattern:** do NOT assert from rank alone.  Rank narrows; judge confirms;
+human reviews; then assert.  The fragment structure enforces this: the assert node
+reads the judgment report, not the raw candidates.
+
+### Provenance format
+
+Each accepted candidate carries `@slug:note_rel:anchor` provenance:
+```yaml
+corroborated_by:
+  - "@peer-project:findings/their-finding.md:Key Finding"
+```
+The anchor resolves to the nearest preceding markdown heading in the source note
+(or `line-N` if no heading precedes the match).

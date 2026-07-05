@@ -128,9 +128,17 @@ _VERB_REGISTRY: dict[str, dict] = {
             "the control-bus banner, forgets the OKF type-dirs). "
             "Use `rv project add <name> --code <c> --source <dir>` "
             "if you only need the registry entry for an existing repo. Use `rv project "
-            "list` to enumerate all registered projects."
+            "list` to enumerate all registered projects. "
+            "SR-XPB — cross-project edge stewardship (hub coordination act): "
+            "use `rv project relate <a> <b> --kind <why>` to declare a cross-project "
+            "edge (grants intentional reach for corroboration); "
+            "`rv project relate <a> <b> --remove` to prune a stale edge; "
+            "`rv project edges` to surface all declared edges. "
+            "--kind is REQUIRED when declaring. "
+            "Anti-pattern: do NOT blanket-relate all projects (forfeits narrowing); "
+            "declare on genuine relatedness (shared methodology, domain, or data) only."
         ),
-        "sr": "SR-2",
+        "sr": "SR-2, SR-XPB",
     },
     "cite": {
         "module": "research_vault.cite",
@@ -150,9 +158,17 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Use 'rv research cited-by <id>' for forward snowball (who cites the seed). "
             "Use 'rv research references <id>' for backward snowball (what the seed cites — "
             "the seed's own reference list). "
-            "Anti-pattern: do NOT hand-copy a bibliography — use 'rv research references' instead."
+            "Anti-pattern: do NOT hand-copy a bibliography — use 'rv research references' instead. "
+            "SR-XPB — cross-project corroboration (gated to declared peers): "
+            "use `rv research corroborate \"<claim>\" --from <project>` to search declared "
+            "peer projects for corroborating evidence. --from is REQUIRED. "
+            "Use `--emit <path>` to write a candidates JSON for the judge node. "
+            "If no declared edges, the tool prints a discovery nudge: "
+            "run `rv project relate <from> <peer> --kind <why>` first. "
+            "Anti-pattern: do NOT substring-grep across all projects (ignores the declared-edge "
+            "gate, no rank, no provenance anchor) — use rv research corroborate instead."
         ),
-        "sr": "SR-2, SR-LR-1",
+        "sr": "SR-2, SR-LR-1, SR-XPB",
     },
     "role": {
         "module": "research_vault.role",
