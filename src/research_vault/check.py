@@ -1,15 +1,21 @@
 """check.py — `rv check` — preflight prerequisite check.
 
-When to use: ``rv check`` before starting any research loop. Verifies that
-all prerequisites are available and reports missing items with clear install
-instructions. Fail-fast: reports ALL failures, not just the first.
+When to use: ``rv check`` before starting any research loop. Reports what is
+present vs. locked, with clear fix guidance for each locked item.
+
+The agent runtime (Claude CLI) is the ONLY hard requirement — there is no
+required API key. Everything else is FEATURE-REQUIRED: it unlocks a capability
+and shows "locked" (never FAIL) until the key/config is added.
 
 Checks:
-  1. Claude CLI — ``claude --version`` must succeed (the agent runtime)
-  2. ANTHROPIC_API_KEY — must be set in env or resolvable via keyring
+  1. Claude CLI — ``claude --version`` must succeed (the agent runtime; the sole
+     hard requirement — exit 1 only if this is missing)
+  2. Provider key(s) — feature-required for API-model experiments; provider-plural
+     (ANTHROPIC/OPENAI/…), resolvable via env var or keyring; "locked" if unset
   3. Toolkit Tier-1 — 28-package research-toolkit core (installed by default)
   4. Toolkit Tier-2 — GPU-fragile local-inference stack ([local] extra)
-  5. asta / Zotero / W&B — integration checks (optional)
+  5. s2 / asta / Zotero / W&B — feature-required integrations (each unlocks a
+     capability; shown "locked" until keyed, never a failure)
 
 Per-provider SDKs (openai/google-genai/mistralai/cohere) and figure libs
 (matplotlib/seaborn) are NOT shipped — the adopter installs them directly.
@@ -574,11 +580,13 @@ def build_parser(
 ) -> argparse.ArgumentParser:
     """Build the argument parser for the ``check`` verb.
 
-    When to use: ``rv check`` before running any research loop. Verifies that
-    the Claude CLI, API key, and toolkit tiers (Tier-1 28-package core + Tier-1
-    extras + Tier-2 GPU) are available. Reports missing packages with install
-    instructions. Run `rv bootstrap` if Tier-1 packages are missing.
-    Exit 0 if all required prerequisites are present; exit 1 if any are missing.
+    When to use: ``rv check`` before running any research loop. The agent
+    runtime (Claude CLI) is the only hard requirement; provider keys, s2, asta,
+    W&B, Zotero, and compute are feature-required (shown "locked" until keyed,
+    never a failure). Also reports toolkit tiers (Tier-1 28-package core +
+    Tier-2 GPU); run `rv bootstrap` if Tier-1 packages are missing, `rv onboard`
+    for guided setup of the locked features.
+    Exit 0 if the runtime is present; exit 1 only if the runtime is missing.
     """
     desc = (
         "Preflight check — verify Research Vault prerequisites. "

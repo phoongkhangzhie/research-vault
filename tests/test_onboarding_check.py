@@ -1,6 +1,6 @@
 """test_onboarding_check.py — S1: the `rv check` reframe (F1/F2/F3).
 
-The corrected required-model (Khang): the agent runtime is the ONLY hard
+The corrected required-model: the agent runtime is the ONLY hard
 requirement.  A fresh adopter with the runtime and zero keys → rv check GREEN
 (exit 0), every feature shown "locked", never FAIL.
 """
