@@ -50,7 +50,10 @@ The seam produces **two distinct** artifacts when configured — do not conflate
 - **Plane B — runs.** A classic W&B **run** readable by `rv wandb pull` (score/aggregate
   provenance). Opt-in via `[observability].run_logging = true`; uses core `wandb` (no new dep).
   The run's `summary` carries the emission aggregates (calls, tokens, cost, latency p50/p95);
-  `config` carries the pre-registered params.
+  `config` carries the pre-registered params. Wrap the calling work with the provided
+  `research_vault.experiment_run.log_experiment_run(cfg, adapters, config_params=...,
+  analysis_metrics=..., run_fn=...)` — it opens the run, runs your `run_fn(model_client)`,
+  logs `summary`+`config`, finishes, and surfaces `entity/project/<run_id>` for `rv wandb pull`.
 
 **Test the wiring BEFORE a long run — don't discover at teardown that you logged nothing:**
 

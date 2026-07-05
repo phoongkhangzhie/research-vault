@@ -145,4 +145,5 @@ dev-dependencies = [
 # Run with: pytest -m slow  (CI: add a dedicated job in SR-META).
 markers = [
     "slow: isolated wheel build+install+run smoke tests (may take 30s+)",
+    "live: real-network model-seam acceptance tests (SR-MODEL-SEAM); SKIPPED without API keys; operator runs `pytest -m live`.",
 ]
