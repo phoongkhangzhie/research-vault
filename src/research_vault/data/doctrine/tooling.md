@@ -87,22 +87,22 @@ itself. Not yet built — the target state.
 
 ## Identity and separation of duties
 
-In the OSS package, use `gh` and `git` directly with your own credentials. The separation-of-
-duties principle still applies: **the reviewer must not be the PR's author.** Enforce this
-manually: before posting an approval, run `gh pr view <pr> --json author` and confirm the
-author is not you.
+Research-vault runs under **one GitHub account** — the adopter's.  Use `gh` and
+`git` directly with your own credentials.
 
-The principle behind the design (for future tier-3 adapter tooling): the enforcement hole is
-that a single shell session can silently use the owner keyring even when a different role token
-is intended. A role-specific identity system (planned for a later increment) closes this by:
+The separation-of-duties principle still applies — **the reviewer must not be
+the PR's author** — but it is enforced structurally, not by account:
 
-1. Persisting the active role across tool-call boundaries (not just the current shell invocation).
-2. Wrapping `gh` to inject the role-specific `GH_TOKEN` at every call, fail-closed.
-3. Adding a structural self-vs-author guard on PR-write subcommands.
+- **Role-hat dispatch**: the reviewer hat is a distinct subagent dispatch from
+  the engineer hat; they share no author context.
+- **TTY approve-gate** (`approval.py`, `stdin.isatty()`): a dispatched agent has
+  no interactive terminal and cannot satisfy the approval prompt.  The human
+  operator is structurally the approving party.
 
-Until that adapter ships, use plain `gh` with a role-specific token and enforce the grounding
-gate manually — see [engineer.md](./roles/engineer.md) and [reviewer.md](./roles/reviewer.md) for the
-per-role session sequence.
+Before posting an approval, run `gh pr view <pr> --json author` and confirm
+the author is not you — this is the human-operator sanity check, not a
+multi-account requirement.  See [engineer.md](./roles/engineer.md) and
+[reviewer.md](./roles/reviewer.md) for the per-role session sequence.
 
 ---
 

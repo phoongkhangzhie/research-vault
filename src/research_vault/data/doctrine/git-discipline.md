@@ -82,11 +82,10 @@ types: feat | fix | docs | refactor | test | chore | ci | build | perf
 ## Crew git identity
 
 When a crew member works in a worktree, the commit authorship should reflect
-the role, not the operator's personal account.  Use `--as <role>` at worktree
-creation:
+the role for readability.  Use `--as <role>` at worktree creation:
 
 ```
-rv wt add <task> --as mason
+rv wt add <task> --as <role>
 ```
 
 This sets `git config user.email = mason@<crew-domain>` and
@@ -102,24 +101,23 @@ accepted carve-out for attribution in a public repository.  The leakage scanner
 scans *file content*, not commit metadata.  A reviewer must not flag this
 attribution as a leak.
 
-## Separation of duties (identity-free — an honest reduction)
+## Separation of duties (single-account model)
 
-Without distinct GitHub accounts per role, author-≠-reviewer cannot be
-**cryptographically** enforced.  Research-vault re-shapes by structural process
-instead — stated plainly, not papered over:
+Research-vault runs under **one GitHub account** — the adopter's.  Author ≠
+reviewer is not a GitHub-account check; it is the **TTY approve-gate**: a
+dispatched agent has no interactive terminal, so it cannot satisfy the approval
+prompt.  The human operator is structurally the approving party.
 
-| Layer | What it enforces | Identity-free? | Teeth |
-|---|---|---|---|
-| **GitHub branch-protection** | require PR · require CI · no direct push · no force-push · require conversation resolution | YES — zero second identity needed | Server-side, real |
-| **Role-hat dispatch** | author ≠ reviewer as *process*: the reviewer hat is a **distinct dispatch** from the engineer hat (fresh subagent, reviewer lens, no shared author context) | YES (structural in the dispatch) | Process, not crypto |
-| **NOT enforceable** | "the approver is a different *account* than the author" | — | GitHub can require an approval, but cannot enforce *who* without a second account |
+| Layer | What it enforces | Mechanism |
+|---|---|---|
+| **GitHub branch-protection** | require PR · require CI · no direct push · no force-push · require conversation resolution | Server-side, real |
+| **Role-hat dispatch** | author ≠ reviewer as *process*: the reviewer hat is a **distinct dispatch** from the engineer hat (fresh subagent, reviewer lens, no shared author context) | Structural in the dispatch |
+| **TTY approve-gate** | the approval step requires an interactive terminal — a dispatched crew agent has none; only the human operator can satisfy it | `approval.py` (`stdin.isatty()`) |
 
-The honest bottom line: for a solo human, self-merge is normal OSS — the hooks
-plus green CI are the gate.  For the AI-runs-the-crew mode, author ≠ reviewer
-is a role-hat + require-review + doctrine gate rather than a cryptographic
-identity.  Research-vault does not pretend the crypto guarantee survives; it
-replaces it with the strongest identity-free substitute and is candid about the
-delta.
+The honest bottom line: for a solo human operator, the hooks plus green CI plus
+the TTY approve-gate are the whole enforcement story.  For the AI-runs-the-crew
+mode, author ≠ reviewer is the role-hat + require-review + TTY gate — not a
+cryptographic identity guarantee, but a structural one with real teeth.
 
 ## Branch protection guidance
 
@@ -129,8 +127,8 @@ delta.
 - Require status checks (CI) to pass before merging.
 - Block force-push and deletion of the base branch.
 - Require conversation resolution before merging.
-- Do **not** configure "require a different reviewer" — unenforceable without a
-  second GitHub account, and the install command says so per-repo.
+- "Require a different reviewer" (GitHub setting) is not needed — the TTY
+  approve-gate enforces the crew-cannot-self-approve boundary structurally.
 
 A project repo kept purely local (un-hosted) has no server-side protection.
 The hooks plus this doctrine are the whole gate there; that must be stated

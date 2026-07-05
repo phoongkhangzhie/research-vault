@@ -378,8 +378,8 @@ def _print_branch_protection_guidance(repo: Path, *, alias: str) -> None:
     print(f"      --field required_pull_request_reviews[required_approving_review_count]=1 \\")
     print(f"      --field enforce_admins=true")
     print(f"    Rules: require PR · require CI status checks · block force-push/delete")
-    print(f"    NOTE: 'require different reviewer' is NOT enforced here — that needs a")
-    print(f"    second GitHub account. The hooks + doctrine are the gate without one.")
+    print(f"    NOTE: 'require different reviewer' (GitHub setting) is not needed —")
+    print(f"    the TTY approve-gate enforces the crew-cannot-self-approve boundary.")
     print(f"    A purely local repo has no server-side protection — hooks + doctrine only.")
 
 
