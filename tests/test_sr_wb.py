@@ -534,6 +534,9 @@ class TestCmdCheckExperimentsResults:
             f"results_hash: {good_hash}\n"
             "results_wandb_run: e/p/run\n"
             "results_commit: abc\n"
+            # F24: explicitly opt out of dataset provenance warn (no external dataset)
+            "repro_dataset_id: not-applicable\n"
+            "repro_dataset_hash: not-applicable\n"
             "---\n",
             encoding="utf-8",
         )

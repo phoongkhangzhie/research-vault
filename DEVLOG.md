@@ -39,6 +39,28 @@
   results/data key). Needs investigation before adding rerank.
 - Pool pagination: asta caps at 100 results per call. If `--pool > 100`, fetch is silently
   capped. A future `--paginate` flag could batch multiple asta calls to achieve pools > 100.
+## 2026-07-04 (F24: datasets-note discoverability)
+
+### Done
+- `experiment.py`: plan note skeleton now includes a `## Dataset Provenance` section
+  with `rv note <p> new datasets` instructions; step 0 in printed next steps prompts
+  dataset note creation before the freeze.
+- `note.check_dataset_provenance_warn()`: WARN (never block) when `results_hash` is
+  set but `repro_dataset_id` is the sentinel; silent when filled / not-applicable / no-run.
+- `cmd_check` wired: calls `check_dataset_provenance_warn` for experiments notes
+  alongside the existing `check_repro_sentinel_lint`.
+- Pre-existing bug fixed: `NameError: exp_id not defined` in `run()` per-main harness
+  loop (`exp_id` → `args.exp_id`).
+- 11 fixture tests in `tests/test_datasets_note.py`; `test_sr_wb.py` fixture updated
+  with explicit `repro_dataset_id: not-applicable`.
+- CI green on PR #104.
+
+### Decisions
+- WARN not block: dataset provenance is opt-out (set `not-applicable` for no-external-data
+  runs). Gate would be too noisy for proxy/synthetic experiments.
+
+### Open / next
+- PR #104 open; awaiting reviewer gate.
 
 ---
 

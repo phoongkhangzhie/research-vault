@@ -175,6 +175,21 @@ Component manipulated: [name the single component].
 
 """
 
+    # F24: dataset provenance section — surfaces the recording step so it cannot be silently skipped.
+    dataset_section = (
+        "## Dataset Provenance\n\n"
+        "Record dataset provenance BEFORE running to keep data lineage structural.\n"
+        "Anti-pattern: do NOT hand-copy a data path into a findings note.\n\n"
+        "1. Create a datasets provenance note:\n"
+        f"   `rv note {project_id} new datasets <dataset-title>`\n"
+        "   Fill in `location:` (path/URL/DOI) and `hash:` (sha256:<hex>) in the note.\n\n"
+        "2. Reference it in each experiment run note via `repro_dataset_id: datasets/<slug>`\n"
+        "   (auto-populated from `rv wandb pull` if the W&B run config carries the dataset id).\n\n"
+        "If this experiment uses no external dataset (e.g. synthetic/generated data),\n"
+        "set `repro_dataset_id: not-applicable` in each run note.\n\n"
+    )
+    body += dataset_section
+
     return f"---\n{frontmatter}---\n\n{body}"
 
 
@@ -893,6 +908,12 @@ def run(args: argparse.Namespace) -> int:
         shared_harness_flag = getattr(args, "shared_harness", False)
         print("Next steps (in order — DO NOT skip the freeze or harness gates):")
         print()
+        print("  0. Record dataset provenance BEFORE running (F24):")
+        print(f"     rv note {args.project} new datasets <dataset-title>")
+        print("     Fill 'location:' and 'hash:' in the note, then reference it")
+        print("     via 'repro_dataset_id: datasets/<slug>' in each run note.")
+        print("     (Skip with repro_dataset_id: not-applicable if no external dataset.)")
+        print()
         print("  1. Fill in the plan note (claim arrows, decision thresholds, falsifiers,")
         print("     diagnosis tables for each main + ablation):")
         print(f"     Edit: {plan_note_path}")
@@ -915,8 +936,8 @@ def run(args: argparse.Namespace) -> int:
         else:
             for ki in range(1, n_mains + 1):
                 print(f"  4.{ki}. Harness sub-sequence for Main {ki}:")
-                print(f"     a. Engineer writes harness → {exp_id}-main{ki}-harness node completes.")
-                print(f"     b. Reviewer checks harness-contract.md → {exp_id}-main{ki}-harness-review completes.")
+                print(f"     a. Engineer writes harness → {args.exp_id}-main{ki}-harness node completes.")
+                print(f"     b. Reviewer checks harness-contract.md → {args.exp_id}-main{ki}-harness-review completes.")
                 print(f"     c. Approve the harness gate + record the commit SHA:")
                 print(f"        rv dag approve {run_id} human-go-harness-main{ki}")
                 print(f"        rv plan freeze-harness {run_id} {plan_note_path} --scope main{ki} --harness-commit <sha>")
