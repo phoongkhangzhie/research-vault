@@ -35,9 +35,9 @@ Subcommands (SR-LR-1):
       Print the review_tips seam content (researcher's default or adopter override).
 
 Subcommands (SR-LR-2 — the gap-driven pass):
-  rv review <project> gap-scan [--threshold <n>] [--run-state <path>]
+  rv review <project> gap-scan [--threshold <n>]
       Detect typed research gaps from the OKF corpus (knowledge_void, contradictory,
-      evaluation_void) and/or a structured manuscript critic run-state (absent_row).
+      evaluation_void).
       Writes gaps/<id>.md for each new gap with a suggested_route: field (SR-GAP-ROUTE).
       Idempotent (does NOT re-create existing gaps).
       Surfaces a COUNT only — records are never inlined into the control bus.
@@ -222,19 +222,6 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
             "A finding with backed_by count < threshold is flagged. Default: 1."
         ),
     )
-    gap_scan_p.add_argument(
-        "--run-state",
-        metavar="<path>",
-        default=None,
-        help=(
-            "Path to a DAG run-state JSON file whose meta['support_matcher'] holds "
-            "the structured SupportMatchSummary.meta_dict() output from the "
-            "approve-manuscript node (SR-MS-2). If provided, absent_row gaps are "
-            "detected from the structured ABSENT/CONTRADICTS verdicts — the loop-closer "
-            "gap type (§5L.10). Omit if no manuscript critic run exists yet."
-        ),
-    )
-
     # ── gap-scope ─────────────────────────────────────────────────────────────
     gap_scope_p = sub.add_parser(
         "gap-scope",
@@ -561,7 +548,6 @@ def _run_tips(args: argparse.Namespace) -> int:
 
 def _run_gap_scan(args: argparse.Namespace) -> int:
     """Run the gap-scan screen (SR-LR-2 §5L.7)."""
-    import json
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_scan
 
@@ -572,41 +558,12 @@ def _run_gap_scan(args: argparse.Namespace) -> int:
         return 1
 
     threshold = getattr(args, "threshold", 1)
-    run_state_str = getattr(args, "run_state", None)
-    matcher_meta: "dict | None" = None
-    run_id = ""
-
-    if run_state_str:
-        run_state_path = Path(run_state_str)
-        if not run_state_path.exists():
-            print(
-                f"rv review gap-scan: --run-state path does not exist: {run_state_path}",
-                file=sys.stderr,
-            )
-            return 1
-        try:
-            run_state_raw = json.loads(run_state_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
-            print(f"rv review gap-scan: cannot load run-state JSON: {e}", file=sys.stderr)
-            return 1
-        run_id = run_state_raw.get("run_id", "")
-        meta = run_state_raw.get("meta", {})
-        matcher_meta = meta.get("support_matcher")
-        if matcher_meta is None:
-            print(
-                f"rv review gap-scan: run-state has no meta['support_matcher'] — "
-                f"did the manuscript critic node complete? absent_row detection skipped.",
-                file=sys.stderr,
-            )
-            # Not a fatal error — OKF corpus scan still runs
 
     try:
         new_gaps = cmd_gap_scan(
             args.project,
             config=cfg,
             threshold=threshold,
-            matcher_meta=matcher_meta,
-            run_id=run_id,
         )
         from research_vault.review.gap_scan import open_gap_count
         total_open = open_gap_count(args.project, config=cfg)
