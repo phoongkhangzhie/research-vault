@@ -231,6 +231,74 @@ def test_context_manager_asserts_on_exit(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# atexit handler lifecycle — unregistered on __exit__ (fix/seam-nits)
+# ---------------------------------------------------------------------------
+
+def test_atexit_handler_unregistered_on_context_manager_exit(tmp_path, monkeypatch):
+    """__exit__ must call atexit.unregister so the handler (and the instance it holds)
+    are not retained after the client's lifetime ends.
+
+    RED before the fix: __exit__ only called assert_observed, never atexit.unregister.
+    GREEN after: __exit__ calls atexit.unregister(self._atexit_handler) first.
+    """
+    import atexit as _atexit
+
+    registered_handlers: list = []
+    unregistered_handlers: list = []
+
+    monkeypatch.setattr(_atexit, "register",
+                        lambda fn, *a, **kw: registered_handlers.append(fn))
+    monkeypatch.setattr(_atexit, "unregister",
+                        lambda fn: unregistered_handlers.append(fn))
+
+    mc = ModelClient(_cfg(tmp_path), FakeSecrets({}), SpyBackend(name="none"))
+
+    assert len(registered_handlers) == 1, "ModelClient.__init__ must register exactly one handler"
+    handler_ref = registered_handlers[0]
+
+    mc.__exit__(None, None, None)
+
+    assert len(unregistered_handlers) == 1, (
+        "__exit__ must call atexit.unregister — otherwise the handler (and the instance "
+        "it holds via self) leaks until interpreter exit"
+    )
+    assert unregistered_handlers[0] is handler_ref, (
+        "must unregister the exact handler that was registered in __init__"
+    )
+
+
+def test_atexit_handler_not_retained_across_n_clients(tmp_path, monkeypatch):
+    """Constructing + __exit__-ing N clients leaves 0 net registered atexit handlers.
+
+    Without unregister: N handlers accumulate and each holds a reference to its client.
+    After the fix: each __exit__ unregisters its own handler — net count = 0.
+    """
+    import atexit as _atexit
+
+    net: list = []  # positive = register, negative = unregister (by object id)
+
+    def _spy_register(fn, *a, **kw):
+        net.append(id(fn))
+
+    def _spy_unregister(fn):
+        if id(fn) in net:
+            net.remove(id(fn))
+
+    monkeypatch.setattr(_atexit, "register", _spy_register)
+    monkeypatch.setattr(_atexit, "unregister", _spy_unregister)
+
+    N = 5
+    for _ in range(N):
+        mc = ModelClient(_cfg(tmp_path), FakeSecrets({}), SpyBackend(name="none"))
+        mc.__exit__(None, None, None)
+
+    assert len(net) == 0, (
+        f"expected 0 net registered handlers after {N} construct+__exit__ cycles, "
+        f"got {len(net)} — atexit handlers leaked"
+    )
+
+
+# ---------------------------------------------------------------------------
 # AdapterSet.model — lazy, cached, first-class
 # ---------------------------------------------------------------------------
 
