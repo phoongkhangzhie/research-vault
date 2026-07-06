@@ -421,6 +421,15 @@ def store_freeze_hash(
         run_id:         the DAG run id.
         plan_note_path: path to the plan master note to freeze.
         notes_root:     directory where child notes live.  Stored as absolute.
+
+    STUB-SOUNDNESS INVARIANT (#49, RunStore.create_stub):
+        This function reads ONLY run_state.meta (which it writes into) and
+        run_state.manifest_path — it never reads node_states or
+        edge_registered_ts.  That is exactly what makes a RunStore.create_stub()
+        sidecar (empty node_states/edge_registered_ts) sufficient input: a
+        consumer that never ran `rv dag run` for this run_id can still freeze
+        off the stub.  A future change to this function that reads node_states
+        would silently break stub-based consumers — preserve this invariant.
     """
     run_state = run_store.load(run_id)
     manifest_nodes = _load_manifest_nodes(run_state.manifest_path)
@@ -498,6 +507,13 @@ def verify_freeze_hash(
                          is absent — legacy meta back-compat or relocation).
         require_frozen:  if True (default), absent freeze → (False, "not frozen").
                          if False, absent freeze → (True, None) — no-op.
+
+    STUB-SOUNDNESS INVARIANT (#49, RunStore.create_stub):
+        This function reads ONLY run_state.meta and run_state.manifest_path —
+        never node_states or edge_registered_ts.  A RunStore.create_stub()
+        sidecar therefore verifies exactly like a run created by `rv dag run`.
+        Preserve this invariant if you touch this function; reading node_states
+        here would silently break stub-based (foreign-engine) consumers.
     """
     import warnings
 

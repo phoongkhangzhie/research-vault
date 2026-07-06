@@ -225,6 +225,44 @@ class RunStore:
             )
         self._write(path, run_state)
 
+    def create_stub(self, run_id: str, manifest_path: str | Path) -> RunState:
+        """Create (or return, if already present) a minimal sidecar RunState.
+
+        First-class bootstrap for consumers that only need the K-3 freeze gate
+        (plan/freeze.py's store_freeze_hash/verify_freeze_hash) WITHOUT running
+        the full `rv dag run` walk — e.g. a downstream system running rv
+        manifests on its own (foreign) execution engine, which only wants rv's
+        pre-registration integrity check.
+
+        Before this method, such a consumer had to hand-roll
+        ``RunStore.create(RunState(run_id=..., manifest_path=...))`` directly —
+        a footgun, since the "empty node_states/meta is fine" shape is an
+        implementation detail of freeze.py's read surface (see the invariant
+        documented on store_freeze_hash/verify_freeze_hash), not a documented
+        public contract.
+
+        Idempotent: if a RunState already exists at run_id (whether created by
+        a real `rv dag run`, a prior create_stub call, or anything else), it is
+        loaded and returned UNCHANGED — this call never overwrites node_states,
+        edge_registered_ts, or meta of an existing run.
+
+        Args:
+            run_id:        the DAG run id.
+            manifest_path: path to the manifest JSON (stored as str).
+
+        Returns:
+            The existing RunState (if run_id already has one) or a freshly
+            created minimal stub (run_id + manifest_path, empty
+            node_states/edge_registered_ts/meta).
+        """
+        try:
+            return self.load(run_id)
+        except StoreError:
+            pass
+        run_state = RunState(run_id=run_id, manifest_path=str(manifest_path))
+        self.create(run_state)
+        return run_state
+
     def load(self, run_id: str) -> RunState:
         """Load a run state by run_id. Raises StoreError if not found."""
         path = self._run_path(run_id)
