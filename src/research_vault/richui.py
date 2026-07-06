@@ -41,7 +41,7 @@ _STYLE: dict[str, str] = {
     "fail": "#C15F3C",            # hard failure
     "info": "#7D8CA8",            # optional / neutral
     "muted": "#6B7180",           # recede metadata (the Class column)
-    "header": "bold #C6D0E0",     # table column heads — lifted slate, bold
+    "header": "bold #8793B0",     # table column heads — mid steel-blue, bold (legible on BOTH light & dark)
     "title": "bold #C6A24A",      # section / panel titles — brass, the one accent
     "url": "#6FA8C7 underline",   # unlock links
     # borders — steel neutral, tinted only to carry the OK/FAIL verdict
@@ -66,6 +66,41 @@ _PANEL_BORDER: dict[str, str] = {
     "init": _STYLE["panel_init_border"],
     "neutral": _STYLE["border"],
 }
+
+
+# ---------------------------------------------------------------------------
+# Status marks — ONE glyph+colour language shared by every verb (the S-polish
+# fix for glyph/word drift).  Colour axis is the load-bearing signal and is
+# fully consistent: teal = good · clay = hard fail · brass = your-move
+# (locked / warn / pending) · steel-grey = benign skip / n-a.  Glyph reinforces
+# it (and carries the state for a colour-blind reader).  Glyphs verified to
+# render on truecolor + 256/16-colour terminals (rich down-samples the colour).
+# ---------------------------------------------------------------------------
+_MARKS: dict[str, tuple[str, str]] = {
+    "ok":      ("●", _STYLE["ok"]),        # pass / OK / unlocked / installed / done
+    "fail":    ("✗", _STYLE["fail"]),      # hard failure
+    "warn":    ("○", _STYLE["locked"]),    # actionable gap — WARN / missing (your move)
+    "locked":  ("○", _STYLE["locked"]),    # locked-but-actionable
+    "pending": ("◐", _STYLE["locked"]),    # in-flight / not-yet-terminal
+    "skip":    ("–", _STYLE["info"]),      # benign skip / optional / n-a
+    "info":    ("–", _STYLE["info"]),
+}
+
+
+def status_glyph(kind: str) -> str:
+    """Return the coloured status glyph for ``kind`` (see :data:`_MARKS`)."""
+    glyph, colour = _MARKS.get(kind, _MARKS["info"])
+    return f"[{colour}]{glyph}[/]"
+
+
+def status_cell(kind: str, label: str) -> str:
+    """Return a coloured ``glyph label`` cell — the uniform status token.
+
+    The single way any verb renders an OK/FAIL/locked/skip state so the
+    glyph+colour language never drifts between surfaces.
+    """
+    glyph, colour = _MARKS.get(kind, _MARKS["info"])
+    return f"[{colour}]{glyph} {label}[/]"
 
 
 # ---------------------------------------------------------------------------
@@ -226,9 +261,9 @@ def render_check(result: dict[str, Any], console: Any = None) -> None:
     runtime_msg = str(result.get("claude_msg", "")).splitlines()[0] if result.get("claude_msg") else (
         "Claude CLI" + (" found" if runtime_ok else " NOT FOUND")
     )
-    mark = f"[{_STYLE['ok']}]OK[/]" if runtime_ok else f"[{_STYLE['fail']}]FAIL[/]"
+    verdict = status_cell("ok", "OK") if runtime_ok else status_cell("fail", "FAIL")
     make_panel(
-        f"{mark}  {runtime_msg}\n"
+        f"{verdict}  {runtime_msg}\n"
         "[dim]The agent runtime is the ONLY hard requirement — no API key is required.[/dim]",
         title="Required",
         kind="ok" if runtime_ok else "fail",
@@ -246,7 +281,7 @@ def render_check(result: dict[str, Any], console: Any = None) -> None:
     ok = bool(result.get("all_required_ok"))
     if ok:
         locked = [f["title"] for f in result.get("features", []) if f["status"] == "locked"]
-        body = f"[{_STYLE['ok']}]Result: OK[/] — the agent runtime is present (the only hard requirement)."
+        body = f"{status_cell('ok', 'Result: OK')} — the agent runtime is present (the only hard requirement)."
         if locked:
             body += (
                 f"\n[dim]{len(locked)} feature(s) locked: {', '.join(locked)}.[/dim]"
@@ -255,7 +290,7 @@ def render_check(result: dict[str, Any], console: Any = None) -> None:
         kind = "ok"
     else:
         culprits = ", ".join(result.get("required_failed", [])) or "unknown"
-        body = f"[{_STYLE['fail']}]Result: FAIL[/] — required prerequisite missing: {culprits}."
+        body = f"{status_cell('fail', 'Result: FAIL')} — required prerequisite missing: {culprits}."
         kind = "fail"
     make_panel(body, title="Result", kind=kind, console=con)
 
@@ -278,11 +313,11 @@ def _tier_matrix_table(result: dict[str, Any], Table: Any) -> Any:
         for group, oks in groups.items():
             ok_n, total = sum(oks), len(oks)
             if ok_n == total:
-                status = f"[{_STYLE['ok']}]OK[/]"
+                status = status_cell("ok", "OK")
             elif key == "tier2":
-                status = f"[{_STYLE['info']}]optional[/]"
+                status = status_cell("skip", "optional")
             else:
-                status = f"[{_STYLE['locked']}]missing[/]"
+                status = status_cell("warn", "missing")
             rows.append((tier_label, group, f"{ok_n}/{total}", status))
             tier_label = ""  # only label the first row of each tier
     return make_status_table(columns, rows, title="Toolkit tiers", Table=Table)
@@ -305,11 +340,11 @@ def _integrations_table(result: dict[str, Any], Table: Any) -> Any:
     rows: list[tuple[Any, ...]] = []
     for feat in result.get("features", []):
         if feat["status"] == "unlocked":
-            status = f"[{_STYLE['ok']}]● unlocked[/]"
+            status = status_cell("ok", "unlocked")
             if feat["detail"]:
                 status += f" [dim]{feat['detail']}[/dim]"
         else:
-            status = f"[{_STYLE['locked']}]○ locked[/]"
+            status = status_cell("locked", "locked")
         rows.append((feat["title"], feat["unlocks"], feat["class"], status))
     title = (
         "Integrations  [dim]— each a feature you unlock, locked until you add it[/dim]"
@@ -551,7 +586,13 @@ def render_status(sections: dict[str, Any], console: Any = None) -> None:
         console=con,
     )
 
+    # One blank line between sections gives the stacked view a scannable rhythm
+    # (otherwise the panels/tables fuse into a wall).
+    def _section() -> None:
+        con.print()
+
     # ── Coordination state ───────────────────────────────────────────────────
+    _section()
     coord = sections.get("coordination", {})
     if coord.get("error"):
         make_panel(f"[{_STYLE['fail']}]read error:[/] {escape(coord['error'])}",
@@ -579,6 +620,7 @@ def render_status(sections: dict[str, Any], console: Any = None) -> None:
             con.print(f"  [{_STYLE['fail']}]⚠ banner missing[/] — run [bold]rv control heal[/bold]")
 
     # ── Task board ───────────────────────────────────────────────────────────
+    _section()
     task = sections.get("task_board", {})
     if task.get("error"):
         make_panel(f"[{_STYLE['fail']}]error:[/] {escape(task['error'])}",
@@ -593,6 +635,7 @@ def render_status(sections: dict[str, Any], console: Any = None) -> None:
         make_panel(body, title="Task Board", kind="neutral", console=con)
 
     # ── DEVLOG tail ──────────────────────────────────────────────────────────
+    _section()
     devlog = sections.get("devlog", {})
     if devlog.get("error"):
         make_panel(f"[{_STYLE['fail']}]error:[/] {escape(devlog['error'])}",
@@ -603,6 +646,7 @@ def render_status(sections: dict[str, Any], console: Any = None) -> None:
         make_panel(body, title="DEVLOG (latest entry)", kind="neutral", console=con)
 
     # ── Local git state ──────────────────────────────────────────────────────
+    _section()
     git = sections.get("git", {})
     if git.get("error"):
         make_panel(f"[{_STYLE['fail']}]error:[/] {escape(git['error'])}",
@@ -621,6 +665,7 @@ def render_status(sections: dict[str, Any], console: Any = None) -> None:
                    kind="neutral", console=con)
 
     # ── DAG runs ─────────────────────────────────────────────────────────────
+    _section()
     dag = sections.get("dag", {})
     if dag.get("error"):
         make_panel(f"[{_STYLE['fail']}]error:[/] {escape(dag['error'])}",
@@ -635,15 +680,16 @@ def render_status(sections: dict[str, Any], console: Any = None) -> None:
             rows = []
             for r in runs:
                 if r["terminal"]:
-                    state = f"[{_STYLE['ok']}]terminal[/]"
+                    state = status_cell("ok", "terminal")
                 else:
-                    state = f"[{_STYLE['locked']}]in-flight[/]"
+                    state = status_cell("pending", "in-flight")
                 rows.append((escape(str(r["run_id"])), state))
             con.print(make_status_table(columns, rows, title="DAG Runs"))
         else:
             make_panel("[dim](none)[/dim]", title="DAG Runs", kind="neutral", console=con)
 
     # ── Pointers ─────────────────────────────────────────────────────────────
+    _section()
     pointers = sections.get("pointers", {})
     if pointers.get("lines") is not None:
         body = f"[dim]from {escape(pointers.get('path', '?'))}[/dim]\n" + "\n".join(
@@ -656,12 +702,13 @@ def render_status(sections: dict[str, Any], console: Any = None) -> None:
     make_panel(body, title="Pointers", kind="neutral", console=con)
 
     # ── Needs attention ──────────────────────────────────────────────────────
+    _section()
     attention = sections.get("attention", [])
     if attention:
-        body = "\n".join(f"[{_STYLE['locked']}]![/] {escape(a)}" for a in attention)
+        body = "\n".join(f"{status_glyph('warn')} {escape(a)}" for a in attention)
         make_panel(body, title="Needs Attention", kind="fail", console=con)
     else:
-        make_panel(f"[{_STYLE['ok']}]— nothing flagged[/]", title="Needs Attention",
+        make_panel(status_cell("ok", "nothing flagged"), title="Needs Attention",
                    kind="ok", console=con)
 
 
@@ -686,7 +733,7 @@ def render_bootstrap(result: dict[str, Any], console: Any = None) -> None:
 
     # ── Per-tier status lines ────────────────────────────────────────────────
     def _mark(ok: bool) -> str:
-        return f"[{_STYLE['ok']}]OK[/]" if ok else f"[{_STYLE['fail']}]FAIL[/]"
+        return status_cell("ok", "OK") if ok else status_cell("fail", "FAIL")
 
     lines: list[str] = [f"[dim]venv:[/dim] {venv_dir}", ""]
     lines.append(f"{_mark(tier1_ok)}  [bold]Tier-1[/bold] (core) — hard requirement")
@@ -703,7 +750,7 @@ def render_bootstrap(result: dict[str, Any], console: Any = None) -> None:
             lines.append(err_tail)
         con.print("\n".join(lines))
         make_panel(
-            f"[{_STYLE['fail']}]Result: FAIL[/] — Tier-1 install failed. "
+            f"{status_cell('fail', 'Result: FAIL')} — Tier-1 install failed. "
             "Fix the error above and re-run [bold]rv bootstrap[/bold].",
             title="Result",
             kind="fail",
@@ -713,13 +760,13 @@ def render_bootstrap(result: dict[str, Any], console: Any = None) -> None:
 
     # Tier-2 (best-effort)
     if not result.get("tier2_attempted", True):
-        lines.append(f"[{_STYLE['info']}]— [/] [bold]Tier-2[/bold] (GPU/local) — skipped (--no-tier2)")
+        lines.append(f"{status_cell('skip', 'skip')}  [bold]Tier-2[/bold] (GPU/local) — (--no-tier2)")
     elif result.get("tier2_ok"):
         lines.append(f"{_mark(True)}  [bold]Tier-2[/bold] (GPU/local) — installed")
     else:
         reason = escape(str(result.get("tier2_reason", "")).strip() or "GPU-fragile — needs a CUDA env")
         lines.append(
-            f"[{_STYLE['locked']}]WARN[/]  [bold]Tier-2[/bold] (GPU/local) — skipped\n"
+            f"{status_cell('warn', 'WARN')}  [bold]Tier-2[/bold] (GPU/local) — skipped\n"
             f"      [dim]{reason}[/dim]\n"
             f"      [dim]install on your GPU box:[/dim] [bold]pip install research-vault[local][/bold]"
         )
@@ -732,14 +779,14 @@ def render_bootstrap(result: dict[str, Any], console: Any = None) -> None:
         else:
             reason = escape(str(result.get("serve_reason", "")).strip() or "GPU/CUDA-specific")
             lines.append(
-                f"[{_STYLE['locked']}]WARN[/]  [bold]Serve[/bold] ({escape(str(serve_target))}) — skipped\n"
+                f"{status_cell('warn', 'WARN')}  [bold]Serve[/bold] ({escape(str(serve_target))}) — skipped\n"
                 f"      [dim]{reason}[/dim]"
             )
 
     con.print("\n".join(lines))
 
     # ── Result panel ─────────────────────────────────────────────────────────
-    body = f"[{_STYLE['ok']}]Result: OK[/] — Tier-1 installed."
+    body = f"{status_cell('ok', 'Result: OK')} — Tier-1 installed."
     if result.get("tier2_attempted", True):
         body += " Tier-2: " + ("installed." if result.get("tier2_ok") else "skipped (see above).")
     body += (
