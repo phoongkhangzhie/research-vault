@@ -904,3 +904,69 @@ class TestShippedDocVerbAudit:
             "(positional order or extra positional arg):\n"
             + "\n".join(wrong_shape)
         )
+
+
+# ---------------------------------------------------------------------------
+# fix/init-no-onboard-chain: rv init must NOT prompt for guided setup or
+# call cmd_onboard — even when stdin is a TTY.
+# ---------------------------------------------------------------------------
+
+class TestInitNoOnboardChain:
+    """rv init must never import or invoke cmd_onboard.
+
+    Regression guard for Khang's directive: the auto-offer block
+    (``if sys.stdin.isatty(): ... input("Run guided setup now?") ...``)
+    must be absent from init.py.  The adopter cd's into the vault first,
+    then runs ``rv onboard`` themselves.
+    """
+
+    def test_init_does_not_call_onboard_on_simulated_tty(self, tmp_path, monkeypatch, capsys):
+        """Simulated TTY: no prompt, no cmd_onboard call, returns 0."""
+        from research_vault.init import cmd_init_in_dir
+
+        # Arrange: simulate a TTY so the old auto-offer block would fire.
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+        # Arrange: spy — raise if cmd_onboard is ever imported or called.
+        import unittest.mock as mock
+        sentinel_called = []
+
+        def _guard(*args, **kwargs):
+            sentinel_called.append(True)
+            raise AssertionError(
+                "rv init must NOT call cmd_onboard — adopter runs it after cd"
+            )
+
+        monkeypatch.setattr(
+            "research_vault.init.cmd_onboard",
+            _guard,
+            raising=False,  # attribute may not exist (import deleted) — that's fine
+        )
+
+        # Act.
+        rc = cmd_init_in_dir(str(tmp_path / "myvault"))
+
+        # Assert: returned 0, no onboard call.
+        assert rc == 0, "rv init must return 0"
+        assert not sentinel_called, "cmd_onboard was invoked — the auto-offer block was not removed"
+
+        # Assert: next-steps output still shows cd → rv onboard → rv start.
+        out = capsys.readouterr().out
+        assert "rv onboard" in out, "next-steps must still mention 'rv onboard'"
+        assert "rv start" in out, "next-steps must still mention 'rv start'"
+        assert "cd" in out, "next-steps must still show cd instruction"
+
+    def test_init_does_not_prompt_run_guided_setup(self, tmp_path, monkeypatch, capsys):
+        """The 'Run guided setup now?' prompt must never appear in stdout/stderr."""
+        from research_vault.init import cmd_init_in_dir
+
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+        rc = cmd_init_in_dir(str(tmp_path / "vault2"))
+        assert rc == 0
+
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert "Run guided setup now" not in combined, (
+            "The 'Run guided setup now?' prompt was printed — the auto-offer block was not removed"
+        )
