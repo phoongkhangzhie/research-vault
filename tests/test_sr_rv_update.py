@@ -34,10 +34,32 @@ from research_vault.update import (
 
 @pytest.fixture()
 def vault(tmp_path):
-    """A freshly-initialised vault (with git repo + initial commit)."""
+    """A freshly-initialised vault (with git repo + initial commit).
+
+    Sets a repo-local git identity after init so subsequent test commits
+    (``_git(vault, "commit", ...)``) succeed on CI runners that have no
+    global git config.  Without this, Linux CI fails with
+    ``fatal: empty ident name`` — the commit errors out silently (the
+    ``_git`` helper ignores the returncode), the tree stays dirty, and
+    ``run_update`` refuses with the dirty-tree guard.
+
+    Mirrors what ``gitutil.tmp_git_repo`` already does for other fixtures.
+    ``_git_init_vault`` covers the *initial* commit (uses ``-c user.name``),
+    but it does NOT configure repo-local identity — so subsequent test
+    commits need it here.
+    """
     target = tmp_path / "myvault"
     rc = cmd_init_in_dir(str(target))
     assert rc == 0, "rv init must succeed"
+    # Pin a repo-local identity so test commits work on any platform.
+    subprocess.run(
+        ["git", "-C", str(target), "config", "user.email", "test@test.invalid"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(target), "config", "user.name", "Test Fixture"],
+        check=True, capture_output=True,
+    )
     return target
 
 
