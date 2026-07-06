@@ -584,3 +584,105 @@ def test_green_on_md_with_crew_name_not_py(tmp_path):
     doc.parent.mkdir()
     doc.write_text("# Role — Ada (Researcher)\n\nAda is the researcher.\n")
     assert_green(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Publish-metadata allowlist (fix/leakage-publish-identity)
+# These tests prove the allowlist is URL/context-scoped, NOT a blanket exemption.
+# ---------------------------------------------------------------------------
+
+
+def test_red_on_bare_phoongkhangzhie_in_content_file(tmp_path):
+    """Bare @phoongkhangzhie (no canonical URL context) still fails — teeth intact."""
+    # Structural proof: the handle appears WITHOUT the canonical repo URL.
+    content = "CODEOWNERS: @phoongkhangzhie\n"
+    assert "github.com/phoongkhangzhie/research-vault" not in content  # confirms bare context
+    write_doc(tmp_path, content)
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_phoongkhangzhie_non_canonical_url(tmp_path):
+    """github.com/phoongkhangzhie/<other-repo> still fails — allowlist is research-vault-specific."""
+    write_doc(tmp_path, "See https://github.com/phoongkhangzhie/other-project for details.\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_canonical_repo_url_in_content_file(tmp_path):
+    """The canonical public URL github.com/phoongkhangzhie/research-vault passes in any content file."""
+    write_doc(
+        tmp_path,
+        "Install: pip install research-vault\n"
+        "Source:  https://github.com/phoongkhangzhie/research-vault\n"
+        "Issues:  https://github.com/phoongkhangzhie/research-vault/issues\n",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_pyproject_urls_block(tmp_path):
+    """A pyproject.toml-style [project.urls] block with the canonical URL passes."""
+    write_doc(
+        tmp_path,
+        '[project.urls]\n'
+        'Homepage = "https://github.com/phoongkhangzhie/research-vault"\n'
+        'Repository = "https://github.com/phoongkhangzhie/research-vault"\n'
+        'Issues = "https://github.com/phoongkhangzhie/research-vault/issues"\n',
+        filename="pyproject.toml",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_red_on_khang_word_still_flagged(tmp_path):
+    """The 'khang' whole-word class-2 check is independent and remains active."""
+    write_doc(tmp_path, "Khang's design decisions are documented below.\n")
+    assert_red(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Co-occurrence regression (mask-then-recheck fix)
+# These are the exact cases Argus proved were GREEN under the old line-DROP
+# approach — they must now be RED.
+# ---------------------------------------------------------------------------
+
+
+def test_red_on_canonical_url_plus_path_same_line(tmp_path):
+    """Canonical URL + hardcoded path on ONE line must be RED.
+
+    The old grep -Ev "$allow_ere" dropped the entire line because it matched the
+    canonical URL, hiding the co-occurring private path.  After the mask-then-recheck
+    fix, the URL is masked out and the /Users/phoongkhangzhie/... path still
+    contains the bare literal → RED.
+
+    Structural proof: both markers appear on the same line.
+    """
+    content = (
+        "github.com/phoongkhangzhie/research-vault"
+        " and /Users/phoongkhangzhie/secret\n"
+    )
+    # Confirm co-occurrence: both the canonical URL and the private path on one line.
+    assert "github.com/phoongkhangzhie/research-vault" in content
+    assert "/Users/phoongkhangzhie/" in content
+    write_doc(tmp_path, content)
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_canonical_url_plus_bare_handle_same_line(tmp_path):
+    """Canonical URL + bare @phoongkhangzhie handle on ONE line must be RED.
+
+    Under the old approach the line was dropped because it matched the canonical URL
+    allowlist, so the bare handle was silently hidden (GREEN).  After the fix, the
+    URL is masked and the bare handle survives the re-check → RED.
+
+    The bare handle has NO other backstop (unlike 'khang'/'phoong' which have their
+    own class-2 whole-word checks); this is the real hole Argus reported.
+
+    Structural proof: canonical URL and bare handle co-occur on one line.
+    """
+    content = (
+        "Source: github.com/phoongkhangzhie/research-vault"
+        " — authored by @phoongkhangzhie\n"
+    )
+    assert "github.com/phoongkhangzhie/research-vault" in content
+    # Confirm the bare handle is present AND not preceded by 'github.com/.../':
+    assert "@phoongkhangzhie" in content
+    write_doc(tmp_path, content)
+    assert_red(run_scan(tmp_path))
