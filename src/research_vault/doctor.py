@@ -1323,57 +1323,87 @@ def format_report(result: dict[str, Any]) -> str:
 
     for backend_name, backend_entry in backends.items():
         caps = backend_entry.get("capabilities", backend_entry)  # tolerate flat shape
-
         lines.append(f"[{backend_name}]")
-
-        probe_status = caps.get("probe_status")
-
-        if probe_status == "ok" and caps.get("reachable"):
-            # Real remote probe succeeded — show discovered capabilities
-            lines.extend(_format_remote_caps(backend_name, caps))
-        elif probe_status == "unreachable":
-            reason = caps.get("reason", f"cluster '{backend_name}' unreachable")
-            archetype = caps.get("archetype", "?")
-            host = caps.get("host", "?")
-            lines.append(f"  Backend: {archetype} — UNREACHABLE")
-            lines.append(f"  Host: {host}")
-            lines.append(f"  Reason: {reason}")
-            lines.append(
-                "  Action: check ~/.ssh/config host alias, network connectivity, "
-                "and ssh key auth; then run `rv doctor --refresh`"
-            )
-        elif probe_status == "unfilled":
-            reason = caps.get("reason", f"cluster '{backend_name}' not configured")
-            archetype = caps.get("archetype", "?")
-            lines.append(f"  Backend: {archetype} — NOT CONFIGURED (host not filled)")
-            lines.append(f"  {reason}")
-        elif probe_status == "scheduler_error":
-            reason = caps.get("reason", "scheduler returned an error")
-            archetype = caps.get("archetype", "?")
-            host = caps.get("host", "?")
-            lines.append(f"  Backend: {archetype} — scheduler error (host reachable)")
-            lines.append(f"  Host: {host}")
-            lines.append(f"  Reason: {reason}")
-        elif probe_status in ("unknown-archetype", None) and caps.get("archetype") in _REMOTE_ARCHETYPES:
-            # Legacy deferred or truly unknown archetype for a remote backend
-            msg = caps.get("message", f"cluster '{backend_name}': no probe result")
-            lines.append(f"  {msg}")
-        else:
-            # Local (or generic) — full detail
-            lines.extend(_format_local_caps(caps))
-
-        # Secrets-forward resolvability (names + a mark only, never the value).
-        sf = caps.get("secrets_forward")
-        if sf:
-            lines.append(f"  Secrets forward ({len(sf)}):")
-            for e in sf:
-                mark = "resolvable ✓" if e.get("resolvable") else "MISSING ✗"
-                extra = " [invalid name]" if e.get("invalid_name") else ""
-                lines.append(f"    {e.get('name', '?')}: [{mark}]{extra}")
-
+        lines.extend(_backend_report_lines(backend_name, caps))
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _backend_report_lines(backend_name: str, caps: dict[str, Any]) -> list[str]:
+    """Build the report lines for ONE backend's capabilities.
+
+    The single source of truth for per-backend detail — shared by the plain
+    :func:`format_report` and the rich :func:`richui.render_doctor` so the two
+    surfaces never drift.  Does NOT emit the ``[backend]`` header or trailing
+    blank line (the caller owns framing).
+    """
+    lines: list[str] = []
+    probe_status = caps.get("probe_status")
+
+    if probe_status == "ok" and caps.get("reachable"):
+        # Real remote probe succeeded — show discovered capabilities
+        lines.extend(_format_remote_caps(backend_name, caps))
+    elif probe_status == "unreachable":
+        reason = caps.get("reason", f"cluster '{backend_name}' unreachable")
+        archetype = caps.get("archetype", "?")
+        host = caps.get("host", "?")
+        lines.append(f"  Backend: {archetype} — UNREACHABLE")
+        lines.append(f"  Host: {host}")
+        lines.append(f"  Reason: {reason}")
+        lines.append(
+            "  Action: check ~/.ssh/config host alias, network connectivity, "
+            "and ssh key auth; then run `rv doctor --refresh`"
+        )
+    elif probe_status == "unfilled":
+        reason = caps.get("reason", f"cluster '{backend_name}' not configured")
+        archetype = caps.get("archetype", "?")
+        lines.append(f"  Backend: {archetype} — NOT CONFIGURED (host not filled)")
+        lines.append(f"  {reason}")
+    elif probe_status == "scheduler_error":
+        reason = caps.get("reason", "scheduler returned an error")
+        archetype = caps.get("archetype", "?")
+        host = caps.get("host", "?")
+        lines.append(f"  Backend: {archetype} — scheduler error (host reachable)")
+        lines.append(f"  Host: {host}")
+        lines.append(f"  Reason: {reason}")
+    elif probe_status in ("unknown-archetype", None) and caps.get("archetype") in _REMOTE_ARCHETYPES:
+        # Legacy deferred or truly unknown archetype for a remote backend
+        msg = caps.get("message", f"cluster '{backend_name}': no probe result")
+        lines.append(f"  {msg}")
+    else:
+        # Local (or generic) — full detail
+        lines.extend(_format_local_caps(caps))
+
+    # Secrets-forward resolvability (names + a mark only, never the value).
+    sf = caps.get("secrets_forward")
+    if sf:
+        lines.append(f"  Secrets forward ({len(sf)}):")
+        for e in sf:
+            mark = "resolvable ✓" if e.get("resolvable") else "MISSING ✗"
+            extra = " [invalid name]" if e.get("invalid_name") else ""
+            lines.append(f"    {e.get('name', '?')}: [{mark}]{extra}")
+
+    return lines
+
+
+def _backend_status_kind(caps: dict[str, Any]) -> str:
+    """Classify a backend's probe outcome into a richui panel ``kind``.
+
+    ``ok`` (reachable / local), ``fail`` (unreachable / scheduler error), or
+    ``neutral`` (unfilled / unknown).  Pure — reads only the caps dict.
+    """
+    probe_status = caps.get("probe_status")
+    if probe_status == "ok" and caps.get("reachable"):
+        return "ok"
+    if probe_status in ("unreachable", "scheduler_error"):
+        return "fail"
+    if probe_status in ("unfilled", "unknown-archetype"):
+        return "neutral"
+    # Local (or generic) full-detail path — treat as ok (present + probed).
+    if probe_status is None and caps.get("archetype") not in _REMOTE_ARCHETYPES:
+        return "ok"
+    return "neutral"
 
 
 def _format_remote_caps(backend_name: str, caps: dict[str, Any]) -> list[str]:
@@ -1760,8 +1790,14 @@ def run(args: argparse.Namespace) -> int:
         print(f"rv doctor: unexpected error (this is a bug): {exc}", file=sys.stderr)
         return 1
 
-    report = format_report(result)
-    print(report)
+    from .richui import should_render_rich, render_doctor
+    if should_render_rich():
+        try:
+            render_doctor(result)
+        except Exception:
+            print(format_report(result))  # fall back to plain on any render hiccup
+    else:
+        print(format_report(result))
 
     # SR-APPROVE-GATE: print approval gate status.
     try:

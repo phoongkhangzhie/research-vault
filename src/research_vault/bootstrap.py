@@ -269,6 +269,8 @@ def _run_bootstrap(
         "serve_ok": serve_ok,
         "tier2_reason": tier2_reason,
         "serve_reason": serve_reason,
+        "tier2_attempted": tier2,      # additive: whether Tier-2 was attempted
+        "serve_target": serve,         # additive: the serve sub-extra requested (or None)
         "venv_dir": str(venv_dir),
         "report": "\n".join(lines),
     }
@@ -349,5 +351,12 @@ def run(args: argparse.Namespace) -> int:
         serve=args.serve,
         verbose=args.verbose,
     )
-    print(result["report"])
+    from .richui import should_render_rich, render_bootstrap
+    if should_render_rich():
+        try:
+            render_bootstrap(result)
+        except Exception:
+            print(result["report"])  # fall back to plain on any render hiccup
+    else:
+        print(result["report"])
     return 0 if result["tier1_ok"] else 1

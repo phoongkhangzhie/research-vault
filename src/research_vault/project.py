@@ -202,6 +202,19 @@ def cmd_add(
     with open(config_path, "a", encoding="utf-8") as f:
         f.write(new_section)
 
+    from .richui import should_render_rich, render_closing
+    if should_render_rich():
+        try:
+            render_closing(
+                f"[bold]Registered project {name!r}[/bold] "
+                f"[dim](code={code!r})[/dim]\n"
+                f"in [dim]{config_path}[/dim]",
+                title="rv project add",
+            )
+            return
+        except Exception:
+            pass  # fall through to the plain line
+
     print(f"Registered project {name!r} (code={code!r}) in {config_path}")
 
 
@@ -223,16 +236,33 @@ def cmd_list(cfg: Config | None = None) -> int:
     if not slugs:
         print("No projects registered.")
         return 0
-    print(f"{len(slugs)} project(s):")
+
+    # Structured registry view — the SSOT both surfaces read from.
+    projects = []
     for slug in slugs:
         proj = cfg.projects[slug]
-        code = proj.get("code", "?")
-        source = proj.get("source_dir", "")
-        roster = proj.get("roster", [])
+        projects.append({
+            "slug": slug,
+            "code": proj.get("code", "?"),
+            "source": proj.get("source_dir", ""),
+            "roster": proj.get("roster", []),
+        })
+
+    from .richui import should_render_rich, render_project_list
+    if should_render_rich():
+        try:
+            render_project_list(projects)
+            return 0
+        except Exception:
+            pass  # fall through to the plain listing on any render hiccup
+
+    print(f"{len(slugs)} project(s):")
+    for p in projects:
+        roster = p["roster"]
         roster_str = "[" + ", ".join(roster) + "]" if roster else "[]"
-        print(f"  {slug:<24} code={code:<12} roster={roster_str}")
-        if source:
-            print(f"  {'':24} source={source}")
+        print(f"  {p['slug']:<24} code={p['code']:<12} roster={roster_str}")
+        if p["source"]:
+            print(f"  {'':24} source={p['source']}")
     return 0
 
 
@@ -794,7 +824,33 @@ def cmd_edges(
 
 
 def _print_next_steps(name: str, source_path: Path, gd_installed: bool) -> None:
-    """Print the discovery/next-steps surface after a successful `project new`."""
+    """Print the discovery/next-steps surface after a successful `project new`.
+
+    Rich closing panel at a TTY; the plain block (byte-intact) otherwise.
+    """
+    from .richui import should_render_rich, render_closing
+    if should_render_rich():
+        try:
+            gd_line = (
+                f"\n  [bold]rv git-discipline install --project {name}[/bold]  "
+                "[dim]# commit-msg + protect-main hooks[/dim]"
+                if not gd_installed else ""
+            )
+            body = (
+                f"[bold]Project {name!r} is ready[/bold] at [dim]{source_path}[/dim]\n\n"
+                "Next steps:\n"
+                f"  [bold]rv status --project {name}[/bold]  [dim]# coordination state + pointers.md[/dim]\n"
+                f"  [dim]# edit pointers.md as scope emerges (no gates, accrues over time)[/dim]\n"
+                f"  [bold]rv wt add <task> --project {name}[/bold]  [dim]# isolated task worktree[/dim]\n"
+                f"  [bold]rv note {name} new findings \"<title>\"[/bold]  [dim]# first finding[/dim]\n"
+                f"  [bold]rv research add --project {name} <doi>[/bold]  [dim]# add a paper[/dim]"
+                f"{gd_line}"
+            )
+            render_closing(body, title="rv project new")
+            return
+        except Exception:
+            pass  # fall through to the plain block
+
     print(f"\nProject {name!r} is ready at {source_path}")
     print("\nNext steps:")
     print(f"  rv status --project {name}   # check coordination state + see pointers.md")

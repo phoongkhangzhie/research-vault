@@ -113,6 +113,20 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
 
     use_keyring = bool(getattr(args, "keyring", False))
 
+    # Onboard-style header (rich panel at a TTY; setup is TTY-only).
+    from .richui import should_render_rich, render_onboard_header, render_closing
+    _rich = should_render_rich()
+    if _rich:
+        try:
+            render_onboard_header(
+                "rv approval setup — provision the human-presence gate token.\n"
+                "The token is generated locally; only its fingerprint goes to config. "
+                "The token itself goes to your keyring (--keyring) or is shown once for "
+                "you to export — never committed, never logged."
+            )
+        except Exception:
+            _rich = False
+
     # Generate a cryptographically random token (32 url-safe bytes = 43 chars).
     token = _secrets_mod.token_urlsafe(32)
 
@@ -143,6 +157,21 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
         try:
             import keyring  # type: ignore[import]
             keyring.set_password("research-vault", "rv-approver-token", token)
+            # Keyring success → the token is NOT shown; a rich closing panel is
+            # safe here (no secret on screen).
+            if _rich:
+                try:
+                    render_closing(
+                        f"[bold]Token stored in keyring[/bold] "
+                        "[dim](service=research-vault, username=rv-approver-token)[/dim]\n"
+                        f"Fingerprint written to [dim]{config_path}[/dim]\n\n"
+                        "The token is in keyring — no env var needed on this machine.\n"
+                        "For CI/scripts, export [bold]RV_APPROVER_TOKEN[/bold] from a secret store.",
+                        title="rv approval setup",
+                    )
+                    return 0
+                except Exception:
+                    pass  # fall through to plain
             print("Token stored in keyring (service=research-vault, username=rv-approver-token).")
             print(f"Fingerprint written to {config_path}")
             print(
@@ -277,11 +306,21 @@ def cmd_enable(cfg: Config, args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_approval_status(cfg: Config) -> int:
-    """Print the current approval gate status (same as rv doctor approval section)."""
-    from .dag.approval import approval_status_lines
+    """Print the current approval gate status (same as rv doctor approval section).
+
+    Rich panel at an interactive TTY; the plain lines (byte-intact) otherwise.
+    """
+    from .dag.approval import approval_status_lines, approval_status_state
     from .adapters.base import EnvSecretStore
-    lines = approval_status_lines(cfg, EnvSecretStore())
-    for line in lines:
+    secrets = EnvSecretStore()
+    from .richui import should_render_rich, render_approval_status
+    if should_render_rich():
+        try:
+            render_approval_status(approval_status_state(cfg, secrets))
+            return 0
+        except Exception:
+            pass  # fall through to the plain lines on any render hiccup
+    for line in approval_status_lines(cfg, secrets):
         print(line)
     return 0
 
