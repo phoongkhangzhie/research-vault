@@ -414,39 +414,9 @@ def _print_unlock_links(result: dict[str, Any], con: Any) -> None:
     con.print(grid)
 
 
-# ---------------------------------------------------------------------------
-# rv init — header + closing panels
-# ---------------------------------------------------------------------------
-
-def render_init_header(target: str, console: Any = None) -> None:
-    """Render the ``rv init`` opening panel."""
-    make_panel(
-        f"Initialising a Research Vault instance in:\n[bold]{target}[/bold]",
-        title="rv init",
-        kind="init",
-        console=console,
-    )
-
-
 def render_onboard_header(header: str, console: Any = None) -> None:
     """Render the ``rv onboard`` header panel (identity border + brass title)."""
     make_panel(header, title="rv onboard", kind="neutral", console=console)
-
-
-def render_init_closing(target: str, offer_onboard: bool, console: Any = None) -> None:
-    """Render the ``rv init`` closing panel with next steps."""
-    body = (
-        "[bold]Research Vault instance initialised.[/bold]\n\n"
-        "Run [bold]rv start[/bold] to launch Claude Code here — you'll be Alfred, the hub.\n"
-        "The crew is stood up as subagents in [dim].claude/agents/[/dim]\n\n"
-        "Next steps:\n"
-        "  1. [bold]rv onboard[/bold]   — guided setup: add the keys that unlock features\n"
-        "  2. [bold]rv check[/bold]     — verify prerequisites\n"
-        "  3. [bold]rv start[/bold]     — launch Claude Code in this vault (front door)\n"
-        "  4. [bold]rv dag run examples/demo-research/research-loop.json[/bold] — the demo loop\n\n"
-        "See [dim]QUICKSTART.md[/dim] for the full walkthrough."
-    )
-    make_panel(body, title="Done", kind="ok", console=console)
 
 
 # ---------------------------------------------------------------------------

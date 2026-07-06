@@ -1,3 +1,48 @@
+## 2026-07-05 (feat/rv-update: framework-refresh verb + demo removal)
+
+### Done
+- `scaffold.py` (NEW): the shared framework-materialization SSOT both `init` and
+  `update` consume — `pkg_data()`, `iter_managed_statics()` (CLAUDE.md, QUICKSTART.md,
+  doctrine/**), hashing, `.rv-manifest.json` read/write, version helpers (stdlib tuple
+  split — no `packaging` dep), `[meta]` upsert/read, `.gitignore` append-merge, and the
+  `USER_OWNED_NEVER_TOUCH` partition set. Prevents init/update drift (a file added to init
+  but not update = invisible-on-upgrade).
+- `rv update` (NEW verb, `update.py`): `--check|--dry-run|--no-commit|--skip-modified|--force`.
+  Dirty-tree guard; refreshes framework statics (doctrine/, CLAUDE.md, QUICKSTART.md) via the
+  shared scaffold path; RE-RUNS `build-agents --target claude-code` to recompose the DERIVED
+  crew hats; append-merges `.gitignore`; rewrites `[meta]` + `.rv-manifest.json`; lands a
+  dedicated `rv update: framework vX → vY` commit.
+- Demo removal (Slice 2): `rv init` no longer copies `examples/` nor registers
+  demo-research/demo-litreview; demo lines dropped from next-steps + DEVLOG template + QUICKSTART.
+  The package still ships the loop manifests (for `rv dag templates`).
+- Version stamp (Slice 3): `[meta]` in research_vault.toml + tracked `.rv-manifest.json`
+  (per-file as-shipped hashes — the drift substrate).
+- Staleness nudge (Slice 5): `rv check` prints an INFO line (never a FAIL) when the installed
+  package is newer than the vault's `[meta].framework_version`.
+- Canonical getting-started sequence made consistent across `rv init` closing output,
+  QUICKSTART.md, and README.md: `rv init myvault` → `cd myvault` → `rv onboard` → `rv start`.
+- 23 tests in `tests/test_sr_rv_update.py`; updated 5 init tests for demo removal. Full suite: 2310 passed.
+
+### Decisions
+- Crew hats are DERIVED, not files — `update` never diffs/copies a hat; it refreshes doctrine/
+  then recomposes via `cmd_build`. Hat idempotency: hats are composed from the NEW package
+  doctrine in-memory (`compose_cc_file`) for an exact dry-run/no-op prediction.
+- 3-bucket partition: USER-OWNED (never touched, incl. `architecture.md` — the architect's living
+  map); framework statics (overwrite-with-backup, hash-based user-modified policy → `.rv-bak`);
+  `.gitignore` append-merge (never remove a user line). `research_vault.toml` is user-owned except
+  the surgically-upserted `[meta]` block.
+- No-op is decided from the plan (all-unchanged AND version-unchanged) BEFORE writing, so an
+  idempotent re-run makes no commit; `[meta].updated_at`/manifest are only rewritten on real change.
+- User-modified policy is hash-based: pristine (`hash==manifest`) → silent overwrite; modified
+  (`hash != manifest and != new`) → backup + overwrite + loud (or keep with `--skip-modified`,
+  which does NOT advance the manifest hash so the file stays flagged).
+- Fixed the stale roster-count docstring in init.py (DEFAULT_ROSTER is 4 → 5 hats, not 6).
+
+### Open / next
+- human-go: this is a public-facing / cross-cutting change (new verb + demo removal + doc surfaces)
+  — awaiting operator review + merge. PR pushed on `feat/rv-update`.
+
+---
 ## 2026-07-05 (fix/init-git-repo: rv init now git-inits the vault)
 
 ### Done

@@ -1,7 +1,23 @@
 # Research Vault — Quick Start
 
 Welcome. This is a zero-infra AI research assistant framework.
-Run **`rv onboard`** first for guided setup, then `rv check` to verify.
+
+The canonical getting-started sequence:
+
+```bash
+rv init myvault      # scaffold a new vault
+cd myvault           # enter it
+rv onboard           # guided setup: keys, compute, inline-approval token
+rv start             # launch Claude Code as Alfred in the vault
+```
+
+`cd` must come before `rv onboard` — onboarding writes the compute manifest into
+the vault, so it runs from inside (a subprocess can't cd your shell for you).
+`rv onboard` is idempotent; the runtime alone is enough to start.
+
+After a `pip install --upgrade research-vault`, run **`rv update`** to pull the
+upgraded framework (doctrine, `CLAUDE.md`, the crew hats) into this vault — your
+notes, projects, and local edits are preserved.
 
 ## The one hard requirement
 
@@ -305,31 +321,21 @@ No run executes until the human has approved both the plan and the harness.
 - Irreversible steps (search, run) are gated behind explicit human approval.
 - The crew cannot self-approve: human-go gates are the operator's decision, not Alfred's.
 
-## Two runnable example loops
+## The two canonical loops
 
-This instance includes two demo projects under `examples/`:
+Research Vault ships two research-loop shapes, discoverable via `rv dag templates`:
 
 ### Research loop — pre-registration enforced
 
-```bash
-cd <instance-root>
-rv dag run examples/demo-research/research-loop.json
-rv dag status research-loop-q1
-```
-
 The research loop enforces pre-registration: the `run` node cannot fire until
-the `experiments/exp-q1.md` note is filed. This turns a discipline into a
-structural constraint.
+the pre-registration note is filed. This turns a discipline into a structural
+constraint. Start one with `rv experiment <project> new <id> --question '...'`.
 
 ### Lit-review loop — OKF coverage gate
 
-```bash
-rv dag run examples/demo-litreview/lit-review-loop.json
-rv dag status lit-review-loop-topic
-```
-
 Every in-scope paper must have a `literature/<key>.md` note before synthesis begins.
 The `okf-coverage-gate` human-go node blocks until all distill nodes succeed.
+Start one with `rv review <project> new <scope> --question '...'`.
 
 ## Adding a real project
 
@@ -369,8 +375,7 @@ to regenerate the agent hat files.
 
 - `rv help` — all verbs and their discovery surfaces
 - `rv <verb> --help` — details for a specific verb
-- `examples/demo-research/README.md` — research loop walkthrough
-- `examples/demo-litreview/README.md` — lit-review loop walkthrough
+- `rv dag templates` — the built-in research loops (experiment, lit-review)
 - `doctrine/agent-charter.md` — the values and epistemics of the system
 - `doctrine/coordination.md` — how the control plane works
 - `doctrine/roles/` — the crew role docs (hub, engineer, researcher, designer, reviewer, architect)

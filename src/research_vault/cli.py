@@ -301,12 +301,33 @@ _VERB_REGISTRY: dict[str, dict] = {
         "module": "research_vault.init",
         "when_to_use": (
             "When you need to scaffold a fresh Research Vault instance from templates. "
-            "Run `rv init [<dir>]` to create the instance root with config, control files, "
-            "task dirs, doctrine, notes root (OKF type dirs), and the two canned demo projects "
-            "(demo-research + demo-litreview). A real project is a SEPARATE repo — use "
+            "Run `rv init [<dir>]` to create the instance root with: config "
+            "(research_vault.toml), git repo, CLAUDE.md hub-bootstrap, crew subagent "
+            "hats (.claude/agents/), doctrine/, QUICKSTART.md, and the notes root (OKF "
+            "type dirs). Real projects are SEPARATE repos — register them with "
             "`rv project add` after init. Refuses to overwrite an existing instance."
         ),
         "sr": "SR-5",
+    },
+    "update": {
+        "module": "research_vault.update",
+        "when_to_use": (
+            "When you have upgraded the package (`pip install --upgrade research-vault`) "
+            "and need to propagate the new framework into THIS vault. Run `rv update` to "
+            "refresh the framework-managed files (doctrine/, CLAUDE.md, QUICKSTART.md) and "
+            "RECOMPOSE the crew hats from the upgraded doctrine — USER-OWNED content "
+            "(notes/, projects, control/, research_vault.toml, DEVLOG.md, architecture.md) "
+            "is never touched. Use `rv update --dry-run` (or `--check`) to preview the "
+            "per-file plan (NEW / CHANGED / USER-MODIFIED→backup / unchanged) without "
+            "writing. A locally-modified framework file is backed up to <path>.rv-bak "
+            "before the new version installs; `--skip-modified` keeps yours instead. "
+            "Anti-pattern: do NOT hand-copy doctrine/ or CLAUDE.md from the package into "
+            "your vault after an upgrade — `rv update` does it in place, preserves user "
+            "edits (backup), and recomposes the hats (which are DERIVED, not files). "
+            "Anti-pattern: do NOT run it on a dirty tree — commit/stash first so the "
+            "update diff is clean (or pass --force)."
+        ),
+        "sr": "SR-RV-UPDATE",
     },
     "check": {
         "module": "research_vault.check",
@@ -616,7 +637,7 @@ _VERB_REGISTRY: dict[str, dict] = {
 # Phase grouping for `rv help` display — render-time only.
 # Collision-safe: groups reference verb names; do not alter the registry order.
 _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
-    ("Setup",        ["init", "onboard", "check", "bootstrap", "project", "wt", "git-discipline", "git-health"]),
+    ("Setup",        ["init", "update", "onboard", "check", "bootstrap", "project", "wt", "git-discipline", "git-health"]),
     ("Lit-review",   ["research", "cite", "review"]),
     ("Experiment",   ["experiment", "dag", "result", "plan", "wandb", "compute", "doctor"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS

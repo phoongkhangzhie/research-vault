@@ -33,6 +33,7 @@ import argparse
 import os
 import shutil
 import sys
+from pathlib import Path
 from typing import Any
 
 from .keys import (
@@ -326,6 +327,37 @@ def _compute_manifest_present(cfg: Any = None) -> bool:
         return False
 
 
+def _framework_staleness_nudge(cfg: Any = None) -> str:
+    """Return an INFO nudge line if the installed package is newer than the vault.
+
+    SR-RV-UPDATE Slice 5: compares ``[meta].framework_version`` in the vault's
+    research_vault.toml against the installed package version. Returns an empty
+    string when up to date, absent, or unresolvable — this is a non-failing
+    nudge (same pattern as the compute-manifest nudge), NEVER a FAIL.
+    """
+    try:
+        from . import scaffold
+        from .config import load_config as _load_config
+        _cfg = cfg if cfg is not None else _load_config()
+        config_file = getattr(_cfg, "config_file", None)
+        if not config_file or not Path(config_file).is_file():
+            return ""
+        meta = scaffold.read_meta(Path(config_file).read_text(encoding="utf-8"))
+        vault_version = meta.get("framework_version")
+        if not vault_version:
+            return ""
+        pkg_version = scaffold.package_version()
+        if scaffold.version_lt(vault_version, pkg_version):
+            return (
+                f"Framework update available: vault at v{vault_version}, "
+                f"package v{pkg_version} — run `rv update` to refresh doctrine, "
+                "CLAUDE.md, and the crew hats (user content preserved)."
+            )
+    except Exception:
+        return ""
+    return ""
+
+
 def _feature_status(feature: Any, *, manifest_present: bool) -> dict[str, Any]:
     """Resolve a single Feature to a structured status dict.
 
@@ -537,6 +569,12 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
         lines.append(
             "  (best-effort venv install; Tier-1 hard-required, Tier-2 attempted + tolerated)"
         )
+
+    # Nudge: framework staleness (SR-RV-UPDATE Slice 5) — INFO, never a FAIL.
+    stale_msg = _framework_staleness_nudge(cfg)
+    if stale_msg:
+        lines.append("")
+        lines.append(stale_msg)
 
     # Nudge: compute manifest
     if not compute_manifest_present:
