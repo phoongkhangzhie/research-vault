@@ -1143,3 +1143,94 @@ class TestReconcileExitCode:
         assert exit_code == 0, (
             f"Expected exit 0 at exactly threshold ({RESOLVED_THRESHOLD}), got {exit_code}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Test 9: close on a multi-line block immediately adjacent to another (#48)
+# ---------------------------------------------------------------------------
+
+class TestCloseMultilineBlockAdjacent:
+    """9. cmd_close on a multi-line ⟦RETURN⟧ block removes the WHOLE block —
+    bullet + body fields — even when it sits directly against a neighbouring
+    multi-line block with NO blank line separator, and leaves the neighbour
+    intact (research-vault #48 — the C4-backfill bug: _remove_entry used to
+    strip only the bullet line, orphaning the body fields of the closed block).
+    """
+
+    def _seed_two_adjacent_return_blocks(self, ctl_file: Path) -> tuple[str, str]:
+        """Write two multi-line ⟦RETURN⟧ blocks back-to-back (no blank line
+        between them) directly into the Outbox section. Returns their ids.
+        """
+        entry_a = (
+            "- **return:task-a-mason-20260706**\n"
+            "⟦RETURN⟧\n"
+            "  did: implemented task A\n"
+            "  outcome: PR #10\n"
+            "  confidence: high\n"
+            "  next: merge\n"
+            "  provenance: sha-aaa\n"
+            "  retro: went smoothly\n"
+        )
+        entry_b = (
+            "- **return:task-b-mason-20260706**\n"
+            "⟦RETURN⟧\n"
+            "  did: implemented task B\n"
+            "  outcome: PR #11\n"
+            "  confidence: medium\n"
+            "  next: review\n"
+            "  provenance: sha-bbb\n"
+            "  retro: took longer than expected\n"
+        )
+        text = ctl_file.read_text(encoding="utf-8")
+        text = text.replace(
+            "## Outbox  (crew → hub/owner)\n  _(none)_",
+            f"## Outbox  (crew → hub/owner)\n{entry_a}{entry_b}",
+        )
+        ctl_file.write_text(text, encoding="utf-8")
+        return "return:task-a-mason-20260706", "return:task-b-mason-20260706"
+
+    def test_close_removes_whole_block_not_just_bullet(self, cfg, ctl_file):
+        """Closing entry_a: ALL of its body fields are gone from the live file —
+        not orphaned — while entry_b's bullet + full body survive intact.
+        """
+        entry_a, entry_b = self._seed_two_adjacent_return_blocks(ctl_file)
+
+        control_mod.cmd_close("demo-research", entry_id=entry_a, config=cfg)
+
+        live_after = ctl_file.read_text(encoding="utf-8")
+
+        # entry_a: bullet AND every body field fully gone (the bug orphaned
+        # these — only the bullet line was removed).
+        assert entry_a not in live_after
+        for orphan_field in (
+            "implemented task A", "PR #10", "went smoothly", "sha-aaa",
+        ):
+            assert orphan_field not in live_after, (
+                f"Orphaned body field survived close: {orphan_field!r}\n{live_after}"
+            )
+
+        # entry_b: neighbour block untouched — bullet AND every body field
+        # still present (no over-removal / neighbour-borrow).
+        assert entry_b in live_after
+        for kept_field in (
+            "implemented task B", "PR #11", "took longer than expected",
+            "sha-bbb",
+        ):
+            assert kept_field in live_after, (
+                f"Neighbour block field lost: {kept_field!r}\n{live_after}"
+            )
+
+        # File is still schema-valid after the close.
+        violations = control_mod.validate_control_file(cfg.project_control_file("demo-research"))
+        assert violations == [], f"Control file invalid after close: {violations}"
+
+        # The archived text captures the FULL block — not just the bullet.
+        archive_path = ctl_file.parent / (ctl_file.stem + ".archive.md")
+        archive_text = archive_path.read_text(encoding="utf-8")
+        assert entry_a in archive_text
+        for archived_field in (
+            "implemented task A", "PR #10", "went smoothly", "sha-aaa",
+        ):
+            assert archived_field in archive_text, (
+                f"Archived block missing body field: {archived_field!r}\n{archive_text}"
+            )
