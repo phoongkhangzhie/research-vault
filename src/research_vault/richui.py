@@ -352,11 +352,15 @@ def _integrations_table(result: dict[str, Any], Table: Any) -> Any:
     (:func:`_print_unlock_links`) so a URL never has to wrap-and-truncate inside a
     narrow table cell — it stays whole and copy-pasteable.
     """
+    # Width discipline (the starve-the-wrapping-column fix): Capability + Class
+    # are compact no_wrap anchors; Unlocks and Status carry prose/detail and MUST
+    # fold (given min_width + ratio) instead of collapsing the flex column to a
+    # lone "…" and inflating the row into blank lines.
     columns = [
-        {"name": "Capability", "style": _STYLE["header"], "no_wrap": True},
-        {"name": "Unlocks"},
+        {"name": "Capability", "style": _STYLE["header"], "no_wrap": True, "max_width": 26},
+        {"name": "Unlocks", "overflow": "fold", "ratio": 3, "min_width": 18},
         {"name": "Class", "style": _STYLE["muted"], "no_wrap": True},
-        {"name": "Status", "no_wrap": True},
+        {"name": "Status", "overflow": "fold", "ratio": 2, "min_width": 18},
     ]
     rows: list[tuple[Any, ...]] = []
     for feat in result.get("features", []):
