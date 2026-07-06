@@ -910,6 +910,89 @@ class TestReconcileArchive:
             f"Entry {entry_id!r} missing from archive sidecar after squash-merge"
         )
 
+    def test_reconcile_archive_preserves_multiline_block_body(
+        self, cfg, ctl_file, tmp_git_repo
+    ):
+        """reconcile --archive on a multi-line ⟦RETURN⟧ block must capture the
+        WHOLE block (bullet + body fields) in the archive sidecar — not just the
+        bullet line (research-vault #48b: after #48 made _remove_entry strip the
+        whole block from the live file, _auto_archive_terminal still passed only
+        the bullet line as entry_text to the archive, so the body fields were
+        permanently lost — deleted from the live file AND never captured in the
+        archive).
+        """
+        entry_id = "return:sr-m-done-mason-20260706"
+        block = (
+            f"- **{entry_id}**\n"
+            "⟦RETURN⟧\n"
+            "  did: implemented sr-m\n"
+            "  outcome: PR #99\n"
+            "  confidence: high\n"
+            "  next: merge\n"
+            "  provenance: sha-canary-marker\n"
+            "  retro: went smoothly\n"
+        )
+        text = ctl_file.read_text(encoding="utf-8")
+        text = text.replace(
+            "## Outbox  (crew → hub/owner)\n  _(none)_",
+            f"## Outbox  (crew → hub/owner)\n{block}",
+        )
+        ctl_file.write_text(text, encoding="utf-8")
+
+        # Terminal signal: merge a branch whose name embeds the "sr-m" token
+        # that appears in entry_id — the same R4 mechanism the other
+        # TestReconcileArchive tests exercise.
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "checkout", "-b", "feat/sr-m"],
+            check=True, capture_output=True,
+        )
+        (tmp_git_repo / "done.txt").write_text("done\n")
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "add", "."],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "commit", "-m", "sr-m done"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "checkout", "main"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "merge", "feat/sr-m", "--no-ff"],
+            check=True, capture_output=True,
+        )
+
+        control_mod.cmd_reconcile(
+            "demo-research", config=cfg, git_repo=tmp_git_repo, archive=True
+        )
+
+        live_after = ctl_file.read_text(encoding="utf-8")
+        archive_path = ctl_file.parent / (ctl_file.stem + ".archive.md")
+
+        # The canary marker (a body field, NOT the bullet) must be gone from
+        # the live file...
+        assert "sha-canary-marker" not in live_after, (
+            f"Body field survived in live file (should be archived):\n{live_after}"
+        )
+        assert entry_id not in live_after
+
+        # ...and must be PRESERVED in the archive — not lost. This is the
+        # data-loss regression: before the fix, entry_text was item['raw_line']
+        # (just the bullet), so the body fields — including this canary —
+        # never made it into the archive at all.
+        assert archive_path.exists(), "Archive sidecar was not created"
+        archive_text = archive_path.read_text(encoding="utf-8")
+        assert "sha-canary-marker" in archive_text, (
+            f"Body field lost — not in archive sidecar:\n{archive_text}"
+        )
+        assert entry_id in archive_text
+        for body_field in ("implemented sr-m", "PR #99", "went smoothly"):
+            assert body_field in archive_text, (
+                f"Body field {body_field!r} missing from archive:\n{archive_text}"
+            )
+
     def test_non_terminal_entry_stays(self, cfg, ctl_file):
         """reconcile --archive leaves non-terminal entries in place."""
         control_mod.cmd_post(

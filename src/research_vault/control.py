@@ -607,10 +607,21 @@ def _auto_archive_terminal(
                 tokens = (extract_id_tokens(entry_id)
                           + extract_id_tokens(item.get("text", "")))
                 if any(t in terminal_set for t in tokens) and not item.get("resolved"):
+                    # Full block (bullet + continuation/body lines) — not just
+                    # the bullet — so the archive captures what _remove_entry
+                    # actually strips from the live file (see cmd_close, which
+                    # derives entry_text the same way).
+                    lines_now = text.splitlines(keepends=True)
+                    bounds = _find_entry_block(lines_now, entry_id)
+                    entry_text = (
+                        "".join(lines_now[bounds[0]:bounds[1]]).strip()
+                        if bounds is not None
+                        else item["raw_line"]
+                    )
                     _do_archive_entry(
                         ctl_path=ctl_path,
                         entry_id=entry_id,
-                        entry_text=item["raw_line"],
+                        entry_text=entry_text,
                         text=text,
                         already_locked=True,
                     )
