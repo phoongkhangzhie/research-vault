@@ -72,7 +72,7 @@ jobs:
           # Scan public-bound root files individually.
           # REFERENCES.md and SETUP.md scanned when present (future artifacts).
           # LICENSE + pyproject.toml added (SR-SETUP: ship to PyPI — must be clean).
-          for f in README.md QUICKSTART.md REFERENCES.md SETUP.md LICENSE pyproject.toml; do
+          for f in README.md QUICKSTART.md REFERENCES.md SETUP.md LICENSE pyproject.toml RELEASING.md; do
             if [ -f "$f" ]; then
               echo "--- scanning $f ---"
               bash scripts/leakage_scan.sh "$f"
