@@ -1,3 +1,35 @@
+## 2026-07-06 (feat/wandb-per-project-logging: version bump to 0.1.2)
+
+### Done
+- Per-project W&B logging (Plane B): the W&B **project** now defaults to the
+  calling research-vault project's own slug automatically, decoupled from
+  **entity** (still declared once, account-level). `resolve_run_logging_target`
+  gained a `project_slug` parameter with independent precedence per side:
+    - entity: `[observability].wandb_project` entity-part → `WANDB_ENTITY` env
+      → compute manifest `results.wandb.entity`.
+    - project: `[observability].wandb_project` project-part → `WANDB_PROJECT`
+      env → `project_slug` (new default) → compute manifest
+      `results.wandb.project` (kept as a legacy last-resort fallback).
+  `log_experiment_run` threads `project_slug` through to the resolver.
+- `probe_run_logging` no longer hard-fails when no STATIC project resolves —
+  an unresolved static project is normal now (the per-run slug covers it); the
+  probe only fails on `wandb` not importable or `WANDB_API_KEY` absent. This
+  was the critical fix — every adopter's `rv check` / `rv observability probe`
+  would otherwise red on the new default.
+- `rv compute init` scaffold and the `rv compute` wizard now ask/declare
+  **entity only** — the `results.wandb.project` FILL/prompt was dropped from
+  both (the manifest-level read is kept for legacy manifests).
+- A resolved project slug containing a W&B-illegal character (space, `/`, `\`,
+  `#`, `?`, `%`, `:`) triggers a loud `UserWarning` rather than a silent
+  sanitize (charter §2 grounding/surface rule).
+- Bumped `version`/`__version__` `0.1.1` → `0.1.2`. Doctrine
+  (`compute-run-recipe.md`) updated with the new precedence.
+- Full suite green (2394 passed, 3 skipped); `rv lint` + leakage scan clean.
+
+### Decisions
+- Held PR for the maintainer to merge (published package — engineer does not
+  self-merge). The `v0.1.2` tag push is a separate explicit step after merge.
+
 ## 2026-07-06 (release/0.1.1: version bump)
 
 ### Done

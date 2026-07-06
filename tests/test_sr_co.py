@@ -92,19 +92,23 @@ class TestComputeInit:
         assert "wandb" in data["results"]
 
     def test_init_scaffold_has_wandb_fill_block(self, cfg: Config) -> None:
-        """Scaffold includes results.wandb with FILL values."""
+        """Scaffold includes results.wandb with an entity FILL value.
+
+        project is deliberately NOT scaffolded — it defaults to the calling
+        project's slug per-run (see resolve_run_logging_target); only entity
+        (account-level) needs declaring. See SR: per-project W&B logging.
+        """
         from research_vault.compute import cmd_init
         cmd_init(cfg)
         from research_vault.compute import _manifest_path
         data = json.loads(_manifest_path(cfg).read_text(encoding="utf-8"))
         wandb = data["results"]["wandb"]
-        # Entity and project must be present (FILL values)
+        # Entity must be present (FILL value); project is no longer scaffolded.
         assert "entity" in wandb
-        assert "project" in wandb
+        assert "project" not in wandb
         # Must start with FILL sentinel (not configured yet)
         from research_vault.compute import _FILL_PREFIX
         assert wandb["entity"].startswith(_FILL_PREFIX)
-        assert wandb["project"].startswith(_FILL_PREFIX)
 
     def test_init_scaffold_has_cluster_profile(self, cfg: Config) -> None:
         """Scaffold includes a remote backend profile (compute-node) inactive by default.

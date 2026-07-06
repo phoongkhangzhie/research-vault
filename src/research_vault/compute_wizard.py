@@ -200,23 +200,24 @@ def _ask_submit(input_fn: Callable[[str], str], archetype: str) -> str:
 
 
 def _ask_wandb(manifest: dict[str, Any], input_fn: Callable[[str], str], env: dict[str, str]) -> None:
+    """Ask for the W&B entity only — project defaults to the run's own slug (automatic).
+
+    project is deliberately NOT prompted here: resolve_run_logging_target's
+    per-project default (project_slug) covers the common case. An adopter who
+    truly wants one static project shared across every project in this instance
+    can still hand-edit results.wandb.project into the manifest afterwards.
+    """
     print("\n  W&B (config only — API key stays in keyring):")
+    print("  (project = your project slug, automatic per-run — entity only, below)")
     entity_prefill = env.get("WANDB_ENTITY", "")
-    project_prefill = env.get("WANDB_PROJECT", "")
     ep = f" [{entity_prefill}]" if entity_prefill else ""
-    pp = f" [{project_prefill}]" if project_prefill else ""
     entity = _read(input_fn, f"  entity (username/team){ep}: ").strip() or entity_prefill
-    project = _read(input_fn, f"  project{pp}: ").strip() or project_prefill
     results = manifest.setdefault("results", {})
     wandb = results.setdefault("wandb", {})
     if entity:
         wandb["entity"] = entity
     elif "entity" not in wandb:
         wandb["entity"] = ""
-    if project:
-        wandb["project"] = project
-    elif "project" not in wandb:
-        wandb["project"] = ""
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +324,7 @@ def _render_summary(manifest: dict[str, Any], path: Any) -> None:
     wandb = manifest.get("results", {}).get("wandb", {})
     if wandb:
         ent = wandb.get("entity", "") or "(blank)"
-        proj = wandb.get("project", "") or "(blank)"
+        proj = wandb.get("project", "") or "<per-run slug, auto>"
         print(f"    W&B: entity={ent}  project={proj}")
     print(f"  Target: {path}")
     print("-" * 60)

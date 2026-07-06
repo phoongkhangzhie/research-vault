@@ -447,3 +447,97 @@ def test_probe_run_logging_enabled_no_key_fails(tmp_path, monkeypatch):
     )
     assert ok is False
     assert "WANDB_API_KEY" in msg
+
+
+# ---------------------------------------------------------------------------
+# Per-project W&B logging (decoupled entity/project precedence)
+# ---------------------------------------------------------------------------
+
+def test_resolve_target_project_defaults_to_project_slug(tmp_path, monkeypatch):
+    """No explicit wandb_project, no env, no manifest — project falls back to slug."""
+    monkeypatch.delenv("WANDB_ENTITY", raising=False)
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
+    from research_vault.adapters.observability import resolve_run_logging_target
+    enabled, entity, project = resolve_run_logging_target(
+        _cfg(tmp_path, {"backend": "local", "run_logging": True}),
+        project_slug="cultural-social-sim",
+    )
+    assert enabled is True
+    assert project == "cultural-social-sim"
+
+
+def test_resolve_target_explicit_wandb_project_wins_over_slug(tmp_path, monkeypatch):
+    monkeypatch.delenv("WANDB_ENTITY", raising=False)
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
+    from research_vault.adapters.observability import resolve_run_logging_target
+    enabled, entity, project = resolve_run_logging_target(
+        _cfg(tmp_path, {"backend": "local", "run_logging": True, "wandb_project": "acme/override"}),
+        project_slug="cultural-social-sim",
+    )
+    assert entity == "acme"
+    assert project == "override"
+
+
+def test_resolve_target_env_project_wins_over_slug(tmp_path, monkeypatch):
+    monkeypatch.setenv("WANDB_PROJECT", "env-proj")
+    monkeypatch.delenv("WANDB_ENTITY", raising=False)
+    from research_vault.adapters.observability import resolve_run_logging_target
+    enabled, entity, project = resolve_run_logging_target(
+        _cfg(tmp_path, {"backend": "local", "run_logging": True}),
+        project_slug="cultural-social-sim",
+    )
+    assert project == "env-proj"
+
+
+def test_resolve_target_env_entity_resolved_independently(tmp_path, monkeypatch):
+    monkeypatch.setenv("WANDB_ENTITY", "env-ent")
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
+    from research_vault.adapters.observability import resolve_run_logging_target
+    enabled, entity, project = resolve_run_logging_target(
+        _cfg(tmp_path, {"backend": "local", "run_logging": True}),
+        project_slug="cultural-social-sim",
+    )
+    assert entity == "env-ent"
+    assert project == "cultural-social-sim"
+
+
+def test_resolve_target_manifest_project_is_last_resort_fallback(tmp_path, monkeypatch):
+    """No slug provided, no explicit/env — manifest results.wandb.project still resolves."""
+    monkeypatch.delenv("WANDB_ENTITY", raising=False)
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
+    from research_vault.compute import _manifest_path, _save_manifest, _load_manifest
+    from research_vault.adapters.observability import resolve_run_logging_target
+
+    cfg = _cfg(tmp_path, {"backend": "local", "run_logging": True})
+    m = _load_manifest(cfg)
+    m.setdefault("results", {})["wandb"] = {"entity": "legacy-ent", "project": "legacy-proj"}
+    _save_manifest(cfg, m)
+
+    enabled, entity, project = resolve_run_logging_target(cfg, project_slug=None)
+    assert entity == "legacy-ent"
+    assert project == "legacy-proj"
+
+
+def test_resolve_target_illegal_slug_char_warns_not_sanitizes(tmp_path, monkeypatch):
+    monkeypatch.delenv("WANDB_ENTITY", raising=False)
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
+    from research_vault.adapters.observability import resolve_run_logging_target
+    with pytest.warns(UserWarning, match="illegal|W&B"):
+        enabled, entity, project = resolve_run_logging_target(
+            _cfg(tmp_path, {"backend": "local", "run_logging": True}),
+            project_slug="bad/slug name",
+        )
+    # loud warn, NOT silent sanitize — the raw value is returned unchanged.
+    assert project == "bad/slug name"
+
+
+def test_probe_run_logging_greens_with_no_static_project(tmp_path, monkeypatch):
+    """The critical fix: no static project resolvable must NOT hard-fail the probe."""
+    monkeypatch.setenv("WANDB_API_KEY", "sk-test")
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
+    from research_vault.adapters.observability import probe_run_logging
+    ok, msg = probe_run_logging(
+        _cfg(tmp_path, {"backend": "local", "run_logging": True, "wandb_project": ""})
+    )
+    assert ok is True
+    assert "auto" in msg.lower() or "slug" in msg.lower()

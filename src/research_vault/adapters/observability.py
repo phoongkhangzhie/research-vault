@@ -36,6 +36,7 @@ import datetime
 import json
 import os
 import threading
+import warnings
 from pathlib import Path
 from typing import Any, Callable, Protocol, runtime_checkable
 
@@ -508,42 +509,88 @@ def resolve_observability_backend(cfg: Any, *, key_present: bool = False) -> Obs
     )
 
 
-def resolve_run_logging_target(cfg: Any) -> tuple[bool, str, str]:
+_WANDB_ILLEGAL_CHARS = frozenset(" /\\#?%:")
+
+
+def _warn_if_wandb_unsafe(project: str) -> None:
+    """Loud warn (charter §2) on a W&B-illegal char — never silently sanitize (D4)."""
+    if project and any(ch in _WANDB_ILLEGAL_CHARS for ch in project):
+        warnings.warn(
+            f"resolve_run_logging_target: resolved W&B project {project!r} contains "
+            "a character W&B is likely to reject (space, '/', '\\\\', '#', '?', '%', "
+            "':'). Set [observability].wandb_project explicitly to override the "
+            "auto-slug default with a W&B-safe name.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
+def resolve_run_logging_target(
+    cfg: Any, project_slug: str | None = None
+) -> tuple[bool, str, str]:
     """Resolve the Plane-B (classic W&B run) logging target.
 
     Returns (enabled, entity, project):
       enabled — ``[observability].run_logging`` is True.
-      entity / project — from [observability].wandb_project ("entity/project" or bare
-        "project"), else the compute manifest results.wandb block (the entity/project
-        SSOT, via wandb_pull's resolver). Either may be "" when unresolved.
+
+      entity — resolved independently of project, precedence:
+        [observability].wandb_project entity-part (``entity/project``) → ``WANDB_ENTITY``
+        env → compute manifest ``results.wandb.entity`` (account-level, verbatim).
+
+      project — decoupled from entity, precedence:
+        [observability].wandb_project project-part → ``WANDB_PROJECT`` env →
+        ``project_slug`` (the calling project's slug — the new per-project default) →
+        compute manifest ``results.wandb.project`` (legacy last-resort fallback, kept
+        for existing manifests that still declare a static instance-wide project).
+
+      Either may be "" when unresolved. A resolved project containing a W&B-illegal
+      character (space, /, \\, #, ?, %, :) triggers a loud UserWarning — never a
+      silent sanitize (charter §2 / D4).
+
     Never imports wandb — pure config resolution.
     """
     obs = getattr(cfg, "observability", None) or {}
     enabled = bool(obs.get("run_logging", False))
+
     explicit = str(obs.get("wandb_project", "")).strip()
-    entity, project = "", ""
+    explicit_entity, explicit_project = "", ""
     if explicit:
         if "/" in explicit:
-            entity, project = explicit.split("/", 1)
+            explicit_entity, explicit_project = explicit.split("/", 1)
         else:
-            project = explicit
-    else:
-        try:
-            from ..wandb_pull import _resolve_wandb_from_manifest
-            entity, project = _resolve_wandb_from_manifest(cfg)
-        except Exception:
-            entity, project = "", ""
+            explicit_project = explicit
+
+    env_entity = os.environ.get("WANDB_ENTITY", "").strip()
+    env_project = os.environ.get("WANDB_PROJECT", "").strip()
+
+    try:
+        from ..wandb_pull import _resolve_wandb_from_manifest
+        manifest_entity, manifest_project = _resolve_wandb_from_manifest(cfg)
+    except Exception:
+        manifest_entity, manifest_project = "", ""
+
+    entity = explicit_entity or env_entity or manifest_entity
+    project = (
+        explicit_project
+        or env_project
+        or (project_slug or "").strip()
+        or manifest_project
+    )
+
+    _warn_if_wandb_unsafe(project)
     return enabled, entity, project
 
 
-def probe_run_logging(cfg: Any) -> tuple[bool, str]:
+def probe_run_logging(cfg: Any, project_slug: str | None = None) -> tuple[bool, str]:
     """Rejects-only probe for Plane-B run logging. Returns (ok, message). No network.
 
-    ok=True means: run_logging disabled (nothing to check) OR wandb importable + a
-    project resolvable + WANDB_API_KEY present. ok=False surfaces the specific gap
-    (would produce no ``rv wandb pull``-able run). Never raises.
+    ok=True means: run_logging disabled (nothing to check) OR wandb importable +
+    WANDB_API_KEY present. A run's project defaults to its own slug at call-time
+    (``resolve_run_logging_target``'s ``project_slug`` fallback) — so an unresolved
+    STATIC project is normal, not a failure; only a genuinely missing dep/key fails
+    the probe. Never raises.
     """
-    enabled, entity, project = resolve_run_logging_target(cfg)
+    enabled, entity, project = resolve_run_logging_target(cfg, project_slug=project_slug)
     if not enabled:
         return True, "run-logging (Plane B): disabled ([observability].run_logging=false)"
     try:
@@ -553,18 +600,20 @@ def probe_run_logging(cfg: Any) -> tuple[bool, str]:
             "run-logging (Plane B): `wandb` not importable — install core deps. "
             "A run now would produce NO rv wandb pull-able run."
         )
-    if not project.strip():
-        return False, (
-            "run-logging (Plane B): no W&B project resolvable — set "
-            "[observability].wandb_project or the compute manifest results.wandb block."
-        )
     if not os.environ.get("WANDB_API_KEY", "").strip():
         return False, (
             "run-logging (Plane B): WANDB_API_KEY not set — a run now would fail to "
             "log a classic run (rv wandb pull would have nothing to read)."
         )
-    target = f"{entity}/{project}" if entity else project
-    return True, f"run-logging (Plane B): classic W&B run → {target}"
+    if project.strip():
+        target = f"{entity}/{project}" if entity else project
+        return True, f"run-logging (Plane B): classic W&B run → {target}"
+    ent_msg = entity or "(default account)"
+    return True, (
+        "run-logging (Plane B): classic W&B run → entity="
+        f"{ent_msg}, project=<per-run slug> (auto — defaults to the run's own project "
+        "slug at call-time; set [observability].wandb_project to override)."
+    )
 
 
 def _resolve_weave_project(cfg: Any) -> str:

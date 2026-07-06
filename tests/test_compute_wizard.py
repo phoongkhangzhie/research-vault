@@ -62,8 +62,7 @@ _HAPPY = [
     "1",        # host: pick alias #1 (sc)
     "",         # submit: accept default
     "n",        # Configure another endpoint? no
-    "myent",    # W&B entity
-    "myproj",   # W&B project
+    "myent",    # W&B entity (project is no longer prompted — auto per-run slug)
     "y",        # Write this manifest? yes
 ]
 
@@ -99,7 +98,7 @@ def test_happy_path_writes_manifest_to_state_dir(tmp_path, capsys):
     assert cn["submit_pattern"].startswith("sbatch")
     assert cn["secrets_forward"] == ["WANDB_API_KEY"]
     assert "compute-node" in m["backends"]["active"]
-    assert m["results"]["wandb"] == {"entity": "myent", "project": "myproj"}
+    assert m["results"]["wandb"] == {"entity": "myent"}
 
 
 def test_archetype_preselect_from_scheduler(tmp_path):
@@ -121,7 +120,7 @@ def test_archetype_preselect_from_scheduler(tmp_path):
         "1",   # host sc
         "",    # submit default
         "n",   # another? no
-        "", "",  # wandb blank
+        "",    # wandb entity blank
         "y",   # write
     ]
     run_compute_wizard(
@@ -140,7 +139,7 @@ def test_wandb_prefill_from_env(tmp_path):
     ssh = _ssh_config(tmp_path, "Host sc\n")
     answers = [
         "y", "2", "1", "", "1", "", "n",
-        "", "",  # accept env prefills (blank)
+        "",  # accept env entity prefill (blank; project is no longer prompted)
         "y",
     ]
     run_compute_wizard(
@@ -149,7 +148,9 @@ def test_wandb_prefill_from_env(tmp_path):
         env={"WANDB_ENTITY": "envent", "WANDB_PROJECT": "envproj"},
     )
     m = json.loads(_manifest_path(cfg).read_text())
-    assert m["results"]["wandb"] == {"entity": "envent", "project": "envproj"}
+    # project is NOT scaffolded even when WANDB_PROJECT is set in the shell env —
+    # it defaults per-run to the project slug via resolve_run_logging_target.
+    assert m["results"]["wandb"] == {"entity": "envent"}
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +320,7 @@ def test_malformed_ssh_config_no_crash(tmp_path):
     ssh.write_bytes(b"\xff\xfe garbage Host \x00 not valid ==== \n")
 
     # No aliases detected → host step falls to "blank to skip".
-    answers = ["y", "4", "2", "", "", "n", "", "", "y"]  # archetype ssh, role transfer-node, skip host
+    answers = ["y", "4", "2", "", "", "n", "", "y"]  # archetype ssh, role transfer-node, skip host
     rc = run_compute_wizard(
         cfg, interactive=True, input_fn=_queue_input(answers),
         ssh_config_path=ssh, which_fn=_no_scheduler, env={},
@@ -366,7 +367,7 @@ def test_rerun_remove_unwires_endpoint(tmp_path):
         "y",   # Unwire an existing endpoint? yes
         "1",   # pick compute-node
         "n",   # Configure a compute endpoint now? no
-        "", "",  # wandb blank
+        "",    # wandb entity blank
         "y",   # write
     ]
     run_compute_wizard(
@@ -394,7 +395,7 @@ def test_f7_onboard_manifest_lands_at_injected_state_dir(tmp_path, monkeypatch):
         "1",   # archetype: local (no host/ssh dependency — deterministic)
         "",    # when_to_use: accept
         "n",   # another endpoint? no
-        "onbent", "onbproj",  # W&B
+        "onbent",  # W&B entity (project is no longer prompted)
         "y",   # write
     ])
 
@@ -418,4 +419,4 @@ def test_f7_onboard_manifest_lands_at_injected_state_dir(tmp_path, monkeypatch):
     # It landed under tmp_path, not some stale/default location.
     assert str(tmp_path) in str(path.resolve())
     m = json.loads(path.read_text())
-    assert m["results"]["wandb"] == {"entity": "onbent", "project": "onbproj"}
+    assert m["results"]["wandb"] == {"entity": "onbent"}

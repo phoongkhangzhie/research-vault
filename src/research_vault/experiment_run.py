@@ -56,6 +56,7 @@ def log_experiment_run(
     run_fn: Callable[[Any], Any],
     run_name: str | None = None,
     experiment_note: Any = None,
+    project_slug: str | None = None,
 ) -> str:
     """Run ``run_fn`` inside a classic W&B run and log aggregates + metrics + config.
 
@@ -71,6 +72,10 @@ def log_experiment_run(
     run_name:        optional W&B run display name.
     experiment_note: optional Path to an experiment note — its ``results_wandb_run``
                      frontmatter field is filled with the run path.
+    project_slug:    the calling project's slug — the per-project W&B project
+                     default (used only when no explicit ``[observability].wandb_project``
+                     and no ``WANDB_PROJECT`` env override are set; see
+                     ``resolve_run_logging_target``'s precedence).
 
     Returns
     -------
@@ -82,18 +87,21 @@ def log_experiment_run(
     require = bool(getattr(adapters, "require_observability", False))
     model_client = adapters.model  # arms Plane A + registers the emission counter
 
-    enabled, entity, project = resolve_run_logging_target(cfg)
+    enabled, entity, project = resolve_run_logging_target(cfg, project_slug=project_slug)
     if not enabled:
         # Run-logging opt-out — just execute the work, no W&B run.
         run_fn(model_client)
         return ""
 
-    # Preconditions — surface loudly, don't silently skip (charter §2).
+    # Precondition — surface loudly, don't silently skip (charter §2). This only
+    # fires when the slug, the explicit override, AND the manifest fallback are
+    # ALL empty — the per-project slug default (project_slug) covers the common case.
     if not project.strip():
         msg = (
-            "run-logging (Plane B): enabled but no W&B project resolvable — set "
-            "[observability].wandb_project or the compute manifest results.wandb block. "
-            "No classic run will be logged."
+            "run-logging (Plane B): enabled but no W&B project resolvable (no "
+            "project_slug, no [observability].wandb_project / WANDB_PROJECT, no "
+            "compute manifest results.wandb.project) — pass project_slug or set "
+            "[observability].wandb_project. No classic run will be logged."
         )
         _warn(notifier, msg)
         if require:
