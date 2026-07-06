@@ -152,18 +152,29 @@ def _step_compute(
     feature: Any,
     *,
     step_no: int,
+    cfg: Any = None,
+    interactive: bool = False,
+    input_fn: Callable[[str], str] | None = None,
 ) -> None:
-    """Compute is a pure handoff to the guided `rv compute init` flow.
+    """Compute step — runs the guided wizard at a TTY, else prints the hand-off.
 
-    Never invokes ``cmd_init`` in-process — the adopter must run it themselves
-    so they see its output, edit the generated FILL values, and follow up with
-    ``rv doctor``.  The ``interactive`` / ``input_fn`` / ``cfg`` parameters are
-    intentionally absent: there is nothing to prompt for here.
+    NEVER invokes ``cmd_init`` in-process (the F7 wrong-cfg crash).  When an
+    interactive TTY *and* a real ``cfg`` are available, it delegates to
+    ``run_compute_wizard(cfg, …)`` which threads that exact ``cfg`` straight into
+    ``_save_manifest`` — so the manifest lands at ``cfg.state_dir`` and nothing
+    else is written.  Absent a ``cfg`` (or non-interactive), it preserves the
+    plain hand-off as the floor: never mutate without an interactive confirm.
     """
     print(f"\n[{step_no}] {feature.title} — unlocks {feature.unlocks}")
     if feat_status["status"] == "unlocked":
         print("    already declared — compute_manifest.json present (skipping).")
         return
+
+    if interactive and cfg is not None:
+        from .compute_wizard import run_compute_wizard
+        run_compute_wizard(cfg, interactive=True, input_fn=input_fn)
+        return
+
     print("    This feature won't work until you declare your compute environment.")
     print(
         "    → run `rv compute init` to declare your compute environment"
@@ -239,7 +250,10 @@ def cmd_onboard(
                 step_no=step_no,
             )
         elif feature.kind == "handoff":
-            _step_compute(fs, feature, step_no=step_no)
+            _step_compute(
+                fs, feature, step_no=step_no,
+                cfg=cfg, interactive=interactive, input_fn=input_fn,
+            )
         step_no += 1
 
     # Closing: re-derive locked set (idempotent truth) and summarise.
