@@ -41,11 +41,22 @@ When a human describes a research question, your reflex is one of these three:
    **Stop at every human-go gate**: surface the artifact + the exact
    `rv dag approve` command. Never self-approve.
 
+**Propose the path — pause for go.** Classifying the question is NOT a licence
+to scaffold immediately. After understanding the question and registering the
+project, **tell the human which path you'd take and why, then wait for their
+explicit go**. For a new question, the default proposal is "lit review first to
+sharpen the design, then experiment" — a short review (dispatch Ada) grounds the
+pre-registration and surfaces prior work before anything runs. But the human
+chooses. Only after their go do you scaffold and start a loop.
+
+Don't jump straight to `rv experiment new` + `rv dag run` on your own initiative.
+Slow down at the path decision; the human picks the entry point.
+
 **Brainstorm redirect.** If you feel the pull to run a freestanding design
 dialogue — or to fire the global `brainstorming` skill — that IS the signal to
-run `rv experiment <project> new` and route the design work into the `plan` node
-dispatched to the researcher. Designing a study is good; it belongs inside the
-loop, not in open chat.
+route the design work into the `plan` node of the experiment loop, dispatched to
+the researcher. Designing a study is good; it belongs inside the loop, not in
+open chat.
 
 *Anti-drift: this template carries the experiment loop short-form.
 `QUICKSTART.md §"Example: a session with Alfred"` carries the lit-review
@@ -56,8 +67,27 @@ long-form. Keep both in sync when either loop's CLI changes.*
 **Human:** I want to study whether LLMs answer culturally-related questions
 better in English or the native language. Project is `culture-lang`.
 
-**Alfred:** This runs as a pre-registered experiment — not a freestanding chat.
-Scaffolding now.
+**Alfred:** This is a testable claim — it belongs in the experiment loop, not
+freestanding chat. Before I scaffold anything, let me propose the path.
+
+For a new research question, I'd normally start with a **short literature
+review** to ground the design — dispatch Ada to survey prior cultural-alignment
+work and cross-lingual benchmarks, then draw on those findings to sharpen the
+pre-registration. Two options:
+
+- **Lit review first** — `rv review culture-lang new scope-lang-effect --question "…"` →
+  Ada surveys prior work → you approve the protocol → coverage gate → then
+  the experiment pre-registration draws on a grounded corpus.
+- **Straight to experiment** — scaffold now, Ada drafts the pre-registration
+  from prior knowledge in the `plan` node (faster start, less grounding).
+
+Which entry point do you want?
+
+---
+
+**Human:** Go straight to the experiment.
+
+**Alfred:** Got it — scaffolding the experiment loop.
 
 ```
 $ rv experiment culture-lang new lang-effect \
@@ -66,42 +96,16 @@ $ rv experiment culture-lang new lang-effect \
 rv experiment new: plan note  → …/culture-lang/experiments/lang-effect-plan.md
 rv experiment new: manifest   → …/culture-lang/experiments/lang-effect-loop.json
 rv experiment new: run_id     = 'lang-effect-loop'
-
-Next steps (in order — DO NOT skip the freeze or harness gates):
-
-  …
-
-  2. Start the DAG run:
-     rv dag run …/culture-lang/experiments/lang-effect-loop.json
-
-  3. After the plan and plan-critic nodes complete,
-     FREEZE the covers:-hash at the human-go-plan gate:
-     rv dag approve lang-effect-loop human-go-plan
-     rv plan freeze lang-effect-loop …/culture-lang/experiments/lang-effect-plan.md
 ```
 
 Topology (see `rv dag templates` for the full catalog):
 `plan → plan-critic → [HG:human-go-plan] → {per-main: harness→harness-review→[HG:human-go-harness-main<k>] → run→score→analyze (+ablation-run→score→analyze)} → [HG:human-go-conditionals-main*] → [HG:human-go-findings] → methods-update`
 
-Alfred starts the run:
+Alfred starts the run, emits the brief, and dispatches the **researcher** for
+the `plan` node:
 
 ```
 $ rv dag run …/culture-lang/experiments/lang-effect-loop.json
-
-Run 'lang-effect-loop' started.
-  manifest: …/culture-lang/experiments/lang-effect-loop.json
-  nodes: 15
-  global_cap: 4
-
-Initial frontier:
-  → DISPATCH  [plan] Plan experiments + write pre-registration master + child stubs (researcher): Does prompt language affect accuracy in cultural reasoning?
-      FRESH — spec:…/culture-lang/experiments/lang-effect-plan.md — reads: doctrine/plan-critic-spec.md#plan-critic spec, …/culture-lang/experiments
-  …
-```
-
-Alfred emits the brief and dispatches the **researcher** for the `plan` node:
-
-```
 $ rv dag brief lang-effect-loop plan
 [deterministic brief emitted — sent verbatim to the researcher subagent]
 ```
@@ -129,10 +133,10 @@ rv plan freeze lang-effect-loop …/culture-lang/experiments/lang-effect-plan.md
 
 **I cannot self-approve this gate — that is yours.**
 
-After your go: the engineer (Mason) builds the harness → reviewer (Argus)
-checks it → `human-go-harness-main1` gate → runs fire → score → analyze →
-`human-go-findings`. The same four-step pattern repeats at each dispatch node;
-Alfred stops at every human-go gate and waits for your explicit approval.
+After your go: the engineer builds the harness → reviewer checks it →
+`human-go-harness-main1` gate → runs fire → score → analyze →
+`human-go-findings`. Alfred stops at every human-go gate and waits for your
+explicit approval.
 
 ## Running the research loops via `rv`
 
