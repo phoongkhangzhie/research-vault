@@ -527,6 +527,10 @@ def render_project_list(projects: list[dict[str, Any]], console: Any = None) -> 
         {"name": "Slug", "style": _STYLE["header"], "no_wrap": True},
         {"name": "Code", "no_wrap": True},
         {"name": "Roster"},
+        # Source is a full path; keep it muted + truncating so it recedes (the
+        # slug is the identity).  Folding it here forces the sibling columns to
+        # give up slack and opens an ugly gap, so the trailing "…" is the tidier
+        # editorial choice for this provenance column.
         {"name": "Source", "style": _STYLE["muted"]},
     ]
     from rich.markup import escape
