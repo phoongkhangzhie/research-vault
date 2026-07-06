@@ -1,3 +1,29 @@
+## 2026-07-06 (release/0.1.1: version bump)
+
+### Done
+- Bumped `version` in `pyproject.toml` and `__version__` in
+  `src/research_vault/__init__.py` from `0.1.0` to `0.1.1`.
+- 0.1.1 ships two merged correctness/data-integrity fixes:
+  - **#141 / #48 / #48b** — `cmd_close` and `reconcile --archive` now capture
+    the WHOLE multi-line control-plane entry block, not just the leading
+    bullet line. Previously, closing/archiving a control entry with
+    multi-line body fields silently orphaned or deleted those fields
+    (`_find_entry_block` / `_remove_entry` in `control.py`) — a real
+    data-loss bug in the control-plane record.
+  - **#142 / #33** — the literature-review L-2 anti-fishing gate (a non-empty
+    `counter-position` field on `_protocol.md`) is now **structurally
+    enforced** in code (`check_protocol_gate()` wired into
+    `rv dag approve <run_id> approve-protocol`), rather than relying on
+    agent-prose instructions alone. An empty/missing counter-position now
+    hard-refuses the approval.
+- No functional changes beyond the version bump; #141/#142 were already
+  merged to `main` in prior sessions (this entry documents the release cut).
+
+### Decisions
+- Held PR (`chore/release-0.1.1`) for the maintainer to merge; the `v0.1.1`
+  tag push (which triggers `publish.yml` → PyPI via OIDC trusted publishing)
+  is a separate, explicit step after the bump PR merges — not part of this PR.
+
 ## 2026-07-06 (fix/e2e-med-review-protocol-lint: L-2 counter-position structural gate)
 
 ### Done

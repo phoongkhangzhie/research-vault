@@ -33,10 +33,12 @@ def test_cli_no_verb_prints_help(capsys):
 
 def test_cli_version(capsys):
     """rv --version exits with code 0 and prints the version string."""
+    from research_vault import __version__
+
     result = main(["--version"])
     assert result == 0
     out = capsys.readouterr().out
-    assert "0.1.0" in out
+    assert __version__ in out
 
 
 def test_cli_unknown_verb_exits_nonzero(tmp_instance, capsys):
