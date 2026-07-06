@@ -170,6 +170,32 @@ _grep_py_word() {
     fi
 }
 
+_grep_literal_except() {
+    # _grep_literal_except LABEL LITERAL ALLOW_ERE
+    # Like _grep_literal but removes lines matching ALLOW_ERE from the hit set.
+    # Used for publish-metadata allowlisting: the canonical repo URL is public
+    # identity (pyproject.toml [project.urls], README) and must not be flagged.
+    # Everything else — bare handles, non-canonical URLs — still fails.
+    local label="$1" lit="$2" allow_ere="$3"
+    local found
+    if [ "$STAGED" -eq 1 ]; then
+        found=$(echo "$STAGED_FILES" | xargs -I{} grep -nH -F "$lit" {} 2>/dev/null \
+                | grep -Ev "$SKIP_PATTERN" \
+                | grep -Ev "$allow_ere" || true)
+    else
+        found=$(grep -rn --include="*.md" --include="*.yml" --include="*.yaml" \
+                     --include="*.toml" --include="*.json" --include="*.py" \
+                     -F "$lit" "$TARGET" 2>/dev/null \
+                | grep -Ev "$SKIP_PATTERN" \
+                | grep -Ev "$allow_ere" || true)
+    fi
+    if [ -n "$found" ]; then
+        echo "$found"
+        echo "FAIL [$label]: literal '$lit' matched (outside allowlisted contexts)"
+        FAIL=1
+    fi
+}
+
 # ── Class 5 always runs (secrets scan applies everywhere) ────────────────────
 # Run this block always (both modes); the other classes are skipped in --secrets-only.
 
@@ -192,7 +218,12 @@ _grep_word    "codename/dossier"             "dossier"
 _grep_word    "identity/khang"              "khang"
 _grep_word    "identity/phoong"             "phoong"
 _grep_literal "identity/phoongkz"           "phoongkz"
-_grep_literal "identity/phoongkhangzhie"    "phoongkhangzhie"
+# Allowlist: the canonical public repo URL github.com/phoongkhangzhie/research-vault
+# (and its sub-paths, e.g. /issues) is legitimate publish-metadata in pyproject.toml
+# and README.  A bare @phoongkhangzhie, any non-research-vault GitHub path, or any
+# other context still triggers a RED build.
+_grep_literal_except "identity/phoongkhangzhie" "phoongkhangzhie" \
+    "github\.com/phoongkhangzhie/research-vault"
 # Institutional affiliation — operator's affiliation must not appear in portable doctrine.
 _grep_word    "identity/stanford"           "stanford"
 
