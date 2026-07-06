@@ -311,6 +311,277 @@ def test_step_compute_via_cmd_onboard_no_cmd_init_called(capsys, clean_env, fake
 # (original test preserved below)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# _step_approval_setup — inline gate approval onboarding step
+# ---------------------------------------------------------------------------
+
+class _FakeCfg:
+    """Minimal stand-in for a Config with a config_file."""
+    def __init__(self, config_file=None):
+        self.config_file = config_file
+        self._raw: dict = {}
+
+
+def test_step_approval_setup_accept_path_binds_token(tmp_path, fake_keyring):
+    """Accept path calls provision_approver_token_to_keyring and stores token in keyring."""
+    from research_vault.onboard import _step_approval_setup
+    from research_vault.approval import provision_approver_token_to_keyring
+
+    config_file = tmp_path / "research_vault.toml"
+    config_file.write_text("[approval]\n", encoding="utf-8")
+    cfg = _FakeCfg(config_file=config_file)
+
+    setup_calls = []
+
+    def fake_provision(cfg_arg):
+        setup_calls.append(cfg_arg)
+        # Simulate keyring write.
+        import keyring
+        keyring.set_password("research-vault", "rv-approver-token", "fake-token")
+        return True, "token stored in keyring (service=research-vault, username=rv-approver-token)"
+
+    with patch("research_vault.approval.provision_approver_token_to_keyring", fake_provision):
+        with patch("research_vault.approval._is_approver_token_bound", return_value=False):
+            _step_approval_setup(
+                cfg,
+                interactive=True,
+                input_fn=lambda q: "y",  # say yes
+                step_no=8,
+            )
+
+    # The real setup function was called.
+    assert len(setup_calls) == 1
+    assert setup_calls[0] is cfg
+
+
+def test_step_approval_setup_skip_path_leaves_no_token(capsys, tmp_path, fake_keyring):
+    """Declining the prompt leaves nothing in the keyring."""
+    from research_vault.onboard import _step_approval_setup
+
+    config_file = tmp_path / "research_vault.toml"
+    config_file.write_text("[approval]\n", encoding="utf-8")
+    cfg = _FakeCfg(config_file=config_file)
+
+    with patch("research_vault.approval._is_approver_token_bound", return_value=False):
+        with patch("research_vault.approval.provision_approver_token_to_keyring") as mock_prov:
+            _step_approval_setup(
+                cfg,
+                interactive=True,
+                input_fn=lambda q: "n",  # say no
+                step_no=8,
+            )
+            mock_prov.assert_not_called()
+
+    out = capsys.readouterr().out
+    assert "skipped" in out.lower()
+    # No token in keyring.
+    assert fake_keyring.store.get(("research-vault", "rv-approver-token")) is None
+
+
+def test_step_approval_setup_already_bound_short_circuits(capsys, tmp_path, fake_keyring):
+    """If the token is already in the keyring, skip with 'already set up'."""
+    from research_vault.onboard import _step_approval_setup
+
+    config_file = tmp_path / "research_vault.toml"
+    config_file.write_text("[approval]\ntoken_fingerprint = \"abc\"\n", encoding="utf-8")
+    cfg = _FakeCfg(config_file=config_file)
+
+    with patch("research_vault.approval._is_approver_token_bound", return_value=True):
+        with patch("research_vault.approval.provision_approver_token_to_keyring") as mock_prov:
+            _step_approval_setup(
+                cfg,
+                interactive=True,
+                input_fn=lambda q: (_ for _ in ()).throw(AssertionError("should not prompt")),
+                step_no=8,
+            )
+            mock_prov.assert_not_called()
+
+    out = capsys.readouterr().out
+    assert "already set up" in out
+
+
+def test_step_approval_setup_non_tty_skips_cleanly(capsys, tmp_path, fake_keyring):
+    """Non-interactive: step is skipped silently (no output, no provision call)."""
+    from research_vault.onboard import _step_approval_setup
+
+    config_file = tmp_path / "research_vault.toml"
+    config_file.write_text("[approval]\n", encoding="utf-8")
+    cfg = _FakeCfg(config_file=config_file)
+
+    with patch("research_vault.approval.provision_approver_token_to_keyring") as mock_prov:
+        _step_approval_setup(
+            cfg,
+            interactive=False,
+            input_fn=lambda q: (_ for _ in ()).throw(AssertionError("should not prompt")),
+            step_no=8,
+        )
+        mock_prov.assert_not_called()
+
+    out = capsys.readouterr().out
+    # Silent skip — no output at all.
+    assert out == ""
+
+
+def test_step_approval_setup_no_cfg_skips_with_note(capsys):
+    """No cfg (or cfg.config_file is None): skip with a brief note."""
+    from research_vault.onboard import _step_approval_setup
+
+    with patch("research_vault.approval.provision_approver_token_to_keyring") as mock_prov:
+        _step_approval_setup(
+            None,
+            interactive=True,
+            input_fn=lambda q: "y",
+            step_no=8,
+        )
+        mock_prov.assert_not_called()
+
+    out = capsys.readouterr().out
+    assert "skipped" in out.lower()
+
+
+def test_step_approval_setup_honest_framing_text(capsys, tmp_path):
+    """The step text contains the honest framing about discipline-enforced vs can't."""
+    from research_vault.onboard import _step_approval_setup
+
+    config_file = tmp_path / "research_vault.toml"
+    config_file.write_text("[approval]\n", encoding="utf-8")
+    cfg = _FakeCfg(config_file=config_file)
+
+    with patch("research_vault.approval._is_approver_token_bound", return_value=False):
+        with patch("research_vault.approval.provision_approver_token_to_keyring", return_value=(True, "ok")):
+            _step_approval_setup(
+                cfg,
+                interactive=True,
+                input_fn=lambda q: "n",  # skip after reading framing
+                step_no=8,
+            )
+
+    out = capsys.readouterr().out
+    # The framing must be present before any prompt.
+    assert "discipline-enforced" in out
+    assert "won't self-approve" in out or "won't" in out
+    assert "separate terminal" in out
+
+
+def test_onboard_approval_step_present_in_interactive_session(capsys, clean_env, fake_keyring, tmp_path):
+    """In interactive mode, the approval step appears in the flow (after compute)."""
+    from research_vault.onboard import cmd_onboard
+
+    # Build a minimal cfg with config_file so the approval step isn't skipped for that reason.
+    config_file = tmp_path / "research_vault.toml"
+    config_file.write_text("[approval]\n", encoding="utf-8")
+
+    from research_vault.config import Config
+    raw = {
+        "instance_root": str(tmp_path),
+        "notes_root": str(tmp_path / "notes"),
+        "state_dir": str(tmp_path / "state"),
+        "agents_dir": str(tmp_path / ".agents"),
+        "tasks_dir": str(tmp_path / "tasks"),
+        "control_dir": str(tmp_path / "control"),
+        "adapters": {"notifier": "file", "backend": "local", "secrets": "env"},
+        "projects": {},
+    }
+    cfg = Config(raw, config_file=config_file)
+
+    with patch("shutil.which", return_value="/usr/bin/claude"):
+        with patch("research_vault.approval._is_approver_token_bound", return_value=False):
+            with patch("research_vault.approval.provision_approver_token_to_keyring",
+                       return_value=(True, "token stored")):
+                rc = cmd_onboard(
+                    cfg,
+                    assume_tty=True,
+                    input_fn=lambda q: "n",  # skip all prompts including approval
+                    getpass_fn=lambda q: "",
+                )
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    # The approval step must appear.
+    assert "Inline gate approval" in out
+    # Must appear AFTER the compute step.
+    idx_compute = out.find("Remote compute")
+    idx_approval = out.find("Inline gate approval")
+    assert idx_compute >= 0, "compute step missing"
+    assert idx_approval >= 0, "approval step missing"
+    assert idx_approval > idx_compute, "approval step must come after compute"
+
+
+def test_onboard_approval_step_absent_in_non_interactive(capsys, clean_env, fake_keyring):
+    """In non-interactive mode the approval step is skipped silently (no output for it)."""
+    from research_vault.onboard import cmd_onboard
+    with patch("shutil.which", return_value="/usr/bin/claude"):
+        cmd_onboard(assume_tty=False)
+    out = capsys.readouterr().out
+    # The step itself should not appear (silent skip).
+    assert "Inline gate approval" not in out
+
+
+# ---------------------------------------------------------------------------
+# provision_approver_token_to_keyring — core setup logic in approval.py
+# ---------------------------------------------------------------------------
+
+def test_provision_approver_token_to_keyring_binds_token(tmp_path, fake_keyring):
+    """provision_approver_token_to_keyring writes fingerprint to config + stores in keyring."""
+    from research_vault.approval import provision_approver_token_to_keyring
+    from research_vault.dag.approval import compute_fingerprint, verify_fingerprint
+
+    config_file = tmp_path / "research_vault.toml"
+    config_file.write_text("[approval]\n", encoding="utf-8")
+
+    from research_vault.config import Config
+    raw = {
+        "instance_root": str(tmp_path),
+        "notes_root": str(tmp_path / "notes"),
+        "state_dir": str(tmp_path / "state"),
+        "agents_dir": str(tmp_path / ".agents"),
+        "tasks_dir": str(tmp_path / "tasks"),
+        "control_dir": str(tmp_path / "control"),
+        "adapters": {"notifier": "file", "backend": "local", "secrets": "env"},
+        "projects": {},
+    }
+    cfg = Config(raw, config_file=config_file)
+
+    ok, msg = provision_approver_token_to_keyring(cfg)
+
+    assert ok is True
+    # Message is safe — does NOT contain the raw token.
+    stored_token = fake_keyring.store.get(("research-vault", "rv-approver-token"))
+    assert stored_token is not None, "token must be in keyring"
+    assert stored_token not in msg, "token must NOT appear in the returned message"
+    # Fingerprint is in config.
+    config_text = config_file.read_text(encoding="utf-8")
+    assert "token_fingerprint" in config_text
+    # Fingerprint verifies against the stored token.
+    import re
+    m = re.search(r'token_fingerprint\s*=\s*"([^"]+)"', config_text)
+    assert m is not None, "token_fingerprint not found in config"
+    assert verify_fingerprint(stored_token, m.group(1))
+
+
+def test_provision_approver_token_to_keyring_no_config_file(tmp_path):
+    """Returns (False, …) when cfg has no config_file."""
+    from research_vault.approval import provision_approver_token_to_keyring
+    cfg = _FakeCfg(config_file=None)
+    ok, msg = provision_approver_token_to_keyring(cfg)
+    assert ok is False
+    assert "config file" in msg or "rv init" in msg
+
+
+def test_is_approver_token_bound_true_when_in_keyring(fake_keyring):
+    """_is_approver_token_bound returns True when keyring has the token."""
+    from research_vault.approval import _is_approver_token_bound
+    fake_keyring.store[("research-vault", "rv-approver-token")] = "some-token"
+    assert _is_approver_token_bound() is True
+
+
+def test_is_approver_token_bound_false_when_absent(fake_keyring):
+    """_is_approver_token_bound returns False when keyring has no token."""
+    from research_vault.approval import _is_approver_token_bound
+    # fresh fake_keyring has nothing
+    assert _is_approver_token_bound() is False
+
+
 def test_onboard_no_plaintext_env_written(tmp_path, clean_env, fake_keyring, monkeypatch):
     """Onboard must NOT write a plaintext .env anywhere in the CWD."""
     from research_vault.onboard import cmd_onboard
