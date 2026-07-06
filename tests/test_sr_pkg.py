@@ -133,49 +133,46 @@ class TestRvInitCopiesRealContent:
             "The skeleton fallback does not contain these files."
         )
 
-    def test_init_copies_real_loop_not_placeholder(self, tmp_path):
-        """rv init must produce real multi-node loop DAGs, NOT single-node placeholders.
+    def test_init_scaffolds_real_doctrine_no_demos(self, tmp_path):
+        """rv init must copy REAL doctrine content and NOT scaffold demo projects.
 
-        The placeholder fallback writes a single-node manifest with id='placeholder'.
-        The real research loop has many nodes (>4). If we get 1 node or a node with
-        id='placeholder', the fallback fired.
+        SR-RV-UPDATE Slice 2 removed the demo projects: `rv init` no longer copies
+        examples/ into the vault nor registers demo-research/demo-litreview. The
+        package data STILL ships the real loop manifests (used by `rv dag templates`
+        etc.) — this asserts both facts so a regression to the placeholder-fallback
+        or a silent demo re-introduction is caught.
         """
+        import importlib.resources
         from research_vault.init import cmd_init_in_dir
 
         target = tmp_path / "vault-loop-test"
         rc = cmd_init_in_dir(str(target))
         assert rc == 0
 
-        research_loop = target / "examples" / "demo-research" / "research-loop.json"
-        litreview_loop = target / "examples" / "demo-litreview" / "lit-review-loop.json"
-
-        assert research_loop.exists(), "research-loop.json must be placed by init"
-        assert litreview_loop.exists(), "lit-review-loop.json must be placed by init"
-
-        with open(research_loop, encoding="utf-8") as f:
-            m1 = json.load(f)
-        with open(litreview_loop, encoding="utf-8") as f:
-            m2 = json.load(f)
-
-        # Not a placeholder
-        assert not any(n["id"] == "placeholder" for n in m1["nodes"]), (
-            "FAIL: research-loop.json contains a placeholder node. "
-            "The _write_placeholder_manifest fallback must have fired. "
-            "Fix: relocate examples/ to src/research_vault/data/examples/ "
-            "and load via importlib.resources."
-        )
-        assert not any(n["id"] == "placeholder" for n in m2["nodes"]), (
-            "FAIL: lit-review-loop.json contains a placeholder node."
+        # No demos scaffolded into the vault.
+        assert not (target / "examples").exists(), (
+            "FAIL: rv init must NOT scaffold examples/ (demos removed in SR-RV-UPDATE)."
         )
 
-        # Real DAGs have multiple nodes
-        assert len(m1["nodes"]) > 4, (
-            f"FAIL: research-loop.json has only {len(m1['nodes'])} nodes. "
-            "Expected >4 (the real loop has many). Placeholder has 1."
+        # Real doctrine copied (not a skeleton).
+        doctrine_md = list((target / "doctrine").rglob("*.md"))
+        assert len(doctrine_md) > 1, (
+            f"FAIL: doctrine/ has only {len(doctrine_md)} .md file(s) — real content missing."
         )
-        assert len(m2["nodes"]) > 4, (
-            f"FAIL: lit-review-loop.json has only {len(m2['nodes'])} nodes. Expected >4."
-        )
+
+        # The package still SHIPS the real (non-placeholder) loop manifests.
+        pkg_data = importlib.resources.files("research_vault") / "data"
+        for rel in ("examples/demo-research/research-loop.json",
+                    "examples/demo-litreview/lit-review-loop.json"):
+            with importlib.resources.as_file(pkg_data / rel) as loop_src:
+                assert loop_src.is_file(), f"package data missing: data/{rel}"
+                m = json.loads(loop_src.read_text(encoding="utf-8"))
+                assert not any(n["id"] == "placeholder" for n in m["nodes"]), (
+                    f"FAIL: {rel} contains a placeholder node."
+                )
+                assert len(m["nodes"]) > 4, (
+                    f"FAIL: {rel} has only {len(m['nodes'])} nodes; expected >4."
+                )
 
     def test_init_no_fallback_functions_exist(self):
         """After SR-PKG, the fallback functions must be removed from init.py.
@@ -305,30 +302,9 @@ class TestIsolatedWheelSmoke:
             f"Files present: {[f.name for f in doctrine_md_files]}"
         )
 
-        # ── 6. Assert REAL loop manifests (not placeholder) ─────────────────
-        research_loop = project_dir / "examples" / "demo-research" / "research-loop.json"
-        litreview_loop = project_dir / "examples" / "demo-litreview" / "lit-review-loop.json"
-
-        assert research_loop.exists(), "research-loop.json must be placed by rv init"
-        assert litreview_loop.exists(), "lit-review-loop.json must be placed by rv init"
-
-        with open(research_loop, encoding="utf-8") as f:
-            m1 = json.load(f)
-        with open(litreview_loop, encoding="utf-8") as f:
-            m2 = json.load(f)
-
-        assert not any(n["id"] == "placeholder" for n in m1["nodes"]), (
-            "FAIL (smoke): research-loop.json has placeholder node — "
-            "_write_placeholder_manifest fallback fired. data/examples/ not in the wheel."
-        )
-        assert not any(n["id"] == "placeholder" for n in m2["nodes"]), (
-            "FAIL (smoke): lit-review-loop.json has placeholder node."
-        )
-        assert len(m1["nodes"]) > 4, (
-            f"FAIL (smoke): research-loop has {len(m1['nodes'])} nodes, expected >4."
-        )
-        assert len(m2["nodes"]) > 4, (
-            f"FAIL (smoke): lit-review-loop has {len(m2['nodes'])} nodes, expected >4."
+        # ── 6. Assert NO demos scaffolded (SR-RV-UPDATE Slice 2) ─────────────
+        assert not (project_dir / "examples").exists(), (
+            "FAIL (smoke): rv init must NOT scaffold examples/ — demos were removed."
         )
 
         # ── 7. Sanity: rv init stdout does NOT mention skeleton or placeholder ─

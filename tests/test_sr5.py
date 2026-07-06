@@ -489,9 +489,10 @@ def test_rv_init_creates_instance_structure(tmp_path):
     # Doctrine directory
     assert (target / "doctrine").is_dir(), "doctrine/ must be created"
 
-    # Example projects
-    assert (target / "examples" / "demo-research").is_dir()
-    assert (target / "examples" / "demo-litreview").is_dir()
+    # SR-RV-UPDATE Slice 2: demos removed — no examples/ scaffolded.
+    assert not (target / "examples").exists(), (
+        "rv init must NOT scaffold examples/ (demo projects removed)"
+    )
 
     # Notes root with OKF type dirs
     assert (target / "notes").is_dir(), "notes/ must be created"
@@ -502,7 +503,7 @@ def test_rv_init_creates_instance_structure(tmp_path):
 
 
 def test_rv_init_creates_valid_config(tmp_path):
-    """rv init creates a research_vault.toml with demo projects registered."""
+    """rv init creates a research_vault.toml with NO demo projects (SR-RV-UPDATE)."""
     from research_vault.init import cmd_init_in_dir
 
     target = tmp_path / "vault-init-test"
@@ -518,12 +519,14 @@ def test_rv_init_creates_valid_config(tmp_path):
     reset_config_cache()
     try:
         cfg = load_config()
-        assert "demo-research" in cfg.projects, (
-            "demo-research must be registered in the config"
+        # Slice 2: demos are no longer auto-registered.
+        assert "demo-research" not in cfg.projects, (
+            "demo-research must NOT be registered — demos removed in SR-RV-UPDATE"
         )
-        assert "demo-litreview" in cfg.projects, (
-            "demo-litreview must be registered in the config"
+        assert "demo-litreview" not in cfg.projects, (
+            "demo-litreview must NOT be registered — demos removed in SR-RV-UPDATE"
         )
+        assert cfg.projects == {}, "a fresh vault registers zero projects"
     finally:
         reset_config_cache()
         if old is None:
@@ -533,23 +536,39 @@ def test_rv_init_creates_valid_config(tmp_path):
 
 
 def test_rv_init_loop_manifests_valid(tmp_path):
-    """rv init places both loop manifests in examples/ and they validate under schema."""
+    """The SHIPPED loop manifests (package data) still validate under the schema.
+
+    SR-RV-UPDATE Slice 2 removed demo scaffolding from `rv init`, but the package
+    still ships the loop manifests (for `rv dag templates`). This validates the
+    shipped manifests directly rather than copies placed by init.
+    """
+    import importlib.resources
     from research_vault.init import cmd_init_in_dir
 
     target = tmp_path / "vault-loop-test"
     target.mkdir()
     cmd_init_in_dir(str(target))
 
-    research_loop = target / "examples" / "demo-research" / "research-loop.json"
-    litreview_loop = target / "examples" / "demo-litreview" / "lit-review-loop.json"
+    # init must NOT place demo manifests into the vault.
+    assert not (target / "examples").exists(), "rv init must not scaffold examples/"
 
-    assert research_loop.exists(), "research-loop.json must be placed by init"
-    assert litreview_loop.exists(), "lit-review-loop.json must be placed by init"
+    pkg_data = importlib.resources.files("research_vault") / "data"
+    with importlib.resources.as_file(
+        pkg_data / "examples" / "demo-research" / "research-loop.json"
+    ) as rl, importlib.resources.as_file(
+        pkg_data / "examples" / "demo-litreview" / "lit-review-loop.json"
+    ) as ll:
+        research_loop = Path(rl)
+        litreview_loop = Path(ll)
 
-    # Both must validate under the current schema
-    m1 = load_manifest(research_loop)
-    m2 = load_manifest(litreview_loop)
-    assert m1["run_id"] and m2["run_id"]
+        assert research_loop.exists(), "shipped research-loop.json must exist in package data"
+        assert litreview_loop.exists(), "shipped lit-review-loop.json must exist in package data"
+
+        # Both must validate under the current schema (inside the as_file context,
+        # where the extracted temp paths are still valid).
+        m1 = load_manifest(research_loop)
+        m2 = load_manifest(litreview_loop)
+        assert m1["run_id"] and m2["run_id"]
 
 
 def test_rv_init_does_not_overwrite_existing(tmp_path):

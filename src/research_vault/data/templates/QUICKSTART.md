@@ -305,31 +305,21 @@ No run executes until the human has approved both the plan and the harness.
 - Irreversible steps (search, run) are gated behind explicit human approval.
 - The crew cannot self-approve: human-go gates are the operator's decision, not Alfred's.
 
-## Two runnable example loops
+## The two canonical loops
 
-This instance includes two demo projects under `examples/`:
+Research Vault ships two research-loop shapes, discoverable via `rv dag templates`:
 
 ### Research loop — pre-registration enforced
 
-```bash
-cd <instance-root>
-rv dag run examples/demo-research/research-loop.json
-rv dag status research-loop-q1
-```
-
 The research loop enforces pre-registration: the `run` node cannot fire until
-the `experiments/exp-q1.md` note is filed. This turns a discipline into a
-structural constraint.
+the pre-registration note is filed. This turns a discipline into a structural
+constraint. Start one with `rv experiment <project> new <id> --question '...'`.
 
 ### Lit-review loop — OKF coverage gate
 
-```bash
-rv dag run examples/demo-litreview/lit-review-loop.json
-rv dag status lit-review-loop-topic
-```
-
 Every in-scope paper must have a `literature/<key>.md` note before synthesis begins.
 The `okf-coverage-gate` human-go node blocks until all distill nodes succeed.
+Start one with `rv review <project> new <scope> --question '...'`.
 
 ## Adding a real project
 
@@ -369,8 +359,7 @@ to regenerate the agent hat files.
 
 - `rv help` — all verbs and their discovery surfaces
 - `rv <verb> --help` — details for a specific verb
-- `examples/demo-research/README.md` — research loop walkthrough
-- `examples/demo-litreview/README.md` — lit-review loop walkthrough
+- `rv dag templates` — the built-in research loops (experiment, lit-review)
 - `doctrine/agent-charter.md` — the values and epistemics of the system
 - `doctrine/coordination.md` — how the control plane works
 - `doctrine/roles/` — the crew role docs (hub, engineer, researcher, designer, reviewer, architect)
