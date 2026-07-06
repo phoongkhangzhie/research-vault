@@ -132,32 +132,40 @@ _grep_word() {
 }
 
 _grep_word_except() {
-    # _grep_word_except LABEL WORD ALLOW_ERE
+    # _grep_word_except LABEL WORD ALLOW_ERE [FILE_PAT]
     # Like _grep_word (whole-word, case-insensitive) but masks ALLOW_ERE from
-    # each matching line's content (awk gsub) before re-checking. Allows a
-    # specific sanctioned context (e.g. pyproject.toml author fields) while still
-    # catching bare identity leaks in doctrine or code.
+    # each matching line's content (awk gsub) before re-checking.
+    #
+    # FILE_PAT (optional, awk ERE) scopes the masking to files whose grep-output
+    # filename field ($1) matches FILE_PAT.  When FILE_PAT is provided, masking is
+    # applied ONLY for matching files — all other files are checked strictly with
+    # no masking.  When FILE_PAT is omitted (empty string), masking applies to
+    # every file (backward-compatible behaviour).
+    #
+    # Scoping masking to the specific file that legitimately contains the identity
+    # string (e.g. pyproject.toml for PyPI author metadata) prevents the allowlist
+    # from silently suppressing detections in every other file type.
     #
     # After masking, a case-insensitive substring check confirms the word survived.
     # This is equivalent to word-boundary matching in practice: if the word only
     # appeared inside the masked phrase, no substring remains after gsub.
-    local label="$1" word="$2" allow_ere="$3"
+    local label="$1" word="$2" allow_ere="$3" file_pat="${4:-}"
     local found
     local _MASK_AWK='NF>=3{
         content=$3; for(i=4;i<=NF;i++) content=content":"$i
-        gsub(allow_ere, "", content)
+        if(file_pat=="" || $1 ~ file_pat) { gsub(allow_ere, "", content) }
         if(index(tolower(content), tolower(word))>0) print $0
     }'
     if [ "$STAGED" -eq 1 ]; then
         found=$(echo "$STAGED_FILES" | xargs -I{} grep -nH -wi "$word" {} 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" \
-                | awk -F: -v word="$word" -v allow_ere="$allow_ere" "$_MASK_AWK" || true)
+                | awk -F: -v word="$word" -v allow_ere="$allow_ere" -v file_pat="$file_pat" "$_MASK_AWK" || true)
     else
         found=$(grep -rn --include="*.md" --include="*.yml" --include="*.yaml" \
                      --include="*.toml" --include="*.json" --include="*.py" \
                      -wi "$word" "$TARGET" 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" \
-                | awk -F: -v word="$word" -v allow_ere="$allow_ere" "$_MASK_AWK" || true)
+                | awk -F: -v word="$word" -v allow_ere="$allow_ere" -v file_pat="$file_pat" "$_MASK_AWK" || true)
     fi
     if [ -n "$found" ]; then
         echo "$found"
@@ -167,27 +175,32 @@ _grep_word_except() {
 }
 
 _grep_literal_except_re() {
-    # _grep_literal_except_re LABEL LITERAL ALLOW_ERE
+    # _grep_literal_except_re LABEL LITERAL ALLOW_ERE [FILE_PAT]
     # Like _grep_literal but masks a caller-provided awk ERE from each matching
     # line's content before re-checking. More general than _grep_literal_except
     # (which hardcodes the canonical GitHub URL mask).
-    local label="$1" lit="$2" allow_ere="$3"
+    #
+    # FILE_PAT (optional, awk ERE): when provided, masking is applied ONLY for
+    # files whose grep-output filename field ($1) matches FILE_PAT.  All other
+    # files are checked strictly with no masking.  Omitting FILE_PAT (empty
+    # string) applies masking to every file (backward-compatible).
+    local label="$1" lit="$2" allow_ere="$3" file_pat="${4:-}"
     local found
     local _MASK_AWK='NF>=3{
         content=$3; for(i=4;i<=NF;i++) content=content":"$i
-        gsub(allow_ere, "", content)
+        if(file_pat=="" || $1 ~ file_pat) { gsub(allow_ere, "", content) }
         if(index(content, lit)>0) print $0
     }'
     if [ "$STAGED" -eq 1 ]; then
         found=$(echo "$STAGED_FILES" | xargs -I{} grep -nH -F "$lit" {} 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" \
-                | awk -F: -v lit="$lit" -v allow_ere="$allow_ere" "$_MASK_AWK" || true)
+                | awk -F: -v lit="$lit" -v allow_ere="$allow_ere" -v file_pat="$file_pat" "$_MASK_AWK" || true)
     else
         found=$(grep -rn --include="*.md" --include="*.yml" --include="*.yaml" \
                      --include="*.toml" --include="*.json" --include="*.py" \
                      -F "$lit" "$TARGET" 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" \
-                | awk -F: -v lit="$lit" -v allow_ere="$allow_ere" "$_MASK_AWK" || true)
+                | awk -F: -v lit="$lit" -v allow_ere="$allow_ere" -v file_pat="$file_pat" "$_MASK_AWK" || true)
     fi
     if [ -n "$found" ]; then
         echo "$found"
@@ -308,15 +321,15 @@ _grep_word    "codename/csb"                 "csb"
 _grep_word    "codename/dossier"             "dossier"
 
 # ── Class 2: Private identity strings ────────────────────────────────────────
-# Allowlist: the author/maintainer entry in pyproject.toml is public PyPI metadata
-# and must not be gated. "Khang Zhie Phoong" and "phoongkz@gmail.com" are
-# sanctioned in the [project].authors field; all other occurrences remain RED.
-# ALLOW_ERE covers the full author entry: name field + email field.
-# "phoong" is a substring of both "Phoong" and "phoongkz", so both
-# components must be masked to prevent false positives on the email.
-_grep_word_except       "identity/khang"    "khang"    "Khang Zhie Phoong"
-_grep_word_except       "identity/phoong"   "phoong"   "(Khang Zhie Phoong|phoongkz@gmail[.]com)"
-_grep_literal_except_re "identity/phoongkz" "phoongkz" "phoongkz@gmail[.]com"
+# The author/maintainer entry in pyproject.toml is public PyPI metadata and is
+# the ONLY sanctioned location for "Khang Zhie Phoong" and "phoongkz@gmail.com".
+# The FILE_PAT arg "(^|/)pyproject\.toml$" scopes masking to pyproject.toml ONLY —
+# every other file is checked strictly with no masking, so the full name or
+# author email appearing in a doctrine .md, a .py comment, a .yml, or any other
+# file triggers a RED build exactly as it does on main.
+_grep_word_except       "identity/khang"    "khang"    "Khang Zhie Phoong"                     "(^|/)pyproject\\.toml$"
+_grep_word_except       "identity/phoong"   "phoong"   "(Khang Zhie Phoong|phoongkz@gmail[.]com)" "(^|/)pyproject\\.toml$"
+_grep_literal_except_re "identity/phoongkz" "phoongkz" "phoongkz@gmail[.]com"                  "(^|/)pyproject\\.toml$"
 # Allowlist: the canonical public repo URL github.com/phoongkhangzhie/research-vault
 # (and its sub-paths, e.g. /issues) is legitimate publish-metadata in pyproject.toml
 # and README.  A bare @phoongkhangzhie, any non-research-vault GitHub path, or any

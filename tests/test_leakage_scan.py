@@ -731,3 +731,58 @@ def test_red_on_phoongkz_bare_still_flagged(tmp_path):
     """phoongkz as a bare cluster handle (not @gmail.com) still fails after allowlist."""
     write_doc(tmp_path, "SSH login: phoongkz@login.cluster.edu\n")
     assert_red(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: author allowlist must be scoped to pyproject.toml ONLY
+#
+# These tests guard the Argus BLOCK on PR #140 (commit b49b625): the
+# _grep_word_except / _grep_literal_except_re helpers in b49b625 applied the
+# ALLOW_ERE mask globally to every file, so "Khang Zhie Phoong" and
+# "phoongkz@gmail.com" passed the scanner in ANY file — 5 regressions.
+#
+# Each test below was GREEN on b49b625 and must be RED on the fixed scanner.
+# Non-vacuousness proof: b49b625 used _grep_word_except with no FILE_PAT arg,
+# so gsub("Khang Zhie Phoong", "") stripped the full name from the content of
+# every file, making index(content, "khang") = 0 and printing nothing → GREEN.
+# After the fix, masking is gated on "(^|/)pyproject\.toml$"; a .md/.py/.yml
+# file does not match → no masking → "khang"/"phoong"/"phoongkz" still present
+# in content → print $0 → RED.
+# ---------------------------------------------------------------------------
+
+
+def test_red_on_full_name_in_doctrine_md(tmp_path):
+    """Full name in a doctrine .md flags RED — only pyproject.toml is sanctioned.
+
+    Was GREEN on b49b625: the global ALLOW_ERE mask stripped "Khang Zhie Phoong"
+    from the content of every file before re-checking, so nothing remained to
+    trigger the detector.
+    """
+    write_doc(tmp_path, "This framework was designed by Khang Zhie Phoong.\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_full_name_in_py_comment(tmp_path):
+    """Full name in a .py comment flags RED — only pyproject.toml is sanctioned.
+
+    Was GREEN on b49b625: the global mask removed "Khang Zhie Phoong" from every
+    file's content, including .py files, making the check vacuous outside
+    pyproject.toml.
+    """
+    write_doc(
+        tmp_path,
+        "# Written by Khang Zhie Phoong\ndef placeholder(): pass\n",
+        filename="test_module.py",
+    )
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_email_in_non_pyproject_md(tmp_path):
+    """Author email in a non-pyproject .md flags RED — only pyproject.toml is sanctioned.
+
+    Was GREEN on b49b625: _grep_literal_except_re with no FILE_PAT masked
+    "phoongkz@gmail.com" from every file's content, so "phoongkz" vanished after
+    gsub in all files and the detector never fired.
+    """
+    write_doc(tmp_path, "Contact the maintainer at phoongkz@gmail.com for support.\n")
+    assert_red(run_scan(tmp_path))
