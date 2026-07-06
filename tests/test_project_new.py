@@ -378,6 +378,37 @@ class TestProjectNewGuards:
         import shutil
         shutil.rmtree(default_src, ignore_errors=True)
 
+    def test_default_source_is_NOT_inside_vault(self, rv_instance: Path) -> None:
+        """Regression: default source must be a SIBLING, not nested inside the vault."""
+        rc = cmd_new("demo", "dm", None, [])
+        assert rc == 0
+        default_src = rv_instance.parent / "demo"
+        # Must NOT be nested inside rv_instance (the vault root)
+        try:
+            default_src.relative_to(rv_instance)
+            nested = True
+        except ValueError:
+            nested = False
+        assert not nested, (
+            f"default source {default_src} must not be inside vault {rv_instance}"
+        )
+        import shutil
+        shutil.rmtree(default_src, ignore_errors=True)
+
+    def test_nested_source_warns(self, rv_instance: Path, capsys) -> None:
+        """--source inside the vault emits a WARNING to stderr but still succeeds."""
+        # Place project inside the vault (the anti-pattern)
+        nested_src = rv_instance / "projects" / "demo"
+        rc = cmd_new("demo", "dm", str(nested_src), [])
+        assert rc == 0, "nested --source is warned, not hard-blocked"
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err, (
+            "nested source path must emit a WARNING to stderr"
+        )
+        assert "sibling" in captured.err.lower(), (
+            "warning must mention the sibling convention"
+        )
+
 
 # ---------------------------------------------------------------------------
 # 8. Rollback

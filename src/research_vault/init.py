@@ -80,12 +80,20 @@ backend = "local"
 secrets = "env"
 
 # ── To add a real project ────────────────────────────────────────────────────
-# Either run:
-#   rv project add my-project /absolute/path/to/my-project-repo
+# Convention: projects are SIBLINGS of the vault, each its own git repo.
+# If this vault is at /home/user/myvault/, a new project lives at
+# /home/user/my-project/ — NOT nested inside /home/user/myvault/.
 #
-# Or add manually:
+# Stand up a brand-new project repo (git init + scaffold + crew) in one command:
+#   rv project new my-project --code mp
+#   → creates /home/user/my-project/ as a sibling (no --source needed)
+#
+# Register an existing repo:
+#   rv project add my-project --code mp --source /path/to/my-project-repo
+#
+# Or add manually (source_dir MUST be outside the vault to avoid nested repos):
 # [projects.my-project]
-# source_dir = "/absolute/path/to/my-project-repo"
+# source_dir = "/absolute/path/to/my-project-repo"  # sibling of this vault
 """
 
 # ---------------------------------------------------------------------------

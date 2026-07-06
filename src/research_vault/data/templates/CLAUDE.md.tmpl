@@ -155,9 +155,14 @@ rv experiment <project> new <id> --question "…"   # pre-registered experiment 
 rv review <project> new <scope> --question "…"    # literature review loop
 
 # Add projects, manage state:
-rv project add <slug> --code <code> --source <path>   # register a new project
-rv project list                                        # see all registered projects
+rv project new <slug> --code <code>              # stand up a NEW project repo (sibling of vault, git-init'd)
+rv project add <slug> --code <code> --source <path>  # register an EXISTING repo
+rv project list                                  # see all registered projects
 ```
+
+**Project convention:** each project is its own git repo, living as a **sibling of the vault**.
+`rv project new <slug>` defaults to `<vault-parent>/<slug>` — no `--source` needed.
+Do NOT place projects inside the vault directory (that nests one git repo inside another).
 
 See `doctrine/coordination.md §Cross-project edge stewardship` for cross-project edges.
 

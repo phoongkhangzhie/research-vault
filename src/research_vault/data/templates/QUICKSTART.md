@@ -339,16 +339,24 @@ Start one with `rv review <project> new <scope> --question '...'`.
 
 ## Adding a real project
 
-A real project is a separate git repository. Register an existing repo:
+**Each project is its own git repository, living as a sibling of the vault.**
+If your vault is at `/home/user/myvault/`, the project lives at
+`/home/user/my-project/` — NOT inside the vault. This keeps each project's git
+history independent and avoids nested-repo issues.
+
+Stand up a brand-new project repo (git init + scaffold + crew) in one command.
+No `--source` needed — the default is the sibling path automatically:
+
+```bash
+rv project new my-project --code mp
+# creates /home/user/my-project/ as a sibling of the vault
+# git-init'd as its own repo, scaffolded with OKF dirs + control bus + crew
+```
+
+Register an existing repo that's already on disk (must be outside the vault):
 
 ```bash
 rv project add my-project --code mp --source /path/to/my-project-repo
-```
-
-Or stand up a brand-new project repo (git init + scaffold + crew) in one command:
-
-```bash
-rv project new my-project --code mp --source /path/to/new-project-dir
 ```
 
 Every project automatically gets the full default crew. Use any `rv` verb with

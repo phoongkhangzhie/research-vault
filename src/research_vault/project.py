@@ -394,11 +394,33 @@ def cmd_new(
         return 1
 
     # ── Resolve source_dir — default = sibling of instance_root ─────────────
+    _cfg_for_default = load_config(reload=True)
     if source_dir is None:
-        _cfg_for_default = load_config(reload=True)
         source_path = _cfg_for_default.instance_root.parent / name
     else:
         source_path = Path(source_dir).expanduser().resolve()
+        # Warn when source_path is nested inside the vault's instance_root.
+        # A project nested inside the vault creates a git-repo-inside-git-repo,
+        # which confuses git, breaks the leakage boundary, and ties the project's
+        # lifecycle to the vault's.  The canonical convention is that every project
+        # is a SIBLING of the vault (instance_root.parent/<slug>), each its own
+        # independent repository.  We warn but do not hard-block because the
+        # operator may have a deliberate reason (e.g. a monorepo layout or a
+        # CI environment where the vault IS the workspace root).
+        try:
+            source_path.relative_to(_cfg_for_default.instance_root)
+            print(
+                f"WARNING: --source {source_path} is INSIDE the vault "
+                f"({_cfg_for_default.instance_root}).\n"
+                "  This creates a git repo nested inside another git repo, which can\n"
+                "  confuse git and breaks the project-as-sibling convention.\n"
+                "  Convention: projects live as SIBLINGS of the vault, e.g.:\n"
+                f"    {_cfg_for_default.instance_root.parent / name}\n"
+                "  Proceeding anyway — pass no --source to use the sibling default.",
+                file=sys.stderr,
+            )
+        except ValueError:
+            pass  # not inside the vault — no warning needed
 
     # ── STEP 1: preflight guards ─────────────────────────────────────────────
     try:
