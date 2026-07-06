@@ -130,8 +130,8 @@ artifacts = [
     "src/research_vault/data/**",
 ]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=8.0",
     "pytest-forked>=1.6.0",
 ]
