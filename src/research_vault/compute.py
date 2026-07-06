@@ -758,6 +758,18 @@ def build_parser(
         default=False,
         help="Overwrite an existing compute_manifest.json.",
     )
+    init_p.add_argument(
+        "--guided",
+        "--interactive",
+        dest="guided",
+        action="store_true",
+        default=False,
+        help=(
+            "Declare compute interactively via the guided wizard "
+            "(archetype -> role -> host [ssh-config auto-detect] -> submit -> W&B "
+            "-> confirm-write). Nothing is written until you confirm."
+        ),
+    )
 
     # show
     sub.add_parser(
@@ -813,6 +825,10 @@ def run(args: argparse.Namespace) -> int:
     cmd = getattr(args, "compute_cmd", None)
 
     if cmd == "init":
+        if getattr(args, "guided", False):
+            from .compute_wizard import run_compute_wizard
+            from .onboard import _stdin_is_tty
+            return run_compute_wizard(cfg, interactive=_stdin_is_tty())
         return cmd_init(cfg, force=getattr(args, "force", False))
 
     if cmd == "show":
