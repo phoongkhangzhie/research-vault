@@ -132,8 +132,9 @@ def test_disabled_runs_fn_and_returns_empty(tmp_path, monkeypatch):
 # Enabled + no project → loud warn (raise under require)
 # ---------------------------------------------------------------------------
 
-def test_enabled_no_project_warns(tmp_path):
-    cfg = _cfg(tmp_path, {"backend": "local", "run_logging": True})  # no wandb_project
+def test_enabled_no_project_warns(tmp_path, monkeypatch):
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
+    cfg = _cfg(tmp_path, {"backend": "local", "run_logging": True})  # no wandb_project, no slug
     notifier = _FakeNotifier()
     adapters = _adapters(tmp_path, cfg, notifier=notifier)
     path = log_experiment_run(
@@ -143,13 +144,49 @@ def test_enabled_no_project_warns(tmp_path):
     assert any(level == "warn" and "project" in msg.lower() for level, msg, _ in notifier.events)
 
 
-def test_enabled_no_project_raises_under_require(tmp_path):
+def test_enabled_no_project_raises_under_require(tmp_path, monkeypatch):
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
     cfg = _cfg(tmp_path, {"backend": "local", "run_logging": True})
     adapters = _adapters(tmp_path, cfg, require=True)
     with pytest.raises(RunLoggingError):
         log_experiment_run(
             cfg, adapters, config_params={}, analysis_metrics=None, run_fn=lambda mc: None
         )
+
+
+# ---------------------------------------------------------------------------
+# project_slug — the new per-project default (D-precedence: slug feeds wandb.init)
+# ---------------------------------------------------------------------------
+
+def test_project_slug_feeds_wandb_init_project(tmp_path, monkeypatch):
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
+    fake = _FakeWandb()
+    monkeypatch.setitem(sys.modules, "wandb", fake)
+    # No wandb_project configured — project must come from project_slug.
+    cfg = _cfg(tmp_path, {"backend": "local", "run_logging": True})
+    adapters = _adapters(tmp_path, cfg)
+
+    path = log_experiment_run(
+        cfg, adapters, config_params={"model": "m"}, analysis_metrics=None,
+        run_fn=lambda mc: _feed_counter(mc), project_slug="cultural-social-sim",
+    )
+    assert fake.init_calls[0][1] == "cultural-social-sim"  # (entity, project, name, config)
+    assert path.split("/")[1] == "cultural-social-sim"
+
+
+def test_explicit_wandb_project_overrides_slug(tmp_path, monkeypatch):
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
+    fake = _FakeWandb()
+    monkeypatch.setitem(sys.modules, "wandb", fake)
+    cfg = _cfg(tmp_path, {"backend": "local", "run_logging": True, "wandb_project": "acme/override"})
+    adapters = _adapters(tmp_path, cfg)
+
+    log_experiment_run(
+        cfg, adapters, config_params={}, analysis_metrics=None,
+        run_fn=lambda mc: _feed_counter(mc), project_slug="cultural-social-sim",
+    )
+    assert fake.init_calls[0][0] == "acme"
+    assert fake.init_calls[0][1] == "override"
 
 
 # ---------------------------------------------------------------------------

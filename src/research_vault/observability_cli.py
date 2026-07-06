@@ -36,8 +36,13 @@ def _cmd_status(cfg: Any) -> int:
 
     obs = getattr(cfg, "observability", {}) or {}
     backend_name = str(obs.get("backend", "local"))
+    # No project_slug at this layer (instance-level status, not a specific run) —
+    # an empty project here is NORMAL: it resolves to the run's own slug at call-time.
     enabled, entity, project = resolve_run_logging_target(cfg)
-    target = (f"{entity}/{project}" if entity else project) or "(unresolved)"
+    if project:
+        target = f"{entity}/{project}" if entity else project
+    else:
+        target = f"{entity or '(default account)'}/<per-run slug, auto>"
 
     print("=== rv observability status ===")
     print(f"Plane A (traces) backend: {backend_name}")

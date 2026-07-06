@@ -243,16 +243,17 @@ def _scaffold_manifest(*, has_scheduler: str | None = None) -> dict[str, Any]:
             "tp1": {"gpus": 1, "models": ["<=7B"]},
             # "tp4": {"gpus": 4, "models": ["<=70B"]}  # DECLARE: add tiers for your hardware
         },
-        # W&B entity/project — config, NOT secrets (key stays in keyring via rv setup)
+        # W&B entity — config, NOT secrets (key stays in keyring via rv setup).
+        # project is deliberately NOT scaffolded here: it defaults to each run's own
+        # project slug automatically (resolve_run_logging_target). Only set a static
+        # "project" (legacy last-resort fallback) if you truly want ONE project shared
+        # across every project in this instance — the per-project slug default is
+        # almost always what you want.
         "results": {
             "wandb": {
                 "entity": (
                     "FILL — your W&B entity (username or team), "
                     "or leave blank and set WANDB_ENTITY env var"
-                ),
-                "project": (
-                    "FILL — default W&B project for this instance, "
-                    "or leave blank and set WANDB_PROJECT env var"
                 ),
             }
         },
@@ -314,10 +315,11 @@ def cmd_init(cfg: Config, *, force: bool = False) -> int:
                 )
             body = (
                 f"[bold]Compute manifest written:[/bold] {p}\n\n"
-                "Edit the FILL values (compute-node profile + results.wandb), then:\n"
+                "Edit the FILL values (compute-node profile + results.wandb.entity), then:\n"
                 "  1. [bold]rv doctor[/bold]         — discover capabilities per backend\n"
                 "  2. [bold]rv compute show[/bold]   — verify the merged declared+discovered recipe\n\n"
                 f"{note}\n"
+                "[dim]W&B project = your project slug (automatic, per-run) — set entity only.[/dim]\n"
                 "[dim]Credentials NEVER go in this file — SSH auth → ~/.ssh/config; "
                 "W&B key → keyring.[/dim]"
             )
@@ -337,7 +339,9 @@ def cmd_init(cfg: Config, *, force: bool = False) -> int:
     print("  backends.profiles.compute-node.when_to_use  — describe this endpoint's role")
     print("    (e.g. 'Submit training/eval JOBS here (sbatch). The compute/login node.')")
     print("  results.wandb.entity   — your W&B username or team")
-    print("  results.wandb.project  — your default W&B project")
+    print("    (W&B project = your project slug, automatic per-run — set entity only.")
+    print("     Add a static 'project' key yourself only if you want ONE project shared")
+    print("     across every project in this instance.)")
     print()
     print("If you have a data-transfer node (DTN), uncomment and fill 'transfer-node':")
     print("  backends.profiles.transfer-node.host  — your DTN host alias")

@@ -52,8 +52,23 @@ The seam produces **two distinct** artifacts when configured — do not conflate
   The run's `summary` carries the emission aggregates (calls, tokens, cost, latency p50/p95);
   `config` carries the pre-registered params. Wrap the calling work with the provided
   `research_vault.experiment_run.log_experiment_run(cfg, adapters, config_params=...,
-  analysis_metrics=..., run_fn=...)` — it opens the run, runs your `run_fn(model_client)`,
-  logs `summary`+`config`, finishes, and surfaces `entity/project/<run_id>` for `rv wandb pull`.
+  analysis_metrics=..., run_fn=..., project_slug=<project>)` — it opens the run, runs your
+  `run_fn(model_client)`, logs `summary`+`config`, finishes, and surfaces
+  `entity/project/<run_id>` for `rv wandb pull`.
+
+  **Per-project W&B logging.** The W&B **project** defaults to the calling project's own
+  slug automatically (`project_slug` above) — one W&B project per research-vault project,
+  no manifest edit required. The **entity** (account/team) is still declared once, in
+  `results.wandb.entity` (or `WANDB_ENTITY`). Full precedence (independent per side):
+    - entity: `[observability].wandb_project` entity-part (`"entity/project"`) →
+      `WANDB_ENTITY` env → `results.wandb.entity` (compute manifest).
+    - project: `[observability].wandb_project` project-part → `WANDB_PROJECT` env →
+      `project_slug` (the per-project default) → `results.wandb.project` (compute
+      manifest — a legacy last-resort fallback for adopters who want ONE static
+      project shared across every project in the instance).
+  A resolved project containing a W&B-illegal character (space, `/`, `\`, `#`, `?`, `%`,
+  `:`) triggers a loud warning rather than a silent sanitize — rename the project slug,
+  or set `[observability].wandb_project` explicitly to override it.
 
 **Test the wiring BEFORE a long run — don't discover at teardown that you logged nothing:**
 
