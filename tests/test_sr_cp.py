@@ -910,6 +910,89 @@ class TestReconcileArchive:
             f"Entry {entry_id!r} missing from archive sidecar after squash-merge"
         )
 
+    def test_reconcile_archive_preserves_multiline_block_body(
+        self, cfg, ctl_file, tmp_git_repo
+    ):
+        """reconcile --archive on a multi-line ⟦RETURN⟧ block must capture the
+        WHOLE block (bullet + body fields) in the archive sidecar — not just the
+        bullet line (research-vault #48b: after #48 made _remove_entry strip the
+        whole block from the live file, _auto_archive_terminal still passed only
+        the bullet line as entry_text to the archive, so the body fields were
+        permanently lost — deleted from the live file AND never captured in the
+        archive).
+        """
+        entry_id = "return:sr-m-done-mason-20260706"
+        block = (
+            f"- **{entry_id}**\n"
+            "⟦RETURN⟧\n"
+            "  did: implemented sr-m\n"
+            "  outcome: PR #99\n"
+            "  confidence: high\n"
+            "  next: merge\n"
+            "  provenance: sha-canary-marker\n"
+            "  retro: went smoothly\n"
+        )
+        text = ctl_file.read_text(encoding="utf-8")
+        text = text.replace(
+            "## Outbox  (crew → hub/owner)\n  _(none)_",
+            f"## Outbox  (crew → hub/owner)\n{block}",
+        )
+        ctl_file.write_text(text, encoding="utf-8")
+
+        # Terminal signal: merge a branch whose name embeds the "sr-m" token
+        # that appears in entry_id — the same R4 mechanism the other
+        # TestReconcileArchive tests exercise.
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "checkout", "-b", "feat/sr-m"],
+            check=True, capture_output=True,
+        )
+        (tmp_git_repo / "done.txt").write_text("done\n")
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "add", "."],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "commit", "-m", "sr-m done"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "checkout", "main"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_git_repo), "merge", "feat/sr-m", "--no-ff"],
+            check=True, capture_output=True,
+        )
+
+        control_mod.cmd_reconcile(
+            "demo-research", config=cfg, git_repo=tmp_git_repo, archive=True
+        )
+
+        live_after = ctl_file.read_text(encoding="utf-8")
+        archive_path = ctl_file.parent / (ctl_file.stem + ".archive.md")
+
+        # The canary marker (a body field, NOT the bullet) must be gone from
+        # the live file...
+        assert "sha-canary-marker" not in live_after, (
+            f"Body field survived in live file (should be archived):\n{live_after}"
+        )
+        assert entry_id not in live_after
+
+        # ...and must be PRESERVED in the archive — not lost. This is the
+        # data-loss regression: before the fix, entry_text was item['raw_line']
+        # (just the bullet), so the body fields — including this canary —
+        # never made it into the archive at all.
+        assert archive_path.exists(), "Archive sidecar was not created"
+        archive_text = archive_path.read_text(encoding="utf-8")
+        assert "sha-canary-marker" in archive_text, (
+            f"Body field lost — not in archive sidecar:\n{archive_text}"
+        )
+        assert entry_id in archive_text
+        for body_field in ("implemented sr-m", "PR #99", "went smoothly"):
+            assert body_field in archive_text, (
+                f"Body field {body_field!r} missing from archive:\n{archive_text}"
+            )
+
     def test_non_terminal_entry_stays(self, cfg, ctl_file):
         """reconcile --archive leaves non-terminal entries in place."""
         control_mod.cmd_post(
@@ -1143,3 +1226,94 @@ class TestReconcileExitCode:
         assert exit_code == 0, (
             f"Expected exit 0 at exactly threshold ({RESOLVED_THRESHOLD}), got {exit_code}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Test 9: close on a multi-line block immediately adjacent to another (#48)
+# ---------------------------------------------------------------------------
+
+class TestCloseMultilineBlockAdjacent:
+    """9. cmd_close on a multi-line ⟦RETURN⟧ block removes the WHOLE block —
+    bullet + body fields — even when it sits directly against a neighbouring
+    multi-line block with NO blank line separator, and leaves the neighbour
+    intact (research-vault #48 — the C4-backfill bug: _remove_entry used to
+    strip only the bullet line, orphaning the body fields of the closed block).
+    """
+
+    def _seed_two_adjacent_return_blocks(self, ctl_file: Path) -> tuple[str, str]:
+        """Write two multi-line ⟦RETURN⟧ blocks back-to-back (no blank line
+        between them) directly into the Outbox section. Returns their ids.
+        """
+        entry_a = (
+            "- **return:task-a-mason-20260706**\n"
+            "⟦RETURN⟧\n"
+            "  did: implemented task A\n"
+            "  outcome: PR #10\n"
+            "  confidence: high\n"
+            "  next: merge\n"
+            "  provenance: sha-aaa\n"
+            "  retro: went smoothly\n"
+        )
+        entry_b = (
+            "- **return:task-b-mason-20260706**\n"
+            "⟦RETURN⟧\n"
+            "  did: implemented task B\n"
+            "  outcome: PR #11\n"
+            "  confidence: medium\n"
+            "  next: review\n"
+            "  provenance: sha-bbb\n"
+            "  retro: took longer than expected\n"
+        )
+        text = ctl_file.read_text(encoding="utf-8")
+        text = text.replace(
+            "## Outbox  (crew → hub/owner)\n  _(none)_",
+            f"## Outbox  (crew → hub/owner)\n{entry_a}{entry_b}",
+        )
+        ctl_file.write_text(text, encoding="utf-8")
+        return "return:task-a-mason-20260706", "return:task-b-mason-20260706"
+
+    def test_close_removes_whole_block_not_just_bullet(self, cfg, ctl_file):
+        """Closing entry_a: ALL of its body fields are gone from the live file —
+        not orphaned — while entry_b's bullet + full body survive intact.
+        """
+        entry_a, entry_b = self._seed_two_adjacent_return_blocks(ctl_file)
+
+        control_mod.cmd_close("demo-research", entry_id=entry_a, config=cfg)
+
+        live_after = ctl_file.read_text(encoding="utf-8")
+
+        # entry_a: bullet AND every body field fully gone (the bug orphaned
+        # these — only the bullet line was removed).
+        assert entry_a not in live_after
+        for orphan_field in (
+            "implemented task A", "PR #10", "went smoothly", "sha-aaa",
+        ):
+            assert orphan_field not in live_after, (
+                f"Orphaned body field survived close: {orphan_field!r}\n{live_after}"
+            )
+
+        # entry_b: neighbour block untouched — bullet AND every body field
+        # still present (no over-removal / neighbour-borrow).
+        assert entry_b in live_after
+        for kept_field in (
+            "implemented task B", "PR #11", "took longer than expected",
+            "sha-bbb",
+        ):
+            assert kept_field in live_after, (
+                f"Neighbour block field lost: {kept_field!r}\n{live_after}"
+            )
+
+        # File is still schema-valid after the close.
+        violations = control_mod.validate_control_file(cfg.project_control_file("demo-research"))
+        assert violations == [], f"Control file invalid after close: {violations}"
+
+        # The archived text captures the FULL block — not just the bullet.
+        archive_path = ctl_file.parent / (ctl_file.stem + ".archive.md")
+        archive_text = archive_path.read_text(encoding="utf-8")
+        assert entry_a in archive_text
+        for archived_field in (
+            "implemented task A", "PR #10", "went smoothly", "sha-aaa",
+        ):
+            assert archived_field in archive_text, (
+                f"Archived block missing body field: {archived_field!r}\n{archive_text}"
+            )

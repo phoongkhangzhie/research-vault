@@ -211,21 +211,62 @@ def _insert_into_section(text: str, canon: str, entry: str) -> str:
     return text[:start] + new_content + text[end:]
 
 
-def _remove_entry(text: str, entry_id: str) -> tuple[str, str]:
-    """Remove the line(s) containing entry_id from text.
+# A next-entry bullet — NOT any "- " line (a body/prose line could start with a
+# dash incidentally). Only "- **" unambiguously starts a new control-file entry.
+_ENTRY_BULLET_START_RE = re.compile(r"^- \*\*")
+_HEADING_START_RE = re.compile(r"^#{1,6} ")
 
-    Returns (new_text, removed_text).
-    Targets exactly the bold **entry_id** pattern.
+
+def _find_entry_block(lines: list[str], entry_id: str) -> tuple[int, int] | None:
+    """Locate the [start, end) line-index bounds of entry_id's whole block.
+
+    The block is the bullet line matching ``**entry_id**`` plus every
+    continuation/body line that follows (e.g. a ⟦RETURN⟧/⟦SPAWN REQUEST⟧
+    marker line and its indented `  key: value` fields). It terminates at
+    whichever comes first: the next entry's bullet (``- **...**``), a blank
+    line, a markdown heading, a fenced-code delimiter, or EOF.
+
+    Returns None if entry_id is not found.
+    """
+    pattern = re.compile(re.escape(f"**{entry_id}**"), re.IGNORECASE)
+    start = None
+    for i, ln in enumerate(lines):
+        if pattern.search(ln):
+            start = i
+            break
+    if start is None:
+        return None
+
+    end = start + 1
+    while end < len(lines):
+        stripped = lines[end].rstrip("\n")
+        if not stripped.strip():
+            break  # blank line — section-item separator
+        if _ENTRY_BULLET_START_RE.match(stripped):
+            break  # next entry's bullet — do not borrow into it
+        if _HEADING_START_RE.match(stripped):
+            break  # section boundary
+        if stripped.lstrip().startswith("```"):
+            break  # fenced-code delimiter
+        end += 1
+    return start, end
+
+
+def _remove_entry(text: str, entry_id: str) -> tuple[str, str]:
+    """Remove the whole block (bullet + continuation/body lines) for entry_id.
+
+    Returns (new_text, removed_text). A multi-line ⟦RETURN⟧/⟦SPAWN REQUEST⟧
+    block's body fields are removed along with the bullet — not just the
+    bullet line — while an immediately-adjacent block is left untouched
+    (see _find_entry_block for the termination rule).
     """
     lines = text.splitlines(keepends=True)
-    removed_lines: list[str] = []
-    kept_lines: list[str] = []
-    pattern = re.compile(re.escape(f"**{entry_id}**"), re.IGNORECASE)
-    for ln in lines:
-        if pattern.search(ln):
-            removed_lines.append(ln)
-        else:
-            kept_lines.append(ln)
+    bounds = _find_entry_block(lines, entry_id)
+    if bounds is None:
+        return text, ""
+    start, end = bounds
+    removed_lines = lines[start:end]
+    kept_lines = lines[:start] + lines[end:]
     return "".join(kept_lines), "".join(removed_lines)
 
 
@@ -566,10 +607,21 @@ def _auto_archive_terminal(
                 tokens = (extract_id_tokens(entry_id)
                           + extract_id_tokens(item.get("text", "")))
                 if any(t in terminal_set for t in tokens) and not item.get("resolved"):
+                    # Full block (bullet + continuation/body lines) — not just
+                    # the bullet — so the archive captures what _remove_entry
+                    # actually strips from the live file (see cmd_close, which
+                    # derives entry_text the same way).
+                    lines_now = text.splitlines(keepends=True)
+                    bounds = _find_entry_block(lines_now, entry_id)
+                    entry_text = (
+                        "".join(lines_now[bounds[0]:bounds[1]]).strip()
+                        if bounds is not None
+                        else item["raw_line"]
+                    )
                     _do_archive_entry(
                         ctl_path=ctl_path,
                         entry_id=entry_id,
-                        entry_text=item["raw_line"],
+                        entry_text=entry_text,
                         text=text,
                         already_locked=True,
                     )
@@ -846,18 +898,14 @@ def cmd_close(
     with locked_mutate(ctl_path):
         text = ctl_path.read_text(encoding="utf-8")
 
-        pattern = re.compile(re.escape(f"**{entry_id}**"), re.IGNORECASE)
-        if not pattern.search(text):
+        lines = text.splitlines(keepends=True)
+        bounds = _find_entry_block(lines, entry_id)
+        if bounds is None:
             raise KeyError(f"Entry {entry_id!r} not found in control file")
 
-        # Extract entry text
-        lines = text.splitlines()
-        entry_lines: list[str] = []
-        for ln in lines:
-            if pattern.search(ln):
-                entry_lines.append(ln)
-                break
-        entry_text = "\n".join(entry_lines).strip()
+        # Full block (bullet + continuation/body lines) — not just the bullet.
+        start, end = bounds
+        entry_text = "".join(lines[start:end]).strip()
 
         _do_archive_entry(
             ctl_path=ctl_path,
