@@ -172,22 +172,50 @@ _grep_py_word() {
 
 _grep_literal_except() {
     # _grep_literal_except LABEL LITERAL ALLOW_ERE
-    # Like _grep_literal but removes lines matching ALLOW_ERE from the hit set.
-    # Used for publish-metadata allowlisting: the canonical repo URL is public
-    # identity (pyproject.toml [project.urls], README) and must not be flagged.
-    # Everything else — bare handles, non-canonical URLs — still fails.
+    # Like _grep_literal but instead of DROPPING entire lines that match ALLOW_ERE,
+    # masks the canonical repo URL substring out of each matching line and then
+    # re-checks whether the bare literal still survives on the remainder.
+    #
+    # The old per-line grep -Ev "$allow_ere" silently hid co-occurring leaks: a line
+    # containing BOTH the canonical URL AND a real leak (e.g. a bare @handle or a
+    # private /Users/... path) was dropped in its entirety, so the real leak was
+    # never flagged.  Mask-then-recheck closes that hole:
+    #   1. sed removes the canonical URL substring (and any sub-path like /issues).
+    #   2. grep -F "$lit" re-tests the masked remainder.
+    # If the literal still appears after masking → RED.  A line that contained ONLY
+    # the canonical URL produces an empty/non-matching remainder → GREEN.
+    #
+    # Invariant: only github.com/phoongkhangzhie/research-vault (plus sub-paths) is
+    # masked.  Any other occurrence of $lit on the same line is still caught.
+    # Non-canonical URLs (github.com/phoongkhangzhie/other-repo) are NOT masked →
+    # still RED, as intended.
     local label="$1" lit="$2" allow_ere="$3"
     local found
+    # _MASK_AWK: splits each grep output line (filename:linenum:content) on `:`,
+    # reconstructs the content portion (fields 3+), masks the canonical URL from
+    # the content ONLY (not from the filename), then checks if the bare literal
+    # still survives in the masked content.  Printing $0 (the original unmasked
+    # line) preserves the full diagnostic output.
+    #
+    # Using awk for field-aware masking instead of sed-then-grep is critical:
+    # sed would mask the URL from the ENTIRE line including the filename, but the
+    # final grep -F would still match on "phoongkhangzhie" in the filename (e.g.
+    # pytest temp dirs like /pytest-of-phoongkhangzhie/...) causing false positives.
+    local _MASK_AWK='NF>=3{
+        content=$3; for(i=4;i<=NF;i++) content=content":"$i
+        gsub(/github[.]com\/phoongkhangzhie\/research-vault[A-Za-z0-9\/_.-]*/, "", content)
+        if(index(content, lit)>0) print $0
+    }'
     if [ "$STAGED" -eq 1 ]; then
         found=$(echo "$STAGED_FILES" | xargs -I{} grep -nH -F "$lit" {} 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" \
-                | grep -Ev "$allow_ere" || true)
+                | awk -F: -v lit="$lit" "$_MASK_AWK" || true)
     else
         found=$(grep -rn --include="*.md" --include="*.yml" --include="*.yaml" \
                      --include="*.toml" --include="*.json" --include="*.py" \
                      -F "$lit" "$TARGET" 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" \
-                | grep -Ev "$allow_ere" || true)
+                | awk -F: -v lit="$lit" "$_MASK_AWK" || true)
     fi
     if [ -n "$found" ]; then
         echo "$found"
