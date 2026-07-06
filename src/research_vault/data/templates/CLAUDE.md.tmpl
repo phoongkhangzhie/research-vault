@@ -69,6 +69,8 @@ rv experiment new: run_id     = 'lang-effect-loop'
 
 Next steps (in order — DO NOT skip the freeze or harness gates):
 
+  …
+
   2. Start the DAG run:
      rv dag run …/culture-lang/experiments/lang-effect-loop.json
 
@@ -92,8 +94,9 @@ Run 'lang-effect-loop' started.
   global_cap: 4
 
 Initial frontier:
-  → DISPATCH  [plan] Plan experiments + write pre-registration master + child stubs (researcher): Does prompt language affect accuracy in cultural r…
-      FRESH — spec:…/culture-lang/experiments/lang-effect-plan.md — reads: …/culture-lang/experiments
+  → DISPATCH  [plan] Plan experiments + write pre-registration master + child stubs (researcher): Does prompt language affect accuracy in cultural reasoning?
+      FRESH — spec:…/culture-lang/experiments/lang-effect-plan.md — reads: doctrine/plan-critic-spec.md#plan-critic spec, …/culture-lang/experiments
+  …
 ```
 
 Alfred emits the brief and dispatches the **researcher** for the `plan` node:
