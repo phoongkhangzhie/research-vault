@@ -634,7 +634,10 @@ def render_status(sections: dict[str, Any], console: Any = None) -> None:
         rows: list[tuple[Any, ...]] = []
         for sec in coord.get("sections", []):
             first = "\n".join(
-                ("[x] " if it["resolved"] else "") + escape(it["text"][:80])
+                # Resolved items get the ● done-glyph; unresolved get a matching
+                # 2-space indent so both columns of text align.  (A literal "[x]"
+                # here would be eaten by rich as an unknown markup tag.)
+                ((status_glyph("ok") + " ") if it["resolved"] else "  ") + escape(it["text"][:80])
                 for it in sec.get("items", [])
             ) or "[dim]—[/dim]"
             count = sec["count"]
@@ -642,7 +645,7 @@ def render_status(sections: dict[str, Any], console: Any = None) -> None:
             rows.append((sec["name"], count_cell, first))
         con.print(make_status_table(columns, rows, title="Coordination State"))
         if not coord.get("banner_ok", True):
-            con.print(f"  [{_STYLE['fail']}]⚠ banner missing[/] — run [bold]rv control heal[/bold]")
+            con.print(f"  {status_glyph('warn')} [{_STYLE['locked']}]banner missing[/] — run [bold]rv control heal[/bold]")
 
     # ── Task board ───────────────────────────────────────────────────────────
     _section()
@@ -793,7 +796,7 @@ def render_bootstrap(result: dict[str, Any], console: Any = None) -> None:
         lines.append(
             f"{status_cell('warn', 'WARN')}  [bold]Tier-2[/bold] (GPU/local) — skipped\n"
             f"      [dim]{reason}[/dim]\n"
-            f"      [dim]install on your GPU box:[/dim] [bold]pip install research-vault[local][/bold]"
+            f"      [dim]install on your GPU box:[/dim] [bold]pip install 'research-vault\\[local]'[/bold]"
         )
 
     # Serve stack (optional sub-extra)

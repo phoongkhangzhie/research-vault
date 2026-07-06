@@ -50,7 +50,9 @@ def test_render_bootstrap_tier2_skipped_with_reason():
     text = _render(result)
     assert "WARN" in text
     assert "no CUDA toolkit found" in text
-    assert "pip install research-vault" in text
+    # The [local] extra must survive rich markup (escaped) and be shell-quoted
+    # (zsh treats bare [local] as a glob) — not swallowed as a markup tag.
+    assert "pip install 'research-vault[local]'" in text
     # Result still OK (Tier-1 is the only hard requirement)
     assert "Result: OK" in text
     assert "skipped" in text
