@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -19,6 +20,7 @@ from research_vault.init import cmd_init_in_dir
 from research_vault.update import (
     run_update,
     compute_plan,
+    FileAction,
     UNCHANGED,
     CHANGED,
     NEW,
@@ -453,3 +455,49 @@ def test_init_and_update_share_managed_enumeration(vault):
     plan = compute_plan(vault, manifest)
     planned = {fa.relpath for fa in plan if fa.kind == "static"}
     assert static_relpaths == planned
+
+
+# ---------------------------------------------------------------------------
+# 11. USER_OWNED_NEVER_TOUCH guard is active (belt-and-suspenders)
+# ---------------------------------------------------------------------------
+
+def test_user_owned_guard_refuses_poisoned_write_set(vault, capsys):
+    """A managed-set entry whose top-level name collides with USER_OWNED_NEVER_TOUCH
+    must be caught by the belt-and-suspenders guard and cause run_update to abort
+    with rc=1 — proving the guard is active, not decorative.
+
+    Poison: inject a synthetic FileAction for 'architecture.md' (CHANGED static)
+    into the plan returned by compute_plan.  Without the guard this would proceed
+    to write; with the guard it must REFUSE.
+
+    The non-vacuousness proof:
+      - 'architecture.md' IS in USER_OWNED_NEVER_TOUCH (so the guard can fire).
+      - We inject it into the plan as a CHANGED static (so the guard sees it).
+      - run_update returns 1 and prints the INTERNAL ERROR message.
+    """
+    # Precondition: the poison target is indeed in the set — guard can fire.
+    assert "architecture.md" in scaffold.USER_OWNED_NEVER_TOUCH
+
+    # Poison: the real plan is fine; we inject one extra CHANGED static whose
+    # top-level name is "architecture.md" to simulate a future naming collision.
+    poisoned_entry = FileAction("architecture.md", CHANGED, "static",
+                                new_hash="sha256:deadbeef")
+
+    _set_vault_version(vault, "0.0.9")
+    _git(vault, "add", "-A")
+    _git(vault, "commit", "-m", "stale version for guard test")
+
+    real_compute_plan = compute_plan
+
+    def patched_compute_plan(target, manifest_hashes):
+        plan = real_compute_plan(target, manifest_hashes)
+        plan.append(poisoned_entry)
+        return plan
+
+    with patch("research_vault.update.compute_plan", side_effect=patched_compute_plan):
+        rc = run_update(vault, force=True)
+
+    assert rc == 1, "guard must abort (rc=1) when write-set overlaps USER_OWNED_NEVER_TOUCH"
+    err = capsys.readouterr().err
+    assert "INTERNAL ERROR" in err
+    assert "architecture.md" in err

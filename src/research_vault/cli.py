@@ -301,9 +301,10 @@ _VERB_REGISTRY: dict[str, dict] = {
         "module": "research_vault.init",
         "when_to_use": (
             "When you need to scaffold a fresh Research Vault instance from templates. "
-            "Run `rv init [<dir>]` to create the instance root with config, control files, "
-            "task dirs, doctrine, notes root (OKF type dirs), and the two canned demo projects "
-            "(demo-research + demo-litreview). A real project is a SEPARATE repo — use "
+            "Run `rv init [<dir>]` to create the instance root with: config "
+            "(research_vault.toml), git repo, CLAUDE.md hub-bootstrap, crew subagent "
+            "hats (.claude/agents/), doctrine/, QUICKSTART.md, and the notes root (OKF "
+            "type dirs). Real projects are SEPARATE repos — register them with "
             "`rv project add` after init. Refuses to overwrite an existing instance."
         ),
         "sr": "SR-5",

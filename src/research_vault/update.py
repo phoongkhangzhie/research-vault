@@ -297,6 +297,24 @@ def run_update(
     changed_paths: list[str] = []
     backed_up: list[str] = []
 
+    # Belt-and-suspenders: verify the write-set never overlaps USER_OWNED names.
+    # A future static whose filename collides with a user-owned name must be
+    # caught here — not silently overwrite user content (charter §2 + §5).
+    _write_set_tops = {
+        fa.relpath.split("/")[0]
+        for fa in plan
+        if fa.kind in ("static", "hat") and fa.action != UNCHANGED
+    }
+    _collision = _write_set_tops & scaffold.USER_OWNED_NEVER_TOUCH
+    if _collision:
+        print(
+            f"rv update: INTERNAL ERROR — the planned write-set intersects "
+            f"USER_OWNED_NEVER_TOUCH: {sorted(_collision)}. Aborting to protect "
+            "user content. Report this as a bug.",
+            file=sys.stderr,
+        )
+        return 1
+
     # 1. Framework statics: enumerate the shipped bytes once, apply per plan.
     static_actions = {fa.relpath: fa for fa in plan if fa.kind == "static"}
     for vault_rel, content in scaffold.iter_managed_statics():
