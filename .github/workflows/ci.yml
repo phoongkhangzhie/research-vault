@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Hermetic pytest suite ────────────────────────────────────────────────────
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        # SR-PKG: install Tier-1 defaults + dev deps only.
+        # --all-extras would pull [local] (torch/vllm/sglang) which cannot
+        # resolve on CPU CI runners. Tier-2 is GPU-only and must stay opt-in.
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest tests/ -v --tb=short
+
+  # ── Leakage scanner (full teeth — SR-4, broadened SR-PKG) ──────────────────
+  # SR-PKG: doctrine/ + examples/ moved into the wheel at
+  #   src/research_vault/data/doctrine/ + src/research_vault/data/examples/.
+  # Coverage broadened to the whole publish-bound tree (whole-tree by default,
+  # opt-out by exception — the safe polarity for a public publish).
+  # Scans: package data (doctrine/ + examples/), DEVLOG.md, root public-bound
+  # files (README.md, QUICKSTART.md, REFERENCES.md, SETUP.md),
+  # and src/ for hardcoded private paths — all private marker classes:
+  #   codenames · identity strings · site URLs · cluster paths ·
+  #   secret-shaped strings · versioned model IDs · non-template memory slugs
+  # Implemented in scripts/leakage_scan.sh (tested hermetically in tests/).
+  leakage-scan:
+    name: Leakage scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run leakage scanner over src/research_vault/data/doctrine/
+        run: bash scripts/leakage_scan.sh src/research_vault/data/doctrine
+
+      - name: Run leakage scanner over src/research_vault/data/examples/
+        run: bash scripts/leakage_scan.sh src/research_vault/data/examples
+
+      # SR-CCB: CLAUDE.md.tmpl ships in the wheel and gets written to every
+      # adopter's instance root — must be leakage-clean (publish-bound).
+      - name: Run leakage scanner over src/research_vault/data/templates/
+        run: bash scripts/leakage_scan.sh src/research_vault/data/templates
+
+      - name: Run leakage scanner over DEVLOG.md
+        run: bash scripts/leakage_scan.sh DEVLOG.md
+
+      - name: Run leakage scanner over root public-bound files
+        run: |
+          # Scan public-bound root files individually.
+          # REFERENCES.md and SETUP.md scanned when present (future artifacts).
+          # LICENSE + pyproject.toml added (SR-SETUP: ship to PyPI — must be clean).
+          for f in README.md QUICKSTART.md REFERENCES.md SETUP.md LICENSE pyproject.toml; do
+            if [ -f "$f" ]; then
+              echo "--- scanning $f ---"
+              bash scripts/leakage_scan.sh "$f"
+            fi
+          done
+
+      - name: Check for hardcoded private paths in src/
+        run: |
+          echo "=== Hardcoded path scan (src/) ==="
+          if grep -rn --include="*.py" \
+              -E "(/juice2/|/scr2/|phoongkz|phoongkhangzhie)" \
+              src/ 2>/dev/null; then
+            echo "FAIL: hardcoded private paths found in src/"
+            exit 1
+          fi
+          echo "OK: no hardcoded private paths in src/"
+
+      # Hygiene-batch: class 10 crew narrative-names in Python source.
+      # Catches session-narrative attributions (Ada/Wren/Mason/Argus/Iris/Atlas)
+      # in shipped .py files. Runs leakage_scan.sh over src/ — the _grep_py_word
+      # helper in class 10 restricts matches to .py files only, so role docs
+      # (*.md in data/doctrine/roles/) are not flagged.
+      - name: Check for crew narrative-names in src/ Python source
+        run: bash scripts/leakage_scan.sh src/research_vault
+
+  # ── help --check gate ───────────────────────────────────────────────────────
+  help-check:
+    name: rv help --check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install package
+        # SR-PKG: Tier-1 defaults only — Tier-2 [local] is GPU-only, not for CI.
+        run: uv sync
+
+      - name: Verify all verbs have when_to_use docstrings
+        run: uv run rv help --check
+
+  # ── rv lint gate ────────────────────────────────────────────────────────────
+  # Runs the project linter over the whole repo: leakage scan + config schema +
+  # verb docstring gate + test-hygiene rules (vacuous assertions, unpinned git
+  # init) + F811 redefined-while-unused check (catches shadowed def/class names
+  # in src/research_vault/ — the SR-MS-2 duplicate check_manuscript gap).
+  rv-lint:
+    name: rv lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install package
+        # SR-PKG: Tier-1 defaults only — Tier-2 [local] is GPU-only, not for CI.
+        run: uv sync
+
+      - name: Run rv lint (full repo)
+        run: uv run rv lint

@@ -1,0 +1,2037 @@
+{
+  "total": 1166,
+  "offset": 0,
+  "next": 50,
+  "data": [
+    {
+      "paperId": "34bc46aab93550bad7a3a8cd5cf5ed0fe668b9d3",
+      "externalIds": {
+        "ArXiv": "2604.07338",
+        "DBLP": "journals/corr/abs-2604-07338",
+        "DOI": "10.48550/arXiv.2604.07338",
+        "CorpusId": 287249377
+      },
+      "title": "Appear2Meaning: A Cross-Cultural Benchmark for Structured Cultural Metadata Inference from Images",
+      "year": 2026,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2604.07338, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2268397502",
+          "name": "Yuechen Jiang"
+        },
+        {
+          "authorId": "2385402672",
+          "name": "Enze Zhang"
+        },
+        {
+          "authorId": "2055992598",
+          "name": "Mohsinul Kabir"
+        },
+        {
+          "authorId": "2257034586",
+          "name": "Qianqian Xie"
+        },
+        {
+          "authorId": "69548271",
+          "name": "S. Golfomitsou"
+        },
+        {
+          "authorId": "2077145545",
+          "name": "K. Arvanitis"
+        },
+        {
+          "authorId": "2240623492",
+          "name": "Sophia Ananiadou"
+        }
+      ],
+      "abstract": "Recent advances in vision-language models (VLMs) have improved image captioning for cultural heritage. However, inferring structured cultural metadata (e.g., creator, origin, period) from visual input remains underexplored. We introduce a multi-category, cross-cultural benchmark for this task and evaluate VLMs using an LLM-as-Judge framework that measures semantic alignment with reference annotations. To assess cultural reasoning, we report exact-match, partial-match, and attribute-level accuracy across cultural regions. Results show that models capture fragmented signals and exhibit substantial performance variation across cultures and metadata types, leading to inconsistent and weakly grounded predictions. These findings highlight the limitations of current VLMs in structured cultural metadata inference beyond visual perception."
+    },
+    {
+      "paperId": "e627cd9c751d8eed0c35916895eed1288d9673a7",
+      "externalIds": {
+        "ArXiv": "2605.05662",
+        "CorpusId": 288013731
+      },
+      "title": "XL-SafetyBench: A Country-Grounded Cross-Cultural Benchmark for LLM Safety and Cultural Sensitivity",
+      "year": 2026,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2605.05662, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2363402283",
+          "name": "Dasol Choi"
+        },
+        {
+          "authorId": "2339964527",
+          "name": "Eugenia Kim"
+        },
+        {
+          "authorId": "2431838288",
+          "name": "Jae-won Noh"
+        },
+        {
+          "authorId": "2373856619",
+          "name": "Sanghyun Seo"
+        },
+        {
+          "authorId": "2311743921",
+          "name": "Eunmi Kim"
+        },
+        {
+          "authorId": "2190044516",
+          "name": "M. Oh"
+        },
+        {
+          "authorId": "2381940975",
+          "name": "Yunjin Park"
+        },
+        {
+          "authorId": "2402720937",
+          "name": "Brigitta Jesica Kartono"
+        },
+        {
+          "authorId": "1456173110",
+          "name": "Josef Pichlmeier"
+        },
+        {
+          "authorId": "2402722944",
+          "name": "Helena Berndt"
+        },
+        {
+          "authorId": "2138946195",
+          "name": "Sai Krishna Mendu"
+        },
+        {
+          "authorId": "2403068910",
+          "name": "Glenn Johannes Tungka"
+        },
+        {
+          "authorId": "2433235905",
+          "name": "Ozlem Gokcce"
+        },
+        {
+          "authorId": "2433236865",
+          "name": "Suresh Gehlot"
+        },
+        {
+          "authorId": "2058464098",
+          "name": "K. Pratt"
+        },
+        {
+          "authorId": "2312208744",
+          "name": "Amanda Minnich"
+        },
+        {
+          "authorId": "2342362544",
+          "name": "Haon Park"
+        }
+      ],
+      "abstract": "Current LLM safety benchmarks are predominantly English-centric and often rely on translation, failing to capture country-specific harms. Moreover, they rarely evaluate a model's ability to detect culturally embedded sensitivities as distinct from universal harms. We introduce XL-SafetyBench. a suite of 5,500 test cases across 10 country-language pairs, comprising a Jailbreak Benchmark of country-grounded adversarial prompts and a Cultural Benchmark where local sensitivities are embedded within innocuous requests. Each item is constructed via a multi-stage pipeline that combines LLM-assisted discovery, automated validation gates, and dual independent native-speaker annotators per country. To distinguish principled refusal from comprehension failure, we evaluate Attack Success Rate (ASR) alongside two complementary metrics we introduce: Neutral-Safe Rate (NSR) and Cultural Sensitivity Rate (CSR). Evaluating 10 frontier and 27 local LLMs reveals two key findings. First, jailbreak robustness and cultural awareness do not show a coupled relationship among frontier models, so a composite safety score obscures per-axis variation. Second, local models exhibit a near-linear ASR-NSR trade-off (r = -0.81), indicating that their apparent safety reflects generation failure rather than genuine alignment. XL-SafetyBench enables more nuanced, cross-cultural safety evaluation in the multilingual era."
+    },
+    {
+      "paperId": "a67e03298127b2a42a971718735d1318b5c45772",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2411-06032",
+        "ArXiv": "2411.06032",
+        "DOI": "10.48550/arXiv.2411.06032",
+        "CorpusId": 273962875
+      },
+      "title": "LLM-GLOBE: A Benchmark Evaluating the Cultural Values Embedded in LLM Output",
+      "year": 2024,
+      "citationCount": 30,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2411.06032, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2330183980",
+          "name": "Elise Karinshak"
+        },
+        {
+          "authorId": "2056384798",
+          "name": "Amanda Hu"
+        },
+        {
+          "authorId": "2330185481",
+          "name": "Kewen Kong"
+        },
+        {
+          "authorId": "144614226",
+          "name": "V. Rao"
+        },
+        {
+          "authorId": "2398855242",
+          "name": "Jingren Wang"
+        },
+        {
+          "authorId": "2281902732",
+          "name": "Jindong Wang"
+        },
+        {
+          "authorId": "2385991912",
+          "name": "Yi Zeng"
+        }
+      ],
+      "abstract": "Immense effort has been dedicated to minimizing the presence of harmful or biased generative content and better aligning AI output to human intention; however, research investigating the cultural values of LLMs is still in very early stages. Cultural values underpin how societies operate, providing profound insights into the norms, priorities, and decision making of their members. In recognition of this need for further research, we draw upon cultural psychology theory and the empirically-validated GLOBE framework to propose the LLM-GLOBE benchmark for evaluating the cultural value systems of LLMs, and we then leverage the benchmark to compare the values of Chinese and US LLMs. Our methodology includes a novel\"LLMs-as-a-Jury\"pipeline which automates the evaluation of open-ended content to enable large-scale analysis at a conceptual level. Results clarify similarities and differences that exist between Eastern and Western cultural value systems and suggest that open-generation tasks represent a more promising direction for evaluation of cultural values. We interpret the implications of this research for subsequent model development, evaluation, and deployment efforts as they relate to LLMs, AI cultural alignment more broadly, and the influence of AI cultural value systems on human-AI collaboration outcomes."
+    },
+    {
+      "paperId": "7a7eed6dcf2587f5a9c507266f0d9ba865246edd",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2505-24671",
+        "ArXiv": "2505.24671",
+        "DOI": "10.48550/arXiv.2505.24671",
+        "CorpusId": 279070547
+      },
+      "title": "Multiple LLM Agents Debate for Equitable Cultural Alignment",
+      "year": 2025,
+      "citationCount": 20,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2505.24671, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2218391299",
+          "name": "Dayeon Ki"
+        },
+        {
+          "authorId": "2034613",
+          "name": "Rachel Rudinger"
+        },
+        {
+          "authorId": "2355798488",
+          "name": "Tianyi Zhou"
+        },
+        {
+          "authorId": "2954727",
+          "name": "Marine Carpuat"
+        }
+      ],
+      "abstract": "Large Language Models (LLMs) need to adapt their predictions to diverse cultural contexts to benefit diverse communities across the world. While previous efforts have focused on single-LLM, single-turn approaches, we propose to exploit the complementary strengths of multiple LLMs to promote cultural adaptability. We introduce a Multi-Agent Debate framework, where two LLM-based agents debate over a cultural scenario and collaboratively reach a final decision. We propose two variants: one where either LLM agents exclusively debate and another where they dynamically choose between self-reflection and debate during their turns. We evaluate these approaches on 7 open-weight LLMs (and 21 LLM combinations) using the NormAd-ETI benchmark for social etiquette norms in 75 countries. Experiments show that debate improves both overall accuracy and cultural group parity over single-LLM baselines. Notably, multi-agent debate enables relatively small LLMs (7-9B) to achieve accuracies comparable to that of a much larger model (27B parameters)."
+    },
+    {
+      "paperId": "705288166e516196bbab5998c82cbe3bd609fe19",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2504-08863",
+        "ArXiv": "2504.08863",
+        "DOI": "10.48550/arXiv.2504.08863",
+        "CorpusId": 277780578
+      },
+      "title": "An Evaluation of Cultural Value Alignment in LLM",
+      "year": 2025,
+      "citationCount": 37,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2504.08863, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2290184407",
+          "name": "Nicholas Sukiennik"
+        },
+        {
+          "authorId": "2276188578",
+          "name": "Chen Gao"
+        },
+        {
+          "authorId": "3065590",
+          "name": "Fengli Xu"
+        },
+        {
+          "authorId": "2303363223",
+          "name": "Yong Li"
+        }
+      ],
+      "abstract": "LLMs as intelligent agents are being increasingly applied in scenarios where human interactions are involved, leading to a critical concern about whether LLMs are faithful to the variations in culture across regions. Several works have investigated this question in various ways, finding that there are biases present in the cultural representations of LLM outputs. To gain a more comprehensive view, in this work, we conduct the first large-scale evaluation of LLM culture assessing 20 countries' cultures and languages across ten LLMs. With a renowned cultural values questionnaire and by carefully analyzing LLM output with human ground truth scores, we thoroughly study LLMs' cultural alignment across countries and among individual models. Our findings show that the output over all models represents a moderate cultural middle ground. Given the overall skew, we propose an alignment metric, revealing that the United States is the best-aligned country and GLM-4 has the best ability to align to cultural values. Deeper investigation sheds light on the influence of model origin, prompt language, and value dimensions on cultural output. Specifically, models, regardless of where they originate, align better with the US than they do with China. The conclusions provide insight to how LLMs can be better aligned to various cultures as well as provoke further discussion of the potential for LLMs to propagate cultural bias and the need for more culturally adaptable models."
+    },
+    {
+      "paperId": "eb52aa7f9f8cdfee4b7f9f4ae7b1c2f351e493e4",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2504-12553",
+        "ArXiv": "2504.12553",
+        "DOI": "10.48550/arXiv.2504.12553",
+        "CorpusId": 277857514
+      },
+      "title": "ELAB: Extensive LLM Alignment Benchmark in Persian Language",
+      "year": 2025,
+      "citationCount": 4,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2504.12553, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2306348061",
+          "name": "Zahra Pourbahman"
+        },
+        {
+          "authorId": "2252648990",
+          "name": "Fatemeh Rajabi"
+        },
+        {
+          "authorId": "2412529829",
+          "name": "Mohammad Sadeghi"
+        },
+        {
+          "authorId": "2203427291",
+          "name": "Omid Ghahroodi"
+        },
+        {
+          "authorId": "3112094",
+          "name": "S. Bakhshaei"
+        },
+        {
+          "authorId": "2313432073",
+          "name": "Arash Amini"
+        },
+        {
+          "authorId": "2306342545",
+          "name": "Reza Kazemi"
+        },
+        {
+          "authorId": "1799503",
+          "name": "M. Baghshah"
+        }
+      ],
+      "abstract": "This paper presents a comprehensive evaluation framework for aligning Persian Large Language Models (LLMs) with critical ethical dimensions, including safety, fairness, and social norms. It addresses the gaps in existing LLM evaluation frameworks by adapting them to Persian linguistic and cultural contexts. This benchmark creates three types of Persian-language benchmarks: (i) translated data, (ii) new data generated synthetically, and (iii) new naturally collected data. We translate Anthropic Red Teaming data, AdvBench, HarmBench, and DecodingTrust into Persian. Furthermore, we create ProhibiBench-fa, SafeBench-fa, FairBench-fa, and SocialBench-fa as new datasets to address harmful and prohibited content in indigenous culture. Moreover, we collect extensive dataset as GuardBench-fa to consider Persian cultural norms. By combining these datasets, our work establishes a unified framework for evaluating Persian LLMs, offering a new approach to culturally grounded alignment evaluation. A systematic evaluation of Persian LLMs is performed across the three alignment aspects: safety (avoiding harmful content), fairness (mitigating biases), and social norms (adhering to culturally accepted behaviors). We present a publicly available leaderboard that benchmarks Persian LLMs with respect to safety, fairness, and social norms at: https://huggingface.co/spaces/MCILAB/LLM_Alignment_Evaluation."
+    },
+    {
+      "paperId": "f7b07e4ae631c929f9a19f83eca8e4279a7db054",
+      "externalIds": {
+        "ArXiv": "2509.21798",
+        "DBLP": "journals/corr/abs-2509-21798",
+        "DOI": "10.48550/arXiv.2509.21798",
+        "CorpusId": 281658613
+      },
+      "title": "Evaluating and Improving Cultural Awareness of Reward Models for LLM Alignment",
+      "year": 2025,
+      "citationCount": 1,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2509.21798, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2305734239",
+          "name": "Hongbin Zhang"
+        },
+        {
+          "authorId": "2266796043",
+          "name": "Kehai Chen"
+        },
+        {
+          "authorId": "2320289516",
+          "name": "Xuefeng Bai"
+        },
+        {
+          "authorId": "2273965768",
+          "name": "Yang Xiang"
+        },
+        {
+          "authorId": "2273887691",
+          "name": "Min Zhang"
+        }
+      ],
+      "abstract": "Reward models (RMs) are crucial for aligning large language models (LLMs) with diverse cultures. Consequently, evaluating their cultural awareness is essential for further advancing global alignment of LLMs. However, existing RM evaluations fall short in assessing cultural awareness due to the scarcity of culturally relevant evaluation datasets. To fill this gap, we propose Cultural Awareness Reward modeling Benchmark (CARB), covering 10 distinct cultures across 4 cultural domains. Our extensive evaluation of state-of-the-art RMs reveals their deficiencies in modeling cultural awareness and demonstrates a positive correlation between performance on CARB and downstream multilingual cultural alignment tasks. Further analysis identifies the spurious correlations within culture-aware reward modeling, wherein RM's scoring relies predominantly on surface-level features rather than authentic cultural nuance understanding. To address these, we propose Think-as-Locals to elicit deeper culturally grounded reasoning from generative RMs via reinforcement learning from verifiable rewards (RLVR) and employ well-designed rewards to ensure accurate preference judgments and high-quality structured evaluation criteria generation. Experimental results validate its efficacy in mitigating spurious features interference and advancing culture-aware reward modeling."
+    },
+    {
+      "paperId": "d5758a2c09e3a064295704b8774cde4dd6fb2899",
+      "externalIds": {
+        "DBLP": "conf/acl/HavaldarS0U25",
+        "ArXiv": "2507.00216",
+        "DOI": "10.48550/arXiv.2507.00216",
+        "CorpusId": 280017788
+      },
+      "title": "Towards Style Alignment in Cross-Cultural Translation",
+      "year": 2025,
+      "citationCount": 3,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2507.00216, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "151207988",
+          "name": "Shreya Havaldar"
+        },
+        {
+          "authorId": "2161714960",
+          "name": "Adam Stein"
+        },
+        {
+          "authorId": "2188817752",
+          "name": "Eric Wong"
+        },
+        {
+          "authorId": "1412391493",
+          "name": "L. Ungar"
+        }
+      ],
+      "abstract": "Successful communication depends on the speaker's intended style (i.e., what the speaker is trying to convey) aligning with the listener's interpreted style (i.e., what the listener perceives). However, cultural differences often lead to misalignment between the two; for example, politeness is often lost in translation. We characterize the ways that LLMs fail to translate style - biasing translations towards neutrality and performing worse in non-Western languages. We mitigate these failures with RASTA (Retrieval-Augmented STylistic Alignment), a method that leverages learned stylistic concepts to encourage LLM translation to appropriately convey cultural communication norms and align style."
+    },
+    {
+      "paperId": "3a455a00d01fcd45d7797f296eb5b5db331ff7b1",
+      "externalIds": {
+        "PubMedCentral": "11040439",
+        "DOI": "10.2196/55988",
+        "CorpusId": 269030051,
+        "PubMed": "38593424"
+      },
+      "title": "Assessing the Alignment of Large Language Models With Human Values for Mental Health Integration: Cross-Sectional Study Using Schwartz\u2019s Theory of Basic Values",
+      "year": 2024,
+      "citationCount": 71,
+      "openAccessPdf": {
+        "url": "https://doi.org/10.2196/55988",
+        "status": "GOLD",
+        "license": "CCBY",
+        "disclaimer": "Notice: Paper or abstract available at https://pmc.ncbi.nlm.nih.gov/articles/PMC11040439, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "1423347338",
+          "name": "D. Hadar-Shoval"
+        },
+        {
+          "authorId": "51040838",
+          "name": "K. Asraf"
+        },
+        {
+          "authorId": "2519477",
+          "name": "Yonathan Mizrachi"
+        },
+        {
+          "authorId": "2256496160",
+          "name": "Yuval Haber"
+        },
+        {
+          "authorId": "1477736701",
+          "name": "Z. Elyoseph"
+        }
+      ],
+      "abstract": "Background Large language models (LLMs) hold potential for mental health applications. However, their opaque alignment processes may embed biases that shape problematic perspectives. Evaluating the values embedded within LLMs that guide their decision-making have ethical importance. Schwartz\u2019s theory of basic values (STBV) provides a framework for quantifying cultural value orientations and has shown utility for examining values in mental health contexts, including cultural, diagnostic, and therapist-client dynamics. Objective This study aimed to (1) evaluate whether the STBV can measure value-like constructs within leading LLMs and (2) determine whether LLMs exhibit distinct value-like patterns from humans and each other. Methods In total, 4 LLMs (Bard, Claude 2, Generative Pretrained Transformer [GPT]-3.5, GPT-4) were anthropomorphized and instructed to complete the Portrait Values Questionnaire\u2014Revised (PVQ-RR) to assess value-like constructs. Their responses over 10 trials were analyzed for reliability and validity. To benchmark the LLMs\u2019 value profiles, their results were compared to published data from a diverse sample of 53,472 individuals across 49 nations who had completed the PVQ-RR. This allowed us to assess whether the LLMs diverged from established human value patterns across cultural groups. Value profiles were also compared between models via statistical tests. Results The PVQ-RR showed good reliability and validity for quantifying value-like infrastructure within the LLMs. However, substantial divergence emerged between the LLMs\u2019 value profiles and population data. The models lacked consensus and exhibited distinct motivational biases, reflecting opaque alignment processes. For example, all models prioritized universalism and self-direction, while de-emphasizing achievement, power, and security relative to humans. Successful discriminant analysis differentiated the 4 LLMs\u2019 distinct value profiles. Further examination found the biased value profiles strongly predicted the LLMs\u2019 responses when presented with mental health dilemmas requiring choosing between opposing values. This provided further validation for the models embedding distinct motivational value-like constructs that shape their decision-making. Conclusions This study leveraged the STBV to map the motivational value-like infrastructure underpinning leading LLMs. Although the study demonstrated the STBV can effectively characterize value-like infrastructure within LLMs, substantial divergence from human values raises ethical concerns about aligning these models with mental health applications. The biases toward certain cultural value sets pose risks if integrated without proper safeguards. For example, prioritizing universalism could promote unconditional acceptance even when clinically unwise. Furthermore, the differences between the LLMs underscore the need to standardize alignment processes to capture true cultural diversity. Thus, any responsible integration of LLMs into mental health care must account for their embedded biases and motivation mismatches to ensure equitable delivery across diverse populations. Achieving this will require transparency and refinement of alignment techniques to instill comprehensive human values."
+    },
+    {
+      "paperId": "d0779b98d8a69a3d28a156379a74837f70c40af4",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2503-15003",
+        "ArXiv": "2503.15003",
+        "DOI": "10.48550/arXiv.2503.15003",
+        "CorpusId": 277113276
+      },
+      "title": "LLM Alignment for the Arabs: A Homogenous Culture or Diverse Ones?",
+      "year": 2025,
+      "citationCount": 8,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2503.15003, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "1725417862",
+          "name": "Amr Keleg"
+        }
+      ],
+      "abstract": "Large language models (LLMs) have the potential of being useful tools that can automate tasks and assist humans. However, these models are more fluent in English and more aligned with Western cultures, norms, and values. Arabic-specific LLMs are being developed to better capture the nuances of the Arabic language, as well as the views of the Arabs. Yet, Arabs are sometimes assumed to share the same culture. In this position paper, I discuss the limitations of this assumption and provide preliminary thoughts for how to build systems that can better represent the cultural diversity within the Arab world. The invalidity of the cultural homogeneity assumption might seem obvious, yet, it is widely adopted in developing multilingual and Arabic-specific LLMs. I hope that this paper will encourage the NLP community to be considerate of the cultural diversity within various communities speaking the same language."
+    },
+    {
+      "paperId": "18476db60ad7208999f07c9c68384e072be4c8b0",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2506-13199",
+        "ArXiv": "2506.13199",
+        "DOI": "10.48550/arXiv.2506.13199",
+        "CorpusId": 279402525
+      },
+      "title": "Do Music Preferences Reflect Cultural Values? A Cross-National Analysis Using Music Embedding and World Values Survey",
+      "year": 2025,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2506.13199, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "4191530",
+          "name": "Yongjae Kim"
+        },
+        {
+          "authorId": "2350541972",
+          "name": "Seongchan Park"
+        }
+      ],
+      "abstract": "This study explores the extent to which national music preferences reflect underlying cultural values. We collected long-term popular music data from YouTube Music Charts across 62 countries, encompassing both Western and non-Western regions, and extracted audio embeddings using the CLAP model. To complement these quantitative representations, we generated semantic captions for each track using LP-MusicCaps and GPT-based summarization. Countries were clustered based on contrastive embeddings that highlight deviations from global musical norms. The resulting clusters were projected into a two-dimensional space via t-SNE for visualization and evaluated against cultural zones defined by the World Values Survey (WVS). Statistical analyses, including MANOVA and chi-squared tests, confirmed that music-based clusters exhibit significant alignment with established cultural groupings. Furthermore, residual analysis revealed consistent patterns of overrepresentation, suggesting non-random associations between specific clusters and cultural zones. These findings indicate that national-level music preferences encode meaningful cultural signals and can serve as a proxy for understanding global cultural boundaries."
+    },
+    {
+      "paperId": "0d043ed7b0f3eae32498a0cd791d575ac20b0559",
+      "externalIds": {
+        "ArXiv": "2511.17256",
+        "DBLP": "journals/corr/abs-2511-17256",
+        "DOI": "10.48550/arXiv.2511.17256",
+        "CorpusId": 283225848
+      },
+      "title": "Cross-cultural value alignment frameworks for responsible AI governance: Evidence from China-West comparative analysis",
+      "year": 2025,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2511.17256, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2345788338",
+          "name": "Haijiang Liu"
+        },
+        {
+          "authorId": "40226150",
+          "name": "Jinguang Gu"
+        },
+        {
+          "authorId": "2350337291",
+          "name": "Xun Wu"
+        },
+        {
+          "authorId": "2064295987",
+          "name": "Daniel Hershcovich"
+        },
+        {
+          "authorId": "2397572629",
+          "name": "Qiaoling Xiao"
+        }
+      ],
+      "abstract": "As Large Language Models (LLMs) increasingly influence high-stakes decision-making across global contexts, ensuring their alignment with diverse cultural values has become a critical governance challenge. This study presents a Multi-Layered Auditing Platform for Responsible AI that systematically evaluates cross-cultural value alignment in China-origin and Western-origin LLMs through four integrated methodologies: Ethical Dilemma Corpus for assessing temporal stability, Diversity-Enhanced Framework (DEF) for quantifying cultural fidelity, First-Token Probability Alignment for distributional accuracy, and Multi-stAge Reasoning frameworK (MARK) for interpretable decision-making. Our comparative analysis of 20+ leading models, such as Qwen, GPT-4o, Claude, LLaMA, and DeepSeek, reveals universal challenges-fundamental instability in value systems, systematic under-representation of younger demographics, and non-linear relationships between model scale and alignment quality-alongside divergent regional development trajectories. While China-origin models increasingly emphasize multilingual data integration for context-specific optimization, Western models demonstrate greater architectural experimentation but persistent U.S.-centric biases. Neither paradigm achieves robust cross-cultural generalization. We establish that Mistral-series architectures significantly outperform LLaMA3-series in cross-cultural alignment, and that Full-Parameter Fine-Tuning on diverse datasets surpasses Reinforcement Learning from Human Feedback in preserving cultural variation..."
+    },
+    {
+      "paperId": "0e9b807fa5e3eb23a9435c09c0be73e494db92d1",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2511-03980",
+        "ArXiv": "2511.03980",
+        "DOI": "10.48550/arXiv.2511.03980",
+        "CorpusId": 282812238
+      },
+      "title": "LLMs and Cultural Values: the Impact of Prompt Language and Explicit Cultural Framing",
+      "year": 2025,
+      "citationCount": 13,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2511.03980, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2390928365",
+          "name": "Bram Bult'e"
+        },
+        {
+          "authorId": "41123782",
+          "name": "Ayla Rigouts Terryn"
+        }
+      ],
+      "abstract": "\n Large Language Models (LLMs) are rapidly being adopted by users across the globe, who interact with them in a diverse range of languages. At the same time, there are well-documented imbalances in the training data and optimisation objectives of this technology, raising doubts as to whether LLMs can accurately represent the cultural diversity of their broad user base. In this study, we look at LLMs and cultural values in particular, and examine how prompt language and cultural framing influence model responses and their alignment with human values in different countries. We do so by probing 10 LLMs with 63 items from the Hofstede Values Survey Module and World Values Survey, translated into 11 languages, and formulated as prompts with and without different explicit cultural perspectives.\n Our study confirms that both prompt language and cultural perspective produce variation in LLM outputs, but with an important caveat: While targeted prompting can, to a certain extent, steer LLM responses in the direction of the predominant values of the corresponding countries, it does not overcome the models\u2019 systematic bias toward the values associated with a restricted set of countries in our dataset: the Netherlands, Germany, the United States, and Japan. All tested models, regardless of their origin, exhibit remarkably similar patterns: They produce fairly neutral responses on most topics, with selective progressive stances on issues such as social tolerance. Alignment with cultural values of human respondents is improved more with an explicit cultural perspective than with a targeted prompt language. Unexpectedly, combining both approaches is no more effective than cultural framing with an English prompt. These findings reveal that LLMs occupy an uncomfortable middle ground: They are responsive enough to changes in prompts to produce variation, but they are also too firmly anchored to specific cultural defaults to adequately represent cultural diversity."
+    },
+    {
+      "paperId": "5655ad1db638ddf86db964c201a3014fb8e21db6",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2408-01460",
+        "ArXiv": "2408.01460",
+        "DOI": "10.48550/arXiv.2408.01460",
+        "CorpusId": 271710220
+      },
+      "title": "LocalValueBench: A Collaboratively Built and Extensible Benchmark for Evaluating Localized Value Alignment and Ethical Safety in Large Language Models",
+      "year": 2024,
+      "citationCount": 12,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2408.01460, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2314830463",
+          "name": "Gwenyth Isobel Meadows"
+        },
+        {
+          "authorId": "2314829463",
+          "name": "Nicholas Wai Long Lau"
+        },
+        {
+          "authorId": "2314832010",
+          "name": "Eva Adelina Susanto"
+        },
+        {
+          "authorId": "2314880311",
+          "name": "C. Yu"
+        },
+        {
+          "authorId": "2315789379",
+          "name": "Aditya Paul"
+        }
+      ],
+      "abstract": "The proliferation of large language models (LLMs) requires robust evaluation of their alignment with local values and ethical standards, especially as existing benchmarks often reflect the cultural, legal, and ideological values of their creators. \\textsc{LocalValueBench}, introduced in this paper, is an extensible benchmark designed to assess LLMs' adherence to Australian values, and provides a framework for regulators worldwide to develop their own LLM benchmarks for local value alignment. Employing a novel typology for ethical reasoning and an interrogation approach, we curated comprehensive questions and utilized prompt engineering strategies to probe LLMs' value alignment. Our evaluation criteria quantified deviations from local values, ensuring a rigorous assessment process. Comparative analysis of three commercial LLMs by USA vendors revealed significant insights into their effectiveness and limitations, demonstrating the critical importance of value alignment. This study offers valuable tools and methodologies for regulators to create tailored benchmarks, highlighting avenues for future research to enhance ethical AI development."
+    },
+    {
+      "paperId": "4602a23bfbc4714a76b1093ded6a358ed08ebdb1",
+      "externalIds": {
+        "MAG": "2921142162",
+        "DOI": "10.1111/CAIM.12308",
+        "CorpusId": 150556313
+      },
+      "title": "Expatriate cultural values alignment: The mediating effect of cross\u2010cultural adjustment level on innovative behaviour",
+      "year": 2019,
+      "citationCount": 18,
+      "openAccessPdf": {
+        "url": "",
+        "status": "CLOSED",
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.1111/CAIM.12308?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1111/CAIM.12308, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "90128416",
+          "name": "W. Tsegaye"
+        },
+        {
+          "authorId": "48988033",
+          "name": "Q. Su"
+        },
+        {
+          "authorId": "6246197",
+          "name": "Maria Malik"
+        }
+      ],
+      "abstract": null
+    },
+    {
+      "paperId": "846023b76aab1e8d0118e0c1c05bbcd3b0f11487",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2412-08846",
+        "ArXiv": "2412.08846",
+        "DOI": "10.48550/arXiv.2412.08846",
+        "CorpusId": 274655887
+      },
+      "title": "Exploring Large Language Models on Cross-Cultural Values in Connection with Training Methodology",
+      "year": 2024,
+      "citationCount": 4,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2412.08846, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2283985518",
+          "name": "Minsang Kim"
+        },
+        {
+          "authorId": "2305852143",
+          "name": "Seung Baek"
+        }
+      ],
+      "abstract": "Large language models (LLMs) closely interact with humans, and thus need an intimate understanding of the cultural values of human society. In this paper, we explore how open-source LLMs make judgments on diverse categories of cultural values across countries, and its relation to training methodology such as model sizes, training corpus, alignment, etc. Our analysis shows that LLMs can judge socio-cultural norms similar to humans but less so on social systems and progress. In addition, LLMs tend to judge cultural values biased toward Western culture, which can be improved with training on the multilingual corpus. We also find that increasing model size helps a better understanding of social values, but smaller models can be enhanced by using synthetic data. Our analysis reveals valuable insights into the design methodology of LLMs in connection with their understanding of cultural values."
+    },
+    {
+      "paperId": "19014e8b83a37690313d34f89fb29e9ed636136f",
+      "externalIds": {
+        "ArXiv": "2412.13841",
+        "DOI": "10.1016/j.actpsy.2026.107094",
+        "CorpusId": 274822607,
+        "PubMed": "42263601"
+      },
+      "title": "Charting cross-cultural AI perception: An exploratory study of expectations, risk-benefit trade-offs, and values in Germany and China.",
+      "year": 2024,
+      "citationCount": 2,
+      "openAccessPdf": {
+        "url": "https://doi.org/10.1016/j.actpsy.2026.107094",
+        "status": "GOLD",
+        "license": "CCBY",
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2412.13841, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2812191",
+          "name": "P. Brauner"
+        },
+        {
+          "authorId": "2185662333",
+          "name": "Felix Glawe"
+        },
+        {
+          "authorId": "1816721575",
+          "name": "Gian Luca Liehner"
+        },
+        {
+          "authorId": "3144719",
+          "name": "Luisa Vervier"
+        },
+        {
+          "authorId": "2266847611",
+          "name": "Martina Ziefle"
+        }
+      ],
+      "abstract": "As artificial intelligence (AI) continues to advance, understanding public perceptions-including biases, risks, and benefits-is essential for guiding research priorities and AI alignment, shaping public discourse, and informing policy. This exploratory study investigates cultural differences in mental models of AI using 71 imaginaries of AI's potential futures. Drawing on cross-cultural convenience samples from Germany (N=52) and China (N=58), it identifies significant differences in expectations, evaluations, and risk-benefit tradeoffs. Participants from Germany generally provided more cautious assessments, whereas participants from China expressed greater optimism regarding AI's societal benefits. Chinese participants exhibited relatively balanced risk-benefit tradeoffs (\u03b2=-0.463 for risk and \u03b2=+0.484 for benefit, R2=.630). In contrast, German participants placed greater emphasis on AI's benefits and comparatively less on risks (\u03b2=-0.337 for risk and \u03b2=+0.715 for benefit, R2=.839). Visual cognitive maps illustrate these contrasts, offering new perspectives on how cultural contexts shape AI acceptance. Our findings suggest factors influencing public perception and provide pointers for future research to align AI with societal values and promote equitable and culturally sensitive integration of AI technologies."
+    },
+    {
+      "paperId": "693aea9cc230d7ff0764e57a44a03cef2b932ff5",
+      "externalIds": {
+        "ArXiv": "2505.17112",
+        "DBLP": "journals/corr/abs-2505-17112",
+        "DOI": "10.48550/arXiv.2505.17112",
+        "CorpusId": 278886408
+      },
+      "title": "Cultural Value Alignment in Large Language Models: A Prompt-based Analysis of Schwartz Values in Gemini, ChatGPT, and DeepSeek",
+      "year": 2025,
+      "citationCount": 8,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2505.17112, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "1381513650",
+          "name": "R. Segerer"
+        }
+      ],
+      "abstract": "This study examines cultural value alignment in large language models (LLMs) by analyzing how Gemini, ChatGPT, and DeepSeek prioritize values from Schwartz's value framework. Using the 40-item Portrait Values Questionnaire, we assessed whether DeepSeek, trained on Chinese-language data, exhibits distinct value preferences compared to Western models. Results of a Bayesian ordinal regression model show that self-transcendence values (e.g., benevolence, universalism) were highly prioritized across all models, reflecting a general LLM tendency to emphasize prosocial values. However, DeepSeek uniquely downplayed self-enhancement values (e.g., power, achievement) compared to ChatGPT and Gemini, aligning with collectivist cultural tendencies. These findings suggest that LLMs reflect culturally situated biases rather than a universal ethical framework. To address value asymmetries in LLMs, we propose multi-perspective reasoning, self-reflective feedback, and dynamic contextualization. This study contributes to discussions on AI fairness, cultural neutrality, and the need for pluralistic AI alignment frameworks that integrate diverse moral perspectives."
+    },
+    {
+      "paperId": "293467b7cafd177cf882080bafbcdc4eef7ad0a7",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2502-16534",
+        "ArXiv": "2502.16534",
+        "DOI": "10.48550/arXiv.2502.16534",
+        "CorpusId": 276576058
+      },
+      "title": "Multilingual != Multicultural: Evaluating Gaps Between Multilingual Capabilities and Cultural Alignment in LLMs",
+      "year": 2025,
+      "citationCount": 44,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2502.16534, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2346109360",
+          "name": "Jonathan Rystr\u00f8m"
+        },
+        {
+          "authorId": "90729626",
+          "name": "Hannah Rose Kirk"
+        },
+        {
+          "authorId": "1801223",
+          "name": "Scott A. Hale"
+        }
+      ],
+      "abstract": "Large Language Models (LLMs) are becoming increasingly capable across global languages. However, the ability to communicate across languages does not necessarily translate to appropriate cultural representations. A key concern is US-centric bias, where LLMs reflect US rather than local cultural values. We propose a novel methodology that compares LLM-generated response distributions against population-level opinion data from the World Value Survey across four languages (Danish, Dutch, English, and Portuguese). Using a rigorous linear mixed-effects regression framework, we compare two families of models: Google's Gemma models (2B--27B parameters) and successive iterations of OpenAI's turbo-series. Across the families of models, we find no consistent relationships between language capabilities and cultural alignment. While the Gemma models have a positive correlation between language capability and cultural alignment across languages, the OpenAI models do not. Importantly, we find that self-consistency is a stronger predictor of multicultural alignment than multilingual capabilities. Our results demonstrate that achieving meaningful cultural alignment requires dedicated effort beyond improving general language capabilities."
+    },
+    {
+      "paperId": "05be16afbd1dec2f5dad0949686c3fbe9d44f466",
+      "externalIds": {
+        "DBLP": "conf/naacl/WangLHJDAC24",
+        "ACL": "2024.naacl-long.22",
+        "ArXiv": "2309.04766",
+        "DOI": "10.48550/arXiv.2309.04766",
+        "CorpusId": 261682140
+      },
+      "title": "SeaEval for Multilingual Foundation Models: From Cross-Lingual Alignment to Cultural Reasoning",
+      "year": 2023,
+      "citationCount": 108,
+      "openAccessPdf": {
+        "url": "https://arxiv.org/pdf/2309.04766",
+        "status": "CLOSED",
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2309.04766, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2256857690",
+          "name": "Bin Wang"
+        },
+        {
+          "authorId": "49293155",
+          "name": "Zhengyuan Liu"
+        },
+        {
+          "authorId": "2239021935",
+          "name": "Xin Huang"
+        },
+        {
+          "authorId": "1689176705",
+          "name": "Fangkai Jiao"
+        },
+        {
+          "authorId": "2239057266",
+          "name": "Yang Ding"
+        },
+        {
+          "authorId": "2113601787",
+          "name": "A. Aw"
+        },
+        {
+          "authorId": "2185019",
+          "name": "Nancy F. Chen"
+        }
+      ],
+      "abstract": "We present SeaEval, a benchmark for multilingual foundation models. In addition to characterizing how these models understand and reason with natural language, we also investigate how well they comprehend cultural practices, nuances, and values. Alongside standard accuracy metrics, we investigate the brittleness of foundation models in the dimensions of semantics and multilinguality. Our analyses span both open-sourced and closed models, leading to empirical results across classic NLP tasks, reasoning, and cultural comprehension. Key findings indicate (1) Many models exhibit varied behavior when given paraphrased instructions. (2) Many models still suffer from exposure bias (e.g., positional bias, majority label bias). (3) For questions rooted in factual, scientific, and commonsense knowledge, consistent responses are expected across multilingual queries that are semantically equivalent. Yet, most models surprisingly demonstrate inconsistent performance on these queries. (4) Multilingually-trained models have not attained \u201cbalanced multilingual\u201d capabilities. Our endeavors underscore the need for more generalizable semantic representations and enhanced multilingual contextualization. SeaEval can serve as a launchpad for more thorough investigations and evaluations for multilingual and multicultural scenarios."
+    },
+    {
+      "paperId": "a41470a5e3c3a057fb96dbb9bf88ce9ff9087aeb",
+      "externalIds": {
+        "ArXiv": "2511.13169",
+        "DBLP": "journals/corr/abs-2511-13169",
+        "DOI": "10.48550/arXiv.2511.13169",
+        "CorpusId": 283072459
+      },
+      "title": "TCM-5CEval: Extended Deep Evaluation Benchmark for LLM's Comprehensive Clinical Research Competence in Traditional Chinese Medicine",
+      "year": 2025,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2511.13169, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2349496176",
+          "name": "Tianai Huang"
+        },
+        {
+          "authorId": "2349398724",
+          "name": "Jiayuan Chen"
+        },
+        {
+          "authorId": "2349556594",
+          "name": "Lu Lu"
+        },
+        {
+          "authorId": "2271493720",
+          "name": "Pengcheng Chen"
+        },
+        {
+          "authorId": "2397508591",
+          "name": "Tianbin Li"
+        },
+        {
+          "authorId": "2396661544",
+          "name": "Bing Han"
+        },
+        {
+          "authorId": "2351619670",
+          "name": "Wenchao Tang"
+        },
+        {
+          "authorId": "2392904478",
+          "name": "Jie Xu"
+        },
+        {
+          "authorId": "2319250141",
+          "name": "Ming Li"
+        }
+      ],
+      "abstract": "Large language models (LLMs) have demonstrated exceptional capabilities in general domains, yet their application in highly specialized and culturally-rich fields like Traditional Chinese Medicine (TCM) requires rigorous and nuanced evaluation. Building upon prior foundational work such as TCM-3CEval, which highlighted systemic knowledge gaps and the importance of cultural-contextual alignment, we introduce TCM-5CEval, a more granular and comprehensive benchmark. TCM-5CEval is designed to assess LLMs across five critical dimensions: (1) Core Knowledge (TCM-Exam), (2) Classical Literacy (TCM-LitQA), (3) Clinical Decision-making (TCM-MRCD), (4) Chinese Materia Medica (TCM-CMM), and (5) Clinical Non-pharmacological Therapy (TCM-ClinNPT). We conducted a thorough evaluation of fifteen prominent LLMs, revealing significant performance disparities and identifying top-performing models like deepseek\\_r1 and gemini\\_2\\_5\\_pro. Our findings show that while models exhibit proficiency in recalling foundational knowledge, they struggle with the interpretative complexities of classical texts. Critically, permutation-based consistency testing reveals widespread fragilities in model inference. All evaluated models, including the highest-scoring ones, displayed a substantial performance degradation when faced with varied question option ordering, indicating a pervasive sensitivity to positional bias and a lack of robust understanding. TCM-5CEval not only provides a more detailed diagnostic tool for LLM capabilities in TCM but aldso exposes fundamental weaknesses in their reasoning stability. To promote further research and standardized comparison, TCM-5CEval has been uploaded to the Medbench platform, joining its predecessor in the\"In-depth Challenge for Comprehensive TCM Abilities\"special track."
+    },
+    {
+      "paperId": "8dcf4fb3f005e519bf27502a8c8cc1970472e3ed",
+      "externalIds": {
+        "ArXiv": "2604.12545",
+        "DBLP": "journals/corr/abs-2604-12545",
+        "DOI": "10.48550/arXiv.2604.12545",
+        "CorpusId": 287435811
+      },
+      "title": "Cross-Cultural Simulation of Citizen Emotional Responses to Bureaucratic Red Tape Using LLM Agents",
+      "year": 2026,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2604.12545, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2366068687",
+          "name": "Wanchun Ni"
+        },
+        {
+          "authorId": "2275286947",
+          "name": "Jiugeng Sun"
+        },
+        {
+          "authorId": "2394121791",
+          "name": "Yixian Liu"
+        },
+        {
+          "authorId": "2258965125",
+          "name": "Mennatallah El-Assady"
+        }
+      ],
+      "abstract": "Improving policymaking is a central concern in public administration. Prior human subject studies reveal substantial cross-cultural differences in citizens'emotional responses to red tape during policy implementation. While LLM agents offer opportunities to simulate human-like responses and reduce experimental costs, their ability to generate culturally appropriate emotional responses to red tape remains unverified. To address this gap, we propose an evaluation framework for assessing LLMs'emotional responses to red tape across diverse cultural contexts. As a pilot study, we apply this framework to a single red-tape scenario. Our results show that all models exhibit limited alignment with human emotional responses, with notably weaker performance in Eastern cultures. Cultural prompting strategies prove largely ineffective in improving alignment. We further introduce \\textbf{RAMO}, an interactive interface for simulating citizens'emotional responses to red tape and for collecting human data to improve models. The interface is publicly available at https://ramo-chi.ivia.ch."
+    },
+    {
+      "paperId": "4c105e888f749201b5127f60f1d9aa8ed451a19c",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2405-15145",
+        "ArXiv": "2405.15145",
+        "DOI": "10.48550/arXiv.2405.15145",
+        "CorpusId": 270045711
+      },
+      "title": "CulturePark: Boosting Cross-cultural Understanding in Large Language Models",
+      "year": 2024,
+      "citationCount": 26,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2405.15145, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2258600474",
+          "name": "Cheng Li"
+        },
+        {
+          "authorId": "2253463627",
+          "name": "Damien Teney"
+        },
+        {
+          "authorId": "2292413132",
+          "name": "Linyi Yang"
+        },
+        {
+          "authorId": "2303259263",
+          "name": "Qingsong Wen"
+        },
+        {
+          "authorId": "2249681654",
+          "name": "Xing Xie"
+        },
+        {
+          "authorId": "2300128890",
+          "name": "Jindong Wang"
+        }
+      ],
+      "abstract": "Cultural bias is pervasive in many large language models (LLMs), largely due to the deficiency of data representative of different cultures. Typically, cultural datasets and benchmarks are constructed either by extracting subsets of existing datasets or by aggregating from platforms such as Wikipedia and social media. However, these approaches are highly dependent on real-world data and human annotations, making them costly and difficult to scale. Inspired by cognitive theories on social communication, this paper introduces CulturePark, an LLM-powered multi-agent communication framework for cultural data collection. CulturePark simulates cross-cultural human communication with LLM-based agents playing roles in different cultures. It generates high-quality cross-cultural dialogues encapsulating human beliefs, norms, and customs. Using CulturePark, we generated 41,000 cultural samples to fine-tune eight culture-specific LLMs. We evaluated these models across three downstream tasks: content moderation, cultural alignment, and cultural education. Results show that for content moderation, our GPT-3.5-based models either match or outperform GPT-4 on datasets. Regarding cultural alignment, our models surpass GPT-4 on Hofstede's VSM 13 framework. Furthermore, for cultural education of human participants, our models demonstrate superior outcomes in both learning efficacy and user experience compared to GPT-4. CulturePark proves an important step in addressing cultural bias and advancing the democratization of AI, highlighting the critical role of culturally inclusive data in model training. Code is released at https://github.com/Scarelette/CulturePark."
+    },
+    {
+      "paperId": "77cbe214396e66360361ca0493653497196e918d",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2604-06210",
+        "ArXiv": "2604.06210",
+        "DOI": "10.48550/arXiv.2604.06210",
+        "CorpusId": 287248092
+      },
+      "title": "Distributional Open-Ended Evaluation of LLM Cultural Value Alignment Based on Value Codebook",
+      "year": 2026,
+      "citationCount": 1,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2604.06210, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2330228850",
+          "name": "Jaehyeok Lee"
+        },
+        {
+          "authorId": "2258961742",
+          "name": "Xiaoyuan Yi"
+        },
+        {
+          "authorId": "2305334330",
+          "name": "Jingtao Yao"
+        },
+        {
+          "authorId": "2147347903",
+          "name": "Hyunjin Hwang"
+        },
+        {
+          "authorId": "2374089142",
+          "name": "Roy Ka-Wei Lee"
+        },
+        {
+          "authorId": "2289847313",
+          "name": "Xing Xie"
+        },
+        {
+          "authorId": "72761736",
+          "name": "Jinyeong Bak"
+        }
+      ],
+      "abstract": "As LLMs are globally deployed, aligning their cultural value orientations is critical for safety and user engagement. However, existing benchmarks face the Construct-Composition-Context ($C^3$) challenge: relying on discriminative, multiple-choice formats that probe value knowledge rather than true orientations, overlook subcultural heterogeneity, and mismatch with real-world open-ended generation. We introduce DOVE, a distributional evaluation framework that directly compares human-written text distributions with LLM-generated outputs. DOVE utilizes a rate-distortion variational optimization objective to construct a compact value codebook from 10K documents, mapping text into a structured value space to filter semantic noise. Alignment is measured using unbalanced optimal transport, capturing intra-cultural distributional structures and subgroup diversity. Experiments across 12 LLMs show that DOVE achieves superior predictive validity, attaining a 31.56% correlation with downstream tasks, while maintaining high reliability with as few as 500 samples per culture."
+    },
+    {
+      "paperId": "5103b459c98652232401a4d85f8b61655d11042d",
+      "externalIds": {
+        "DBLP": "conf/mmasia/ShiWK25",
+        "DOI": "10.1145/3769748.3773352",
+        "CorpusId": 283673041
+      },
+      "title": "An Efficient and Explanatory Cross-Cultural Image and Text Clustering System using a Multimodal Autoencoder Architecture",
+      "year": 2025,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "https://dl.acm.org/doi/pdf/10.1145/3769748.3773352",
+        "status": "GOLD",
+        "license": "CCBY",
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.1145/3769748.3773352?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1145/3769748.3773352, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2316194745",
+          "name": "Tiancheng Shi"
+        },
+        {
+          "authorId": "2316383413",
+          "name": "Yuanchen Wei"
+        },
+        {
+          "authorId": "2397188630",
+          "name": "John Kender"
+        }
+      ],
+      "abstract": "We demonstrate the efficiencies and explanatory abilities of extensions to the common tools of Autoencoders and LLM interpreters, in the novel context of comparing different cultural approaches within videos reporting on the same international news event. We develop a new Convolutional-Recurrent Variational Autoencoder (CRVAE) model that extends the modalities of previous CVAE models, by using fully-connected latent layers to embed in parallel the CNN encodings of video frames, together with the LSTM encodings of their related text derived from audio. We incorporate the model within a larger system that includes frame-caption alignment, latent space vector clustering, and a novel LLM-based cluster interpreter. We measure, tune, and apply this system to the task of summarizing a video into three to seven thematic clusters, with each theme described by ten LLM-produced phrases. We then apply this system to five diverse news topics, and summarize, visualize, and contrast a Chinese and an English video reporting on each topic."
+    },
+    {
+      "paperId": "1d7dec914b46f29c44095242d395e480f706e51a",
+      "externalIds": {
+        "ArXiv": "2607.02049",
+        "CorpusId": 289749202
+      },
+      "title": "SPLIT: Cross-Lingual Empathy and Cultural Grounding in English and Ukrainian LLM Responses",
+      "year": 2026,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2607.02049, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2122787191",
+          "name": "Anna V. Chorna"
+        }
+      ],
+      "abstract": "Large Language Models are increasingly deployed in emotional-support contexts and crisis-related situations. Nevertheless, their cross-lingual abilities in these circumstances remain underexplored. Existing benchmarks emphasize multilingual performance but rarely examine crisis-related empathy and cultural grounding in low-to-mid-resource languages. We introduce SPLIT, a 500-prompt benchmark designed to evaluate LLM consistency in generating emotionally grounded responses across five categories: Stress, Panic, Loneliness, Internal Displacement, and Tension. We evaluate three technically diverse LLMs across three dimensions: Empathetic Accuracy, Linguistic Naturalness, and Contextual&Cultural Grounding. The framework aims to assess and compare the quality of LLM responses in both English and Ukrainian languages, as well as to explore the reliability of the LLM-as-a-jury paradigm. Our findings reveal that Gemini-2.5-Flash and LLaMA-3.3-70B-Instruct degrade when transitioning to Ukrainian, while DeepSeek-V3 remains comparatively stable within our benchmark. We additionally find that human and AI evaluators agree weakly on empathy and naturalness but diverge on cultural grounding. We further argue that producing Ukrainian text is not equivalent to producing Ukrainian emotional support. Our findings may assist in the future development of more culturally tailored benchmark designs, as well as encourage a stronger emphasis on human-centered evaluation."
+    },
+    {
+      "paperId": "ba4c49eb25368a8bdf0e22d6948a09580f7b1122",
+      "externalIds": {
+        "ArXiv": "2606.00369",
+        "CorpusId": 288855333
+      },
+      "title": "Quantifying the Salience of Geo-Cultural Values for Pluralistic Safety Alignment",
+      "year": 2026,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2606.00369, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2362289271",
+          "name": "A. Saakyan"
+        },
+        {
+          "authorId": "31211315",
+          "name": "Charvi Rastogi"
+        },
+        {
+          "authorId": "2257256357",
+          "name": "L. Aroyo"
+        }
+      ],
+      "abstract": "Safe global deployment of AI models requires alignment with human values that vary across cultures. Yet rater pools in safety evaluation datasets remain largely geographically homogeneous, failing to capture geo-cultural differences. Further, it remains unclear whether such differences persist after controlling for demographics such as age, gender, and ethnicity. Through a meta-analysis of safety datasets, we find that most do not report geo-cultural information, and those that do lack a unified methodology to jointly analyze geo-cultural and demographic correlates. Using the Inglehart-Welzel dimensions of cross-cultural variation, we demonstrate via multilevel modeling that cultural zone membership explains variance in safety ratings beyond standard demographics (p<0.05 across 6 datasets). Moreover, our analysis indicates that roughly 10% of items in the datasets we examined are culturally sensitive: likely to be misclassified as safe without adequate cultural representation. We evaluate LLMs as both rater surrogates and triage tools, finding that current LLMs do not reliably stand in for raters, though they can help prioritize culturally sensitive items for human annotation. Our findings motivate more culturally pluralistic safety evaluation and offer practical takeaways to support it."
+    },
+    {
+      "paperId": "dbdfa96d3c78ebf4949c79c782f9d8822e1c85c9",
+      "externalIds": {
+        "ArXiv": "2512.07075",
+        "DBLP": "journals/corr/abs-2512-07075",
+        "DOI": "10.48550/arXiv.2512.07075",
+        "CorpusId": 283693716
+      },
+      "title": "Do Large Language Models Truly Understand Cross-cultural Differences?",
+      "year": 2025,
+      "citationCount": 4,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2512.07075, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2381837641",
+          "name": "Shiwei Guo"
+        },
+        {
+          "authorId": "1999030240",
+          "name": "Sihang Jiang"
+        },
+        {
+          "authorId": "2244598365",
+          "name": "Qianxi He"
+        },
+        {
+          "authorId": "2267005966",
+          "name": "Yanghua Xiao"
+        },
+        {
+          "authorId": "3366523",
+          "name": "Jiaqing Liang"
+        },
+        {
+          "authorId": "2080652419",
+          "name": "Bi Yude"
+        },
+        {
+          "authorId": "2319973253",
+          "name": "Minggui He"
+        },
+        {
+          "authorId": "2381260162",
+          "name": "Shimin Tao"
+        },
+        {
+          "authorId": "2267763734",
+          "name": "Li Zhang"
+        }
+      ],
+      "abstract": "In recent years, large language models (LLMs) have demonstrated strong performance on multilingual tasks. Given its wide range of applications, cross-cultural understanding capability is a crucial competency. However, existing benchmarks for evaluating whether LLMs genuinely possess this capability suffer from three key limitations: a lack of contextual scenarios, insufficient cross-cultural concept mapping, and limited deep cultural reasoning capabilities. To address these gaps, we propose SAGE, a scenario-based benchmark built via cross-cultural core concept alignment and generative task design, to evaluate LLMs'cross-cultural understanding and reasoning. Grounded in cultural theory, we categorize cross-cultural capabilities into nine dimensions. Using this framework, we curated 210 core concepts and constructed 4530 test items across 15 specific real-world scenarios, organized under four broader categories of cross-cultural situations, following established item design principles. The SAGE dataset supports continuous expansion, and experiments confirm its transferability to other languages. It reveals model weaknesses across both dimensions and scenarios, exposing systematic limitations in cross-cultural reasoning. While progress has been made, LLMs are still some distance away from reaching a truly nuanced cross-cultural understanding. In compliance with the anonymity policy, we include data and code in the supplement materials. In future versions, we will make them publicly available online."
+    },
+    {
+      "paperId": "bd42b99c6a449560db00f2c5fbf74693c7e7b477",
+      "externalIds": {
+        "DOI": "10.1109/AISummit66170.2025.11411589",
+        "CorpusId": 286241173
+      },
+      "title": "Cross Cultural Training Validation and Deployment of Hybrid CNN RNN Models with Explainable AI for Robust and Generalizable Personality Prediction",
+      "year": 2025,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.1109/AISummit66170.2025.11411589?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1109/AISummit66170.2025.11411589, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2421840222",
+          "name": "Govind Singh Panwar"
+        },
+        {
+          "authorId": "2244003589",
+          "name": "Ritika Mehra"
+        }
+      ],
+      "abstract": "Personality prediction from facial video often fails to generalize across cultures and lacks transparency. We present a hybrid CNN-RNN framework with explanation-aware training that improves both robustness and interpretability. Spatial features from a convolutional backbone are temporally fused by gated recurrent units, while a saliency-alignment loss constrains gradient energy to physiologically meaningful facial regions, reducing reliance on backgrounds. We curate a five-continent composite benchmark and evaluate with stratified splits and leave-one-dataset-out testing. Compared with strong baselines (3D-CNN, culture-aware CNN, Bi-GRU attention, and domain-norm CNN), our model attains lower mean absolute error and higher F1, with average gains of +0.04 F1 in cross-dataset evaluation. Fairness audits show overlapping performance distributions across gender and continental cohorts, and paired tests indicate no significant subgroup gaps. Integrated Grad-CAM++ maps remain temporally stable (mean IoU \u22480.79 across frames), providing high-fidelity, trait-specific evidence. A containerized microservice delivers real-time inference on both cloud GPUs (\u224810 ms/frame) and edge modules (\u224820-30 ms/frame). Together, these results demonstrate that coupling hybrid temporal modeling with explanation-aware objectives yields accurate, equitable, and deployable personality prediction for culturally diverse settings."
+    },
+    {
+      "paperId": "f737e9805cc382f5830ad77284a43ce759f15374",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2512-05176",
+        "ArXiv": "2512.05176",
+        "DOI": "10.48550/arXiv.2512.05176",
+        "CorpusId": 283672517
+      },
+      "title": "Towards A Cultural Intelligence and Values Inferences Quality Benchmark for Community Values and Common Knowledge",
+      "year": 2025,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2512.05176, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2375757144",
+          "name": "Brittany Johnson"
+        },
+        {
+          "authorId": "2397182791",
+          "name": "Erin Reddick"
+        },
+        {
+          "authorId": "2261256653",
+          "name": "Angela D. R. Smith"
+        }
+      ],
+      "abstract": "Large language models (LLMs) have emerged as a powerful technology, and thus, we have seen widespread adoption and use on software engineering teams. Most often, LLMs are designed as\"general purpose\"technologies meant to represent the general population. Unfortunately, this often means alignment with predominantly Western Caucasian narratives and misalignment with other cultures and populations that engage in collaborative innovation. In response to this misalignment, there have been recent efforts centered on the development of\"culturally-informed\"LLMs, such as ChatBlackGPT, that are capable of better aligning with historically marginalized experiences and perspectives. Despite this progress, there has been little effort aimed at supporting our ability to develop and evaluate culturally-informed LLMs. A recent effort proposed an approach for developing a national alignment benchmark that emphasizes alignment with national social values and common knowledge. However, given the range of cultural identities present in the United States (U.S.), a national alignment benchmark is an ineffective goal for broader representation. To help fill this gap in this US context, we propose a replication study that translates the process used to develop KorNAT, a Korean National LLM alignment benchmark, to develop CIVIQ, a Cultural Intelligence and Values Inference Quality benchmark centered on alignment with community social values and common knowledge. Our work provides a critical foundation for research and development aimed at cultural alignment of AI technologies in practice."
+    },
+    {
+      "paperId": "14aa4db4e8aa8aa8c5c9d5de9f47e697027d7a5e",
+      "externalIds": {
+        "ArXiv": "2603.01952",
+        "DBLP": "journals/corr/abs-2603-01952",
+        "DOI": "10.48550/arXiv.2603.01952",
+        "CorpusId": 286223356
+      },
+      "title": "LiveCultureBench: a Multi-Agent, Multi-Cultural Benchmark for Large Language Models in Dynamic Social Simulations",
+      "year": 2026,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2603.01952, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2362576060",
+          "name": "V. Pham"
+        },
+        {
+          "authorId": "153139892",
+          "name": "Lizhen Qu"
+        },
+        {
+          "authorId": "122699890",
+          "name": "Thuy-Trang Vu"
+        },
+        {
+          "authorId": "2561045",
+          "name": "Gholamreza Haffari"
+        },
+        {
+          "authorId": "9089008",
+          "name": "D.Q. Phung"
+        }
+      ],
+      "abstract": "Large language models (LLMs) are increasingly deployed as autonomous agents, yet evaluations focus primarily on task success rather than cultural appropriateness or evaluator reliability. We introduce LiveCultureBench, a multi-cultural, dynamic benchmark that embeds LLMs as agents in a simulated town and evaluates them on both task completion and adherence to socio-cultural norms. The simulation models a small city as a location graph with synthetic residents having diverse demographic and cultural profiles. Each episode assigns one resident a daily goal while others provide social context. An LLM-based verifier generates structured judgments on norm violations and task progress, which we aggregate into metrics capturing task-norm trade-offs and verifier uncertainty. Using LiveCultureBench across models and cultural profiles, we study (i) cross-cultural robustness of LLM agents, (ii) how they balance effectiveness against norm sensitivity, and (iii) when LLM-as-a-judge evaluation is reliable for automated benchmarking versus when human oversight is needed."
+    },
+    {
+      "paperId": "a7111117daa2b827e9515fe539a9898523f91976",
+      "externalIds": {
+        "DOI": "10.63665/ctsij.v1i2.02",
+        "CorpusId": 284792845
+      },
+      "title": "The Influence of Global Media Narratives on Youth Identity Formation: A Cross-Cultural Sociological Study",
+      "year": 2025,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.63665/ctsij.v1i2.02?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.63665/ctsij.v1i2.02, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2404919266",
+          "name": "Dr. Nabila Qureshi"
+        }
+      ],
+      "abstract": "Global media has become a central force shaping the identities, aspirations, values, and behavioural patterns of today\u2019s youth. As digital platforms transcend national boundaries, young individuals are increasingly exposed to diverse cultural stories, global social trends, ideological messages, and mediated realities that significantly influence their self-perception and worldview. This study investigates how global media narratives\u2014circulated through television, films, digital news, social media, influencers, streaming platforms, and online communities\u2014impact youth identity formation across culturally distinct regions. Using a cross-cultural sociological approach integrating surveys, interviews, and comparative media analysis, the research examines identity markers such as self-concept, cultural alignment, value systems, lifestyle preferences, political opinions, and social behaviour. Results demonstrate that global media often creates hybrid identities, shapes global citizenship values, and influences aesthetic preferences, yet also generates internal conflicts, cultural detachment, and psychosocial pressures. The paper concludes by proposing a culturally sensitive framework for media literacy and identity resilience among youth."
+    },
+    {
+      "paperId": "1daa3bf319a6a63db26df66a6864480d5af99466",
+      "externalIds": {
+        "ArXiv": "2511.07871",
+        "DBLP": "conf/aaai/LinYJHZGXY26",
+        "DOI": "10.48550/arXiv.2511.07871",
+        "CorpusId": 282921451
+      },
+      "title": "AlignSurvey: A Comprehensive Benchmark for Human Preferences Alignment in Social Surveys",
+      "year": 2025,
+      "citationCount": 2,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2511.07871, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2391841445",
+          "name": "Chenxi Lin"
+        },
+        {
+          "authorId": "2261186986",
+          "name": "Weikang Yuan"
+        },
+        {
+          "authorId": "2346890769",
+          "name": "Zhuoren Jiang"
+        },
+        {
+          "authorId": "2310863732",
+          "name": "Biao Huang"
+        },
+        {
+          "authorId": "2352003815",
+          "name": "Ruitao Zhang"
+        },
+        {
+          "authorId": "2355000692",
+          "name": "Jianan Ge"
+        },
+        {
+          "authorId": "2354730252",
+          "name": "Yueqian Xu"
+        },
+        {
+          "authorId": "2297710000",
+          "name": "Jianxing Yu"
+        }
+      ],
+      "abstract": "Understanding human attitudes, preferences, and behaviors through social surveys is essential for academic research and policymaking. Yet traditional surveys face persistent challenges, including fixed-question formats, high costs, limited adaptability, and difficulties ensuring cross-cultural equivalence. While recent studies explore large language models (LLMs) to simulate survey responses, most are limited to structured questions, overlook the entire survey process, and risks under-representing marginalized groups due to training data biases. We introduce AlignSurvey, the first benchmark that systematically replicates and evaluates the full social survey pipeline using LLMs. It defines four tasks aligned with key survey stages: social role modeling, semi-structured interview modeling, attitude stance modeling and survey response modeling. It also provides task-specific evaluation metrics to assess alignment fidelity, consistency, and fairness at both individual and group levels, with a focus on demographic diversity. To support AlignSurvey, we construct a multi-tiered dataset architecture: (i) the Social Foundation Corpus, a cross-national resource with 44K+ interview dialogues and 400K+ structured survey records; and (ii) a suite of Entire-Pipeline Survey Datasets, including the expert-annotated AlignSurvey-Expert (ASE) and two nationally representative surveys for cross-cultural evaluation. We release the SurveyLM family, obtained through two-stage fine-tuning of open-source LLMs, and offer reference models for evaluating domain-specific alignment. All datasets, models, and tools are available at github and huggingface to support transparent and socially responsible research."
+    },
+    {
+      "paperId": "1e26ff02f330fcf198bea8db0510d295c07ff908",
+      "externalIds": {
+        "DBLP": "conf/acl/TayOFCCLP20",
+        "ACL": "2020.acl-main.477",
+        "MAG": "3034418628",
+        "DOI": "10.18653/v1/2020.acl-main.477",
+        "CorpusId": 220044874
+      },
+      "title": "Would you Rather? A New Benchmark for Learning Machine Alignment with Cultural Values and Social Preferences",
+      "year": 2020,
+      "citationCount": 20,
+      "openAccessPdf": {
+        "url": "https://www.aclweb.org/anthology/2020.acl-main.477.pdf",
+        "status": "HYBRID",
+        "license": "CCBY",
+        "disclaimer": "Notice: Paper or abstract available at https://aclanthology.org/2020.acl-main.477, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "144447820",
+          "name": "Yi Tay"
+        },
+        {
+          "authorId": "2258719848",
+          "name": "Donovan Ong"
+        },
+        {
+          "authorId": "2089772402",
+          "name": "Jie Fu"
+        },
+        {
+          "authorId": "143962358",
+          "name": "Alvin Chan"
+        },
+        {
+          "authorId": "2118768820",
+          "name": "Nancy Chen"
+        },
+        {
+          "authorId": "1755919",
+          "name": "A. Luu"
+        },
+        {
+          "authorId": "1972076",
+          "name": "C. Pal"
+        }
+      ],
+      "abstract": "Understanding human preferences, along with cultural and social nuances, lives at the heart of natural language understanding. Concretely, we present a new task and corpus for learning alignments between machine and human preferences. Our newly introduced problem is concerned with predicting the preferable options from two sentences describing scenarios that may involve social and cultural situations. Our problem is framed as a natural language inference task with crowd-sourced preference votes by human players, obtained from a gamified voting platform. We benchmark several state-of-the-art neural models, along with BERT and friends on this task. Our experimental results show that current state-of-the-art NLP models still leave much room for improvement."
+    },
+    {
+      "paperId": "2007b02fcb849d85f1b999e2c5ddec7c468abed1",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2507-16809",
+        "ArXiv": "2507.16809",
+        "DOI": "10.48550/arXiv.2507.16809",
+        "CorpusId": 280017603
+      },
+      "title": "LingBench++: A Linguistically-Informed Benchmark and Reasoning Framework for Multi-Step and Cross-Cultural Inference with LLMs",
+      "year": 2025,
+      "citationCount": 5,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2507.16809, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2262219629",
+          "name": "Da-Chen Lian"
+        },
+        {
+          "authorId": "2363512420",
+          "name": "Ri-Sheng Huang"
+        },
+        {
+          "authorId": "2158177946",
+          "name": "Pin-Er Chen"
+        },
+        {
+          "authorId": "2372187687",
+          "name": "Chunki Lim"
+        },
+        {
+          "authorId": "2372143450",
+          "name": "You-Kuan Lin"
+        },
+        {
+          "authorId": "2371991933",
+          "name": "Guan-Yu Tseng"
+        },
+        {
+          "authorId": "2111906350",
+          "name": "Zi Yang"
+        },
+        {
+          "authorId": "2376206674",
+          "name": "Zhen-Yu Lin"
+        },
+        {
+          "authorId": "2376194299",
+          "name": "Pin-Cheng Chen"
+        },
+        {
+          "authorId": "2262219544",
+          "name": "Shu-Kai Hsieh"
+        }
+      ],
+      "abstract": "We propose LingBench++, a linguistically-informed benchmark and reasoning framework designed to evaluate large language models (LLMs) on complex linguistic tasks inspired by the International Linguistics Olympiad (IOL). Unlike prior benchmarks that focus solely on final answer accuracy, LingBench++ provides structured reasoning traces, stepwise evaluation protocols, and rich typological metadata across over 90 low-resource and cross-cultural languages. We further develop a multi-agent architecture integrating grammatical knowledge retrieval, tool-augmented reasoning, and deliberate hypothesis testing. Through systematic comparisons of baseline and our proposed agentic models, we demonstrate that models equipped with external knowledge sources and iterative reasoning outperform single-pass approaches in both accuracy and interpretability. LingBench++ offers a comprehensive foundation for advancing linguistically grounded, culturally informed, and cognitively plausible reasoning in LLMs."
+    },
+    {
+      "paperId": "120083debc652c821f82e7f9f418bc4917cbe220",
+      "externalIds": {
+        "DOI": "10.1109/FIE63693.2025.11328530",
+        "CorpusId": 284720172
+      },
+      "title": "Adoption, Usage, and Perceptions of LLM-Generated Feedback in Computer Science Education: A Cross-Cultural Study of Students and Academics",
+      "year": 2025,
+      "citationCount": 2,
+      "openAccessPdf": {
+        "url": "https://eprints.gla.ac.uk/view/author/74054.html>,",
+        "status": "GREEN",
+        "license": "CCBYSA",
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.1109/FIE63693.2025.11328530?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1109/FIE63693.2025.11328530, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "1419473146",
+          "name": "Eyman A. Alyahyan"
+        },
+        {
+          "authorId": "1968125",
+          "name": "M. B. Ada"
+        },
+        {
+          "authorId": "2386133681",
+          "name": "Jake Lever"
+        }
+      ],
+      "abstract": "This full paper explores the use of Large Language Models (LLMs) for generating assessment feedback in Computer Science (CS) education, comparing adoption patterns and perceptions of students and academics in the UK and Saudi Arabia (KSA). The study investigates (1) differences in LLM use and adoption between students and academics in both countries, and (2) participants' perceptions of LLMgenerated feedback, focusing on benefits, challenges, and areas for improvement. A mixed-methods approach was employed, involving 251 participants. The collected data were analyzed through descriptive statistics and thematic analysis. Findings indicate that students in KSA demonstrate higher usage rates of LLMs, with ChatGPT identified as the most frequently used tool. Although KSA academics show limited use of LLMs, UK academics did not use them for feedback generation. Thematic analysis revealed three key themes: (a) \u201cIt saves effort\u201d, (b) \u201cIt is not as smart and genuine as a human\u201d, and (c) \u201cMaking it more like humans and less like a machine\u201d. The findings emphasize the need for institutional policies to guide the responsible integration of LLM-generated feedback, ensuring alignment with teaching goals and improving feedback quality."
+    },
+    {
+      "paperId": "b377783fb655964795afb80eb6a0136cfa7d2cb4",
+      "externalIds": {
+        "ArXiv": "2508.12411",
+        "DBLP": "journals/corr/abs-2508-12411",
+        "DOI": "10.48550/arXiv.2508.12411",
+        "CorpusId": 280677347
+      },
+      "title": "The Cultural Gene of Large Language Models: A Study on the Impact of Cross-Corpus Training on Model Values and Biases",
+      "year": 2025,
+      "citationCount": 3,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2508.12411, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2376196812",
+          "name": "Emanuel Z. Fenech-Borg"
+        },
+        {
+          "authorId": "2376195549",
+          "name": "Tilen P. Meznaric-Kos"
+        },
+        {
+          "authorId": "2376196549",
+          "name": "Milica D. Lekovic-Bojovic"
+        },
+        {
+          "authorId": "2376196297",
+          "name": "Arni J. Hentze-Djurhuus"
+        }
+      ],
+      "abstract": "Large language models (LLMs) are deployed globally, yet their underlying cultural and ethical assumptions remain underexplored. We propose the notion of a\"cultural gene\"-- a systematic value orientation that LLMs inherit from their training corpora -- and introduce a Cultural Probe Dataset (CPD) of 200 prompts targeting two classic cross-cultural dimensions: Individualism-Collectivism (IDV) and Power Distance (PDI). Using standardized zero-shot prompts, we compare a Western-centric model (GPT-4) and an Eastern-centric model (ERNIE Bot). Human annotation shows significant and consistent divergence across both dimensions. GPT-4 exhibits individualistic and low-power-distance tendencies (IDV score approx 1.21; PDI score approx -1.05), while ERNIE Bot shows collectivistic and higher-power-distance tendencies (IDV approx -0.89; PDI approx 0.76); differences are statistically significant (p<0.001). We further compute a Cultural Alignment Index (CAI) against Hofstede's national scores and find GPT-4 aligns more closely with the USA (e.g., IDV CAI approx 0.91; PDI CAI approx 0.88) whereas ERNIE Bot aligns more closely with China (IDV CAI approx 0.85; PDI CAI approx 0.81). Qualitative analyses of dilemma resolution and authority-related judgments illustrate how these orientations surface in reasoning. Our results support the view that LLMs function as statistical mirrors of their cultural corpora and motivate culturally aware evaluation and deployment to avoid algorithmic cultural hegemony."
+    },
+    {
+      "paperId": "f2a8ad62d936e807e463aa64a73a9f71b6b1bfb6",
+      "externalIds": {
+        "ArXiv": "2408.16482",
+        "DBLP": "journals/corr/abs-2408-16482",
+        "DOI": "10.48550/arXiv.2408.16482",
+        "CorpusId": 272146514
+      },
+      "title": "Self-Alignment: Improving Alignment of Cultural Values in LLMs via In-Context Learning",
+      "year": 2024,
+      "citationCount": 22,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2408.16482, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2067163164",
+          "name": "Rochelle Choenni"
+        },
+        {
+          "authorId": "2262445370",
+          "name": "Ekaterina Shutova"
+        }
+      ],
+      "abstract": "Improving the alignment of Large Language Models (LLMs) with respect to the cultural values that they encode has become an increasingly important topic. In this work, we study whether we can exploit existing knowledge about cultural values at inference time to adjust model responses to cultural value probes. We present a simple and inexpensive method that uses a combination of in-context learning (ICL) and human survey data, and show that we can improve the alignment to cultural values across 5 models that include both English-centric and multilingual LLMs. Importantly, we show that our method could prove useful in test languages other than English and can improve alignment to the cultural values that correspond to a range of culturally diverse countries."
+    },
+    {
+      "paperId": "823ffa225efe7089c1d57722d6991bd68e6ac283",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2603-17915",
+        "ArXiv": "2603.17915",
+        "DOI": "10.48550/arXiv.2603.17915",
+        "CorpusId": 286643314
+      },
+      "title": "IndicSafe: A Benchmark for Evaluating Multilingual LLM Safety in South Asia",
+      "year": 2026,
+      "citationCount": 1,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2603.17915, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2331856691",
+          "name": "Priyaranjan Pattnayak"
+        },
+        {
+          "authorId": "150293711",
+          "name": "Sanchari Chowdhuri"
+        }
+      ],
+      "abstract": "As large language models (LLMs) are deployed in multilingual settings, their safety behavior in culturally diverse, low-resource languages remains poorly understood. We present the first systematic evaluation of LLM safety across 12 Indic languages, spoken by over 1.2 billion people but underrepresented in LLM training data. Using a dataset of 6,000 culturally grounded prompts spanning caste, religion, gender, health, and politics, we assess 10 leading LLMs on translated variants of the prompt. Our analysis reveals significant safety drift: cross-language agreement is just 12.8\\%, and \\texttt{SAFE} rate variance exceeds 17\\% across languages. Some models over-refuse benign prompts in low-resource scripts, overflag politically sensitive topics, while others fail to flag unsafe generations. We quantify these failures using prompt-level entropy, category bias scores, and multilingual consistency indices. Our findings highlight critical safety generalization gaps in multilingual LLMs and show that safety alignment does not transfer evenly across languages. We release \\textsc{IndicSafe}, the first benchmark to enable culturally informed safety evaluation for Indic deployments, and advocate for language-aware alignment strategies grounded in regional harms."
+    },
+    {
+      "paperId": "d664c0a30ea52fdab2d5af2ba7657e8a14b94396",
+      "externalIds": {
+        "DOI": "10.55003/eth.430206",
+        "CorpusId": 289536443
+      },
+      "title": "HalluCVE: A Multi-Signal Benchmark for Hallucination Detection in LLM-Generated in Cyber Threat Intelligence",
+      "year": 2026,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "https://ph01.tci-thaijo.org/index.php/lej/article/download/265948/175942",
+        "status": "GOLD",
+        "license": "CCBYNCND",
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.55003/eth.430206?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.55003/eth.430206, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2444235135",
+          "name": "Thuan Dao-Duy"
+        }
+      ],
+      "abstract": "Large Language Models (LLMs) are increasingly utilized for automated Cyber Threat Intelligence (CTI) tasks, such as vulnerability analysis and security advisory generation. However, LLMs are susceptible to hallucination, which refers to the generation of plausible yet factually incorrect content, posing significant risks in security-critical contexts. Although concerns have increased, there is currently no dedicated benchmark for the systematic evaluation of hallucination in LLM-generated cyber threat intelligence (CTI). This study introduces HalluCVE, a multi-signal benchmark designed to detect hallucinations in LLM-generated Common Vulnerabilities and Exposures (CVE). HalluCVE incorporates four complementary detection components: 1) Natural Language Inference-based entailment scoring, 2) lexical factual alignment, 3) LLM-as-a-Judge self-reflection, and 4) cross-model consensus divergence. Five state-of-the-art LLMs are evaluated on 1000 CVE entries as the dataset, from 2022 to 2026, encompassing both known (pre-training cutoff) and unknown (post-cutoff) vulnerabilities. The results indicate pervasive hallucination across all models, with mean Hallucination Index values ranging from 0.480 to 0.820. Notably, models demonstrate near-universal confabulation, reaching up to 100%, when queried about post-cutoff vulnerabilities, and frequently respond with high confidence instead of appropriate refusal. HalluCVE establishes a rigorous evaluation framework for assessing LLM reliability in security-sensitive CTI applications and provides insights into potential mitigation strategies."
+    },
+    {
+      "paperId": "1c0c6447413e4d4a125987d6ddcb368993cb1c7f",
+      "externalIds": {
+        "DOI": "10.61173/2b7w9g80",
+        "CorpusId": 273729604
+      },
+      "title": "The Impact of Cross-Cultural Management on International Business Performance \u2013 A Case Study of Alibaba and Amazon",
+      "year": 2024,
+      "citationCount": 1,
+      "openAccessPdf": {
+        "url": "https://www.deanfrancispress.com/index.php/fe/article/download/1173/1749",
+        "status": "HYBRID",
+        "license": "other-oa",
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.61173/2b7w9g80?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.61173/2b7w9g80, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "34094851",
+          "name": "Pengli Zuo"
+        }
+      ],
+      "abstract": "This essay examines the impact of cross-cultural management on international business performance, with a focus on Alibaba and Amazon. Through a comparative analysis of their management practices, the study explores how cultural dimensions influence leadership styles, communication methods, and decision-making processes in these global e-commerce giants. Cultural differences can be comprehended through theoretical frameworks, such as Hofstede\u2019s cultural dimensions theory. The essay delves into Alibaba\u2019s organizational practices and growth, highlighting its alignment with Chinese cultural values, and contrasts these with Amazon\u2019s decentralized structure and customer-centric approach driven by Western business norms. The report shows how each company\u2019s cross-cultural tactics contribute to its global success by analysing performance criteria like customer engagement, staff satisfaction, and operational efficiency. The findings reveal that Alibaba\u2019s emphasis on collectivism and long-term relationships fosters strong local partnerships and employee loyalty, while Amazon\u2019s adaptability and innovation are key to its international expansion. The essay concludes with recommendations for other multinational enterprises seeking to navigate the challenges of cross-cultural management effectively. These findings emphasize the importance of cultural knowledge and customized management techniques in improving a company\u2019s performance in various markets."
+    },
+    {
+      "paperId": "4455c368b15b0d6a1cf2caaafdb9c7e66c1b4025",
+      "externalIds": {
+        "DOI": "10.1109/BTFM69084.2026.11484108",
+        "CorpusId": 287735858
+      },
+      "title": "Evaluation of Large Language Model\u2019s Cross-Cultural Non-Verbal Behavior Understanding",
+      "year": 2026,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.1109/BTFM69084.2026.11484108?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1109/BTFM69084.2026.11484108, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2431122068",
+          "name": "Zimeng Li"
+        },
+        {
+          "authorId": "2256568043",
+          "name": "Yuntao Zou"
+        },
+        {
+          "authorId": "2288218982",
+          "name": "Caichun Cen"
+        },
+        {
+          "authorId": "2348742633",
+          "name": "Tong Xiao"
+        },
+        {
+          "authorId": "2431392532",
+          "name": "Pingting Tang"
+        },
+        {
+          "authorId": "2333905980",
+          "name": "Zihan Wang"
+        }
+      ],
+      "abstract": "This study investigates limitations in the cross-cultural non-verbal behavior understanding of large language models (LLM) within embodied virtual agents on Metaverse social platforms. A dedicated high-conflict benchmark, A dedicated high-conflict benchmark, Cross-Cultural Non-Verbal Behavior mini (CC-NVB-mini), comprising 100 rigorously annotated samples, is introduced and made publicly available. Systematic evaluation is conducted on four contemporary models :Gemini 1.5 Flash, Grok-4, ChatGPT-4, DeepSeek-V3, under Zero-Shot, Few-Shot, and Cross-Cultural Prompting (CCP) conditions. In the Zero-Shot setting, the models yield an average score of 5.92, substantially below the human baseline of 7.85. Introduction of the parameter-free, example-free CCP strategy raises the average score to 8.22, exceeding the human reference by 0.37 points, with Grok-4 reaching 8.74. These results indicate that cross-cultural competence is present in latent form within current LLMs, and that performance bottlenecks arise primarily from activation rather than absence of relevant knowledge. The CCP approach offers a lightweight, real-time deployable mechanism for cultural-conflict mitigation in embodied avatars. The work aligns closely with the EI-OAHV 2026 focus on Embodied Intelligence by providing an activation-based engineering solution for cross-cultural non-verbal understanding, supporting safer and more inclusive human-embodied interaction in multicultural virtual-physical environments."
+    },
+    {
+      "paperId": "2fc291718f8f9fbafee7a0b6ed715a9bc018421e",
+      "externalIds": {
+        "DBLP": "conf/emnlp/ZhangGYLZWWL25",
+        "ArXiv": "2511.06268",
+        "DOI": "10.18653/v1/2025.emnlp-main.980",
+        "CorpusId": 282907008
+      },
+      "title": "LLM-Driven Completeness and Consistency Evaluation for Cultural Heritage Data Augmentation in Cross-Modal Retrieval",
+      "year": 2025,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "https://aclanthology.org/2025.emnlp-main.980.pdf",
+        "status": "GOLD",
+        "license": "CCBY",
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2511.06268, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2362124318",
+          "name": "Jian Zhang"
+        },
+        {
+          "authorId": "2364548858",
+          "name": "Junyi Guo"
+        },
+        {
+          "authorId": "2326069805",
+          "name": "Junyi Yuan"
+        },
+        {
+          "authorId": "2362214872",
+          "name": "Huanda Lu"
+        },
+        {
+          "authorId": "2326167312",
+          "name": "Yanlin Zhou"
+        },
+        {
+          "authorId": "2262394408",
+          "name": "Fangyu Wu"
+        },
+        {
+          "authorId": "2274640813",
+          "name": "Qiufeng Wang"
+        },
+        {
+          "authorId": "2362574816",
+          "name": "Dongming Lu"
+        }
+      ],
+      "abstract": "Cross-modal retrieval is essential for interpreting cultural heritage data, but its effectiveness is often limited by incomplete or inconsistent textual descriptions, caused by historical data loss and the high cost of expert annotation. While large language models (LLMs) offer a promising solution by enriching textual descriptions, their outputs frequently suffer from hallucinations or miss visually grounded details. To address these challenges, we propose $C^3$, a data augmentation framework that enhances cross-modal retrieval performance by improving the completeness and consistency of LLM-generated descriptions. $C^3$ introduces a completeness evaluation module to assess semantic coverage using both visual cues and language-model outputs. Furthermore, to mitigate factual inconsistencies, we formulate a Markov Decision Process to supervise Chain-of-Thought reasoning, guiding consistency evaluation through adaptive query control. Experiments on the cultural heritage datasets CulTi and TimeTravel, as well as on general benchmarks MSCOCO and Flickr30K, demonstrate that $C^3$ achieves state-of-the-art performance in both fine-tuned and zero-shot settings."
+    },
+    {
+      "paperId": "2054cfced5cc371ae47369769d9ba4b878c3844e",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2501-01031",
+        "ArXiv": "2501.01031",
+        "DOI": "10.48550/arXiv.2501.01031",
+        "CorpusId": 275212913
+      },
+      "title": "ValuesRAG: Enhancing Cultural Alignment Through Retrieval-Augmented Contextual Learning",
+      "year": 2025,
+      "citationCount": 12,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2501.01031, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2338269948",
+          "name": "Wonduk Seo"
+        },
+        {
+          "authorId": "2340485949",
+          "name": "Zonghao Yuan"
+        },
+        {
+          "authorId": "2338271195",
+          "name": "Yi Bu"
+        }
+      ],
+      "abstract": "Ensuring cultural values alignment in Large Language Models (LLMs) remains a critical challenge, as these models often embed Western-centric biases from their training data, leading to misrepresentations and fairness concerns in cross-cultural applications. Existing approaches, such as role assignment and few-shot learning, struggle to address these limitations effectively due to their reliance on pre-trained knowledge, limited scalability, and inability to capture nuanced cultural values. To address these issues, we propose ValuesRAG, a novel and effective framework that applies Retrieval-Augmented Generation (RAG) with In-Context Learning (ICL) to integrate cultural and demographic knowledge dynamically during text generation. Leveraging the World Values Survey (WVS) dataset, ValuesRAG first generates summaries of values for each individual. We subsequently curate several representative regional datasets to serve as test datasets and retrieve relevant summaries of values based on demographic features, followed by a reranking step to select top-k relevant summaries. We evaluate ValuesRAG using 6 diverse regional datasets and show that it consistently outperforms baselines, both in main experiments and ablation settings. Notably, ValuesRAG achieves the best overall performance over prior methods, demonstrating its effectiveness in fostering culturally aligned and inclusive AI systems. We further conduct two qualitative case studies to illustrate how ValuesRAG retrieves demographically aligned value profiles, enabling more context-sensitive reasoning without relying on static prompts or stereotypes. Our findings underscore the potential of retrieval-based methods to bridge the gap between global LLM capabilities and localized cultural values."
+    },
+    {
+      "paperId": "67668a995937b3852e17177a4bde08330e58e8e7",
+      "externalIds": {
+        "DBLP": "conf/ijcnlp/LeeSKK25",
+        "DOI": "10.18653/v1/2025.ijcnlp-long.44",
+        "CorpusId": 285727902
+      },
+      "title": "Multilingual, Not Multicultural: Uncovering the Cultural Empathy Gap in LLMs through a Comparative Empathetic Dialogue Benchmark",
+      "year": 2025,
+      "citationCount": 2,
+      "openAccessPdf": {
+        "url": "https://doi.org/10.18653/v1/2025.ijcnlp-long.44",
+        "status": "GOLD",
+        "license": "CCBY",
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.18653/v1/2025.ijcnlp-long.44?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.18653/v1/2025.ijcnlp-long.44, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2296232551",
+          "name": "Woojin Lee"
+        },
+        {
+          "authorId": "2351085876",
+          "name": "Yujin Sim"
+        },
+        {
+          "authorId": "2110134563",
+          "name": "Hongjin Kim"
+        },
+        {
+          "authorId": "2276657773",
+          "name": "Harksoo Kim"
+        }
+      ],
+      "abstract": "Large Language Models (LLMs) demonstrate remarkable multilingual capabilities, yet it remains unclear whether they are truly multicultural. Do they merely process different languages, or can they genuinely comprehend the unique cultural contexts embedded within them? This study investigates this critical question by examining whether LLM\u2019s perception of emotion and empathy differs across linguistic and cultural boundaries. To facilitate this, we introduce the Korean Empathetic Dialogues (KoED), a benchmark extending the English-based EmpatheticDialogues (ED) dataset. Moving beyond direct translation, we meticulously reconstructed dialogues specifically selected for their potential for cultural adaptation, aligning them with Korean emotional nuances and incorporating key cultural concepts like \u2018jeong\u2019 and \u2018han\u2019 that lack direct English equivalents. Our cross-cultural evaluation of leading multilingual LLMs reveals a significant \"cultural empathy gap\": models consistently underper-form on KoED compared to ED, struggling especially with uniquely Korean emotional expressions. Notably, the Korean-centric model, EXAONE, exhibits significantly higher cultural appropriateness. This result provides compelling evidence that aligns with the \"data provenance effect\", suggesting that the cultural alignment of pre-training data is a critical factor for genuine empathetic communication. These findings demonstrate that current LLMs have cultural blind spots and underscore the necessity"
+    },
+    {
+      "paperId": "28cca10d11d23fd140a0679a16519af6a429c85f",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2505-19484",
+        "ArXiv": "2505.19484",
+        "DOI": "10.48550/arXiv.2505.19484",
+        "CorpusId": 278904597
+      },
+      "title": "CulFiT: A Fine-grained Cultural-aware LLM Training Paradigm via Multilingual Critique Data Synthesis",
+      "year": 2025,
+      "citationCount": 16,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2505.19484, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2363495965",
+          "name": "Ruixiang Feng"
+        },
+        {
+          "authorId": "2296058239",
+          "name": "Shen Gao"
+        },
+        {
+          "authorId": "46772896",
+          "name": "Xiuying Chen"
+        },
+        {
+          "authorId": "2297264",
+          "name": "Lisi Chen"
+        },
+        {
+          "authorId": "2309008467",
+          "name": "Shuo Shang"
+        }
+      ],
+      "abstract": "Large Language Models (LLMs) have demonstrated remarkable capabilities across various tasks, yet they often exhibit a specific cultural biases, neglecting the values and linguistic diversity of low-resource regions. This cultural bias not only undermines universal equality, but also risks reinforcing stereotypes and perpetuating discrimination. To address this, we propose CulFiT, a novel culturally-aware training paradigm that leverages multilingual data and fine-grained reward modeling to enhance cultural sensitivity and inclusivity. Our approach synthesizes diverse cultural-related questions, constructs critique data in culturally relevant languages, and employs fine-grained rewards to decompose cultural texts into verifiable knowledge units for interpretable evaluation. We also introduce GlobalCultureQA, a multilingual open-ended question-answering dataset designed to evaluate culturally-aware responses in a global context. Extensive experiments on three existing benchmarks and our GlobalCultureQA demonstrate that CulFiT achieves state-of-the-art open-source model performance in cultural alignment and general reasoning."
+    },
+    {
+      "paperId": "f35fc8e2040c6dc52d00b7764635a27f2174c952",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2603-29077",
+        "ArXiv": "2603.29077",
+        "DOI": "10.48550/arXiv.2603.29077",
+        "CorpusId": 286976835
+      },
+      "title": "Dual Perspectives in Emotion Attribution: A Generator-Interpreter Framework for Cross-Cultural Analysis of Emotion in LLMs",
+      "year": 2026,
+      "citationCount": 0,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2603.29077, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2345817971",
+          "name": "A. Turdubaeva"
+        },
+        {
+          "authorId": "2376805484",
+          "name": "Uichin Lee"
+        }
+      ],
+      "abstract": "Large language models (LLMs) are increasingly used in cross-cultural systems to understand and adapt to human emotions, which are shaped by cultural norms of expression and interpretation. However, prior work on emotion attribution has focused mainly on interpretation, overlooking the cultural background of emotion generators. This assumption of universality neglects variation in how emotions are expressed and perceived across nations. To address this gap, we propose a Generator-Interpreter framework that captures dual perspectives of emotion attribution by considering both expression and interpretation. We systematically evaluate six LLMs on an emotion attribution task using data from 15 countries. Our analysis reveals that performance variations depend on the emotion type and cultural context. Generator-interpreter alignment effects are present; the generator's country of origin has a stronger impact on performance. We call for culturally sensitive emotion modeling in LLM-based systems to improve robustness and fairness in emotion understanding across diverse cultural contexts."
+    },
+    {
+      "paperId": "9f30ec1dd3bf8b39505228ab1b73b5e4fcb927dd",
+      "externalIds": {
+        "ArXiv": "2605.29667",
+        "DOI": "10.63317/37ko7p43tuys",
+        "CorpusId": 288742936
+      },
+      "title": "Beyond English and Evasion: A Human-Annotated Multi-Domain Benchmark for High-Stakes LLM Safety Evaluation in Chinese",
+      "year": 2026,
+      "citationCount": 1,
+      "openAccessPdf": {
+        "url": "http://www.lrec-conf.org/proceedings/lrec2026/workshops/resourceful/pdf/2026.resourceful-1.16.pdf",
+        "status": "GOLD",
+        "license": "CCBYNC",
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2605.29667, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2034351",
+          "name": "W. Zaghouani"
+        },
+        {
+          "authorId": "117580188",
+          "name": "K. Aldous"
+        },
+        {
+          "authorId": "2313674659",
+          "name": "Yi Gao"
+        }
+      ],
+      "abstract": "When Large Language Models (LLMs) are deployed in Chinese-language settings, a troubling pattern emerges: safety systems that work well in English break down. These systems struggle to cross linguistic and cultural bound-aries, leaving models exposed to adversarial prompts that exploit Chinese-specific evasion techniques, including Pinyin romanization, character decomposition, internet slang, and hedging tone. To address this gap, we introduce ChiSafe-PAS (Chinese Safety Pilot Annotation Set), a human-annotated benchmark of 1,897 adversarial Chinese prompts spanning four high-stakes domains: self-harm and violence, drug and illicit trade, fraud, and satire. Of these, 1,544 entries carry complete gold-standard annotations: a 3-class response label (REFUSE, SAFE-REDIRECT, RESPOND), a nine-category obfuscation taxonomy, a risk-level rating, and annotator rationale. We describe the dataset design, annotation process, and obfuscation taxonomy in detail. Our primary goal is practical: to give the research community a high-quality, culturally grounded resource for benchmarking LLM safety alignment. In doing so, we engage three broader tensions in the field: the blurring boundary between training and evaluation data, the need for domain coverage grounded in real-world risk, and the limits of scale as a substitute for cultural expertise."
+    },
+    {
+      "paperId": "c8db4df893eddf30b7363d710a5a1dd028583e1a",
+      "externalIds": {
+        "PubMedCentral": "11064105",
+        "DOI": "10.1016/j.ssmmh.2024.100300",
+        "CorpusId": 267620796,
+        "PubMed": "38706931"
+      },
+      "title": "Cross-cultural equivalence of the Kessler Psychological Distress Scale (K10) across four African countries in a multi-national study of adults",
+      "year": 2024,
+      "citationCount": 5,
+      "openAccessPdf": {
+        "url": "https://doi.org/10.1016/j.ssmmh.2024.100300",
+        "status": "GOLD",
+        "license": "CCBYNCND",
+        "disclaimer": "Notice: Paper or abstract available at https://pmc.ncbi.nlm.nih.gov/articles/PMC11064105, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "47849692",
+          "name": "Amantia A. Ametaj"
+        },
+        {
+          "authorId": "4840408",
+          "name": "C. Denckla"
+        },
+        {
+          "authorId": "2071135730",
+          "name": "Annette Stevenson"
+        },
+        {
+          "authorId": "114143022",
+          "name": "Rocky E. Stroud"
+        },
+        {
+          "authorId": "2283824487",
+          "name": "Jasmine Hall"
+        },
+        {
+          "authorId": "5124062",
+          "name": "Linnet Ongeri"
+        },
+        {
+          "authorId": "4195608",
+          "name": "Barkot Milkias"
+        },
+        {
+          "authorId": "2143263461",
+          "name": "Jacob Hoffman"
+        },
+        {
+          "authorId": "1399574979",
+          "name": "M. Naisanga"
+        },
+        {
+          "authorId": "6830750",
+          "name": "Dickens Akena"
+        },
+        {
+          "authorId": "1665466289",
+          "name": "Joseph Kyebuzibwa"
+        },
+        {
+          "authorId": "8696738",
+          "name": "E. Kwobah"
+        },
+        {
+          "authorId": "1841922",
+          "name": "L. Atwoli"
+        },
+        {
+          "authorId": "83322860",
+          "name": "Stella Gichuru"
+        },
+        {
+          "authorId": "6907847",
+          "name": "Solomon Teferra"
+        },
+        {
+          "authorId": "2140707235",
+          "name": "Melkam Alemayehu"
+        },
+        {
+          "authorId": "30079843",
+          "name": "Z. Zingela"
+        },
+        {
+          "authorId": "2256554368",
+          "name": "Dan J. Stein"
+        },
+        {
+          "authorId": "8570901",
+          "name": "A. Pretorius"
+        },
+        {
+          "authorId": "2256549412",
+          "name": "Charles Newton"
+        },
+        {
+          "authorId": "1665466498",
+          "name": "Rehema M. Mwema"
+        },
+        {
+          "authorId": "2256546324",
+          "name": "S. Kariuki"
+        },
+        {
+          "authorId": "144162180",
+          "name": "K. Koenen"
+        },
+        {
+          "authorId": "4458107",
+          "name": "B. Gelaye"
+        }
+      ],
+      "abstract": "The Kessler Psychological Distress Scale (K10) has been widely used to screen psychological distress across many countries. However, its performance has not been extensively studied in Africa. The present study sought to evaluate and compare measurement properties of the K10 across four African countries: Ethiopia, Kenya, Uganda, and South Africa. Our hypothesis is that the measure will show equivalence across all. Data are drawn from a neuropsychiatric genetic study among adult participants (N = 9179) from general medical settings in Ethiopia (n = 1928), Kenya (n = 2556), Uganda (n = 2104), and South Africa (n = 2591). A unidimensional model with correlated errors was tested for equivalence across study countries using confirmatory factor analyses and the alignment optimization method. Results displayed 30 % noninvariance (i.e., variation) for both intercepts and factor loadings across all countries. Monte Carlo simulations showed a correlation of 0.998, a good replication of population values, indicating minimal noninvariance, or variation. Items \u201cso nervous,\u201d \u201clack of energy/effortful tasks,\u201d and \u201ctired\u201d were consistently equivalent for intercepts and factor loadings, respectively. However, items \u201cdepressed\u201d and \u201cso depressed\u201d consistently differed across study countries (R2 = 0) for intercepts and factor loadings for both items. The K10 scale likely functions equivalently across the four countries for most items, except \u201cdepressed\u201d and \u201cso depressed.\u201d Differences in K10 items were more common in Kenya and Ethiopia, suggesting cultural context may influence the interpretation of some items and the potential need for cultural adaptations in these countries."
+    },
+    {
+      "paperId": "b47e57b4d13d70d793e5b718589d3098d891bb05",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2503-10688",
+        "ArXiv": "2503.10688",
+        "DOI": "10.48550/arXiv.2503.10688",
+        "CorpusId": 277043748
+      },
+      "title": "CULEMO: Cultural Lenses on Emotion - Benchmarking LLMs for Cross-Cultural Emotion Understanding",
+      "year": 2025,
+      "citationCount": 18,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2503.10688, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "1484858320",
+          "name": "Tadesse Destaw Belay"
+        },
+        {
+          "authorId": "2350436643",
+          "name": "Ahmed Haj Ahmed"
+        },
+        {
+          "authorId": "2778913",
+          "name": "Alvin Grissom II"
+        },
+        {
+          "authorId": "2487031",
+          "name": "Iqra Ameer"
+        },
+        {
+          "authorId": "144140335",
+          "name": "G. Sidorov"
+        },
+        {
+          "authorId": "2331314389",
+          "name": "O. Kolesnikova"
+        },
+        {
+          "authorId": "2295375069",
+          "name": "Seid Muhie Yimam"
+        }
+      ],
+      "abstract": "NLP research has increasingly focused on subjective tasks such as emotion analysis. However, existing emotion benchmarks suffer from two major shortcomings: (1) they largely rely on keyword-based emotion recognition, overlooking crucial cultural dimensions required for deeper emotion understanding, and (2) many are created by translating English-annotated data into other languages, leading to potentially unreliable evaluation. To address these issues, we introduce Cultural Lenses on Emotion (CuLEmo), the first benchmark designed to evaluate culture-aware emotion prediction across six languages: Amharic, Arabic, English, German, Hindi, and Spanish. CuLEmo comprises 400 crafted questions per language, each requiring nuanced cultural reasoning and understanding. We use this benchmark to evaluate several state-of-the-art LLMs on culture-aware emotion prediction and sentiment analysis tasks. Our findings reveal that (1) emotion conceptualizations vary significantly across languages and cultures, (2) LLMs performance likewise varies by language and cultural context, and (3) prompting in English with explicit country context often outperforms in-language prompts for culture-aware emotion and sentiment understanding. The dataset and evaluation code are publicly available."
+    }
+  ]
+}

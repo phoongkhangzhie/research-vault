@@ -1,0 +1,146 @@
+[project]
+name = "research-vault"
+version = "0.1.0"
+description = "Research Vault — an adoptable, batteries-included AI research-assistant framework"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.12"
+# SR-PKG-TRIM: Tier-1 core — 28 packages: analysis/eval/integrations/harness.
+# Third-party SDKs and plotting libs are NOT shipped — the adopter installs
+# them directly. litellm (core) covers most API targets without a dedicated SDK.
+# The framework/CLI import path stays dep-light: all toolkit imports are guarded
+# (lazy, only at call sites) so `rv` runs clean with --no-deps.
+# See: data/doctrine/compute-run-recipe.md for the dependency posture rationale.
+dependencies = [
+    # -- core-4: primary model seam + Anthropic SDK + tokenizer + ML utilities --
+    "anthropic>=0.25",
+    "litellm>=1.30",
+    "tiktoken>=0.6",
+    "scikit-learn>=1.4",
+    # -- Analysis --
+    "datasets>=2.18",
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "pyarrow>=15.0",
+    "scipy>=1.11",
+    "statsmodels>=0.14",
+    # -- Eval (torch-free only; bert-score + lm-eval require torch → [local]) --
+    "inspect-ai>=0.3",
+    "evaluate>=0.4",
+    "sacrebleu>=2.3",
+    "rouge-score>=0.1",
+    # -- Multilingual --
+    "sentencepiece>=0.1",
+    "sacremoses>=0.0.53",  # package uses 0.0.x versioning; >=0.1 matches nothing
+    "langdetect>=1.0",
+    # -- Integrations (pip-installable) --
+    "wandb>=0.16",
+    "weave>=0.53.1",  # SR-MODEL-SEAM: Plane-A traces (W&B Weave); shipped as core (framework guarantee)
+    "pyzotero>=1.5",
+    "keyring>=24.0",  # secret-store adapter (API-key resolution in check.py + adapters/base.py)
+    # NOTE: asta is a documented external prerequisite, not a pip dep.
+    # It may not be available on PyPI; rv check reports its presence as an
+    # optional integration. Install via project-specific instructions.
+    # -- Utilities / harness --
+    "tenacity>=8.2",
+    "tqdm>=4.65",
+    "orjson>=3.9",
+    "pydantic>=2.5",
+    "jinja2>=3.1",
+    "rich>=13.7",
+    "python-dotenv>=1.0",
+]
+authors = [
+    {name = "The research-vault authors"},
+]
+keywords = [
+    "research",
+    "ai",
+    "llm",
+    "research-assistant",
+    "batteries-included",
+    "cli",
+    "dag",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+
+[project.urls]
+Homepage = "https://github.com/phoongkhangzhie/research-vault"
+Repository = "https://github.com/phoongkhangzhie/research-vault"
+Issues = "https://github.com/phoongkhangzhie/research-vault/issues"
+
+# ---------------------------------------------------------------------------
+# Extras — opt-in capabilities on top of the 28-package core.
+#
+# [local]     — GPU-fragile local inference. NEVER installed by default.
+#   CUDA-pinned wheels break installs on CPU-only machines (incl. CI runners).
+#   Install: pip install research-vault[local]
+#   [local] includes: torch, transformers, accelerate, huggingface_hub, fasttext,
+#     plus bert-score and lm-eval (both require torch transitively).
+#   Sub-extras for serving stacks (vllm or sglang) — docs default to vllm.
+#   Install serving: pip install research-vault[local,serve-vllm]
+#
+# weave is now a CORE dep (SR-MODEL-SEAM: framework observability guarantee).
+# Default backend remains local (zero-infra); set [observability].backend = "weave"
+# + WANDB_API_KEY to enable Plane-A traces. No [observability] extra needed.
+#
+# Third-party SDKs and figure libs are NOT shipped — install directly at your
+# discretion. litellm (core) covers most API targets without a dedicated SDK.
+# ---------------------------------------------------------------------------
+[project.optional-dependencies]
+local = [
+    "torch>=2.2",
+    "transformers>=4.38",
+    "accelerate>=0.27",
+    "huggingface_hub>=0.21",
+    "fasttext>=0.9",
+    "lm-eval>=0.4",     # requires torch transitively
+    "bert-score>=0.3",  # requires torch transitively
+]
+serve-vllm = [
+    "vllm>=0.3",
+]
+serve-sglang = [
+    "sglang>=0.1",
+]
+
+[project.scripts]
+rv = "research_vault.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/research_vault"]
+# SR-PKG: doctrine/, examples/, and templates/ now live inside the wheel at
+# src/research_vault/data/. Hatchling includes all package-directory files by
+# default, but we declare artifacts explicitly so the intent is self-documenting
+# and robust against future exclude-glob additions.
+artifacts = [
+    "src/research_vault/data/**",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-forked>=1.6.0",
+]
+
+[tool.pytest.ini_options]
+# SR-PKG: 'slow' marks the isolated-wheel smoke test (build+install+run).
+# Run with: pytest -m slow  (CI: add a dedicated job in SR-META).
+markers = [
+    "slow: isolated wheel build+install+run smoke tests (may take 30s+)",
+    "live: real-network model-seam acceptance tests (SR-MODEL-SEAM); SKIPPED without API keys; operator runs `pytest -m live`.",
+    "forked: run this test in a forked subprocess (pytest-forked); used on live tests to isolate weave/litellm global state.",
+]

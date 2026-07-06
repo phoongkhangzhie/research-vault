@@ -1,0 +1,338 @@
+{
+  "run_id": "research-loop-q1",
+  "name": "Research loop — Q1 (pre-registration: 2 mains, ablations, conditionals)",
+  "global_cap": 4,
+  "nodes": [
+    {
+      "id": "plan",
+      "type": "agent",
+      "label": "Plan experiments + write pre-registration master + child stubs (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#plan",
+      "produces": {"note": "experiments/q1-plan.md"},
+      "needs": [],
+      "reads": [
+        "doctrine/plan-critic-spec.md#plan-critic spec",
+        "doctrine/roles/researcher.md"
+      ]
+    },
+    {
+      "id": "plan-critic",
+      "type": "agent",
+      "label": "Critique pre-registration plan — independent review (Argus/reviewer)",
+      "role": "reviewer",
+      "spec": "doctrine/plan-critic-spec.md",
+      "needs": [{"from": "plan", "edge": "afterok"}],
+      "reads": [
+        "doctrine/plan-critic-spec.md",
+        "doctrine/roles/reviewer.md"
+      ]
+    },
+    {
+      "id": "human-go-plan",
+      "type": "human-go",
+      "label": "Human approval gate — plan quality, pre-registration filed, covers:-hash frozen",
+      "needs": [{"from": "plan-critic", "edge": "afterok"}]
+    },
+
+    {
+      "id": "q1-main1-harness",
+      "type": "agent",
+      "label": "Write eval harness for Main 1 — q1-main1 (engineer)",
+      "role": "engineer",
+      "spec": "task://demo-research#harness-main1",
+      "needs": [{"from": "human-go-plan", "edge": "afterok"}],
+      "reads": [
+        "doctrine/harness-contract.md",
+        "experiments/"
+      ]
+    },
+    {
+      "id": "q1-main1-harness-review",
+      "type": "agent",
+      "label": "Review harness for Main 1 against harness-contract.md (reviewer)",
+      "role": "reviewer",
+      "spec": "task://demo-research#harness-review-main1",
+      "needs": [{"from": "q1-main1-harness", "edge": "afterok"}],
+      "reads": [
+        "doctrine/harness-contract.md",
+        "experiments/"
+      ]
+    },
+    {
+      "id": "human-go-harness-main1",
+      "type": "human-go",
+      "label": "Human approval gate — Main 1 harness reviewed and accepted. Run: rv plan freeze-harness <run_id> <plan-note> --scope main1 --harness-commit <sha>",
+      "needs": [{"from": "q1-main1-harness-review", "edge": "afterok"}]
+    },
+
+    {
+      "id": "q1-main1-run",
+      "type": "agent",
+      "label": "Run Exp 1 (main 1) — claim A (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#run",
+      "produces": {"note": "experiments/q1-main1.md"},
+      "needs": [
+        {"from": "human-go-harness-main1", "edge": "afterok"},
+        {"from": "plan", "edge": "afterok", "watch": "note:experiments/q1-main1.md+fresh"}
+      ],
+      "reads": ["doctrine/compute-run-recipe.md#how to run here"]
+    },
+    {
+      "id": "q1-main1-score",
+      "type": "agent",
+      "label": "Score Exp 1 main 1 (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#score",
+      "needs": [{"from": "q1-main1-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main1-analyze",
+      "type": "agent",
+      "label": "Analyze Exp 1 main 1 + write findings note (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#analyze",
+      "produces": {"note": "findings/q1-main1.md"},
+      "needs": [{"from": "q1-main1-score", "edge": "afterok"}]
+    },
+
+    {
+      "id": "q1-main1-abl-A-run",
+      "type": "agent",
+      "label": "Run ablation A of main 1 — isolates component X (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#run",
+      "produces": {"note": "experiments/q1-main1-abl-A.md"},
+      "needs": [
+        {"from": "human-go-harness-main1", "edge": "afterok"},
+        {"from": "plan", "edge": "afterok", "watch": "note:experiments/q1-main1-abl-A.md+fresh"}
+      ],
+      "reads": ["doctrine/compute-run-recipe.md#how to run here"]
+    },
+    {
+      "id": "q1-main1-abl-A-score",
+      "type": "agent",
+      "label": "Score ablation A of main 1 (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#score",
+      "needs": [{"from": "q1-main1-abl-A-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main1-abl-A-analyze",
+      "type": "agent",
+      "label": "Analyze ablation A of main 1 + write findings note (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#analyze",
+      "produces": {"note": "findings/q1-main1-abl-A.md"},
+      "needs": [{"from": "q1-main1-abl-A-score", "edge": "afterok"}]
+    },
+
+    {
+      "id": "human-go-conditionals-main1",
+      "type": "human-go",
+      "label": "Human ratification gate — main 1 results + conditional triggers (decision-not-diff)",
+      "needs": [
+        {"from": "q1-main1-analyze", "edge": "afterok"},
+        {"from": "q1-main1-abl-A-analyze", "edge": "afterok"}
+      ]
+    },
+
+    {
+      "id": "q1-main1-cabl-Y-run",
+      "type": "agent",
+      "label": "Run conditional ablation Y of main 1 — fires if main1 acc > 0.80 (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#run",
+      "produces": {"note": "experiments/q1-main1-cabl-Y.md"},
+      "needs": [
+        {"from": "human-go-conditionals-main1", "edge": "afterok"},
+        {
+          "from": "q1-main1-analyze",
+          "edge": "afterok",
+          "watch": "cmd:python -c \"import json; d=json.load(open('notes/experiments/q1-main1.md')); exit(0 if float(d.get('results_summary','0')) > 0.80 else 1)\" 2>/dev/null"
+        }
+      ],
+      "reads": ["doctrine/compute-run-recipe.md#how to run here"]
+    },
+    {
+      "id": "q1-main1-cabl-Y-score",
+      "type": "agent",
+      "label": "Score conditional ablation Y of main 1 (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#score",
+      "needs": [{"from": "q1-main1-cabl-Y-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main1-cabl-Y-analyze",
+      "type": "agent",
+      "label": "Analyze conditional ablation Y of main 1 + write findings note (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#analyze",
+      "produces": {"note": "findings/q1-main1-cabl-Y.md"},
+      "needs": [{"from": "q1-main1-cabl-Y-score", "edge": "afterok"}]
+    },
+
+    {
+      "id": "q1-main2-harness",
+      "type": "agent",
+      "label": "Write eval harness for Main 2 — q1-main2 (engineer)",
+      "role": "engineer",
+      "spec": "task://demo-research#harness-main2",
+      "needs": [{"from": "human-go-plan", "edge": "afterok"}],
+      "reads": [
+        "doctrine/harness-contract.md",
+        "experiments/"
+      ]
+    },
+    {
+      "id": "q1-main2-harness-review",
+      "type": "agent",
+      "label": "Review harness for Main 2 against harness-contract.md (reviewer)",
+      "role": "reviewer",
+      "spec": "task://demo-research#harness-review-main2",
+      "needs": [{"from": "q1-main2-harness", "edge": "afterok"}],
+      "reads": [
+        "doctrine/harness-contract.md",
+        "experiments/"
+      ]
+    },
+    {
+      "id": "human-go-harness-main2",
+      "type": "human-go",
+      "label": "Human approval gate — Main 2 harness reviewed and accepted. Run: rv plan freeze-harness <run_id> <plan-note> --scope main2 --harness-commit <sha>",
+      "needs": [{"from": "q1-main2-harness-review", "edge": "afterok"}]
+    },
+
+    {
+      "id": "q1-main2-run",
+      "type": "agent",
+      "label": "Run Exp 2 (main 2) — claim B (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#run",
+      "produces": {"note": "experiments/q1-main2.md"},
+      "needs": [
+        {"from": "human-go-harness-main2", "edge": "afterok"},
+        {"from": "plan", "edge": "afterok", "watch": "note:experiments/q1-main2.md+fresh"}
+      ],
+      "reads": ["doctrine/compute-run-recipe.md#how to run here"]
+    },
+    {
+      "id": "q1-main2-score",
+      "type": "agent",
+      "label": "Score Exp 2 main 2 (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#score",
+      "needs": [{"from": "q1-main2-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main2-analyze",
+      "type": "agent",
+      "label": "Analyze Exp 2 main 2 + write findings note (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#analyze",
+      "produces": {"note": "findings/q1-main2.md"},
+      "needs": [{"from": "q1-main2-score", "edge": "afterok"}]
+    },
+
+    {
+      "id": "q1-main2-abl-B-run",
+      "type": "agent",
+      "label": "Run ablation B of main 2 — isolates component Z (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#run",
+      "produces": {"note": "experiments/q1-main2-abl-B.md"},
+      "needs": [
+        {"from": "human-go-harness-main2", "edge": "afterok"},
+        {"from": "plan", "edge": "afterok", "watch": "note:experiments/q1-main2-abl-B.md+fresh"}
+      ],
+      "reads": ["doctrine/compute-run-recipe.md#how to run here"]
+    },
+    {
+      "id": "q1-main2-abl-B-score",
+      "type": "agent",
+      "label": "Score ablation B of main 2 (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#score",
+      "needs": [{"from": "q1-main2-abl-B-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main2-abl-B-analyze",
+      "type": "agent",
+      "label": "Analyze ablation B of main 2 + write findings note (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#analyze",
+      "produces": {"note": "findings/q1-main2-abl-B.md"},
+      "needs": [{"from": "q1-main2-abl-B-score", "edge": "afterok"}]
+    },
+
+    {
+      "id": "human-go-conditionals-main2",
+      "type": "human-go",
+      "label": "Human ratification gate — main 2 results + conditional triggers (decision-not-diff)",
+      "needs": [
+        {"from": "q1-main2-analyze", "edge": "afterok"},
+        {"from": "q1-main2-abl-B-analyze", "edge": "afterok"}
+      ]
+    },
+
+    {
+      "id": "q1-main2-cabl-Z-run",
+      "type": "agent",
+      "label": "Run conditional ablation Z of main 2 — fires if main2 f1 > 0.75 (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#run",
+      "produces": {"note": "experiments/q1-main2-cabl-Z.md"},
+      "needs": [
+        {"from": "human-go-conditionals-main2", "edge": "afterok"},
+        {
+          "from": "q1-main2-analyze",
+          "edge": "afterok",
+          "watch": "cmd:python -c \"import json; d=json.load(open('notes/experiments/q1-main2.md')); exit(0 if float(d.get('results_summary','0')) > 0.75 else 1)\" 2>/dev/null"
+        }
+      ],
+      "reads": ["doctrine/compute-run-recipe.md#how to run here"]
+    },
+    {
+      "id": "q1-main2-cabl-Z-score",
+      "type": "agent",
+      "label": "Score conditional ablation Z of main 2 (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#score",
+      "needs": [{"from": "q1-main2-cabl-Z-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main2-cabl-Z-analyze",
+      "type": "agent",
+      "label": "Analyze conditional ablation Z of main 2 + write findings note (Ada/researcher)",
+      "role": "researcher",
+      "spec": "task://demo-research#analyze",
+      "produces": {"note": "findings/q1-main2-cabl-Z.md"},
+      "needs": [{"from": "q1-main2-cabl-Z-score", "edge": "afterok"}]
+    },
+
+    {
+      "id": "human-go-findings",
+      "type": "human-go",
+      "label": "Human review gate — all findings reviewed; covers:-hash re-verified (K-3)",
+      "needs": [
+        {"from": "human-go-conditionals-main1", "edge": "afterok"},
+        {"from": "human-go-conditionals-main2", "edge": "afterok"},
+        {"from": "q1-main1-analyze", "edge": "afterok"},
+        {"from": "q1-main1-abl-A-analyze", "edge": "afterok"},
+        {"from": "q1-main2-analyze", "edge": "afterok"},
+        {"from": "q1-main2-abl-B-analyze", "edge": "afterok"}
+      ]
+    },
+
+    {
+      "id": "methods-update",
+      "type": "agent",
+      "label": "Update methods note if protocol changed (Ada/researcher — soft, non-blocking)",
+      "role": "researcher",
+      "spec": "task://demo-research#methods-update",
+      "produces": {"note": "methods/method-q1.md"},
+      "needs": [{"from": "human-go-findings", "edge": "soft"}]
+    }
+  ]
+}

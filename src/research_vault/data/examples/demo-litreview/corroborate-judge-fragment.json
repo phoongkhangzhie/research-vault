@@ -1,0 +1,93 @@
+{
+  "_comment": "SR-XPB: corroborate → judge → assert DAG fragment. Splice into a lit-review loop after synthesis. Zero new walker/dispatch mechanism — reuses the existing agent node + rv dag brief dispatch.",
+  "_usage": "Add these nodes after your synthesis node. Update spec: pointers to your task file and reads: paths to your project artifacts.",
+  "_framing": [
+    "D4: rank narrows, judge confirms, human reviews — NEVER assert from rank alone.",
+    "The corroborate node produces a candidates JSON (rv research corroborate --emit).",
+    "The judge-corroboration node reads that JSON and assesses each candidate for GENUINE corroboration.",
+    "Rejected candidates are dropped WITH a recorded reason (anti-false-positive).",
+    "The assert node writes a findings note carrying corroborated_by: frontmatter for accepted candidates."
+  ],
+  "nodes": [
+    {
+      "id": "corroborate",
+      "type": "agent",
+      "label": "Cross-project corroboration — rank candidates from declared peer projects",
+      "role": "researcher",
+      "spec": "task://YOUR-TASK-FILE#corroborate",
+      "reads": [
+        "pointers.md",
+        "state/project_edges.json"
+      ],
+      "produces": {
+        "note": "findings/corroboration-candidates.json"
+      },
+      "_spec_guidance": [
+        "Run: rv research corroborate \"<claim>\" --from <your-project> --emit state/corroboration-candidates.json",
+        "If no declared peers: the hub should declare edges first via rv project relate.",
+        "Requires: rv project relate <from> <peer> --kind <why> already run by hub.",
+        "Output: state/corroboration-candidates.json (claim + ranked candidates + provenance)."
+      ],
+      "needs": [{"from": "synthesize", "edge": "afterok"}]
+    },
+    {
+      "id": "judge-corroboration",
+      "type": "agent",
+      "label": "Judge corroboration candidates — accept/reject each with reasoning",
+      "role": "researcher",
+      "spec": "task://YOUR-TASK-FILE#judge-corroboration",
+      "reads": [
+        "state/corroboration-candidates.json",
+        "findings/YOUR-SYNTHESIS-NOTE.md"
+      ],
+      "_spec_guidance": [
+        "Read the candidates JSON from reads:.",
+        "For each candidate: assess whether it GENUINELY corroborates the claim in the context of your findings.",
+        "Criteria: same construct, compatible operationalization, no confound that invalidates the comparison.",
+        "Output: accept (with reason) or reject (with reason) for each candidate.",
+        "Produce a judgment report: findings/corroboration-judgment.md listing accepted + rejected candidates.",
+        "ANTI-PATTERN: do NOT accept every candidate — the ranker narrows, you confirm.",
+        "ANTI-PATTERN: do NOT reject without a recorded reason — surface the rejection rationale."
+      ],
+      "produces": {
+        "note": "findings/corroboration-judgment.md"
+      },
+      "needs": [{"from": "corroborate", "edge": "afterok"}]
+    },
+    {
+      "id": "human-go-corroboration",
+      "type": "human-go",
+      "label": "Human review gate — corroboration judgment quality (crew-cannot-self-approve)",
+      "_framing": "The human reviews the judge's verdict, not each individual edge declaration.",
+      "needs": [{"from": "judge-corroboration", "edge": "afterok"}]
+    },
+    {
+      "id": "assert-corroboration",
+      "type": "agent",
+      "label": "Assert corroboration — write findings note with corroborated_by: frontmatter",
+      "role": "researcher",
+      "spec": "task://YOUR-TASK-FILE#assert-corroboration",
+      "reads": [
+        "findings/corroboration-judgment.md"
+      ],
+      "_spec_guidance": [
+        "Read the judgment report from reads:.",
+        "For each ACCEPTED candidate: write or update the findings note carrying:",
+        "  corroborated_by:",
+        "    - provenance: @<peer-slug>:<note-rel>:<anchor>",
+        "      kind: <edge-kind>",
+        "      reason: <judge-accepted-reason>",
+        "For each REJECTED candidate: record the rejection reason in the findings note as:",
+        "  rejected_corroboration:",
+        "    - provenance: @<peer-slug>:<note-rel>:<anchor>",
+        "      reason: <judge-rejection-reason>",
+        "ANTI-PATTERN: do NOT assert from rank alone — only accepted candidates from the judge.",
+        "OKF type: findings. Validate with note.OKF_TYPES."
+      ],
+      "produces": {
+        "note": "findings/YOUR-CORROBORATED-FINDING.md"
+      },
+      "needs": [{"from": "human-go-corroboration", "edge": "afterok"}]
+    }
+  ]
+}
