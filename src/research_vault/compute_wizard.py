@@ -118,19 +118,19 @@ def _ask_archetype(input_fn: Callable[[str], str], which_fn: Callable[[str], str
     elif which_fn("qsub"):
         default_idx = 2
     options = [
-        ("local", "local — subprocess (zero-infra default)"),
+        ("local", "local — this machine"),
         ("ssh+slurm", "ssh+slurm — sbatch/sacct cluster"),
         ("ssh+pbs", "ssh+pbs — qsub/qstat cluster"),
-        ("ssh", "ssh — plain remote host (e.g. data-transfer node)"),
+        ("ssh", "ssh — plain remote host"),
     ]
-    return _menu(input_fn, "  Archetype — how does this endpoint run work?", options, default_idx)
+    return _menu(input_fn, "  Archetype:", options, default_idx)
 
 
 def _ask_role(input_fn: Callable[[str], str], archetype: str) -> tuple[str, str]:
     """Return (profile_name, when_to_use_template)."""
     options = [
-        ("compute-node", "compute-node — submit jobs (scheduler)"),
-        ("transfer-node", "transfer-node — data staging (DTN, plain ssh)"),
+        ("compute-node", "compute-node — job submission (scheduler)"),
+        ("transfer-node", "transfer-node — data staging (DTN)"),
         ("login", "login — interactive shell"),
         ("custom", "custom — name it yourself"),
     ]
@@ -140,7 +140,7 @@ def _ask_role(input_fn: Callable[[str], str], archetype: str) -> tuple[str, str]
         default_idx = 1
     else:
         default_idx = 3
-    choice = _menu(input_fn, "  Profile role — what is this endpoint for?", options, default_idx)
+    choice = _menu(input_fn, "  Role:", options, default_idx)
     if choice == "custom":
         name = _read(input_fn, "    profile name: ").strip() or "endpoint"
         return name, ""
@@ -149,12 +149,11 @@ def _ask_role(input_fn: Callable[[str], str], archetype: str) -> tuple[str, str]
 
 def _ask_when_to_use(input_fn: Callable[[str], str], template: str) -> str:
     if template:
-        print(f"  Suggested when_to_use:\n    {template}")
         raw = _read(
-            input_fn, "  when_to_use (Enter to accept suggestion, or type your own): "
+            input_fn, f"  role note [{template}] (Enter=keep): "
         ).strip()
         return raw if raw else template
-    raw = _read(input_fn, "  when_to_use (describe this endpoint's role; blank to skip): ").strip()
+    raw = _read(input_fn, "  role note (blank to skip): ").strip()
     return raw
 
 
@@ -165,7 +164,7 @@ def _ask_host(
 ) -> str:
     """Return the chosen host alias, or "" to skip (leave FILL)."""
     if ssh_aliases:
-        print("  Detected ssh aliases (from ~/.ssh/config):")
+        print("  ssh aliases (~/.ssh/config):")
         for i, a in enumerate(ssh_aliases, 1):
             hint_parts: list[str] = []
             if a.hostname:
@@ -173,12 +172,12 @@ def _ask_host(
             if a.user:
                 hint_parts.append(f"user={a.user}")
             hint = f"  ({', '.join(hint_parts)})" if hint_parts else ""
-            wired = "  [already wired]" if a.alias in wired_hosts else ""
+            wired = "  [wired]" if a.alias in wired_hosts else ""
             print(f"    {i}) {a.alias}{hint}{wired}")
         literal_idx = len(ssh_aliases) + 1
         skip_idx = len(ssh_aliases) + 2
-        print(f"    {literal_idx}) type a literal host alias")
-        print(f"    {skip_idx}) skip (leave FILL for now)")
+        print(f"    {literal_idx}) type alias")
+        print(f"    {skip_idx}) skip (leave FILL)")
         raw = _read(input_fn, "  host [number or alias]: ").strip()
         if raw == "":
             return ""
@@ -187,7 +186,7 @@ def _ask_host(
             if 1 <= n <= len(ssh_aliases):
                 return ssh_aliases[n - 1].alias
             if n == literal_idx:
-                return _read(input_fn, "    literal host alias: ").strip()
+                return _read(input_fn, "    alias: ").strip()
             return ""  # skip or out-of-range
         return raw  # typed an alias directly
     print("  No ssh aliases detected in ~/.ssh/config.")
@@ -196,19 +195,18 @@ def _ask_host(
 
 def _ask_submit(input_fn: Callable[[str], str], archetype: str) -> str:
     default = _SUBMIT_DEFAULTS.get(archetype, "")
-    print(f"  Submit pattern (default): {default}")
-    raw = _read(input_fn, "  submit pattern (Enter to accept default, or edit): ").strip()
+    raw = _read(input_fn, f"  submit [{default}] (Enter=default): ").strip()
     return raw if raw else default
 
 
 def _ask_wandb(manifest: dict[str, Any], input_fn: Callable[[str], str], env: dict[str, str]) -> None:
-    print("\n  W&B results (config, NOT secrets — the API key stays in your keyring):")
+    print("\n  W&B (config only — API key stays in keyring):")
     entity_prefill = env.get("WANDB_ENTITY", "")
     project_prefill = env.get("WANDB_PROJECT", "")
     ep = f" [{entity_prefill}]" if entity_prefill else ""
     pp = f" [{project_prefill}]" if project_prefill else ""
-    entity = _read(input_fn, f"  W&B entity (username/team){ep} (blank ok): ").strip() or entity_prefill
-    project = _read(input_fn, f"  W&B project{pp} (blank ok): ").strip() or project_prefill
+    entity = _read(input_fn, f"  entity (username/team){ep}: ").strip() or entity_prefill
+    project = _read(input_fn, f"  project{pp}: ").strip() or project_prefill
     results = manifest.setdefault("results", {})
     wandb = results.setdefault("wandb", {})
     if entity:
@@ -308,7 +306,7 @@ def _remove_endpoint(
 
 def _render_summary(manifest: dict[str, Any], path: Any) -> None:
     print("\n" + ("-" * 60))
-    print("  Assembled compute manifest (NOT yet written):")
+    print("  Manifest (not yet written):")
     backends = manifest.get("backends", {})
     print(f"    active: {', '.join(backends.get('active', [])) or '(none)'}")
     for name, prof in backends.get("profiles", {}).items():
@@ -337,9 +335,9 @@ def _display_only(
     skipped: list[str],
 ) -> None:
     """Non-interactive path: detect + display, NEVER mutate."""
-    print("\n  Compute onboarding (non-interactive: detect + display only — no changes).")
+    print("\n  Non-interactive: detect + display only (no changes).")
     if ssh_aliases:
-        print("  Detected ssh aliases (from ~/.ssh/config):")
+        print("  ssh aliases (~/.ssh/config):")
         for a in ssh_aliases:
             hint = f"  → {a.hostname}" if a.hostname else ""
             print(f"    - {a.alias}{hint}")
@@ -347,8 +345,8 @@ def _display_only(
         print("  No ssh aliases detected in ~/.ssh/config.")
     if skipped:
         print(f"  (skipped unreadable includes: {', '.join(skipped)})")
-    print("  → run `rv compute init --guided` (or `rv onboard`) at a TTY to configure interactively.")
-    print("  → or `rv compute init` for the plain FILL-scaffold, then `rv doctor`.")
+    print("  → `rv compute init --guided` (or `rv onboard`) at a TTY to configure.")
+    print("  → `rv compute init` for the plain FILL-scaffold, then `rv doctor`.")
 
 
 # ---------------------------------------------------------------------------
@@ -406,15 +404,14 @@ def _run_interactive(
     skipped: list[str],
 ) -> None:
     path = _manifest_path(cfg)
-    print("\n  Guided compute declaration — declare WHERE your jobs run.")
-    print("  Nothing is written until you confirm at the end.")
+    print("\n  Declare where jobs run (nothing written until you confirm).")
     if skipped:
-        print(f"  (note: skipped unreadable ssh includes: {', '.join(skipped)})")
+        print(f"  (skipped unreadable ssh includes: {', '.join(skipped)})")
 
     # Re-runnability: report already-configured, offer REMOVE.
     configured = [n for n, p in profiles.items() if _is_profile_configured(p) and n != "local"]
     if configured:
-        print(f"  Already configured (kept as-is unless you unwire): {', '.join(configured)}")
+        print(f"  Configured (kept unless unwired): {', '.join(configured)}")
         if _ask_yes(input_fn, "  Unwire an existing endpoint?", default_no=True):
             _remove_endpoint(input_fn, profiles)
 
@@ -441,6 +438,6 @@ def _run_interactive(
     if _ask_yes(input_fn, f"  Write this manifest to {path}?", default_no=True):
         _save_manifest(cfg, manifest)
         print(f"  [OK] compute manifest written: {path}")
-        print("  Next: run `rv doctor` to discover capabilities per declared backend.")
+        print("  Next: `rv doctor` to probe capabilities per backend.")
     else:
         print("  (declined — nothing written.)")
