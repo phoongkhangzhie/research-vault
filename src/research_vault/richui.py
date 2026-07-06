@@ -798,6 +798,68 @@ def render_bootstrap(result: dict[str, Any], console: Any = None) -> None:
     make_panel(body, title="Result", kind="ok", console=con)
 
 
+def render_init(result: dict[str, Any], console: Any = None) -> None:
+    """Render the ``rv init`` closing block after scaffolding completes.
+
+    Called from ``init.cmd_init_in_dir`` after all scaffold work is done.
+    The ``result`` dict carries at minimum ``target`` (abs path str) and
+    ``target_name`` (the directory name used in the ``cd <name>`` instruction).
+
+    Rich path (TTY + no NO_COLOR + no RV_PLAIN):
+      header rule  +  a steel-bordered init panel (summary + next steps).
+
+    Plain path (NO_COLOR / RV_PLAIN / non-TTY):
+      the exact terse text block (0 ANSI codes) — identical to what the old
+      plain ``print()`` calls produced.
+    """
+    target_name = str(result.get("target_name", "vault"))
+    target = str(result.get("target", ""))
+
+    if not should_render_rich():
+        # Exact plain-text block — the contract for piped output and NO_COLOR.
+        # No rich imports here: this path must work even without rich installed
+        # (e.g. the isolated-wheel smoke test installs with --no-deps).
+        print()
+        print("Research Vault instance initialised.")
+        print()
+        print("The crew is stood up as subagents in .claude/agents/")
+        print("The vault is a git repository — committed as 'initial vault scaffold'.")
+        print()
+        print("Next steps:")
+        print(f"  cd {target_name}            # enter the vault")
+        print("  rv onboard           # guided setup: keys, compute, inline-approval token")
+        print("  rv start             # launch Claude Code as Alfred in the vault")
+        print()
+        print("(cd first — `rv onboard` writes the compute manifest into the vault, so it")
+        print(" runs from inside; a subprocess can't cd your shell for you.)")
+        print("See QUICKSTART.md for a full walkthrough. Add a real project with")
+        print("`rv project add <slug> <path>`. After a package upgrade, run `rv update`.")
+        return
+
+    # Rich imports are deferred to AFTER the plain-path guard so a rich-less
+    # install (--no-deps smoke test) never ImportErrors on the plain path.
+    from rich.markup import escape
+
+    con = console if console is not None else get_console()
+    make_header("rv init", escape(target) if target else "", console=con)
+
+    body = (
+        f"{status_cell('ok', 'Research Vault instance initialised.')}\n\n"
+        f"The crew is stood up as subagents in [bold].claude/agents/[/bold]\n"
+        f"The vault is a git repository — committed as [bold]'initial vault scaffold'[/bold].\n\n"
+        f"[{_STYLE['title']}]Next steps[/]\n"
+        f"  [bold]cd {escape(target_name)}[/bold]            [dim]# enter the vault[/dim]\n"
+        f"  [bold]rv onboard[/bold]           [dim]# guided setup: keys, compute, inline-approval token[/dim]\n"
+        f"  [bold]rv start[/bold]             [dim]# launch Claude Code as Alfred in the vault[/dim]\n\n"
+        f"[dim](cd first — [bold]rv onboard[/bold] writes the compute manifest into the vault, so it\n"
+        f" runs from inside; a subprocess can't cd your shell for you.)[/dim]\n\n"
+        f"[dim]See QUICKSTART.md for a full walkthrough. Add a real project with\n"
+        f"[bold]rv project add <slug> <path>[/bold]. "
+        f"After a package upgrade, run [bold]rv update[/bold].[/dim]"
+    )
+    make_panel(body, title="Research Vault", kind="init", console=con)
+
+
 def render_closing(body: str, title: str = "Done", kind: str = "ok", console: Any = None) -> None:
     """Render a generic closing summary panel (S2 scaffold-summary surfaces).
 
