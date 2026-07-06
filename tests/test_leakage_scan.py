@@ -686,3 +686,48 @@ def test_red_on_canonical_url_plus_bare_handle_same_line(tmp_path):
     assert "@phoongkhangzhie" in content
     write_doc(tmp_path, content)
     assert_red(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# PyPI author allowlist (feat/pypi-prep)
+# These tests verify that the pyproject.toml [project].authors entry passes
+# the leakage scanner while bare identity strings in other contexts still fail.
+# ---------------------------------------------------------------------------
+
+
+def test_green_on_pyproject_author_entry(tmp_path):
+    """Full pyproject.toml author line passes — sanctioned public PyPI metadata."""
+    write_doc(
+        tmp_path,
+        '    {name = "Khang Zhie Phoong", email = "phoongkz@gmail.com"},\n',
+        filename="pyproject.toml",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_phoongkz_in_email_field(tmp_path):
+    """phoongkz@gmail.com in an email context passes — sanctioned author email."""
+    write_doc(
+        tmp_path,
+        'email = "phoongkz@gmail.com"\n',
+        filename="pyproject.toml",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_red_on_khang_bare_still_flagged(tmp_path):
+    """Bare 'Khang' in a sentence (not an author entry) still fails after allowlist."""
+    write_doc(tmp_path, "Khang approved this change.\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_phoong_bare_still_flagged(tmp_path):
+    """Bare 'Phoong' in a sentence still fails after allowlist."""
+    write_doc(tmp_path, "Written by Phoong in 2026.\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_phoongkz_bare_still_flagged(tmp_path):
+    """phoongkz as a bare cluster handle (not @gmail.com) still fails after allowlist."""
+    write_doc(tmp_path, "SSH login: phoongkz@login.cluster.edu\n")
+    assert_red(run_scan(tmp_path))

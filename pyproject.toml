@@ -51,7 +51,7 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 authors = [
-    {name = "The research-vault authors"},
+    {name = "Khang Zhie Phoong", email = "phoongkz@gmail.com"},
 ]
 keywords = [
     "research",
