@@ -147,6 +147,77 @@ def _step_key_feature(
                 print(line)
 
 
+def _step_approval_setup(
+    cfg: Any,
+    *,
+    interactive: bool,
+    input_fn: Callable[[str], str],
+    step_no: int,
+) -> None:
+    """Onboarding step: offer to bind the approver token for inline gate approval.
+
+    Honest framing (operator's explicit call): states what the token does and the
+    tradeoff clearly.  The token is NEVER echoed — ``provision_approver_token_to_keyring``
+    stores it directly in the system keyring and returns only a status message.
+
+    Skips cleanly when:
+      - non-interactive (TTY not available — token setup requires a real TTY)
+      - cfg is None or has no config_file (instance not yet initialised)
+      - token already bound in keyring (idempotent)
+    """
+    from .approval import _is_approver_token_bound, provision_approver_token_to_keyring
+
+    # Non-interactive → skip silently.  The other feature steps print remediation
+    # lines when non-interactive, but this step has no env-var fallback path
+    # (the token must be generated at a real TTY, by definition).
+    if not interactive:
+        return
+
+    # No config file → can't write the fingerprint; skip with a brief note.
+    if cfg is None or getattr(cfg, "config_file", None) is None:
+        print(
+            f"\n[{step_no}] Inline gate approval (approver token)"
+            " — skipped (no config file; run `rv init` first)."
+        )
+        return
+
+    print(f"\n[{step_no}] Inline gate approval — approver token")
+
+    if _is_approver_token_bound():
+        print("    already set up — approver token is bound in keyring (skipping).")
+        return
+
+    # Honest framing: what it does and the tradeoff.
+    print(
+        "    This lets you approve human-go gates inline (no separate terminal).\n"
+        "    It binds an approver token to your system keyring.\n"
+        "\n"
+        "    Note: on a local single-user vault this makes gate approval\n"
+        "    discipline-enforced — Alfred stops at every gate and surfaces it\n"
+        "    for your decision, but with the token present the guarantee is\n"
+        "    'the agent won't self-approve', not 'can't'. For an airtight\n"
+        "    boundary instead, skip this and approve from a separate terminal\n"
+        "    (`rv dag approve <run> <gate>`)."
+    )
+
+    if not _prompt_yes(input_fn, "      Set up the approver token now?", default_no=False):
+        print("      (skipped — run `rv approval setup --keyring` any time)")
+        return
+
+    ok, msg = provision_approver_token_to_keyring(cfg)
+    if ok:
+        print(f"      {msg}")
+        print(
+            "      After this, `rv dag approve <run> <gate>` works in your Claude Code session."
+        )
+    else:
+        print(f"      setup failed: {msg}")
+        print(
+            "      You can still approve from a separate terminal: "
+            "`rv dag approve <run> <gate>`"
+        )
+
+
 def _step_compute(
     feat_status: dict[str, Any],
     feature: Any,
@@ -255,6 +326,9 @@ def cmd_onboard(
                 cfg=cfg, interactive=interactive, input_fn=input_fn,
             )
         step_no += 1
+
+    # Final step: inline gate approval (approver token — interactive-only, idempotent).
+    _step_approval_setup(cfg, interactive=interactive, input_fn=input_fn, step_no=step_no)
 
     # Closing: re-derive locked set (idempotent truth) and summarise.
     post = run_preflight(cfg)

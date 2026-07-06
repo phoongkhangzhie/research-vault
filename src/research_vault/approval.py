@@ -93,6 +93,72 @@ def _update_toml_approval(config_path: Path, data: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Shared setup helpers (used by cmd_setup and the rv onboard step)
+# ---------------------------------------------------------------------------
+
+def _is_approver_token_bound() -> bool:
+    """Return True if the approver token is already stored in the system keyring.
+
+    A fast idempotency probe — the onboard approval step uses this to decide
+    whether to skip.  Does NOT check the config fingerprint (a keyring entry
+    with no fingerprint is an incomplete setup; a fingerprint with no keyring
+    entry means a prior non-keyring setup that still works via env var).
+    Returns False on any error (ImportError, backend failure).
+    """
+    try:
+        import keyring  # type: ignore[import]
+        return keyring.get_password("research-vault", "rv-approver-token") is not None
+    except (ImportError, Exception):
+        return False
+
+
+def provision_approver_token_to_keyring(cfg: Config) -> tuple[bool, str]:
+    """Generate a new approver token, write its fingerprint to config, and store
+    the token in the system keyring.
+
+    This is the shared core of ``cmd_setup --keyring`` and the ``rv onboard``
+    approval step.  The token is NEVER included in the returned message — the
+    caller gets only a status string safe to print.  Does NOT gate on
+    ``stdin.isatty()`` — the caller is responsible for that check.
+
+    Returns ``(ok, message)`` where ``message`` is always safe to print.
+    """
+    token = _secrets_mod.token_urlsafe(32)
+
+    from .dag.approval import compute_fingerprint
+    fingerprint = compute_fingerprint(token)
+
+    config_path = cfg.config_file
+    if config_path is None:
+        return False, "no config file — run `rv init` first"
+
+    # Preserve existing enforce/enforce_sig fields; only update token_fingerprint.
+    existing_approval: dict[str, Any] = dict(cfg._raw.get("approval", {}))
+    existing_approval["token_fingerprint"] = fingerprint
+    try:
+        _update_toml_approval(config_path, existing_approval)
+    except Exception as e:
+        return False, f"could not write config: {e}"
+
+    try:
+        import keyring  # type: ignore[import]
+        keyring.set_password("research-vault", "rv-approver-token", token)
+    except ImportError:
+        return False, (
+            "keyring not installed — run: pip install keyring\n"
+            "  Or store the token manually: rv approval setup (prints for shell export)"
+        )
+    except Exception as e:
+        return False, f"keyring write failed: {e}"
+
+    return True, (
+        f"token stored in keyring "
+        f"(service=research-vault, username=rv-approver-token)\n"
+        f"    fingerprint written to {config_path}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Subverb: setup
 # ---------------------------------------------------------------------------
 
@@ -127,13 +193,40 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
         except Exception:
             _rich = False
 
-    # Generate a cryptographically random token (32 url-safe bytes = 43 chars).
+    if use_keyring:
+        # Delegate to the shared helper — token never touches this scope.
+        ok, msg = provision_approver_token_to_keyring(cfg)
+        if not ok:
+            print(f"rv approval setup: {msg}", file=sys.stderr)
+            return 1
+        # Keyring success → token is NOT shown; safe for a rich closing panel.
+        if _rich:
+            try:
+                render_closing(
+                    f"[bold]Token stored in keyring[/bold] "
+                    "[dim](service=research-vault, username=rv-approver-token)[/dim]\n"
+                    f"Fingerprint written to [dim]{cfg.config_file}[/dim]\n\n"
+                    "The token is in keyring — no env var needed on this machine.\n"
+                    "For CI/scripts, export [bold]RV_APPROVER_TOKEN[/bold] from a secret store.",
+                    title="rv approval setup",
+                )
+                return 0
+            except Exception:
+                pass  # fall through to plain
+        print("Token stored in keyring (service=research-vault, username=rv-approver-token).")
+        print(f"Fingerprint written to {cfg.config_file}")
+        print(
+            "  The token is in keyring — no env var needed on this machine.\n"
+            "  For CI/scripts, export: RV_APPROVER_TOKEN=<token printed below>"
+        )
+        return 0
+
+    # Non-keyring path: generate token, write fingerprint, echo token once.
     token = _secrets_mod.token_urlsafe(32)
 
     from .dag.approval import compute_fingerprint
     fingerprint = compute_fingerprint(token)
 
-    # Write fingerprint to config.
     config_path = cfg.config_file
     if config_path is None:
         print(
@@ -153,51 +246,13 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
         print(f"rv approval setup: could not write config: {e}", file=sys.stderr)
         return 1
 
-    if use_keyring:
-        try:
-            import keyring  # type: ignore[import]
-            keyring.set_password("research-vault", "rv-approver-token", token)
-            # Keyring success → the token is NOT shown; a rich closing panel is
-            # safe here (no secret on screen).
-            if _rich:
-                try:
-                    render_closing(
-                        f"[bold]Token stored in keyring[/bold] "
-                        "[dim](service=research-vault, username=rv-approver-token)[/dim]\n"
-                        f"Fingerprint written to [dim]{config_path}[/dim]\n\n"
-                        "The token is in keyring — no env var needed on this machine.\n"
-                        "For CI/scripts, export [bold]RV_APPROVER_TOKEN[/bold] from a secret store.",
-                        title="rv approval setup",
-                    )
-                    return 0
-                except Exception:
-                    pass  # fall through to plain
-            print("Token stored in keyring (service=research-vault, username=rv-approver-token).")
-            print(f"Fingerprint written to {config_path}")
-            print(
-                "  The token is in keyring — no env var needed on this machine.\n"
-                "  For CI/scripts, export: RV_APPROVER_TOKEN=<token printed below>"
-            )
-        except ImportError:
-            print(
-                "rv approval setup: --keyring requested but keyring is not installed.\n"
-                "  pip install keyring  OR  store the token in RV_APPROVER_TOKEN.",
-                file=sys.stderr,
-            )
-            # Fall through to print the token for env-var use.
-            use_keyring = False
-        except Exception as e:
-            print(f"rv approval setup: keyring write failed: {e}", file=sys.stderr)
-            use_keyring = False
-
-    if not use_keyring:
-        print(f"Fingerprint written to {config_path}")
-        print("\nToken (store securely — shown once):")
-        print(f"  export RV_APPROVER_TOKEN={token}")
-        print(
-            "\nAdd this export to your shell profile or CI secret store.\n"
-            "Do NOT commit the token to version control."
-        )
+    print(f"Fingerprint written to {config_path}")
+    print("\nToken (store securely — shown once):")
+    print(f"  export RV_APPROVER_TOKEN={token}")
+    print(
+        "\nAdd this export to your shell profile or CI secret store.\n"
+        "Do NOT commit the token to version control."
+    )
 
     return 0
 
