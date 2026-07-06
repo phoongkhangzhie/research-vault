@@ -1,7 +1,23 @@
 # Research Vault — Quick Start
 
 Welcome. This is a zero-infra AI research assistant framework.
-Run **`rv onboard`** first for guided setup, then `rv check` to verify.
+
+The canonical getting-started sequence:
+
+```bash
+rv init myvault      # scaffold a new vault
+cd myvault           # enter it
+rv onboard           # guided setup: keys, compute, inline-approval token
+rv start             # launch Claude Code as Alfred in the vault
+```
+
+`cd` must come before `rv onboard` — onboarding writes the compute manifest into
+the vault, so it runs from inside (a subprocess can't cd your shell for you).
+`rv onboard` is idempotent; the runtime alone is enough to start.
+
+After a `pip install --upgrade research-vault`, run **`rv update`** to pull the
+upgraded framework (doctrine, `CLAUDE.md`, the crew hats) into this vault — your
+notes, projects, and local edits are preserved.
 
 ## The one hard requirement
 

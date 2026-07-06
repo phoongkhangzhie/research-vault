@@ -292,14 +292,16 @@ Research Vault runs on **Claude Code**.
 
 ```bash
 pip install research-vault
-rv init my-vault        # scaffold an instance: config, control bus, OKF note
-cd my-vault             #   dirs, doctrine, the crew, and two demo projects
-rv onboard              # guided setup: add the keys that unlock features (idempotent)
-rv check                # preflight: verify prerequisites (GREEN with runtime + no keys)
+rv init myvault      # scaffold a new vault
+cd myvault           # enter it
+rv onboard           # guided setup: keys, compute, inline-approval token
+rv start             # launch Claude Code as Alfred in the vault
 ```
 
-`rv init` offers to run `rv onboard` for you at the end. Onboarding is optional and
-re-runnable — the runtime alone is enough to start.
+`cd` must come before `rv onboard` — onboarding writes the compute manifest into
+the vault, so it runs from inside. (`rv init` can't cd you in; a subprocess can't
+change the parent shell.) Onboarding is optional and re-runnable — the runtime
+alone is enough to start; `rv init` also offers to run it for you at the end.
 
 On **Claude Code**, `rv init` scaffolds a `CLAUDE.md` and the crew under
 `.claude/agents/`, rendered with per-role tool grants and model aliases — so your
@@ -308,13 +310,14 @@ role hats become the subagents he dispatches. The human-only approval boundary
 holds mechanically: the approve-gate keys on an interactive TTY, which dispatched
 crew subagents never have.
 
-`rv init` also ships two runnable demo projects (`demo-research`,
-`demo-litreview`) so the crew can walk a loop end-to-end before you point it at
-real work, and writes a
+`rv init` writes a
 **[`QUICKSTART.md`](src/research_vault/data/templates/QUICKSTART.md)** into the
 vault — the full walkthrough, including compute onboarding and an example session
 with Alfred. A real project is its own git repo; register it with `rv project add`
-(or stand up a fresh one with `rv project new`).
+(or stand up a fresh one with `rv project new`). After a
+`pip install --upgrade research-vault`, run **`rv update`** to pull the upgraded
+framework (doctrine, `CLAUDE.md`, the crew hats) into an existing vault — your
+notes, projects, and edits are preserved.
 
 ---
 

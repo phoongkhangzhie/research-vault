@@ -245,6 +245,18 @@ _BACKENDS: dict[str, AgentsDirBackend | ClaudeCodeBackend] = {
 _VAULT_ROLES = list(DEFAULT_ROSTER) + ["architect"]
 
 
+def compose_cc_file(role: str, doctrine_dir: Path) -> tuple[str, str]:
+    """Compose the full CC subagent file for a role from a doctrine dir.
+
+    Returns ``(relpath, contents)`` — the ``.claude/agents/<role>.md`` relpath
+    and its full rendered content (frontmatter + composed hat body).  Used by
+    ``rv update`` to PREDICT the recomposed hat from the NEW (package) doctrine
+    without writing, so the dry-run plan and idempotency check are exact.
+    """
+    body = _compose_hat(role, doctrine_dir)
+    return ClaudeCodeBackend().render(role, body)[0]
+
+
 # ---------------------------------------------------------------------------
 # Core build logic
 # ---------------------------------------------------------------------------
