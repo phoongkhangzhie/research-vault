@@ -157,10 +157,17 @@ def make_status_table(
     """Build a bordered status Table from a column spec + pre-rendered rows.
 
     ``columns`` is a list of dicts, each: ``name`` (required) + optional
-    ``style`` / ``justify`` / ``no_wrap``.  Row cells are strings that may
+    ``style`` / ``justify`` / ``no_wrap`` / ``overflow`` / ``ratio`` /
+    ``min_width`` / ``max_width`` / ``width``.  Row cells are strings that may
     already carry rich markup (the caller owns per-cell status colouring so the
     factory stays generic).  Generalises ``_tier_matrix_table`` /
     ``_integrations_table``.  Returns the Table; the caller prints it.
+
+    The width knobs (``overflow`` / ``ratio`` / ``min_width``) are the fix for
+    the starve-the-wrapping-column trap: several ``no_wrap`` columns otherwise
+    eat all the width and collapse a flexible column to a single ``…`` (with the
+    row inflating to many blank lines).  Give a prose column ``overflow="fold"``
+    + a ``min_width`` so it wraps whole instead of truncating.
     """
     if Table is None:
         from rich.table import Table as _T
@@ -171,17 +178,23 @@ def make_status_table(
         show_lines=False,
         header_style=_STYLE["header"],
         border_style=_STYLE["border"],
+        # Match the brass panel-title register — non-italic (rich italicises
+        # table titles by default), so every title across the system reads alike.
+        title_style=_STYLE["title"],
         title_justify="left",
         pad_edge=False,
         padding=(0, 1),
     )
     for col in columns:
-        table.add_column(
-            col["name"],
-            style=col.get("style"),
-            justify=col.get("justify", "left"),
-            no_wrap=col.get("no_wrap", False),
-        )
+        kwargs: dict[str, Any] = {
+            "style": col.get("style"),
+            "justify": col.get("justify", "left"),
+            "no_wrap": col.get("no_wrap", False),
+        }
+        for opt in ("overflow", "ratio", "min_width", "max_width", "width"):
+            if col.get(opt) is not None:
+                kwargs[opt] = col[opt]
+        table.add_column(col["name"], **kwargs)
     for row in rows:
         table.add_row(*row)
     return table
@@ -231,8 +244,16 @@ def should_render_rich(stream: Any = None) -> bool:
 
 
 def get_console(**kwargs: Any):
-    """Construct a rich Console. Kept as a seam for tests / future config."""
+    """Construct a rich Console. Kept as a seam for tests / future config.
+
+    ``highlight=False`` by default: rich's ReprHighlighter otherwise auto-tints
+    numbers / paths / UUIDs inside our copy (e.g. the ISO timestamp digits in the
+    ``rv doctor`` header flash cyan+green), which fights the disciplined palette.
+    Our renderers colour intentionally via markup, so the automatic pass is only
+    noise.  A caller can still pass ``highlight=True`` to opt back in.
+    """
     from rich.console import Console
+    kwargs.setdefault("highlight", False)
     return Console(**kwargs)
 
 
