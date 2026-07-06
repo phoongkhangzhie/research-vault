@@ -1,3 +1,36 @@
+## 2026-07-06 (fix/e2e-med-review-protocol-lint: L-2 counter-position structural gate)
+
+### Done
+- Task #33 (E2E-MED): the review loop's L-2 anti-fishing gate (`_protocol.md` must
+  carry a non-empty `counter-position` field) was agent-prose-only — the
+  `review_scope_tips`/`review_critic_tips` spec text instructs it, but nothing in
+  code enforced it. Added `check_protocol_gate()` in `review/__init__.py` (reuses
+  the canonical `note._parse_frontmatter` — no re-rolled parser) and wired it into
+  `rv dag approve <run_id> approve-protocol`: an empty/missing `counter-position`
+  field now REFUSES the approval (nonzero exit, node stays `awaiting-go`, no state
+  mutation), gated on the review loop's fixed node convention
+  (`review-scope`/`approve-protocol`, §5L.3). `--reject` bypasses the gate (explicit
+  abandon/redo path, untouched).
+- 10 new tests in `tests/test_review_protocol_gate.py`: unit-level `check_protocol_gate`
+  (missing file, empty/missing/whitespace-only field, non-empty pass) + real-DAG-path
+  `cmd_approve` wiring (refuse+no-mutation, refuse-on-missing-field, approve-on-non-empty,
+  `--reject` bypass, and a mutation test that neutralizes the check to prove the real
+  gate — not some unrelated block — is what blocks the empty case). RED-before-GREEN
+  confirmed by reverting `dag/verbs.py` and observing the wiring tests fail.
+- `cli.py`'s `review` verb `when_to_use` updated to state the enforcement is now
+  mechanical, not prose-only, plus an anti-pattern line against hand-editing run
+  state to bypass the gate.
+
+### Decisions
+- Gate keyed on the review loop's fixed node-id convention (`review-scope` producing
+  `_protocol.md`, `approve-protocol` node id) rather than a `run_id` string-match —
+  more robust to review scope naming, and self-skips cleanly for any non-review
+  manifest that happens to reuse the `approve-protocol` id without a `review-scope`
+  producer.
+- No new CLI override flag: `--reject` already provides the explicit path to move
+  past a rejected protocol (mirrors the K-3 freeze-hash hook's hard-block convention
+  — no bypass flag, fix the artifact and re-approve).
+
 ## 2026-07-05 (feat/rv-update: framework-refresh verb + demo removal)
 
 ### Done

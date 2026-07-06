@@ -917,6 +917,31 @@ def cmd_approve(args: argparse.Namespace) -> int:
         )
         return 1
 
+    # L-2 anti-fishing structural gate (task #33): the review loop's
+    # ``approve-protocol`` node (§5L.3 convention — see review/_build_phase1_manifest)
+    # may not be approved unless the upstream ``review-scope`` node's
+    # ``_protocol.md`` carries a non-empty ``counter-position`` field.
+    #
+    # This was previously agent-prose-only (review_scope_tips instructs it, but
+    # nothing in code enforced it) — this closes that gap natively in rv so
+    # every adopter gets the enforcement, not just a project-local wrapper.
+    #
+    # Only applies on the approve path — --reject is an explicit escape hatch
+    # to abandon/redo the protocol; it must not be blocked by this gate.
+    if node_id == "approve-protocol" and not reject:
+        review_scope_node = nodes_lookup.get("review-scope")
+        protocol_ref = None
+        if review_scope_node is not None:
+            produces = review_scope_node.get("produces")
+            if isinstance(produces, dict):
+                protocol_ref = produces.get("_protocol.md")
+        if protocol_ref:
+            from ..review import check_protocol_gate
+            ok, msg = check_protocol_gate(Path(protocol_ref))
+            if not ok:
+                print(msg, file=sys.stderr)
+                return 1
+
     # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
     #
     # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]

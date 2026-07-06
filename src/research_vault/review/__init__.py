@@ -69,6 +69,58 @@ def _review_artifact_dir(project: str, scope_id: str, cfg: Config) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# L-2 anti-fishing structural gate (task #33) — counter-position enforcement
+# ---------------------------------------------------------------------------
+
+def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
+    """Structural L-2 anti-fishing check: ``_protocol.md`` must carry a
+    non-empty ``counter-position`` frontmatter field.
+
+    This is the native rv enforcement of the L-2 gate that was previously
+    ``review_scope_tips``/``review_critic_tips`` prose only (agent-instructed,
+    never mechanically checked). Wired into ``rv dag approve`` at the
+    ``approve-protocol`` node (§5L.3) so the gate refuses structurally,
+    not just by prompt convention.
+
+    Uses ``note._parse_frontmatter`` (the canonical parser) — no re-rolled
+    YAML/regex logic (charter §6: reuse over create).
+
+    Args:
+        protocol_path: path to the review's ``_protocol.md`` artifact.
+
+    Returns:
+        (ok, message) — ok is False when the file is missing, or the
+        ``counter-position`` field is absent/empty/whitespace-only.
+
+    sr: SR-LR-1 (task #33)
+    """
+    if not protocol_path.exists():
+        return False, (
+            f"rv dag approve: L-2 gate BLOCKED — _protocol.md not found at "
+            f"{protocol_path}. The review-scope node must produce this file "
+            f"before approve-protocol can pass."
+        )
+
+    text = protocol_path.read_text(encoding="utf-8")
+    fields, _ = _parse_frontmatter(text)
+    counter = fields.get("counter-position", "")
+    if isinstance(counter, list):
+        counter = " ".join(str(item) for item in counter)
+    if not str(counter).strip():
+        return False, (
+            f"rv dag approve: L-2 gate BLOCKED — {protocol_path} has an "
+            f"empty or missing 'counter-position' frontmatter field.\n"
+            f"The anti-fishing gate (§5L.3) requires the protocol to name a "
+            f"falsifying/opposing sub-literature BEFORE search executes.\n"
+            f"Fix: edit {protocol_path.name} to add a non-empty "
+            f"'counter-position: <...>' field, then re-run "
+            f"`rv dag approve <run_id> approve-protocol`."
+        )
+
+    return True, "OK"
+
+
+# ---------------------------------------------------------------------------
 # Coverage report (F16+F17) — deterministic, keyed by citekey
 # ---------------------------------------------------------------------------
 
