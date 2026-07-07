@@ -9,6 +9,11 @@ profile is the hub's to shape.
 > links) — vendor-neutral, agent-readable, git-diffable — universal across all projects. New
 > projects are *born* OKF (the standup scaffold); an adopted vault is *migrated* to it.
 
+> **Where notes sit relative to code/data/results/figures/manuscripts:** see
+> [`doctrine/project-structure.md`](./project-structure.md) — the canonical CS-project
+> folder-structure convention and the notes↔artifacts linkage rules (hashed frontmatter, not
+> prose paths).
+
 ## Baseline — every project
 
 1. **Overview** (`notes/index` or the repo README) — what this is, current status, and
