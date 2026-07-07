@@ -5,9 +5,10 @@ a per-manuscript folder (design §0/§12: NOT an OKF taxonomy — a per-manuscri
 ``manuscripts/<slug>/{_manuscript.md, main.tex, sections/, refs.bib, figures/}``
 folder). ``rv manuscript <project> expand <slug>`` emits the Phase-2 draft
 manifest generically from the registered type's section table. ``rv manuscript
-<project> review <slug>`` will drive the review-revise board once PR-M5 lands
-(raises loudly today — never a silent no-op). ``rv manuscript <project> list``
-enumerates all manuscripts for a project.
+<project> review <slug>`` drives the 2-round x 3-reviewer adversarial
+review-revise board (design §9, PR-M5) — requires RV_JUDGE_MODEL +
+ANTHROPIC_API_KEY, raises loudly rather than silently no-op-ing when absent.
+``rv manuscript <project> list`` enumerates all manuscripts for a project.
 
 This is the ONLY path that creates the type-registered per-manuscript folder +
 Phase-1/2 DAG manifests.
@@ -16,7 +17,7 @@ Anti-pattern: do NOT hand-write a .tex and hand-collect citations from OKF
 piles — run ``rv manuscript new`` so the per-manuscript folder carries the
 type-generic scaffold; the hermetic ``.bib`` (PR-M2), the fidelity gates
 (PR-M3), the equation machinery (PR-M4), and the review-revise board (PR-M5)
-all plug into this same folder as they land.
+all plug into this same folder.
 
 Stdlib only.
 sr: PR-M1
@@ -105,8 +106,9 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     review_p = sub.add_parser(
         "review",
         help=(
-            "PR-M5 stub: the review-revise board (2 rounds x 3 reviewers) is not "
-            "built yet — this raises loudly rather than silently no-op-ing."
+            "Run the 2-round x 3-reviewer adversarial review-revise board "
+            "(design §9). Requires RV_JUDGE_MODEL + ANTHROPIC_API_KEY — raises "
+            "loudly rather than silently no-op-ing when no judge is configured."
         ),
     )
     review_p.add_argument(
@@ -216,7 +218,7 @@ def _run_expand(args: argparse.Namespace) -> int:
 
 
 def _run_review(args: argparse.Namespace) -> int:
-    """PR-M5 stub: raises loudly."""
+    """Run the review-revise board and print an honest summary."""
     from research_vault.config import load_config
     from research_vault.manuscript import cmd_review
 
@@ -227,9 +229,26 @@ def _run_review(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        cmd_review(args.project, args.slug, config=cfg)
+        result = cmd_review(args.project, args.slug, config=cfg)
+        print(f"rv manuscript review: {result['honest_report']}")
+        if result["cleared"]:
+            print(
+                f"rv manuscript review: cleared at round {result['cleared_at']} — "
+                f"the human still makes the final approve-manuscript call."
+            )
+        else:
+            nc = result.get("not_cleared") or {}
+            print("rv manuscript review: NOT CLEARED.", file=sys.stderr)
+            print(f"  {nc.get('persistent_weakness', '')}", file=sys.stderr)
+        if result.get("escalation"):
+            esc = result["escalation"]
+            print(
+                "rv manuscript review: FRAMEWORK ESCALATION (surface-not-auto): "
+                f"{esc.get('note', '')}",
+                file=sys.stderr,
+            )
         return 0
-    except NotImplementedError as e:
+    except RuntimeError as e:
         print(f"rv manuscript review: {e}", file=sys.stderr)
         return 1
     except Exception as e:

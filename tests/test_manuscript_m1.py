@@ -315,14 +315,18 @@ def test_cmd_expand_empty_section_set_raises(cfg):
 
 
 # ---------------------------------------------------------------------------
-# 5. manuscript cmd_review — PR-M5 stub
+# 5. manuscript cmd_review — PR-M5 landed the review-revise board; the loud
+#    judge-not-configured guard (no NotImplementedError anymore) is covered
+#    end-to-end in tests/test_manuscript_review_board.py::TestCmdReviewWiring.
 # ---------------------------------------------------------------------------
 
-def test_cmd_review_raises_not_implemented(cfg):
+def test_cmd_review_raises_loudly_with_no_judge_configured(cfg, monkeypatch):
     from research_vault.manuscript import cmd_new, cmd_review
 
+    monkeypatch.delenv("RV_JUDGE_MODEL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     cmd_new("demo-research", "survey-review-stub", ms_type_key="lit-review", config=cfg)
-    with pytest.raises(NotImplementedError, match="PR-M5"):
+    with pytest.raises(RuntimeError, match="no judge configured"):
         cmd_review("demo-research", "survey-review-stub", config=cfg)
 
 
