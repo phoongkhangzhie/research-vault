@@ -327,6 +327,16 @@ def cmd_new(project: str, note_type: str, title: str, *,
     if note_type == "literature":
         fields["doi"] = ""        # fill in: DOI of the paper (e.g. 10.1234/example)
         fields["arxiv_id"] = ""   # fill in: ArXiv id (e.g. 2005.14165, NOT arXiv:...)
+        # PR-L1 (§7.5): the lit-review ingestion enrichment — three OPTIONAL
+        # fields, populated by the relate-<key> node (review/style.py
+        # per_paper_relate_tips) or filled by hand. Absence is never a
+        # cmd_check violation (doi/arxiv_id precedent — no gate added).
+        fields["key_equations"] = ""  # fill in: D8 mapping-list criticality ledger, e.g.
+                                       #   key_equations:
+                                       #     - label: eq:elbo
+                                       #       critical: true
+        fields["repo"] = ""           # fill in: the paper's code repo URL (empty if none)
+        fields["artifacts"] = ""      # fill in: scalar list of "label: url" pointers
 
     # SR-8: datasets notes carry provenance-specific placeholder fields
     if note_type == "datasets":
@@ -406,6 +416,21 @@ def cmd_new(project: str, note_type: str, title: str, *,
             "<!-- Model, dataset, hyperparameters, cluster config. -->\n\n"
             "## Analysis\n\n"
             "<!-- What do the results mean? -->\n"
+        )
+    elif note_type == "literature":
+        body = (
+            "\n"
+            "<!-- Literature note (relate-<key> Phase-2 output; PR-L1 §7.5) -->\n"
+            "<!-- key_equations: is a criticality ledger keyed by label -- fill by hand as: -->\n"
+            "<!--   key_equations:\\n  - label: eq:elbo\\n    critical: true -->\n"
+            "<!-- repo: the paper's code repo URL (leave empty if none published) -->\n"
+            "<!-- artifacts: scalar list of \"label: url\" pointers (dataset, project page, checkpoint) -->\n"
+            "\n"
+            "## Key equations\n\n"
+            "<!-- One labeled block per pivotal equation this paper's argument turns on. -->\n"
+            "<!-- ### [eq:elbo] Evidence lower bound  *(critical)* -->\n"
+            "<!-- $$ \\log p(x) \\ge \\mathbb{E}_{q}[\\log p(x,z) - \\log q(z)] $$ -->\n"
+            "<!-- Leave this section empty for papers with no pivotal equations. -->\n"
         )
     else:
         body = "\n<!-- Write your note here -->\n"
