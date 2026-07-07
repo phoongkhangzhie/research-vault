@@ -942,6 +942,21 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 print(msg, file=sys.stderr)
                 return 1
 
+    # PR-M6: the lit-review manuscript type's framework-selection Phase-1 gate
+    # (design §5, D5) — mirrors the L-2 gate above. ``approve-framework`` may
+    # not be approved unless the manuscript's ``_manuscript.md`` (sibling to
+    # this Phase-1 manifest, at ``manifest_path.parent``) carries a non-empty
+    # ``spine_shape``+``branches``. Only the lit-review type registers a
+    # Phase-1 with this node id; other types' Phase-1 (if any) never hits this
+    # branch. --reject is the escape hatch, same convention as approve-protocol.
+    if node_id == "approve-framework" and not reject:
+        manuscript_note_path = manifest_path.parent / "_manuscript.md"
+        from ..manuscript.types.lit_review import check_framework_gate
+        ok, msg = check_framework_gate(manuscript_note_path)
+        if not ok:
+            print(msg, file=sys.stderr)
+            return 1
+
     # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
     #
     # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]

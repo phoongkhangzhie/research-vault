@@ -230,14 +230,26 @@ LOOP_CATALOG: list[LoopEntry] = [
     # PR-M1: the type-generic manuscript loop, re-instantiated with a type system.
     # Gate grounded in manuscript/__init__.py _build_phase2_manifest (approve-manuscript,
     # the terminal node emitted for every registered type — see TestCatalogGrounding).
-    # A type's own Phase-1 (e.g. lit-review's future framework-selection sub-loop,
-    # design §5, PR-M6) is type-optional — the PR-M1 stub type has no Phase-1
-    # (phase1_builder=None, pass-through), so only approve-manuscript is grounded here.
+    # A type's own Phase-1 is type-optional (``phase1_builder=None`` = pass-through,
+    # e.g. a future ``experiment-paper``). PR-M6 fills the FIRST-SHIPPED type's real
+    # Phase-1 (lit-review's framework-selection sub-loop, design §5): its
+    # ``approve-framework`` gate is grounded here too, per design §2 ("Catalog: add a
+    # manuscript LoopEntry whose human_go_gates reflect the first-shipped type's
+    # manifest (lit-review: approve-framework, approve-manuscript)").
     LoopEntry(
         key="manuscript",
         entry_verb="rv dag run <project-notes-dir>/manuscripts/<slug>/phase2-dag.json",
         scaffolder="rv manuscript <project> new <slug> --type <type>",
         human_go_gates=[
+            LoopGate(
+                node_id="approve-framework",
+                label=(
+                    "lit-review Phase-1 gate: approve the organizing framework "
+                    "(spine_shape + branches frozen into _manuscript.md — design §5, "
+                    "D5; type-specific, only for types with a framework Phase-1)"
+                ),
+                freeze_action=None,
+            ),
             LoopGate(
                 node_id="approve-manuscript",
                 label=(
@@ -249,7 +261,8 @@ LOOP_CATALOG: list[LoopEntry] = [
             ),
         ],
         topology_summary=(
-            "new --type <type> → (type Phase-1, pass-through in PR-M1) → "
+            "new --type <type> → (type Phase-1: lit-review = scope → "
+            "framework-propose → [HG:approve-framework], design §5) → "
             "expand → section(s) (type-generic, from ManuscriptType.section_set) → "
             "assemble → [HG:approve-manuscript]"
         ),

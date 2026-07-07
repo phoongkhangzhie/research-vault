@@ -301,11 +301,12 @@ class TestCatalogGrounding:
     def test_manuscript_gates_in_scaffolder_output(self, tmp_path):
         """manuscript catalog gates must appear in manuscript/__init__.py scaffolder output.
 
-        PR-M1: the stub `lit-review` ManuscriptType has phase1_builder=None
-        (pass-through — no Phase-1 manifest at all), so only Phase-2 is
-        checked here. Phase-2 gate: approve-manuscript.
+        PR-M6: the `lit-review` ManuscriptType now has a real Phase-1
+        (framework selection, design §5) whose terminal gate is
+        `approve-framework`; Phase-2's terminal gate is `approve-manuscript`
+        (type-generic, every registered type).
         """
-        from research_vault.manuscript import _build_phase2_manifest
+        from research_vault.manuscript import _build_phase1_manifest, _build_phase2_manifest
         from research_vault.manuscript.types import get_type
 
         project_notes_dir = tmp_path / "notes"
@@ -317,17 +318,27 @@ class TestCatalogGrounding:
         ms_type = get_type("lit-review")
         assert ms_type is not None
 
+        p1 = _build_phase1_manifest(
+            "grounding-test", "grounding-ms", ms_type, project_notes_dir, tree_root,
+        )
+        p1_ids = (
+            {n["id"] for n in p1.get("nodes", []) if n.get("type") == "human-go"}
+            if p1 is not None else set()
+        )
+
         p2 = _build_phase2_manifest(
             "grounding-test", "grounding-ms", ms_type, project_notes_dir, tree_root,
         )
         p2_ids = {n["id"] for n in p2.get("nodes", []) if n.get("type") == "human-go"}
 
+        all_real = p1_ids | p2_ids
+
         ms = get_loop("manuscript")
         assert ms is not None
         for gate in ms.human_go_gates:
-            assert gate.node_id in p2_ids, (
+            assert gate.node_id in all_real, (
                 f"Catalog gate {gate.node_id!r} NOT in manuscript scaffolder output. "
-                f"Phase-2 gates: {p2_ids}"
+                f"Phase-1 gates: {p1_ids}, Phase-2 gates: {p2_ids}"
             )
 
 class TestDagTemplatesVerb:
