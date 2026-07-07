@@ -59,6 +59,7 @@ from research_vault.manuscript.style import (
     get_manuscript_style_preamble,
 )
 from research_vault.manuscript.types import ManuscriptType, get_type, all_type_keys
+from research_vault.manuscript import equations as _equations  # PR-M4 seam (§7)
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +202,18 @@ def _build_phase2_manifest(
 
     tips = get_manuscript_section_tips(ms_type, config=config)
     preamble = get_manuscript_style_preamble(config=config)
+
+    # PR-M4 (§7, seam edit — minimal + additive): inject the equation ledger
+    # into the relevant sections' briefs. A type with no equation_sources, or
+    # a corpus with no pivotal equations, is a no-op (empty ledger -> tips
+    # unchanged) — never an error.
+    if ms_type.equation_sources:
+        equation_ledger = _equations.extract_equation_ledger(
+            project_notes_dir, ms_type.equation_sources
+        )
+        tips = _equations.inject_equation_brief(
+            tips, equation_ledger, ms_type.section_set, ms_type.equation_sources
+        )
 
     def _spec(key: str) -> str:
         tip = tips.get(key, f"Write the {key} section.")
