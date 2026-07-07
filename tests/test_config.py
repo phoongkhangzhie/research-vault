@@ -187,3 +187,52 @@ source_dir = "{notes}"
         reset_config_cache()
         cfg = load_config(reload=True)
         assert cfg.project_repo_root("cs-demo") == repo
+
+
+# ---------------------------------------------------------------------------
+# project_devlog — same repo-root-vs-notes-relative bug class as pointers.md/
+# architecture.md (twin fix; DEVLOG.md is also a repo-root doctrine file).
+# ---------------------------------------------------------------------------
+
+class TestProjectDevlog:
+    """DEVLOG.md is a repo-root doctrine file (same convention as pointers.md
+    and architecture.md) — for the CS-project convention (source_dir =
+    <repo>/notes) it must resolve at the repo root (source_dir.parent), not
+    under source_dir itself."""
+
+    def test_cs_convention_devlog_resolves_at_repo_root(self, tmp_path, monkeypatch):
+        repo = tmp_path / "cs-devlog-demo"
+        notes = repo / "notes"
+        notes.mkdir(parents=True)
+        config_file = tmp_path / "research_vault.toml"
+        config_file.write_text(
+            f"""
+instance_root = "{tmp_path}"
+
+[projects.cs-devlog-demo]
+source_dir = "{notes}"
+""",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(config_file))
+        reset_config_cache()
+        cfg = load_config(reload=True)
+        assert cfg.project_devlog("cs-devlog-demo") == repo / "DEVLOG.md"
+
+    def test_flat_legacy_devlog_resolves_under_source_dir(self, tmp_path, monkeypatch):
+        repo = tmp_path / "flat-devlog-demo"
+        repo.mkdir(parents=True)
+        config_file = tmp_path / "research_vault.toml"
+        config_file.write_text(
+            f"""
+instance_root = "{tmp_path}"
+
+[projects.flat-devlog-demo]
+source_dir = "{repo}"
+""",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(config_file))
+        reset_config_cache()
+        cfg = load_config(reload=True)
+        assert cfg.project_devlog("flat-devlog-demo") == repo / "DEVLOG.md"

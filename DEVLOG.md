@@ -88,15 +88,49 @@
 - No version bump in this PR — the manuscript loop + code-conventions work
   are also queued for a 0.2.0 bundle; bumping here risked a conflicting bump.
   Left as a decision for the hub to sequence alongside the other 0.2.0 work.
+- **Fold-in: fixed the twin bug in `Config.project_devlog`** (DEVLOG.md is
+  also a repo-root doctrine file, same convention as pointers.md/architecture.md,
+  same root cause) — `project_devlog` now routes `source_dir` through
+  `resolve_repo_root` before appending `DEVLOG.md`, so `devlog.py`'s and
+  `status.py`'s DEVLOG-tail reads (both call `cfg.project_devlog`, the sole
+  call site) resolve correctly for CS-structured projects. New tests:
+  `TestProjectDevlog` (unit, CS + flat) in `test_config.py`, plus
+  `TestDevlogCsProjectConvention` (end-to-end via `devlog.cmd_init`/
+  `cmd_check`) in `test_devlog.py`. All proved RED against pre-fix
+  `project_devlog` (git-stash-based) before the fix.
+- **Full bug-class sweep** (every `source_dir / "<file>"` pattern across
+  `src/research_vault/`, classified repo-root vs. notes-relative):
+  - `pointers.md`, `architecture.md` (`orient.py`, `status.py`) — repo-root,
+    already fixed (this PR, prior commit).
+  - `DEVLOG.md` (`config.project_devlog`) — repo-root, fixed above.
+  - `_render_pointers_skeleton`'s `{source_dir}/architecture.md` comment
+    (`project.py`) — NOT a bug: only reachable via `cmd_new`, which always
+    creates flat-convention projects (`source_dir == source_path` == repo
+    root); the comment is correct for every project it's ever rendered for.
+  - `status.py`'s `_repo_for` / `git_discipline.py`'s git-repo-path resolution
+    (both use `source_dir` directly as the `git -C` target) — NOT a bug:
+    git auto-discovers the enclosing repo's `.git` dir upward from any
+    subdirectory, so running git commands from `source_dir=<repo>/notes`
+    still operates on the correct (enclosing) repo.
+  - `wt.py`'s `<source_dir>-wt` worktree-home convention — NOT a bug: this is
+    a worktree sibling of the project's OWN repo path, not a repo-root
+    doctrine-file lookup; the convention is deliberately anchored on
+    `source_dir` itself.
+  - `mdstore.py`'s OKF-note resolution (`source_dir / note_path_str`) — NOT a
+    bug: OKF notes (literature/, experiments/, etc.) are genuinely
+    notes-relative, not repo-root artifacts.
+  - `CITATION.cff` / `LICENSE` — no code in `src/research_vault/` reads or
+    writes these files today; not applicable (no bug to fix).
+  - `update.py`'s DEVLOG.md/architecture.md mentions — these refer to the
+    **vault's own** root-level files at `instance_root` (framework/hub level,
+    not a project's `source_dir`), unambiguous in both conventions; not
+    applicable.
 
 ### Decisions
 - **Sequencing note for the hub:** this should land before an adopter
   project's `projects.json` flip to `source_dir=notes/`, else `rv orient`
-  on that project looks broken immediately after the flip.
-- Did **not** fix the analogous bug in `Config.project_devlog` (DEVLOG.md is
-  also doctrine-placed at the repo root, same root cause) — flagging it as a
-  follow-up rather than expanding this PR's diff; same `resolve_repo_root`
-  helper would apply.
+  on that project looks broken immediately after the flip. The same applies
+  now to DEVLOG.md reads.
 
 ### Open / next
 - Held PR — awaiting reviewer + hub go (version-bump sequencing decision).

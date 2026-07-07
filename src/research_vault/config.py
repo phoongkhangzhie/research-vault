@@ -279,10 +279,16 @@ class Config:
         return resolve_repo_root(self.project_notes_dir(slug))
 
     def project_devlog(self, slug: str) -> Path:
-        """Resolve the DEVLOG.md path for a project."""
+        """Resolve the DEVLOG.md path for a project.
+
+        DEVLOG.md is a repo-root doctrine file — same convention as
+        pointers.md/architecture.md (see `resolve_repo_root`). For the
+        CS-project convention (`source_dir = <repo>/notes`) it lives at the
+        repo root (`source_dir.parent`), not under `source_dir` itself.
+        """
         proj = self.project(slug)
         src = Path(proj.get("source_dir", self.notes_root / slug))
-        return src / "DEVLOG.md"
+        return resolve_repo_root(src) / "DEVLOG.md"
 
     def all_project_slugs(self) -> list[str]:
         """Return all registered project slugs."""
