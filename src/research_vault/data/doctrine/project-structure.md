@@ -142,3 +142,11 @@ supplementary `runs:` list. All four cardinalities (1→1, N→1, 1→M, N→M) 
    job is to make moves rare by freezing the roots.
 4. Inter-note links stay OKF bundle-relative (`[text](/findings/slug.md)`, not wikilinks);
    structural edits go through the link-safe note tool (note-conventions #7).
+
+## Cold-switching into a project
+
+`pointers.md` and `architecture.md` at the repo root (above) are the two artifacts a
+cold context-switch needs. `rv orient <slug>` bundles them with the operational `rv
+status` read in one call — see [coordination.md](./coordination.md)'s "`rv orient` —
+the one-shot cold-context-switch primitive" section for the trigger and the blessed
+`pointers.md` MUST-contain skeleton.
