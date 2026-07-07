@@ -70,6 +70,11 @@ def _blind_judge(prompt: str) -> str:
     return _clean_response(overall="STANDS-ALONE", block_count=0)
 
 
+def _dead_judge(prompt: str) -> str:
+    """A judge that raises on every call — simulates a totally-broken wiring."""
+    raise RuntimeError("judge backend unreachable")
+
+
 def _discriminating_judge(prompt: str) -> str:
     import re
     m = re.search(r"────+\s*INPUT.*?────+\s*(.*?)────+\s*HARD CONSTRAINTS", prompt, re.DOTALL)
@@ -137,6 +142,27 @@ class TestBidirectionalCanary:
             judge_fn=_discriminating_judge, judge_model="mock-model",
         )
         assert result.canary_aborted is False
+
+    def test_dead_judge_aborts_and_blocks_fail_closed(self):
+        """A judge that raises on every call must produce a fail-CLOSED result.
+
+        Reproduces the reviewer-flagged defect: canary_a_raw/canary_b_raw both
+        come back as "" (the except-swallow), which fails to parse as
+        STANDS-ALONE / [DANGLING]x2 — so canary_aborted=True and overall
+        defaults to STANDS-ALONE. A direct caller (per D-SV-0) that only
+        checks `.blocks` — never `.canary_aborted` separately — must still
+        see BLOCK, not a silent pass.
+        """
+        from research_vault.gates.coldread import run_cold_read
+        result = run_cold_read(
+            "Some text to check.", judge_fn=_dead_judge, judge_model="mock-model",
+        )
+        assert result.canary_aborted is True
+        assert result.overall == "STANDS-ALONE"  # the deceptive-looking internal state
+        assert result.blocks is True, (
+            "a dead/raising judge must fail CLOSED at the shared .blocks API — "
+            "canary_aborted must gate .blocks, not just be a side-channel flag"
+        )
 
 
 # ===========================================================================

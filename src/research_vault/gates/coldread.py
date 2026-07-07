@@ -486,7 +486,11 @@ class ColdReadResult:
     def blocks(self) -> bool:
         """True iff this result causes a BLOCK.
 
-        Blocks on: DANGLING LLM flag, any Flag-A hit, OR unparseable judge output.
+        Blocks on: DANGLING LLM flag, any Flag-A hit, unparseable judge output,
+        OR an aborted canary. canary_aborted is a fail-closed sentinel: a judge
+        that fails a canary (trigger-happy or blind) cannot certify the paper —
+        a direct caller checking `.blocks` alone (not `canary_aborted`
+        separately) must still see BLOCK, not a silent STANDS-ALONE pass.
         UNPARSEABLE is a fail-closed sentinel: a judge that passes the canaries but
         returns malformed output on the real paper cannot certify it — it blocks.
         """
@@ -494,6 +498,7 @@ class ColdReadResult:
             self.block_count > 0
             or len(self.flag_a_hits) > 0
             or self.overall == "UNPARSEABLE"
+            or self.canary_aborted
         )
 
     @property
