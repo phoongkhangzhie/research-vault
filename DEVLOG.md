@@ -91,16 +91,17 @@
     inline in each): a dataset-link gap is now ALSO a HARD CHECK-1 violation
     (not WARN-only), so fixtures that previously left the chain incomplete now
     either fill it or the assertion is updated to expect exit 1.
-- **The §6 dogfood** — ran `check_provenance_chain` against csb's real
-  `~/cultural-social-sim/notes/experiments/*.md`. Of 10 notes, 7 claim a result
-  (non-empty `scores:`); **all 7 fail CHECK-1** (100% fail-rate — the gate has
-  teeth, not toothless). Per-field breakdown: `repro_seed` sentinel on 7/7,
-  `repro_config_location`/`repro_config_hash` sentinel on 7/7, missing dataset
-  link on 2/7 (`ap-elicitability.md`, `reasoning-ablation.md`), missing
-  `results_commit` on 1/7 (`control-arms.md`). This is csb's Phase-7
-  provenance-fill worklist. Re-ran after the exemption-scope tightening below
-  — same 7/7 fail count and per-field breakdown, unchanged (csb's notes carry
-  the sentinel, not `not-applicable`, on the affected fields).
+- **The §6 dogfood** — ran `check_provenance_chain` against an rv-adopting
+  research project's real experiment notes (a pure read, no mutation). Of 10
+  notes, 7 claim a result (non-empty `scores:`); **all 7 fail CHECK-1** (100%
+  fail-rate — the gate has teeth, not toothless). Per-field breakdown:
+  `repro_seed` sentinel on 7/7, `repro_config_location`/`repro_config_hash`
+  sentinel on 7/7, missing dataset link on 2/7, missing `results_commit` on
+  1/7. This is the adopter project's Phase-7 provenance-fill worklist (see the
+  PR body for the per-note breakdown). Re-ran after the exemption-scope
+  tightening below — same 7/7 fail count and per-field breakdown, unchanged
+  (the affected notes carry the sentinel, not `not-applicable`, on the
+  affected fields).
 
 ### Decisions
 - R1 followed: `repro_seed` promoted to HARD.
@@ -118,7 +119,7 @@
   a (future, deferred) golden-rerun test applies against a claimed result's
   `scores[].hash`, so an exact-hash gate never fails-forever on a legitimately
   nondeterministic pipeline.
-  - Scaffolds to the strict safe default `"exact"` (Khang's R3) — NOT the
+  - Scaffolds to the strict safe default `"exact"` (design residual R3) — NOT the
     `REPRO_SENTINEL` hole the other 22 fields get, since a complete default is
     not a fabrication-risk gap. Kept deliberately OUT of `REPRO_LINT_REQUIRED`
     so the sentinel-lint never flags it.
