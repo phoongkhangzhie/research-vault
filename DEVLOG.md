@@ -52,6 +52,63 @@
 - PR-CC-7 (CI wiring) should add `rv code check` (and `--release` in the
   release job) to CI, per the design's sequencing.
 
+## 2026-07-07 (feat/cc1-provenance-chain: PR-CC-1 flagship provenance-chain gate)
+
+### Done
+- **PR-CC-1 (design §3 CHECK-1, flagship + folded CHECK-2/CHECK-3a)** — new
+  `check_provenance_chain(exp_note_path) -> list[str]` in `note.py`, wired into
+  `cmd_check`'s experiments block right after `check_result_provenance`. HARD
+  (no `[warn]` prefix): when a note's normalized `scores:` is non-empty, ALL of
+  `results_commit`, `repro_seed` (R1: promoted out of the soft sentinel-lint),
+  `repro_config_location` + `repro_config_hash` (hash-verified against the real
+  artifact — CHECK-2 folded in), and a dataset link (`repro_dataset_id` or
+  `repro_dataset_hash`) must be non-sentinel/non-empty. CHECK-3a folded in too:
+  no `scores[]` entry's `location` may be a `.ipynb`.
+  - Per-field `REPRO_NOT_APPLICABLE` exemption — TIGHTENED per reviewer +
+    operator decision after initial review: `results_commit`/`repro_seed`
+    are ALWAYS required once a result is claimed (exemption rejected on
+    these two, same as missing/sentinel); `repro_config_location`/
+    `repro_config_hash` and the dataset link remain exemptible. This closes
+    the escape hatch where a note could dodge the whole chain by marking
+    `results_commit` itself not-applicable, while still letting a genuinely
+    no-config/no-external-dataset analysis declare those fields honestly.
+  - `REPRO_LINT_REQUIRED` updated: `repro_seed` removed (promoted to HARD);
+    the rest (including the Layer-1 config pair, folded again into CHECK-1 as
+    CHECK-2) stay WARN-eligible.
+  - Rides the DAG complete-gate for free per the design's intent, but this
+    required actual wiring: `cmd_complete` previously called only
+    `_check_okf_note_type` (type:dir match) for `produces.note`/`produces.result`
+    — it never invoked `check_result_provenance` or the repro checks. Added
+    `_check_experiments_provenance_chain` in `dag/verbs.py`, called at both
+    complete-time call sites (right after the type check), scoped to
+    experiments-type notes only.
+  - New `tests/test_pr_cc1_provenance_chain.py` (23 tests): all required-field
+    permutations, the `not-applicable` exemption per field, config hash-match/
+    mismatch/missing-artifact, notebook invariant, HARD-never-warn-prefixed,
+    `cmd_check` wiring, and the two `cmd_complete` ride tests (incomplete chain
+    BLOCKS; complete chain passes).
+  - 4 pre-existing tests updated for the new aggregate behavior (documented
+    inline in each): a dataset-link gap is now ALSO a HARD CHECK-1 violation
+    (not WARN-only), so fixtures that previously left the chain incomplete now
+    either fill it or the assertion is updated to expect exit 1.
+- **The §6 dogfood** — ran `check_provenance_chain` against csb's real
+  `~/cultural-social-sim/notes/experiments/*.md`. Of 10 notes, 7 claim a result
+  (non-empty `scores:`); **all 7 fail CHECK-1** (100% fail-rate — the gate has
+  teeth, not toothless). Per-field breakdown: `repro_seed` sentinel on 7/7,
+  `repro_config_location`/`repro_config_hash` sentinel on 7/7, missing dataset
+  link on 2/7 (`ap-elicitability.md`, `reasoning-ablation.md`), missing
+  `results_commit` on 1/7 (`control-arms.md`). This is csb's Phase-7
+  provenance-fill worklist. Re-ran after the exemption-scope tightening below
+  — same 7/7 fail count and per-field breakdown, unchanged (csb's notes carry
+  the sentinel, not `not-applicable`, on the affected fields).
+
+### Decisions
+- R1 followed: `repro_seed` promoted to HARD.
+- Per-field `not-applicable` initially honored uniformly on review draft, then
+  **tightened per reviewer + operator decision**: `results_commit`/
+  `repro_seed` are now ALWAYS required (exemption does not apply); the config
+  pair and dataset link remain exemptible. See PR #166 for the full rationale.
+
 ## 2026-07-07 (feat/cc2-repro-determinism: PR-CC-2 tolerance-taxonomy field)
 
 ### Done

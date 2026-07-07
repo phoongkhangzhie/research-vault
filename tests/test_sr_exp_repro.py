@@ -985,6 +985,10 @@ class TestCmdCheckIntegration:
             "repro_prompt_version": "v1.0",
             "repro_dataset_split": "test",
             "repro_metric": "accuracy",
+            # PR-CC-1 (CHECK-1): no external dataset was linked via wandb_pull's
+            # --dataset flag in this fixture — declare the explicit proxy/no-
+            # external-dataset exemption so the flagship chain gate is satisfied.
+            "repro_dataset_id": "not-applicable",
         })
 
         violations = cmd_check("demo-research", config=cfg)

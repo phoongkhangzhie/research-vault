@@ -519,6 +519,7 @@ class TestCmdCheckExperimentsResults:
     def test_cmd_check_passes_for_valid_results(self, tmp_instance):
         """A valid experiment note with hash-verified results passes cmd_check."""
         from research_vault.note import cmd_check
+        from research_vault.hashing import hash_file
         cfg = load_config(reload=True)
         exp_dir = cfg.project_notes_dir("demo-research") / "experiments"
         exp_dir.mkdir(parents=True, exist_ok=True)
@@ -526,6 +527,12 @@ class TestCmdCheckExperimentsResults:
         data = b'{"accuracy": 0.9}'
         artifact.write_bytes(data)
         good_hash = _sha256(data)
+        # PR-CC-1 (CHECK-1/CHECK-2): the chain gate now also requires
+        # repro_seed + a hash-matched repro_config_location/repro_config_hash
+        # pair — write a real config artifact + its correct hash.
+        config_artifact = exp_dir / "exp-chk.config.json"
+        config_artifact.write_bytes(b'{"lr": 0.001}')
+        config_hash = hash_file(config_artifact)
         (exp_dir / "exp-chk.md").write_text(
             "---\n"
             "type: experiments\n"
@@ -534,6 +541,9 @@ class TestCmdCheckExperimentsResults:
             f"results_hash: {good_hash}\n"
             "results_wandb_run: e/p/run\n"
             "results_commit: abc\n"
+            "repro_seed: '42'\n"
+            f"repro_config_location: {config_artifact}\n"
+            f"repro_config_hash: {config_hash}\n"
             # F24: explicitly opt out of dataset provenance warn (no external dataset)
             "repro_dataset_id: not-applicable\n"
             "repro_dataset_hash: not-applicable\n"
