@@ -74,11 +74,14 @@ convention-frozen:
 
 ### Naming rule
 
-`results/{runs,scores}/<experiment-slug>[__<variant>].<ext>` — `<experiment-slug>` MUST
+`results/{runs,scores}/<experiment-slug>[__<variant>].<ext>` — `<experiment-slug>` SHOULD
 match the `experiments/<slug>.md` note stem, so note↔artifact correspondence is nominal,
 not guessed (`experiments/hfs-landscape.md` ↔ `results/scores/hfs-landscape.csv`). Use
 `__<variant>` (double underscore) for model/condition suffixes
-(`hfs-landscape__haiku`), keeping the slug prefix greppable.
+(`hfs-landscape__haiku`), keeping the slug prefix greppable. When one note anchors
+multiple scores (M>1), correspondence is carried explicitly by the `scores:` list (see
+P2/P4 below) — each entry names its own file, so the M CSVs need not share a prefix and
+may keep topical names.
 
 ### Figures are a separate class
 
@@ -91,8 +94,8 @@ Tracked by default (few, small, the manuscript payload).
 
 - **Tracked:** `results/scores/**`, `figures/**`, all `notes/**`, `manuscripts/**`.
 - **Gitignored:** `results/runs/**`, large `data/**` inputs — their integrity lives in
-  **hashes** (experiment-note `results_hash`, dataset-note `hash`) + optional W&B/artifact
-  push, not in git.
+  **hashes** (experiment-note `scores[].hash`, dataset-note `hash`) + optional
+  W&B/artifact push, not in git.
 
 ## The notes↔artifacts linkage convention
 
@@ -105,10 +108,13 @@ frozen roots are not. Paths are repo-root-relative (`results/scores/hfs-landscap
 resolved from `source_dir`'s parent.
 
 **P2 — The machine-checkable link is a hashed frontmatter field, not a prose path.** An
-experiment note's primary link to its result is `results_location` (path to the computed
-**score** artifact) + `results_hash` (sha256). `check_result_provenance` verifies existence
-+ hash match, and `rv note <p> check` / the DAG complete-gate enforce it. Prose mentions in
-the note body are human-facing secondary; the frontmatter pair is the source of truth.
+experiment note's primary link to its result is the **`scores:` list** — each entry a
+computed **score** artifact's `location` + `hash` (sha256). `check_result_provenance`
+verifies **each** entry's existence + hash match, and `rv note <p> check` / the DAG
+complete-gate enforce every entry. Prose mentions in the note body are human-facing
+secondary; the frontmatter `scores:` list is the source of truth. (Legacy flat
+`results_location`/`results_hash` remain a read-only 1-element shorthand via a
+normalization shim.)
 
 **P3 — Data is linked through a `datasets/` provenance note, never a hand-copied path.** A
 raw input in `data/` (or a remote DOI/URL) gets a `datasets/<slug>.md` note carrying
@@ -118,13 +124,12 @@ shared across projects; `data/` in the repo is just the (optionally gitignored) 
 points at. Lineage is structural, so a `data/` reorg touches one provenance note, not N
 findings.
 
-**P4 — The computed score is the anchor; raw runs and W&B are supplementary.**
-`results_location` points at the `results/scores/<exp>.csv` SSOT table (the thing findings
-cite), **not** at the raw `results/runs/*.jsonl`. This is what lets **many runs collapse
-into one experiment note**: the score CSV is the single hashed anchor; the individual runs
-are linked as a supplementary list (`results_runs:`, a YAML indented list of
-`<entity/project/run_id>` — the aggregate-experiment case, alongside the scalar
-`results_wandb_run` for the single-run case).
+**P4 — The computed score(s) are the anchors; raw runs and W&B are supplementary.** Each
+`scores:` entry points at a `results/scores/<slug>.csv` SSOT table (the thing findings
+cite), **not** at the raw `results/runs/*.jsonl`. This is what lets **any N runs → any M
+scores collapse into one experiment note**: each score CSV is its own hashed anchor (the
+`scores:` list, each entry `location` + `hash`); the individual runs are linked as a
+supplementary `runs:` list. All four cardinalities (1→1, N→1, 1→M, N→M) share one schema.
 
 ### Formal path-stability rules
 
@@ -132,8 +137,8 @@ are linked as a supplementary list (`results_runs:`, a YAML indented list of
    figures/ manuscripts/`.
 2. `results/scores/` (computed) vs `results/runs/` (raw) is frozen; `<slug>` matches the
    note stem.
-3. The frontmatter hash pair is the integrity contract; the path is only the locator. If
-   an artifact must move, the hash still identifies it — the convention's job is to make
-   moves rare by freezing the roots.
+3. Each `scores:` entry's location+hash pair is the integrity contract; the path is only
+   the locator. If an artifact must move, the hash still identifies it — the convention's
+   job is to make moves rare by freezing the roots.
 4. Inter-note links stay OKF bundle-relative (`[text](/findings/slug.md)`, not wikilinks);
    structural edits go through the link-safe note tool (note-conventions #7).

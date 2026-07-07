@@ -468,16 +468,17 @@ _PROJECT_STRUCTURE_DIRS: list[tuple[str, str]] = [
         "# results/runs\n\n"
         "Raw run outputs: `*.jsonl`, logs, checkpoints. GITIGNORED (large) — integrity\n"
         "via hash + optional W&B/artifact push, not git. Referenced from an experiment\n"
-        "note via `results_wandb_run` (single run) or `results_runs` (many-runs list),\n"
-        "never as the primary `results_location` anchor (that's `results/scores/`).\n\n"
+        "note via the supplementary `runs:` list (any N run refs) — never as the\n"
+        "primary anchor (that's the `scores:` list, pointing at `results/scores/`).\n\n"
         "See `doctrine/project-structure.md` (§ Results / runs / scores convention).\n"
     )),
     ("results/scores", (
         "# results/scores\n\n"
         "Computed metrics / tables: `*.csv`, `*.json`. TRACKED — the citeable SSOT.\n"
         "Naming: `<experiment-slug>[__<variant>].<ext>`, matching the\n"
-        "`experiments/<slug>.md` note stem. This is what `results_location` +\n"
-        "`results_hash` anchor to, and what findings cite.\n\n"
+        "`experiments/<slug>.md` note stem. Each score CSV is a hashed anchor in the\n"
+        "note's `scores:` list (`location` + `hash` per entry) — this is what findings\n"
+        "cite, and covers any N runs → any M scores cardinality.\n\n"
         "See `doctrine/project-structure.md` (§ Results / runs / scores convention).\n"
     )),
     ("figures", (
