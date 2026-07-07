@@ -1,3 +1,57 @@
+## 2026-07-07 (feat/code-check: PR-CC-5 `rv code check <project>` verb)
+
+### Done
+- **PR-CC-5** — new thin repo-plane verb `rv code check <project>` (new
+  `src/research_vault/code_check.py`), the second home of D-CC-4's two-plane
+  gate placement. Registered in `cli.py::_VERB_REGISTRY` (`"code"`, SR-CC) +
+  `_HELP_PHASE_MAP` (Infra/git). `dag/catalog.py` was **not** touched — it is
+  a DAG-loop catalog (experiment/lit-review scaffolders + human-go gates), and
+  `rv code check` is a plain repo-tree checker, not a loop scaffolder; wiring
+  it there would misuse that SSOT.
+- Six checks, mirroring `note.py::run`'s hard/warn split exactly (a
+  `_WARN_PREFIXES`-prefixed violation degrades to WARN, never flips exit):
+  - **CHECK-3b** (HARD) — no `*.ipynb` under `code/src/`.
+  - **CHECK-5** (WARN `[env-pin]`) — a lockfile-grade pin (`uv.lock` /
+    `requirements.lock` / a pinned `environment.yml`) at repo root. Scope note:
+    this checks only the repo-tree half; the note-plane half (`repro_env_python`
+    concrete-version check) is out of scope for a repo-plane verb — deferred.
+  - **CHECK-6a** (HARD on dup / WARN `[repo-policy]` on drift) — no
+    content-hash duplicate between `data/` and `results/`; `.gitignore` carries
+    the `results/runs/*` pattern and never ignores `results/scores/`.
+  - **CHECK-7** (WARN `[science-path]`) — every `# science-critical`-marked
+    function/module under `code/src/` has >=1 corresponding test under
+    `code/tests/` (heuristic: symbol/module-stem referenced in test source).
+  - **CHECK-8a** (HARD) — secrets/absolute-personal paths under `code/`.
+    **Composes** `scripts/leakage_scan.sh --secrets-only <code_dir>` (same
+    fail-open-when-script-absent posture as `git_discipline._run_leakage_scan`,
+    surfaced as `[leakage-scan]` WARN rather than silently dropped) for the
+    credential-shaped-string half, plus one new generic regex class
+    (`/Users/…`, `/home/…`) for the absolute-personal-path half — NOT a
+    reimplemented scanner.
+  - **CHECK-8b/c** (WARN `[releasability]` local / HARD with `--release`) —
+    `CITATION.cff` presence + the 4 required top-level keys (stdlib-minimal,
+    no `pyyaml` dep, R2); `LICENSE` presence + a known SPDX signature match
+    (never auto-picks a license — charter §1).
+- New `tests/test_code_check.py` (22 tests): fresh-scaffold green, each
+  planted failure (`.ipynb`, absolute path, duplicate CSV) trips the *right*
+  check and is HARD, WARN-only scaffold exits 0, `--release` flips exit on
+  both CITATION.cff-missing and the LICENSE placeholder, plus per-check units.
+
+### Decisions
+- `dag/catalog.py` is a DAG-loop catalog, not a general verb registry — the
+  hub's brief named it as a registration target but the actual codebase has
+  no such role for it; `cli.py::_VERB_REGISTRY` is the sole registration point
+  for a plain verb like `rv code`. Declared as an integration-surface
+  deviation in the PR.
+- CHECK-5's note-plane half (`repro_env_python` concrete-version) deliberately
+  NOT read from experiment notes here — keeps this repo-plane verb from
+  reaching into note-plane territory mid-parallel-wave (CC-1/CC-2 own
+  `note.py`); flagged as a residual scope note, not silently dropped.
+
+### Open / next
+- PR-CC-7 (CI wiring) should add `rv code check` (and `--release` in the
+  release job) to CI, per the design's sequencing.
+
 ## 2026-07-07 (feat/cc2-repro-determinism: PR-CC-2 tolerance-taxonomy field)
 
 ### Done
