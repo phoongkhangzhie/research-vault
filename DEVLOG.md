@@ -1,3 +1,52 @@
+## 2026-07-07 (release/0.1.3: version bump to 0.1.3)
+
+### Done
+- Version bump `0.1.2 → 0.1.3` in `pyproject.toml` and
+  `src/research_vault/__init__.py`. `test_cli_version` asserts against the
+  live `__version__` (de-hardcoded in the 0.1.1 bump), so it follows the bump
+  automatically with no test edit needed.
+- Ships the **CS-project folder-structure convention**, gathering three
+  convention PRs merged since 0.1.2:
+  - **#146 — canonical project tree.** Repo-root-is-the-vault layout:
+    `notes/` + `code/` + `data/` + `results/{runs,scores}` + `figures/` +
+    `manuscripts/`. The `results/runs` vs `results/scores` split: `runs/` is
+    raw per-run output (gitignored), `scores/` is the computed, tracked SSOT.
+    Documents the notes↔artifacts linkage principles. New
+    `doctrine/project-structure.md`; `rv project new` scaffolds the tree with
+    the correct gitignore/tracked policy baked in.
+  - **#147 — generalized experiment-results schema.** `runs:` + `scores:`
+    lists replace the old flat single-result shape, handling N-runs → M-scores
+    (e.g. multiple seeds folded into one aggregate metric). Each score is
+    hash-anchored. `check_result_provenance` now verifies **every** score in
+    the list, aggregating violations rather than stopping at the first.
+    `_normalize_results` is a read-shim that folds the legacy flat
+    `results_location`/`results_hash` fields into the new shape — backward
+    compatible; existing demo notes verify unchanged.
+  - **#148 — `rv orient <project>`.** One-shot cold-context-switch tool
+    (Coordination verb group, own `when_to_use` naming the trigger explicitly)
+    bundling the `rv status` read, the full `pointers.md` content, and the
+    `architecture.md` head. Blesses the `pointers.md` MUST-contain skeleton
+    (Identity · POINTERS · Roadmap · Team · Operational-state) scaffolded by
+    `rv project new`, documented in `doctrine/coordination.md`.
+- Verified the publish path is untouched: `.github/workflows/publish.yml`
+  diffs clean against `origin/main` — still tag-triggered
+  (`on: push: tags: v*.*.*`), still PyPI OIDC Trusted Publishing
+  (`environment: pypi`, `permissions: id-token: write`, no stored token).
+- Build-verified: `uv build` → `dist/research_vault-0.1.3-py3-none-any.whl` +
+  `.tar.gz`; `uvx twine check dist/*` → PASSED; fresh-venv install of the
+  wheel → `rv --version` prints `0.1.3`.
+- Full suite green, `rv lint` PASS, `rv help --check` OK, leakage scan clean.
+
+### Decisions
+- Held PR: this release bump does not self-merge or push the tag. The
+  maintainer merges and tags — the tag push is the OIDC publish trigger, an
+  irreversible outward-facing action (charter §5), so it waits for an
+  explicit go.
+
+### Open / next
+- After merge: `git tag v0.1.3 <merge-sha> && git push origin v0.1.3` to
+  trigger the publish workflow.
+
 ## 2026-07-06 (feat/orient-context-switch: `rv orient` — one-shot cold-context-switch)
 
 ### Done
