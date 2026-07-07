@@ -67,6 +67,7 @@ from research_vault.manuscript.style import (
 )
 from research_vault.manuscript.types import ManuscriptType, get_type, all_type_keys
 from research_vault.manuscript import equations as _equations  # PR-M4 seam (§7)
+from research_vault.manuscript import exemplars as _exemplars  # PR-M7 seam (§8)
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +299,19 @@ def _build_phase2_manifest(
             project, project_notes_dir, tree_root, spine, config=config
         )
         tips = _inject_source_transform_tips(tips, transform)
+
+    # PR-M7 (§8, seam edit — minimal + additive, mirrors the PR-M4 block
+    # above): embed the type's real-excerpt few-shot exemplar bundle into the
+    # matching sections' briefs — VERBATIM, not a prose "write in a synthesis
+    # style" description (design §8: "the real text is in the prompt"). A
+    # type with no `exemplar_bundle`, or a bundle dir that doesn't exist yet,
+    # is a no-op (empty bundle -> tips/preamble unchanged) — never an error.
+    if ms_type.exemplar_bundle:
+        exemplar_blocks = _exemplars.load_exemplar_bundle(ms_type.exemplar_bundle)
+        tips = _exemplars.inject_exemplar_briefs(tips, exemplar_blocks)
+        principle_block = _exemplars.build_principle_anchor_block(exemplar_blocks)
+        if principle_block:
+            preamble = preamble.rstrip() + "\n\n---\n\n" + principle_block
 
     def _spec(key: str) -> str:
         tip = tips.get(key, f"Write the {key} section.")
