@@ -268,3 +268,52 @@ def test_body_ledger_roundtrip_no_equations_absent_field():
     fields, body = note_mod._parse_frontmatter(note_text)
     assert "key_equations" not in fields
     assert _extract_body_equation_labels(body) == []
+
+
+def test_body_ledger_roundtrip_over_marking_guard_three_equations_one_critical():
+    """A paper with 3 display equations, exactly 1 contribution-critical: the
+    round-trip must preserve a MINORITY of critical: true entries. This is the
+    shape the over-marking guard (per_paper_relate_tips' survey-reader test —
+    typically 0-2 critical per paper) is written to prevent an agent from
+    violating; here we just prove the body<->ledger join stays correct when
+    the ledger is disciplined (1 of 3 critical, not 3 of 3)."""
+    note_text = (
+        "---\n"
+        "type: literature\n"
+        "title: A paper with several equations\n"
+        "citekey: multi2024\n"
+        "key_equations:\n"
+        "  - label: eq:main\n"
+        "    critical: true\n"
+        "  - label: eq:aux1\n"
+        "    critical: false\n"
+        "  - label: eq:aux2\n"
+        "    critical: false\n"
+        "---\n"
+        "\n"
+        "## Key equations\n\n"
+        "### [eq:main] The paper's central contribution  *(critical)*\n"
+        "$$ L = \\sum_i f(x_i) $$\n\n"
+        "### [eq:aux1] A supporting derivation step\n"
+        "$$ g(x) = f(x) + 1 $$\n\n"
+        "### [eq:aux2] A normalization constant\n"
+        "$$ Z = \\int g(x)\\,dx $$\n\n"
+        "## Discussion\n\n"
+        "Prose that must not be swept into the equations section.\n"
+    )
+    fields, body = note_mod._parse_frontmatter(note_text)
+
+    ledger = fields["key_equations"]
+    body_labels = _extract_body_equation_labels(body)
+    assert body_labels == ["eq:main", "eq:aux1", "eq:aux2"]
+
+    ledger_labels = {entry["label"] for entry in ledger}
+    assert ledger_labels == set(body_labels)
+
+    critical_labels = {
+        entry["label"] for entry in ledger if entry.get("critical") == "true"
+    }
+    # The over-marking guard's expectation: a MINORITY of equations marked
+    # critical — here exactly 1 of 3, not all 3.
+    assert critical_labels == {"eq:main"}
+    assert len(critical_labels) < len(body_labels)
