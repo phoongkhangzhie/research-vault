@@ -236,9 +236,15 @@ def _extract_review_scores_and_justifications(
     ARR fail-closed rule (methodology doc §B.1, design §11.1's
     justify-each-score requirement): a dim whose bracket has NO trailing
     justification text on its line is NOT trustworthy as a real reviewer
-    judgment -- the caller (``run_reviewer_node``) drops that dim's score
-    back to 0 rather than silently accepting an unjustified number. This
-    mirrors the support-matcher's "can't quote -> ABSENT" discipline.
+    judgment -- the caller (``run_reviewer_node``) flags that dim in
+    ``missing_justifications`` and ``run_meta_review`` SURFACES it (loudly,
+    up to FLOOR-dim lines in ``worst_findings``) rather than silently
+    accepting an unjustified number. This is surface-not-zero: the score
+    value itself is left untouched (floor thresholds are already mechanically
+    backstopped elsewhere, e.g. ``build_approve_payload``); a hard re-gate on
+    a line-anchored justification parser would be brittle. This mirrors the
+    support-matcher's "can't quote -> ABSENT" discipline in spirit (loud
+    distrust of an unjustified claim) but not in mechanism (no zeroing here).
 
     Returns ``(None, {})`` on complete parse failure (no scored-line tokens
     found at all) -- same contract as ``_extract_review_scores``.
@@ -873,6 +879,7 @@ def run_meta_review(
                 "scores_per_reviewer": [],
                 "meta_review": f"SKIPPED -- cleared at round {rb_meta['cleared_at']}",
                 "worst_findings": [],
+                "missing_justifications": [],
                 "escalation": None,
                 "frame_recurrence": prior_frame_recurrence or {"streak_rounds": [], "misfits": [], "candidate_reframes": []},
                 "regression": {"regressed": False, "dims": []},
@@ -931,6 +938,31 @@ def run_meta_review(
             f" REGRESSION vs prior round on: {', '.join(regression_dims)} -- "
             f"keeping the better (prior) draft per the regression guard."
         )
+
+    # --- PR-165 fix 1: propagate per-reviewer missing_justifications (ARR) --
+    # ``run_reviewer_node`` computes ``missing_justifications`` per reviewer
+    # but this function never read it -- surfaced to the machine, silently
+    # dropped before the human (a green-and-empty, charter Sec 2). Aggregate
+    # every reviewer's missing-justification dims into a dedicated field, and
+    # additionally push FLOOR-dim misses (SCOPE/REPRO/CITE by default) into
+    # ``worst_findings`` -- an unjustified FLOOR score deserves a loud line
+    # right next to ``floor_results``. This is surfacing only: floor scores
+    # are already mechanically backstopped by ``build_approve_payload``; a
+    # hard re-gate on a line-anchored justification parser would be brittle
+    # and fail-closed-wrongly (the researcher's fit-check verdict).
+    missing_justification_lines: list[str] = []
+    for r in active_results:
+        r_node_id = r.get("node_id", "?")
+        r_scores = r.get("scores", {})
+        for dim in r.get("missing_justifications", []):
+            line = (
+                f"[Round {round_num}] {dim}={r_scores.get(dim, '?')} from "
+                f"{r_node_id} carries NO justification -- score not "
+                f"corroborated in text (ARR)"
+            )
+            missing_justification_lines.append(line)
+            if dim in _floor_dims and line not in worst_findings:
+                worst_findings.append(line)
 
     # --- Reframe escalation (design §5.1) -- ★ PR-M8 MULTI-ROUND RECURRENCE
     # (tightened from PR-M5's single-round FRAME<floor trigger). A single low
@@ -1019,6 +1051,7 @@ def run_meta_review(
         "scores_per_reviewer": scores_per_reviewer,
         "meta_review": meta_review_text,
         "worst_findings": worst_findings,
+        "missing_justifications": missing_justification_lines,
         "escalation": escalation,
         "frame_recurrence": frame_recurrence,
         "regression": regression,
@@ -1257,11 +1290,13 @@ def run_review_board(
 
         failing_dims: list[str] = []
         worst_finding_strs: list[str] = []
+        missing_justification_strs: list[str] = []
         if last_meta:
             for dim, fr in last_meta.get("floor_results", {}).items():
                 if not fr.get("passed", True):
                     failing_dims.append(f"{dim} (min score {fr['min_score']} < floor {floor_value})")
             worst_finding_strs = last_meta.get("worst_findings", [])
+            missing_justification_strs = last_meta.get("missing_justifications", [])
 
         persistent_weakness = (
             f"Manuscript did not reach the review-board bar after {N_capped} round(s). "
@@ -1275,6 +1310,7 @@ def run_review_board(
             "failing_dims": failing_dims,
             "persistent_weakness": persistent_weakness,
             "worst_findings": worst_finding_strs,
+            "missing_justifications": missing_justification_strs,
         }
 
     if cleared:

@@ -164,6 +164,36 @@ class TestCalibratedCanaryAcceptance:
         with pytest.raises(rb.CanaryAbortError, match="BROKEN-HARSH"):
             rb.run_canary_scaffold(_broken_harsh_judge, rb.DEFAULT_LIT_REVIEW_RUBRIC, floor_value=3)
 
+    def test_annotated_bib_blind_judge_aborts(self):
+        """★ PR-165 regression: the exact failure the annotated-bib canary
+        exists to catch (review_board.py:604-612) -- a judge that is BLIND
+        to enumeration-vs-synthesis and scores the literal
+        annotated-bibliography passage's SYNTH dim >= floor_value (as if the
+        one-paragraph-per-paper passage were a real cross-paper synthesis)
+        must ABORT. Floor dims (SCOPE/REPRO/CITE) score fine on both the
+        STRONG and WEAK probes here -- ONLY the AB-probe's SYNTH is blind --
+        isolating this from the RUBBER-STAMPING / BROKEN-HARSH probes above,
+        which fail on the strong/weak probes instead. This is the #1 survey
+        failure (AI-Scientist's positivity-bias analog) and, until this test,
+        had no dedicated regression coverage among the canary tests."""
+        def _synth_blind_judge(prompt: str) -> str:
+            if "PRISMA search over" in prompt and "Nickerson's ending-conditions hold" in prompt:
+                # Correctly floors the STRONG probe above floor+1.
+                return "[SCOPE:5] x\n[REPRO:5] x\n[CITE:5] x\n[FRAME:5] x\n[SYNTH:5] x\n[COMPARE:5] x\n[GAP:5] x\n[BIAS:5] x\n"
+            if "No search protocol is given" in prompt:
+                # Correctly floors the WEAK probe below floor-1.
+                return "[SCOPE:1] x\n[REPRO:1] x\n[CITE:1] x\n[FRAME:1] x\n[SYNTH:1] x\n[COMPARE:1] x\n[GAP:1] x\n[BIAS:1] x\n"
+            if "retrieved 40 papers via a documented database search" in prompt:
+                # BLIND to enumeration: scores SYNTH at floor_value (3) as if
+                # the annotated-bibliography passage were genuine synthesis --
+                # despite it explicitly stating "no comparison is drawn
+                # between any two papers, no shared axis is used".
+                return "[SCOPE:4] x\n[REPRO:4] x\n[CITE:4] x\n[FRAME:4] x\n[SYNTH:3] x\n[COMPARE:4] x\n[GAP:4] x\n[BIAS:4] x\n"
+            return "[SCOPE:3] x\n[REPRO:3] x\n[CITE:3] x\n[FRAME:3] x\n[SYNTH:3] x\n[COMPARE:3] x\n[GAP:3] x\n[BIAS:3] x\n"
+
+        with pytest.raises(rb.CanaryAbortError, match="BLIND"):
+            rb.run_canary_scaffold(_synth_blind_judge, rb.DEFAULT_LIT_REVIEW_RUBRIC, floor_value=3)
+
 
 # ---------------------------------------------------------------------------
 # ★ Acceptance: every score carries a text justification (ARR discipline)
@@ -213,6 +243,70 @@ class TestJustifyEachScore:
         )
         result = rb.run_reviewer_node("draft", round_num=1, lens_num=1, K=3, judge_fn=justified_judge)
         assert result["missing_justifications"] == []
+
+
+class TestMissingJustificationsPropagateToMetaReview:
+    """★ PR-165 fix 1: ``missing_justifications`` (computed per-reviewer in
+    ``run_reviewer_node``) must reach the human -- not be silently dropped
+    before ``run_meta_review``'s returned payload (a green-and-empty,
+    charter Sec 2). A FLOOR-dim miss (SCOPE/REPRO/CITE) is especially loud:
+    it lands in ``worst_findings`` right next to ``floor_results``."""
+
+    def test_floor_dim_missing_justification_surfaces_in_worst_findings(self):
+        # A bare (unjustified) response on a FLOOR dim (CITE) plus every
+        # other dim justified -- isolates the CITE miss.
+        def _bare_cite_judge(prompt: str) -> str:
+            return (
+                "[SCOPE:4] documented search protocol\n"
+                "[REPRO:4] reproducible from the stated method\n"
+                "[CITE:5]\n"
+                "[FRAME:4] coherent taxonomy\n"
+                "[SYNTH:4] cross-paper comparison present\n"
+                "[COMPARE:4] states which wins and why\n"
+                "[GAP:4] anchored to specific cells\n"
+                "[BIAS:4] disconfirming evidence considered\n"
+            )
+
+        reviewer_result = rb.run_reviewer_node(
+            "draft", round_num=1, lens_num=1, K=1, judge_fn=_bare_cite_judge,
+        )
+        assert reviewer_result["missing_justifications"] == ["CITE"]
+
+        meta = rb.run_meta_review(round_num=1, reviewer_results=[reviewer_result])
+        assert "missing_justifications" in meta
+        assert len(meta["missing_justifications"]) == 1
+        assert "CITE=5" in meta["missing_justifications"][0]
+        assert reviewer_result["node_id"] in meta["missing_justifications"][0]
+        # FLOOR-dim miss escalates into worst_findings, loud next to floor_results.
+        assert any("CITE=5" in wf for wf in meta["worst_findings"])
+
+    def test_non_floor_dim_missing_justification_not_forced_into_worst_findings(self):
+        # A bare (unjustified) response on a non-floor dim (SYNTH, a SIGNAL
+        # dim) is still surfaced in ``missing_justifications`` but is NOT
+        # force-injected into ``worst_findings`` (which is reserved for
+        # floor-gating concerns) unless it happened to fail there anyway.
+        def _bare_synth_judge(prompt: str) -> str:
+            return (
+                "[SCOPE:4] documented search protocol\n"
+                "[REPRO:4] reproducible from the stated method\n"
+                "[CITE:4] every claim traces to a source\n"
+                "[FRAME:4] coherent taxonomy\n"
+                "[SYNTH:5]\n"
+                "[COMPARE:4] states which wins and why\n"
+                "[GAP:4] anchored to specific cells\n"
+                "[BIAS:4] disconfirming evidence considered\n"
+            )
+
+        reviewer_result = rb.run_reviewer_node(
+            "draft", round_num=1, lens_num=1, K=1, judge_fn=_bare_synth_judge,
+        )
+        assert reviewer_result["missing_justifications"] == ["SYNTH"]
+
+        meta = rb.run_meta_review(round_num=1, reviewer_results=[reviewer_result])
+        assert any("SYNTH=5" in mj for mj in meta["missing_justifications"])
+        assert not any("SYNTH=5" in wf for wf in meta["worst_findings"])
+        # Floor dims all justified and pass -> cleared, no floor worst_findings noise.
+        assert meta["cleared"] is True
 
 
 # ---------------------------------------------------------------------------
