@@ -585,3 +585,95 @@ class TestScaffoldOkfDirs:
         from research_vault.note import scaffold_okf_dirs
         scaffold_okf_dirs(tmp_path)
         scaffold_okf_dirs(tmp_path)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# 9. CS-project folder-structure convention (scaffold.scaffold_project_dirs)
+# ---------------------------------------------------------------------------
+
+class TestScaffoldProjectDirs:
+    def test_creates_all_convention_dirs(self, tmp_path: Path) -> None:
+        from research_vault.scaffold import scaffold_project_dirs
+        scaffold_project_dirs(tmp_path)
+        for rel in [
+            "code/src", "code/tests", "code/tools",
+            "data", "results/runs", "results/scores",
+            "figures", "manuscripts", "notes/log",
+        ]:
+            d = tmp_path / rel
+            assert d.is_dir(), f"{rel}/ must be created"
+            assert (d / ".gitkeep").is_file(), f"{rel}/.gitkeep must exist"
+            assert (d / "README.md").is_file(), f"{rel}/README.md must exist"
+            assert (d / "README.md").read_text(encoding="utf-8").strip(), (
+                f"{rel}/README.md must be non-empty"
+            )
+
+    def test_idempotent(self, tmp_path: Path) -> None:
+        from research_vault.scaffold import scaffold_project_dirs
+        scaffold_project_dirs(tmp_path)
+        scaffold_project_dirs(tmp_path)  # must not raise
+
+    def test_never_clobbers_existing_readme(self, tmp_path: Path) -> None:
+        from research_vault.scaffold import scaffold_project_dirs
+        d = tmp_path / "data"
+        d.mkdir(parents=True)
+        (d / "README.md").write_text("user content", encoding="utf-8")
+        scaffold_project_dirs(tmp_path)
+        assert (d / "README.md").read_text(encoding="utf-8") == "user content"
+
+
+class TestProjectNewFolderStructure:
+    def test_full_tree_created(self, rv_instance: Path) -> None:
+        src = rv_instance / "projects" / "demo"
+        cmd_new("demo", "dm", str(src), [])
+        for rel in [
+            "code/src", "code/tests", "code/tools",
+            "data", "results/runs", "results/scores",
+            "figures", "manuscripts", "notes/log",
+        ]:
+            assert (src / rel).is_dir(), f"{rel}/ must exist under a new project"
+
+    def test_gitignore_written(self, rv_instance: Path) -> None:
+        src = rv_instance / "projects" / "demo"
+        cmd_new("demo", "dm", str(src), [])
+        gi = src / ".gitignore"
+        assert gi.is_file(), ".gitignore must be written for a new project"
+        text = gi.read_text(encoding="utf-8")
+        assert "results/runs/*" in text
+        assert "!results/runs/.gitkeep" in text
+        assert "data/*.parquet" in text
+        # scores + figures are NOT blanket-ignored
+        assert "results/scores/*" not in text
+        assert "figures/*\n" not in text
+
+    def test_results_scores_and_figures_are_trackable(self, rv_instance: Path) -> None:
+        """A file placed in results/scores/ or figures/ must NOT be ignored."""
+        src = rv_instance / "projects" / "demo"
+        cmd_new("demo", "dm", str(src), [])
+        (src / "results" / "scores" / "demo-exp.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+        (src / "figures" / "demo-fig.png").write_bytes(b"\x89PNG")
+        r = _git(src, "status", "--porcelain", "--ignored")
+        # ignored files are reported with '!!' prefix under --ignored
+        assert "!! results/scores/demo-exp.csv" not in r.stdout
+        assert "!! figures/demo-fig.png" not in r.stdout
+
+    def test_results_runs_jsonl_is_gitignored(self, rv_instance: Path) -> None:
+        src = rv_instance / "projects" / "demo"
+        cmd_new("demo", "dm", str(src), [])
+        (src / "results" / "runs" / "demo-exp.jsonl").write_text("{}\n", encoding="utf-8")
+        r = _git(src, "status", "--porcelain", "--ignored")
+        assert "!! results/runs/demo-exp.jsonl" in r.stdout
+
+    def test_data_large_format_is_gitignored(self, rv_instance: Path) -> None:
+        src = rv_instance / "projects" / "demo"
+        cmd_new("demo", "dm", str(src), [])
+        (src / "data" / "big.parquet").write_bytes(b"\x00")
+        r = _git(src, "status", "--porcelain", "--ignored")
+        assert "!! data/big.parquet" in r.stdout
+
+    def test_architecture_md_shows_tree(self, rv_instance: Path) -> None:
+        src = rv_instance / "projects" / "demo"
+        cmd_new("demo", "dm", str(src), [])
+        text = (src / "architecture.md").read_text(encoding="utf-8")
+        assert "project-structure.md" in text
+        assert "results/" in text

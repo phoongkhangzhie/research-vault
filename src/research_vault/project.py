@@ -299,6 +299,22 @@ graph TD
 | Analysis | notes | findings/*.md | rv research |
 | Synthesis | findings | write-up | — |
 
+## Folder structure (CS-project convention)
+
+```
+{slug}/
+├── notes/            OKF knowledge base (literature/ concepts/ methods/ experiments/
+│                      findings/ mocs/ gaps/ log/) — datasets/ is SHARED (rv datasets_root)
+├── code/{{src,tests,tools}}/   ALL source — freely refactorable, nothing links INTO it
+├── data/              raw inputs — read-only, large files gitignored
+├── results/{{runs,scores}}/    runs=raw/gitignored, scores=computed/TRACKED SSOT
+├── figures/           designed, provenance-stamped — TRACKED
+└── manuscripts/       write-ups, paper outlines
+```
+
+See `doctrine/project-structure.md` for the full convention and the
+notes↔artifacts linkage rules (hashed frontmatter, not prose paths).
+
 ## Key decisions
 
 - _(fill in architectural decisions as you make them)_
@@ -379,7 +395,7 @@ def cmd_new(
     Returns 0 on success, 1 on any error.
     """
     from .note import scaffold_okf_dirs
-    from . import control, devlog, git_discipline as gd
+    from . import control, devlog, git_discipline as gd, scaffold
     from .config import load_config, reset_config_cache
 
     # ── Resolve config path ──────────────────────────────────────────────────
@@ -501,6 +517,17 @@ def cmd_new(
         # ── STEP 4: OKF dirs ─────────────────────────────────────────────────
         scaffold_okf_dirs(source_path)
         print(f"  created: OKF type dirs under {source_path}/")
+
+        # ── STEP 4b: CS-project folder-structure convention ─────────────────
+        # code/{src,tests,tools}, data/, results/{runs,scores}, figures/,
+        # manuscripts/, notes/log/ — see doctrine/project-structure.md.
+        scaffold.scaffold_project_dirs(source_path)
+        print(f"  created: code/ data/ results/ figures/ manuscripts/ notes/log/ under {source_path}/")
+
+        # ── STEP 4c: .gitignore (CS-project convention: results/runs/, large data/) ──
+        gitignore_path = source_path / ".gitignore"
+        gitignore_path.write_text(scaffold.FRAMEWORK_GITIGNORE, encoding="utf-8")
+        print(f"  created: .gitignore")
 
         # ── STEP 5: control bus ──────────────────────────────────────────────
         control.cmd_init(name, config=cfg)
