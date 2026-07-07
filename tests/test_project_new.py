@@ -621,6 +621,96 @@ class TestScaffoldProjectDirs:
         scaffold_project_dirs(tmp_path)
         assert (d / "README.md").read_text(encoding="utf-8") == "user content"
 
+    def test_code_src_readme_references_science_critical_marker(self, tmp_path: Path) -> None:
+        # PR-CC-4 §5.2: code/src README cross-refs the `# science-critical`
+        # marker convention (CHECK-7, doctrine §6) so a fresh project sees the
+        # pointer even before any code exists.
+        from research_vault.scaffold import scaffold_project_dirs
+        scaffold_project_dirs(tmp_path)
+        body = (tmp_path / "code" / "src" / "README.md").read_text(encoding="utf-8")
+        assert "science-critical" in body
+        body_tests = (tmp_path / "code" / "tests" / "README.md").read_text(encoding="utf-8")
+        assert "science-critical" in body_tests or "test" in body_tests.lower()
+
+
+# ---------------------------------------------------------------------------
+# 10. Releasability scaffold (scaffold.scaffold_release_stubs) — PR-CC-4
+# ---------------------------------------------------------------------------
+
+class TestScaffoldReleaseStubs:
+    def test_creates_citation_cff(self, tmp_path: Path) -> None:
+        from research_vault.scaffold import scaffold_release_stubs
+        scaffold_release_stubs(tmp_path, slug="demo")
+        p = tmp_path / "CITATION.cff"
+        assert p.is_file()
+        text = p.read_text(encoding="utf-8")
+        for key in ("cff-version:", "message:", "title:", "authors:", "version:", "date-released:"):
+            assert key in text, f"CITATION.cff must carry {key!r}"
+        assert "demo" in text
+
+    def test_creates_license_placeholder(self, tmp_path: Path) -> None:
+        from research_vault.scaffold import scaffold_release_stubs
+        scaffold_release_stubs(tmp_path, slug="demo")
+        p = tmp_path / "LICENSE"
+        assert p.is_file()
+        text = p.read_text(encoding="utf-8")
+        # Charter §1: never guess a license — the stub names the decision as
+        # the human's, it does not auto-pick an OSI license.
+        assert "SPDX" in text
+        assert "TODO" in text or "choose" in text.lower()
+
+    def test_idempotent(self, tmp_path: Path) -> None:
+        from research_vault.scaffold import scaffold_release_stubs
+        scaffold_release_stubs(tmp_path, slug="demo")
+        scaffold_release_stubs(tmp_path, slug="demo")  # must not raise
+
+    def test_never_clobbers_existing_citation_cff(self, tmp_path: Path) -> None:
+        from research_vault.scaffold import scaffold_release_stubs
+        p = tmp_path / "CITATION.cff"
+        p.write_text("user-filled citation content", encoding="utf-8")
+        scaffold_release_stubs(tmp_path, slug="demo")
+        assert p.read_text(encoding="utf-8") == "user-filled citation content"
+
+    def test_never_clobbers_existing_license(self, tmp_path: Path) -> None:
+        from research_vault.scaffold import scaffold_release_stubs
+        p = tmp_path / "LICENSE"
+        p.write_text("MIT License\n\nCopyright (c) 2026 ...", encoding="utf-8")
+        scaffold_release_stubs(tmp_path, slug="demo")
+        assert "MIT License" in p.read_text(encoding="utf-8")
+
+    def test_citation_cff_is_valid_yaml_shape(self, tmp_path: Path) -> None:
+        # Stdlib-minimal shape check (R2): no YAML parser dependency in core —
+        # confirm the required CFF keys parse as top-level `key: value` lines
+        # (the exact presence+required-key validation CHECK-8b will run).
+        from research_vault.scaffold import scaffold_release_stubs
+        scaffold_release_stubs(tmp_path, slug="demo")
+        text = (tmp_path / "CITATION.cff").read_text(encoding="utf-8")
+        keys: dict[str, str] = {}
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if ":" in stripped and not stripped.startswith("-"):
+                k, _, v = stripped.partition(":")
+                keys[k.strip()] = v.strip()
+        for required in ("cff-version", "message", "title", "authors"):
+            assert required in keys, f"CITATION.cff missing required key {required!r}"
+
+
+class TestUserOwnedNeverTouchReleaseStubs:
+    def test_citation_cff_and_license_are_user_owned(self) -> None:
+        from research_vault.scaffold import USER_OWNED_NEVER_TOUCH
+        assert "CITATION.cff" in USER_OWNED_NEVER_TOUCH
+        assert "LICENSE" in USER_OWNED_NEVER_TOUCH
+
+
+class TestProjectNewReleaseStubs:
+    def test_new_project_gets_release_stubs(self, rv_instance: Path) -> None:
+        src = rv_instance / "projects" / "demo"
+        cmd_new("demo", "dm", str(src), [])
+        assert (src / "CITATION.cff").is_file()
+        assert (src / "LICENSE").is_file()
+
 
 class TestProjectNewFolderStructure:
     def test_full_tree_created(self, rv_instance: Path) -> None:

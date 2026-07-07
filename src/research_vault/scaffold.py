@@ -139,6 +139,13 @@ USER_OWNED_NEVER_TOUCH: frozenset[str] = frozenset({
     "figures",
     "manuscripts",
     "code",
+    # PR-CC-4 (code-conventions §5.1): the releasability stubs are scaffolded
+    # ONCE at `rv project new` time, then user-owned forever — `rv update`
+    # (were it ever extended to walk project repos) must never regenerate a
+    # filled-in CITATION.cff / LICENSE. Future-proofing the collision guard,
+    # same rationale as the other project-content entries above.
+    "CITATION.cff",
+    "LICENSE",
 })
 
 
@@ -447,10 +454,16 @@ _PROJECT_STRUCTURE_DIRS: list[tuple[str, str]] = [
         "Package source. Freely refactorable — nothing outside `code/` links into a\n"
         "path under here. Notes reference artifacts only under the convention-frozen\n"
         "roots (`results/`, `data/`, `figures/`, `manuscripts/`), never `code/`.\n\n"
-        "See `doctrine/project-structure.md` for the full convention.\n"
+        "Mark the science-critical path (estimators, metrics, split/eval logic — where a\n"
+        "bug becomes a wrong finding) with a `# science-critical` comment; every marked\n"
+        "function/module needs >=1 test under `code/tests` (CHECK-7, WARN, `rv code check`).\n\n"
+        "See `doctrine/project-structure.md` for the full convention and\n"
+        "`doctrine/code-conventions.md` §6 for the science-critical-path testing craft.\n"
     )),
     ("code/tests", (
-        "# code/tests\n\nTests for `code/src`.\n"
+        "# code/tests\n\n"
+        "Tests for `code/src`. Every `# science-critical`-marked function/module needs\n"
+        ">=1 corresponding test here (CHECK-7) — see `doctrine/code-conventions.md` §6.\n"
     )),
     ("code/tools", (
         "# code/tools\n\nProject-local tooling / scripts (not shipped as a package).\n"
@@ -525,6 +538,67 @@ def scaffold_project_dirs(source_path: Path) -> None:
         readme = d / "README.md"
         if not readme.exists():
             readme.write_text(readme_body, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Releasability stubs — CITATION.cff + LICENSE (PR-CC-4, code-conventions §5.1)
+# ---------------------------------------------------------------------------
+
+#: Minimal, valid Citation File Format stub (schema v1.2.0). Carries every
+#: required top-level key (`cff-version`, `message`, `title`, `authors`) plus
+#: `version` + `date-released` for CHECK-8b's presence+required-key check
+#: (stdlib-minimal, R2 — no `pyyaml`/`cffconvert` dep in rv core). Charter §1:
+#: filled with real placeholders the human must complete, never fabricated.
+_CITATION_CFF_TEMPLATE = """\
+# CITATION.cff — how to cite this software.
+# See doctrine/code-conventions.md §2.6 (Releasable from day one).
+# Fill in the real author list, version, and release date before archiving
+# (e.g. a Zenodo/DOI release) — this is a scaffolded stub, not a citation.
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "{slug}"
+authors:
+  - family-names: "TODO"
+    given-names: "TODO"
+version: "0.0.0"
+date-released: "TODO"
+"""
+
+#: LICENSE placeholder. Deliberately does NOT pick an OSI license — charter
+#: §1 (never fabricate a specific) forbids guessing; the SPDX choice is the
+#: human's to make (doctrine §2.6, CHECK-8c: [DOC] which license).
+_LICENSE_TEMPLATE = """\
+LICENSE — placeholder, no license chosen yet.
+
+This project has no license yet. Choose an OSI-approved license and its
+SPDX identifier (e.g. MIT, Apache-2.0, BSD-3-Clause, GPL-3.0-only), then
+replace this file with the full license text — see doctrine/code-conventions.md
+§2.6 (Releasable from day one). Until a license is chosen, this software is
+NOT open source and default copyright applies.
+"""
+
+#: (relpath-under-project-root, template with a `slug` format placeholder) —
+#: the SSOT `scaffold_release_stubs` writes non-destructively.
+_RELEASE_STUB_FILES: list[tuple[str, str]] = [
+    ("CITATION.cff", _CITATION_CFF_TEMPLATE),
+    ("LICENSE", _LICENSE_TEMPLATE),
+]
+
+
+def scaffold_release_stubs(source_path: Path, *, slug: str) -> None:
+    """Write ``CITATION.cff`` + ``LICENSE`` stubs at *source_path* (repo root).
+
+    Non-destructive: an existing file (user-filled or otherwise) is NEVER
+    overwritten — matching ``scaffold_project_dirs``'s idempotency contract.
+    Both files are in ``USER_OWNED_NEVER_TOUCH`` so a (future) project-repo-
+    walking ``rv update`` can never clobber a filled-in license/citation
+    either. See ``doctrine/code-conventions.md`` §2.6 / PR-CC-4.
+    """
+    for rel, template in _RELEASE_STUB_FILES:
+        dst = source_path / rel
+        if dst.exists():
+            continue
+        dst.write_text(template.format(slug=slug), encoding="utf-8")
 
 
 def read_meta(toml_text: str) -> dict[str, str]:

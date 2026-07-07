@@ -543,6 +543,12 @@ def cmd_new(
         scaffold.scaffold_project_dirs(source_path)
         print(f"  created: code/ data/ results/ figures/ manuscripts/ notes/log/ under {source_path}/")
 
+        # ── STEP 4b-2: releasability stubs (PR-CC-4, code-conventions §5.1) ──
+        # CITATION.cff + LICENSE — non-destructive; never overwrites an
+        # existing/filled-in stub (see scaffold.USER_OWNED_NEVER_TOUCH).
+        scaffold.scaffold_release_stubs(source_path, slug=name)
+        print(f"  created: CITATION.cff LICENSE (stubs) under {source_path}/")
+
         # ── STEP 4c: .gitignore (CS-project convention: results/runs/, large data/) ──
         gitignore_path = source_path / ".gitignore"
         gitignore_path.write_text(scaffold.FRAMEWORK_GITIGNORE, encoding="utf-8")
