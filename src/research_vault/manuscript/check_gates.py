@@ -37,12 +37,21 @@ block: a manuscript with no judge configured can still reach
 ``approve-manuscript`` on the deterministic bib gate alone, but the human
 sees, unmistakably, that the citation-fidelity floor was never checked.
 
-The coverage gate (design §10 gate-4, re-run ``coverage_report()`` on the
-revised corpus) is explicitly OUT OF SCOPE here — it is PR-M5's territory
-(the review-revise board re-fires it every round). It is recorded in
-``not_run`` as a deferred/documented gap, never silently omitted.
+The coverage gate (design §10 gate-4) LANDS HERE at PR-M5 — deterministic,
+ALWAYS runs, hard BLOCK. ``check_coverage_gate`` re-derives the frozen
+corpus's citekey set from ``reviews/<slug>/_corpus.md`` (the same
+``review._parse_corpus_citekeys`` source-of-truth ``review.coverage_report()``
+uses) and BLOCKs on either (a) the stamped ``corpus_hash`` no longer matching
+the frozen ``_corpus.md`` bytes (the corpus mutated since the Phase-1 freeze
+— the stale-corpus guard, design §4.5.5), or (b) the draft's own rendered
+PRISMA-ledger corpus count reading SMALLER than the true frozen corpus count
+(a revise that narrows scope to shrink the denominator, design §10 gate-4's
+literal example). A manuscript with no ``corpus_hash`` stamped yet (no
+frozen corpus to check against — a type with no Phase-1, or a lit-review
+whose framework isn't approved yet) is a correct, honest no-op — never a
+BLOCK for absence, mirroring the ``doi``/``arxiv_id`` precedent elsewhere.
 
-Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md §10.
+Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md §9-§10.
 Doctrine: data/doctrine/honesty-gates.md.
 
 Stdlib only. Hermetic in tests — the judge guard means a bare call with no
@@ -52,12 +61,15 @@ sr: manuscript-integration (post PR-M2/M3/M4/M6)
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Callable
 
 from research_vault.manuscript.bib import check_hermetic_bib
 from research_vault.manuscript import equations as _equations
 from research_vault.manuscript import fidelity_gates as _fidelity_gates
+from research_vault.note import _parse_frontmatter as _pfm_gates
+from research_vault.review import _parse_corpus_citekeys
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +119,117 @@ def _read_draft_text(tree_root: Path) -> str:
             except OSError:
                 pass
     return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# check_coverage_gate — design §10 gate-4, PR-M5's scope (deterministic,
+# ALWAYS runs, hard BLOCK — no judge dependency)
+# ---------------------------------------------------------------------------
+
+# PRISMA-ledger corpus-count line, rendered by
+# manuscript.types.lit_review.render_prisma_ledger: "| Corpus (frozen
+# citekeys) | N |". Parsed to detect a revise that narrows scope by
+# re-stating a smaller denominator than the true frozen corpus.
+_PRISMA_CORPUS_COUNT_RE = re.compile(
+    r"\|\s*Corpus \(frozen citekeys\)\s*\|\s*(\d+)\s*\|"
+)
+
+
+def check_coverage_gate(
+    project_notes_dir: Path,
+    tree_root: Path,
+) -> dict[str, Any]:
+    """Re-run the coverage check on the revised corpus (design §10 gate-4).
+
+    When to use: called by ``build_approve_payload`` every time it assembles
+    the gate payload — including PR-M5's per-round re-fire (same function,
+    single-sourced, never duplicated). Deterministic, no LLM, ALWAYS runs.
+
+    Convention (shared with ``manuscript.types.lit_review._compute_corpus_hash_note``):
+    a manuscript slug (``tree_root.name``) matches the ``rv review`` scope id
+    whose frozen corpus lives at ``reviews/<slug>/_corpus.md``.
+
+    BLOCKs on:
+      (a) ``corpus_hash`` stamped in ``_manuscript.md`` no longer matches the
+          hash of the frozen ``_corpus.md`` on disk (the corpus mutated since
+          the Phase-1 freeze — the stale-corpus guard, design §4.5.5), or the
+          stamped hash points at a ``_corpus.md`` that no longer exists.
+      (b) the draft's own rendered PRISMA-ledger corpus-count line states a
+          SMALLER corpus than the true frozen corpus (a revise narrowing
+          scope to shrink the denominator, design §10 gate-4's literal
+          example).
+
+    A manuscript with no ``corpus_hash`` stamped yet is a correct, honest
+    no-op (nothing frozen to verify against yet — never a BLOCK for absence,
+    mirroring the ``doi``/``arxiv_id`` precedent).
+
+    Args:
+        project_notes_dir: the project's OKF notes root.
+        tree_root: the manuscript folder (``manuscripts/<slug>/``).
+
+    Returns:
+        ``{"ok": bool, "errors": [...], "warnings": [...]}``.
+
+    sr: PR-M5
+    """
+    from research_vault.hashing import hash_file
+
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    manuscript_note_path = tree_root / "_manuscript.md"
+    if not manuscript_note_path.exists():
+        # No control note at all — nothing to check against; the hermetic
+        # .bib gate already covers "manuscript folder missing" concerns.
+        return {"ok": True, "errors": [], "warnings": []}
+
+    fields, _ = _pfm_gates(manuscript_note_path.read_text(encoding="utf-8"))
+    stamped_hash = str(fields.get("corpus_hash", "")).strip()
+    if not stamped_hash:
+        warnings.append(
+            "coverage-gate: no corpus_hash stamped in _manuscript.md yet — "
+            "skipping (nothing frozen to verify scope against)."
+        )
+        return {"ok": True, "errors": [], "warnings": warnings}
+
+    slug = tree_root.name
+    corpus_path = project_notes_dir / "reviews" / slug / "_corpus.md"
+    if not corpus_path.exists():
+        errors.append(
+            f"coverage-gate BLOCK: corpus_hash is stamped ({stamped_hash[:16]}...) "
+            f"but the frozen corpus {corpus_path} no longer exists — cannot "
+            f"verify the corpus hasn't narrowed since the Phase-1 freeze."
+        )
+        return {"ok": False, "errors": errors, "warnings": warnings}
+
+    current_hash = hash_file(corpus_path)
+    if current_hash != stamped_hash:
+        errors.append(
+            f"coverage-gate BLOCK: _corpus.md has changed since the Phase-1 "
+            f"freeze (stamped corpus_hash {stamped_hash[:16]}... != current "
+            f"{current_hash[:16]}...) — the stale-corpus guard (design "
+            f"§4.5.5). Re-freeze the corpus_hash deliberately if this "
+            f"corpus growth/narrowing is intentional."
+        )
+        return {"ok": False, "errors": errors, "warnings": warnings}
+
+    # ── (b) draft's own PRISMA count vs the true frozen corpus count ────────
+    true_corpus_citekeys = _parse_corpus_citekeys(corpus_path)
+    draft_text = _read_draft_text(tree_root)
+    m = _PRISMA_CORPUS_COUNT_RE.search(draft_text)
+    if m is not None:
+        stated_count = int(m.group(1))
+        true_count = len(true_corpus_citekeys)
+        if stated_count < true_count:
+            errors.append(
+                f"coverage-gate BLOCK: the draft's PRISMA ledger states "
+                f"{stated_count} corpus citekeys but the frozen corpus has "
+                f"{true_count} — a revise appears to have narrowed scope to "
+                f"shrink the denominator (design §10 gate-4)."
+            )
+            return {"ok": False, "errors": errors, "warnings": warnings}
+
+    return {"ok": True, "errors": errors, "warnings": warnings}
 
 
 # ---------------------------------------------------------------------------
@@ -199,13 +322,13 @@ def build_approve_payload(
             "trusting this manuscript's citation fidelity."
         )
 
-    # ── The coverage gate (design §10 gate-4) — PR-M5's scope, deferred ─────
-    not_run.append(
-        "coverage-gate (design §10 gate-4 — re-run coverage_report() on the "
-        "revised corpus, BLOCK on scope-narrowing) is NOT assembled here — it "
-        "is PR-M5's territory (the review-revise board re-fires it every "
-        "round). Deliberately deferred, not silently omitted."
-    )
+    # ── 5. The coverage gate (design §10 gate-4) — deterministic, ALWAYS
+    #      runs, hard BLOCK (PR-M5). No judge dependency at all — the
+    #      integration PR deferred this into not_run; wired for real here. ──
+    coverage_result = check_coverage_gate(project_notes_dir, tree_root)
+    blocking.extend(f"[coverage-gate] {e}" for e in coverage_result["errors"])
+    if coverage_result["warnings"]:
+        not_run.extend(f"[coverage-gate] {w}" for w in coverage_result["warnings"])
 
     return {
         "ok": not blocking,

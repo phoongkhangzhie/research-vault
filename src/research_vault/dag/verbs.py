@@ -994,6 +994,32 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     print(f"rv dag approve: approve-manuscript SIGNAL: {s}", file=sys.stderr)
                 for n in payload["not_run"]:
                     print(f"rv dag approve: approve-manuscript NOT RUN: {n}", file=sys.stderr)
+            else:
+                # PR-M5 fix (integration-reviewer followup, charter §2): an
+                # unregistered/malformed ``manuscript_type`` used to fall
+                # through this ``if`` silently — no gates ran, nothing was
+                # printed, and the human-go gate would pass with ZERO
+                # fidelity checking. That is a green-and-empty sliver: a
+                # manuscript whose type field is blank, typo'd, or references
+                # a type that was never registered must NOT look identical to
+                # one that passed every gate. Surface it as loudly as the
+                # judge-not-configured NOT-RUN case above (never a silent
+                # skip) — but do NOT block: an unknown type is a data problem
+                # in ``_manuscript.md``, not a fidelity failure, and blocking
+                # here would make the type field un-fixable via the normal
+                # approve/reject flow.
+                _raw_type = _fields.get("manuscript_type", "")
+                print(
+                    "rv dag approve: approve-manuscript NOT RUN: manuscript_type "
+                    f"{_raw_type!r} is unrecognized (unregistered or missing) — "
+                    "the hermetic .bib, equation-fidelity, support-matcher, and "
+                    "cold-read gates were NOT run for this manuscript. This is "
+                    "NOT a pass: fix `manuscript_type:` in "
+                    f"{manuscript_note_path} to a registered type (see "
+                    "`rv manuscript <project> new --type <type>`) and re-run "
+                    "`rv dag approve` before trusting this manuscript.",
+                    file=sys.stderr,
+                )
 
     # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
     #

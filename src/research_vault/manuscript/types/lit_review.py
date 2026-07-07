@@ -726,7 +726,16 @@ LIT_REVIEW = ManuscriptType(
     style_briefs=STYLE_BRIEFS,               # design §3.1
     exemplar_bundle="lit-review",            # PR-M8: data/exemplars/manuscript/lit-review/
     rubric=None,                             # PR-M8: DEFAULT_LIT_REVIEW_RUBRIC (design §11.1)
-    reviewer_lenses=(),                      # PR-M5: coverage / framework / synthesis lenses (§11.2)
+    # PR-M5 (design §11.2): the 3 fresh reviewer lenses — coverage/scope
+    # auditor, framework/taxonomy critic (WITH the reframe-escalation
+    # trigger), synthesis-vs-enumeration adversary. PLACEHOLDER wording;
+    # PR-M8 replaces with the researcher's authored lens prose — the lens STRUCTURE
+    # (which dims each attacks, the escalation trigger) is locked here.
+    reviewer_lenses=(
+        "coverage-scope-auditor",
+        "framework-taxonomy-critic",
+        "synthesis-vs-enumeration-adversary",
+    ),
     canaries=(),                             # PR-M8: strong / weak / annotated-bib (§11.3)
 )
 

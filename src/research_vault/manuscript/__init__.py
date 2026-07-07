@@ -18,23 +18,26 @@ two-phase scaffolder pattern, review/__init__.py):
   - cmd_expand: build the Phase-2 manifest generically from the type's
                 ``section_set`` (one node per section -> assemble ->
                 [HG:approve-manuscript]).
-  - cmd_review: PR-M5 stub — raises loudly (the review-revise board is not
-                built yet; never a silent no-op).
+  - cmd_review: run the 2-round x 3-reviewer adversarial review-revise board
+                (design §9, ``manuscript/review_board.py``, PR-M5).
   - cmd_list:   list manuscript folders for a project (parity with cmd_list
                 on the sibling review/experiment loops).
 
 Explicitly OUT of scope for PR-M1 (stub/interface only here at the time;
-STATUS as of the manuscript-integration PR — M2/M3/M4/M6 have since LANDED
-and are wired together by ``manuscript/check_gates.py::build_approve_payload``,
-called from ``rv dag approve`` at ``approve-manuscript``):
+STATUS as of PR-M5 — M2/M3/M4/M5/M6 have since LANDED and are wired together
+by ``manuscript/check_gates.py::build_approve_payload``, called from
+``rv dag approve`` at ``approve-manuscript`` AND re-fired every review-revise
+round via ``review_board.run_revise``):
   the hermetic .bib build (PR-M2, landed — ``manuscript/bib.py``), the hard
   fidelity gates (PR-M3, landed — ``manuscript/fidelity_gates.py``), the
   equation machinery (PR-M4, landed — ``manuscript/equations.py``), the
-  review-revise board (PR-M5, NOT YET BUILT — ``cmd_review`` still raises
-  loudly), the lit-review type's real section table + framework-selection
-  Phase-1 + ``source_transform`` (PR-M6, landed — ``manuscript/types/lit_review.py``,
-  wired into this module's ``_build_phase2_manifest``), exemplars (PR-M7/M8,
-  NOT YET BUILT), the rubric/canary calibration (PR-M8, NOT YET BUILT).
+  review-revise board (PR-M5, landed — ``manuscript/review_board.py``, a
+  PLACEHOLDER rubric/canary — PR-M8 swaps in the researcher's calibrated versions), the
+  lit-review type's real section table + framework-selection Phase-1 +
+  ``source_transform`` (PR-M6, landed — ``manuscript/types/lit_review.py``,
+  wired into this module's ``_build_phase2_manifest``), exemplars (PR-M7,
+  building in a parallel wave — not yet merged as of PR-M5), the
+  rubric/canary calibration (PR-M8, NOT YET BUILT).
 
 Per-manuscript folder (design §0, NOT an OKF taxonomy — too few manuscripts to
 warrant one):
@@ -575,21 +578,125 @@ def cmd_review(
     slug: str,
     *,
     config: Config | None = None,
+    judge_fn: Any | None = None,
+    canary_judge_fn: Any | None = None,
 ) -> dict[str, Any]:
-    """PR-M5 stub: the review-revise board is not built yet.
+    """Drive the 2-round x 3-reviewer adversarial review-revise board (§9).
 
-    When to use: ``rv manuscript <project> review <slug>`` will drive the
-    2-round x 3-reviewer adversarial review-revise board (design §9) once
-    PR-M5 lands. Today it raises loudly rather than silently no-op-ing
-    (charter §2: surface, never silently drop).
+    When to use: ``rv manuscript <project> review <slug>`` runs the bounded
+    review-revise loop (``manuscript/review_board.py``, PR-M5) against the
+    manuscript's current draft. Behind the ``RV_JUDGE_MODEL`` +
+    ``ANTHROPIC_API_KEY`` loud-fail guard — a review with no judge configured
+    raises loudly rather than silently no-op-ing (charter §2), UNLESS an
+    explicit ``judge_fn`` is passed (the test-injection seam every gate
+    already supports; also counts as "configured").
 
-    sr: PR-M1
+    Args:
+        project: project slug.
+        slug: manuscript identifier (same as passed to ``cmd_new``).
+        config: optional Config (loaded if None).
+        judge_fn: injectable reviewer judge — ``(prompt: str) -> str``. When
+            None, requires ``RV_JUDGE_MODEL`` + ``ANTHROPIC_API_KEY`` and
+            resolves to the shared Anthropic-Messages default.
+        canary_judge_fn: injectable canary judge (defaults to the same judge
+            as ``judge_fn`` when a judge is configured — the mandatory
+            canary always fires against the SAME judge it's calibrating).
+
+    Returns:
+        The ``run_review_board`` result dict (``cleared``, ``rounds``,
+        ``not_cleared``, ``escalation``, ``honest_report``, ``meta``, ...).
+
+    sr: PR-M5
     """
-    raise NotImplementedError(
-        f"rv manuscript review: the review-revise board (2 rounds x 3 reviewers, "
-        f"design §9) ships in PR-M5 — not yet implemented in PR-M1 (the "
-        f"type-generic core). project={project!r} slug={slug!r}."
+    import os
+
+    from research_vault.manuscript import review_board as _review_board
+    from research_vault.manuscript.check_gates import _read_draft_text
+
+    cfg = config or load_config()
+    project_notes_dir = cfg.project_notes_dir(project)
+    tree_root = _manuscript_tree_root(project, slug, cfg)
+    note_path = tree_root / "_manuscript.md"
+
+    if not note_path.exists():
+        raise FileNotFoundError(
+            f"rv manuscript review: {note_path} not found. "
+            f"Run `rv manuscript {project} new {slug} --type <type>` first."
+        )
+
+    text = note_path.read_text(encoding="utf-8")
+    fields, _ = _parse_frontmatter(text)
+    ms_type_key = fields.get("manuscript_type", "")
+    ms_type = get_type(ms_type_key)
+    if ms_type is None:
+        raise _unknown_type_error(ms_type_key)
+
+    _judge_fn = judge_fn
+    if _judge_fn is None:
+        judge_model = os.environ.get("RV_JUDGE_MODEL", "").strip()
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if not judge_model or not api_key:
+            raise RuntimeError(
+                "rv manuscript review: no judge configured. Set RV_JUDGE_MODEL "
+                "and ANTHROPIC_API_KEY in the environment before running the "
+                "review-revise board (charter §2: never a silent no-op — a "
+                "review with no judge is NOT the same as a manuscript with "
+                "nothing wrong)."
+            )
+
+        def _judge_fn(prompt: str, _model: str = judge_model) -> str:  # noqa: ANN001
+            from research_vault.gates._llm import call_anthropic_messages
+
+            return call_anthropic_messages(
+                prompt, _model, max_tokens=2048, timeout=90, caller_label="review-board",
+            )
+
+    _canary_judge_fn = canary_judge_fn if canary_judge_fn is not None else _judge_fn
+
+    review_cfg = _review_board.get_review_config(cfg)
+    draft_text = _read_draft_text(tree_root)
+
+    result = _review_board.run_review_board(
+        draft_text,
+        tree_root,
+        project_notes_dir,
+        ms_type,
+        N=review_cfg["max_rounds"],
+        K=review_cfg["reviewers_per_round"],
+        floor_dims=review_cfg["floor_dimensions"],
+        floor_value=review_cfg["floor_value"],
+        judge_fn=_judge_fn,
+        judge_model=os.environ.get("RV_JUDGE_MODEL", ""),
+        rubric_override=ms_type.rubric,
+        config=cfg,
+        canary_judge_fn=_canary_judge_fn,
+        revise_judge_fn=_judge_fn,
     )
+
+    # meta["manuscript_review"] logging (design §9) — stamped onto the
+    # control note so the run's outcome is durable, human-auditable state,
+    # not just a stdout line that scrolls away.
+    _stamp_review_meta(note_path, result)
+
+    return result
+
+
+def _stamp_review_meta(note_path: Path, result: dict[str, Any]) -> None:
+    """Append an honest review-board run record to ``_manuscript.md``.
+
+    Never says "approved" — records ``cleared``/``cleared_at``/the honest
+    report string, appended (never overwrites prior runs' history).
+
+    sr: PR-M5
+    """
+    text = note_path.read_text(encoding="utf-8")
+    stamp = (
+        "\n<!-- manuscript_review run "
+        f"{_today()}: cleared={result['cleared']} "
+        f"cleared_at={result['cleared_at']} "
+        f"honest_report={result['honest_report']!r} -->\n"
+    )
+    note_path.write_text(text + stamp, encoding="utf-8")
 
 
 def cmd_list(
