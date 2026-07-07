@@ -169,6 +169,26 @@ def _expand_paths(cfg: dict, instance_root: Path) -> dict:
     return cfg
 
 
+def resolve_repo_root(source_dir: str | Path) -> Path:
+    """Resolve a project's repo-root directory from its `source_dir`.
+
+    Two conventions coexist (doctrine/project-structure.md):
+
+    - **CS-project convention** ("repo root IS the vault"): `source_dir =
+      <repo>/notes` and root-level artifacts (`pointers.md`, `architecture.md`)
+      live at `<repo>` = `source_dir.parent`. Structural marker: `source_dir`'s
+      basename is exactly `"notes"` (P1: "source_dir = <repo>/notes").
+    - **Flat/legacy convention**: `source_dir` IS the repo root; those
+      artifacts live directly under `source_dir`.
+
+    Never guesses from file existence (a flat project may simply lack
+    pointers.md yet) — the basename marker is grounded in how `source_dir`
+    is configured, not in what happens to be on disk.
+    """
+    p = Path(source_dir)
+    return p.parent if p.name == "notes" else p
+
+
 class Config:
     """Resolved Research Vault configuration.
 
@@ -252,6 +272,11 @@ class Config:
         if "source_dir" in proj:
             return Path(proj["source_dir"])
         return self.notes_root / slug
+
+    def project_repo_root(self, slug: str) -> Path:
+        """Resolve the project's repo root — where root-level artifacts
+        (`pointers.md`, `architecture.md`) live. See `resolve_repo_root`."""
+        return resolve_repo_root(self.project_notes_dir(slug))
 
     def project_devlog(self, slug: str) -> Path:
         """Resolve the DEVLOG.md path for a project."""

@@ -7,7 +7,7 @@ defaults, env override, and error handling. All hermetic (tmp_path).
 import os
 import pytest
 from pathlib import Path
-from research_vault.config import load_config, reset_config_cache
+from research_vault.config import load_config, reset_config_cache, resolve_repo_root
 
 
 def test_defaults_without_config_file(tmp_path, monkeypatch):
@@ -143,3 +143,47 @@ def test_minimal_config_derives_paths_from_instance_root(tmp_path, monkeypatch):
     assert cfg.state_dir.is_relative_to(instance_root), (
         f"state_dir {cfg.state_dir} is not under instance_root {instance_root}"
     )
+
+
+# ---------------------------------------------------------------------------
+# resolve_repo_root — repo-root-is-vault (CS convention) vs flat/legacy
+# ---------------------------------------------------------------------------
+
+class TestResolveRepoRoot:
+    """The csb C6 backfill surfaced: `rv orient`/`rv status` resolved
+    pointers.md/architecture.md relative to source_dir even when the
+    CS-project convention (doctrine/project-structure.md) places them at
+    the repo root (source_dir.parent, when source_dir = <repo>/notes)."""
+
+    def test_cs_convention_source_dir_ends_in_notes_returns_parent(self, tmp_path):
+        repo = tmp_path / "my-project"
+        source_dir = repo / "notes"
+        assert resolve_repo_root(source_dir) == repo
+
+    def test_flat_legacy_source_dir_is_repo_root_returns_itself(self, tmp_path):
+        repo = tmp_path / "my-project"
+        assert resolve_repo_root(repo) == repo
+
+    def test_accepts_str_or_path(self, tmp_path):
+        repo = tmp_path / "my-project"
+        source_dir = repo / "notes"
+        assert resolve_repo_root(str(source_dir)) == repo
+
+    def test_project_repo_root_wires_through_config(self, tmp_path, monkeypatch):
+        repo = tmp_path / "cs-demo"
+        notes = repo / "notes"
+        notes.mkdir(parents=True)
+        config_file = tmp_path / "research_vault.toml"
+        config_file.write_text(
+            f"""
+instance_root = "{tmp_path}"
+
+[projects.cs-demo]
+source_dir = "{notes}"
+""",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(config_file))
+        reset_config_cache()
+        cfg = load_config(reload=True)
+        assert cfg.project_repo_root("cs-demo") == repo

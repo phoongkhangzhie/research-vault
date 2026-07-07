@@ -98,6 +98,34 @@ def uncovered_project(rv_instance: Path) -> str:
     return "uncovered"
 
 
+@pytest.fixture
+def cs_project(rv_instance: Path) -> str:
+    """A registered project on the CS-project (repo-root-is-vault) convention:
+    source_dir = <repo>/notes, with pointers.md/architecture.md at the repo
+    root (source_dir.parent) — per doctrine/project-structure.md."""
+    repo = rv_instance / "repos" / "cs-demo"
+    notes = repo / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    (repo / "pointers.md").write_text(
+        "# Pointers — cs-demo\n\n"
+        "## Identity\n\nA CS-structured demo project.\n\n"
+        "## ★ POINTERS\n\n- design-of-record: /tmp/cs-design.md\n\n"
+        "## Roadmap\n\n- MERGED: step 1\n\n"
+        "## Team\n\n- engineer\n",
+        encoding="utf-8",
+    )
+    (repo / "architecture.md").write_text(
+        "# Architecture — cs-demo\n\n"
+        "## Overview\n\nThe cs-demo project's architecture.\n"
+        + "\n".join(f"line {i}" for i in range(100)),
+        encoding="utf-8",
+    )
+    cmd_add(name="cs-demo", code="csd", source_dir=str(notes), roster=["engineer"],
+            config_path=rv_instance / "research_vault.toml")
+    reset_config_cache()
+    return "cs-demo"
+
+
 # ---------------------------------------------------------------------------
 # 1/2. cmd_orient behavior
 # ---------------------------------------------------------------------------
@@ -127,6 +155,27 @@ class TestCmdOrient:
         assert "line 0" in out
         assert "line 99" not in out  # beyond the head cap
         assert "more line(s)" in out  # truncation nudge
+
+    def test_cs_project_reads_pointers_and_architecture_at_repo_root(
+        self, cs_project, rv_instance
+    ):
+        """CS-project convention (source_dir=<repo>/notes): pointers.md and
+        architecture.md live at the repo root (source_dir.parent), not under
+        source_dir itself. `rv orient` must find and read them there, never
+        report "none yet" when they exist."""
+        from research_vault.orient import cmd_orient
+
+        cfg = load_config()
+        out = cmd_orient(cs_project, config=cfg)
+
+        assert "none yet" not in out
+        assert "Identity" in out
+        assert "POINTERS" in out
+        assert "design-of-record: /tmp/cs-design.md" in out
+        assert "Architecture — cs-demo" in out
+        assert "line 0" in out
+        assert "line 99" not in out
+        assert "more line(s)" in out
 
     def test_uncovered_project_graceful_nudge_not_crash(self, uncovered_project, rv_instance):
         from research_vault.orient import cmd_orient
