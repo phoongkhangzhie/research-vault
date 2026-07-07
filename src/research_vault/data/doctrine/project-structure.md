@@ -12,6 +12,32 @@ reorganised. The fix is structural: hoist `results/ data/ figures/ manuscripts/`
 repo root as convention-frozen roots, and make the machine-checkable link a hashed
 frontmatter field, not a prose path.
 
+## The two content pillars
+
+A project repo carries exactly two **content pillars** — the crew's reasoning and the
+user's deliverable — plus the **mechanical roots** that supply their raw material:
+
+- **`notes/` — the reasoning pillar.** The crew-facing OKF knowledge base: atoms built by
+  the knowledge loops (`experiment`, `lit-review`, …). This is *how the crew thinks* —
+  literature notes, concepts, methods, experiments, findings, MOCs, gaps.
+- **`manuscripts/` — the deliverable pillar.** The user-facing layer: papers, surveys, and
+  reports the human actually reads. Built by the **manuscript loop**, which transforms
+  `notes/` into a submittable document **by type** (`type: lit-review` today; a future
+  `type: experiment-paper`). Peer of `notes/`, not a member of the mechanical-roots pile.
+- **The mechanical roots (`code/ data/ results/ figures/`)** are supporting machinery, not
+  content pillars in their own right — they hold the code that runs, the inputs it reads,
+  the outputs it computes, and the designed figures drawn from those outputs. Notes and
+  manuscripts *reference* these roots (the linkage convention below); they don't live in
+  them.
+
+```
+  KNOWLEDGE LOOPS                          THE MANUSCRIPT LOOP
+  (experiment, lit-review, …)              (by type)
+  build ──►  notes/         ──transform──►  manuscripts/<slug>/     ──►  user-facing deliverable
+            (crew reasoning)  by type       (main.tex, sections/,
+                                             refs.bib, figures/)
+```
+
 ## The canonical top-level tree
 
 **Repo root IS the vault.** `source_dir = <repo>/notes`. No `vault/` wrapper — the project
@@ -43,7 +69,13 @@ project repo — the project repo carries only its own content.
 │   ├── runs/                       raw run outputs: *.jsonl, logs, checkpoints (large → ignored)
 │   └── scores/                     computed metrics: *.csv/*.json (small → TRACKED, the SSOT)
 ├── figures/                      # designed, provenance-stamped figures — TRACKED
-├── manuscripts/                  # write-ups, paper outlines, submission artifacts
+├── manuscripts/                  # ★ the deliverable pillar — one self-contained folder
+│   └── <slug>/                     per manuscript (NOT an OKF-typed taxonomy — see below)
+│       ├── _manuscript.md           control + frontmatter: `type:` (e.g. lit-review), spine
+│       ├── main.tex
+│       ├── sections/*.tex
+│       ├── refs.bib                 hermetic — built from notes/literature/ frontmatter
+│       └── figures/
 ├── architecture.md                the Architect's living Mermaid map (USER-OWNED)
 ├── DEVLOG.md                      engineering decisions (Done / Decisions / Open-next)
 ├── pointers.md                    read-fresh crew pointers
@@ -58,7 +90,33 @@ project repo — the project repo carries only its own content.
 `code/`):** these are the artifact classes that notes reference. Keeping them at the repo
 root, sibling to `code/`, means their paths are **decoupled from the package layout** —
 `code/` can be reorganised at will and no note reference breaks. This is the single
-structural move that makes the linkage convention below hold.
+structural move that makes the linkage convention below hold. `manuscripts/` gets the same
+treatment for the same reason (a manuscript cites `results/` and `figures/` paths that must
+survive a `code/` refactor) — but as the deliverable pillar it also carries its own
+per-manuscript-folder convention, below.
+
+## The per-manuscript folder (not an OKF taxonomy)
+
+`manuscripts/` holds **one self-contained folder per manuscript** — deliberately *not* a
+typed taxonomy the way `notes/` is (`literature/ concepts/ methods/ …`). There won't be
+enough manuscripts in a project to warrant one; a flat per-slug folder is the right grain.
+
+```
+manuscripts/<slug>/
+├── _manuscript.md        # control + frontmatter: type, spine, corpus_hash, run_state
+├── main.tex
+├── sections/*.tex
+├── refs.bib               # hermetic — built from notes/literature/ frontmatter
+└── figures/
+```
+
+Each `_manuscript.md` carries a **`type:` field** naming which manuscript-loop
+specialization built it — `lit-review` (a review/survey paper) today; a future
+`type: experiment-paper` (a results paper) would slot in the same folder shape. The type
+determines the section-set and transformation the manuscript loop applies to `notes/`; the
+folder convention itself is type-generic. (See [honesty-gates.md](./honesty-gates.md) and
+[review-board.md](./review-board.md) for the fidelity-gate craft the manuscript loop's
+review-revise machinery is built to.)
 
 ## Results / runs / scores convention
 
