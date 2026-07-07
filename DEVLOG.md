@@ -38,6 +38,64 @@
 - Held PR — awaiting reviewer + maintainer go (release-class change,
   tag-triggered publish.yml is out of scope for this PR).
 
+## 2026-07-07 (feat/manuscript-m3-shared-gates: PR-M3 — the re-instantiated LLM fidelity gates, shareable location)
+
+### Done
+- **PR-M3 — the re-instantiated hard fidelity gates, landed in a SHAREABLE
+  location (D-SV-0).** `manuscript/support_matcher.py` and
+  `manuscript/coldread.py` (deleted in SR-RM-FIGMS) are re-instantiated as
+  `research_vault.gates.support_matcher` / `research_vault.gates.coldread` —
+  a NEW top-level `gates/` package, sibling to `manuscript/`, `review/`, and
+  `experiment/`, rather than back under `manuscript/`. Rationale: the craft
+  these modules embody (anti-anchoring, disconfirm-first,
+  verbatim-span-or-BLOCK, blind-judge canary, fail-closed defaults — see
+  `data/doctrine/honesty-gates.md`) is not manuscript-specific; any loop
+  that needs a claim→source support check or a self-containment read can
+  call these directly. The manuscript loop is the first consumer, not the
+  only one.
+  - `gates/support_matcher.py` — the 4-verdict claim→source matcher
+    (`[SUPPORTS|PARTIAL|ABSENT|CONTRADICTS]`), rebuilt from the preserved
+    craft (recovered via `git show <pre-SR-RM-FIGMS-sha>:...`), scrubbed of
+    crew narrative-names (class-10 leakage) and re-pointed at its new home.
+  - `gates/coldread.py` — the 3-verdict self-containment judge
+    (`[STANDS-ALONE|DANGLING|NEEDS-CONTEXT]`) with the Flag-A deterministic
+    scan + bidirectional canary, same treatment.
+  - `gates/_llm.py` — extracted the two modules' near-identical urllib
+    Anthropic-Messages-API call into one shared `call_anthropic_messages()`
+    helper (charter §6: reuse over create) — the two gates previously
+    carried independent copies of the same plumbing.
+  - `manuscript/fidelity_gates.py` — the thin, additive manuscript-loop
+    adapter: `check_support_tally()` (batch claim/citekey extraction over a
+    manuscript tree + canary-gated support-matcher tally) and
+    `check_cold_read_tally()` (pdftotext resolution + cold-read + honest
+    errors/warnings composition). Does NOT touch `manuscript/check_gates.py`
+    (PR-M2/PR-M6 territory, built concurrently) — a standalone new module
+    the future `build_approve_payload` assembler can import from.
+- **Tests (planted-failure required by acceptance):** `test_gates_support_matcher.py`
+  plants a claim with genuinely no support in its cited note and proves the
+  gate BLOCKs end-to-end (a discriminating mock judge that actually reads the
+  injected note content); `test_gates_coldread.py` plants a context-dependent
+  passage (internal run-id + artifact path) and proves both the LLM path AND
+  the deterministic Flag-A path independently flag it `[DANGLING]`. Both
+  planted tests were mutation-tested (neutered the parser / fail-closed
+  default and confirmed the test goes RED) to prove they have teeth.
+- Gates: `leakage_scan.sh` clean over `src/research_vault` (crew-name scrub
+  verified: "Ada"→researcher, "Wren"→architect throughout the two
+  re-instantiated modules), `rv lint` PASS, `rv help --check` OK.
+- Held `human-go` PR: Architect fit-check requested on the `gates/` shared
+  location call (D-SV-0 names "a shareable module" without pinning the
+  exact path).
+- **Fix-up (post-review): `ColdReadResult.blocks` fail-closed on
+  `canary_aborted`.** Reviewer BLOCK — `.blocks` did not consider
+  `canary_aborted`, so a judge that raises on every call produced
+  `canary_aborted=True`, `overall=STANDS-ALONE`, `.blocks==False`; a direct
+  caller checking `.blocks` alone (per D-SV-0) would treat a totally-broken
+  judge as a pass. Fixed: `blocks` now also returns `True` when
+  `canary_aborted`. New test proves a dead/raising judge -> `.blocks==True`
+  at the shared API. Confirmed `support_matcher`'s per-call judge-exception
+  path already degrades to `verdict=ABSENT` (already fail-closed via
+  `.blocks`) — no change needed there.
+
 ## 2026-07-07 (feat/manuscript-loop-m1: the manuscript loop, re-instantiated with a type system)
 
 ### Done
