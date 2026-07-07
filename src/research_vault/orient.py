@@ -27,7 +27,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .config import Config, load_config
+from .config import Config, load_config, resolve_repo_root
 from .status import cmd_status
 
 # Cap the architecture.md echo — it can carry large Mermaid diagrams; the head
@@ -36,8 +36,12 @@ _ARCHITECTURE_HEAD_LINES = 60
 
 
 def _read_architecture_head(source_dir: str, n: int = _ARCHITECTURE_HEAD_LINES) -> str:
-    """Return the head of architecture.md, or a graceful nudge if absent."""
-    path = Path(source_dir) / "architecture.md"
+    """Return the head of architecture.md, or a graceful nudge if absent.
+
+    `architecture.md` lives at the project's repo root, not necessarily under
+    `source_dir` — see `config.resolve_repo_root` for the two conventions.
+    """
+    path = resolve_repo_root(source_dir) / "architecture.md"
     if not path.is_file():
         return f"  none yet — add to `{path}`"
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -49,8 +53,12 @@ def _read_architecture_head(source_dir: str, n: int = _ARCHITECTURE_HEAD_LINES) 
 
 
 def _read_full_pointers(source_dir: str) -> str:
-    """Return the FULL pointers.md content, or a graceful nudge if absent."""
-    path = Path(source_dir) / "pointers.md"
+    """Return the FULL pointers.md content, or a graceful nudge if absent.
+
+    `pointers.md` lives at the project's repo root, not necessarily under
+    `source_dir` — see `config.resolve_repo_root` for the two conventions.
+    """
+    path = resolve_repo_root(source_dir) / "pointers.md"
     if not path.is_file():
         return f"  none yet — add to `{path}`"
     content = path.read_text(encoding="utf-8").rstrip("\n")

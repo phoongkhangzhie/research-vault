@@ -336,6 +336,31 @@ class TestRvStatusPointersEcho:
             f"Output was:\n{output}"
         )
 
+    def test_status_reads_pointers_at_repo_root_for_cs_project(self, rv_instance):
+        """CS-project convention (source_dir=<repo>/notes): pointers.md lives
+        at the repo root (source_dir.parent), not under source_dir itself.
+        `rv status` must find and echo it there, never report "none yet"
+        when it exists at the repo root."""
+        from research_vault.project import cmd_add
+        from research_vault.status import cmd_status
+
+        repo = rv_instance / "repos" / "cs-status-demo"
+        notes = repo / "notes"
+        notes.mkdir(parents=True, exist_ok=True)
+        (repo / "pointers.md").write_text(
+            "# Pointers — cs-status-demo\n\n## Identity\n\nA CS-structured demo.\n",
+            encoding="utf-8",
+        )
+        cmd_add("cs-status-demo", "csd", str(notes), [],
+                config_path=rv_instance / "research_vault.toml")
+
+        reset_config_cache()
+        cfg = load_config(reload=True)
+        output = cmd_status("cs-status-demo", config=cfg)
+        assert "Pointers:" in output
+        assert "none yet" not in output
+        assert "A CS-structured demo." in output
+
     def test_status_shows_no_pointers_line_when_absent(self, rv_instance):
         """When pointers.md is absent, rv status echoes 'Pointers: none yet'."""
         from research_vault.project import cmd_add

@@ -5,13 +5,32 @@ All hermetic (tmp_instance). No ~/vault reads or writes.
 
 import datetime
 import pytest
-from research_vault.config import load_config
+from research_vault.config import load_config, reset_config_cache
 from research_vault import devlog as devlog_mod
 
 
 @pytest.fixture
 def cfg(tmp_instance):
     return load_config(reload=True)
+
+
+@pytest.fixture
+def cs_project_cfg(tmp_instance):
+    """Register a CS-project-convention project (source_dir = <repo>/notes)
+    alongside the default demo-research/demo-litreview registry, then
+    reload config. DEVLOG.md for this project must resolve/read at the
+    repo root (source_dir.parent), not under source_dir itself."""
+    from research_vault.project import cmd_add
+
+    repo = tmp_instance / "repos" / "cs-devlog-demo"
+    notes = repo / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    cmd_add(
+        name="cs-devlog-demo", code="cdd", source_dir=str(notes), roster=[],
+        config_path=tmp_instance / "research_vault.toml",
+    )
+    reset_config_cache()
+    return load_config(reload=True), repo
 
 
 def test_init_creates_devlog(cfg):
@@ -131,3 +150,32 @@ def test_cli_devlog_check_ok(tmp_instance, capsys):
     assert result == 0
     out = capsys.readouterr().out
     assert "OK" in out
+
+
+# ---------------------------------------------------------------------------
+# CS-project convention (source_dir = <repo>/notes) — DEVLOG.md lives at the
+# repo root (source_dir.parent), same convention as pointers.md/architecture.md.
+# ---------------------------------------------------------------------------
+
+class TestDevlogCsProjectConvention:
+    def test_init_writes_devlog_at_repo_root_not_under_notes(self, cs_project_cfg):
+        """cmd_init must create DEVLOG.md at the repo root, not inside notes/."""
+        cs_cfg, repo = cs_project_cfg
+        path = devlog_mod.cmd_init("cs-devlog-demo", config=cs_cfg)
+        assert path == repo / "DEVLOG.md"
+        assert path.exists()
+        assert "notes" not in path.relative_to(repo).parts
+
+    def test_check_reads_devlog_placed_at_repo_root(self, cs_project_cfg):
+        """A DEVLOG.md placed directly at the repo root (as the CS-project
+        convention scaffolds it) must be found by cmd_check — never MISSING."""
+        cs_cfg, repo = cs_project_cfg
+        today = datetime.date.today().isoformat()
+        (repo / "DEVLOG.md").write_text(
+            f"# DEVLOG — cs-devlog-demo\n\nNewest entry on top.\n\n"
+            f"## {today}\n\n### Done\n- did a thing\n\n"
+            "### Decisions\n\n### Open / next\n",
+            encoding="utf-8",
+        )
+        status, msg = devlog_mod.cmd_check("cs-devlog-demo", config=cs_cfg)
+        assert status == "OK", msg

@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from .config import Config, load_config
+from .config import Config, load_config, resolve_repo_root
 from .controllib import parse_control_file, section_items, REQUIRED_SECTIONS
 
 # ---------------------------------------------------------------------------
@@ -567,7 +567,7 @@ def status_sections(
         except (KeyError, Exception):
             source_dir = None
         if source_dir:
-            pp = Path(source_dir) / "pointers.md"
+            pp = resolve_repo_root(source_dir) / "pointers.md"
             if pp.is_file():
                 content_lines = [
                     ln for ln in pp.read_text(encoding="utf-8").splitlines()
@@ -575,7 +575,7 @@ def status_sections(
                 ][:5]
                 pointers = {"path": str(pp), "lines": content_lines}
             else:
-                pointers = {"message": f"none yet — add them to `{source_dir}/pointers.md`"}
+                pointers = {"message": f"none yet — add them to `{pp}`"}
         else:
             pointers = {"message": "source_dir not set — cannot locate pointers.md"}
     except Exception as e:
@@ -718,7 +718,7 @@ def cmd_status(
             source_dir = None
 
         if source_dir:
-            pointers_path = Path(source_dir) / "pointers.md"
+            pointers_path = resolve_repo_root(source_dir) / "pointers.md"
             if pointers_path.is_file():
                 pointers_head = pointers_path.read_text(encoding="utf-8")
                 # Show first 5 non-empty lines of content (skip title/blank lines)
@@ -731,7 +731,7 @@ def cmd_status(
                     lines.append(f"  {ln}")
             else:
                 lines.append(
-                    f"Pointers:  none yet — add them to `{source_dir}/pointers.md`"
+                    f"Pointers:  none yet — add them to `{pointers_path}`"
                 )
         else:
             lines.append("Pointers:  (source_dir not set — cannot locate pointers.md)")
