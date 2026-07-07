@@ -99,12 +99,12 @@ def test_help_grouped_output(capsys):
     result = main(["help"])
     assert result == 0
     out = capsys.readouterr().out
-    # All phase headers present (Figure and Manuscript removed in SR-RM-FIGMS)
-    for phase in ["Setup", "Lit-review", "Experiment", "Gap loop", "Infra/git", "Coordination"]:
+    # All phase headers present (Figure removed in SR-RM-FIGMS; Manuscript
+    # reinstated by PR-M1 with its own phase header)
+    for phase in ["Setup", "Lit-review", "Experiment", "Manuscript", "Gap loop", "Infra/git", "Coordination"]:
         assert phase in out, f"Phase header {phase!r} not found in rv help output"
-    # SR-RM-FIGMS: Figure and Manuscript phases must be gone
+    # SR-RM-FIGMS: Figure phase must still be gone
     assert "── Figure" not in out
-    assert "── Manuscript" not in out
 
 
 def test_help_gap_loop_subcommands_visible(capsys):
@@ -138,9 +138,9 @@ def test_help_shows_subcommands_for_multi_verb(capsys):
     # dag subcommands
     assert "run" in out          # dag has 'run'
     assert "approve" in out      # dag has 'approve'
-    # SR-RM-FIGMS: figure and manuscript removed
+    # SR-RM-FIGMS: figure removed (still absent); PR-M1 reinstates manuscript
     assert "rv figure" not in out
-    assert "rv manuscript" not in out
+    assert "rv manuscript" in out
 
 
 def test_help_no_60char_truncation(capsys):
@@ -232,7 +232,7 @@ def test_help_check_cli_now_covers_snippets(tmp_instance, capsys):
     assert result == 0
 
 
-def test_figure_manuscript_removed_from_registry(tmp_instance):
-    """SR-RM-FIGMS: figure and manuscript must not be in _VERB_REGISTRY."""
+def test_figure_removed_manuscript_reinstated(tmp_instance):
+    """SR-RM-FIGMS removed figure + manuscript; PR-M1 reinstates manuscript (type-generic)."""
     assert "figure" not in _VERB_REGISTRY, "figure still in _VERB_REGISTRY after SR-RM-FIGMS"
-    assert "manuscript" not in _VERB_REGISTRY, "manuscript still in _VERB_REGISTRY after SR-RM-FIGMS"
+    assert "manuscript" in _VERB_REGISTRY, "manuscript missing from _VERB_REGISTRY after PR-M1"

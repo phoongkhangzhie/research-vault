@@ -1,3 +1,68 @@
+## 2026-07-07 (feat/manuscript-loop-m1: the manuscript loop, re-instantiated with a type system)
+
+### Done
+- **PR-M1 — the manuscript-loop type-generic core.** Re-instantiates the
+  `manuscript` loop removed in SR-RM-FIGMS, rebuilt with a TYPE system
+  (design: `docs/superpowers/specs/2026-07-07-survey-capability-design.md`).
+  The manuscript loop turns `notes/` (crew-reasoning pillar) into
+  `manuscripts/<slug>/` (user-facing deliverable pillar), BY TYPE —
+  `type: lit-review` is the survey specialization; a future
+  `type: experiment-paper` is a results paper.
+  - `manuscript/types/` — the `ManuscriptType` descriptor registry
+    (`SectionSpec` + `ManuscriptType` dataclasses, `register_type`/`get_type`/
+    `all_type_keys`). Only `lit-review` is registered, as an
+    interface-conforming STUB (one placeholder `draft` section) — the real
+    9-row survey section table, framework-selection Phase-1, source
+    transform, style briefs, exemplar bundle, rubric, reviewer lenses, and
+    canaries all land in PR-M3/M5/M6/M8.
+  - `manuscript/__init__.py` — `cmd_new` (scaffolds the per-manuscript folder:
+    `manuscripts/<slug>/{_manuscript.md, main.tex, sections/, refs.bib,
+    figures/}` + a type-optional Phase-1 manifest), `cmd_expand` (builds the
+    Phase-2 manifest generically from the type's `section_set`: section(s) →
+    assemble → `[HG:approve-manuscript]`), `cmd_review` (PR-M5 stub — raises
+    `NotImplementedError` loudly, never a silent no-op), `cmd_list`.
+  - `manuscript/style.py` — the style seam (`get_manuscript_style_preamble` +
+    `get_manuscript_section_tips`), mirroring `review/style.py`'s tips-seam
+    pattern; `[manuscript_style]` adopter override.
+  - `manuscript/verbs.py` + `dag/catalog.py` (`manuscript` `LoopEntry`,
+    gate: `approve-manuscript`) + `cli.py` (`_VERB_REGISTRY["manuscript"]` +
+    a new "Manuscript" `_HELP_PHASE_MAP` group) — `rv manuscript <project>
+    new/expand/review/list`.
+  - Unknown `--type` fails loudly (no silent fallback); re-scaffolding an
+    existing slug raises `FileExistsError` (no silent overwrite); an empty
+    `section_set` on `expand` raises rather than emitting a fabricated
+    manifest. `reads:` pointers are absolute (Fix #34 lesson).
+  - Reversed the SR-RM-FIGMS removal pins: `dag/catalog.py`'s
+    `TestCatalogCompleteness`/`TestCatalogGrounding`, `dag/verbs.py`'s
+    `templates` output tests, and `cli.py`'s help/registry tests all updated
+    to assert manuscript's reinstatement (figure stays removed).
+  - Reuse verified against the tree (not assumed from the design doc): the
+    two-phase scaffolder pattern, the style-tips seam, and absolute
+    `reads:`-pointer convention all reuse `review/__init__.py` +
+    `review/style.py` verbatim in shape; the DAG engine/schema/walker are
+    zero-touch (`dag/catalog.py` gains one new `LoopEntry`, no new
+    walker/schema mechanism).
+  - Gates green: `rv lint`, `rv help --check`, `leakage_scan.sh
+    src/research_vault`, full suite (2472 passed, 3 skipped).
+
+### Decisions
+- The manuscript-note pointer (old module: separate `manuscript/<id>.md` OKF
+  note + `manuscripts/<id>/` tree) collapses into ONE per-manuscript folder
+  (`manuscripts/<slug>/_manuscript.md` inside the tree) — simpler than the
+  removed module's two-location split, matching the design's per-manuscript-
+  folder convention (§0/§12).
+- The `lit-review` stub's `phase1_builder` is `None` (pass-through) rather
+  than a placeholder framework-selection stub — the real framework-selection
+  sub-loop is design §5/PR-M6 territory; faking it now would be a fabricated
+  Phase-1 that PR-M6 would have to tear out.
+
+### Open / next
+- PR-M2 (hermetic `.bib` build + citation-resolve gate), PR-M3 (hard fidelity
+  gates), PR-M4 (equation machinery), PR-M5 (review-revise board), PR-M6
+  (lit-review's real section table + framework-selection Phase-1), PR-M8
+  (exemplars + rubric/canary) all build on this core per the design's PR
+  sequencing.
+
 ## 2026-07-07 (release/0.1.3: version bump to 0.1.3)
 
 ### Done
