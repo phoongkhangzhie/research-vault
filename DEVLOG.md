@@ -1,3 +1,39 @@
+## 2026-07-07 (feat/cc2-repro-determinism: PR-CC-2 tolerance-taxonomy field)
+
+### Done
+- **PR-CC-2 (D-CC-2 / CHECK-4b)** — added `repro_determinism` to `note.py`'s
+  `REPRO_ALL_FIELDS`, the ONE new field the code-conventions design (§2.4/§3/§8)
+  calls for. Values: `exact | tol:<eps> | stochastic` — declares the comparison
+  a (future, deferred) golden-rerun test applies against a claimed result's
+  `scores[].hash`, so an exact-hash gate never fails-forever on a legitimately
+  nondeterministic pipeline.
+  - Scaffolds to the strict safe default `"exact"` (Khang's R3) — NOT the
+    `REPRO_SENTINEL` hole the other 22 fields get, since a complete default is
+    not a fabrication-risk gap. Kept deliberately OUT of `REPRO_LINT_REQUIRED`
+    so the sentinel-lint never flags it.
+  - New `REPRO_TOLERANCE = ["repro_determinism"]` list, appended only to
+    `REPRO_ALL_FIELDS`, not to `REPRO_LINT_REQUIRED`.
+  - Experiments-note template doc-comment now names the taxonomy + points at
+    `doctrine/code-conventions.md` §5 (already shipped by PR-CC-6).
+  - This PR is a schema/consumer hook ONLY — CHECK-4b's golden-rerun *runner*
+    stays soft/deferred per the design; no runner was built here.
+- New `tests/test_pr_cc2_repro_determinism.py` (11 tests): schema membership,
+  scaffold default + non-sentinel, doc-comment content, sentinel-lint
+  unaffected (both filled and legacy-absent cases), `rv note check` green on a
+  fresh scaffold, and all three taxonomy values (`exact`/`tol:1e-6`/
+  `stochastic`) validate untouched by the static gate.
+
+### Decisions
+- No version bump — lands as part of the 0.2.0 bundle alongside the rest of
+  the code-conventions PRs (PR-CC-1/4/6).
+- Parallel-wave discipline: this PR touches only `note.py` + its own test
+  file — no overlap with PR-CC-4's `scaffold.py`/`USER_OWNED_NEVER_TOUCH`/
+  `CITATION.cff`/`LICENSE` surface.
+
+### Open / next
+- The golden-rerun runner that actually *consumes* `repro_determinism` to pick
+  its comparison remains deferred/soft per the design — a future PR.
+
 ## 2026-07-07 (feat/manuscript-integration: assemble the M2/M3/M4/M6 gates + wire source_transform)
 
 ### Done

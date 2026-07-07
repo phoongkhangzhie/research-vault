@@ -106,8 +106,20 @@ REPRO_MANUAL = [
     "repro_dataset_split",
     "repro_metric",
 ]
+# PR-CC-2 (D-CC-2 / CHECK-4b): tolerance taxonomy — declares the comparison a
+# golden-rerun test should apply against this experiment's recorded
+# scores[].hash, so an exact-hash gate never fails-forever on a legitimately
+# nondeterministic (GPU/stochastic) pipeline. Values: exact | tol:<eps> |
+# stochastic. Scaffolded default is the strict "exact" (design R3), NOT the
+# REPRO_SENTINEL — a default is a complete, safe declaration here, not a
+# fabrication-risk hole, so this field is deliberately kept OUT of
+# REPRO_LINT_REQUIRED (it never contributes sentinel-lint noise). The static
+# gate does not validate the value; a registered golden-rerun test (deferred,
+# 0.2.0 soft) is the consumer. See doctrine/code-conventions.md §5.
+REPRO_TOLERANCE = ["repro_determinism"]
 
-# All 22 fields in canonical order:
+# All repro_* fields in canonical order (22 provenance-chain fields +
+# repro_determinism, the tolerance-taxonomy field added by PR-CC-2):
 REPRO_ALL_FIELDS: list[str] = (
     REPRO_LAYER1
     + REPRO_AUTO_CONFIG
@@ -116,10 +128,14 @@ REPRO_ALL_FIELDS: list[str] = (
     + REPRO_AUTO_DATASET
     + REPRO_AUTO_HARNESS
     + REPRO_MANUAL
+    + REPRO_TOLERANCE
 )
 
 # Fields required for the lint (warn when results_hash is set but these are still sentinel):
 # All non-dataset fields (dataset linking is optional; hw deferral is acceptable).
+# repro_determinism is deliberately EXCLUDED (PR-CC-2 / CHECK-4b): it scaffolds
+# to a complete default ("exact"), not the sentinel, so it is never a
+# completeness gap the lint should flag.
 REPRO_LINT_REQUIRED: list[str] = (
     REPRO_LAYER1
     + REPRO_AUTO_CONFIG
@@ -355,13 +371,18 @@ def cmd_new(project: str, note_type: str, title: str, *,
         fields["runs"] = ""       # the executions (any N) — scalar list of run refs
         fields["scores"] = ""     # the computed outputs (any M) — list of {location, hash, label}
         fields["results_commit"] = ""     # git SHA of the code that produced the run
-        # SR-EXP-REPRO: reproducibility schema — 22 flat repro_* fields.
+        # SR-EXP-REPRO: reproducibility schema — flat repro_* fields.
         # Sentinel = "not-recorded-in-provenance" (NEVER blank, NEVER guessed).
         # Layer 1 (auto via rv wandb pull): hashed full-config artifact.
         # Layer 2 (auto via rv wandb pull alias table): promoted flat scalars.
         # MANUAL fields: cross-lingual trio + eval params — fill by hand; sentinel = honest hole.
         for repro_field in REPRO_ALL_FIELDS:
             fields[repro_field] = REPRO_SENTINEL
+        # PR-CC-2 (D-CC-2 / R3): repro_determinism scaffolds to the strict safe
+        # default "exact", NOT the sentinel — a stochastic/GPU pipeline must
+        # explicitly relax it. Overridden after the loop (not a REPRO_SENTINEL
+        # hole, so it must not be forced to fill like the completeness fields).
+        fields["repro_determinism"] = "exact"
 
     if tags:
         fields["tags"] = "[" + ", ".join(tags) + "]"
@@ -409,6 +430,15 @@ def cmd_new(project: str, note_type: str, title: str, *,
             "<!--   repro_translation_provenance (human / MT:<engine@ver>), -->\n"
             "<!--   repro_prompt_version, repro_dataset_split, repro_metric. -->\n"
             "<!-- Anti-fabrication: use 'not-recorded-in-provenance' not blank/guessed. -->\n"
+            "<!-- -->\n"
+            "<!-- repro_determinism (PR-CC-2 / D-CC-2): the tolerance taxonomy a -->\n"
+            "<!--   golden-rerun test uses to pick its comparison. Values: -->\n"
+            "<!--     exact       — bit-for-bit reproducible (default; strictest) -->\n"
+            "<!--     tol:<eps>   — reproducible within a numeric epsilon, e.g. tol:1e-6 -->\n"
+            "<!--     stochastic  — inherently nondeterministic (GPU nondeterminism, -->\n"
+            "<!--                   sampling); a rerun compares distributional, not exact -->\n"
+            "<!--   Relax away from 'exact' only when the pipeline genuinely cannot -->\n"
+            "<!--   reproduce bit-for-bit — see doctrine/code-conventions.md #5. -->\n"
             "\n"
             "## Hypothesis\n\n"
             "<!-- What were you testing? -->\n\n"
