@@ -157,12 +157,24 @@ def _render_frontmatter(fields: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def _parse_frontmatter(text: str) -> "tuple[dict[str, str | list[str]], str]":
+def _parse_frontmatter(
+    text: str,
+) -> "tuple[dict[str, str | list[str] | list[dict[str, str]]], str]":
     """Parse YAML-like frontmatter between --- delimiters.
 
-    Handles both scalar fields and YAML indented-list fields (``  - item``):
-    - Scalar: ``key: value`` → ``{"key": "value"}``
-    - List:   ``key:\\n  - a\\n  - b`` → ``{"key": ["a", "b"]}``
+    Handles scalar fields, YAML indented scalar-list fields, and (D8, PR-3)
+    YAML indented mapping-list fields:
+    - Scalar:  ``key: value`` → ``{"key": "value"}``
+    - List:    ``key:\\n  - a\\n  - b`` → ``{"key": ["a", "b"]}``
+    - Mapping-list (D8): ``key:\\n  - k1: v1\\n    k2: v2\\n  - k1: v3`` →
+      ``{"key": [{"k1": "v1", "k2": "v2"}, {"k1": "v3"}]}``. A ``  - `` item
+      whose remainder matches ``key: value`` opens a new dict entry; a
+      following 4-space-indented (non-``  - ``) ``key: value`` line is folded
+      into that same dict as a continuation. A ``  - `` item with **no**
+      ``key:`` shape stays a plain scalar (unchanged) — this is the
+      backward-compat guard: existing scalar-list callers (``backed_by``,
+      ``supported_by``, ``contradicted_by``, the new ``runs:``) have no
+      ``key:``-shaped items, so they are wholly untouched by this extension.
     - Inline ``key: []`` syntax stays as the literal string ``"[]"`` (not a list).
 
     #26 convergence: this canonical parser now replaces the local
@@ -182,9 +194,32 @@ def _parse_frontmatter(text: str) -> "tuple[dict[str, str | list[str]], str]":
         return {}, text
     fm_block = text[3:end].strip()
     body = text[end + 4:].lstrip("\n")
-    fields: "dict[str, str | list[str]]" = {}
+    fields: "dict[str, Any]" = {}
     current_list_key: "str | None" = None
+    # D8: the dict currently being built by a mapping-list item, so a following
+    # 4-space continuation line ("    key: value", no "  - " prefix) can be
+    # folded into it. None when the last list item was a plain scalar (or no
+    # list is open) — scalar-list callers never populate this, so they never
+    # take the continuation branch below.
+    current_mapping_item: "dict[str, str] | None" = None
     for line in fm_block.splitlines():
+        # D8 continuation: a 4-space-indented "key: value" line immediately
+        # following an open mapping-list item folds into that dict.
+        if (
+            current_list_key is not None
+            and current_mapping_item is not None
+            and line.startswith("    ")
+            and not line.startswith("  - ")
+        ):
+            cont_m = re.match(r"^(\w[\w_-]*):\s*(.*)$", line.strip())
+            if cont_m:
+                ck, cv = cont_m.group(1), cont_m.group(2).strip()
+                if cv.startswith(("'", '"')) and cv.endswith(cv[0]):
+                    cv = cv[1:-1]
+                current_mapping_item[ck] = cv
+                continue
+            # Unrecognized continuation shape — fall through to normal handling.
+
         # YAML indented list item: "  - item" (two-space indent + dash + space)
         if line.startswith("  - ") and current_list_key is not None:
             # Lazy-promote: first list item converts "" → [] before appending.
@@ -194,16 +229,32 @@ def _parse_frontmatter(text: str) -> "tuple[dict[str, str | list[str]], str]":
             if isinstance(existing, str):
                 fields[current_list_key] = []
             cast_list = fields[current_list_key]
-            if isinstance(cast_list, list):
-                cast_list.append(line[4:].strip())
+            remainder = line[4:].strip()
+            # D8: does the remainder itself look like "key: value"? If so, this
+            # item opens a new mapping-list dict entry (not a plain scalar).
+            item_m = re.match(r"^(\w[\w_-]*):\s*(.*)$", remainder)
+            if item_m:
+                ik, iv = item_m.group(1), item_m.group(2).strip()
+                if iv.startswith(("'", '"')) and iv.endswith(iv[0]):
+                    iv = iv[1:-1]
+                new_item: "dict[str, str]" = {ik: iv}
+                if isinstance(cast_list, list):
+                    cast_list.append(new_item)
+                current_mapping_item = new_item
+            else:
+                if isinstance(cast_list, list):
+                    cast_list.append(remainder)
+                current_mapping_item = None
             continue
         current_list_key = None
+        current_mapping_item = None
         m = re.match(r"^(\w[\w_-]*):\s*(.*)$", line)
         if m:
             key, val = m.group(1), m.group(2).strip()
             if val == "":
                 # Empty value after colon → tentatively empty string; may become
-                # list[str] if  - item lines follow (lazy-promote on first item).
+                # list[str] (or list[dict[str, str]]) if  - item lines follow
+                # (lazy-promote on first item).
                 current_list_key = key
                 fields[key] = ""
             else:
@@ -275,13 +326,17 @@ def cmd_new(project: str, note_type: str, title: str, *,
         fields["location"] = ""   # fill in: path/URL/DOI of the data artifact
         fields["hash"] = ""       # fill in: sha256:<hex> content hash of the artifact
 
-    # SR-WB: experiments notes carry results provenance placeholder fields.
-    # These are the PRIMARY results source — populated by `rv wandb pull --experiment`.
-    # Flat prefixed fields (NOT nested block) — matches _parse_frontmatter contract.
+    # SR-WB / PR-3 (D2): experiments notes carry the generalized results
+    # attachment — EMPTY runs:/scores: lists (zero items, not blank placeholder
+    # entries: an entry with blank fields would falsely trip the per-entry
+    # "location empty" check in check_result_provenance). Empty = not-yet-run
+    # → the gate skips, same semantics as the old flat results_hash: "".
+    # The deprecated flat results_location/results_hash/results_wandb_run
+    # fields are NO LONGER scaffolded (still read via the _normalize_results
+    # shim for legacy notes) — new notes use the lists exclusively.
     if note_type == "experiments":
-        fields["results_location"] = ""   # path/URL of the metrics artifact
-        fields["results_hash"] = ""       # sha256:<hex> of the artifact (for integrity)
-        fields["results_wandb_run"] = ""  # W&B run id that produced these metrics
+        fields["runs"] = ""       # the executions (any N) — scalar list of run refs
+        fields["scores"] = ""     # the computed outputs (any M) — list of {location, hash, label}
         fields["results_commit"] = ""     # git SHA of the code that produced the run
         # SR-EXP-REPRO: reproducibility schema — 22 flat repro_* fields.
         # Sentinel = "not-recorded-in-provenance" (NEVER blank, NEVER guessed).
@@ -312,11 +367,27 @@ def cmd_new(project: str, note_type: str, title: str, *,
     elif note_type == "experiments":
         body = (
             "\n"
-            "<!-- Experiments provenance note (SR-WB + SR-EXP-REPRO) -->\n"
-            "<!-- Run `rv wandb pull <run-id> --experiment <id> --project <slug>` -->\n"
-            "<!-- to fill results_location/results_hash/results_wandb_run/results_commit, -->\n"
-            "<!-- plus all auto repro_* fields (Layer 1 + Layer 2 alias map). -->\n"
-            "<!-- Or fill them by hand for CSV/manual fallback (results_hash = sha256:<hex>). -->\n"
+            "<!-- Experiments provenance note (SR-WB + SR-EXP-REPRO + PR-3 results schema) -->\n"
+            "<!-- Run `rv wandb pull <run-id> --experiment <id> --project <slug>` to fill -->\n"
+            "<!-- runs:/scores:/results_commit, plus all auto repro_* fields -->\n"
+            "<!-- (Layer 1 + Layer 2 alias map) — or fill by hand for CSV/manual fallback. -->\n"
+            "<!-- -->\n"
+            "<!-- The results attachment models ALL N-runs -> M-scores cardinalities -->\n"
+            "<!-- (1->1, N->1, 1->M, N->M) via two lists: -->\n"
+            "<!--   runs:   the executions (any N) — scalar list, no hash (evidence trail): -->\n"
+            "<!--     runs:\\n  - myteam/myproject/run-01\\n  - myteam/myproject/run-02 -->\n"
+            "<!--   scores: the computed outputs (any M) — EACH independently hash-anchored: -->\n"
+            "<!--     scores:\\n  - location: results/scores/hfs-landscape.csv\\n -->\n"
+            "<!--       hash: sha256:<hex>\\n    label: hfs-landscape  (optional) -->\n"
+            "<!-- -->\n"
+            "<!-- Legacy mapping (migrating an existing note by hand): -->\n"
+            "<!--   old flat  wandb: <list of run ids>        -> runs: -->\n"
+            "<!--   old flat  runs: <jsonl globs>              -> results/runs/ bytes, -->\n"
+            "<!--                                                  referenced from the body -->\n"
+            "<!--                                                  (not frontmatter-anchored) -->\n"
+            "<!--   multiple score CSVs                        -> scores: list, one -->\n"
+            "<!--                                                  hash-anchored entry each -->\n"
+            "<!-- -->\n"
             "<!-- MANUAL repro_* fields: repro_prompt_lang (BCP-47), -->\n"
             "<!--   repro_translation_provenance (human / MT:<engine@ver>), -->\n"
             "<!--   repro_prompt_version, repro_dataset_split, repro_metric. -->\n"
@@ -739,7 +810,7 @@ def check_plan_child_links(
 
 
 # ---------------------------------------------------------------------------
-# SR-WB: experiment-results provenance validation
+# SR-WB / PR-3 (D2, D8): experiment-results provenance validation
 # ---------------------------------------------------------------------------
 
 def _is_local_results_path(location: str) -> bool:
@@ -751,21 +822,90 @@ def _is_local_results_path(location: str) -> bool:
     return True
 
 
+def _normalize_results(fields: "dict[str, Any]") -> "dict[str, list]":
+    """PR-3 (D2) read-shim: the ONE canonical results reader.
+
+    Returns ``{"runs": list[str], "scores": list[dict[str, str]]}`` — the
+    generalized N runs -> M scores schema (§4.2 of the CS-project-structure
+    spec), covering every cardinality (1->1, N->1, 1->M, N->M).
+
+    Folds the deprecated flat scalar fields (``results_location``,
+    ``results_hash``, ``results_wandb_run``) into 1-element lists when the new
+    list fields (``scores:``, ``runs:``) are absent/empty — so every existing
+    flat note (and rv's demo-research examples) verifies UNCHANGED. There is
+    exactly one canonical form (the lists) plus this read-only shim, never two
+    co-equal forms.
+
+    A legacy ``results_hash`` value of "" or the REPRO_SENTINEL placeholder is
+    treated as "not yet run" (no scores entry synthesized) — matching the
+    existing not-yet-run semantics of check_dataset_provenance_warn /
+    check_repro_sentinel_lint, which is the standing "empty run" gate as of
+    SR-EXP-REPRO. A legacy `results_wandb_run` is folded the same way (empty ->
+    no runs entry).
+
+    Shared by note.py (check_result_provenance + the sibling lints) and
+    result.py (rv result assert's metric/hash reads) — one source of truth.
+    """
+    scores_raw = fields.get("scores", [])
+    scores: list[dict[str, str]] = []
+    if isinstance(scores_raw, list):
+        scores = [item for item in scores_raw if isinstance(item, dict)]
+
+    if not scores:
+        legacy_hash = fields.get("results_hash", "")
+        legacy_hash = legacy_hash.strip() if isinstance(legacy_hash, str) else ""
+        if legacy_hash == REPRO_SENTINEL:
+            legacy_hash = ""  # sentinel = "not-recorded" placeholder, not a real hash
+        legacy_location = fields.get("results_location", "")
+        legacy_location = (
+            legacy_location.strip() if isinstance(legacy_location, str) else ""
+        )
+        # Trigger on EITHER field present (not hash-only): a location-only
+        # legacy note (e.g. results_location filled by hand, hash not yet
+        # computed) still counts as "has a result to check" — symmetric with
+        # the per-entry check below, which flags a missing hash as its own
+        # violation rather than silently skipping the whole entry.
+        if legacy_hash or legacy_location:
+            scores = [{"location": legacy_location, "hash": legacy_hash}]
+
+    runs_raw = fields.get("runs", [])
+    runs: list[str] = []
+    if isinstance(runs_raw, list):
+        runs = [item for item in runs_raw if isinstance(item, str) and item.strip()]
+
+    if not runs:
+        legacy_run = fields.get("results_wandb_run", "")
+        legacy_run = legacy_run.strip() if isinstance(legacy_run, str) else ""
+        if legacy_run:
+            runs = [legacy_run]
+
+    return {"runs": runs, "scores": scores}
+
+
 def check_result_provenance(exp_note_path: Path) -> list[str]:
-    """Validate the results_* frontmatter fields in an experiment note.
+    """Validate the results attachment (``scores:`` list, D2/D8) of an experiment note.
 
-    When to use: called by cmd_check (rv note check) and the DAG complete gate
-    to validate that a filled results attachment is hash-consistent.
+    When to use: called by cmd_check (rv note check) to validate that every
+    filled score anchor is hash-consistent.
 
-    Checks (only when results_hash is non-empty):
-      1. results_location is non-empty
-      2. For local file paths: the file exists AND sha256 matches results_hash
+    Reworked (PR-3) to iterate ``_normalize_results(fields)["scores"]`` — the
+    generalized N->M results schema — instead of a single flat
+    results_location/results_hash pair:
+      - Empty scores list -> not yet run -> [] (unchanged skip semantics;
+        empty is NOT a violation).
+      - Per entry: ``location`` and ``hash`` both required (fail-closed on
+        either missing); local path -> file exists AND sha256 matches;
+        URL/DOI/remote -> trust the recorded hash (zero-infra).
+      - ALL per-entry violations are aggregated (every bad score is reported,
+        not just the first) — the DAG complete-gate now enforces every score
+        anchor, not one.
 
-    Empty fields (un-pulled, unfilled) are skipped — not a violation.
-    URL/remote results_location trusts the recorded hash (zero-infra, like dataset:).
+    Legacy flat notes (results_location/results_hash) verify unchanged via the
+    _normalize_results shim (folded into a 1-element scores list).
 
     Returns a list of violation strings (empty = OK, gate passes).
-    SR-WB. Reuses the streaming hash pattern from wait_for._verify_local_file_hash.
+    SR-WB / PR-3. Reuses the streaming hash pattern from
+    wait_for._verify_local_file_hash.
     """
     if not exp_note_path.exists():
         return [f"experiment note does not exist: {exp_note_path}"]
@@ -776,45 +916,61 @@ def check_result_provenance(exp_note_path: Path) -> list[str]:
         return [f"cannot read experiment note {exp_note_path}: {e}"]
 
     fields, _ = _parse_frontmatter(text)
-    results_hash = fields.get("results_hash", "").strip()
-    results_location = fields.get("results_location", "").strip()
+    scores = _normalize_results(fields)["scores"]
 
-    # Empty hash → not yet filled, skip validation
-    if not results_hash:
+    # Empty scores list → not yet run, skip validation (unchanged semantics)
+    if not scores:
         return []
 
-    # Hash is set → location must also be set
-    if not results_location:
-        return [
-            f"{exp_note_path.name}: results_hash is set but results_location is empty"
-        ]
+    violations: list[str] = []
+    for i, entry in enumerate(scores):
+        label = entry.get("label") or entry.get("location") or f"scores[{i}]"
+        score_hash = (entry.get("hash") or "").strip()
+        location = (entry.get("location") or "").strip()
 
-    # For URL / DOI / remote: trust the recorded hash (zero-infra, no fetch)
-    if not _is_local_results_path(results_location):
-        return []
+        if not score_hash:
+            violations.append(
+                f"{exp_note_path.name}: scores entry {label!r} is missing 'hash'"
+            )
+            continue
 
-    # Local file: verify existence + hash
-    artifact = Path(results_location)
-    if not artifact.exists():
-        return [
-            f"{exp_note_path.name}: results artifact not found: {results_location}"
-        ]
+        if not location:
+            violations.append(
+                f"{exp_note_path.name}: scores entry {label!r}: "
+                f"hash is set but 'location' is empty"
+            )
+            continue
 
-    if results_hash.startswith("sha256:"):
-        expected_hex = results_hash[len("sha256:"):]
-        try:
-            actual_hex = _hash_file(artifact)[len("sha256:"):]
-        except OSError as e:
-            return [f"{exp_note_path.name}: cannot read results artifact: {e}"]
+        # For URL / DOI / remote: trust the recorded hash (zero-infra, no fetch)
+        if not _is_local_results_path(location):
+            continue
 
-        if actual_hex != expected_hex:
-            return [
-                f"{exp_note_path.name}: results hash mismatch "
-                f"(expected sha256:{expected_hex[:12]}…, "
-                f"actual sha256:{actual_hex[:12]}…)"
-            ]
+        # Local file: verify existence + hash
+        artifact = Path(location)
+        if not artifact.exists():
+            violations.append(
+                f"{exp_note_path.name}: results artifact not found: {location}"
+            )
+            continue
 
-    return []
+        if score_hash.startswith("sha256:"):
+            expected_hex = score_hash[len("sha256:"):]
+            try:
+                actual_hex = _hash_file(artifact)[len("sha256:"):]
+            except OSError as e:
+                violations.append(
+                    f"{exp_note_path.name}: cannot read results artifact {location}: {e}"
+                )
+                continue
+
+            if actual_hex != expected_hex:
+                violations.append(
+                    f"{exp_note_path.name}: results hash mismatch for {location} "
+                    f"(expected sha256:{expected_hex[:12]}…, "
+                    f"actual sha256:{actual_hex[:12]}…)"
+                )
+
+    return violations
 
 
 # ---------------------------------------------------------------------------
@@ -825,7 +981,9 @@ def check_dataset_provenance_warn(exp_note_path: Path) -> list[str]:
     """F24: warn when a ran experiment has unrecorded dataset provenance.
 
     Fires when:
-      - results_hash is non-empty AND not the sentinel (experiment ran)
+      - _normalize_results(fields)["scores"] is non-empty (any score recorded
+        — PR-3 retarget: any score anchor, list form or the legacy flat-field
+        shim, counts as "ran")
       - repro_dataset_id is still the sentinel (no datasets note linked)
 
     This is a SURFACE, never a BLOCK — INFO/WARN only.
@@ -846,10 +1004,13 @@ def check_dataset_provenance_warn(exp_note_path: Path) -> list[str]:
         return []
 
     fields, _ = _parse_frontmatter(text)
-    results_hash = fields.get("results_hash", "").strip()
 
-    # No results yet → warn does not fire (experiment not yet run)
-    if not results_hash or results_hash == REPRO_SENTINEL:
+    # No results yet → warn does not fire (experiment not yet run). PR-3: gate
+    # on the normalized scores list (any score recorded), not the raw flat
+    # results_hash field — this is what makes the warn fire for list-form
+    # scores: too, while _normalize_results' own REPRO_SENTINEL exclusion
+    # preserves the legacy "results_hash == sentinel" not-yet-run case.
+    if not _normalize_results(fields)["scores"]:
         return []
 
     dataset_id = fields.get("repro_dataset_id", "").strip()
@@ -874,20 +1035,21 @@ def check_dataset_provenance_warn(exp_note_path: Path) -> list[str]:
 
 
 def check_repro_sentinel_lint(exp_note_path: Path) -> list[str]:
-    """Warn when results_hash is set but required repro_* fields are still the sentinel.
+    """Warn when a score is recorded but required repro_* fields are still the sentinel.
 
     When to use: called by cmd_check (rv note check) alongside check_result_provenance
     for experiments notes. Surfaces manual gaps RIGHT AFTER the run, not at paper-writing
     time — when the information is still fresh and accessible.
 
     Lint fires only when:
-      - results_hash is non-empty AND not the sentinel (results exist)
+      - _normalize_results(fields)["scores"] is non-empty (PR-3 retarget: any
+        score recorded, list form or the legacy flat-field shim)
       - At least one REPRO_LINT_REQUIRED field is still the sentinel
 
-    Empty results_hash (experiment not yet run) → no lint (not a violation).
+    No scores recorded (experiment not yet run) → no lint (not a violation).
 
     Returns a list of warning strings prefixed with "[repro-lint] WARN:" (empty = clean).
-    SR-EXP-REPRO. Anti-fabrication: the sentinel is an honest hole, not a guessed value.
+    SR-EXP-REPRO / PR-3. Anti-fabrication: the sentinel is an honest hole, not a guessed value.
     """
     if not exp_note_path.exists():
         return []
@@ -898,10 +1060,9 @@ def check_repro_sentinel_lint(exp_note_path: Path) -> list[str]:
         return []
 
     fields, _ = _parse_frontmatter(text)
-    results_hash = fields.get("results_hash", "").strip()
 
     # No results yet → lint does not fire
-    if not results_hash or results_hash == REPRO_SENTINEL:
+    if not _normalize_results(fields)["scores"]:
         return []
 
     warnings: list[str] = []

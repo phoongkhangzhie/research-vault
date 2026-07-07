@@ -634,14 +634,20 @@ class TestManualResultsFallback:
         assert issues == []
 
     def test_cmd_new_experiments_template_has_results_fields(self, tmp_instance):
-        """rv note new <project> experiments <title> includes the 4 results_* placeholder fields."""
+        """rv note new <project> experiments <title> scaffolds the PR-3 results
+        attachment: empty runs:/scores: lists (D2) + results_commit — the
+        deprecated flat results_location/results_hash/results_wandb_run fields
+        are no longer scaffolded (still read via the _normalize_results shim
+        for legacy notes)."""
         cfg = load_config(reload=True)
         path = note_mod.cmd_new("demo-research", "experiments", "My Experiment", config=cfg)
         text = path.read_text()
-        assert "results_location:" in text
-        assert "results_hash:" in text
-        assert "results_wandb_run:" in text
+        assert "runs:" in text
+        assert "scores:" in text
         assert "results_commit:" in text
+        assert "results_location:" not in text
+        assert "results_hash:" not in text
+        assert "results_wandb_run:" not in text
 
 
 # ---------------------------------------------------------------------------

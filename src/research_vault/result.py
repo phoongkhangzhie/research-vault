@@ -40,31 +40,16 @@ import time
 from pathlib import Path
 
 from .hashing import hash_file as _hash_file  # canonical file hasher — never duplicate
+# PR-3 (D2): _parse_frontmatter + _normalize_results are the ONE canonical
+# frontmatter parser + results-shim — import from note.py rather than
+# maintaining a second mirror (the previous local copy only understood flat
+# scalars and could not round-trip the new scores:/runs: lists).
+from .note import _parse_frontmatter, _normalize_results
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
-    """Parse YAML frontmatter — mirrors note.py._parse_frontmatter contract."""
-    import re
-    if not text.startswith("---"):
-        return {}, text
-    end = text.find("\n---", 3)
-    if end == -1:
-        return {}, text
-    fm_block = text[3:end].strip()
-    body = text[end + 4:].lstrip("\n")
-    fields: dict[str, str] = {}
-    for line in fm_block.splitlines():
-        m = re.match(r"^(\w[\w_-]*):\s*(.*)$", line)
-        if m:
-            key, val = m.group(1), m.group(2).strip()
-            if val.startswith(("'", '"')) and val.endswith(val[0]):
-                val = val[1:-1]
-            fields[key] = val
-    return fields, body
 
 
 def _verify_results_hash(results_location: str, results_hash: str) -> str | None:
@@ -387,8 +372,29 @@ def _run_assert(args: argparse.Namespace) -> int:
         return 1
 
     fields, _ = _parse_frontmatter(text)
-    results_location = fields.get("results_location", "").strip()
-    results_hash = fields.get("results_hash", "").strip()
+    # PR-3 (D2): read via the shared _normalize_results shim. For 1->1 / N->1
+    # (the only cardinalities `rv result assert` supports today — M>1 score
+    # selection is PR-3b, deferred) this targets the single scores[0] entry,
+    # which is unchanged behavior for every legacy flat note through the shim.
+    scores = _normalize_results(fields)["scores"]
+    if not scores:
+        print(
+            f"rv result assert: experiment note {exp_note_path.name} has no "
+            f"scores recorded — run rv wandb pull, or set scores:/results_location "
+            f"manually.",
+            file=sys.stderr,
+        )
+        return 1
+    if len(scores) > 1:
+        print(
+            f"rv result assert: experiment note {exp_note_path.name} has "
+            f"{len(scores)} scores entries — multi-score selection (--score <slug>) "
+            f"is not yet supported (PR-3b); targeting the first entry "
+            f"({scores[0].get('location', '')!r}).",
+            file=sys.stderr,
+        )
+    results_location = (scores[0].get("location") or "").strip()
+    results_hash = (scores[0].get("hash") or "").strip()
 
     if not results_location:
         print(
