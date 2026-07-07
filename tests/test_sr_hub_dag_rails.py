@@ -90,22 +90,30 @@ notes_dir = "{proj_notes}"
 
 
 class TestCatalogCompleteness:
-    """A1: catalog has exactly 2 loops with required structure (SR-RM-FIGMS)."""
+    """A1: catalog has exactly 3 loops with required structure.
 
-    def test_two_loops(self):
-        assert len(LOOP_CATALOG) == 2
+    SR-RM-FIGMS removed figure + manuscript (2 loops); PR-M1 re-instantiates
+    the manuscript loop with a type system (figure stays removed).
+    """
+
+    def test_three_loops(self):
+        assert len(LOOP_CATALOG) == 3
 
     def test_all_keys_match(self):
-        expected = {"experiment", "lit-review"}
+        expected = {"experiment", "lit-review", "manuscript"}
         assert set(all_keys()) == expected
 
     def test_no_figure_loop(self):
-        """SR-RM-FIGMS: figure loop removed."""
+        """SR-RM-FIGMS: figure loop removed (still absent — not reinstated)."""
         assert get_loop("figure") is None
 
-    def test_no_manuscript_loop(self):
-        """SR-RM-FIGMS: manuscript loop removed."""
-        assert get_loop("manuscript") is None
+    def test_manuscript_loop_reinstated(self):
+        """PR-M1: the manuscript loop is reinstated with a type system.
+
+        SR-RM-FIGMS removed it; PR-M1 rebuilds it type-generic — this is the
+        reversal of the old test_no_manuscript_loop pin.
+        """
+        assert get_loop("manuscript") is not None
 
     def test_each_entry_has_scaffolder_or_none(self):
         for entry in LOOP_CATALOG:
@@ -123,6 +131,13 @@ class TestCatalogCompleteness:
         assert lr is not None
         assert lr.scaffolder is not None
         assert "rv review" in lr.scaffolder
+
+    def test_manuscript_has_scaffolder(self):
+        """PR-M1: manuscript loop is scaffolded via `rv manuscript new`."""
+        ms = get_loop("manuscript")
+        assert ms is not None
+        assert ms.scaffolder is not None
+        assert "rv manuscript" in ms.scaffolder
 
     def test_topology_summary_non_empty(self):
         for entry in LOOP_CATALOG:
@@ -173,6 +188,17 @@ class TestCatalogCompleteness:
         assert "approve-protocol" in gate_ids
         assert "coverage-gate" in gate_ids
         assert "approve-review" in gate_ids
+
+    def test_manuscript_gate_names_match_scaffolder_output(self):
+        """Catalog gate IDs must match what manuscript/__init__.py emits (PR-M1).
+
+        Ground truth from manuscript/__init__.py _build_phase2_manifest:
+          approve-manuscript (the terminal gate for every registered type).
+        """
+        ms = get_loop("manuscript")
+        assert ms is not None
+        gate_ids = {g.node_id for g in ms.human_go_gates}
+        assert "approve-manuscript" in gate_ids
 
     def test_experiment_freeze_gate_has_freeze_action(self):
         """human-go-plan gate must carry the freeze_action (K-3 reminder)."""
@@ -272,6 +298,38 @@ class TestCatalogGrounding:
                 f"Phase-1 gates: {p1_ids}, Phase-2 gates: {p2_ids}"
             )
 
+    def test_manuscript_gates_in_scaffolder_output(self, tmp_path):
+        """manuscript catalog gates must appear in manuscript/__init__.py scaffolder output.
+
+        PR-M1: the stub `lit-review` ManuscriptType has phase1_builder=None
+        (pass-through — no Phase-1 manifest at all), so only Phase-2 is
+        checked here. Phase-2 gate: approve-manuscript.
+        """
+        from research_vault.manuscript import _build_phase2_manifest
+        from research_vault.manuscript.types import get_type
+
+        project_notes_dir = tmp_path / "notes"
+        project_notes_dir.mkdir()
+        tree_root = tmp_path / "notes" / "manuscripts" / "grounding-ms"
+        tree_root.mkdir(parents=True)
+        (tree_root / "sections").mkdir()
+
+        ms_type = get_type("lit-review")
+        assert ms_type is not None
+
+        p2 = _build_phase2_manifest(
+            "grounding-test", "grounding-ms", ms_type, project_notes_dir, tree_root,
+        )
+        p2_ids = {n["id"] for n in p2.get("nodes", []) if n.get("type") == "human-go"}
+
+        ms = get_loop("manuscript")
+        assert ms is not None
+        for gate in ms.human_go_gates:
+            assert gate.node_id in p2_ids, (
+                f"Catalog gate {gate.node_id!r} NOT in manuscript scaffolder output. "
+                f"Phase-2 gates: {p2_ids}"
+            )
+
 class TestDagTemplatesVerb:
     """A2: rv dag templates subcommand is registered and prints parseable output."""
 
@@ -282,7 +340,7 @@ class TestDagTemplatesVerb:
         args = p.parse_args(["templates"])
         assert args.dag_cmd == "templates"
 
-    def test_templates_prints_two_loops(self, capsys):
+    def test_templates_prints_three_loops(self, capsys):
         from research_vault.dag.verbs import build_parser, run
         p = build_parser()
         args = p.parse_args(["templates"])
@@ -291,9 +349,9 @@ class TestDagTemplatesVerb:
         assert rc == 0
         assert "experiment" in out
         assert "lit-review" in out
-        # SR-RM-FIGMS: figure and manuscript removed
+        # PR-M1: manuscript loop reinstated (figure stays removed — SR-RM-FIGMS)
+        assert "manuscript" in out
         assert "figure" not in out
-        assert "manuscript" not in out
 
     def test_templates_output_contains_gates(self, capsys):
         from research_vault.dag.verbs import build_parser, run
@@ -307,6 +365,8 @@ class TestDagTemplatesVerb:
         # Lit-review gates from review/__init__.py scaffolder
         assert "approve-protocol" in out
         assert "coverage-gate" in out
+        # Manuscript gate from manuscript/__init__.py scaffolder (PR-M1)
+        assert "approve-manuscript" in out
 
     def test_templates_output_mentions_scaffolders(self, capsys):
         from research_vault.dag.verbs import build_parser, run
@@ -316,8 +376,8 @@ class TestDagTemplatesVerb:
         out = capsys.readouterr().out
         assert "rv experiment" in out
         assert "rv review" in out
-        # SR-RM-FIGMS: rv manuscript and rv figure scaffolders removed
-        assert "rv manuscript" not in out
+        # PR-M1: rv manuscript scaffolder reinstated (rv figure stays removed — SR-RM-FIGMS)
+        assert "rv manuscript" in out
         assert "rv figure" not in out
 
 

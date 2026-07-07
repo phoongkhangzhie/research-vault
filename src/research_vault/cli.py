@@ -653,6 +653,34 @@ _VERB_REGISTRY: dict[str, dict] = {
         ),
         "sr": "SR-LR-1, SR-LR-2, SR-GAP-ROUTE, SR-GAP-CLOSE",
     },
+    # --- PR-M1 (the manuscript loop, re-instantiated with a type system) ---
+    "manuscript": {
+        "module": "research_vault.manuscript.verbs",
+        "when_to_use": (
+            "When you need to turn OKF notes into a submittable manuscript — the "
+            "type-generic manuscript loop (PR-M1). Use `rv manuscript <project> new "
+            "<slug> --type <type>` to scaffold the per-manuscript folder "
+            "(manuscripts/<slug>/{_manuscript.md, main.tex, sections/, refs.bib, "
+            "figures/} — NOT an OKF taxonomy, design §0/§12). "
+            "`--type lit-review` is the survey/review-paper specialization "
+            "(PR-M1 ships it as an interface-conforming stub — one placeholder "
+            "section; the real 9-row survey section table lands in PR-M6). "
+            "Use `rv manuscript <project> expand <slug>` to emit the Phase-2 draft "
+            "manifest generically from the registered type's section_set: "
+            "section(s) -> assemble -> [HG:approve-manuscript]. "
+            "Use `rv manuscript <project> review <slug>` for the review-revise "
+            "board — PR-M5 stub in PR-M1 (raises loudly; not yet implemented). "
+            "Use `rv manuscript <project> list` to enumerate manuscripts for a project. "
+            "Anti-pattern: do NOT hand-write a .tex and hand-collect citations/numbers "
+            "from OKF piles — run `rv manuscript new` so the per-manuscript folder "
+            "carries the type-generic scaffold that the hermetic .bib build (PR-M2), "
+            "the fidelity gates (PR-M3), the equation machinery (PR-M4), and the "
+            "review-revise board (PR-M5) all plug into as they land. "
+            "Anti-pattern: do NOT pass an unregistered --type and expect a silent "
+            "fallback — an unknown type fails loudly (no default type)."
+        ),
+        "sr": "PR-M1",
+    },
 }
 
 
@@ -666,6 +694,7 @@ _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
     ("Setup",        ["init", "update", "onboard", "check", "bootstrap", "project", "wt", "git-discipline", "git-health"]),
     ("Lit-review",   ["research", "cite", "review"]),
     ("Experiment",   ["experiment", "dag", "result", "plan", "wandb", "compute", "doctor"]),
+    ("Manuscript",   ["manuscript"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS
     ("Infra/git",    ["lint", "mdstore", "wait-for", "plugins", "approval", "observability"]),
     ("Coordination", ["status", "orient", "control", "task", "note", "devlog", "role", "build-agents"]),

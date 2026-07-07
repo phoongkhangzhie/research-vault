@@ -227,6 +227,34 @@ LOOP_CATALOG: list[LoopEntry] = [
         ),
     ),
 
+    # PR-M1: the type-generic manuscript loop, re-instantiated with a type system.
+    # Gate grounded in manuscript/__init__.py _build_phase2_manifest (approve-manuscript,
+    # the terminal node emitted for every registered type — see TestCatalogGrounding).
+    # A type's own Phase-1 (e.g. lit-review's future framework-selection sub-loop,
+    # design §5, PR-M6) is type-optional — the PR-M1 stub type has no Phase-1
+    # (phase1_builder=None, pass-through), so only approve-manuscript is grounded here.
+    LoopEntry(
+        key="manuscript",
+        entry_verb="rv dag run <project-notes-dir>/manuscripts/<slug>/phase2-dag.json",
+        scaffolder="rv manuscript <project> new <slug> --type <type>",
+        human_go_gates=[
+            LoopGate(
+                node_id="approve-manuscript",
+                label=(
+                    "Approve manuscript draft (structural/fidelity gates PR-M2/M3, "
+                    "equation gate PR-M4, and the review-revise board PR-M5 plug in "
+                    "ahead of this gate as they land)"
+                ),
+                freeze_action=None,
+            ),
+        ],
+        topology_summary=(
+            "new --type <type> → (type Phase-1, pass-through in PR-M1) → "
+            "expand → section(s) (type-generic, from ManuscriptType.section_set) → "
+            "assemble → [HG:approve-manuscript]"
+        ),
+    ),
+
 ]
 
 
