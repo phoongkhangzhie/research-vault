@@ -352,6 +352,8 @@ def cmd_new(
         "created": _today(),
         "slug": slug,
         "spine": "",          # filled by approve-framework (PR-M6, lit-review only)
+        "spine_shape": "",    # PR-M6: one of pipeline|evolution-arc|n-axis|coupled-taxonomies|custom
+        "branches": "",       # PR-M6: scalar list of the frozen framework's top-level branch names
         "corpus_hash": "",    # stale-corpus guard (PR-M6)
         "run_state": "",      # dag_run id, set once Phase-1/2 is emitted
         "manuscript_location": str(tree_root / "main.tex"),

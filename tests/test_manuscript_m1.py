@@ -80,15 +80,34 @@ def test_all_type_keys_includes_lit_review():
 
 
 def test_lit_review_section_set_nonempty_stub():
-    """PR-M1: the stub has >=1 section so the machinery is exercisable."""
+    """The section-set is non-empty so the machinery is exercisable.
+
+    PR-M6: this is now the real 9-row survey table (design §3), superseding
+    the PR-M1 stub's single placeholder section."""
     ms_type = get_type("lit-review")
     assert len(ms_type.section_set) >= 1
 
 
-def test_lit_review_phase1_builder_is_none_passthrough():
-    """PR-M1 stub: no type-specific Phase-1 yet (design §1 pass-through)."""
+def test_lit_review_phase1_builder_is_real_now():
+    """PR-M6: lit-review's real Phase-1 (framework selection, design §5) is
+    now populated — supersedes the PR-M1 stub's pass-through."""
     ms_type = get_type("lit-review")
-    assert ms_type.phase1_builder is None
+    assert ms_type.phase1_builder is not None
+
+
+def test_passthrough_type_has_no_phase1():
+    """A type with no framework/human-owned-shape step (phase1_builder=None)
+    is still a valid, exercisable pass-through (design §1) — proven with a
+    dedicated stub type, since lit-review itself is no longer pass-through
+    (PR-M6)."""
+    from research_vault.manuscript.types import ManuscriptType, SectionSpec, register_type
+
+    passthrough_type = ManuscriptType(
+        key="test-passthrough-type",
+        section_set=(SectionSpec(name="draft"),),
+    )
+    register_type(passthrough_type)
+    assert get_type("test-passthrough-type").phase1_builder is None
 
 
 # ---------------------------------------------------------------------------
@@ -175,14 +194,43 @@ def test_cmd_new_duplicate_slug_raises(cfg):
 
 
 def test_cmd_new_passthrough_type_returns_none_manifest(cfg):
-    """lit-review stub has phase1_builder=None -> no Phase-1 manifest emitted."""
+    """A pass-through type (phase1_builder=None) -> no Phase-1 manifest emitted.
+
+    PR-M6: lit-review itself now has a REAL Phase-1 (framework selection,
+    design §5) — this is proven separately below
+    (test_cmd_new_lit_review_emits_phase1_manifest). Pass-through behavior is
+    proven here with a dedicated stub type (design §1's contract for a type
+    with no framework/human-owned-shape step).
+    """
     from research_vault.manuscript import cmd_new
+    from research_vault.manuscript.types import ManuscriptType, SectionSpec, register_type
+
+    passthrough_type = ManuscriptType(
+        key="test-passthrough-type-2",
+        section_set=(SectionSpec(name="draft"),),
+    )
+    register_type(passthrough_type)
 
     _, tree_root, manifest = cmd_new(
-        "demo-research", "survey-passthrough", ms_type_key="lit-review", config=cfg,
+        "demo-research", "survey-passthrough", ms_type_key="test-passthrough-type-2", config=cfg,
     )
     assert manifest is None
     assert not (tree_root / "phase1-dag.json").exists()
+
+
+def test_cmd_new_lit_review_emits_phase1_manifest(cfg):
+    """PR-M6: lit-review's real Phase-1 (framework selection) IS emitted."""
+    from research_vault.manuscript import cmd_new
+
+    _, tree_root, manifest = cmd_new(
+        "demo-research", "survey-lr-phase1", ms_type_key="lit-review", config=cfg,
+    )
+    assert manifest is not None
+    assert (tree_root / "phase1-dag.json").exists()
+    ids = [n["id"] for n in manifest["nodes"]]
+    assert ids == ["scope", "framework-propose", "approve-framework"]
+    hg = next(n for n in manifest["nodes"] if n["id"] == "approve-framework")
+    assert hg["type"] == "human-go"
 
 
 # ---------------------------------------------------------------------------
@@ -198,15 +246,22 @@ def test_cmd_expand_emits_valid_manifest(cfg):
 
 
 def test_cmd_expand_node_shape(cfg):
+    """PR-M6: the real 9-row lit-review section-set (design §3), not the
+    PR-M1 stub's single 'draft' section."""
     from research_vault.manuscript import cmd_new, cmd_expand
 
     cmd_new("demo-research", "survey-shape2", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-shape2", config=cfg)
     ids = [n["id"] for n in manifest["nodes"]]
-    assert "draft" in ids       # the stub section
-    assert "assemble" in ids
-    assert "approve-manuscript" in ids
-    assert ids.index("draft") < ids.index("assemble") < ids.index("approve-manuscript")
+    for expected in (
+        "introduction", "prisma-scope", "framework", "thematic-sections",
+        "cross-cutting-analysis", "open-problems", "conclusion", "references",
+        "abstract", "assemble", "approve-manuscript",
+    ):
+        assert expected in ids, f"{expected!r} missing from {ids}"
+    assert ids.index("abstract") < ids.index("assemble") < ids.index("approve-manuscript")
+    # abstract is drafted LAST among the sections (design §3: "S (last)")
+    assert ids.index("abstract") == 8
 
 
 def test_cmd_expand_approve_manuscript_is_human_go(cfg):
@@ -233,8 +288,8 @@ def test_cmd_expand_reads_are_absolute(cfg):
 
     cmd_new("demo-research", "survey-reads", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-reads", config=cfg)
-    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
-    for r in draft_node["reads"]:
+    intro_node = next(n for n in manifest["nodes"] if n["id"] == "introduction")
+    for r in intro_node["reads"]:
         assert Path(r).is_absolute(), f"reads: pointer not absolute: {r}"
 
 
