@@ -1077,14 +1077,28 @@ def check_provenance_chain(exp_note_path: Path) -> list[str]:
         hashes to repro_config_hash              (CHECK-2, folded in)
       - at least one of repro_dataset_id or repro_dataset_hash (dataset link)
 
-    Per-field REPRO_NOT_APPLICABLE exemption: mirrors check_repro_sentinel_lint's
-    existing semantics exactly — any of the above fields set to the explicit
-    REPRO_NOT_APPLICABLE marker is honored as "genuinely N/A" (a proxy/no-run
-    analysis) and is NOT flagged. This is the mitigation for the one risk the
-    design calls out: CHECK-1 riding the complete-gate must not block a
-    legitimate proxy/no-run finding. The repro_config_location/repro_config_hash
-    pair is treated as ONE unit: either being REPRO_NOT_APPLICABLE exempts the
-    whole config-artifact requirement (hash-match is meaningless without both).
+    Per-field REPRO_NOT_APPLICABLE exemption — TIGHTENED (operator review call,
+    2026-07-07): the exemption does NOT apply uniformly to every field.
+
+      - results_commit and repro_seed are ALWAYS required once a result is
+        claimed. A result-claiming note always has a producing commit and a
+        seed; REPRO_NOT_APPLICABLE is REJECTED on these two fields (same as
+        missing/sentinel — HARD block). This preserves the gate's core
+        guarantee: every claimed result traces to a commit + seed. Widening
+        this to "any field can escape via not-applicable" would let a note
+        dodge the entire chain by marking results_commit itself N/A, which
+        defeats the point of the gate.
+      - repro_config_location/repro_config_hash (config-artifact pair) and
+        the dataset link (repro_dataset_id/repro_dataset_hash) REMAIN
+        exemptible via REPRO_NOT_APPLICABLE — a legitimately-no-config
+        (in-memory) analysis or a no-external-dataset study can honestly
+        declare not-applicable without being forced to fabricate a field it
+        doesn't have. This is the mitigation for the one risk the design
+        calls out: CHECK-1 riding the complete-gate must not block a
+        legitimate proxy/no-run finding on fields where N/A is honest. The
+        repro_config_location/repro_config_hash pair is treated as ONE unit:
+        either being REPRO_NOT_APPLICABLE exempts the whole config-artifact
+        requirement (hash-match is meaningless without both).
 
     CHECK-3a (notebook invariant, D-CC-1): no scores[] entry's location may end
     in ".ipynb" — a claimed result's number must never be notebook-sourced.
@@ -1126,24 +1140,30 @@ def check_provenance_chain(exp_note_path: Path) -> list[str]:
                 f"(CHECK-3a, D-CC-1); move the computation into code/src/ and re-run"
             )
 
-    # results_commit — git SHA of the producing code
+    # results_commit — git SHA of the producing code. ALWAYS required — the
+    # REPRO_NOT_APPLICABLE exemption does NOT apply here (tightened 2026-07-07):
+    # a result-claiming note always has a producing commit, so not-applicable
+    # is rejected exactly like missing/sentinel.
     commit = fields.get("results_commit", "").strip()
-    if commit != REPRO_NOT_APPLICABLE and (not commit or commit == REPRO_SENTINEL):
+    if not commit or commit == REPRO_SENTINEL or commit == REPRO_NOT_APPLICABLE:
         violations.append(
             f"{name}: results claimed (scores set) but 'results_commit' is "
-            f"missing/sentinel — record the git SHA of the producing code "
-            f"(CHECK-1), or set results_commit: {REPRO_NOT_APPLICABLE!r} if this "
-            f"is a proxy/no-run analysis"
+            f"missing/sentinel/not-applicable — record the git SHA of the "
+            f"producing code (CHECK-1); this field is always required and "
+            f"cannot be marked {REPRO_NOT_APPLICABLE!r}"
         )
 
-    # repro_seed — R1: promoted from the soft sentinel-lint into this HARD chain
+    # repro_seed — R1: promoted from the soft sentinel-lint into this HARD
+    # chain. ALWAYS required — same tightening as results_commit: a
+    # result-claiming note always has a seed, so not-applicable is rejected.
     seed = fields.get("repro_seed", "").strip()
-    if seed != REPRO_NOT_APPLICABLE and (not seed or seed == REPRO_SENTINEL):
+    if not seed or seed == REPRO_SENTINEL or seed == REPRO_NOT_APPLICABLE:
         violations.append(
-            f"{name}: results claimed but 'repro_seed' is missing/sentinel — "
-            f"a seedless claimed result is not reproducible (CHECK-1/CHECK-4a, "
-            f"R1); record the seed, or set repro_seed: {REPRO_NOT_APPLICABLE!r} "
-            f"if genuinely N/A (proxy/no-run)"
+            f"{name}: results claimed but 'repro_seed' is "
+            f"missing/sentinel/not-applicable — a seedless claimed result is "
+            f"not reproducible (CHECK-1/CHECK-4a, R1); record the seed — "
+            f"this field is always required and cannot be marked "
+            f"{REPRO_NOT_APPLICABLE!r}"
         )
 
     # repro_config_location + repro_config_hash + config-hash-match (CHECK-2)

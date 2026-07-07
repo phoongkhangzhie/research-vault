@@ -130,14 +130,18 @@ class TestResultsCommit:
         violations = check_provenance_chain(note)
         assert any("results_commit" in v for v in violations)
 
-    def test_not_applicable_results_commit_exempt(self, tmp_path, config_artifact):
+    def test_not_applicable_results_commit_blocks(self, tmp_path, config_artifact):
+        """TIGHTENED (2026-07-07, operator review call): results_commit is
+        ALWAYS required once a result is claimed — REPRO_NOT_APPLICABLE no
+        longer exempts it. A note cannot escape the "traces to a commit"
+        guarantee by marking results_commit itself not-applicable."""
         config_path, config_hash = config_artifact
         fields = _complete_fields(config_path, config_hash)
         fields["results_commit"] = REPRO_NOT_APPLICABLE
         note = tmp_path / "exp.md"
         _write_note(note, fields)
         violations = check_provenance_chain(note)
-        assert not any("results_commit" in v for v in violations)
+        assert any("results_commit" in v for v in violations)
 
 
 # ===========================================================================
@@ -154,14 +158,17 @@ class TestReproSeed:
         violations = check_provenance_chain(note)
         assert any("repro_seed" in v for v in violations)
 
-    def test_not_applicable_seed_exempt(self, tmp_path, config_artifact):
+    def test_not_applicable_seed_blocks(self, tmp_path, config_artifact):
+        """TIGHTENED (2026-07-07, operator review call): repro_seed is ALWAYS
+        required once a result is claimed — REPRO_NOT_APPLICABLE no longer
+        exempts it. Same rationale as results_commit."""
         config_path, config_hash = config_artifact
         fields = _complete_fields(config_path, config_hash)
         fields["repro_seed"] = REPRO_NOT_APPLICABLE
         note = tmp_path / "exp.md"
         _write_note(note, fields)
         violations = check_provenance_chain(note)
-        assert not any("repro_seed" in v for v in violations)
+        assert any("repro_seed" in v for v in violations)
 
 
 # ===========================================================================
@@ -188,14 +195,18 @@ class TestConfigChain:
         assert any("repro_config_hash" in v for v in violations)
 
     def test_config_both_not_applicable_exempt(self, tmp_path):
+        """results_commit/repro_seed are ALWAYS required (tightened 2026-07-07)
+        so this proxy fixture supplies real values for those two; only the
+        genuinely-exemptible fields (config artifact, dataset link) are
+        marked not-applicable."""
         note = tmp_path / "exp.md"
         fields = {
             "type": "experiments",
             "title": "Proxy",
             "results_hash": "sha256:" + "a" * 64,
             "results_location": "results/scores.jsonl",
-            "results_commit": REPRO_NOT_APPLICABLE,
-            "repro_seed": REPRO_NOT_APPLICABLE,
+            "results_commit": "abc123deadbeef",
+            "repro_seed": "42",
             "repro_config_location": REPRO_NOT_APPLICABLE,
             "repro_config_hash": REPRO_NOT_APPLICABLE,
             "repro_dataset_id": REPRO_NOT_APPLICABLE,
