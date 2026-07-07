@@ -687,13 +687,31 @@ def _stamp_review_meta(note_path: Path, result: dict[str, Any]) -> None:
     Never says "approved" — records ``cleared``/``cleared_at``/the honest
     report string, appended (never overwrites prior runs' history).
 
-    sr: PR-M5
+    PR-M8: also stamps ``judge_model`` + the set of reviewer ``prompt_hash``
+    values actually used this run — audit + drift-detection provenance (the
+    support-matcher/coldread convention), so a run's judge identity is
+    durable state, not just a stdout line that scrolls away.
+
+    sr: PR-M5; judge_model/prompt_hash logging PR-M8
     """
     text = note_path.read_text(encoding="utf-8")
+
+    judge_model = ""
+    prompt_hashes: list[str] = []
+    for round_record in result.get("rounds", []):
+        for reviewer in round_record.get("reviewers", []) or []:
+            if reviewer.get("judge_model"):
+                judge_model = reviewer["judge_model"]
+            ph = reviewer.get("prompt_hash", "")
+            if ph:
+                prompt_hashes.append(ph)
+
     stamp = (
         "\n<!-- manuscript_review run "
         f"{_today()}: cleared={result['cleared']} "
         f"cleared_at={result['cleared_at']} "
+        f"judge_model={judge_model!r} "
+        f"prompt_hashes={prompt_hashes!r} "
         f"honest_report={result['honest_report']!r} -->\n"
     )
     note_path.write_text(text + stamp, encoding="utf-8")

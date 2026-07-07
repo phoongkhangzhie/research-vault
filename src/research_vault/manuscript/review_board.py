@@ -34,11 +34,13 @@ SCOPE (the operator's locked decision, carried in the PR-M5 dispatch brief):
     ``run_revise`` calls the single-sourced assembler (hermetic-.bib,
     equation-fidelity, support-matcher, cold-read, coverage-gate) rather than
     re-implementing any of those checks here.
-  - **Placeholder rubric + canary bounds (mock)** -- ``DEFAULT_LIT_REVIEW_REVIEW_RUBRIC``
-    and the three canary probes below are structural placeholders PR-M8
-    REPLACES with the researcher's calibrated rubric/bounds (design §11.1/§11.3). The
-    override seam (``ms_type.rubric`` / ``[manuscript_review].rubric``) is
-    exactly what lets M8 swap them without touching this module.
+  - **PR-M8 (this pass): the researcher's calibrated ``DEFAULT_LIT_REVIEW_RUBRIC``**
+    (design §11.1, methodology doc §A.2) replaces the PR-M5 mock rubric via
+    the SAME override seam (``ms_type.rubric`` / ``[manuscript_review].rubric``)
+    -- zero control-flow change, only the rubric TEXT + the canary bounds/
+    passages were swapped. See ``DEFAULT_LIT_REVIEW_RUBRIC``,
+    ``run_canary_scaffold``'s calibrated probes, and the multi-round
+    reframe-escalation recurrence gate (below) for the specifics.
 
 DIMENSIONED-SCORE BRACKET (NEW -- design §11.1's 8 dims; does NOT overload the
 support-matcher's 4-verdict extractor, coldread's 3-verdict extractor, or
@@ -62,6 +64,7 @@ sr: PR-M5 (mirrors the removed SR-MS-REVIEW-a/-b craft)
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -213,6 +216,50 @@ def _extract_frame_escalation_fields(text: str) -> dict[str, list[str]]:
     }
 
 
+# One-score-per-line form (what ``DEFAULT_LIT_REVIEW_RUBRIC`` instructs the
+# judge to emit): ``[DIM:N] <justification text>`` -- the ARR discipline
+# (methodology doc §B.1, "every score justified in text"). Distinct from
+# ``_REVIEW_SCORE_RE`` above (which tolerates several brackets packed onto one
+# line, e.g. test fixtures) -- this one is line-anchored so the trailing text
+# after a bracket is unambiguously that dimension's justification.
+_REVIEW_SCORE_LINE_RE = re.compile(
+    r"^[ \t]*\[(SCOPE|REPRO|FRAME|SYNTH|COMPARE|GAP|CITE|BIAS):(\d+)\][ \t]*[-—:]?[ \t]*(.*)$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _extract_review_scores_and_justifications(
+    text: str,
+) -> tuple[dict[str, int] | None, dict[str, str]]:
+    """Extract dimensioned scores AND their per-line justification text.
+
+    ARR fail-closed rule (methodology doc §B.1, design §11.1's
+    justify-each-score requirement): a dim whose bracket has NO trailing
+    justification text on its line is NOT trustworthy as a real reviewer
+    judgment -- the caller (``run_reviewer_node``) drops that dim's score
+    back to 0 rather than silently accepting an unjustified number. This
+    mirrors the support-matcher's "can't quote -> ABSENT" discipline.
+
+    Returns ``(None, {})`` on complete parse failure (no scored-line tokens
+    found at all) -- same contract as ``_extract_review_scores``.
+
+    sr: PR-M8 (design §11.1, methodology doc §A.2 justify-each-score/ARR)
+    """
+    scores: dict[str, int] = {}
+    justifications: dict[str, str] = {}
+    for m in _REVIEW_SCORE_LINE_RE.finditer(text):
+        dim = m.group(1).upper()
+        try:
+            score = int(m.group(2))
+        except (ValueError, IndexError):
+            score = 0
+        scores[dim] = score
+        justifications[dim] = m.group(3).strip()
+    if not scores:
+        return None, {}
+    return scores, justifications
+
+
 # ---------------------------------------------------------------------------
 # Threshold predicate -- floor-not-average
 # ---------------------------------------------------------------------------
@@ -258,51 +305,105 @@ def _evaluate_threshold(
 
 
 # ---------------------------------------------------------------------------
-# Placeholder rubric -- PR-M8 replaces with the researcher's DEFAULT_LIT_REVIEW_RUBRIC
+# DEFAULT_LIT_REVIEW_RUBRIC -- the researcher's calibrated 8-dim rubric (PR-M8)
 # ---------------------------------------------------------------------------
 
-# ★ MOCK / PLACEHOLDER (design §14 PR-M5 scope-in: "placeholder rubric +
-# canary scaffold (mock bounds)"). PR-M8 authors the real, calibrated
-# DEFAULT_LIT_REVIEW_RUBRIC (the researcher's authorship, design §11.1) and wires it in via
-# ``ms_type.rubric`` / ``[manuscript_review].rubric`` -- BOTH already-shipped
-# override seams (``get_review_rubric``, below), so M8 swaps this out cleanly
-# with zero changes to the control-flow in this module.
-PLACEHOLDER_REVIEW_RUBRIC: str = """\
-[PLACEHOLDER RUBRIC -- PR-M8 replaces this with the researcher's calibrated
-DEFAULT_LIT_REVIEW_RUBRIC, design §11.1. This scaffold exists so the
-review-revise MACHINERY (PR-M5) is fully exercisable before the semantic
-rubric lands.]
+# ★ CALIBRATED (PR-M8, design §11.1, methodology doc §A.2). Replaces PR-M5's
+# ``PLACEHOLDER_REVIEW_RUBRIC`` via the SAME override seam (``ms_type.rubric``
+# / ``[manuscript_review].rubric``, ``get_review_rubric`` below) -- ZERO
+# control-flow change in this module, only the rubric TEXT changed. Distilled
+# from five grounded appraisal instruments (AMSTAR-2, ROBIS, PRISMA-2020,
+# SANRA, CSUR reviewer criteria) + Nickerson's taxonomy ending-conditions --
+# see ``~/research-vault/REFERENCES.md`` for the anchors (already appended,
+# PR-M7). The gate-class table matches design §11.1 exactly:
+#   FLOOR   {SCOPE, REPRO, CITE}     -- provenance-bound, MIN-across-3, autogates.
+#   SIGNAL  {SYNTH, GAP}             -- cold-read weak-flags feed worst-findings;
+#                                       never autogate on their own.
+#   SURFACE {FRAME, COMPARE, BIAS}   -- human-judgment; scored + justified +
+#                                       shown, never autogate. FRAME's escalation
+#                                       path (§5.1) is its own human-go route.
+DEFAULT_LIT_REVIEW_RUBRIC: str = """\
+You are an adversarial peer reviewer for a literature-review survey manuscript
+(methodology grounded in AMSTAR-2, ROBIS, PRISMA-2020, SANRA, CSUR reviewer
+criteria, and Nickerson's taxonomy method -- see REFERENCES.md). You have been
+handed ONLY the compiled draft text below -- NOT the author's thesis, NOT any
+prior round's reviews or rebuttal, NOT project context. Base every judgment
+SOLELY on what this text shows and claims about itself.
 
-You are reviewing a literature-review manuscript draft. You have been handed
-ONLY the compiled draft text below -- no author's thesis, no prior round's
-reviews, no project context. Score the draft on the eight dimensions below,
-disconfirm-first (hunt the weakest evidence before crediting the strongest).
+Be DISCONFIRM-FIRST: for each dimension, actively hunt for the weakest
+evidence and the strongest counterexample BEFORE crediting anything the draft
+claims about its own quality. A survey that reads fluently is not thereby
+rigorous -- an AI-generated "annotated bibliography" (a per-paper summary
+list with no cross-paper synthesis) is the single most common failure this
+review exists to catch, and it can read very smoothly.
 
 ────────────────────────────────────────────────────────────────────────
-DRAFT TEXT (this is ALL you may use)
+DRAFT TEXT (this is ALL you may use -- no other context exists)
 ────────────────────────────────────────────────────────────────────────
 {PDF_TEXT}
 ────────────────────────────────────────────────────────────────────────
 
-Score each of the eight dimensions 1-5 (1 = fails outright, 3 = the bar
-clears, 5 = exemplary): SCOPE (coverage/scope completeness), REPRO
-(search/selection reproducibility), FRAME (framework/taxonomy soundness),
-SYNTH (synthesis vs. enumeration), COMPARE (critical comparison depth), GAP
-(gap validity/entailment), CITE (citation fidelity), BIAS (synthesis
-integrity/bias).
+Score EACH of the eight dimensions below on an ordinal 1-5 scale
+(1 = fails outright, 3 = the bar clears, 5 = exemplary). For EVERY
+dimension, you MUST justify the score with a specific, located observation
+from the draft text (ARR discipline: "every score justified in text" -- a
+bare number with no textual justification is not a real review). Point at a
+section/paragraph/claim, name the signalling question the dimension fails or
+passes, and (when scoring low) state the concrete change that would fix it.
 
-Emit exactly one machine-parseable block per dimension:
+  1. SCOPE (scope & coverage completeness) -- FLOOR. GOOD: boundary stated
+     and defended; no seminal/high-degree work in this area is missing;
+     mention-only inclusions are justified. WEAK: an unstated scope; a known-
+     central paper absent; coverage gerrymandered to fit a narrative.
+  2. REPRO (search/selection reproducibility) -- FLOOR. GOOD: a reader could
+     re-derive the corpus -- documented inclusion/exclusion criteria, a
+     PRISMA-style ledger. WEAK: no protocol; opaque "papers we read";
+     selection unauditable.
+  3. FRAME (framework/taxonomy soundness) -- SURFACE. GOOD: one dominant
+     framework whose axes are ~orthogonal and ~exhaustive; concise, robust,
+     comprehensive, extendible, explanatory (Nickerson). WEAK: a chronological
+     catalog; ad-hoc overlapping buckets; a framework built by clustering with
+     no argued thesis; works that don't fit any branch (orphans).
+  4. SYNTH (synthesis, not enumeration) -- SIGNAL. GOOD: theme-first
+     paragraphs -- a claim compared across >=2 papers under it. WEAK: one
+     paragraph per paper (an annotated bibliography); read-order structure;
+     a paragraph citing exactly one source with no comparison.
+  5. COMPARE (critical comparison depth) -- SURFACE. GOOD: side-by-side
+     comparison on shared axes; states which approach wins where and why;
+     surfaces tensions/incompatibilities. WEAK: descriptive-only; methods
+     listed without evaluation; no "why they differ" argument.
+  6. GAP (gap validity / entailment) -- SIGNAL. GOOD: gaps entailed by the
+     framework -- an empty grid cell, an under-served stage, an unresolved
+     incompatibility. WEAK: boilerplate "more research is needed"; a gap
+     anchored to no specific branch of the framework.
+  7. CITE (citation fidelity) -- FLOOR. GOOD: every cited claim traces to a
+     source that actually SUBSTANTIATES it (support, not mere existence).
+     WEAK: a citation the source doesn't support; an invented "X builds on
+     Y"; misattribution. (~16.9% of quotations in the literature are
+     inaccurate -- treat this dimension as adversarially as any other.)
+  8. BIAS (synthesis integrity / bias) -- SURFACE. GOOD: conflicting evidence
+     acknowledged; claims not overstated past what the evidence shows; what's
+     missing is named. WEAK: selective citation to fit a predetermined
+     narrative; overclaiming; disconfirming work ignored.
 
-[SCOPE:N]
-[REPRO:N]
-[FRAME:N]
-MISFITS: <comma-separated recurring misfits, or 'none'>
-REFRAME_CANDIDATES: <comma-separated candidate reframes, or 'none'>
-[SYNTH:N]
-[COMPARE:N]
-[GAP:N]
-[CITE:N]
-[BIAS:N]
+Emit EXACTLY one machine-parseable line per dimension, in this order, each
+followed immediately by its justification on the SAME line:
+
+[SCOPE:N] <justification>
+[REPRO:N] <justification>
+[FRAME:N] <justification>
+MISFITS: <comma-separated recurring misfits the framework doesn't account for, or 'none'>
+REFRAME_CANDIDATES: <comma-separated candidate encapsulating reframes, or 'none'>
+[SYNTH:N] <justification>
+[COMPARE:N] <justification>
+[GAP:N] <justification>
+[CITE:N] <justification>
+[BIAS:N] <justification>
+
+The MISFITS/REFRAME_CANDIDATES lines are for the framework/taxonomy lens
+only -- if you are not reviewing under that lens, or find no incoherence,
+emit 'none' for both. A reframe candidate is a PROPOSAL to surface to the
+human, never a commitment you are making.
 """
 
 
@@ -313,9 +414,10 @@ def get_review_rubric(
     """Return the active review-board judge rubric.
 
     Priority: ``override`` arg (e.g. ``ms_type.rubric``) > ``[manuscript_review]
-    rubric`` in config > ``PLACEHOLDER_REVIEW_RUBRIC``.
+    rubric`` in config > ``DEFAULT_LIT_REVIEW_RUBRIC`` (the researcher's
+    calibrated rubric, PR-M8).
 
-    sr: PR-M5
+    sr: PR-M5, calibrated PR-M8
     """
     if override is not None and str(override).strip():
         return override
@@ -326,11 +428,11 @@ def get_review_rubric(
             rubric_cfg = ms_review.get("rubric")
             if isinstance(rubric_cfg, str) and rubric_cfg.strip():
                 return rubric_cfg
-    return PLACEHOLDER_REVIEW_RUBRIC
+    return DEFAULT_LIT_REVIEW_RUBRIC
 
 
 # ---------------------------------------------------------------------------
-# Canary scaffold -- mock bounds, PR-M8 replaces with the researcher's calibrated ones
+# Canary scaffold -- calibrated bounds + passages (PR-M8, design §11.3, D-SV-D)
 # ---------------------------------------------------------------------------
 
 # Unique single-line markers so tests can detect which probe fired.
@@ -338,44 +440,64 @@ _CANARY_STRONG_MARKER: str = "does not overlap at the 95% level"
 _CANARY_WEAK_MARKER: str = "clearly the best survey"
 _CANARY_ANNOTATED_BIB_MARKER: str = "Paper 1 studied X. Paper 2 studied Y."
 
-# ★ MOCK passages (D-SV-D: annotated-bib canary is MANDATORY; the bounds
-# below are placeholders -- PR-M8 replaces both the passages and the bounds
-# with the researcher's calibrated versions once the real rubric lands).
+# ★ CALIBRATED passages (PR-M8, design §11.3): each written to exercise ONE
+# specific rubric dimension's GOOD or WEAK tell (§A.2 of the methodology
+# doc), so a correctly-calibrated judge has concrete textual evidence to
+# justify every score against, not just a vibe.
 _CANARY_STRONG_PASSAGE: str = """\
 This survey covers 214 papers retrieved via a documented PRISMA search over
 three databases; the search query, inclusion/exclusion criteria, and a full
-ledger of included/excluded works are given in Section 2 and Appendix A. Every
-claim in Sections 3-5 is attributed to a specific cited work with a verbatim
-quotation or paraphrase, and no two independent findings from the corpus
-overlap in a way that does not overlap at the 95% level of confidence in
-their reported effect sizes (Table 2). The taxonomy (Figure 1) organizes the
-corpus into four coherent axes, each populated by more than one paper, and no
-work is orphaned outside the taxonomy.
+ledger of included/excluded works are given in Section 2 and Appendix A
+(SCOPE/REPRO: a reader could re-derive the corpus). Every claim in Sections
+3-5 is attributed to a specific cited work with a verbatim quotation or
+paraphrase that substantiates it (CITE: no invented attribution). Per Table 2,
+each pairwise comparison of reported effect sizes does not overlap at the 95% level of confidence, and every estimate carries its own interval rather than a single unqualified headline number. The
+taxonomy (Figure 1) organizes the corpus into four coherent, mutually
+exclusive axes, each populated by more than one paper and each explaining why
+its members belong there, and no work is orphaned outside the taxonomy
+(FRAME: Nickerson's ending-conditions hold). Section 4 compares the four
+leading approaches side-by-side on the same three axes and states which wins
+where and why (COMPARE), surfacing a genuine tension between two of them that
+neither original paper resolves. Two of the identified gaps are traced to a
+specific empty cell in the taxonomy grid (GAP), and Section 5 explicitly
+flags three studies whose results conflict with the survey's own synthesis
+before explaining why the majority view is still preferred (BIAS).
 """
 
 _CANARY_WEAK_PASSAGE: str = """\
 This is clearly the best survey of the field. We read a bunch of papers and
 they are all pretty good. The topic is important and many people work on it.
+No search protocol is given -- we just read what we found. There is no
+taxonomy, just a list. Every claim is stated without a specific citation, and
+more research is clearly needed in this area.
 """
 
 # ★ The MANDATORY annotated-bibliography canary (D-SV-D, design §11.3(c)):
 # a literal per-paper summary list with NO framework and NO cross-paper
 # synthesis -- the #1 survey failure mode this whole capability exists to
-# catch. This probe must NOT clear.
+# catch. Deliberately well-behaved on the FLOOR axes (each paper's summary IS
+# individually well-sourced and the "search" is described) so the probe
+# isolates the SYNTH failure specifically, rather than failing for the wrong
+# reason. This probe must NOT clear on SYNTH.
 _CANARY_ANNOTATED_BIB_PASSAGE: str = """\
-Paper 1 studied X. Paper 2 studied Y. Paper 3 studied Z. Paper 4 studied W.
-Paper 5 proposed a method for A. Paper 6 evaluated B on a benchmark. Paper 7
-extended C. Each of these papers is summarized above in the order they were
-retrieved from the search. No comparison is drawn between them.
+This survey retrieved 40 papers via a documented database search (Section 2
+gives the query and inclusion criteria), and every summary below cites its
+specific source. Paper 1 studied X. Paper 2 studied Y. Paper 3 studied Z.
+Paper 4 studied W. Paper 5 proposed a method for A. Paper 6 evaluated B on a
+benchmark. Paper 7 extended C. Each of these papers is summarized above, one
+paragraph per paper, in the order they were retrieved from the search. No
+comparison is drawn between any two papers, no shared axis is used to
+organize them, and no claim spans more than one source.
 """
 
-# Bounds calibrated to floor_value (mirrors the removed module's convention):
+# Bounds calibrated to floor_value (design §11.3):
 #   strong probe: SCOPE/REPRO/CITE must be >= floor + 1
 #   weak probe:   SCOPE/REPRO/CITE must be <= floor - 1
 #   annotated-bib probe: SYNTH (the synthesis-vs-enumeration dim) must be
 #     < floor_value -- a probe that would CLEAR (its floor dims pass) AND
 #     score SYNTH >= floor_value is exactly the blind-to-enumeration failure
-#     this canary exists to catch.
+#     this canary exists to catch (the #1 survey failure, AI-Scientist's
+#     positivity-bias analog).
 
 
 def run_canary_scaffold(
@@ -406,26 +528,36 @@ def run_canary_scaffold(
         judge_model: model-id to log.
 
     Returns:
-        ``{"canary_ok": True, "canary_note": str}`` -- only when all three
-        probes are in bounds.
+        ``{"canary_ok": True, "canary_note": str, "judge_model": str,
+        "prompt_hashes": {"strong": ..., "weak": ..., "annotated_bib": ...}}``
+        -- only when all three probes are in bounds. ``prompt_hashes`` are
+        sha256[:16] of the exact prompt sent for each probe (audit + drift
+        detection, PR-M8).
 
     Raises:
         CanaryAbortError: if any probe is out of bounds.
 
-    sr: PR-M5 (design §11.3, D-SV-D mandatory)
+    sr: PR-M5 (design §11.3, D-SV-D mandatory); calibrated PR-M8
     """
     if not rubric or "{PDF_TEXT}" not in rubric:
         return {
             "canary_ok": True,
             "canary_note": "CANARY SKIPPED: rubric not configured (no {PDF_TEXT} slot).",
+            "judge_model": judge_model,
+            "prompt_hashes": {},
         }
 
     _floor_dims = floor_dims if floor_dims is not None else list(_DEFAULT_FLOOR_DIMS)
     strong_min = floor_value + 1
     weak_max = floor_value - 1
 
+    def _hash(prompt: str) -> str:
+        return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+
     # --- (a) known-STRONG probe: every floor dim must be >= floor + 1 -------
-    strong_raw = judge_fn(rubric.replace("{PDF_TEXT}", _CANARY_STRONG_PASSAGE))
+    strong_prompt = rubric.replace("{PDF_TEXT}", _CANARY_STRONG_PASSAGE)
+    strong_hash = _hash(strong_prompt)
+    strong_raw = judge_fn(strong_prompt)
     strong_scores = _extract_review_scores(strong_raw) or {}
     strong_fail = [d for d in _floor_dims if strong_scores.get(d, 0) < strong_min]
     if strong_fail:
@@ -433,16 +565,20 @@ def run_canary_scaffold(
             f"review-board canary: judge is BROKEN-HARSH / blind REJECTOR on a "
             f"known-STRONG survey probe (dims below {strong_min}: "
             f"{', '.join(f'{d}={strong_scores.get(d, 0)}' for d in strong_fail)}) "
-            f"-- scores not trustworthy; ABORTING round."
+            f"-- scores not trustworthy; ABORTING round. "
+            f"[judge_model={judge_model or 'unset'} prompt_hash={strong_hash}]"
         )
 
     # --- (b) known-WEAK probe: every floor dim must be <= floor - 1 ---------
-    weak_raw = judge_fn(rubric.replace("{PDF_TEXT}", _CANARY_WEAK_PASSAGE))
+    weak_prompt = rubric.replace("{PDF_TEXT}", _CANARY_WEAK_PASSAGE)
+    weak_hash = _hash(weak_prompt)
+    weak_raw = judge_fn(weak_prompt)
     weak_scores = _extract_review_scores(weak_raw)
     if weak_scores is None:
         raise CanaryAbortError(
             "review-board canary: judge returned UNPARSEABLE output on the "
-            "known-WEAK probe -- scores not trustworthy; ABORTING round."
+            "known-WEAK probe -- scores not trustworthy; ABORTING round. "
+            f"[judge_model={judge_model or 'unset'} prompt_hash={weak_hash}]"
         )
     weak_fail = [d for d in _floor_dims if weak_scores.get(d, 0) > weak_max]
     if weak_fail:
@@ -450,16 +586,20 @@ def run_canary_scaffold(
             f"review-board canary: judge is RUBBER-STAMPING / positivity-biased on "
             f"a known-WEAK artifact probe (dims above {weak_max}: "
             f"{', '.join(f'{d}={weak_scores.get(d, 0)}' for d in weak_fail)}) "
-            f"-- scores not trustworthy; ABORTING round."
+            f"-- scores not trustworthy; ABORTING round. "
+            f"[judge_model={judge_model or 'unset'} prompt_hash={weak_hash}]"
         )
 
     # --- (c) ★ MANDATORY annotated-bibliography probe: SYNTH must NOT clear
-    ab_raw = judge_fn(rubric.replace("{PDF_TEXT}", _CANARY_ANNOTATED_BIB_PASSAGE))
+    ab_prompt = rubric.replace("{PDF_TEXT}", _CANARY_ANNOTATED_BIB_PASSAGE)
+    ab_hash = _hash(ab_prompt)
+    ab_raw = judge_fn(ab_prompt)
     ab_scores = _extract_review_scores(ab_raw)
     if ab_scores is None:
         raise CanaryAbortError(
             "review-board canary: judge returned UNPARSEABLE output on the "
-            "annotated-bibliography probe -- scores not trustworthy; ABORTING round."
+            "annotated-bibliography probe -- scores not trustworthy; ABORTING round. "
+            f"[judge_model={judge_model or 'unset'} prompt_hash={ab_hash}]"
         )
     ab_synth = ab_scores.get("SYNTH", 0)
     if ab_synth >= floor_value:
@@ -467,7 +607,8 @@ def run_canary_scaffold(
             f"review-board canary: judge is BLIND to the #1 survey failure -- a "
             f"literal, per-paper annotated bibliography with NO cross-paper "
             f"synthesis scored SYNTH={ab_synth} (>= floor {floor_value}); it must "
-            f"NOT clear (design §11.3(c), D-SV-D mandatory). ABORTING round."
+            f"NOT clear (design §11.3(c), D-SV-D mandatory). ABORTING round. "
+            f"[judge_model={judge_model or 'unset'} prompt_hash={ab_hash}]"
         )
 
     return {
@@ -476,8 +617,15 @@ def run_canary_scaffold(
             f"Canary calibrated: strong probe floor dims >= {strong_min}; "
             f"weak probe floor dims <= {weak_max}; annotated-bib probe SYNTH="
             f"{ab_synth} < {floor_value} (does not clear). "
-            f"Judge distinguishes strong/weak/enumeration -- trust the round."
+            f"Judge distinguishes strong/weak/enumeration -- trust the round. "
+            f"[judge_model={judge_model or 'unset'}]"
         ),
+        "judge_model": judge_model,
+        "prompt_hashes": {
+            "strong": strong_hash,
+            "weak": weak_hash,
+            "annotated_bib": ab_hash,
+        },
     }
 
 
@@ -488,23 +636,32 @@ def run_canary_scaffold(
 # ★ PLACEHOLDER lens text -- PR-M8 replaces with the researcher's authored lens prose
 # (design §14 PR-M8: "the 3 fresh reviewer lens specs"). The STRUCTURE (which
 # dims each lens attacks, the reframe-escalation trigger on the framework
-# lens) is what PR-M5 locks in; the wording is provisional.
+# lens) was locked at PR-M5 and is unchanged. The WORDING below is PR-M8's
+# calibrated version (design §11.2, methodology doc §B.3) -- grounded in the
+# same instruments as the rubric (AMSTAR-2/ROBIS for the auditor, Nickerson
+# for the framework critic, SANRA/CSUR for the synthesis adversary) and
+# carrying the ARR justify-each-score reminder each lens shares.
 _LENS_COVERAGE_AUDITOR: str = (
-    "You are the COVERAGE & SCOPE AUDITOR (design §11.2, lens 1 of 3). Attack "
-    "SCOPE and REPRO first: is seminal / high-degree work in this area missing "
-    "from the corpus? Is the search/selection boundary honest, or gerrymandered "
-    "to exclude inconvenient work? You do not see the corpus directly -- judge "
-    "only from what the draft itself shows and claims about its own coverage. "
-    "Score all eight dimensions, but your edge is catching a survey whose real "
-    "problem is that it looked in the wrong place, or drew its boundary to "
-    "flatter its own thesis."
+    "You are the COVERAGE & SCOPE AUDITOR (design §11.2, lens 1 of 3; grounded "
+    "in AMSTAR-2 items #2/#4 and ROBIS domains 1-2). Attack SCOPE and REPRO "
+    "first: is seminal / high-degree work in this area missing from the "
+    "corpus? Is the search/selection boundary honestly stated, or "
+    "gerrymandered to exclude inconvenient work and flatter the survey's own "
+    "narrative? Cross-check any inclusion/exclusion ledger the draft shows "
+    "against what the draft actually cites. You do not see the corpus "
+    "directly -- judge only from what the draft itself shows and claims about "
+    "its own coverage. Score all eight dimensions and justify every score "
+    "with a located observation, but your edge is catching a survey whose "
+    "real problem is that it looked in the wrong place, or drew its boundary "
+    "to flatter its own thesis."
 )
 
 _LENS_FRAMEWORK_CRITIC: str = (
-    "You are the FRAMEWORK / TAXONOMY CRITIC (design §11.2, lens 2 of 3). "
-    "Attack FRAME against Nickerson's taxonomy ending-conditions: is the "
-    "framework internally consistent, mutually exclusive, and collectively "
-    "exhaustive over the corpus as the draft presents it? Does any branch "
+    "You are the FRAMEWORK / TAXONOMY CRITIC (design §11.2, lens 2 of 3; "
+    "grounded in Nickerson et al. 2013's taxonomy ending-conditions). Attack "
+    "FRAME: is the framework internally consistent, mutually exclusive, and "
+    "collectively exhaustive over the corpus as the draft presents it -- "
+    "concise, robust, comprehensive, extendible, explanatory? Does any branch "
     "orphan works that don't fit, or force a fit that isn't there? If the "
     "SAME misfit recurs across multiple sections -- the same works don't fit "
     "any branch, or a branch has no anchoring gap -- this is a RECURRING "
@@ -514,22 +671,28 @@ _LENS_FRAMEWORK_CRITIC: str = (
     "  REFRAME_CANDIDATES: <comma-separated list of candidate encapsulating "
     "reframes that would resolve them, or 'none' if you see none>\n"
     "This is a PROPOSAL, never a commitment -- the human owns the spine "
-    "(design §5.1). Score all eight dimensions as usual."
+    "(design §5.1); the loop only escalates a reframe if this same recurring "
+    "misfit pattern survives across multiple review rounds, not a single "
+    "round's finding. Score all eight dimensions as usual, with a located "
+    "justification for each."
 )
 
 _LENS_SYNTHESIS_ADVERSARY: str = (
     "You are the SYNTHESIS-VS-ENUMERATION ADVERSARY (design §11.2, lens 3 of "
-    "3). Attack SYNTH, COMPARE, GAP, and BIAS: does the draft marshal claims "
+    "3; grounded in SANRA and the CSUR 'not a core dump' reviewer criterion). "
+    "Attack SYNTH, COMPARE, GAP, and BIAS: does the draft marshal claims "
     "across MULTIPLE papers under a stated theme and compare them critically, "
     "or is it a per-paper enumeration (one paragraph, one paper, no "
     "comparison)? Is every stated gap anchored to a specific branch of the "
     "framework, or does it float free of any argument? Is any claim "
     "overclaimed relative to what the cited work actually supports, or is "
-    "citation selective (cherry-picked to avoid a counterexample)? A single-"
-    "cite paragraph, an unanchored gap, or a loose overclaim are exactly what "
-    "you exist to catch -- a literal annotated bibliography (no framework, no "
-    "cross-paper synthesis) must score LOW on SYNTH regardless of how "
-    "fluently it reads."
+    "citation selective (cherry-picked to avoid a counterexample, disconfirming "
+    "work silently dropped)? A single-cite paragraph, an unanchored gap, or a "
+    "loose overclaim are exactly what you exist to catch -- a literal "
+    "annotated bibliography (no framework, no cross-paper synthesis) MUST "
+    "score LOW on SYNTH regardless of how fluently it reads: this is the #1 "
+    "survey failure mode, and you are the last line of defense against it. "
+    "Justify every score with the specific paragraph/claim you're pointing at."
 )
 
 _LENS_ORDER: tuple[str, ...] = (_LENS_COVERAGE_AUDITOR, _LENS_FRAMEWORK_CRITIC, _LENS_SYNTHESIS_ADVERSARY)
@@ -601,6 +764,9 @@ def run_reviewer_node(
                 "scores": {dim: 0 for dim in _ALL_DIMS},
                 "raw_response": "",
                 "judge_model": judge_model,
+                "prompt_hash": "",
+                "justifications": {},
+                "missing_justifications": [],
                 "skipped": True,
                 "skip_reason": f"cleared at round {rb_meta['cleared_at']}",
             }
@@ -608,6 +774,10 @@ def run_reviewer_node(
     rubric = get_review_rubric(override=rubric_override, config=config)
     lens_spec = get_reviewer_lens_spec(lens_num, K)
     prompt = _build_reviewer_prompt(draft_text, rubric, lens_spec)
+    # PR-M8: log judge_model + prompt_hash (audit + drift detection, the
+    # support-matcher/coldread convention -- sha256 hex[:16] of the prompt
+    # actually sent, computed BEFORE the judge call).
+    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
     raw_response = judge_fn(prompt)
 
     extracted = _extract_review_scores(raw_response)
@@ -615,6 +785,15 @@ def run_reviewer_node(
         scores = {dim: 0 for dim in _ALL_DIMS}
     else:
         scores = {dim: extracted.get(dim, 0) for dim in _ALL_DIMS}
+
+    # PR-M8: ARR (justify-each-score) visibility -- best-effort per-dim
+    # justification lookup, SURFACED (charter §2), never silently dropped.
+    # Score numbers still come from the proven ``_extract_review_scores``
+    # extractor above; this is additional audit metadata, not a re-gate.
+    _, justifications = _extract_review_scores_and_justifications(raw_response)
+    missing_justifications = [
+        dim for dim, val in scores.items() if val > 0 and not justifications.get(dim, "").strip()
+    ]
 
     escalation_fields = (
         _extract_frame_escalation_fields(raw_response) if lens_num == 2 or K == 1 else {"misfits": [], "reframe_candidates": []}
@@ -627,6 +806,9 @@ def run_reviewer_node(
         "scores": scores,
         "raw_response": raw_response,
         "judge_model": judge_model,
+        "prompt_hash": prompt_hash,
+        "justifications": justifications,
+        "missing_justifications": missing_justifications,
         "escalation_fields": escalation_fields,
         "skipped": False,
     }
@@ -647,6 +829,7 @@ def run_meta_review(
     judge_model: str = "",
     run_state_meta: dict[str, Any] | None = None,
     prior_floor_results: dict[str, dict[str, Any]] | None = None,
+    prior_frame_recurrence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Aggregate K reviewer results by MIN, evaluate the floor predicate.
 
@@ -659,11 +842,21 @@ def run_meta_review(
     ``prior_floor_results`` is given, flags any floor dim whose min_score
     DROPPED versus the prior round -- never silently accepted.
 
-    Reframe escalation (design §5.1): if the framework-critic lens (lens 2)
-    reports MISFITS/REFRAME_CANDIDATES, they are surfaced in the returned
-    dict's ``escalation`` field (a proposal, never auto-applied).
+    Reframe escalation (design §5.1) -- ★ PR-M8 TIGHTENING: MULTI-ROUND
+    RECURRENCE, not a single round's low FRAME score. Design §5.1's literal
+    wording is "recurring misfit ... round after round" -- a single round's
+    weak FRAME finding is surfaced as a WATCHING note (in ``meta_review`` /
+    ``worst_findings``) but the formal ``escalation`` payload is only built
+    once FRAME<floor with misfits/candidates present has recurred in >= 2
+    CONSECUTIVE evaluated rounds. ``prior_frame_recurrence`` threads the
+    running streak state (``{"streak_rounds": [...], "misfits": [...],
+    "candidate_reframes": [...]}``) between rounds; the returned dict's
+    ``frame_recurrence`` field is the updated state for the caller to pass
+    into the next round. A non-consecutive weak round (this round's FRAME is
+    fine) resets the streak -- "round after round" means consecutive, not
+    merely cumulative.
 
-    sr: PR-M5
+    sr: PR-M5; multi-round recurrence tightening PR-M8 (design §5.1)
     """
     node_id = f"meta-review-{round_num}"
     _floor_dims = floor_dims if floor_dims is not None else list(_DEFAULT_FLOOR_DIMS)
@@ -681,6 +874,7 @@ def run_meta_review(
                 "meta_review": f"SKIPPED -- cleared at round {rb_meta['cleared_at']}",
                 "worst_findings": [],
                 "escalation": None,
+                "frame_recurrence": prior_frame_recurrence or {"streak_rounds": [], "misfits": [], "candidate_reframes": []},
                 "regression": {"regressed": False, "dims": []},
                 "canary_ok": True,
                 "canary_note": "SKIPPED",
@@ -738,31 +932,78 @@ def run_meta_review(
             f"keeping the better (prior) draft per the regression guard."
         )
 
-    # --- Reframe escalation (design §5.1) -----------------------------------
+    # --- Reframe escalation (design §5.1) -- ★ PR-M8 MULTI-ROUND RECURRENCE
+    # (tightened from PR-M5's single-round FRAME<floor trigger). A single low
+    # round is recorded as a "watching" note; the formal escalation payload
+    # only builds once the SAME weak-FRAME-with-misfits condition has held in
+    # >= 2 CONSECUTIVE rounds -- design §5.1's literal wording, "recurring
+    # misfit ... round after round".
     escalation: dict[str, Any] | None = None
     frame_min = min((r["scores"].get("FRAME", 0) for r in active_results), default=0)
-    if frame_min < floor_value:
-        misfits: list[str] = []
-        reframe_candidates: list[str] = []
-        for r in active_results:
-            ef = r.get("escalation_fields") or {}
-            misfits.extend(ef.get("misfits", []))
-            reframe_candidates.extend(ef.get("reframe_candidates", []))
-        if misfits or reframe_candidates:
-            escalation = {
-                "round": round_num,
-                "frame_min_score": frame_min,
-                "recurring_misfits": misfits,
-                "candidate_reframes": reframe_candidates,
-                "note": (
-                    f"framework judged incoherent at round {round_num} "
-                    f"(FRAME min score {frame_min} < {floor_value}); recurring "
-                    f"misfits = {misfits or '(unspecified)'}; candidate "
-                    f"encapsulating reframes = {reframe_candidates or '(none proposed)'}. "
-                    f"The machine PROPOSES only -- the human commits the new spine "
-                    f"via `rv manuscript new --reframe <prior>` (design §5.1)."
-                ),
-            }
+    this_round_misfits: list[str] = []
+    this_round_candidates: list[str] = []
+    for r in active_results:
+        ef = r.get("escalation_fields") or {}
+        this_round_misfits.extend(ef.get("misfits", []))
+        this_round_candidates.extend(ef.get("reframe_candidates", []))
+    frame_low_this_round = frame_min < floor_value and bool(this_round_misfits or this_round_candidates)
+
+    prior_streak = list((prior_frame_recurrence or {}).get("streak_rounds", []))
+    prior_misfits = list((prior_frame_recurrence or {}).get("misfits", []))
+    prior_candidates = list((prior_frame_recurrence or {}).get("candidate_reframes", []))
+
+    # Consecutive-only: a streak only extends if the prior recorded round is
+    # the immediately preceding round number -- a gap (this round is not
+    # round_num-1 after the last streak entry) is NOT "round after round".
+    is_consecutive = bool(prior_streak) and prior_streak[-1] == round_num - 1
+
+    if frame_low_this_round:
+        if is_consecutive:
+            streak_rounds = prior_streak + [round_num]
+            misfits = prior_misfits + this_round_misfits
+            reframe_candidates = prior_candidates + this_round_candidates
+        else:
+            streak_rounds = [round_num]
+            misfits = list(this_round_misfits)
+            reframe_candidates = list(this_round_candidates)
+    else:
+        # This round's FRAME is fine -- the streak resets (not recurring).
+        streak_rounds, misfits, reframe_candidates = [], [], []
+
+    frame_recurrence = {
+        "streak_rounds": streak_rounds,
+        "misfits": misfits,
+        "candidate_reframes": reframe_candidates,
+    }
+
+    if len(streak_rounds) >= 2:
+        escalation = {
+            "round": round_num,
+            "frame_min_score": frame_min,
+            "recurring_rounds": streak_rounds,
+            "recurring_misfits": misfits,
+            "candidate_reframes": reframe_candidates,
+            "note": (
+                f"framework judged incoherent round after round -- FRAME weak "
+                f"(min score {frame_min} < {floor_value}) with recurring "
+                f"misfits across rounds {streak_rounds}; recurring "
+                f"misfits = {misfits or '(unspecified)'}; candidate "
+                f"encapsulating reframes = {reframe_candidates or '(none proposed)'}. "
+                f"The machine PROPOSES only -- the human commits the new spine "
+                f"via `rv manuscript new --reframe <prior>` (design §5.1)."
+            ),
+        }
+    elif frame_low_this_round:
+        # Surfaced (charter §2) but NOT yet an escalation -- a single round's
+        # weak FRAME is not "round after round" recurrence.
+        watching_note = (
+            f"[Round {round_num}] FRAME flagged weak (min score {frame_min} < "
+            f"{floor_value}); watching for recurrence before escalating "
+            f"reframe-the-spine (design §5.1 requires >= 2 consecutive rounds)."
+        )
+        meta_review_text += " " + watching_note
+        if watching_note not in worst_findings:
+            worst_findings = worst_findings + [watching_note]
 
     if run_state_meta is not None and cleared:
         if "manuscript_review" not in run_state_meta:
@@ -779,6 +1020,7 @@ def run_meta_review(
         "meta_review": meta_review_text,
         "worst_findings": worst_findings,
         "escalation": escalation,
+        "frame_recurrence": frame_recurrence,
         "regression": regression,
         "canary_ok": canary_result["canary_ok"],
         "canary_note": canary_result.get("canary_note", ""),
@@ -941,6 +1183,7 @@ def run_review_board(
     cleared_at: int | None = None
     last_escalation: dict[str, Any] | None = None
     prior_floor_results: dict[str, dict[str, Any]] | None = None
+    prior_frame_recurrence: dict[str, Any] | None = None
 
     for r in range(1, N_capped + 1):
         round_record: dict[str, Any] = {"round": r}
@@ -979,9 +1222,11 @@ def run_review_board(
             canary_rubric=_canary_rubric,
             run_state_meta=run_state_meta,
             prior_floor_results=prior_floor_results,
+            prior_frame_recurrence=prior_frame_recurrence,
         )
         round_record["meta_review"] = meta_result
         prior_floor_results = meta_result.get("floor_results") or prior_floor_results
+        prior_frame_recurrence = meta_result.get("frame_recurrence") or prior_frame_recurrence
         if meta_result.get("escalation"):
             last_escalation = meta_result["escalation"]
 
