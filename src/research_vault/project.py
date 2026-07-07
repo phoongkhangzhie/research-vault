@@ -33,8 +33,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from datetime import date as _date
-
 from .config import Config, load_config, reset_config_cache, _find_config_path, _load_toml
 
 # ---------------------------------------------------------------------------
@@ -332,29 +330,50 @@ def _render_pointers_skeleton(slug: str, source_dir: str) -> str:
     It accrues pointers as the project develops; a brand-new project can
     have an empty skeleton and nothing blocks on it (SR-LENS-RM D-LR-1).
 
-    No FILL gates — no authoring burden before first crew dispatch.
-    Commented prompts suggest what to fill in as the project evolves.
+    Blessed MUST-contain shape (the multi-project context-switch convention,
+    de-facto per rv's own pointers.md — see doctrine/coordination.md):
+    Identity · ★ POINTERS · Roadmap · Team · Operational-state. Five headers,
+    each with a commented prompt — no FILL gates, no authoring burden before
+    first crew dispatch. `rv orient <project>` reads this file in FULL as
+    part of the one-shot cold-context-switch orientation.
     """
-    today = _date.today().isoformat()
     return f"""\
 # Pointers — {slug}
 
-*Read fresh by the crew via `rv status --project {slug}`.
+*Read fresh by the crew via `rv orient {slug}` (one-shot cold-switch orient) or
+`rv status --project {slug}` (operational read only).
 Add pointers here as the project develops — no gates, no required fields.*
 
 **Source dir:** `{source_dir}`
 
+## Identity
+
+<!-- What this project is, in a paragraph: profile, thesis, what it produces. -->
+
+## ★ POINTERS — know where things live
+
 <!-- Add the design-of-record path when it exists:
-design-of-record: /path/to/tasks/task-name.md
+- design-of-record: /path/to/tasks/task-name.md
 -->
-
 <!-- Add the primary results source when known:
-results: wandb.ai/... or /path/to/results/
+- results: wandb.ai/... or /path/to/results/
+-->
+<!-- Add the architecture link when written (rv orient echoes its head automatically):
+- architecture: {source_dir}/architecture.md
 -->
 
-<!-- Add architecture link when written:
-architecture: {source_dir}/architecture.md
--->
+## Roadmap
+
+<!-- Phase / milestone state, verified against the design-of-record, not memory. -->
+
+## Team
+
+<!-- Roster + what each role leans on for this project (see rv role list). -->
+
+## Operational state
+
+<!-- Read fresh, not baked here — `rv status --project {slug}` (or `rv orient
+{slug}` for the full cold-switch bundle) is the live source of truth. -->
 """
 
 

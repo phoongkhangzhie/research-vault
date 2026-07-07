@@ -277,3 +277,37 @@ pointers as scope emerges.  No fill-gate; nothing blocks on it.
 **On a milestone** (a phase boundary, a major deliverable, a significant scope change): update
 `pointers.md`, `architecture.md`, and the DEVLOG in the project repo.  The crew re-reads them
 fresh on the next session — no re-bake required, no mtime oracle needed.
+
+## The `pointers.md` MUST-contain skeleton
+
+`pointers.md` is convention, not schema — but the shape is blessed so every project's
+read-fresh file orients the same way.  Five headers, `rv project new` scaffolds them
+(no FILL gates, nothing blocks on an empty section):
+
+1. **Identity** — what the project is, in a paragraph: profile, thesis, what it produces.
+2. **★ POINTERS** — know where things live: design-of-record path, primary results source,
+   the architecture link.
+3. **Roadmap** — phase/milestone state, verified against the design-of-record.
+4. **Team** — roster + what each role leans on for this project.
+5. **Operational state** — a pointer to the live read (`rv status` / `rv orient`), never
+   baked content — the same "read fresh, not baked" rule this whole section preaches.
+
+## `rv orient` — the one-shot cold-context-switch primitive
+
+**When Alfred (or any crew member) is switching to or cold-orienting to a project** —
+picking up a project not actively being worked in — `rv orient <slug>` collapses the
+3-step manual ritual (`rv status <slug>` + a manual read of `pointers.md` + a manual read
+of `architecture.md`) into **one call**. It bundles, in order: the operational `rv status`
+read (control/task-board/DEVLOG/git/DAG), the **FULL** `pointers.md` content (not just the
+head `rv status` echoes), and the `architecture.md` head.
+
+`rv status` deliberately stays a *coordination* read — it never reads `architecture.md`
+and only echoes `pointers.md`'s first few lines. `rv orient` is the complementary
+*strategic* read: it amplifies the two read-fresh artifacts above, it does not manufacture
+them. On a project missing `pointers.md` / `architecture.md`, it prints a graceful nudge
+naming the path to create — never a crash.
+
+**Trigger:** reach for `rv orient <slug>` at the start of any session on a project you
+(or the dispatched agent) haven't been actively working in — the cold-switch case this
+whole section describes. For staying oriented mid-session on the *already-loaded* project,
+`rv status` alone is enough (the strategic layer doesn't change turn to turn).

@@ -1,3 +1,53 @@
+## 2026-07-06 (feat/orient-context-switch: `rv orient` — one-shot cold-context-switch)
+
+### Done
+- New verb **`rv orient <project>`** (`orient.py`): a one-shot cold-context-switch
+  orientation. Bundles, in order: the operational `rv status` read (reused
+  as-is — no duplicated logic), the **FULL** `pointers.md` content (not just
+  the head `rv status` echoes), and the `architecture.md` head (capped at 60
+  lines with a truncation nudge — the diagram can be large). Missing artifacts
+  print a graceful "none yet — add to `<path>`" nudge, never a crash.
+- Registered top-level in `_VERB_REGISTRY` (own `when_to_use` naming the
+  cold-switch/context-switch trigger explicitly) and in the `Coordination`
+  `_HELP_PHASE_MAP` group, right under `status` — chosen over a buried
+  `--orient` flag for discoverability: a dedicated verb gets its own row +
+  full `when_to_use` paragraph in `rv help`, which is the point (Alfred must
+  find it as its own capability, not an obscure flag on a command already
+  understood as "coordination read").
+- Blessed the `pointers.md` **MUST-contain skeleton** — Identity · ★ POINTERS
+  · Roadmap · Team · Operational-state — as the shape `rv project new`
+  scaffolds (`_render_pointers_skeleton` in `project.py`, upgraded from a
+  headerless placeholder). Documented in `doctrine/coordination.md`.
+- **Fixed the broken self-reference**: `pointers.md:66` pointed at
+  `~/research-vault/architecture.md`, which didn't exist — a July-2026
+  "overkill for public package" pass had deleted it, but the CS-project-
+  structure convention (PR-1/PR-2, this branch) re-blessed `architecture.md`
+  as a scaffolded, USER-OWNED per-project artifact. Authored a real, minimal
+  `architecture.md` at the repo root (components, data flow, the two research
+  loops, OKF types, doctrine index, key decisions) — rv dogfoods its own
+  convention on itself. Re-added `architecture.md` to the CI leakage-scan loop
+  (it was dropped from the loop in the same July deletion).
+- Doctrine: new "`rv orient` — the one-shot cold-context-switch primitive" +
+  "The `pointers.md` MUST-contain skeleton" sections in `coordination.md`;
+  cross-link from `project-structure.md`.
+- Full suite green (2412 passed, 3 skipped); `rv lint` PASS; `rv help --check`
+  OK (34 verbs); leakage scan clean on `architecture.md` + doctrine.
+
+### Decisions
+- Verb, not flag: the investigation (`docs/superpowers/specs/2026-07-07-
+  multi-project-context-switch-findings.md`) leaned toward a `--orient` flag
+  on `status` ("fold into the habit"). Overridden per the operator's explicit
+  discoverability priority for this task — a dedicated verb is more reachable
+  than an option on a command whose whole docstring insists it's
+  coordination-only.
+- `architecture.md` head capped at 60 lines (not the full file) — Mermaid
+  diagrams can run long; the head orients, the nudge points at the full read.
+
+### Open / next
+- `rv project new`'s scaffolded `architecture.md`/`pointers.md` templates
+  could grow a `--from-existing` mode that back-fills the skeleton from an
+  already-populated sibling project — not scoped here.
+
 ## 2026-07-06 (feat/wandb-per-project-logging: version bump to 0.1.2)
 
 ### Done

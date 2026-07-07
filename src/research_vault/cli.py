@@ -52,6 +52,26 @@ from .config import load_config
 # The build_parser + run functions are fetched from the module at dispatch time.
 
 _VERB_REGISTRY: dict[str, dict] = {
+    # --- SR-ORIENT ---
+    "orient": {
+        "module": "research_vault.orient",
+        "when_to_use": (
+            "When you're SWITCHING TO or COLD-ORIENTING TO a project — picking up a "
+            "project you (or a dispatched crew member) haven't been actively working in. "
+            "One call gives the full orientation: the operational `rv status` read "
+            "(control/task-board/DEVLOG/git/DAG) PLUS the FULL `pointers.md` content "
+            "PLUS the `architecture.md` head — the strategic layer `rv status` "
+            "deliberately withholds (it is a coordination read, not an orient primitive). "
+            "Use `rv orient <project>` for the one-shot cold switch. "
+            "Anti-pattern: do NOT hand-assemble a cold switch as `rv status --project X` "
+            "+ a manual Read of pointers.md + a manual Read of architecture.md — that "
+            "3-step ritual is exactly what this verb collapses into one call. "
+            "Graceful when artifacts are missing: prints 'none yet — add to <path>' "
+            "rather than crashing — orientation amplifies existing artifacts, it does "
+            "not manufacture them."
+        ),
+        "sr": "SR-ORIENT",
+    },
     # --- SR-CP ---
     "status": {
         "module": "research_vault.status",
@@ -648,7 +668,7 @@ _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
     ("Experiment",   ["experiment", "dag", "result", "plan", "wandb", "compute", "doctor"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS
     ("Infra/git",    ["lint", "mdstore", "wait-for", "plugins", "approval", "observability"]),
-    ("Coordination", ["status", "control", "task", "note", "devlog", "role", "build-agents"]),
+    ("Coordination", ["status", "orient", "control", "task", "note", "devlog", "role", "build-agents"]),
 ]
 
 # Review subcommands split for display purposes only.
