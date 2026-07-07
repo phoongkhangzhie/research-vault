@@ -232,9 +232,16 @@ def _parse_frontmatter(
             remainder = line[4:].strip()
             # D8: does the remainder itself look like "key: value"? If so, this
             # item opens a new mapping-list dict entry (not a plain scalar).
-            item_m = re.match(r"^(\w[\w_-]*):\s*(.*)$", remainder)
+            # Fix 3 (PR #147 followup): require WHITESPACE after the colon (or
+            # end-of-string for an empty value), matching YAML flow-map
+            # semantics ("key: value", not "key:value") — otherwise a
+            # URL/DOI-shaped scalar-list item containing a bare colon (e.g.
+            # "http://x.com/run:5", a DOI "10.1234/x:5") is mis-parsed as a
+            # mapping key. `\s*` (zero-or-more) wrongly matched those; `\s+`
+            # (one-or-more) or end-of-string does not.
+            item_m = re.match(r"^(\w[\w_-]*):(?:\s+(.*))?$", remainder)
             if item_m:
-                ik, iv = item_m.group(1), item_m.group(2).strip()
+                ik, iv = item_m.group(1), (item_m.group(2) or "").strip()
                 if iv.startswith(("'", '"')) and iv.endswith(iv[0]):
                     iv = iv[1:-1]
                 new_item: "dict[str, str]" = {ik: iv}
@@ -860,12 +867,16 @@ def _normalize_results(fields: "dict[str, Any]") -> "dict[str, list]":
         legacy_location = (
             legacy_location.strip() if isinstance(legacy_location, str) else ""
         )
-        # Trigger on EITHER field present (not hash-only): a location-only
-        # legacy note (e.g. results_location filled by hand, hash not yet
-        # computed) still counts as "has a result to check" — symmetric with
-        # the per-entry check below, which flags a missing hash as its own
-        # violation rather than silently skipping the whole entry.
-        if legacy_hash or legacy_location:
+        # Trigger on results_hash SET only (spec §4.2 D2) — NOT "either field
+        # present". A location-only legacy note (results_location filled,
+        # results_hash still empty — the not-yet-run stub shape, e.g. rv's
+        # shipped demo-research q1-main1-cabl-Y.md conditional-ablation note
+        # whose trigger hasn't fired) is "not yet run", matching pre-PR-3
+        # behaviour: check_result_provenance skips ([]), it is not a
+        # violation. (Reviewer-caught regression, PR #147: the earlier
+        # `legacy_hash or legacy_location` superset flagged this shipped
+        # not-yet-run state as "scores entry missing 'hash'".)
+        if legacy_hash:
             scores = [{"location": legacy_location, "hash": legacy_hash}]
 
     runs_raw = fields.get("runs", [])

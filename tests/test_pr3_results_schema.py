@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from importlib import resources
+
 from research_vault.note import (
     _normalize_results,
     _parse_frontmatter,
@@ -111,6 +113,53 @@ class TestParserMappingListRoundTrip:
         fields, _ = _parse_frontmatter(text)
         assert fields["scores"] == ""
         assert fields["runs"] == ""
+
+    def test_scalar_list_item_with_no_space_after_colon_stays_scalar(self):
+        """Fix 3 (parser tightening): a bare scalar-list item shaped like a
+        URL/DOI with a colon but NO space after it (e.g. 'http://x.com/run:5')
+        must NOT be mis-parsed as a `key: value` mapping-list entry — YAML
+        flow-map semantics require whitespace after the colon."""
+        text = (
+            "---\n"
+            "type: findings\n"
+            "backed_by:\n"
+            "  - http://example.com/run:5\n"
+            "  - 10.1234/some.doi:5\n"
+            "---\n"
+        )
+        fields, _ = _parse_frontmatter(text)
+        backed_by = fields["backed_by"]
+        assert backed_by == ["http://example.com/run:5", "10.1234/some.doi:5"], backed_by
+        for item in backed_by:
+            assert isinstance(item, str), f"{item!r} was mis-parsed as a mapping"
+
+    def test_real_scalar_list_callers_parse_identically_after_tightening(self):
+        """backed_by/supported_by/contradicted_by/runs — real-shape items with
+        a genuine space-delimited `key: value` are unaffected by the
+        whitespace-after-colon tightening (they have no key:-shaped items at
+        all, so both regex forms already treat them identically)."""
+        text = (
+            "---\n"
+            "type: findings\n"
+            "backed_by:\n"
+            "  - literature/smith2024\n"
+            "supported_by:\n"
+            "  - experiments/q1-main1\n"
+            "contradicted_by:\n"
+            "  - literature/lee2023\n"
+            "runs:\n"
+            "  - myteam/myproject/run-01\n"
+            "  - myteam/myproject/run-02  # label\n"
+            "---\n"
+        )
+        fields, _ = _parse_frontmatter(text)
+        assert fields["backed_by"] == ["literature/smith2024"]
+        assert fields["supported_by"] == ["experiments/q1-main1"]
+        assert fields["contradicted_by"] == ["literature/lee2023"]
+        assert fields["runs"] == [
+            "myteam/myproject/run-01",
+            "myteam/myproject/run-02  # label",
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +330,104 @@ class TestCheckResultProvenanceNtoM:
         """Zero-item scores: (the fresh cmd_new scaffold state) is skip, not a violation."""
         note_path = self._write_note(tmp_path, "scores: \n", runs_yaml="runs: \n")
         assert check_result_provenance(note_path) == []
+
+
+# ---------------------------------------------------------------------------
+# 3b. Reviewer BLOCK regression (PR #147): location-only, hash-empty stub notes
+#     must still skip (not-yet-run), matching the shipped demo-research corpus.
+# ---------------------------------------------------------------------------
+
+class TestNotYetRunLocationOnlyStub:
+    """Reviewer-verified regression: a not-yet-run stub note with
+    results_location set but results_hash empty (the shipped
+    q1-main1-cabl-Y.md shape — a conditional-ablation note whose trigger
+    hasn't fired yet) must skip check_result_provenance (return []), matching
+    pre-PR-3 behaviour. The trigger for legacy synthesis is results_hash SET
+    (spec §4.2 D2) — NOT "either field set" (the regression: a superset
+    trigger flagged this shipped stub as missing 'hash')."""
+
+    def test_normalize_results_location_only_hash_empty_yields_no_scores(self):
+        """_normalize_results must NOT synthesize a scores entry from a bare
+        results_location with no results_hash — the trigger is results_hash
+        SET only."""
+        fields = {
+            "results_location": "results/q1-main1-cabl-Y/scores.jsonl",
+            "results_hash": "",
+        }
+        norm = _normalize_results(fields)
+        assert norm["scores"] == [], (
+            f"location-only (hash empty) must not synthesize a scores entry, "
+            f"got: {norm['scores']}"
+        )
+
+    def test_check_result_provenance_skips_location_only_hash_empty_stub(self, tmp_path):
+        """Mirrors the shipped q1-main1-cabl-Y.md stub shape exactly."""
+        note_path = tmp_path / "cond-ablation-stub.md"
+        note_path.write_text(
+            "---\n"
+            "type: experiments\n"
+            "title: Conditional ablation stub (not yet triggered)\n"
+            "trigger: \"q1-main1 results_summary > 0.80\"\n"
+            "trigger_result: ''\n"
+            "results_location: results/q1-main1-cabl-Y/scores.jsonl\n"
+            "results_hash: ''\n"
+            "results_commit: ''\n"
+            "results_summary: ''\n"
+            "---\n",
+            encoding="utf-8",
+        )
+        violations = check_result_provenance(note_path)
+        assert violations == [], (
+            f"not-yet-run stub (location set, hash empty) must skip (empty "
+            f"scores = not a violation), got: {violations}"
+        )
+
+    def test_hash_set_location_empty_still_flags_missing_location(self):
+        """The inverse case (hash set, location empty) is a genuine violation
+        (a real, if malformed, legacy entry) — parity with pre-PR-3 OLD
+        semantics is preserved for THIS case, only the location-only trigger
+        is narrowed."""
+        fields = {"results_location": "", "results_hash": "sha256:" + "a" * 64}
+        norm = _normalize_results(fields)
+        assert norm["scores"] == [{"location": "", "hash": "sha256:" + "a" * 64}]
+
+
+class TestShippedDemoCorpusRegression:
+    """The gap that let the BLOCK pass CI: no test ever exercised the
+    PACKAGED demo-research experiments notes (tmp_instance fixtures write
+    their own fresh notes and never touch the shipped not-yet-run stub
+    state). Run check_result_provenance over every shipped demo-research
+    experiment note and assert none regress."""
+
+    def _demo_experiments_dir(self):
+        base = resources.files("research_vault") / "data" / "examples" / "demo-research" / "notes" / "experiments"
+        return base
+
+    def test_shipped_demo_experiments_notes_all_verify_clean(self):
+        base = self._demo_experiments_dir()
+        checked = 0
+        for entry in base.iterdir():
+            if not entry.name.endswith(".md") or entry.name.startswith("_"):
+                continue
+            with resources.as_file(entry) as note_path:
+                violations = check_result_provenance(note_path)
+                assert violations == [], (
+                    f"shipped demo note {entry.name} regressed: {violations}"
+                )
+                checked += 1
+        assert checked > 0, "expected at least one shipped demo experiments note to check"
+
+    def test_shipped_q1_main1_cabl_y_specifically_skips(self):
+        """The exact note the reviewer verified the BLOCK against."""
+        base = self._demo_experiments_dir()
+        entry = base / "q1-main1-cabl-Y.md"
+        with resources.as_file(entry) as note_path:
+            assert note_path.exists(), "shipped stub note missing — check packaging"
+            violations = check_result_provenance(note_path)
+            assert violations == [], (
+                f"q1-main1-cabl-Y.md (location set, hash empty, not-yet-run) "
+                f"must skip: {violations}"
+            )
 
 
 # ---------------------------------------------------------------------------
