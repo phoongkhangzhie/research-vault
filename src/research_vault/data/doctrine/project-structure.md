@@ -12,6 +12,11 @@ reorganised. The fix is structural: hoist `results/ data/ figures/ manuscripts/`
 repo root as convention-frozen roots, and make the machine-checkable link a hashed
 frontmatter field, not a prose path.
 
+**Sibling page:** this page owns the folder layout (*where* things sit); its sibling
+[`doctrine/code-conventions.md`](./code-conventions.md) owns the craft *inside* `code/`
+(tested libraries, reproducibility, testing discipline, releasability) and the CHECK-tagged
+gates that enforce the checkable slice of it.
+
 ## The two content pillars
 
 A project repo carries exactly two **content pillars** — the crew's reasoning and the
