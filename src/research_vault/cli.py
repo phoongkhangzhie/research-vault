@@ -14,6 +14,9 @@ Verbs (SR-CP): status — structured READ face for coordination state (rv status
 Verbs (SR-2): project, cite, research, role, build-agents, mdstore, wt,
   git-health, lint, wait-for
 
+Verbs (SR-CC): code — repo-plane code-conventions gate (rv code check <project>),
+  distinct from the note-plane `rv note <project> check`.
+
 Plugin seam (instance vs portable verbs):
   Portable verbs are the built-in set above — they ship with the package and
   run on any machine without instance-specific configuration.
@@ -249,6 +252,23 @@ _VERB_REGISTRY: dict[str, dict] = {
             "returns immediately — no sleep-looping. Primitive that SR-3's DAG afterok composes."
         ),
         "sr": "SR-2",
+    },
+    # --- SR-CC (code-conventions, PR-CC-5) ---
+    "code": {
+        "module": "research_vault.code_check",
+        "when_to_use": (
+            "When you need the REPO-PLANE code-conventions gate: no notebook in the "
+            "code/src import path, an environment pin, no data/results duplication + the "
+            "runs/scores git policy, science-critical-marked functions have a test, and "
+            "releasability (secrets/absolute-paths, CITATION.cff, LICENSE). "
+            "Use `rv code check <project>` for the local (WARN-soft) run; "
+            "`rv code check <project> --release` to gate CITATION.cff/LICENSE as HARD "
+            "(the release subset). Distinct from `rv note <project> check` (note-plane "
+            "frontmatter assertions) — this is about facts on the repo tree. "
+            "Anti-pattern: do NOT hand-eyeball code/ for a stray notebook or an absolute "
+            "personal path — use `rv code check` so it's mechanical, not vibes."
+        ),
+        "sr": "SR-CC",
     },
     # --- SR-GD ---
     "git-discipline": {
@@ -696,7 +716,7 @@ _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
     ("Experiment",   ["experiment", "dag", "result", "plan", "wandb", "compute", "doctor"]),
     ("Manuscript",   ["manuscript"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS
-    ("Infra/git",    ["lint", "mdstore", "wait-for", "plugins", "approval", "observability"]),
+    ("Infra/git",    ["lint", "code", "mdstore", "wait-for", "plugins", "approval", "observability"]),
     ("Coordination", ["status", "orient", "control", "task", "note", "devlog", "role", "build-agents"]),
 ]
 
