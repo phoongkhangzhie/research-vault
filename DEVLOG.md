@@ -1,3 +1,43 @@
+## 2026-07-07 (fix/patch-dataset-provenance-warn: [dataset-provenance] WARN degrade)
+
+### Done
+- **Patch fix (0.1.3 -> 0.1.4): `[dataset-provenance]` WARN was hard-failing
+  `rv note check`.** Surfaced by an adopter-project backfill task. `check_dataset_provenance_warn`
+  (F24)'s own docstring states "This is a SURFACE, never a BLOCK — INFO/WARN
+  only", and its output is prefixed `[dataset-provenance] WARN:` — same shape
+  as `[repro-lint]`/`[gap-hygiene]` (both already degrade-to-warn). But the
+  `_WARN_PREFIXES` tuple in `note.run()`'s `check` dispatch (contract at
+  `note.py:1216`) omitted `[dataset-provenance]`, so a ran experiment with an
+  unrecorded dataset provenance hard-failed the CLI (exit 1) instead of
+  degrading (exit 0, warn surfaced) — contradicting the check's stated
+  contract.
+- Confirmed genuinely a defect (not an intended hard gate) by reading the
+  check's own docstring + comparing to the two existing WARN-class checks
+  that already degrade correctly. `check_result_provenance` (hard hash-mismatch
+  violations, e.g. a `results_hash` mismatch on a local artifact) returns
+  UNPREFIXED strings and is untouched by this fix — still hard-fails.
+- Fix: added `"[dataset-provenance]"` to the `_WARN_PREFIXES` tuple.
+- New tests (`tests/test_datasets_note.py::TestCliDatasetProvenanceDegrade`):
+  a `[dataset-provenance]` WARN alone now exits 0 with the warning surfaced
+  in stdout (proved RED against origin/main before the fix — exit 1); a
+  genuine hard provenance violation (fabricated `results_hash` mismatch
+  against a real local artifact) still exits 1, scoping the degrade to the
+  WARN class only.
+- Version bump 0.1.3 -> 0.1.4 (`pyproject.toml`, `src/research_vault/__init__.py`)
+  — a shipped CLI-behavior fix, patch-level per semver.
+
+### Decisions
+- **Release-sequencing note for the hub:** this fix only reaches a consuming
+  project once research-vault 0.1.4 is released (tagged + published) AND that
+  project bumps its pinned `research-vault` dependency. Until then, consuming
+  projects will continue to see the hard-fail on `[dataset-provenance]` WARNs.
+  Sequence the 0.1.4 release ahead of (or alongside) any dependent
+  backfill/adoption work, not after.
+
+### Open / next
+- Held PR — awaiting reviewer + maintainer go (release-class change,
+  tag-triggered publish.yml is out of scope for this PR).
+
 ## 2026-07-07 (feat/manuscript-loop-m1: the manuscript loop, re-instantiated with a type system)
 
 ### Done

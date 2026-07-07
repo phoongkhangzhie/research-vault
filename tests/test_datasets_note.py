@@ -285,3 +285,106 @@ class TestCmdCheckDatasetProvenance:
         assert ds_violations == [], (
             "cmd_check must NOT emit dataset-provenance warn when repro_dataset_id is filled"
         )
+
+
+# ---------------------------------------------------------------------------
+# 7. CLI degrade: [dataset-provenance] WARN must exit 0, not 1
+# ---------------------------------------------------------------------------
+
+class TestCliDatasetProvenanceDegrade:
+    """rv note check must degrade [dataset-provenance] WARN to exit 0 (SURFACE, not BLOCK).
+
+    check_dataset_provenance_warn's own docstring states: "This is a SURFACE,
+    never a BLOCK — INFO/WARN only." Before this fix, note.run()'s
+    _WARN_PREFIXES tuple omitted "[dataset-provenance]", so the CLI hard-failed
+    (exit 1) on it — contradicting the check's documented contract.
+    """
+
+    def test_cli_note_check_dataset_provenance_warn_exits_zero(self, instance, tmp_path, capsys):
+        """A [dataset-provenance] WARN alone must not flip the CLI exit code to 1."""
+        from research_vault.note import run, build_parser
+        from research_vault.config import load_config
+
+        cfg = load_config()
+        exp_dir = cfg.project_notes_dir("demo-research") / "experiments"
+        exp_dir.mkdir(parents=True, exist_ok=True)
+
+        # A remote (non-local) results_location: check_result_provenance trusts
+        # the recorded hash for URL/DOI locations (zero-infra) so this note has
+        # NO hard violation — only the [dataset-provenance] WARN should fire.
+        note_path = exp_dir / "exp-ds-cli.md"
+        note_path.write_text(
+            "\n".join([
+                "---",
+                "type: experiments",
+                "citekey: test-exp",
+                "results_hash: sha256:" + "f" * 64,
+                "results_location: doi:10.1234/example",
+                f"repro_dataset_id: {REPRO_SENTINEL}",
+                "repro_dataset_hash: " + REPRO_SENTINEL,
+                "---",
+                "",
+            ]),
+            encoding="utf-8",
+        )
+
+        parser = build_parser()
+        args = parser.parse_args(["demo-research", "check"])
+        exit_code = run(args)
+        out = capsys.readouterr().out
+
+        assert exit_code == 0, (
+            "A [dataset-provenance] WARN alone must degrade to exit 0, "
+            "matching the check's documented SURFACE-never-BLOCK contract"
+        )
+        assert "[dataset-provenance] WARN" in out, "The warn must be surfaced in stdout"
+
+    def test_cli_note_check_hard_violation_still_exits_one(self, instance, tmp_path, capsys):
+        """A genuine hard provenance violation (scores hash mismatch) must still exit 1.
+
+        This proves the degrade fix is scoped to the WARN class only — it must
+        NOT loosen the hard gate that check_result_provenance enforces.
+        """
+        from research_vault.note import run, build_parser
+        from research_vault.config import load_config
+        import hashlib
+
+        cfg = load_config()
+        exp_dir = cfg.project_notes_dir("demo-research") / "experiments"
+        exp_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write the actual artifact so a real (mismatching) hash can be computed.
+        run1_dir = exp_dir / "run1"
+        run1_dir.mkdir(parents=True, exist_ok=True)
+        artifact_path = run1_dir / "metrics.json"
+        artifact_path.write_text('{"acc": 0.5}', encoding="utf-8")
+
+        # A results_* location with a hash that does NOT match the actual content
+        # (genuine hard violation — see check_result_provenance). Use an absolute
+        # path so resolution is independent of process CWD.
+        note_path = exp_dir / "exp-hard-violation.md"
+        note_path.write_text(
+            "\n".join([
+                "---",
+                "type: experiments",
+                "citekey: test-exp-hard",
+                "results_hash: sha256:" + "0" * 64,  # deliberately wrong hash
+                f"results_location: {artifact_path}",
+                "repro_dataset_id: datasets/my-corpus",
+                "repro_dataset_hash: " + REPRO_SENTINEL,
+                "---",
+                "",
+            ]),
+            encoding="utf-8",
+        )
+
+        parser = build_parser()
+        args = parser.parse_args(["demo-research", "check"])
+        exit_code = run(args)
+        out = capsys.readouterr().out
+
+        assert exit_code == 1, (
+            "A genuine results-hash mismatch must still hard-fail (exit 1) — "
+            "the dataset-provenance degrade must not loosen this gate"
+        )
+        assert "hash mismatch" in out.lower() or "VIOLATION" in out

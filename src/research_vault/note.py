@@ -1213,7 +1213,11 @@ def run(args: argparse.Namespace) -> int:
             # Prefixes that degrade-to-warn (shown but do not flip exit code):
             #   [repro-lint] WARN: — repro-sentinel lint (SR-EXP-REPRO)
             #   [gap-hygiene] WARN: — vanished anchor on open/reopened gap (SR-GAP-HYGIENE)
-            _WARN_PREFIXES = ("[repro-lint]", "[gap-hygiene]")
+            #   [dataset-provenance] WARN: — unrecorded dataset provenance on a ran
+            #     experiment (F24). check_dataset_provenance_warn's own docstring
+            #     states this is "SURFACE, never a BLOCK — INFO/WARN only"; it must
+            #     degrade like the other two WARN classes, not hard-fail.
+            _WARN_PREFIXES = ("[repro-lint]", "[gap-hygiene]", "[dataset-provenance]")
             hard = [v for v in violations if not v.startswith(_WARN_PREFIXES)]
             warnings = [v for v in violations if v.startswith(_WARN_PREFIXES)]
             for v in hard:
