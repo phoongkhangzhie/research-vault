@@ -23,11 +23,18 @@ two-phase scaffolder pattern, review/__init__.py):
   - cmd_list:   list manuscript folders for a project (parity with cmd_list
                 on the sibling review/experiment loops).
 
-Explicitly OUT of scope for PR-M1 (separate PRs; stub/interface only here):
-  the hermetic .bib build (PR-M2), the hard fidelity gates (PR-M3), the
-  equation machinery (PR-M4), the review-revise board (PR-M5), the lit-review
-  type's real section table + framework-selection Phase-1 (PR-M6), exemplars
-  (PR-M7 -> shipped at PR-M8), the rubric/canary calibration (PR-M8).
+Explicitly OUT of scope for PR-M1 (stub/interface only here at the time;
+STATUS as of the manuscript-integration PR — M2/M3/M4/M6 have since LANDED
+and are wired together by ``manuscript/check_gates.py::build_approve_payload``,
+called from ``rv dag approve`` at ``approve-manuscript``):
+  the hermetic .bib build (PR-M2, landed — ``manuscript/bib.py``), the hard
+  fidelity gates (PR-M3, landed — ``manuscript/fidelity_gates.py``), the
+  equation machinery (PR-M4, landed — ``manuscript/equations.py``), the
+  review-revise board (PR-M5, NOT YET BUILT — ``cmd_review`` still raises
+  loudly), the lit-review type's real section table + framework-selection
+  Phase-1 + ``source_transform`` (PR-M6, landed — ``manuscript/types/lit_review.py``,
+  wired into this module's ``_build_phase2_manifest``), exemplars (PR-M7/M8,
+  NOT YET BUILT), the rubric/canary calibration (PR-M8, NOT YET BUILT).
 
 Per-manuscript folder (design §0, NOT an OKF taxonomy — too few manuscripts to
 warrant one):
@@ -35,7 +42,7 @@ warrant one):
   ├── _manuscript.md   # control + frontmatter: manuscript_type, spine, corpus_hash, run_state
   ├── main.tex
   ├── sections/*.tex
-  ├── refs.bib         # hermetic build lands PR-M2 — empty stub here
+  ├── refs.bib         # hermetic build (PR-M2, landed) — see manuscript/bib.py
   └── figures/
 
 Stdlib only.
@@ -107,7 +114,10 @@ def _write_main_tex_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
         "\\usepackage{natbib}\n"
         "\n"
         f"% Manuscript: {slug}  (type: {ms_type_key})\n"
-        "% Machine-injected results/equation macros land here in PR-M2/PR-M4.\n"
+        "% Machine-injected results/equation macros: refs.bib is built hermetically\n"
+        "% by manuscript/bib.py (PR-M2, landed); pivotal equations are injected into\n"
+        "% the writer briefs by manuscript/equations.py (PR-M4, landed) and checked\n"
+        "% every round by check_gates.py::build_approve_payload.\n"
         "\n"
         "\\begin{document}\n"
         "\n"
@@ -166,6 +176,52 @@ def _build_phase1_manifest(
 # Phase-2 manifest (type-generic — driven entirely by ms_type.section_set)
 # ---------------------------------------------------------------------------
 
+def _inject_source_transform_tips(
+    tips: dict[str, str], transform: dict[str, Any]
+) -> dict[str, str]:
+    """Wire ``ms_type.source_transform``'s output into the matching section tips.
+
+    ★ Integration-PR seam edit (mirrors PR-M4's ``inject_equation_brief``
+    pattern — additive, a NEW dict returned, the input never mutated):
+    PR-M6's ``lit_review.source_transform`` was dead code — computed but
+    never injected anywhere, so its briefs' "use the injected PRISMA ledger /
+    comparison table" instructions dangled. This makes it real:
+
+      - ``prisma-scope``       -> appended to the ``prisma-scope`` tip.
+      - ``references``         -> appended to the ``references`` tip.
+      - ``framework_branches`` -> appended to BOTH the ``framework`` tip
+        (the frozen spine's rendering) and the ``thematic-sections`` tip
+        (which needs to know how many branches to draft one section per).
+
+    A key absent from ``transform`` (e.g. a future type whose
+    ``source_transform`` returns a different shape) or a falsy value is a
+    no-op for that key — never an error; a type with no ``source_transform``
+    at all never calls this function (guarded by the caller).
+    """
+    result = dict(tips)
+
+    prisma = transform.get("prisma-scope")
+    if prisma and "prisma-scope" in result:
+        result["prisma-scope"] = result["prisma-scope"].rstrip() + "\n\n---\n\n" + prisma
+
+    references = transform.get("references")
+    if references and "references" in result:
+        result["references"] = result["references"].rstrip() + "\n\n---\n\n" + references
+
+    branches = transform.get("framework_branches")
+    if branches:
+        branches_block = (
+            "Frozen framework branches (from `_manuscript.md`, "
+            "approve-framework — NEVER re-derive): "
+            + ", ".join(branches if isinstance(branches, list) else [str(branches)])
+        )
+        for key in ("framework", "thematic-sections"):
+            if key in result:
+                result[key] = result[key].rstrip() + "\n\n" + branches_block
+
+    return result
+
+
 def _build_phase2_manifest(
     project: str,
     slug: str,
@@ -174,6 +230,7 @@ def _build_phase2_manifest(
     tree_root: Path,
     *,
     config: Any = None,
+    manuscript_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the Phase-2 draft manifest generically from ``ms_type.section_set``.
 
@@ -184,14 +241,25 @@ def _build_phase2_manifest(
     absolute paths — Fix #34 lesson: absolute so the reads:-grounding resolver
     finds them regardless of project_root at run/tick time) + the sections/
     working dir. ``assemble`` joins the drafted sections into ``main.tex``.
-    ``approve-manuscript`` is the terminal human-go gate; the structural/
-    fidelity/equation gates that will feed it land in PR-M2/M3/M4.
+    ``approve-manuscript`` is the terminal human-go gate; the hermetic-.bib
+    (PR-M2), fidelity (PR-M3), and equation (PR-M4) gates that feed it are
+    assembled by ``manuscript/check_gates.py::build_approve_payload`` and
+    wired into ``rv dag approve`` (the manuscript-integration PR).
 
     Raises ValueError if ``ms_type.section_set`` is empty — a type with no
     sections has nothing to draft; this is a structural inconsistency to
     surface loudly, never a fabricated empty-but-green manifest (charter §2).
 
-    sr: PR-M1
+    Args:
+        manuscript_fields: the ``_manuscript.md`` frontmatter fields dict
+            (as read by ``cmd_expand``), used to pass the FROZEN spine
+            (``spine_shape``+``branches``) into ``ms_type.source_transform``
+            — valid because ``expand`` runs after ``approve-framework`` has
+            already frozen it. ``None``/absent-keys degrade to an empty
+            spine (a type with no ``source_transform``, or a manuscript
+            whose framework isn't frozen yet, is a correct no-op).
+
+    sr: PR-M1 (manuscript-integration: source_transform wiring, §4)
     """
     if not ms_type.section_set:
         raise ValueError(
@@ -214,6 +282,22 @@ def _build_phase2_manifest(
         tips = _equations.inject_equation_brief(
             tips, equation_ledger, ms_type.section_set, ms_type.equation_sources
         )
+
+    # Integration-PR (seam edit — minimal + additive, mirrors the PR-M4 block
+    # above): wire M6's `source_transform` (previously computed nowhere —
+    # dead code). A type with no `source_transform` is a no-op (unchanged
+    # tips); cmd_expand passes the frozen spine (`spine_shape`+`branches`)
+    # read from `_manuscript.md` via `manuscript_fields` — valid because
+    # `expand` runs after `approve-framework` has already frozen it.
+    if ms_type.source_transform is not None:
+        spine = {
+            "spine_shape": (manuscript_fields or {}).get("spine_shape", ""),
+            "branches": (manuscript_fields or {}).get("branches", ""),
+        }
+        transform = ms_type.source_transform(
+            project, project_notes_dir, tree_root, spine, config=config
+        )
+        tips = _inject_source_transform_tips(tips, transform)
 
     def _spec(key: str) -> str:
         tip = tips.get(key, f"Write the {key} section.")
@@ -258,15 +342,19 @@ def _build_phase2_manifest(
         "needs": [_afterok(section_ids[-1])],
     })
 
-    # approve-manuscript — terminal human-go gate (structural/fidelity/equation
-    # gates feeding it land in PR-M2/PR-M3/PR-M4; the review-revise board in PR-M5)
+    # approve-manuscript — terminal human-go gate. The hermetic-.bib (PR-M2),
+    # fidelity (PR-M3), and equation (PR-M4) gates are LANDED and assembled by
+    # check_gates.py::build_approve_payload, wired into `rv dag approve` at
+    # this node; the review-revise board (PR-M5) is NOT YET built.
     nodes.append({
         "id": "approve-manuscript",
         "type": "human-go",
         "label": (
-            "Gate: Approve manuscript draft (structural gates PR-M2/M3, equation "
-            "gate PR-M4, and the review-revise board PR-M5 plug in ahead of this "
-            "gate as they land)"
+            "Gate: Approve manuscript draft (gated by "
+            "manuscript/check_gates.py::build_approve_payload — hermetic .bib "
+            "BLOCK, equation-fidelity SIGNAL, support-matcher/cold-read "
+            "BLOCK/SIGNAL behind the judge guard; the review-revise board "
+            "PR-M5 will re-fire these ahead of this gate once it lands)"
         ),
         "needs": [_afterok("assemble")],
     })
@@ -364,10 +452,12 @@ def cmd_new(
         f"<!-- type: {ms_type.key} -->\n"
         "<!-- Use `rv manuscript <project> expand <slug>` to emit the Phase-2 "
         "draft+review manifest. -->\n"
-        "<!-- The hermetic .bib build (PR-M2), fidelity gates (PR-M3), equation -->\n"
-        "<!-- machinery (PR-M4), and review-revise board (PR-M5) plug into this -->\n"
-        "<!-- folder as they land — this note and the drafting DAG are the -->\n"
-        "<!-- durable control surface across all of them. -->\n"
+        "<!-- The hermetic .bib build (PR-M2), fidelity gates (PR-M3), and equation -->\n"
+        "<!-- machinery (PR-M4) are LANDED and assembled by -->\n"
+        "<!-- manuscript/check_gates.py::build_approve_payload, gating -->\n"
+        "<!-- approve-manuscript. The review-revise board (PR-M5) is NOT YET -->\n"
+        "<!-- built — this note and the drafting DAG remain the durable -->\n"
+        "<!-- control surface across all of them. -->\n"
         "\n"
         "## Scope\n\n"
         f"<!-- manuscript_type: {ms_type.key} -->\n"
@@ -379,8 +469,9 @@ def cmd_new(
     refs_bib = tree_root / "refs.bib"
     if not refs_bib.exists():
         refs_bib.write_text(
-            "% refs.bib — hermetic build from literature/ frontmatter lands in PR-M2.\n"
-            "% Do NOT hand-edit citekeys here.\n",
+            "% refs.bib — hermetic build from literature/ frontmatter, PR-M2\n"
+            "% (landed). See manuscript/bib.py::build_refs_bib — re-run the\n"
+            "% manuscript bib gate to regenerate. Do NOT hand-edit citekeys here.\n",
             encoding="utf-8",
         )
 
@@ -454,6 +545,7 @@ def cmd_expand(
         project_notes_dir=project_notes_dir,
         tree_root=tree_root,
         config=cfg,
+        manuscript_fields=fields,
     )
 
     manifest_path = tree_root / "phase2-dag.json"

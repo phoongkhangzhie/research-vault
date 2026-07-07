@@ -957,6 +957,44 @@ def cmd_approve(args: argparse.Namespace) -> int:
             print(msg, file=sys.stderr)
             return 1
 
+    # Manuscript-integration PR: the assembled gate payload (hermetic .bib
+    # BLOCK, equation-fidelity SIGNAL, support-matcher/cold-read BLOCK/SIGNAL
+    # behind the judge guard — manuscript/check_gates.py::build_approve_payload)
+    # gates ``approve-manuscript``. Mirrors the ``approve-framework`` wiring
+    # above exactly: ``manifest_path.parent`` IS the manuscript tree root
+    # (Phase-2 manifests are written to ``manuscripts/<slug>/phase2-dag.json``,
+    # sibling to ``_manuscript.md``). --reject is the same escape hatch.
+    if node_id == "approve-manuscript" and not reject:
+        tree_root = manifest_path.parent
+        manuscript_note_path = tree_root / "_manuscript.md"
+        if manuscript_note_path.exists():
+            from ..note import _parse_frontmatter as _pfm_approve
+            from ..manuscript.types import get_type as _get_ms_type
+            from ..manuscript.check_gates import build_approve_payload
+
+            _text = manuscript_note_path.read_text(encoding="utf-8")
+            _fields, _ = _pfm_approve(_text)
+            _ms_type = _get_ms_type(_fields.get("manuscript_type", ""))
+            if _ms_type is not None:
+                project_notes_dir = tree_root.parent.parent
+                payload = build_approve_payload(tree_root, project_notes_dir, _ms_type)
+                if not payload["ok"]:
+                    print(
+                        "rv dag approve: approve-manuscript BLOCKED by fidelity gates:",
+                        file=sys.stderr,
+                    )
+                    for b in payload["blocking"]:
+                        print(f"  BLOCK: {b}", file=sys.stderr)
+                    return 1
+                # SIGNALs and not_run gates never block approval — but they
+                # are ALWAYS printed (charter §2: surface, never silently
+                # drop; never green-and-empty) so the human sees them at the
+                # gate, not buried in a log file elsewhere.
+                for s in payload["signals"]:
+                    print(f"rv dag approve: approve-manuscript SIGNAL: {s}", file=sys.stderr)
+                for n in payload["not_run"]:
+                    print(f"rv dag approve: approve-manuscript NOT RUN: {n}", file=sys.stderr)
+
     # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
     #
     # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]

@@ -296,6 +296,25 @@ def test_empty_ledger_no_equations_paper_is_a_noop():
     assert findings == []
 
 
+def test_short_unrelated_draft_equation_does_not_mask_a_dropped_long_equation():
+    """Integration-PR tightening: the OLD bidirectional substring check
+    (``draft_eq in norm_ledger_eq``) let a short, unrelated draft equation
+    fragment "match" a much longer dropped critical equation whenever the
+    short fragment happened to occur as a substring of the missing one —
+    a false negative that masks exactly the silent-drop this gate exists to
+    catch. ``a+b`` is a substring of ``x=a+b+c+d`` but the draft never
+    reproduces the pivotal equation at all.
+    """
+    ledger = [_entry(latex="$$ x = a + b + c + d $$", critical=True)]
+    draft = "Some other equation appears: $$ a+b $$ but not the pivotal one."
+
+    findings = eq.check_equation_fidelity(ledger, draft)
+
+    assert len(findings) == 1
+    assert findings[0]["severity"] == "critical"
+    assert findings[0]["class"] == "SIGNAL"
+
+
 # ---------------------------------------------------------------------------
 # 4. Round-trip: extract -> ledger -> inject -> gate
 # ---------------------------------------------------------------------------

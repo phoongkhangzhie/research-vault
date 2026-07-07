@@ -1,3 +1,61 @@
+## 2026-07-07 (feat/manuscript-integration: assemble the M2/M3/M4/M6 gates + wire source_transform)
+
+### Done
+- **The manuscript-loop INTEGRATION PR** — M2 (hermetic `.bib`), M3 (support-matcher +
+  cold-read fidelity gates), M4 (equation machinery), and M6 (`lit-review` type: section-set,
+  framework selection, `source_transform`) all merged to `main` independently, but nothing
+  assembled them together or wired M6's `source_transform` into the drafting DAG. This PR
+  closes both gaps:
+  - **New `manuscript/check_gates.py :: build_approve_payload`** — assembles the four gates by
+    honesty-class: `check_hermetic_bib` (M2) hard BLOCK, always runs; `check_equation_fidelity`
+    (M4) SIGNAL only (D-MS-2, never BLOCK even marked-critical); `check_support_tally` /
+    `check_cold_read_tally` (M3) BLOCK/SIGNAL respectively, both **behind the judge guard**
+    (`RV_JUDGE_MODEL` + `ANTHROPIC_API_KEY`, or an explicit `judge_fn`) — absent, they land in
+    `not_run` and are surfaced loudly, never a silent skip, never green-and-empty. The coverage
+    gate (design §10 gate-4) is explicitly deferred to PR-M5 and recorded in `not_run`, not
+    silently omitted.
+  - **Wired into `dag/verbs.py :: cmd_approve`** at `node_id == "approve-manuscript"` — mirrors
+    the existing `approve-framework` wiring exactly (BLOCK → `return 1`, no state mutation;
+    SIGNAL/not_run → printed, never blocking; `--reject` bypasses as the escape hatch).
+  - **Wired M6's `source_transform`** (previously computed nowhere — dead code) into
+    `manuscript/__init__.py :: _build_phase2_manifest` via a new `_inject_source_transform_tips`
+    helper (mirrors PR-M4's `inject_equation_brief` seam pattern): the PRISMA ledger →
+    `prisma-scope` spec, the comparison table → `references` spec, the frozen framework branches
+    → both `framework` and `thematic-sections` specs. `cmd_expand` now reads the frozen spine
+    (`spine_shape`+`branches`) from `_manuscript.md` and threads it through as
+    `manuscript_fields`.
+  - **Tightened `equations.py :: _deterministic_match`** — the reviewer-caught false negative:
+    the old BIDIRECTIONAL substring check let a short, unrelated draft equation mask a much
+    longer DROPPED critical equation (`"a+b" in "x=a+b+c+d"` would count as a match). Tightened
+    to one-directional (ledger-in-draft only) + length-gated. New regression test proves RED
+    against the old logic, GREEN after.
+  - Fixed stale forward-refs in `manuscript/__init__.py` (the `refs.bib`/`main.tex` stub
+    comments, the module docstring, and the `approve-manuscript` node label) that still said
+    "lands in PR-M2" etc. for gates that have since landed.
+  - New end-to-end integration test (`tests/test_manuscript_integration.py`): real
+    `cmd_new --type lit-review` → frozen spine → `cmd_expand` → `build_approve_payload`, proving
+    (a) a dangling `\cite` BLOCKs, (b) a dropped marked-critical equation SIGNALs (never BLOCKs),
+    (c) `source_transform`'s output actually appears in the Phase-2 manifest's section specs
+    (not dangling), (d) with no judge configured the LLM gates land in `not_run` and are
+    surfaced loud (not a green pass). Plus a real `rv dag approve` wiring test mirroring M6's
+    `TestApproveFrameworkGateWiring` pattern.
+
+### Decisions
+- Followed the operator's LOCKED judge-guard policy from the dispatching brief (not the design
+  doc's own text): the LLM gates run only when a judge is actually configured; absence is a loud
+  `not_run`, never a block and never a silent skip.
+- `build_approve_payload`'s `project_notes_dir` is derived as `tree_root.parent.parent` (matching
+  the existing `manuscripts/<slug>/` folder convention and `check_support_tally`'s own default
+  inference) — the dispatching brief's inline pseudocomment said `tree_root.parent`, which would
+  resolve to the `manuscripts/` dir, not the project notes root; flagged as a likely brief typo
+  and built to the actual repo convention instead.
+
+### Open / next
+- PR-M5 (review-revise board) is the single-sourced consumer of `build_approve_payload` for its
+  per-round re-fire — do not duplicate the gate assembly there.
+- The dup-FM-label last-write-wins behavior in the equation ledger join (a separate reviewer-noted
+  issue) remains a documented follow-on, not fixed in this PR.
+
 ## 2026-07-07 (fix/patch-dataset-provenance-warn: [dataset-provenance] WARN degrade)
 
 ### Done

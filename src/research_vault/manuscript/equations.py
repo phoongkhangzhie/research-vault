@@ -357,14 +357,28 @@ def _extract_draft_equations(draft_text: str) -> list[str]:
 
 
 def _deterministic_match(norm_ledger_eq: str, draft_equations: list[str]) -> bool:
-    """True if ``norm_ledger_eq`` matches (or is a substring of, or contains)
-    any normalized draft equation — tolerant of minor re-typesetting
-    (added/removed padding tokens the normalize step didn't catch) while
-    staying a deterministic string operation."""
+    """True if ``norm_ledger_eq`` matches a normalized draft equation.
+
+    ★ Integration-PR tightening (reviewer-caught false negative): the ORIGINAL
+    bidirectional substring check (``norm_ledger_eq in draft_eq OR draft_eq in
+    norm_ledger_eq``) let a short, UNRELATED draft equation mask a longer
+    DROPPED ledger equation whenever the short fragment happened to occur as
+    a substring of the (missing) long one — e.g. a draft equation ``a+b``
+    would satisfy a dropped ``x=a+b+c+d`` because ``"a+b" in "x=a+b+c+d"``.
+    That is exactly the silent-drop failure mode this gate exists to catch.
+
+    Tightened to ONE direction — the ledger equation may be found contained
+    WITHIN a draft equation (tolerant of the draft carrying a little extra
+    wrapping/padding the normalize step didn't strip), never the reverse —
+    and LENGTH-GATED so a short ledger equation can't spuriously match deep
+    inside an unrelated, much-longer draft equation by coincidence.
+    """
+    if not norm_ledger_eq:
+        return False
     for draft_eq in draft_equations:
         if norm_ledger_eq == draft_eq:
             return True
-        if norm_ledger_eq and (norm_ledger_eq in draft_eq or draft_eq in norm_ledger_eq):
+        if norm_ledger_eq in draft_eq and len(draft_eq) <= len(norm_ledger_eq) * 1.2 + 10:
             return True
     return False
 

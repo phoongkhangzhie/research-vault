@@ -21,19 +21,22 @@ the manuscript-loop's own thin, additive wiring on top of them:
       errors/warnings list from the returned ``ColdReadResult``.
 
 Both functions return a plain dict (not a dataclass) — the same shape the
-design's §10 hard-fidelity-gate section expects an ``rv manuscript check``
-payload assembler (out of scope here — PR-M6/M8 territory) to consume:
-``errors`` (BLOCK-level strings), ``warnings`` (WARN-level strings),
-``honest_report`` (never says "verified"), and ``canary_aborted``.
+design's §10 hard-fidelity-gate section expects the ``approve-manuscript``
+payload assembler to consume: ``errors`` (BLOCK-level strings), ``warnings``
+(WARN-level strings), ``honest_report`` (never says "verified"), and
+``canary_aborted``. Consumed by ``manuscript/check_gates.py::build_approve_payload``
+(the manuscript-integration PR) — see that module for the honesty-class
+assembly (support-matcher BLOCK / cold-read SIGNAL, both behind the judge
+guard).
 
 Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md §10.
 Doctrine: data/doctrine/honesty-gates.md, data/doctrine/review-board.md.
 
-SCOPE — additive, minimal shared-seam edit:
-  This file does NOT touch ``manuscript/check_gates.py`` (the fuller
-  structural+semantic gate assembly is PR-M2/PR-M6 territory, built
-  concurrently). It is a standalone new module the future
-  ``build_approve_payload`` assembler can import from once it lands.
+SCOPE — additive, minimal shared-seam edit at the time this file was written:
+  This file did NOT touch ``manuscript/check_gates.py`` — that module has
+  SINCE LANDED (the manuscript-integration PR) and imports
+  ``check_support_tally``/``check_cold_read_tally`` from here as its two
+  judge-guarded LLM gates.
 
 Stdlib only. Hermetic in tests (judge_fn is always injectable — no live LLM
 call required to exercise this module).
