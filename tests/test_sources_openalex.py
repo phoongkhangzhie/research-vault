@@ -1,0 +1,71 @@
+"""test_sources_openalex.py — NG-2 OpenAlexAdapter (search + both citation directions)."""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from research_vault.sources import openalex as oa_mod
+
+WORK = {
+    "id": "https://openalex.org/W2963341956",
+    "title": "Attention Is All You Need",
+    "publication_year": 2017,
+    "doi": "https://doi.org/10.48550/arxiv.1706.03762",
+    "ids": {"mag": "2963341956", "pmid": "https://pubmed.ncbi.nlm.nih.gov/12345"},
+    "authorships": [{"author": {"display_name": "Ashish Vaswani"}}],
+    "abstract_inverted_index": {"We": [0], "propose": [1], "attention": [2]},
+    "cited_by_count": 90000,
+    "referenced_works": ["https://openalex.org/W111"],
+}
+
+
+def test_search_parses_works(monkeypatch) -> None:
+    monkeypatch.setattr(oa_mod, "_fetch_json", lambda url: {"results": [WORK]})
+    adapter = oa_mod.OpenAlexAdapter()
+    hits = adapter.search("attention")
+
+    assert len(hits) == 1
+    hit = hits[0]
+    assert hit.title == "Attention Is All You Need"
+    assert hit.year == 2017
+    assert hit.external_ids["openalex"] == "W2963341956"
+    assert hit.external_ids["doi"] == "10.48550/arxiv.1706.03762"
+    assert hit.external_ids["mag"] == "2963341956"
+    assert hit.external_ids["pmid"] == "12345"
+    assert hit.citation_count == 90000
+    assert hit.abstract == "We propose attention"
+    assert hit.source == "openalex"
+
+
+def test_cited_by_uses_cites_filter(monkeypatch) -> None:
+    captured = {}
+
+    def fake_fetch(url):
+        captured["url"] = url
+        return {"results": [WORK]}
+
+    monkeypatch.setattr(oa_mod, "_fetch_json", fake_fetch)
+    adapter = oa_mod.OpenAlexAdapter()
+    hits = adapter.cited_by("W2963341956")
+
+    assert "cites%3AW2963341956" in captured["url"] or "cites:W2963341956" in captured["url"]
+    assert len(hits) == 1
+
+
+def test_references_resolves_referenced_works(monkeypatch) -> None:
+    calls = []
+
+    def fake_fetch(url):
+        calls.append(url)
+        if url.endswith("W2963341956"):
+            return WORK
+        return {**WORK, "id": url, "title": "Referenced Paper"}
+
+    monkeypatch.setattr(oa_mod, "_fetch_json", fake_fetch)
+    adapter = oa_mod.OpenAlexAdapter()
+    hits = adapter.references("W2963341956")
+
+    assert len(hits) == 1
+    assert hits[0].title == "Referenced Paper"
