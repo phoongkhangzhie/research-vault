@@ -201,21 +201,32 @@ class TestReproProxyAffordance:
                 )
 
     def test_lint_message_mentions_not_applicable_as_option(self, tmp_path):
-        """The lint warning text must mention 'not-applicable' as an option for genuinely N/A fields."""
+        """The lint warning text must mention 'not-applicable' as an option for genuinely N/A fields.
+
+        PR-CC-1 (R1): repro_seed was promoted OUT of REPRO_LINT_REQUIRED into the
+        HARD provenance-chain gate (check_provenance_chain) — so this WARN-only
+        probe now uses repro_model_id (still WARN-only) instead, to keep testing
+        check_repro_sentinel_lint's message contract in isolation.
+        """
         from research_vault.note import check_repro_sentinel_lint
 
         artifact = tmp_path / "lint-msg.jsonl"
         artifact.write_bytes(b'{"acc": 0.9}\n')
         results_hash = _sha256(artifact.read_bytes())
 
+        probe_field = "repro_model_id"
+        assert probe_field in REPRO_LINT_REQUIRED, (
+            f"{probe_field!r} must still be WARN-only (not promoted to CHECK-1)"
+        )
+
         lines = [
             "---", "type: experiments", "created: 2026-07-03",
             f"results_location: {artifact}",
             f"results_hash: {results_hash}",
-            f"repro_seed: {EXPECTED_SENTINEL}",
+            f"{probe_field}: {EXPECTED_SENTINEL}",
         ]
         for field in REPRO_LINT_REQUIRED:
-            if field != "repro_seed":
+            if field != probe_field:
                 lines.append(f"{field}: filled-value")
         lines += ["---", ""]
         note_path = tmp_path / "lint-msg.md"

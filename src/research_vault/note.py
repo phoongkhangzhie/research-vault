@@ -136,9 +136,14 @@ REPRO_ALL_FIELDS: list[str] = (
 # repro_determinism is deliberately EXCLUDED (PR-CC-2 / CHECK-4b): it scaffolds
 # to a complete default ("exact"), not the sentinel, so it is never a
 # completeness gap the lint should flag.
+# PR-CC-1 (R1): repro_seed is PROMOTED out of this soft WARN list — a seedless
+# claimed result is not reproducible, so it is now enforced HARD inside
+# check_provenance_chain (CHECK-1/CHECK-4a). The other repro_* fields
+# (including the Layer-1 config pair, folded again into CHECK-1 as CHECK-2)
+# stay WARN here — completeness-nudges, not chain-critical.
 REPRO_LINT_REQUIRED: list[str] = (
     REPRO_LAYER1
-    + REPRO_AUTO_CONFIG
+    + [f for f in REPRO_AUTO_CONFIG if f != "repro_seed"]
     + REPRO_AUTO_META
     + REPRO_MANUAL
 )
@@ -610,6 +615,12 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # (empty = not yet pulled — not a violation)
                 result_issues = check_result_provenance(p)
                 violations.extend(result_issues)
+                # PR-CC-1 CHECK-1 (flagship, HARD): the provenance-chain
+                # completeness gate — results_commit/repro_seed/repro_config_*
+                # (hash-verified)/dataset-link, all non-sentinel when a result
+                # is claimed. No _WARN_PREFIXES prefix: this BLOCKS (flips exit).
+                chain_issues = check_provenance_chain(p)
+                violations.extend(chain_issues)
                 # SR-EXP-REPRO: warn when results_hash is set but repro_* are still sentinel
                 # (surfaces manual gaps right after the run, not at paper-writing time)
                 repro_warnings = check_repro_sentinel_lint(p)
@@ -1035,6 +1046,191 @@ def check_result_provenance(exp_note_path: Path) -> list[str]:
                     f"(expected sha256:{expected_hex[:12]}…, "
                     f"actual sha256:{actual_hex[:12]}…)"
                 )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# PR-CC-1: provenance-chain completeness gate ★ FLAGSHIP (note-plane, HARD)
+# ---------------------------------------------------------------------------
+
+def check_provenance_chain(exp_note_path: Path) -> list[str]:
+    """CHECK-1 (+ folded CHECK-2, CHECK-3a): provenance-chain completeness.
+
+    When to use: called by cmd_check (rv note check) for experiments notes,
+    immediately after check_result_provenance. Also invoked at the DAG
+    complete-gate (dag/verbs.py::cmd_complete) for any produces.result /
+    produces.note node whose note type is "experiments" — so a claimed result
+    cannot be marked complete with a broken provenance chain.
+
+    Design: docs/superpowers/specs/2026-07-07-code-conventions-design.md
+    §3 CHECK-1/CHECK-2/CHECK-3a. Zero new field, zero new walker — every
+    field asserted here already exists in the SR-EXP-REPRO schema.
+
+    Rule: when _normalize_results(fields)["scores"] is non-empty (a result is
+    claimed), ALL of the following must be non-sentinel and non-empty:
+      - results_commit                          (git SHA of the producing code)
+      - repro_seed                               (R1: promoted from WARN to HARD —
+                                                   a seedless claimed result is not
+                                                   reproducible)
+      - repro_config_location + repro_config_hash, AND the file at that path
+        hashes to repro_config_hash              (CHECK-2, folded in)
+      - at least one of repro_dataset_id or repro_dataset_hash (dataset link)
+
+    Per-field REPRO_NOT_APPLICABLE exemption — TIGHTENED (operator review call,
+    2026-07-07): the exemption does NOT apply uniformly to every field.
+
+      - results_commit and repro_seed are ALWAYS required once a result is
+        claimed. A result-claiming note always has a producing commit and a
+        seed; REPRO_NOT_APPLICABLE is REJECTED on these two fields (same as
+        missing/sentinel — HARD block). This preserves the gate's core
+        guarantee: every claimed result traces to a commit + seed. Widening
+        this to "any field can escape via not-applicable" would let a note
+        dodge the entire chain by marking results_commit itself N/A, which
+        defeats the point of the gate.
+      - repro_config_location/repro_config_hash (config-artifact pair) and
+        the dataset link (repro_dataset_id/repro_dataset_hash) REMAIN
+        exemptible via REPRO_NOT_APPLICABLE — a legitimately-no-config
+        (in-memory) analysis or a no-external-dataset study can honestly
+        declare not-applicable without being forced to fabricate a field it
+        doesn't have. This is the mitigation for the one risk the design
+        calls out: CHECK-1 riding the complete-gate must not block a
+        legitimate proxy/no-run finding on fields where N/A is honest. The
+        repro_config_location/repro_config_hash pair is treated as ONE unit:
+        either being REPRO_NOT_APPLICABLE exempts the whole config-artifact
+        requirement (hash-match is meaningless without both).
+
+    CHECK-3a (notebook invariant, D-CC-1): no scores[] entry's location may end
+    in ".ipynb" — a claimed result's number must never be notebook-sourced.
+
+    Backward-compat: a note with no claimed result (empty scores list, e.g. rv's
+    shipped demo-research stub notes, or any not-yet-run note) is skipped
+    entirely — unchanged pre-CHECK-1 semantics.
+
+    Returns a list of violation strings (empty = OK, gate passes). Always HARD
+    — never carries a _WARN_PREFIXES prefix (no "[repro-lint]"/"[gap-hygiene]"/
+    "[dataset-provenance]"), so cmd_check's run() flips exit 1 on any violation.
+    """
+    if not exp_note_path.exists():
+        return [f"experiment note does not exist: {exp_note_path}"]
+
+    try:
+        text = exp_note_path.read_text(encoding="utf-8")
+    except OSError as e:
+        return [f"cannot read experiment note {exp_note_path}: {e}"]
+
+    fields, _ = _parse_frontmatter(text)
+    scores = _normalize_results(fields)["scores"]
+
+    # No result claimed → not yet run → skip (unchanged pre-CHECK-1 semantics)
+    if not scores:
+        return []
+
+    name = exp_note_path.name
+    violations: list[str] = []
+
+    # CHECK-3a: no claimed score may be notebook-sourced (D-CC-1)
+    for i, entry in enumerate(scores):
+        location = (entry.get("location") or "").strip()
+        if location.lower().endswith(".ipynb"):
+            label = entry.get("label") or location or f"scores[{i}]"
+            violations.append(
+                f"{name}: scores entry {label!r} location is a notebook "
+                f"({location}) — a claimed result must never be notebook-sourced "
+                f"(CHECK-3a, D-CC-1); move the computation into code/src/ and re-run"
+            )
+
+    # results_commit — git SHA of the producing code. ALWAYS required — the
+    # REPRO_NOT_APPLICABLE exemption does NOT apply here (tightened 2026-07-07):
+    # a result-claiming note always has a producing commit, so not-applicable
+    # is rejected exactly like missing/sentinel.
+    commit = fields.get("results_commit", "").strip()
+    if not commit or commit == REPRO_SENTINEL or commit == REPRO_NOT_APPLICABLE:
+        violations.append(
+            f"{name}: results claimed (scores set) but 'results_commit' is "
+            f"missing/sentinel/not-applicable — record the git SHA of the "
+            f"producing code (CHECK-1); this field is always required and "
+            f"cannot be marked {REPRO_NOT_APPLICABLE!r}"
+        )
+
+    # repro_seed — R1: promoted from the soft sentinel-lint into this HARD
+    # chain. ALWAYS required — same tightening as results_commit: a
+    # result-claiming note always has a seed, so not-applicable is rejected.
+    seed = fields.get("repro_seed", "").strip()
+    if not seed or seed == REPRO_SENTINEL or seed == REPRO_NOT_APPLICABLE:
+        violations.append(
+            f"{name}: results claimed but 'repro_seed' is "
+            f"missing/sentinel/not-applicable — a seedless claimed result is "
+            f"not reproducible (CHECK-1/CHECK-4a, R1); record the seed — "
+            f"this field is always required and cannot be marked "
+            f"{REPRO_NOT_APPLICABLE!r}"
+        )
+
+    # repro_config_location + repro_config_hash + config-hash-match (CHECK-2)
+    config_location = fields.get("repro_config_location", "").strip()
+    config_hash = fields.get("repro_config_hash", "").strip()
+    if config_location == REPRO_NOT_APPLICABLE or config_hash == REPRO_NOT_APPLICABLE:
+        pass  # proxy/no-run: honor the exemption on the whole config-artifact pair
+    else:
+        if not config_location or config_location == REPRO_SENTINEL:
+            violations.append(
+                f"{name}: results claimed but 'repro_config_location' is "
+                f"missing/sentinel — record the path to the run config artifact "
+                f"(CHECK-1/CHECK-2)"
+            )
+        if not config_hash or config_hash == REPRO_SENTINEL:
+            violations.append(
+                f"{name}: results claimed but 'repro_config_hash' is "
+                f"missing/sentinel — record the sha256 of the config artifact "
+                f"(CHECK-1/CHECK-2)"
+            )
+        if (
+            config_location and config_location != REPRO_SENTINEL
+            and config_hash and config_hash != REPRO_SENTINEL
+        ):
+            # For URL / DOI / remote: trust the recorded hash (zero-infra, no
+            # fetch) — same policy as check_result_provenance's local-path guard.
+            if _is_local_results_path(config_location):
+                artifact = Path(config_location)
+                if not artifact.exists():
+                    violations.append(
+                        f"{name}: repro_config_location artifact not found: "
+                        f"{config_location} (CHECK-2 config-hash-match)"
+                    )
+                elif config_hash.startswith("sha256:"):
+                    expected_hex = config_hash[len("sha256:"):]
+                    try:
+                        actual_hex = _hash_file(artifact)[len("sha256:"):]
+                    except OSError as e:
+                        violations.append(
+                            f"{name}: cannot read repro_config_location "
+                            f"artifact {config_location}: {e}"
+                        )
+                    else:
+                        if actual_hex != expected_hex:
+                            violations.append(
+                                f"{name}: repro_config_hash mismatch for "
+                                f"{config_location} (expected "
+                                f"sha256:{expected_hex[:12]}…, actual "
+                                f"sha256:{actual_hex[:12]}…) (CHECK-2)"
+                            )
+
+    # Dataset link: at least one of repro_dataset_id / repro_dataset_hash
+    dataset_id = fields.get("repro_dataset_id", "").strip()
+    dataset_hash = fields.get("repro_dataset_hash", "").strip()
+    if dataset_id == REPRO_NOT_APPLICABLE:
+        pass  # explicit proxy/no-external-dataset exemption — matches
+        # check_dataset_provenance_warn's existing honored escape exactly
+    else:
+        id_ok = bool(dataset_id) and dataset_id != REPRO_SENTINEL
+        hash_ok = bool(dataset_hash) and dataset_hash != REPRO_SENTINEL
+        if not (id_ok or hash_ok):
+            violations.append(
+                f"{name}: results claimed but no dataset link recorded "
+                f"(repro_dataset_id/repro_dataset_hash both missing/sentinel) "
+                f"— set one, or repro_dataset_id: {REPRO_NOT_APPLICABLE!r} if no "
+                f"external dataset was used (CHECK-1)"
+            )
 
     return violations
 

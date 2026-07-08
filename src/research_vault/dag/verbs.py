@@ -330,6 +330,43 @@ def _check_okf_note_type(note_path_str: str, notes_root: Path) -> list[str]:
     return []
 
 
+def _check_experiments_provenance_chain(note_path_str: str, notes_root: Path) -> list[str]:
+    """PR-CC-1 CHECK-1: ride the provenance-chain completeness gate at complete-time.
+
+    Called AFTER _check_okf_note_type has already confirmed type:dir match, for
+    any produces.note / produces.result target. Only fires when the note's
+    declared type is "experiments" — the chain rule (results_commit/repro_seed/
+    repro_config_*/dataset-link) is meaningless for other OKF types.
+
+    Reuses note.py::check_provenance_chain verbatim (zero new mechanism) — this
+    function is just the resolve-and-dispatch glue so a succeeded produce-note
+    node with an incomplete provenance chain BLOCKS at the complete gate, the
+    same structural posture the dataset-provenance gate already has.
+
+    Returns a list of violation strings (empty = OK or not an experiments note).
+    """
+    note_path = Path(note_path_str)
+    if not note_path.is_absolute():
+        note_path = notes_root / note_path_str
+
+    if not note_path.exists():
+        return []  # _check_okf_note_type already reports missing-note; don't double-report
+
+    try:
+        text = note_path.read_text(encoding="utf-8")
+    except OSError:
+        return []  # likewise already reported by _check_okf_note_type
+
+    from ..note import _parse_frontmatter as _pfm_chain
+    from ..note import check_provenance_chain
+
+    fields, _ = _pfm_chain(text)
+    if fields.get("type", "") != "experiments":
+        return []
+
+    return check_provenance_chain(note_path)
+
+
 # ---------------------------------------------------------------------------
 # SR-RESOLVE-SCOPE: project-scoped typed produces gate
 # ---------------------------------------------------------------------------
@@ -791,6 +828,23 @@ def cmd_complete(args: argparse.Namespace) -> int:
                     print(f"  {issue}", file=sys.stderr)
                 print("  Fix: ensure the note's type: frontmatter matches its parent directory.", file=sys.stderr)
                 return 1
+            # PR-CC-1 CHECK-1 (flagship, HARD): ride the provenance-chain
+            # completeness gate — only fires for experiments-type notes with a
+            # claimed result whose chain is incomplete.
+            chain_issues = _check_experiments_provenance_chain(produces["note"], _note_root)
+            if chain_issues:
+                print(
+                    f"rv dag complete: provenance-chain gate FAILED for node {node_id!r}:",
+                    file=sys.stderr,
+                )
+                for issue in chain_issues:
+                    print(f"  {issue}", file=sys.stderr)
+                print(
+                    "  Fix: fill results_commit/repro_seed/repro_config_*/dataset-link "
+                    "(CHECK-1, docs/superpowers/specs/2026-07-07-code-conventions-design.md §3).",
+                    file=sys.stderr,
+                )
+                return 1
         # SR-8: dataset provenance gate — complete-time check.
         # The gate: note exists + location non-empty + hash non-empty +
         # (if local path) file exists and sha256 matches.
@@ -834,6 +888,26 @@ def cmd_complete(args: argparse.Namespace) -> int:
                     print(
                         f"  Fix: ensure the {_PRODUCES_KEY_TO_OKF_DIR[_pkey]}/ note exists "
                         f"and its type: frontmatter matches its parent directory.",
+                        file=sys.stderr,
+                    )
+                    return 1
+                # PR-CC-1 CHECK-1 (flagship, HARD): ride the provenance-chain
+                # completeness gate for project-scoped produces (produces.result).
+                # Resolve to an ABSOLUTE path via the SAME primitive the type
+                # check used, so notes_root is a no-op (absolute path short-circuits).
+                _abs_note_path = str(_project_scoped_note_path(_pkey, produces[_pkey], cfg))
+                chain_issues = _check_experiments_provenance_chain(_abs_note_path, cfg.notes_root)
+                if chain_issues:
+                    print(
+                        f"rv dag complete: provenance-chain gate FAILED for node {node_id!r} "
+                        f"(produces.{_pkey}={produces[_pkey]!r}):",
+                        file=sys.stderr,
+                    )
+                    for issue in chain_issues:
+                        print(f"  {issue}", file=sys.stderr)
+                    print(
+                        "  Fix: fill results_commit/repro_seed/repro_config_*/dataset-link "
+                        "(CHECK-1, docs/superpowers/specs/2026-07-07-code-conventions-design.md §3).",
                         file=sys.stderr,
                     )
                     return 1

@@ -292,26 +292,43 @@ class TestCmdCheckDatasetProvenance:
 # ---------------------------------------------------------------------------
 
 class TestCliDatasetProvenanceDegrade:
-    """rv note check must degrade [dataset-provenance] WARN to exit 0 (SURFACE, not BLOCK).
+    """rv note check must degrade [dataset-provenance] WARN to exit 0 (SURFACE, not BLOCK)
+    — but PR-CC-1's CHECK-1 now ALSO requires a dataset link (HARD) for the same gap.
 
-    check_dataset_provenance_warn's own docstring states: "This is a SURFACE,
-    never a BLOCK — INFO/WARN only." Before this fix, note.run()'s
-    _WARN_PREFIXES tuple omitted "[dataset-provenance]", so the CLI hard-failed
-    (exit 1) on it — contradicting the check's documented contract.
+    check_dataset_provenance_warn's own docstring still states: "This is a SURFACE,
+    never a BLOCK — INFO/WARN only", and note.run()'s _WARN_PREFIXES tuple still
+    degrades its own message unchanged. But PR-CC-1 (design §3 CHECK-1) deliberately
+    promotes "no dataset link recorded" to a HARD chain requirement (unless the note
+    declares repro_dataset_id: not-applicable) — so the AGGREGATE `rv note check`
+    exit code for this exact gap is now 1, even though check_dataset_provenance_warn's
+    own WARN still surfaces alongside it.
     """
 
-    def test_cli_note_check_dataset_provenance_warn_exits_zero(self, instance, tmp_path, capsys):
-        """A [dataset-provenance] WARN alone must not flip the CLI exit code to 1."""
+    def test_cli_note_check_dataset_provenance_warn_surfaces_but_check1_blocks(
+        self, instance, tmp_path, capsys
+    ):
+        """The [dataset-provenance] WARN still surfaces; CHECK-1 now also HARD-blocks
+        the identical gap (dataset link missing), so the aggregate exit code is 1.
+
+        Every OTHER CHECK-1-required field is filled (results_commit, repro_seed,
+        repro_config_location/hash with a real hash-matched artifact) so the dataset
+        link is the ONLY thing unmet — isolating this exact interaction.
+        """
         from research_vault.note import run, build_parser
         from research_vault.config import load_config
+        from research_vault.hashing import hash_file
 
         cfg = load_config()
         exp_dir = cfg.project_notes_dir("demo-research") / "experiments"
         exp_dir.mkdir(parents=True, exist_ok=True)
 
+        config_path = exp_dir / "exp-ds-cli.config.json"
+        config_path.write_text('{"lr": 0.001}', encoding="utf-8")
+        config_hash = hash_file(config_path)
+
         # A remote (non-local) results_location: check_result_provenance trusts
         # the recorded hash for URL/DOI locations (zero-infra) so this note has
-        # NO hard violation — only the [dataset-provenance] WARN should fire.
+        # NO check_result_provenance violation — only the dataset-link gap remains.
         note_path = exp_dir / "exp-ds-cli.md"
         note_path.write_text(
             "\n".join([
@@ -320,6 +337,10 @@ class TestCliDatasetProvenanceDegrade:
                 "citekey: test-exp",
                 "results_hash: sha256:" + "f" * 64,
                 "results_location: doi:10.1234/example",
+                "results_commit: abc123",
+                "repro_seed: '42'",
+                f"repro_config_location: {config_path}",
+                f"repro_config_hash: {config_hash}",
                 f"repro_dataset_id: {REPRO_SENTINEL}",
                 "repro_dataset_hash: " + REPRO_SENTINEL,
                 "---",
@@ -333,11 +354,18 @@ class TestCliDatasetProvenanceDegrade:
         exit_code = run(args)
         out = capsys.readouterr().out
 
-        assert exit_code == 0, (
-            "A [dataset-provenance] WARN alone must degrade to exit 0, "
-            "matching the check's documented SURFACE-never-BLOCK contract"
+        assert exit_code == 1, (
+            "PR-CC-1: a missing dataset link is now ALSO a HARD CHECK-1 violation "
+            "(unless repro_dataset_id: not-applicable) — the aggregate exit code "
+            "flips to 1 even though the underlying WARN mechanism is unchanged"
         )
-        assert "[dataset-provenance] WARN" in out, "The warn must be surfaced in stdout"
+        assert "[dataset-provenance] WARN" in out, (
+            "check_dataset_provenance_warn's own SURFACE-only message must still "
+            "appear in stdout, unchanged"
+        )
+        assert "dataset link" in out, (
+            "CHECK-1's own HARD violation message must also appear"
+        )
 
     def test_cli_note_check_hard_violation_still_exits_one(self, instance, tmp_path, capsys):
         """A genuine hard provenance violation (scores hash mismatch) must still exit 1.
