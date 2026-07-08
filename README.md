@@ -128,12 +128,12 @@ design, and the gates.
 
 ---
 
-## What the crew runs — the two loops
+## What the crew runs — the three loops
 
-Research Vault ships **two** research loops as DAGs. Alfred walks each one node by
-node, dispatching every node to the specialist whose hat fits it. (Figure and
-manuscript loops were deliberately left out — a solo researcher owns those
-downstream, by hand, where taste matters more than automation.)
+Research Vault ships **three** research loops as DAGs. Alfred walks each one node
+by node, dispatching every node to the specialist whose hat fits it. Two of them
+**build** `notes/` (the crew's reasoning pillar); the third **transforms** `notes/`
+into a submittable document (the user-facing deliverable pillar).
 
 ### Literature review (`rv review`)
 
@@ -173,10 +173,35 @@ flowchart LR
     HG4 -.-> methods-update
 ```
 
-Both loops use the same underlying machinery: a DAG walker over typed nodes, with a
-grounding manifest that binds each node to the artifacts it reads and produces. The
-`[HG]` nodes are the **human-go gates** — the points where Alfred pauses and waits
-for you.
+### Manuscript (`rv manuscript`)
+
+Turns a saturated `notes/` corpus into a submittable document, **by type**
+(`type: lit-review` — a survey/review paper — ships today; a future
+`type: experiment-paper` is designed for, not built). The organizing framework
+is a human commitment, never machine-discovered; every draft/revise round
+re-fires hard fidelity gates (hermetic `.bib` build, citation-resolve, coverage,
+equation-fidelity) and, when a judge is configured, LLM-judged support-matcher +
+cold-read gates; a 2-round × 3-reviewer conference-style board scores FLOOR axes
+by MIN-across-3 (never average) plus a **mandatory** annotated-bibliography
+canary that must not clear. OKF inputs: `literature/`, `concepts/`, `mocs/`,
+`gaps/`. Output: `manuscripts/<slug>/{main.tex, sections/, refs.bib, figures/}`.
+
+```mermaid
+flowchart LR
+    scope[scope] --> fp[framework-propose] --> HG1[["[HG] approve-framework"]]
+    HG1 --> sec["section(s)\n(type-generic)"] --> assemble
+    assemble --> HG2[["[HG] approve-manuscript"]]
+```
+
+See [doctrine/manuscript-loop.md](src/research_vault/data/doctrine/manuscript-loop.md)
+for the full walkthrough (scaffold → framework approval → expand → the 2×3
+review board → the fidelity gates → the manuscript output) and its known
+limitations.
+
+All three loops use the same underlying machinery: a DAG walker over typed nodes,
+with a grounding manifest that binds each node to the artifacts it reads and
+produces. The `[HG]` nodes are the **human-go gates** — the points where Alfred
+pauses and waits for you.
 
 ---
 

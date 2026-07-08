@@ -14,10 +14,11 @@ is a v1 acceptance check and stays true here.
 
 `rv` is an adoptable, zero-infra AI-research-assistant OS framework: a CLI core
 (`rv`) + portable doctrine + a named crew (Alfred/Wren/Mason/Ada/Argus/Iris — see
-`README.md`) + typed OKF notes + a DAG orchestrator + both research loops
-(experiment and lit-review) + a file-based control plane. A stranger clones it,
-runs `rv init`, and gets the full research loop with zero infrastructure —
-file-based local-default adapters, optional capabilities behind extras.
+`README.md`) + typed OKF notes + a DAG orchestrator + the three research loops
+(experiment, lit-review, and the notes-to-manuscript manuscript loop) + a
+file-based control plane. A stranger clones it, runs `rv init`, and gets the
+full research loop with zero infrastructure — file-based local-default
+adapters, optional capabilities behind extras.
 
 ## Components
 
@@ -42,6 +43,7 @@ graph TD
     PROJECT["project.py — project registry\n+ `rv project new` capstone"]
     SCAFFOLD["scaffold.py — dir scaffolding,\nFRAMEWORK_GITIGNORE, USER_OWNED_NEVER_TOUCH"]
     BUILD["build_agents.py — hat composition\n(charter + role + read-fresh footer)"]
+    MS["manuscript/ — type-generic manuscript loop\n(types/lit_review, bib, fidelity_gates,\nequations, exemplars, review_board)"]
 
     CLI --> CFG
     CLI --> STATUS
@@ -58,6 +60,7 @@ graph TD
     CLI --> CITE
     CLI --> COMPUTE
     CLI --> PROJECT
+    CLI --> MS
     CFG --> PROJECT
     PROJECT --> SCAFFOLD
     PROJECT --> BUILD
@@ -73,11 +76,14 @@ graph TD
     STATUS --> CTL
     STATUS --> TASK
     STATUS --> DAG
+    MS --> DAG
+    MS --> NOTE
+    MS --> REVIEW
 ```
 
-## The two research loops
+## The three research loops
 
-Both loops compose the **same DAG mechanism** (`dag/schema.py` + `dag/walker.py` +
+All three loops compose the **same DAG mechanism** (`dag/schema.py` + `dag/walker.py` +
 `dag/store.py`) — a standing constraint (zero new walker machinery per loop):
 
 - **Experiment loop** — `experiment.py` / `experiment_run.py` / `plan/` /
@@ -88,6 +94,15 @@ Both loops compose the **same DAG mechanism** (`dag/schema.py` + `dag/walker.py`
   coverage-gate) → phase-2 fan-out emitted by `cmd_expand` after human approval
   (a runtime-discovered set can't be a static manifest node — resolved by the
   two-phase split, not new DAG mechanism).
+- **Manuscript loop** — `manuscript/` (`manuscript/__init__.py`, type-generic
+  two-phase scaffolder + `manuscript/types/` registry, `lit_review.py` the only
+  populated type). Transforms `notes/` into `manuscripts/<slug>/` **by type** —
+  `type: lit-review`'s Phase-1 is the human-owned framework-selection sub-loop
+  (scope → framework-propose → approve-framework); Phase-2 drafts the type's
+  section-set, re-firing hard fidelity gates (hermetic `.bib`, citation-resolve,
+  coverage, equation-fidelity) every round, then the 2×3 conference-style
+  review-revise board. See `doctrine/manuscript-loop.md` for the full
+  walkthrough and known limitations.
 
 ## Data flow (by verb, not exhaustive)
 
@@ -97,6 +112,7 @@ Both loops compose the **same DAG mechanism** (`dag/schema.py` + `dag/walker.py`
 | Cite a paper | DOI/arXiv id | `library.json` entry + `literature/<key>.md` | `rv cite add`, `rv research add` |
 | Note the corpus | papers | `literature/`, `concepts/`, `methods/` notes | `rv note new` |
 | Run an experiment | a pre-registered plan | `experiments/<slug>.md` + `results/scores/*.csv` | `rv dag run`, `rv experiment` |
+| Draft a manuscript | a saturated `notes/` corpus | `manuscripts/<slug>/{main.tex, sections/, refs.bib, figures/}` | `rv manuscript new/expand/review` |
 | Verify provenance | `results_location` + `results_hash` | pass/fail | `rv note check`, DAG complete-gate |
 | Coordinate the crew | Inbox/Handshakes/Outbox | `control/<slug>.md` | `rv control` |
 | Read project state | control + task board + git + DAG | one coordination read | `rv status` |
@@ -164,8 +180,8 @@ resolves `source_dir` directly (no `notes_root / slug` indirection).
 `agent-charter.md`, `coordination.md`, `project-structure.md`,
 `note-conventions.md`, `review-board.md`, `standards.md`, `tooling.md`,
 `memory-management.md`, `honesty-gates.md`, `crew-cannot-self-approve.md`,
-`git-discipline.md`, `compute-run-recipe.md`, `plan-critic-spec.md`, plus
-per-role docs under `doctrine/roles/`. `rv lint`'s rule 8 enforces doctrine
+`git-discipline.md`, `compute-run-recipe.md`, `plan-critic-spec.md`,
+`manuscript-loop.md`, plus per-role docs under `doctrine/roles/`. `rv lint`'s rule 8 enforces doctrine
 link-integrity (zero dangling cross-references) as a CI gate.
 
 ## The standalone boundary + leakage-by-construction
