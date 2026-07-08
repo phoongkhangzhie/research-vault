@@ -62,6 +62,68 @@
   CC-6, CC-7). Next: backfill the convention to the downstream research project
   that consumes rv's conventions.
 
+## 2026-07-07 (feat/pr-m8-rubric-calibration: PR-M8 — the calibrated rubric + reviewer lenses + annotated-bib canary)
+
+### Done
+- **PR-M8 (design §11, §14)** — swapped M5's placeholder review-board rubric/
+  canary bounds for the researcher's calibrated versions, via the ALREADY-
+  SHIPPED override seams (`ms_type.rubric` / `[manuscript_review].rubric`,
+  `get_review_rubric`) — zero control-flow change in `review_board.py`, only
+  the rubric TEXT + canary passages/bounds changed.
+  - `DEFAULT_LIT_REVIEW_RUBRIC` replaces `PLACEHOLDER_REVIEW_RUBRIC`: the 8
+    dims (SCOPE/REPRO/FRAME/SYNTH/COMPARE/GAP/CITE/BIAS) with FLOOR/SURFACE/
+    SIGNAL classes, ordinal 1-5 scale, disconfirm-first framing, and a
+    justify-each-score (ARR) instruction — every score line now carries a
+    located textual justification, not a bare number.
+  - The 3 reviewer lenses (coverage auditor / framework critic with the
+    reframe-escalation trigger / synthesis-vs-enumeration adversary) got
+    calibrated wording grounded in the same instruments as the rubric
+    (AMSTAR-2/ROBIS/Nickerson/SANRA/CSUR) — structure unchanged from PR-M5.
+  - The 3 canary probes (known-STRONG / known-WEAK / the ★ mandatory
+    annotated-bibliography probe) got calibrated passages written to
+    exercise specific rubric dims, so a correctly-calibrated judge has real
+    textual evidence to score against — not just a mock-bound placeholder.
+  - **Escalation-persistence tightening** (flagged by the M5 reviewer):
+    reframe-the-spine escalation now requires **multi-round recurrence** —
+    the SAME weak-FRAME-with-misfits condition in >= 2 CONSECUTIVE rounds,
+    not a single round's low score (design §5.1's literal "round after
+    round" wording). A single weak round is surfaced as a "watching for
+    recurrence" note, never silently dropped.
+  - `judge_model` + `prompt_hash` (sha256[:16] of the exact prompt sent) now
+    logged on every reviewer node, canary probe, and stamped onto
+    `_manuscript.md`'s review-run record — audit + drift-detection
+    provenance, the support-matcher/coldread convention.
+- New `tests/test_manuscript_m8_calibration.py` (14 tests): the calibrated
+  canary bounds against the REAL rubric+passages (via a content-aware mock
+  judge, distinct from the machinery tests' marker-routing mock), the ARR
+  justify-each-score requirement, the thesis-blindness re-check, and the
+  judge_model/prompt_hash logging round-trip.
+- Updated `tests/test_manuscript_review_board.py` for the multi-round
+  escalation tightening (3 new/rewritten tests replacing the single-round
+  escalation test) and the `PLACEHOLDER_REVIEW_RUBRIC` -> `DEFAULT_LIT_REVIEW_RUBRIC`
+  rename.
+
+### Decisions
+- The rubric's ARR justification requirement is enforced as SURFACED audit
+  metadata (`missing_justifications` on the reviewer-node result), not a
+  hard re-gate that zeroes an unjustified score — this keeps PR-M5's
+  existing bare-bracket machinery tests green while still making an
+  unjustified score visible, never silently accepted.
+- `run_canary_scaffold` and `run_reviewer_node` both changed return-shape
+  (added `judge_model`/`prompt_hashes`/`justifications`/`missing_justifications`
+  keys) — additive only, no existing key removed or renamed.
+
+### Open / next
+- PR-M9 (capstone): discoverability + documentation — the last PR before
+  the manuscript/`lit-review` capability is "done".
+- Pre-existing, unrelated: a local (macOS/BSD-tools) run of
+  `scripts/leakage_scan.sh DEVLOG.md` fails on the operator-name mention
+  added by PR-CC-2 (commit 79b442b, already on `origin/main` before this
+  branch) — CI's actual (Ubuntu/GNU-tools) run of the identical command is
+  green (verified via `gh run view`), so this is a cross-platform
+  tool-behavior discrepancy in the scanner, not a real leak; flagging for
+  the hub/Architect rather than fixing it in this PR (out of scope for M8).
+
 ## 2026-07-07 (feat/code-check: PR-CC-5 `rv code check <project>` verb)
 
 ### Done

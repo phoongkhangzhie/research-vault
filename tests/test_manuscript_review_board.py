@@ -260,7 +260,7 @@ class TestRunCanaryScaffold:
                 return _score_response(SCOPE=4, REPRO=4, CITE=4, FRAME=2, SYNTH=1, COMPARE=1, GAP=1, BIAS=2)
             return "no probe matched"
 
-        result = rb.run_canary_scaffold(_judge, rb.PLACEHOLDER_REVIEW_RUBRIC, floor_value=3)
+        result = rb.run_canary_scaffold(_judge, rb.DEFAULT_LIT_REVIEW_RUBRIC, floor_value=3)
         assert result["canary_ok"] is True
 
     def test_broken_harsh_judge_aborts_on_strong_probe(self):
@@ -271,7 +271,7 @@ class TestRunCanaryScaffold:
             return _score_response(**_ALL_FAIL)
 
         with pytest.raises(rb.CanaryAbortError, match="BROKEN-HARSH"):
-            rb.run_canary_scaffold(_judge, rb.PLACEHOLDER_REVIEW_RUBRIC, floor_value=3)
+            rb.run_canary_scaffold(_judge, rb.DEFAULT_LIT_REVIEW_RUBRIC, floor_value=3)
 
     def test_rubber_stamping_judge_aborts_on_weak_probe(self):
         """The weak probe scored AT the floor (not below) -> positivity bias."""
@@ -283,7 +283,7 @@ class TestRunCanaryScaffold:
             return "unreached"
 
         with pytest.raises(rb.CanaryAbortError, match="RUBBER-STAMPING"):
-            rb.run_canary_scaffold(_judge, rb.PLACEHOLDER_REVIEW_RUBRIC, floor_value=3)
+            rb.run_canary_scaffold(_judge, rb.DEFAULT_LIT_REVIEW_RUBRIC, floor_value=3)
 
     def test_mandatory_annotated_bib_canary_aborts_when_it_would_clear_synth(self):
         """The #1 survey failure: a literal annotated bibliography scoring
@@ -299,7 +299,7 @@ class TestRunCanaryScaffold:
             return "unreached"
 
         with pytest.raises(rb.CanaryAbortError, match="BLIND to the #1 survey failure"):
-            rb.run_canary_scaffold(_judge, rb.PLACEHOLDER_REVIEW_RUBRIC, floor_value=3)
+            rb.run_canary_scaffold(_judge, rb.DEFAULT_LIT_REVIEW_RUBRIC, floor_value=3)
 
     def test_unparseable_weak_probe_aborts(self):
         def _judge(prompt: str) -> str:
@@ -308,7 +308,7 @@ class TestRunCanaryScaffold:
             return "garbage, no brackets"
 
         with pytest.raises(rb.CanaryAbortError, match="UNPARSEABLE"):
-            rb.run_canary_scaffold(_judge, rb.PLACEHOLDER_REVIEW_RUBRIC, floor_value=3)
+            rb.run_canary_scaffold(_judge, rb.DEFAULT_LIT_REVIEW_RUBRIC, floor_value=3)
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +352,11 @@ class TestRunMetaReview:
         )
         assert result["regression"]["regressed"] is False
 
-    def test_escalation_payload_built_when_frame_low_and_misfits_present(self):
+    def test_single_round_low_frame_does_not_yet_escalate(self):
+        """PR-M8 tightening (design §5.1, "round after round"): a SINGLE
+        round's weak FRAME + misfits is surfaced as a watching note, but does
+        NOT build the formal escalation payload -- recurrence requires >= 2
+        CONSECUTIVE rounds."""
         reviewers = [
             {
                 "scores": {"SCOPE": 5, "REPRO": 5, "CITE": 5, "FRAME": 1},
@@ -361,11 +365,76 @@ class TestRunMetaReview:
             },
         ]
         result = rb.run_meta_review(1, reviewers, floor_dims=["SCOPE", "REPRO", "CITE"], floor_value=3)
-        assert result["escalation"] is not None
-        assert result["escalation"]["recurring_misfits"] == ["paper A orphaned"]
-        assert result["escalation"]["candidate_reframes"] == ["axis-based"]
+        assert result["escalation"] is None
+        assert result["frame_recurrence"]["streak_rounds"] == [1]
+        assert "watching for recurrence" in result["meta_review"]
+
+    def test_escalation_payload_built_after_two_consecutive_recurring_rounds(self):
+        """The formal escalation only fires once the weak-FRAME-with-misfits
+        condition has recurred in 2 CONSECUTIVE evaluated rounds -- design
+        §5.1's literal "round after round" wording (PR-M8 tightening)."""
+        round1_reviewers = [
+            {
+                "scores": {"SCOPE": 5, "REPRO": 5, "CITE": 5, "FRAME": 1},
+                "skipped": False,
+                "escalation_fields": {"misfits": ["paper A orphaned"], "reframe_candidates": ["axis-based"]},
+            },
+        ]
+        round1 = rb.run_meta_review(1, round1_reviewers, floor_dims=["SCOPE", "REPRO", "CITE"], floor_value=3)
+        assert round1["escalation"] is None  # not yet -- only one round so far
+
+        round2_reviewers = [
+            {
+                "scores": {"SCOPE": 5, "REPRO": 5, "CITE": 5, "FRAME": 1},
+                "skipped": False,
+                "escalation_fields": {"misfits": ["paper B also orphaned"], "reframe_candidates": ["axis-based"]},
+            },
+        ]
+        round2 = rb.run_meta_review(
+            2, round2_reviewers, floor_dims=["SCOPE", "REPRO", "CITE"], floor_value=3,
+            prior_frame_recurrence=round1["frame_recurrence"],
+        )
+        assert round2["escalation"] is not None
+        assert round2["escalation"]["recurring_rounds"] == [1, 2]
+        assert round2["escalation"]["recurring_misfits"] == ["paper A orphaned", "paper B also orphaned"]
+        assert round2["escalation"]["candidate_reframes"] == ["axis-based", "axis-based"]
         # Surface-not-auto: the escalation is a PROPOSAL, not a mutation —
         # nothing in this function writes to disk or mutates ms_type/tree_root.
+
+    def test_non_consecutive_weak_round_resets_the_streak(self):
+        """A round where FRAME is fine (not "round after round") resets the
+        recurrence streak -- a later weak round after a gap starts fresh."""
+        weak_reviewers = [
+            {
+                "scores": {"SCOPE": 5, "REPRO": 5, "CITE": 5, "FRAME": 1},
+                "skipped": False,
+                "escalation_fields": {"misfits": ["misfit X"], "reframe_candidates": ["reframe X"]},
+            },
+        ]
+        fine_reviewers = [
+            {
+                "scores": {"SCOPE": 5, "REPRO": 5, "CITE": 5, "FRAME": 4},
+                "skipped": False,
+                "escalation_fields": {"misfits": [], "reframe_candidates": []},
+            },
+        ]
+        round1 = rb.run_meta_review(1, weak_reviewers, floor_dims=["SCOPE", "REPRO", "CITE"], floor_value=3)
+        assert round1["frame_recurrence"]["streak_rounds"] == [1]
+
+        round2 = rb.run_meta_review(
+            2, fine_reviewers, floor_dims=["SCOPE", "REPRO", "CITE"], floor_value=3,
+            prior_frame_recurrence=round1["frame_recurrence"],
+        )
+        assert round2["frame_recurrence"]["streak_rounds"] == []
+        assert round2["escalation"] is None
+
+        round3 = rb.run_meta_review(
+            3, weak_reviewers, floor_dims=["SCOPE", "REPRO", "CITE"], floor_value=3,
+            prior_frame_recurrence=round2["frame_recurrence"],
+        )
+        # Fresh streak of length 1 -- NOT treated as continuing round 1's streak.
+        assert round3["frame_recurrence"]["streak_rounds"] == [3]
+        assert round3["escalation"] is None
 
     def test_no_escalation_when_frame_score_is_fine(self):
         reviewers = [
@@ -579,7 +648,11 @@ class TestRunReviewBoard:
 
     def test_reframe_writes_candidates_never_auto_reframes(self, tmp_path):
         """The escalation is surfaced but nothing mutates the manuscript
-        tree, the type registry, or auto-commits a new spine."""
+        tree, the type registry, or auto-commits a new spine. PR-M8
+        tightening: the same judge fires the SAME weak-FRAME-with-misfits
+        response every round, so the board never clears (floor dims held
+        below floor both rounds) and BOTH of the two default rounds run --
+        the recurrence needed for the escalation to actually fire."""
         from research_vault.manuscript.types import get_type
 
         project_notes_dir, tree_root = self._tree(tmp_path)
@@ -588,12 +661,12 @@ class TestRunReviewBoard:
         def _judge(prompt: str) -> str:
             if "FRAMEWORK / TAXONOMY CRITIC" in prompt:
                 return (
-                    "[SCOPE:5]\n[REPRO:5]\n[CITE:5]\n[FRAME:1]\n"
+                    "[SCOPE:2]\n[REPRO:2]\n[CITE:2]\n[FRAME:1]\n"
                     "MISFITS: paper A doesn't fit any branch\n"
                     "REFRAME_CANDIDATES: axis-based reframe\n"
                     "[SYNTH:4]\n[COMPARE:4]\n[GAP:4]\n[BIAS:4]\n"
                 )
-            return _score_response(**_ALL_PASS)
+            return _score_response(SCOPE=2, REPRO=2, CITE=2, FRAME=4, SYNTH=4, COMPARE=4, GAP=4, BIAS=4)
 
         before = sorted(p.name for p in tree_root.rglob("*"))
         result = rb.run_review_board(
@@ -603,7 +676,8 @@ class TestRunReviewBoard:
         after = sorted(p.name for p in tree_root.rglob("*"))
 
         assert result["escalation"] is not None
-        assert result["escalation"]["candidate_reframes"] == ["axis-based reframe"]
+        assert result["escalation"]["recurring_rounds"] == [1, 2]
+        assert result["escalation"]["candidate_reframes"] == ["axis-based reframe", "axis-based reframe"]
         assert before == after  # nothing was written to the tree by this call
 
     def test_requires_judge_fn(self, tmp_path):
