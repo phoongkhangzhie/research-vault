@@ -62,6 +62,72 @@
   CC-6, CC-7). Next: backfill the convention to the downstream research project
   that consumes rv's conventions.
 
+## 2026-07-07 (feat/pr-m9-capstone: PR-M9 — CAPSTONE: discoverability + documentation)
+
+### Done
+- **PR-M9 (design §14, the capstone)** — the manuscript loop (`type: lit-review`,
+  PR-M0..M8) is now discoverable and documented like `rv orient` and the other
+  loops; per the standing "documented as a tool like others" discipline, the
+  capability was not "done" until this landed.
+  - **Discoverability** — rewrote `cli.py::_VERB_REGISTRY["manuscript"]`'s
+    `when_to_use` from its PR-M1-era stale text (still described PR-M5 as an
+    unbuilt stub, PR-M6's section table as unlanded) to the actual shipped
+    state: the framework-selection Phase-1, the injected-data section-set, the
+    2×3 conference-style review-revise board with FLOOR-not-average scoring
+    and the mandatory annotated-bib canary, and an honest anti-pattern list.
+    `rv help --check` verified green (36 verbs, all example snippets parse).
+  - **Doctrine** — new `data/doctrine/manuscript-loop.md`: a "reach for this
+    when" trigger, the full end-to-end survey walkthrough (scaffold →
+    approve-framework → expand → the 2×3 board → the fidelity gates →
+    `manuscripts/<slug>/` output), and an honest **known-limitations**
+    section (single-thematic-node v1, the `reviews/<slug>/` slug-match
+    convention with no `--corpus` override, the gate judge-guard, SYNTH =
+    SIGNAL not a hard gate, ARR justifications surfaced not hard-gated, and
+    `--reframe` not yet a wired CLI flag). Cross-linked from
+    `project-structure.md`'s two-pillar section and from `coordination.md`
+    (a new "the three loops, at a glance" pointer, alongside the existing
+    `rv orient` trigger convention). `rv lint`'s rule 8 (doctrine
+    link-integrity) verified green.
+  - **README.md** — the "What the crew runs" section claimed **two** loops
+    with "manuscript loops were deliberately left out — a solo researcher
+    owns those downstream" — stale since PR-M1 landed. Replaced with a real
+    third "Manuscript (`rv manuscript`)" section (mermaid diagram + a pointer
+    to `manuscript-loop.md`) and fixed the "two loops" framing to three.
+  - **architecture.md** — updated "What it is", the components diagram (a
+    new `MS` node), "The two research loops" → "The three research loops"
+    (added the manuscript-loop bullet), the data-flow table, and the
+    doctrine file list (`manuscript-loop.md`).
+- Gates run clean: `rv help --check` (36 verbs), `rv lint` (all 9 rules,
+  including rule 8 doctrine link-integrity), `scripts/leakage_scan.sh` over
+  `src/research_vault/data/doctrine`, `src/research_vault`, `README.md`,
+  `architecture.md`, `DEVLOG.md` (this entry — scrubbed an operator-name
+  mention in the new doctrine file down to "the operator" before this scan
+  passed).
+
+### Decisions
+- Treated `coordination.md` as the "loops overview" doc the brief named
+  (there is no dedicated separate loops-overview file in the doctrine tree
+  today) — added the cross-link there rather than inventing a new file.
+- Did NOT wire `rv manuscript new --reframe <prior-slug>` as a CLI flag in
+  this PR. The design doc's PR-M9 scope lists it under "surface in `rv help`
+  ... incl. `--reframe`", but grepping the shipped code
+  (`manuscript/types/lit_review.py`'s `build_reframe_escalation_payload`
+  docstring) shows it was explicitly deferred ("a future CLI wiring — out of
+  scope here, PR-M8/CLI-follow-on") and no test or verbs.py code wires it.
+  PR-M9's own scope-in list is discoverability + documentation, not new
+  mechanism — fabricating a working `--reframe` flag in `when_to_use` would
+  violate charter §1 (never fabricate a capability). Documented honestly as
+  known-limitation #6 instead, with the exact manual workaround.
+
+### Open / next
+- The manuscript loop (`type: lit-review`) is now "done" per design §14's own
+  definition: functionally complete (PR-M8's canary calibration) AND shipped
+  (this PR's discoverability + documentation).
+- Follow-ons named, not built (flagged in `manuscript-loop.md`'s
+  known-limitations section): true per-branch thematic-section DAG fan-out;
+  a `--corpus` override for the `reviews/<slug>/` convention; wiring
+  `rv manuscript new --reframe <prior-slug>`.
+
 ## 2026-07-07 (feat/pr-m8-rubric-calibration: PR-M8 — the calibrated rubric + reviewer lenses + annotated-bib canary)
 
 ### Done

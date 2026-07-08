@@ -43,6 +43,14 @@ user's deliverable — plus the **mechanical roots** that supply their raw mater
                                              refs.bib, figures/)
 ```
 
+**Reach for the manuscript loop** (`rv manuscript <project> new <slug> --type <type>`) when
+you have a saturated `notes/` corpus and need a submittable document out of it — the
+notes-to-manuscript synthesis step, distinct from the knowledge loops (`rv experiment`,
+`rv review`) that build `notes/` in the first place. See
+[manuscript-loop.md](./manuscript-loop.md) for the full end-to-end walkthrough (scaffold →
+framework approval → expand → the 2×3 review board → the fidelity gates → the
+`manuscripts/<slug>/` output) and the known limitations accumulated across the build.
+
 ## The canonical top-level tree
 
 **Repo root IS the vault.** `source_dir = <repo>/notes`. No `vault/` wrapper — the project
