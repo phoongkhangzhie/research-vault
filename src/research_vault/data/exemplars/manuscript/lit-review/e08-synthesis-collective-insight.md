@@ -6,4 +6,4 @@ why: a first-person editorial statement of the exact rule the writer must follow
 kind: exemplar
 verbatim-verified: yes
 ---
-After reviewing each group of literature, the authors should synthesize key insights that emerge from collective analysis rather than individual paper summaries. These insights might include common limitations shared across approaches, fundamental trade-offs that constrain all solutions, etc.
+After reviewing each group of literature, the authors should synthesize key insights that emerge from collective analysis rather than individual paper summaries. These insights might include common limitations shared across approaches, fundamental trade-offs that constrain all solutions, etc. For instance, reviewing blockchain consensus algorithms might reveal that performance improvements consistently require increased communication complexity. Such insights provide value beyond individual paper examination.
