@@ -668,7 +668,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "— run `rv review <project> gap-route <gap-id> <scope>`; it routes by "
             "error-asymmetry (Chalmers & Glasziou avoidable-waste) and auto-authors the scope. "
             "Anti-pattern: do NOT call `rv research` stdout and scrape it for saturation "
-            "counts — import `_load_corpus_index` and `_corpus_annotation` from "
+            "counts — import `_corpus_annotation` from "
             "`research_vault.research` directly (the corpus-helper import rule, §5L.11)."
         ),
         "sr": "SR-LR-1, SR-LR-2, SR-GAP-ROUTE, SR-GAP-CLOSE",

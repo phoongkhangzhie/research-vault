@@ -45,6 +45,51 @@
   scope — surfaced to the operator to restore by hand or explicitly
   authorize, rather than silently working around the block.
 
+## 2026-07-07 (release/0.2.3: BBT citekey emission + dead corpus-index tier removal)
+
+### Done
+- Version bump `0.2.2 → 0.2.3` — **patch**: bug fix + dead-code removal, no
+  breaking change to any live consumer.
+- **Bug A — `_load_notes_index`/`_load_notes_title_index` emitted the
+  filename, not the note's own `citekey:` field.** Both indexers built their
+  `doi/arxiv → citekey` maps with `citekey = note_path.stem` — the filename
+  slug (e.g. `argyle-2023-silicon-sampling`) — never reading the note's own
+  `citekey:` frontmatter (the operator's Better BibTeX scheme, e.g.
+  `argyleOutOneMany2022`). A large majority of real project notes have
+  filename ≠ citekey, so `[IN-CORPUS:<x>]` never showed the BBT key a
+  researcher actually cites.
+  Fix: new `_note_citekey(fields, note_path)` helper reads `citekey:` when
+  present, falling back to the filename stem for the ~10 notes filed without
+  one. Wired into both indexers.
+- **Bug B — removed the dead Zotero `library.json` corpus-index tier.**
+  `_load_corpus_index`/`_refs_path_for_project` never fired for real projects:
+  (1) nothing wires a `refs =` path into a real project's config (only `rv
+  project new`'s own scaffold sets it — never the hub's config bridge); (2)
+  even when a path was present, the parser expected the raw Zotero-API item
+  shape (`item["data"][...]`), never the flat CSL-JSON a real `library.json`
+  actually contains. The operator's call: remove it outright. Deleted
+  `_load_corpus_index`, `_refs_path_for_project`, and the `corpus_index`
+  parameter from `_corpus_annotation`/`_print_candidates` and all three
+  `cmd_find`/`cmd_cited_by`/`cmd_references` call sites. The notes-index tier
+  (doi/arxiv/url + the 0.2.2 author-title fallback + the Bug-A citekey field)
+  already covers everything the dead tier claimed to.
+- Rewrote `tests/test_research_corpus_dedup.py` around the notes-index-only
+  corpus tier (no more `library.json` fixtures); added a RED-before-green test
+  for the BBT-citekey emission (`test_load_notes_index_emits_bbt_citekey_field_when_present`)
+  plus a fallback test and an end-to-end annotation test; added structural
+  regression guards asserting `_load_corpus_index`/`_refs_path_for_project`
+  are gone. Updated `test_sr_lr_1.py`/`test_sr_find_rerank.py` call sites
+  (`_corpus_annotation`/`_print_candidates` dropped the `corpus_index` param).
+
+### Decisions
+- Left `rv project new`'s own `library.json`/`refs=` scaffold untouched — that
+  write-side path is a separate, still-valid feature (a project created
+  directly via `rv project new`, not through a hub's config bridge); only the
+  READ side (parsing it as a corpus index) was dead and removed.
+- Note: the `[projects.x]` pollution incident from PR #171/#173's discovery
+  is unrelated to this PR — that fix landed separately and this branch
+  rebases on top of it.
+
 ## 2026-07-07 (release/0.2.2: corpus-annotation under-detection fix)
 
 ### Done
