@@ -366,6 +366,113 @@ def coverage_report(
 
 
 # ---------------------------------------------------------------------------
+# Wave 0 (Reading) PR-2 — paper→paper typed-edge aggregation (the "consume" seam)
+# ---------------------------------------------------------------------------
+
+def relations_report(
+    project: str,
+    scope: str,
+    *,
+    config: Config | None = None,
+) -> dict[str, Any]:
+    """Deterministic, corpus-wide paper→paper typed-edge listing (PR-2).
+
+    This is the mechanical "consume" seam the design doc calls for: instead of
+    `review-synthesize` (and `review-coverage-critic`) RE-DERIVING the
+    comparative spine from prose each run, they traverse the edges the
+    relate-<key> fan-out already emitted (`## Related papers` body sections,
+    parsed by ``relate_check.parse_paper_relations``). Mirrors
+    ``coverage_report``'s pattern exactly — same anti-pattern this closes
+    ("do NOT hand-stem-match... run the deterministic command").
+
+    Reuse-over-create (charter §6): zero new edge mechanism — this is a
+    corpus-wide fold of the SAME parser the presence check uses per-note.
+
+    Returns:
+        dict with keys:
+          edges:      list[dict] — {source, target, tag, type, reason,
+                      kind_mismatch} per edge, source = the citing literature
+                      note's citekey.
+          by_pair:    dict[(source, target)] → the edge dict (for traversal
+                      lookups by the synthesize/critic agent nodes).
+          malformed:  list[dict] — {source, line} for every '- ['-shaped
+                      line under a note's '## Related papers' section that
+                      did NOT parse to a valid edge (architect review, the
+                      load-bearing fix — NEVER silently dropped; surface
+                      this, don't just log the well-formed edges).
+          dangling:   list[dict] — edges whose target citekey does not match
+                      any literature note in this project (SIGNAL, mirrors
+                      coverage_report's orphan reporting) — a candidate
+                      typo/uningested-paper flag, not a hard error.
+          counts:     summary counts by relation type + malformed + dangling.
+
+    surface, never green-and-empty: an empty corpus returns empty lists, not None.
+
+    sr: NG-lit-review-wave0 (PR-2)
+    """
+    from .relate_check import parse_paper_relations
+
+    cfg = config or load_config()
+    project_notes_dir = cfg.project_notes_dir(project)
+    literature_dir = project_notes_dir / "literature"
+
+    edges: list[dict[str, Any]] = []
+    malformed: list[dict[str, str]] = []
+    known_citekeys: set[str] = set()
+    if literature_dir.exists():
+        for note_path in sorted(literature_dir.glob("*.md")):
+            try:
+                text = note_path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            fields, body = _parse_frontmatter(text)
+            source_citekey = (fields.get("citekey") or "").strip() or note_path.stem
+            known_citekeys.add(source_citekey)
+            parsed = parse_paper_relations(body)
+            for edge in parsed.edges:
+                edges.append({
+                    "source": source_citekey,
+                    "target": edge["target"],
+                    "tag": edge["tag"],
+                    "type": edge["type"],
+                    "reason": edge["reason"],
+                    "kind_mismatch": edge["kind_mismatch"],
+                })
+            for bad_line in parsed.malformed:
+                malformed.append({"source": source_citekey, "line": bad_line})
+
+    by_pair: dict[tuple[str, str], dict[str, Any]] = {
+        (e["source"], e["target"]): e for e in edges
+    }
+
+    # Dangling-edge check (recommended, architect review): a target citekey
+    # this project has no matching literature/ note for. Computed AFTER the
+    # full corpus scan so a forward-declared target (any note, any file
+    # order) is never mistaken for dangling.
+    dangling: list[dict[str, Any]] = [
+        e for e in edges if e["target"] not in known_citekeys
+    ]
+
+    counts: dict[str, int] = {"reciprocal": 0, "refutational": 0, "line-of-argument": 0}
+    for e in edges:
+        if e["type"] in counts:
+            counts[e["type"]] += 1
+
+    return {
+        "edges": edges,
+        "by_pair": by_pair,
+        "malformed": malformed,
+        "dangling": dangling,
+        "counts": {
+            **counts,
+            "total": len(edges),
+            "malformed": len(malformed),
+            "dangling": len(dangling),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Phase-1 DAG manifest builder
 # ---------------------------------------------------------------------------
 

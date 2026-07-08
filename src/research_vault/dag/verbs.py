@@ -367,6 +367,49 @@ def _check_experiments_provenance_chain(note_path_str: str, notes_root: Path) ->
     return check_provenance_chain(note_path)
 
 
+def _check_relate_presence(
+    note_path_str: str, notes_root: Path, node_id: str
+) -> list[str]:
+    """Wave 0 (Reading) PR-1 rejects-only presence check — ride at complete-time.
+
+    Only fires for a ``relate-<key>`` node completing a ``literature``-type
+    note (the review loop's Phase-2 fan-out, ``review/__init__.py``
+    ``_build_phase2_manifest``). Fixes the READING DISCIPLINE, never the note
+    SCHEMA (flexible-not-rigid, design doc §5) — a note missing a mandatory
+    checklist answer (Move 1 contribution_kind, PR-4 role/position, Move 3/
+    PR-5 result_reported, Move 4/PR-2 paper_relations_sought) BLOCKs at
+    complete-time, mirroring the existing OKF-type and provenance-chain gates'
+    structural posture.
+
+    Returns a list of finding strings (empty = OK or not a relate- node).
+    """
+    if not node_id.startswith("relate-"):
+        return []
+
+    note_path = Path(note_path_str)
+    if not note_path.is_absolute():
+        note_path = notes_root / note_path_str
+
+    if not note_path.exists():
+        return []  # _check_okf_note_type already reports missing-note; don't double-report
+
+    try:
+        text = note_path.read_text(encoding="utf-8")
+    except OSError:
+        return []  # likewise already reported by _check_okf_note_type
+
+    from ..note import _parse_frontmatter as _pfm_relate
+
+    fields, _ = _pfm_relate(text)
+    if fields.get("type", "") != "literature":
+        return []
+
+    from ..review.relate_check import check_relate_presence
+
+    result = check_relate_presence(note_path)
+    return result.findings
+
+
 # ---------------------------------------------------------------------------
 # SR-RESOLVE-SCOPE: project-scoped typed produces gate
 # ---------------------------------------------------------------------------
@@ -842,6 +885,24 @@ def cmd_complete(args: argparse.Namespace) -> int:
                 print(
                     "  Fix: fill results_commit/repro_seed/repro_config_*/dataset-link "
                     "(CHECK-1, docs/superpowers/specs/2026-07-07-code-conventions-design.md §3).",
+                    file=sys.stderr,
+                )
+                return 1
+            # Wave 0 (Reading) PR-1: relate-<key> node presence-check gate —
+            # rejects-only, checklist not schema (see relate_check.py docstring).
+            relate_issues = _check_relate_presence(produces["note"], _note_root, node_id)
+            if relate_issues:
+                print(
+                    f"rv dag complete: relate presence check FAILED for node {node_id!r}:",
+                    file=sys.stderr,
+                )
+                for issue in relate_issues:
+                    print(f"  {issue}", file=sys.stderr)
+                print(
+                    "  Fix: answer the missing mandatory checklist question(s) — "
+                    "this is a reading-DISCIPLINE check (docs/superpowers/specs/"
+                    "2026-07-08-okf-sufficiency-and-paper-reading.md §3-4), not a "
+                    "rigid schema; the note body/structure stays free-form.",
                     file=sys.stderr,
                 )
                 return 1

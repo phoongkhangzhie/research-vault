@@ -1,3 +1,138 @@
+## 2026-07-08 (release/0.2.6: Wave 0 — Reading, the relate-<key> protocol)
+
+### Done
+- Version bump `0.2.5 → 0.2.6` (reconciled onto main after #177 took
+  0.2.5 first) — **feature**: the relate-<key> node's
+  per-paper reading protocol (Wave 0 of the next-gen lit-review loop
+  design, PR-1/PR-2/PR-4/PR-5). Fixes the reading DISCIPLINE, never the
+  note SCHEMA — no 10th OKF note type, no frontmatter straitjacket.
+- **PR-1 — the 5-move reading protocol brief.** `per_paper_relate_tips`
+  (`review/style.py`) now encodes orient/classify → exact-arrow
+  contribution → result-with-magnitude → ★relate-to-corpus →
+  concept edges, grounded in Cochrane/PICO extraction discipline and
+  Noblit & Hare meta-ethnography's relation typing (REFERENCES.md
+  appended per the design doc's own flagged research pass). A new
+  rejects-only presence check
+  (`review/relate_check.py::check_relate_presence`) enforces the
+  mandatory checklist mechanically — a PASS never certifies quality, it
+  only fails to find a missing answer. Wired into `rv dag complete` as a
+  new gate keyed to `relate-<key>` nodes producing `literature`-type
+  notes (mirrors the existing OKF-type / provenance-chain gate pattern —
+  zero new mechanism).
+- **PR-2 ★ (the load-bearing change) — first-class paper→paper typed
+  edges.** Before this: zero paper→paper edges across the corpus (grep
+  confirmed) — every typed edge was paper→concept, and the comparative
+  spine a survey is built from was re-derived from prose each run. Now:
+  a `## Related papers` body section carries typed
+  `[SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS] <citekey> — <reason>
+  (reciprocal|refutational|line-of-argument)` edges, parsed by
+  `relate_check.parse_paper_relations`. A new deterministic "consume"
+  seam — `relations_report()` + `rv review <project> relations <scope>`
+  — aggregates them corpus-wide (mirrors `coverage_report` /
+  `rv review coverage` exactly), and `review_synthesize_tips` +
+  `_THEMATIC_BRIEF` (manuscript/types/lit_review.py) now instruct
+  traversing this output instead of re-deriving the comparative spine
+  from scratch. The over-rigidity guard (require tag+target, keep
+  substance in prose) is enforced: a bare tag with no reasoning FAILs
+  the presence check.
+- **PR-4 — split `stance` → `role` + `position`.** The old `stance`
+  field did contradictory double duty (a one-word tag in one note, a
+  full synthesis paragraph in another). Now a categorical `role`
+  (methodological/empirical/theoretical/counter-position) plus a
+  free-form `position` narrative. Confirmed the support-matcher's J-2
+  stance-mismatch check (`gates/support_matcher.py`) degrades
+  gracefully — `nf.get("stance")` resolves to `None` for a PR-4 note,
+  the same path any legacy no-stance note already takes; no fallback to
+  `role` added deliberately (the vocabularies are semantically
+  disjoint — `role`'s categories were never confidence-level tags like
+  the old `stance` check's `exploratory`/`pilot`/`tentative`). Cold-read
+  gate has zero surface area touching any relate field (grepped,
+  asserted in a regression test).
+- **PR-5 — result-with-magnitude mandatory.** `result_reported: yes|no`
+  (whitelist, fails closed on any other spelling) is now a mandatory
+  frontmatter answer; `yes` requires a non-empty `## Result` body
+  section (magnitude + conditions + limitations). Fixes the
+  "mavorparker had no number" unevenness mechanically.
+- Support-matcher/cold-read gate contracts confirmed unchanged
+  end-to-end (dedicated regression tests, `test_pr4_gate_contract_unchanged.py`) —
+  same code path, `position`'s richer narrative is now MORE judge-visible
+  evidence than the old ambiguous `stance` field gave, not less.
+- **Architect review delta (PR #178, Wren):** CHANGES-NEEDED, targeted —
+  the edge-storage shape (body-section, bracket-edge grammar) was
+  confirmed correct and kept as-is.
+  - **The load-bearing fix**: `parse_paper_relations` previously used
+    `finditer` over a strict regex and silently DROPPED any non-matching
+    line — a note with 3 edges where 1 was typo'd would pass, that edge
+    invisibly lost, and (since `review_synthesize_tips` now says
+    "traverse, don't re-derive") never recovered. Fixed: any line under
+    `## Related papers` that opens with the `- [` bracket-shape (an
+    unambiguously attempted edge — a typo'd tag, a missing target) but
+    does not parse is now collected into a `malformed` list and
+    surfaced by `parse_paper_relations`, `relations_report`
+    (`rv review relations`), AND `check_relate_presence` (a hard FAIL).
+    A plain `- ` bullet with no bracket is legitimate free prose and is
+    never flagged (the `- [` prefix is the precise, false-positive-free
+    signal — a coordinator clarification after the initial architect
+    note).
+  - **`(kind)` made optional, `[TAG]` made authoritative.** The trailing
+    `(reciprocal|refutational|line-of-argument)` mirror was previously
+    REQUIRED — a valid edge that simply omitted it lost the whole edge
+    (the most likely malformation, maximizing silent loss). Now: the
+    bracket TAG mechanically derives the kind
+    (SUPPORTS→reciprocal, CONTRADICTS→refutational,
+    PARTIAL/EXTENDS→line-of-argument); the `(kind)` suffix is an
+    optional human-readable mirror, and if it disagrees with the
+    tag-derived kind, the TAG WINS and the disagreement is surfaced as
+    `kind_mismatch` on the edge (same "ledger wins, body mirrors"
+    precedent as `key_equations`'s `*(critical)*` tag).
+  - **Recommended, added**: `relations_report` now also flags dangling
+    edges (a target citekey with no matching literature note in the
+    project) — mirrors `coverage_report`'s orphan reporting.
+  - **Confirmed additive**: `review/style.py`'s changes here add
+    `per_paper_relate_tips` + `review_synthesize_tips` only —
+    `git merge-tree` against #177 (Wave A, landing alongside this PR,
+    which touches the SAME file's `review_scope_tips` +
+    `review_snowball_tips`) auto-merges cleanly with zero conflict.
+
+### Decisions
+- **PR-3 (live concept edges, kill TODO-drift) excluded from this
+  wave** — per the design doc's wave ordering, it rides NG-6a's
+  `rv review refresh` verb (not yet built) and lands later.
+- Paper→paper edges live in the note BODY (a `## Related papers`
+  section), not a new frontmatter mapping-list — this keeps the same
+  free-body-driven convention the existing paper→concept edges already
+  use, rather than inventing a second edge-storage mechanism.
+  Confirmed correct by the architect review (kept as-is, no schema
+  switch).
+- Whitelist, never blacklist, for the two new mandatory yes/no fields
+  (`result_reported`, `paper_relations_sought`) — an agent-stamped
+  free-ish field's "did you answer" check must accept only the known-good
+  spelling, per the PR #175-delta lesson (a blacklist of "known bad"
+  spellings cannot enumerate every way an agent might dodge the
+  question).
+- **★ Conscious foreclosure (flagged for the operator):** PR-4's `stance` →
+  `role` + `position` split permanently forecloses the support-matcher's
+  J-2 exploratory→confirmatory BLOCK ever firing for a relate-produced
+  note — `role`'s fixed vocabulary is a contribution-TYPE axis
+  (methodological/empirical/theoretical/counter-position), never an
+  evidence-STRENGTH axis, so nothing a relate-note emits can match J-2's
+  `{exploratory, pilot, tentative}` trigger going forward. This is inert
+  today (the old `stance` vocabulary never matched that trigger either —
+  confirmed, not assumed, in `test_pr4_gate_contract_unchanged.py`), but
+  it is a deliberate, permanent choice, not a side-effect. Follow-up
+  option if a citation-strength gate is wanted for surveys later: the
+  relate protocol would need to emit its own evidence-strength marker
+  (e.g. a `confidence:` field) for J-2 (or a J-2-equivalent) to read.
+
+### Open / next
+- Wave A (breadth, NG-1..3) landed separately as #177 (0.2.5, reconciled
+  in below); Wave B (presentation + single-pass, RD-1..6 + NG-7/8) and
+  Wave C (autonomy, NG-4..6b) remain to be dispatched per the design
+  doc's PR breakdown (§8).
+- PR-3 to be picked up once NG-6a's `rv review refresh` verb exists.
+
+---
+
 ## 2026-07-08 (release/0.2.5: Wave A breadth-then-depth — source adapters, width-sweep, utility floor, derivative-of discounting)
 
 ### Done
