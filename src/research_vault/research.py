@@ -357,6 +357,32 @@ def _load_notes_index(literature_dir: Path | None) -> dict[str, str]:
     return index
 
 
+def _title_fallback_match(title_norm: str, note_title: str) -> bool:
+    """Conservative title-fallback match for `_corpus_annotation` tier 3.
+
+    rv-refs-corpus-fix review tightening: the original prefix/either-contains
+    heuristic over-matched on real, distinct papers — a reviewer reproduced
+    three cases empirically: title-superset (one title a strict prefix of a
+    longer, different paper's title), a series prefix ("Part I" vs "Part II"
+    sharing everything up to that suffix), and two different authors sharing
+    a surname with a generic shared title fragment.  The fix: require EITHER
+    exact equality, OR containment gated by a length ratio
+    ``min(len)/max(len) >= 0.9`` — so a short title can't be a false substring
+    match against an unrelated, much longer title.  The legitimate Aher catch
+    (identical titles, ratio 1.0) survives; the three over-match repros
+    (ratios 0.50/0.83/0.76) are correctly rejected.
+    """
+    if not title_norm or not note_title:
+        return False
+    if title_norm == note_title:
+        return True
+    if title_norm in note_title or note_title in title_norm:
+        shorter = min(len(title_norm), len(note_title))
+        longer = max(len(title_norm), len(note_title))
+        return (shorter / longer) >= 0.9
+    return False
+
+
 def _load_notes_title_index(literature_dir: Path | None) -> dict[str, list[tuple[str, str]]]:
     """Build a first-author-family → [(citekey, normalized_title)] fallback lookup.
 
@@ -367,9 +393,14 @@ def _load_notes_title_index(literature_dir: Path | None) -> dict[str, list[tuple
     a paper's canonical S2 year commonly differs from a note's recorded venue
     year (arXiv preprint year vs. eventual conference/journal year), so gating
     on year here would just reintroduce the same under-detection this fix
-    exists to close.  Conservative safety valve: only titles that normalize to
-    >= 20 alnum characters are indexed, so a short/generic title can't produce
-    a cheap surname-collision false-positive in `_corpus_annotation`.
+    exists to close.  Conservative safety valves: (a) only titles that
+    normalize to >= 20 alnum characters are indexed, so a short/generic title
+    can't produce a cheap surname-collision false-positive; (b) review
+    tightening — this index is SCOPED to notes with NO extractable id
+    (declared doi:/arxiv_id: or url-derived) at all.  A note that already has
+    an id is fully served by `_load_notes_index` (tier 2) — including it here
+    too would only widen the over-match surface for id-carrying notes without
+    adding any real detection power.
 
     Returns an empty dict when literature_dir is None or does not exist.
     """
@@ -389,6 +420,14 @@ def _load_notes_title_index(literature_dir: Path | None) -> dict[str, list[tuple
         except OSError:
             continue
         fields, _ = _parse_frontmatter(text)
+        url = fields.get("url") or None
+
+        # Skip notes that already carry an extractable id — tier 2 handles them.
+        doi = _normalize_doi(fields.get("doi") or None) or _doi_from_url(url)
+        arxiv = _normalize_arxiv(fields.get("arxiv_id") or None) or _arxiv_from_url(url)
+        if doi or arxiv:
+            continue
+
         fam = _first_author_family(fields.get("authors"))
         title_norm = _norm_title_str(fields.get("title"))
         if fam and len(title_norm) >= 20:
@@ -451,11 +490,7 @@ def _corpus_annotation(
         title_norm = _norm_title_str(paper.get("title"))
         if fam and len(title_norm) >= 20:
             for ck, note_title in nti.get(fam, []):
-                if (
-                    title_norm[:30] == note_title[:30]
-                    or title_norm in note_title
-                    or note_title in title_norm
-                ):
+                if _title_fallback_match(title_norm, note_title):
                     return f"[IN-CORPUS:{ck}]"
 
     return "[NEW]"

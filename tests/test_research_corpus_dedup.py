@@ -824,7 +824,7 @@ def test_cmd_find_filed_note_shows_in_corpus(tmp_path: Path, monkeypatch, capsys
 
 
 # ---------------------------------------------------------------------------
-# Tests 21+: rv-refs-corpus-fix — csb bug reproduction
+# Tests 21+: rv-refs-corpus-fix — real-project bug reproduction
 #
 # Root-cause investigation (2026-07-07) disconfirmed the original hypothesis
 # ("references-payload id-shape differs from cited-by's").  Live-checked: both
@@ -833,7 +833,7 @@ def test_cmd_find_filed_note_shows_in_corpus(tmp_path: Path, monkeypatch, capsys
 # `externalIds: {ArXiv, DOI, ...}` shape, and cmd_cited_by/cmd_references
 # already call the exact same _corpus_annotation/_print_candidates path.
 #
-# The REAL bug is upstream of both: real cultural-social-sim literature notes
+# The REAL bug is upstream of both: real project literature notes
 # never populate `doi:`/`arxiv_id:` frontmatter — only a `url:` field (e.g.
 # `https://arxiv.org/abs/2209.06899`) or, for some papers (e.g. a conference
 # proceedings page with no id at all), nothing extractable whatsoever.  So
@@ -896,7 +896,7 @@ def test_load_notes_index_extracts_arxiv_from_url_field(tmp_path: Path) -> None:
     """RED before fix: a note with ONLY a url: field (no arxiv_id:) is not indexed.
 
     GREEN after fix: `_load_notes_index` must also mine the url: field for an
-    arXiv id — this is the real-world shape (Argyle's csb note).
+    arXiv id — this is the real-world shape (Argyle's filed note).
     """
     lit_dir = tmp_path / "literature"
     _write_realistic_note(lit_dir, "argyleOutOneMany2022", ARGYLE_NOTE_FRONTMATTER)
@@ -1006,4 +1006,181 @@ def test_cmd_references_parity_with_cited_by_on_notes_only_corpus(tmp_path: Path
     references_out = capsys.readouterr().out
     assert "[IN-CORPUS:argyleOutOneMany2022]" in references_out, (
         f"references must annotate Argyle [IN-CORPUS] exactly like cited-by; got:\n{references_out}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests 25+: reviewer-verified title-fallback over-match tightening (2026-07-07)
+#
+# Independent review of PR #172 reproduced three genuinely-distinct-paper
+# false [IN-CORPUS] matches under the original loose heuristic
+# (title[:30]-prefix-equal OR either-contains-the-other, no length gate):
+#   A. title-superset  — a shorter title is a strict prefix of a longer,
+#                         DIFFERENT paper's title by the same author.
+#   B. series prefix   — "Part I" is a strict prefix of "Part II ...<subtitle>"
+#                         (a real sequel paper — genuinely a different entry).
+#   C. surname collision — two DIFFERENT people sharing a surname, titles
+#                         sharing a long generic opening phrase then diverging
+#                         (the exact vector the removed 30-char-prefix arm let
+#                         through).
+# A false [IN-CORPUS] is the SILENT failure mode for SR-LR-1 saturation
+# (a non-saturated round looks saturated, hiding a real frontier paper) —
+# worse than the false-NEW this fix was closing.  The tightening: exact
+# normalized-title equality, OR containment gated by a length ratio
+# min(len)/max(len) >= 0.9.  All three repros here fail that ratio gate
+# (the shared-prefix case has NO containment at all once the 30-char-prefix
+# arm is removed); the legitimate Aher catch (identical titles, ratio 1.0)
+# still passes.
+# ---------------------------------------------------------------------------
+
+def test_title_fallback_match_rejects_title_superset() -> None:
+    """Case A: a shorter title is a strict prefix of a longer, different title."""
+    note_title = research_mod._norm_title_str("Language Models Are Few-Shot Learners")
+    s2_title = research_mod._norm_title_str(
+        "Language Models Are Few-Shot Learners For Clinical Diagnosis And "
+        "Treatment Planning In Radiology"
+    )
+    assert note_title in s2_title, "test setup check: old heuristic's containment must hold"
+    assert research_mod._title_fallback_match(s2_title, note_title) is False
+
+
+def test_title_fallback_match_rejects_series_prefix() -> None:
+    """Case B: 'Part I' is a strict prefix of a genuinely different 'Part II' paper."""
+    note_title = research_mod._norm_title_str(
+        "Emergent Reasoning Abilities in Large Language Models Part I"
+    )
+    s2_title = research_mod._norm_title_str(
+        "Emergent Reasoning Abilities in Large Language Models Part II: "
+        "A Follow-Up Study With Expanded Benchmarks"
+    )
+    assert note_title in s2_title, "test setup check: old heuristic's containment must hold"
+    assert research_mod._title_fallback_match(s2_title, note_title) is False
+
+
+def test_title_fallback_match_rejects_shared_prefix_surname_collision() -> None:
+    """Case C: two different people sharing a surname; titles share a long
+    generic opening phrase (>= 30 normalized chars) then diverge completely —
+    the exact vector the removed 30-char-prefix arm let through."""
+    note_title = research_mod._norm_title_str(
+        "Self-Instruct: Aligning Language Models with Self-Generated Instructions"
+    )
+    s2_title = research_mod._norm_title_str(
+        "Self-Instruct: Aligning Language Models for Robotic Manipulation "
+        "Policies in Simulated Warehouse Environments"
+    )
+    assert note_title[:30] == s2_title[:30], "test setup check: shared 30-char prefix must hold"
+    assert note_title not in s2_title and s2_title not in note_title, (
+        "test setup check: no containment relationship (isolates the prefix-arm vector)"
+    )
+    assert research_mod._title_fallback_match(s2_title, note_title) is False
+
+
+def test_title_fallback_match_accepts_exact_title_ratio_one() -> None:
+    """The legitimate Aher catch (identical normalized titles, ratio 1.0) must survive."""
+    title = research_mod._norm_title_str(
+        "Using Large Language Models to Simulate Multiple Humans and "
+        "Replicate Human Subject Studies"
+    )
+    assert research_mod._title_fallback_match(title, title) is True
+
+
+def test_corpus_annotation_title_superset_stays_new(tmp_path: Path) -> None:
+    """End-to-end (Case A): a filed note must NOT falsely annotate a longer,
+    genuinely different paper by the same author as [IN-CORPUS]."""
+    lit_dir = tmp_path / "literature"
+    _write_realistic_note(lit_dir, "brownFewShotLearners2020", {
+        "title": "Language Models Are Few-Shot Learners",
+        "authors": "Brown, Tom B.",
+        "year": "2020",
+        "url": "https://proceedings.neurips.cc/paper/2020/brown",
+    })
+    notes_index = research_mod._load_notes_index(lit_dir)
+    notes_title_index = research_mod._load_notes_title_index(lit_dir)
+
+    distinct_candidate = {
+        "title": "Language Models Are Few-Shot Learners For Clinical Diagnosis "
+                 "And Treatment Planning In Radiology",
+        "year": 2022,
+        "authors": [{"name": "Tom B. Brown"}],
+        "externalIds": {},
+    }
+    result = research_mod._corpus_annotation(
+        distinct_candidate, corpus_index={}, notes_index=notes_index,
+        notes_title_index=notes_title_index,
+    )
+    assert result == "[NEW]", f"Genuinely different superset-titled paper must be [NEW]; got {result!r}"
+
+
+def test_corpus_annotation_series_sequel_stays_new(tmp_path: Path) -> None:
+    """End-to-end (Case B): a 'Part I' note must NOT falsely annotate the
+    genuinely different 'Part II' sequel paper as [IN-CORPUS]."""
+    lit_dir = tmp_path / "literature"
+    _write_realistic_note(lit_dir, "smithEmergentReasoningPart12023", {
+        "title": "Emergent Reasoning Abilities in Large Language Models Part I",
+        "authors": "Smith, Jane",
+        "year": "2023",
+        "url": "https://proceedings.example.org/smith-part-i",
+    })
+    notes_index = research_mod._load_notes_index(lit_dir)
+    notes_title_index = research_mod._load_notes_title_index(lit_dir)
+
+    part_two_candidate = {
+        "title": "Emergent Reasoning Abilities in Large Language Models Part II: "
+                 "A Follow-Up Study With Expanded Benchmarks",
+        "year": 2024,
+        "authors": [{"name": "Jane Smith"}],
+        "externalIds": {},
+    }
+    result = research_mod._corpus_annotation(
+        part_two_candidate, corpus_index={}, notes_index=notes_index,
+        notes_title_index=notes_title_index,
+    )
+    assert result == "[NEW]", f"Genuinely different Part II sequel must be [NEW]; got {result!r}"
+
+
+def test_corpus_annotation_surname_collision_shared_prefix_stays_new(tmp_path: Path) -> None:
+    """End-to-end (Case C): two different people sharing a surname, titles
+    sharing a long generic opening phrase, must NOT false-match."""
+    lit_dir = tmp_path / "literature"
+    _write_realistic_note(lit_dir, "wangSelfInstruct2022", {
+        "title": "Self-Instruct: Aligning Language Models with Self-Generated Instructions",
+        "authors": "Wang, Li",
+        "year": "2022",
+        "url": "https://proceedings.example.org/wang-self-instruct",  # no extractable id
+    })
+    notes_index = research_mod._load_notes_index(lit_dir)
+    notes_title_index = research_mod._load_notes_title_index(lit_dir)
+
+    different_wang_candidate = {
+        "title": "Self-Instruct: Aligning Language Models for Robotic Manipulation "
+                 "Policies in Simulated Warehouse Environments",
+        "year": 2023,
+        "authors": [{"name": "Chen Wang"}],
+        "externalIds": {},
+    }
+    result = research_mod._corpus_annotation(
+        different_wang_candidate, corpus_index={}, notes_index=notes_index,
+        notes_title_index=notes_title_index,
+    )
+    assert result == "[NEW]", f"A different Wang's paper must stay [NEW]; got {result!r}"
+
+
+def test_load_notes_title_index_scoped_to_notes_without_id(tmp_path: Path) -> None:
+    """_load_notes_title_index must SKIP notes that already carry an
+    extractable id (declared or url-derived) — id-carrying notes are fully
+    served by _load_notes_index (tier 2); including them here only widens
+    the over-match surface for no additional detection power."""
+    lit_dir = tmp_path / "literature"
+    # Argyle's note HAS an extractable id (url-derived arXiv) — must be excluded
+    _write_realistic_note(lit_dir, "argyleOutOneMany2022", ARGYLE_NOTE_FRONTMATTER)
+    # Aher's note has NO extractable id — must be included
+    _write_realistic_note(lit_dir, "aherLargeLanguageModels2022", AHER_NOTE_FRONTMATTER)
+
+    notes_title_index = research_mod._load_notes_title_index(lit_dir)
+    all_citekeys = {ck for lst in notes_title_index.values() for ck, _ in lst}
+    assert "argyleOutOneMany2022" not in all_citekeys, (
+        f"An id-carrying note must not appear in the title index; got {notes_title_index}"
+    )
+    assert "aherLargeLanguageModels2022" in all_citekeys, (
+        f"A no-id note must appear in the title index; got {notes_title_index}"
     )

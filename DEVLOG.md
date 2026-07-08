@@ -44,6 +44,35 @@
   url-only-note annotation, Aher title+author-fallback annotation
   (with the S2/note year mismatch reproduced), and a
   cited-by-vs-references parity test.
+- **Review tightening (independent review of PR #172 — BLOCK on one
+  issue, rest PASS):** the year-agnostic title-fallback tier over-matched
+  on genuinely distinct papers. Reviewer reproduced three cases
+  empirically: (A) title-superset (a shorter title is a strict prefix of
+  a longer, different paper's title by the same author); (B) series
+  prefix ("Part I" is a strict prefix of a genuinely different "Part II"
+  sequel); (C) surname collision (two different people sharing a
+  surname, titles sharing a long generic opening phrase then diverging —
+  the exact vector the removed 30-char-prefix arm let through). A false
+  `[IN-CORPUS]` is the *silent* failure mode for SR-LR-1 saturation (a
+  non-saturated round looks saturated, hiding a real frontier paper) —
+  worse than the false-`[NEW]` this fix was closing.
+  - Replaced the loose match (30-char-prefix-equal OR either-contains-
+    the-other) with `_title_fallback_match`: exact normalized-title
+    equality, OR containment gated by a length ratio
+    `min(len)/max(len) >= 0.9`. The 30-char-prefix arm is gone entirely
+    (it alone drove case C). Verified: the legitimate Aher catch is ratio
+    1.0 (survives); A/B/C fail the ratio gate (case C no longer even
+    reaches containment once the prefix arm is removed).
+  - `_load_notes_title_index` is now SCOPED to notes with **no**
+    extractable id (declared or url-derived) — matching what its own
+    docstring always claimed. It previously indexed every note,
+    needlessly widening the over-match surface for notes tier 2 (the id
+    index) already serves.
+  - 8 new regression tests: 4 unit-level on `_title_fallback_match`
+    (A/B/C rejected, Aher ratio-1.0 accepted) + 3 end-to-end
+    `_corpus_annotation` cases (A/B/C stay `[NEW]`) + 1 confirming the
+    title index excludes id-carrying notes. No ratio-threshold false
+    rejection found against the existing legitimate-catch fixtures.
 
 ### Decisions
 - The year-agnostic title-fallback tier is a deliberate divergence from
@@ -52,10 +81,10 @@
   annotation (citing surname-collision false-positive risk). Judged the
   trade-off differently here: false-NEW (under-detection, causing
   hand-re-annotation at scale) is empirically the costlier failure mode
-  for this project's saturation loop; the >=20-char full-title-overlap
-  gate keeps the false-positive surface small. Flagged, not silently
-  ported — future maintainers should know this is a considered choice,
-  not an oversight.
+  for this project's saturation loop; the length-ratio gate (post-review
+  tightening) keeps the false-positive surface small while preserving the
+  legitimate no-id catch. Flagged, not silently ported — future
+  maintainers should know this is a considered choice, not an oversight.
 
 ### Open / next
 - **Separate, pre-existing bug surfaced (not fixed here, out of scope):**
