@@ -17,7 +17,7 @@ six keys (review_scope_tips, review_search_tips, review_snowball_tips,
 per_paper_relate_tips, review_synthesize_tips, review_critic_tips) drive each node's
 spec string.  Adopters override via ``[review_style]`` in research_vault.toml.
 
-Corpus helpers (_load_corpus_index, _corpus_annotation) are imported directly from
+Corpus helpers (_corpus_annotation) are imported directly from
 research_vault.research — NOT scraped from stdout (§5L.11 prereq-composition rule).
 
 Stdlib only.
@@ -45,7 +45,6 @@ from research_vault.review.style import (
 
 # Corpus helpers imported directly (not scraping stdout — §5L.11)
 from research_vault.research import (
-    _load_corpus_index,  # noqa: F401 (re-exported for saturation node use)
     _corpus_annotation,  # noqa: F401
 )
 

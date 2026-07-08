@@ -1,21 +1,25 @@
 """test_research_corpus_dedup.py — TDD tests for corpus-dedup annotation (SR-LR-1 prereq).
 
 Design invariants tested:
-  1.  _load_corpus_index builds DOI + ArXiv id → citekey lookup from library.json
-  2.  _corpus_annotation returns [IN-CORPUS:<citekey>] for a matching DOI
-  3.  _corpus_annotation returns [IN-CORPUS:<citekey>] for a matching ArXiv id
-  4.  _corpus_annotation returns [NEW] for a paper not in the corpus
-  5.  _print_candidates prints [IN-CORPUS:…] annotation when corpus_index provided
-  6.  _print_candidates prints [NEW] annotation for unmatched candidates
-  7.  cmd_find — annotated output with --project wired to corpus
-  8.  cmd_cited_by — annotated output with --project wired to corpus
-  9.  cmd_references — annotated output with --project wired to corpus
- 10.  Missing --project → no crash, graceful output (no annotation or [NEW] for all)
- 11.  refs_path missing / empty library.json → graceful (treats all as [NEW])
- 12.  Case-insensitive DOI matching (Zotero may uppercase)
- 13.  ArXiv version suffix stripped (2005.14165v2 → matches 2005.14165)
- 14.  references --project help text describes corpus annotation (no overpromise)
- 15.  _load_corpus_index falls back to citationKey-less items that have Citation Key in extra
+  1.  _corpus_annotation returns [IN-CORPUS:<citekey>] for a matching DOI (notes_index)
+  2.  _corpus_annotation returns [IN-CORPUS:<citekey>] for a matching ArXiv id (notes_index)
+  3.  _corpus_annotation returns [NEW] for a paper not in the corpus
+  4.  _print_candidates prints [IN-CORPUS:…] annotation when notes_index provided
+  5.  _print_candidates prints [NEW] annotation for unmatched candidates
+  6.  cmd_find — annotated output with --project wired to filed literature notes
+  7.  cmd_cited_by — annotated output with --project wired to filed literature notes
+  8.  cmd_references — annotated output with --project wired to filed literature notes
+  9.  Missing --project → no crash, graceful output (no annotation or [NEW] for all)
+ 10.  No filed notes → graceful (treats all as [NEW])
+ 11.  Case-insensitive DOI matching
+ 12.  ArXiv version suffix stripped (2005.14165v2 → matches 2005.14165)
+ 13.  references --project help text describes corpus annotation (no overpromise)
+ 14.  rv-023: _load_notes_index / _load_notes_title_index emit the note's OWN
+      `citekey:` frontmatter field (Khang's Better BibTeX scheme), not the
+      filename stem, when present — falling back to the stem only when absent.
+ 15.  rv-023: the dead library.json / Zotero corpus-index tier
+      (_load_corpus_index / _refs_path_for_project) has been REMOVED — this is
+      a structural regression guard, not a feature test.
 
 All tests hermetic: asta and file I/O are mocked via monkeypatch + tmp_path.
 """
@@ -26,7 +30,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -38,43 +42,6 @@ from research_vault import research as research_mod
 # ---------------------------------------------------------------------------
 # Fixtures / shared data
 # ---------------------------------------------------------------------------
-
-# A minimal Zotero library.json with two items
-ZOTERO_ITEM_DOI = {
-    "key": "ABCD1234",
-    "data": {
-        "citationKey": "vaswani2017Attention",
-        "DOI": "10.48550/ARXIV.1706.03762",
-        "title": "Attention Is All You Need",
-        "itemType": "journalArticle",
-        "extra": "",
-    },
-}
-
-ZOTERO_ITEM_ARXIV = {
-    "key": "EFGH5678",
-    "data": {
-        "citationKey": "devlin2018BERT",
-        "archiveID": "arXiv:1810.04805",
-        "DOI": "",
-        "title": "BERT",
-        "itemType": "preprint",
-        "extra": "",
-    },
-}
-
-# Item with no citationKey field — citekey in extra only
-ZOTERO_ITEM_EXTRA_CK = {
-    "key": "IJKL9012",
-    "data": {
-        "DOI": "10.18653/v1/N19-1423",
-        "title": "BERT NAACL paper",
-        "itemType": "conferencePaper",
-        "extra": "Citation Key: devlinBERT2019",
-    },
-}
-
-SAMPLE_CORPUS = [ZOTERO_ITEM_DOI, ZOTERO_ITEM_ARXIV, ZOTERO_ITEM_EXTRA_CK]
 
 # S2 candidate papers
 CANDIDATE_DOI_MATCH = {
@@ -101,148 +68,114 @@ CANDIDATE_NEW = {
     "citationCount": 5,
 }
 
-CANDIDATE_EXTRA_CK_MATCH = {
-    "title": "NAACL BERT paper",
-    "year": 2019,
-    "authors": [{"name": "Jacob Devlin"}],
-    "externalIds": {"DOI": "10.18653/v1/N19-1423"},
-    "citationCount": 1000,
-}
 
+def _make_literature_note(
+    literature_dir: Path,
+    citekey: str,
+    doi: str = "",
+    arxiv_id: str = "",
+    frontmatter_citekey: str | None = None,
+) -> Path:
+    """Write a minimal literature note with optional doi/arxiv_id frontmatter.
 
-def _make_library_json(tmp_path: Path, items: list[dict] | None = None) -> Path:
-    lib = tmp_path / "library.json"
-    lib.write_text(json.dumps(items if items is not None else SAMPLE_CORPUS), encoding="utf-8")
-    return lib
-
-
-def _fake_asta_run(papers: list[dict], returncode: int = 0):
-    """Return a fake subprocess.run callable that emits papers as S2 search results."""
-    def fake_run(cmd, **kwargs):
-        r = MagicMock()
-        r.returncode = returncode
-        if "citations" in cmd:
-            # cited-by format: data → [{citingPaper: {...}}]
-            r.stdout = json.dumps({"data": [{"citingPaper": p} for p in papers]})
-        elif "get" in cmd and "references" not in " ".join(cmd):
-            # get format for references
-            r.stdout = json.dumps({"references": papers})
-        elif "search" in cmd:
-            r.stdout = json.dumps({"data": papers})
-        else:
-            # references / get with --fields references.*
-            r.stdout = json.dumps({"references": papers})
-        r.stderr = ""
-        return r
-    return fake_run
+    ``citekey`` names the FILE (the filename slug). ``frontmatter_citekey``,
+    when given, is written as the note's own `citekey:` field — the
+    rv-023 Better BibTeX scheme, which may differ from the filename.
+    """
+    literature_dir.mkdir(parents=True, exist_ok=True)
+    note_path = literature_dir / f"{citekey}.md"
+    lines = ["---", "type: literature", f"title: Test paper {citekey}", "created: 2026-01-01"]
+    if doi:
+        lines.append(f"doi: {doi}")
+    if arxiv_id:
+        lines.append(f"arxiv_id: {arxiv_id}")
+    if frontmatter_citekey:
+        lines.append(f"citekey: {frontmatter_citekey}")
+    lines += ["---", "", f"# {citekey}", ""]
+    note_path.write_text("\n".join(lines), encoding="utf-8")
+    return note_path
 
 
 # ---------------------------------------------------------------------------
-# Test 1: _load_corpus_index builds DOI + ArXiv id → citekey lookup
+# rv-023: dead library.json / Zotero corpus-index tier removed (regression guard)
 # ---------------------------------------------------------------------------
 
-def test_load_corpus_index_doi(tmp_path: Path) -> None:
-    """_load_corpus_index must index DOI → citekey."""
-    lib = _make_library_json(tmp_path)
-    idx = research_mod._load_corpus_index(str(lib))
-    # DOI is lowercased in the index key
-    assert "10.48550/arxiv.1706.03762" in idx
-    assert idx["10.48550/arxiv.1706.03762"] == "vaswani2017Attention"
+def test_load_corpus_index_removed() -> None:
+    """_load_corpus_index must be GONE — the dead Zotero library.json tier
+    (rv-023: nothing wired a `refs =` path into real project config, and the
+    parser expected the raw Zotero-API shape, never the flat CSL-JSON a real
+    library.json actually contains)."""
+    assert not hasattr(research_mod, "_load_corpus_index")
 
 
-def test_load_corpus_index_arxiv(tmp_path: Path) -> None:
-    """_load_corpus_index must index ArXiv id → citekey (strip 'arXiv:' prefix)."""
-    lib = _make_library_json(tmp_path)
-    idx = research_mod._load_corpus_index(str(lib))
-    assert "1810.04805" in idx
-    assert idx["1810.04805"] == "devlin2018BERT"
+def test_refs_path_for_project_removed() -> None:
+    """_refs_path_for_project must be GONE (rv-023 dead-tier removal)."""
+    assert not hasattr(research_mod, "_refs_path_for_project")
 
 
-def test_load_corpus_index_extra_citekey(tmp_path: Path) -> None:
-    """_load_corpus_index must parse 'Citation Key: <ck>' from data.extra."""
-    lib = _make_library_json(tmp_path)
-    idx = research_mod._load_corpus_index(str(lib))
-    assert "10.18653/v1/n19-1423" in idx
-    assert idx["10.18653/v1/n19-1423"] == "devlinBERT2019"
+def test_corpus_annotation_no_longer_accepts_corpus_index_positional() -> None:
+    """_corpus_annotation's signature dropped the corpus_index positional param."""
+    with pytest.raises(TypeError):
+        research_mod._corpus_annotation(CANDIDATE_DOI_MATCH, {})
 
 
-def test_load_corpus_index_missing_path(tmp_path: Path) -> None:
-    """_load_corpus_index must return empty dict when refs_path does not exist."""
-    idx = research_mod._load_corpus_index(str(tmp_path / "nonexistent.json"))
-    assert idx == {}
-
-
-def test_load_corpus_index_none_path() -> None:
-    """_load_corpus_index must return empty dict when refs_path is None."""
-    idx = research_mod._load_corpus_index(None)
-    assert idx == {}
-
-
-def test_load_corpus_index_empty_library(tmp_path: Path) -> None:
-    """_load_corpus_index must return empty dict for an empty library.json."""
-    lib = _make_library_json(tmp_path, items=[])
-    idx = research_mod._load_corpus_index(str(lib))
-    assert idx == {}
+def test_print_candidates_no_longer_accepts_corpus_index() -> None:
+    """_print_candidates's signature dropped the corpus_index param."""
+    with pytest.raises(TypeError):
+        research_mod._print_candidates([CANDIDATE_NEW], {})
 
 
 # ---------------------------------------------------------------------------
-# Test 2–4: _corpus_annotation
+# _corpus_annotation via notes_index (the sole id-based tier after rv-023)
 # ---------------------------------------------------------------------------
 
 def test_corpus_annotation_doi_match(tmp_path: Path) -> None:
     """_corpus_annotation returns [IN-CORPUS:<citekey>] for a matching DOI."""
-    lib = _make_library_json(tmp_path)
-    idx = research_mod._load_corpus_index(str(lib))
-    result = research_mod._corpus_annotation(CANDIDATE_DOI_MATCH, idx)
-    assert result == "[IN-CORPUS:vaswani2017Attention]"
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "vaswani-2017-attention", doi="10.48550/ARXIV.1706.03762")
+    notes_index = research_mod._load_notes_index(lit_dir)
+    result = research_mod._corpus_annotation(CANDIDATE_DOI_MATCH, notes_index=notes_index)
+    assert result == "[IN-CORPUS:vaswani-2017-attention]"
 
 
 def test_corpus_annotation_arxiv_match(tmp_path: Path) -> None:
     """_corpus_annotation returns [IN-CORPUS:<citekey>] for a matching ArXiv id."""
-    lib = _make_library_json(tmp_path)
-    idx = research_mod._load_corpus_index(str(lib))
-    result = research_mod._corpus_annotation(CANDIDATE_ARXIV_MATCH, idx)
-    assert result == "[IN-CORPUS:devlin2018BERT]"
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "devlin-2018-bert", arxiv_id="1810.04805")
+    notes_index = research_mod._load_notes_index(lit_dir)
+    result = research_mod._corpus_annotation(CANDIDATE_ARXIV_MATCH, notes_index=notes_index)
+    assert result == "[IN-CORPUS:devlin-2018-bert]"
 
 
-def test_corpus_annotation_new(tmp_path: Path) -> None:
+def test_corpus_annotation_new() -> None:
     """_corpus_annotation returns [NEW] for a paper not in the corpus."""
-    lib = _make_library_json(tmp_path)
-    idx = research_mod._load_corpus_index(str(lib))
-    result = research_mod._corpus_annotation(CANDIDATE_NEW, idx)
+    result = research_mod._corpus_annotation(CANDIDATE_NEW, notes_index={})
     assert result == "[NEW]"
 
 
-def test_corpus_annotation_extra_citekey_match(tmp_path: Path) -> None:
-    """_corpus_annotation matches a paper whose citekey is in data.extra."""
-    lib = _make_library_json(tmp_path)
-    idx = research_mod._load_corpus_index(str(lib))
-    result = research_mod._corpus_annotation(CANDIDATE_EXTRA_CK_MATCH, idx)
-    assert result == "[IN-CORPUS:devlinBERT2019]"
-
-
 def test_corpus_annotation_empty_index() -> None:
-    """_corpus_annotation returns [NEW] when corpus_index is empty."""
-    result = research_mod._corpus_annotation(CANDIDATE_DOI_MATCH, {})
+    """_corpus_annotation returns [NEW] when no indexes are provided."""
+    result = research_mod._corpus_annotation(CANDIDATE_DOI_MATCH)
     assert result == "[NEW]"
 
 
 # ---------------------------------------------------------------------------
-# Test 5–6: _print_candidates annotation in output
+# _print_candidates annotation in output
 # ---------------------------------------------------------------------------
 
 def test_print_candidates_in_corpus_annotation(tmp_path: Path, capsys) -> None:
     """_print_candidates prints [IN-CORPUS:<citekey>] for matched candidates."""
-    lib = _make_library_json(tmp_path)
-    idx = research_mod._load_corpus_index(str(lib))
-    research_mod._print_candidates([CANDIDATE_DOI_MATCH, CANDIDATE_NEW], corpus_index=idx)
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "vaswani-2017-attention", doi="10.48550/ARXIV.1706.03762")
+    notes_index = research_mod._load_notes_index(lit_dir)
+    research_mod._print_candidates([CANDIDATE_DOI_MATCH, CANDIDATE_NEW], notes_index=notes_index)
     out = capsys.readouterr().out
-    assert "[IN-CORPUS:vaswani2017Attention]" in out
+    assert "[IN-CORPUS:vaswani-2017-attention]" in out
     assert "[NEW]" in out
 
 
 def test_print_candidates_all_new_when_no_index(capsys) -> None:
-    """_print_candidates with no corpus_index prints [NEW] for all."""
+    """_print_candidates with no indexes prints [NEW] for all."""
     research_mod._print_candidates([CANDIDATE_DOI_MATCH, CANDIDATE_NEW])
     out = capsys.readouterr().out
     assert out.count("[NEW]") == 2
@@ -250,20 +183,20 @@ def test_print_candidates_all_new_when_no_index(capsys) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 7: cmd_find annotated with --project
+# cmd_find / cmd_cited_by / cmd_references annotated with --project
 # ---------------------------------------------------------------------------
 
 def test_cmd_find_annotated_with_project(tmp_path: Path, monkeypatch, capsys) -> None:
-    """cmd_find uses --project to annotate candidates [IN-CORPUS] vs [NEW]."""
-    lib = _make_library_json(tmp_path)
+    """cmd_find uses --project to annotate candidates [IN-CORPUS] vs [NEW]
+    from filed literature notes."""
+    project_notes_dir = tmp_path / "notes" / "my-proj"
+    lit_dir = project_notes_dir / "literature"
+    _make_literature_note(lit_dir, "vaswani-2017-attention", doi="10.48550/ARXIV.1706.03762")
 
-    # Build a minimal config with the project pointing at our library.json
-    import tomllib
     cfg_path = tmp_path / "research_vault.toml"
     cfg_path.write_text(
-        f'[projects.my-proj]\n'
-        f'refs = "{lib}"\n'
-        f'source_dir = "{tmp_path / "notes"}"\n',
+        '[projects.my-proj]\n'
+        f'source_dir = "{project_notes_dir}"\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(cfg_path))
@@ -292,23 +225,20 @@ def test_cmd_find_annotated_with_project(tmp_path: Path, monkeypatch, capsys) ->
     rc = research_mod.cmd_find(args)
     assert rc == 0
     out = capsys.readouterr().out
-    assert "[IN-CORPUS:vaswani2017Attention]" in out
+    assert "[IN-CORPUS:vaswani-2017-attention]" in out
     assert "[NEW]" in out
 
 
-# ---------------------------------------------------------------------------
-# Test 8: cmd_cited_by annotated with --project
-# ---------------------------------------------------------------------------
-
 def test_cmd_cited_by_annotated_with_project(tmp_path: Path, monkeypatch, capsys) -> None:
     """cmd_cited_by uses --project to annotate candidates [IN-CORPUS] vs [NEW]."""
-    lib = _make_library_json(tmp_path)
+    project_notes_dir = tmp_path / "notes" / "my-proj"
+    lit_dir = project_notes_dir / "literature"
+    _make_literature_note(lit_dir, "devlin-2018-bert", arxiv_id="1810.04805")
 
     cfg_path = tmp_path / "research_vault.toml"
     cfg_path.write_text(
-        f'[projects.my-proj]\n'
-        f'refs = "{lib}"\n'
-        f'source_dir = "{tmp_path / "notes"}"\n',
+        '[projects.my-proj]\n'
+        f'source_dir = "{project_notes_dir}"\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(cfg_path))
@@ -336,23 +266,20 @@ def test_cmd_cited_by_annotated_with_project(tmp_path: Path, monkeypatch, capsys
     rc = research_mod.cmd_cited_by(args)
     assert rc == 0
     out = capsys.readouterr().out
-    assert "[IN-CORPUS:devlin2018BERT]" in out
+    assert "[IN-CORPUS:devlin-2018-bert]" in out
     assert "[NEW]" in out
 
 
-# ---------------------------------------------------------------------------
-# Test 9: cmd_references annotated with --project
-# ---------------------------------------------------------------------------
-
 def test_cmd_references_annotated_with_project(tmp_path: Path, monkeypatch, capsys) -> None:
     """cmd_references uses --project to annotate candidates [IN-CORPUS] vs [NEW]."""
-    lib = _make_library_json(tmp_path)
+    project_notes_dir = tmp_path / "notes" / "my-proj"
+    lit_dir = project_notes_dir / "literature"
+    _make_literature_note(lit_dir, "vaswani-2017-attention", doi="10.48550/ARXIV.1706.03762")
 
     cfg_path = tmp_path / "research_vault.toml"
     cfg_path.write_text(
-        f'[projects.my-proj]\n'
-        f'refs = "{lib}"\n'
-        f'source_dir = "{tmp_path / "notes"}"\n',
+        '[projects.my-proj]\n'
+        f'source_dir = "{project_notes_dir}"\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(cfg_path))
@@ -379,21 +306,18 @@ def test_cmd_references_annotated_with_project(tmp_path: Path, monkeypatch, caps
     rc = research_mod.cmd_references(args)
     assert rc == 0
     out = capsys.readouterr().out
-    assert "[IN-CORPUS:vaswani2017Attention]" in out
+    assert "[IN-CORPUS:vaswani-2017-attention]" in out
     assert "[NEW]" in out
 
 
 # ---------------------------------------------------------------------------
-# Test 10: Missing --project → graceful, no crash
+# Missing --project → graceful, no crash
 # ---------------------------------------------------------------------------
 
 def test_cmd_find_no_project_graceful(tmp_path: Path, monkeypatch, capsys) -> None:
     """cmd_find with --project=None must not crash; all candidates show [NEW]."""
     cfg_path = tmp_path / "research_vault.toml"
-    cfg_path.write_text(
-        f'instance_root = "{tmp_path}"\n',
-        encoding="utf-8",
-    )
+    cfg_path.write_text(f'instance_root = "{tmp_path}"\n', encoding="utf-8")
     monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(cfg_path))
     from research_vault.config import reset_config_cache
     reset_config_cache()
@@ -483,18 +407,18 @@ def test_cmd_references_no_project_graceful(tmp_path: Path, monkeypatch, capsys)
 
 
 # ---------------------------------------------------------------------------
-# Test 11: Empty / missing library.json → all [NEW]
+# No filed notes → all [NEW]
 # ---------------------------------------------------------------------------
 
-def test_empty_library_all_new(tmp_path: Path, monkeypatch, capsys) -> None:
-    """Empty library.json → all candidates annotated [NEW]."""
-    lib = _make_library_json(tmp_path, items=[])
+def test_no_filed_notes_all_new(tmp_path: Path, monkeypatch, capsys) -> None:
+    """No filed literature notes → all candidates annotated [NEW]."""
+    project_notes_dir = tmp_path / "notes" / "my-proj"
+    (project_notes_dir / "literature").mkdir(parents=True, exist_ok=True)
 
     cfg_path = tmp_path / "research_vault.toml"
     cfg_path.write_text(
-        f'[projects.my-proj]\n'
-        f'refs = "{lib}"\n'
-        f'source_dir = "{tmp_path / "notes"}"\n',
+        '[projects.my-proj]\n'
+        f'source_dir = "{project_notes_dir}"\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(cfg_path))
@@ -524,23 +448,14 @@ def test_empty_library_all_new(tmp_path: Path, monkeypatch, capsys) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 12: Case-insensitive DOI matching
+# Case-insensitive DOI matching / ArXiv version-suffix stripping
 # ---------------------------------------------------------------------------
 
 def test_doi_case_insensitive(tmp_path: Path) -> None:
-    """DOI matching is case-insensitive (Zotero may uppercase prefixes)."""
-    # Corpus has uppercase DOI
-    item = {
-        "key": "AAA",
-        "data": {
-            "citationKey": "Smith2020Something",
-            "DOI": "10.1234/UPPER.CASE",
-            "title": "A paper",
-            "extra": "",
-        },
-    }
-    lib = _make_library_json(tmp_path, items=[item])
-    idx = research_mod._load_corpus_index(str(lib))
+    """DOI matching is case-insensitive (a note may record an uppercase DOI)."""
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "smith2020Something", doi="10.1234/UPPER.CASE")
+    notes_index = research_mod._load_notes_index(lit_dir)
 
     # Candidate has lowercase DOI
     candidate = {
@@ -549,29 +464,15 @@ def test_doi_case_insensitive(tmp_path: Path) -> None:
         "authors": [{"name": "Alice Smith"}],
         "externalIds": {"DOI": "10.1234/upper.case"},
     }
-    result = research_mod._corpus_annotation(candidate, idx)
-    assert result == "[IN-CORPUS:Smith2020Something]"
+    result = research_mod._corpus_annotation(candidate, notes_index=notes_index)
+    assert result == "[IN-CORPUS:smith2020Something]"
 
-
-# ---------------------------------------------------------------------------
-# Test 13: ArXiv version suffix stripped
-# ---------------------------------------------------------------------------
 
 def test_arxiv_version_stripped(tmp_path: Path) -> None:
     """ArXiv id version suffix (v2, v3…) is stripped before matching."""
-    # Corpus has base id (no version)
-    item = {
-        "key": "BBB",
-        "data": {
-            "citationKey": "Brown2020GPT3",
-            "archiveID": "arXiv:2005.14165",
-            "DOI": "",
-            "title": "Language Models Are Few-Shot Learners",
-            "extra": "",
-        },
-    }
-    lib = _make_library_json(tmp_path, items=[item])
-    idx = research_mod._load_corpus_index(str(lib))
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(lit_dir, "brown2020GPT3", arxiv_id="2005.14165")
+    notes_index = research_mod._load_notes_index(lit_dir)
 
     # Candidate has versioned ArXiv id
     candidate = {
@@ -580,12 +481,12 @@ def test_arxiv_version_stripped(tmp_path: Path) -> None:
         "authors": [{"name": "Tom Brown"}],
         "externalIds": {"ArXiv": "2005.14165v3"},
     }
-    result = research_mod._corpus_annotation(candidate, idx)
-    assert result == "[IN-CORPUS:Brown2020GPT3]"
+    result = research_mod._corpus_annotation(candidate, notes_index=notes_index)
+    assert result == "[IN-CORPUS:brown2020GPT3]"
 
 
 # ---------------------------------------------------------------------------
-# Test 14: references --project help text describes corpus annotation
+# references --project help text describes corpus annotation
 # ---------------------------------------------------------------------------
 
 def test_references_project_help_mentions_corpus() -> None:
@@ -604,51 +505,15 @@ def test_references_project_help_mentions_corpus() -> None:
     assert "not yet" not in help_text.lower() and "todo" not in help_text.lower(), (
         f"references help contains overpromise wording: {help_text}"
     )
+    # rv-023: must not reference the removed library.json tier
+    assert "library.json" not in help_text.lower(), (
+        f"references help must not reference the removed library.json corpus tier: {help_text}"
+    )
 
 
 # ---------------------------------------------------------------------------
-# Test 15: _load_corpus_index: item with citationKey field takes precedence over extra
+# Fix #32 — notes-dir dedup (literature/<citekey>.md counts as in-corpus)
 # ---------------------------------------------------------------------------
-
-def test_load_corpus_index_citationkey_field_priority(tmp_path: Path) -> None:
-    """citationKey field takes priority over Citation Key in extra."""
-    item = {
-        "key": "CCC",
-        "data": {
-            "citationKey": "FieldKey",
-            "DOI": "10.9999/test",
-            "title": "Test",
-            "extra": "Citation Key: ExtraKey",
-        },
-    }
-    lib = _make_library_json(tmp_path, items=[item])
-    idx = research_mod._load_corpus_index(str(lib))
-    # Field takes priority
-    assert idx.get("10.9999/test") == "FieldKey"
-
-
-# ---------------------------------------------------------------------------
-# Test 16–20: Fix #32 — notes-dir dedup (literature/<citekey>.md counts as in-corpus)
-# ---------------------------------------------------------------------------
-
-def _make_literature_note(
-    literature_dir: Path,
-    citekey: str,
-    doi: str = "",
-    arxiv_id: str = "",
-) -> Path:
-    """Write a minimal literature note with optional doi/arxiv_id frontmatter."""
-    literature_dir.mkdir(parents=True, exist_ok=True)
-    note_path = literature_dir / f"{citekey}.md"
-    lines = ["---", f"type: literature", f"title: Test paper {citekey}", f"created: 2026-01-01"]
-    if doi:
-        lines.append(f"doi: {doi}")
-    if arxiv_id:
-        lines.append(f"arxiv_id: {arxiv_id}")
-    lines += ["---", "", f"# {citekey}", ""]
-    note_path.write_text("\n".join(lines), encoding="utf-8")
-    return note_path
-
 
 def test_load_notes_index_importable() -> None:
     """_load_notes_index is importable from research_vault.research (Fix #32)."""
@@ -702,11 +567,7 @@ def test_load_notes_index_missing_dir(tmp_path: Path) -> None:
 
 def test_corpus_annotation_filed_note_doi_in_corpus(tmp_path: Path) -> None:
     """_corpus_annotation returns [IN-CORPUS:<key>] for a paper with a filed literature note
-    (doi frontmatter match) even when library.json is empty.
-
-    Red-before-green (Fix #32): currently _corpus_annotation ignores the notes dir
-    and returns [NEW] for this paper.
-    """
+    (doi frontmatter match)."""
     lit_dir = tmp_path / "literature"
     _make_literature_note(lit_dir, "vaswani2017Attention", doi="10.48550/ARXIV.1706.03762")
 
@@ -715,7 +576,6 @@ def test_corpus_annotation_filed_note_doi_in_corpus(tmp_path: Path) -> None:
 
     result = research_mod._corpus_annotation(
         CANDIDATE_DOI_MATCH,  # has DOI 10.48550/ARXIV.1706.03762
-        corpus_index={},       # empty — not in library.json
         notes_index=notes_index,
     )
     assert result == "[IN-CORPUS:vaswani2017Attention]", (
@@ -731,7 +591,6 @@ def test_corpus_annotation_filed_note_arxiv_in_corpus(tmp_path: Path) -> None:
     notes_index = research_mod._load_notes_index(lit_dir)
     result = research_mod._corpus_annotation(
         CANDIDATE_ARXIV_MATCH,  # has ArXiv 1810.04805
-        corpus_index={},
         notes_index=notes_index,
     )
     assert result == "[IN-CORPUS:devlin2018BERT]", (
@@ -740,56 +599,27 @@ def test_corpus_annotation_filed_note_arxiv_in_corpus(tmp_path: Path) -> None:
 
 
 def test_corpus_annotation_genuinely_new_stays_new(tmp_path: Path) -> None:
-    """A paper with no library.json entry and no filed note stays [NEW]."""
+    """A paper with no filed note stays [NEW]."""
     lit_dir = tmp_path / "literature"
     _make_literature_note(lit_dir, "vaswani2017Attention", doi="10.48550/ARXIV.1706.03762")
     notes_index = research_mod._load_notes_index(lit_dir)
 
     result = research_mod._corpus_annotation(
         CANDIDATE_NEW,  # has ArXiv 2401.99999 — genuinely new
-        corpus_index={},
         notes_index=notes_index,
     )
     assert result == "[NEW]", f"Genuinely-new paper must stay [NEW]; got {result!r}"
 
 
-def test_corpus_annotation_library_json_wins_when_note_also_present(tmp_path: Path) -> None:
-    """When a paper is in BOTH library.json AND has a filed note, library.json citekey wins."""
-    lit_dir = tmp_path / "literature"
-    # Note uses one citekey; library.json uses another (simulates the common case)
-    _make_literature_note(lit_dir, "vaswani2017Attention", doi="10.48550/ARXIV.1706.03762")
-    notes_index = research_mod._load_notes_index(lit_dir)
-
-    corpus_index = {"10.48550/arxiv.1706.03762": "vaswani2017Attention"}
-    result = research_mod._corpus_annotation(
-        CANDIDATE_DOI_MATCH,
-        corpus_index=corpus_index,
-        notes_index=notes_index,
-    )
-    # Either citekey is acceptable; the key invariant is [IN-CORPUS] (not [NEW])
-    assert result.startswith("[IN-CORPUS:"), (
-        f"A paper in both sources must be [IN-CORPUS]; got {result!r}"
-    )
-
-
 def test_cmd_find_filed_note_shows_in_corpus(tmp_path: Path, monkeypatch, capsys) -> None:
-    """cmd_find with --project annotates [IN-CORPUS] from a filed literature note.
-
-    Red-before-green (Fix #32): before the fix, this shows [NEW] because cmd_find
-    only checks library.json, not the literature/ OKF dir.
-    """
-    # library.json is EMPTY (Zotero not synced)
-    lib = _make_library_json(tmp_path, items=[])
-
-    # Project notes dir has a filed literature note for the candidate paper
+    """cmd_find with --project annotates [IN-CORPUS] from a filed literature note."""
     project_notes_dir = tmp_path / "notes" / "demo-proj"
     lit_dir = project_notes_dir / "literature"
     _make_literature_note(lit_dir, "vaswani2017Attention", doi="10.48550/ARXIV.1706.03762")
 
     cfg_path = tmp_path / "research_vault.toml"
     cfg_path.write_text(
-        f'[projects.demo-proj]\n'
-        f'refs = "{lib}"\n'
+        '[projects.demo-proj]\n'
         f'source_dir = "{project_notes_dir}"\n',
         encoding="utf-8",
     )
@@ -824,25 +654,8 @@ def test_cmd_find_filed_note_shows_in_corpus(tmp_path: Path, monkeypatch, capsys
 
 
 # ---------------------------------------------------------------------------
-# Tests 21+: rv-refs-corpus-fix — real-project bug reproduction
-#
-# Root-cause investigation (2026-07-07) disconfirmed the original hypothesis
-# ("references-payload id-shape differs from cited-by's").  Live-checked: both
-# `asta papers citations` (cited-by) and `asta papers get --fields
-# references.*` (references) hand back items with an identical
-# `externalIds: {ArXiv, DOI, ...}` shape, and cmd_cited_by/cmd_references
-# already call the exact same _corpus_annotation/_print_candidates path.
-#
-# The REAL bug is upstream of both: real project literature notes
-# never populate `doi:`/`arxiv_id:` frontmatter — only a `url:` field (e.g.
-# `https://arxiv.org/abs/2209.06899`) or, for some papers (e.g. a conference
-# proceedings page with no id at all), nothing extractable whatsoever.  So
-# `_load_notes_index` returns an EMPTY index for every real note, and ALL
-# THREE rv verbs (find/cited-by/references) under-annotate identically.  The
-# fixtures below mirror the two real cases (Argyle 2022 — url has an
-# extractable arXiv id; Aher 2022 — no id in url, but title+first-author
-# match, with a canonical S2 year (2022) that differs from the note's own
-# venue year (2023, ICML publication year vs. arXiv preprint year)).
+# rv-refs-corpus-fix — real-project bug reproduction (url-derived id / title
+# fallback for notes with no extractable id anywhere)
 # ---------------------------------------------------------------------------
 
 ARGYLE_NOTE_FRONTMATTER = {
@@ -861,7 +674,7 @@ AHER_NOTE_FRONTMATTER = {
 
 # Real S2 reference-item shapes (from a live `asta papers get --fields
 # references.*` call against arXiv:2511.04500), confirming the externalIds
-# shape is identical to cited-by's and find's.
+# shape is identical across find/cited-by/references.
 ARGYLE_S2_CANDIDATE = {
     "title": "Out of One, Many: Using Language Models to Simulate Human Samples",
     "year": 2022,
@@ -879,14 +692,23 @@ AHER_S2_CANDIDATE = {
 }
 
 
-def _write_realistic_note(literature_dir: Path, citekey: str, frontmatter: dict) -> Path:
-    """Write a literature note with the REAL frontmatter shape (url:, no doi:/arxiv_id:)."""
+def _write_realistic_note(
+    literature_dir: Path, citekey: str, frontmatter: dict, *, bbt_citekey: str | None = None,
+) -> Path:
+    """Write a literature note with the REAL frontmatter shape (url:, no doi:/arxiv_id:).
+
+    ``citekey`` names the FILE. ``bbt_citekey``, when given, is ALSO written as
+    the note's own `citekey:` frontmatter field (may differ from the filename —
+    rv-023's real-world case).  When omitted, the note carries no `citekey:`
+    field at all (the pre-rv-023 fixture shape).
+    """
     literature_dir.mkdir(parents=True, exist_ok=True)
     note_path = literature_dir / f"{citekey}.md"
     lines = ["---", "type: literature"]
     for k, v in frontmatter.items():
         lines.append(f'{k}: {v}')
-    lines.append(f"citekey: {citekey}")
+    if bbt_citekey:
+        lines.append(f"citekey: {bbt_citekey}")
     lines += ["---", "", f"# {citekey}", ""]
     note_path.write_text("\n".join(lines), encoding="utf-8")
     return note_path
@@ -914,9 +736,7 @@ def test_corpus_annotation_argyle_url_only_note_is_in_corpus(tmp_path: Path) -> 
     _write_realistic_note(lit_dir, "argyleOutOneMany2022", ARGYLE_NOTE_FRONTMATTER)
     notes_index = research_mod._load_notes_index(lit_dir)
 
-    result = research_mod._corpus_annotation(
-        ARGYLE_S2_CANDIDATE, corpus_index={}, notes_index=notes_index,
-    )
+    result = research_mod._corpus_annotation(ARGYLE_S2_CANDIDATE, notes_index=notes_index)
     assert result == "[IN-CORPUS:argyleOutOneMany2022]", (
         f"Argyle must be [IN-CORPUS] via url-derived arXiv id; got {result!r}"
     )
@@ -940,7 +760,6 @@ def test_corpus_annotation_aher_title_author_fallback_is_in_corpus(tmp_path: Pat
     notes_title_index = research_mod._load_notes_title_index(lit_dir)
     result = research_mod._corpus_annotation(
         AHER_S2_CANDIDATE,
-        corpus_index={},
         notes_index=notes_index,
         notes_title_index=notes_title_index,
     )
@@ -950,21 +769,17 @@ def test_corpus_annotation_aher_title_author_fallback_is_in_corpus(tmp_path: Pat
 
 
 def test_cmd_references_parity_with_cited_by_on_notes_only_corpus(tmp_path: Path, monkeypatch, capsys) -> None:
-    """RED before fix: cmd_references under-annotates relative to cmd_cited_by even
-    though both call the identical _corpus_annotation/_print_candidates path — because
-    the shared upstream notes_index/notes_title_index never mined url:/title fallback.
-    GREEN after fix: cmd_references and cmd_cited_by annotate the SAME S2 candidate
-    (Argyle) identically as [IN-CORPUS], proving parity restored.
+    """cmd_references and cmd_cited_by annotate the SAME S2 candidate (Argyle)
+    identically as [IN-CORPUS] — both share the identical
+    _corpus_annotation/_print_candidates path over the notes-index tier.
     """
     project_notes_dir = tmp_path / "notes" / "demo-proj"
     lit_dir = project_notes_dir / "literature"
     _write_realistic_note(lit_dir, "argyleOutOneMany2022", ARGYLE_NOTE_FRONTMATTER)
 
-    lib = _make_library_json(tmp_path, items=[])  # empty — Zotero not synced
     cfg_path = tmp_path / "research_vault.toml"
     cfg_path.write_text(
-        f'[projects.demo-proj]\n'
-        f'refs = "{lib}"\n'
+        '[projects.demo-proj]\n'
         f'source_dir = "{project_notes_dir}"\n',
         encoding="utf-8",
     )
@@ -1010,7 +825,7 @@ def test_cmd_references_parity_with_cited_by_on_notes_only_corpus(tmp_path: Path
 
 
 # ---------------------------------------------------------------------------
-# Tests 25+: reviewer-verified title-fallback over-match tightening (2026-07-07)
+# reviewer-verified title-fallback over-match tightening (2026-07-07)
 #
 # Independent review of PR #172 reproduced three genuinely-distinct-paper
 # false [IN-CORPUS] matches under the original loose heuristic
@@ -1105,7 +920,7 @@ def test_corpus_annotation_title_superset_stays_new(tmp_path: Path) -> None:
         "externalIds": {},
     }
     result = research_mod._corpus_annotation(
-        distinct_candidate, corpus_index={}, notes_index=notes_index,
+        distinct_candidate, notes_index=notes_index,
         notes_title_index=notes_title_index,
     )
     assert result == "[NEW]", f"Genuinely different superset-titled paper must be [NEW]; got {result!r}"
@@ -1132,7 +947,7 @@ def test_corpus_annotation_series_sequel_stays_new(tmp_path: Path) -> None:
         "externalIds": {},
     }
     result = research_mod._corpus_annotation(
-        part_two_candidate, corpus_index={}, notes_index=notes_index,
+        part_two_candidate, notes_index=notes_index,
         notes_title_index=notes_title_index,
     )
     assert result == "[NEW]", f"Genuinely different Part II sequel must be [NEW]; got {result!r}"
@@ -1159,7 +974,7 @@ def test_corpus_annotation_surname_collision_shared_prefix_stays_new(tmp_path: P
         "externalIds": {},
     }
     result = research_mod._corpus_annotation(
-        different_wang_candidate, corpus_index={}, notes_index=notes_index,
+        different_wang_candidate, notes_index=notes_index,
         notes_title_index=notes_title_index,
     )
     assert result == "[NEW]", f"A different Wang's paper must stay [NEW]; got {result!r}"
@@ -1183,4 +998,76 @@ def test_load_notes_title_index_scoped_to_notes_without_id(tmp_path: Path) -> No
     )
     assert "aherLargeLanguageModels2022" in all_citekeys, (
         f"A no-id note must appear in the title index; got {notes_title_index}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# rv-023: BBT citekey field emitted, not filename stem
+# ---------------------------------------------------------------------------
+
+def test_load_notes_index_emits_bbt_citekey_field_when_present(tmp_path: Path) -> None:
+    """RED before fix: _load_notes_index emits the FILENAME stem
+    (argyle-2023-silicon-sampling), never the note's own `citekey:` frontmatter
+    field (argyleOutOneMany2022) — the Better BibTeX key a researcher actually
+    cites. GREEN after fix: the citekey: field wins when present.
+    """
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(
+        lit_dir,
+        "argyle-2023-silicon-sampling",  # filename slug — differs from the BBT key
+        doi="10.1017/pan.2023.2",
+        frontmatter_citekey="argyleOutOneMany2022",
+    )
+    idx = research_mod._load_notes_index(lit_dir)
+    assert idx.get("10.1017/pan.2023.2") == "argyleOutOneMany2022", (
+        f"Expected the note's citekey: field (BBT key), not the filename stem; got {idx}"
+    )
+
+
+def test_load_notes_index_falls_back_to_filename_stem_when_no_citekey_field(tmp_path: Path) -> None:
+    """A note with NO `citekey:` frontmatter field falls back to the filename
+    stem (the ~10 unlinked notes in the real corpus)."""
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(
+        lit_dir, "unlinked-note-2020", doi="10.9999/unlinked",
+    )  # no frontmatter_citekey given
+    idx = research_mod._load_notes_index(lit_dir)
+    assert idx.get("10.9999/unlinked") == "unlinked-note-2020"
+
+
+def test_load_notes_title_index_emits_bbt_citekey_field_when_present(tmp_path: Path) -> None:
+    """_load_notes_title_index (the no-id fallback tier) must also emit the
+    note's own `citekey:` field, not the filename stem, when present."""
+    lit_dir = tmp_path / "literature"
+    _write_realistic_note(
+        lit_dir,
+        "aher-2023-simulate-humans",  # filename slug — differs from the BBT key
+        AHER_NOTE_FRONTMATTER,
+        bbt_citekey="aherLargeLanguageModels2022",
+    )
+    notes_title_index = research_mod._load_notes_title_index(lit_dir)
+    all_citekeys = {ck for lst in notes_title_index.values() for ck, _ in lst}
+    assert "aherLargeLanguageModels2022" in all_citekeys, (
+        f"Expected the note's citekey: field (BBT key); got {notes_title_index}"
+    )
+    assert "aher-2023-simulate-humans" not in all_citekeys
+
+
+def test_corpus_annotation_emits_bbt_citekey_end_to_end(tmp_path: Path) -> None:
+    """End-to-end: `rv research references` style annotation must show the
+    BBT citekey (argyleOutOneMany2022), not the filename slug
+    (argyle-2023-silicon-sampling), for a note filed with a `citekey:` field
+    that differs from its filename — the real 116/126 csb-notes case (rv-023).
+    """
+    lit_dir = tmp_path / "literature"
+    _make_literature_note(
+        lit_dir,
+        "argyle-2023-silicon-sampling",
+        arxiv_id="2209.06899",
+        frontmatter_citekey="argyleOutOneMany2022",
+    )
+    notes_index = research_mod._load_notes_index(lit_dir)
+    result = research_mod._corpus_annotation(ARGYLE_S2_CANDIDATE, notes_index=notes_index)
+    assert result == "[IN-CORPUS:argyleOutOneMany2022]", (
+        f"Must emit the BBT citekey, not the filename slug; got {result!r}"
     )

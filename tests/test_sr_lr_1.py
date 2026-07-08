@@ -37,7 +37,7 @@ Coverage:
      7a. review-coverage-critic spec in Phase-2 instructs [BLOCK] on missing
          counter-position
   8. corpus helpers imported from research.py (not scraping stdout)
-     8a. _load_corpus_index importable from research_vault.research
+     8a. _load_corpus_index REMOVED (rv-023: dead Zotero library.json tier)
      8b. _corpus_annotation importable from research_vault.research
   9. CLI verb registry
      9a. "review" in cli._VERB_REGISTRY with sr: "SR-LR-1"
@@ -446,10 +446,10 @@ def test_coverage_critic_spec_mentions_counter_position(cfg, corpus_md_with_cite
 # 8. corpus helpers importable from research.py
 # ---------------------------------------------------------------------------
 
-def test_load_corpus_index_importable():
-    """_load_corpus_index is importable from research_vault.research."""
-    from research_vault.research import _load_corpus_index
-    assert callable(_load_corpus_index)
+def test_load_corpus_index_removed():
+    """rv-023: _load_corpus_index (the dead Zotero library.json tier) is GONE."""
+    import research_vault.research as research_mod
+    assert not hasattr(research_mod, "_load_corpus_index")
 
 
 def test_corpus_annotation_importable():
@@ -459,19 +459,19 @@ def test_corpus_annotation_importable():
 
 
 def test_corpus_annotation_new_when_no_index():
-    """_corpus_annotation returns [NEW] when corpus_index is empty."""
+    """_corpus_annotation returns [NEW] when notes_index is empty."""
     from research_vault.research import _corpus_annotation
     paper = {"externalIds": {"DOI": "10.1234/test"}}
-    result = _corpus_annotation(paper, {})
+    result = _corpus_annotation(paper, notes_index={})
     assert result == "[NEW]"
 
 
 def test_corpus_annotation_in_corpus_when_doi_matches():
-    """_corpus_annotation returns [IN-CORPUS:key] when DOI matches."""
+    """_corpus_annotation returns [IN-CORPUS:key] when DOI matches (notes_index)."""
     from research_vault.research import _corpus_annotation
     paper = {"externalIds": {"DOI": "10.1234/test"}}
     index = {"10.1234/test": "smith2020"}
-    result = _corpus_annotation(paper, index)
+    result = _corpus_annotation(paper, notes_index=index)
     assert result == "[IN-CORPUS:smith2020]"
 
 

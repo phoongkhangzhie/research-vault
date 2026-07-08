@@ -162,21 +162,6 @@ def _preflight_asta() -> None:
 # Project-scoped helpers (config-driven, never hardcoded codename)
 # ---------------------------------------------------------------------------
 
-def _refs_path_for_project(project: str | None, cfg: Config) -> str | None:
-    """Return the refs (library.json) path for a project from config.
-
-    Never falls back to a hardcoded codename — if project is None, returns None.
-    """
-    if not project:
-        return None
-    try:
-        proj_rec = cfg.project(project)
-    except KeyError:
-        return None
-    refs = proj_rec.get("refs")
-    return str(Path(refs).expanduser()) if refs else None
-
-
 def _collection_for_project(project: str | None, cfg: Config) -> str | None:
     """Return the Zotero collection name for a project from config."""
     if not project:
@@ -217,55 +202,6 @@ def _normalize_arxiv(arxiv: str | None) -> str | None:
     s = re.sub(r"^arxiv:", "", arxiv.strip(), flags=re.IGNORECASE)
     s = re.sub(r"v\d+$", "", s)
     return s.lower() if s else None
-
-
-def _load_corpus_index(refs_path: str | None) -> dict[str, str]:
-    """Build a normalized-id → citekey lookup from a Zotero library.json.
-
-    Keys are lowercased DOIs and normalized ArXiv ids.  Returns an empty dict
-    when refs_path is None, missing, or malformed — callers treat that as
-    "no corpus, annotate everything [NEW]".
-    """
-    if not refs_path:
-        return {}
-    p = Path(refs_path)
-    if not p.exists():
-        return {}
-    try:
-        items = json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    if not isinstance(items, list):
-        return {}
-
-    index: dict[str, str] = {}
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        data = item.get("data", {})
-        if not isinstance(data, dict):
-            continue
-
-        # Resolve citekey: prefer citationKey field, fall back to "Citation Key:" in extra.
-        ck: str | None = data.get("citationKey") or None
-        if not ck:
-            m = re.search(r"Citation Key:\s*(\S+)", data.get("extra", ""))
-            if m:
-                ck = m.group(1)
-        if not ck:
-            continue  # no citekey → cannot annotate; skip
-
-        # Index DOI (lowercased)
-        doi = _normalize_doi(data.get("DOI") or None)
-        if doi:
-            index[doi] = ck
-
-        # Index ArXiv id from archiveID field (e.g. "arXiv:2005.14165")
-        arxiv = _normalize_arxiv(data.get("archiveID") or None)
-        if arxiv:
-            index[arxiv] = ck
-
-    return index
 
 
 def _arxiv_from_url(url: str | None) -> str | None:
@@ -311,6 +247,20 @@ def _first_author_family(authors_field: str | None) -> str:
     return _norm_title_str(family)
 
 
+def _note_citekey(fields: dict[str, Any], note_path: Path) -> str:
+    """Return the note's canonical citekey: the `citekey:` frontmatter field
+    (the operator's Better BibTeX scheme, e.g. ``argyleOutOneMany2022``) when
+    present, falling back to the filename stem for notes filed without one.
+
+    rv-023: a large majority of real project notes have a filename slug that
+    differs from the note's own BBT `citekey:` — before this fix,
+    `[IN-CORPUS:<x>]` always emitted the filename stem, never the BBT key a
+    researcher actually cites.
+    """
+    ck = (fields.get("citekey") or "").strip()
+    return ck if ck else note_path.stem
+
+
 def _load_notes_index(literature_dir: Path | None) -> dict[str, str]:
     """Build a normalized-id → citekey lookup by scanning literature/*.md frontmatter.
 
@@ -338,12 +288,12 @@ def _load_notes_index(literature_dir: Path | None) -> dict[str, str]:
 
     index: dict[str, str] = {}
     for note_path in sorted(lit_path.glob("*.md")):
-        citekey = note_path.stem
         try:
             text = note_path.read_text(encoding="utf-8")
         except OSError:
             continue
         fields, _ = _parse_frontmatter(text)
+        citekey = _note_citekey(fields, note_path)
         url = fields.get("url") or None
 
         doi = _normalize_doi(fields.get("doi") or None) or _doi_from_url(url)
@@ -414,12 +364,12 @@ def _load_notes_title_index(literature_dir: Path | None) -> dict[str, list[tuple
 
     index: dict[str, list[tuple[str, str]]] = {}
     for note_path in sorted(lit_path.glob("*.md")):
-        citekey = note_path.stem
         try:
             text = note_path.read_text(encoding="utf-8")
         except OSError:
             continue
         fields, _ = _parse_frontmatter(text)
+        citekey = _note_citekey(fields, note_path)
         url = fields.get("url") or None
 
         # Skip notes that already carry an extractable id — tier 2 handles them.
@@ -438,7 +388,6 @@ def _load_notes_title_index(literature_dir: Path | None) -> dict[str, list[tuple
 
 def _corpus_annotation(
     paper: dict,
-    corpus_index: dict[str, str],
     *,
     notes_index: dict[str, str] | None = None,
     notes_title_index: dict[str, list[tuple[str, str]]] | None = None,
@@ -446,19 +395,28 @@ def _corpus_annotation(
     """Return [IN-CORPUS:<citekey>] or [NEW] for a candidate S2 paper dict.
 
     Checks sources in order:
-      1. corpus_index       — built from the project's Zotero library.json.
-      2. notes_index        — built from literature/*.md doi/arxiv_id
+      1. notes_index        — built from literature/*.md doi/arxiv_id
                                frontmatter, declared OR url-derived (Fix #32 +
                                rv-refs-corpus-fix: filed notes count as
-                               in-corpus even before Zotero sync updates
-                               library.json, and even when the note only
-                               carries a `url:` field).
-      3. notes_title_index  — first-author-family + long-title fallback for
+                               in-corpus even before a note carries an id,
+                               and even when the note only carries a `url:`
+                               field).  Emits the note's own `citekey:`
+                               frontmatter (the operator's Better BibTeX
+                               scheme) when present, falling back to the
+                               filename stem (rv-023).
+      2. notes_title_index  — first-author-family + long-title fallback for
                                notes with NO extractable id anywhere
                                (rv-refs-corpus-fix).  Year-agnostic by design
                                (canonical S2 year vs. a note's own venue year
                                commonly differ) — see _load_notes_title_index
                                for the conservative-title-length rationale.
+
+    rv-023: the third tier — a Zotero ``library.json`` corpus index — was
+    removed as structurally dead: nothing wired a `refs =` path into real
+    project config, and even when present the parser expected the raw
+    Zotero-API item shape (`item["data"][...]`), never the flat CSL-JSON a
+    real `library.json` actually contains.  The notes-index tier below
+    already covers every real project via literature/*.md frontmatter.
 
     Returns [NEW] only if the paper matches none of the sources.
     """
@@ -467,14 +425,7 @@ def _corpus_annotation(
     doi = _normalize_doi(ext.get("DOI"))
     arxiv = _normalize_arxiv(ext.get("ArXiv"))
 
-    # 1. Check library.json corpus index
-    if corpus_index:
-        if doi and doi in corpus_index:
-            return f"[IN-CORPUS:{corpus_index[doi]}]"
-        if arxiv and arxiv in corpus_index:
-            return f"[IN-CORPUS:{corpus_index[arxiv]}]"
-
-    # 2. Check literature/ OKF dir index (Fix #32 — union with library.json)
+    # 1. Check literature/ OKF dir index (Fix #32)
     ni = notes_index or {}
     if ni:
         if doi and doi in ni:
@@ -482,7 +433,7 @@ def _corpus_annotation(
         if arxiv and arxiv in ni:
             return f"[IN-CORPUS:{ni[arxiv]}]"
 
-    # 3. Title + first-author fallback (rv-refs-corpus-fix) — only reached when
+    # 2. Title + first-author fallback (rv-refs-corpus-fix) — only reached when
     #    no id matched above.
     nti = notes_title_index or {}
     if nti:
@@ -523,21 +474,18 @@ def _normalize_author_name(authors_raw: Any) -> str:
 
 def _print_candidates(
     papers: list[dict],
-    corpus_index: dict[str, str] | None = None,
     *,
     notes_index: dict[str, str] | None = None,
     notes_title_index: dict[str, list[tuple[str, str]]] | None = None,
 ) -> None:
     """Print S2 paper candidates in a human-readable table.
 
-    When corpus_index is provided (loaded from the project's library.json) and/or
-    notes_index (loaded from the project's literature/ OKF dir — Fix #32, extended
-    by rv-refs-corpus-fix to mine `url:`) and/or notes_title_index (title+author
-    fallback — rv-refs-corpus-fix), each candidate is annotated
-    [IN-CORPUS:<citekey>] or [NEW] so the lit-review saturation stopping rule
-    (SR-LR-1) can detect when a snowball round adds no new papers.
+    When notes_index (loaded from the project's literature/ OKF dir — Fix #32,
+    extended by rv-refs-corpus-fix to mine `url:`) and/or notes_title_index
+    (title+author fallback — rv-refs-corpus-fix) is provided, each candidate is
+    annotated [IN-CORPUS:<citekey>] or [NEW] so the lit-review saturation
+    stopping rule (SR-LR-1) can detect when a snowball round adds no new papers.
     """
-    idx = corpus_index or {}
     print(f"\n{len(papers)} candidate(s)\n")
     for p in papers:
         year = p.get("year", "")
@@ -548,7 +496,7 @@ def _print_candidates(
         doi = ext.get("DOI", "")
         id_str = f"arXiv:{arxiv}" if arxiv else (f"DOI:{doi}" if doi else "")
         annotation = _corpus_annotation(
-            p, idx, notes_index=notes_index, notes_title_index=notes_title_index,
+            p, notes_index=notes_index, notes_title_index=notes_title_index,
         )
         print(f"  {annotation}  {first_author} {year}  {title}")
         if id_str:
@@ -626,9 +574,7 @@ def cmd_find(args: argparse.Namespace) -> int:
             args.query, papers, min_score=min_score, top_k=args.limit
         )
 
-    refs_path = _refs_path_for_project(project, cfg)
-    corpus_index = _load_corpus_index(refs_path)
-    # Fix #32: also check filed literature notes (zero-infra dedup)
+    # Fix #32: check filed literature notes for corpus dedup (zero-infra)
     lit_dir = (
         cfg.project_notes_dir(project) / "literature"
         if project else None
@@ -636,7 +582,7 @@ def cmd_find(args: argparse.Namespace) -> int:
     notes_index = _load_notes_index(lit_dir)
     notes_title_index = _load_notes_title_index(lit_dir)
     _print_candidates(
-        papers, corpus_index, notes_index=notes_index, notes_title_index=notes_title_index,
+        papers, notes_index=notes_index, notes_title_index=notes_title_index,
     )
     return 0
 
@@ -680,9 +626,7 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    refs_path = _refs_path_for_project(project, cfg) if cfg else None
-    corpus_index = _load_corpus_index(refs_path)
-    # Fix #32: also check filed literature notes
+    # Fix #32: check filed literature notes for corpus dedup
     lit_dir = (
         cfg.project_notes_dir(project) / "literature"
         if (cfg and project) else None
@@ -690,7 +634,7 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
     notes_index = _load_notes_index(lit_dir)
     notes_title_index = _load_notes_title_index(lit_dir)
     _print_candidates(
-        papers, corpus_index, notes_index=notes_index, notes_title_index=notes_title_index,
+        papers, notes_index=notes_index, notes_title_index=notes_title_index,
     )
     return 0
 
@@ -739,9 +683,7 @@ def cmd_references(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    refs_path = _refs_path_for_project(project, cfg) if cfg else None
-    corpus_index = _load_corpus_index(refs_path)
-    # Fix #32: also check filed literature notes
+    # Fix #32: check filed literature notes for corpus dedup
     lit_dir = (
         cfg.project_notes_dir(project) / "literature"
         if (cfg and project) else None
@@ -749,7 +691,7 @@ def cmd_references(args: argparse.Namespace) -> int:
     notes_index = _load_notes_index(lit_dir)
     notes_title_index = _load_notes_title_index(lit_dir)
     _print_candidates(
-        papers, corpus_index, notes_index=notes_index, notes_title_index=notes_title_index,
+        papers, notes_index=notes_index, notes_title_index=notes_title_index,
     )
     return 0
 
@@ -958,7 +900,7 @@ def build_parser(
         "--project", default=None,
         help=(
             "Project slug (from config registry). Annotates candidates "
-            "[IN-CORPUS:<citekey>] or [NEW] against the project's library.json corpus."
+            "[IN-CORPUS:<citekey>] or [NEW] against the project's literature/ notes."
         ),
     )
 
@@ -977,7 +919,7 @@ def build_parser(
         "--project", default=None,
         help=(
             "Project slug (from config registry). Annotates candidates "
-            "[IN-CORPUS:<citekey>] or [NEW] against the project's library.json corpus."
+            "[IN-CORPUS:<citekey>] or [NEW] against the project's literature/ notes."
         ),
     )
 
@@ -997,7 +939,7 @@ def build_parser(
         help=(
             "Project slug (from config registry). When set, each candidate is "
             "annotated [IN-CORPUS:<citekey>] or [NEW] by matching against the "
-            "project's library.json corpus — enabling the saturation stopping "
+            "project's literature/ notes — enabling the saturation stopping "
             "rule for the lit-review loop (SR-LR-1)."
         ),
     )

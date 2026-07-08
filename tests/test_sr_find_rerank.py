@@ -298,8 +298,8 @@ class TestAnnotationPreserved:
         ]
         results = rank_candidates("cultural benchmark", papers, min_score=0.0, top_k=5)
         assert results
-        corpus_index = {"10.1234/cultural-bench": "bench2024"}
-        annotation = _corpus_annotation(results[0], corpus_index)
+        notes_index = {"10.1234/cultural-bench": "bench2024"}
+        annotation = _corpus_annotation(results[0], notes_index=notes_index)
         assert annotation == "[IN-CORPUS:bench2024]", (
             f"Expected [IN-CORPUS:bench2024], got {annotation!r}"
         )
@@ -342,7 +342,7 @@ class TestNoRerankLegacy:
         import io, contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            _print_candidates(papers, corpus_index=None)
+            _print_candidates(papers)
         output = buf.getvalue()
         assert "Paper A" in output
         assert "Paper B" in output
