@@ -45,6 +45,108 @@
   scope — surfaced to the operator to restore by hand or explicitly
   authorize, rather than silently working around the block.
 
+## 2026-07-07 (release/0.2.2: corpus-annotation under-detection fix)
+
+### Done
+- Version bump `0.2.1 → 0.2.2` — **patch**: bug fix, no breaking change.
+- **Fixed real corpus-under-annotation bug**: `rv research references`
+  (backward snowball) was flagging known in-corpus papers as `[NEW]` — 0
+  `[IN-CORPUS]` / 90 `[NEW]` on a live research-project snowball round
+  that included two papers (Argyle 2022, Aher 2022) with filed
+  `literature/` notes. Blocked a review-loop saturation round (683
+  hand-re-annotations forced).
+- **Root cause — disconfirmed the initial hypothesis, found the real one.**
+  The brief for this fix assumed a references-vs-cited-by S2 payload
+  *shape* difference. Live-checked both `asta papers citations` and
+  `asta papers get --fields references.*`: identical `externalIds`
+  shape, and `cmd_cited_by`/`cmd_references` already call the exact same
+  `_corpus_annotation`/`_print_candidates` path — no shape divergence
+  exists. Reproducing `rv research find`/`cited-by` directly (not via the
+  `vault research` wrapper, which has its own independent, more permissive
+  matcher against a different, hub-wide bibliography) showed **all three**
+  rv verbs under-annotate identically for this project. The actual defect:
+  `_load_notes_index` only recognized `doi:`/`arxiv_id:` frontmatter
+  fields, but real literature notes almost universally carry only a
+  `url:` field (e.g. `https://arxiv.org/abs/2209.06899`) — never a
+  separate id field.
+- **Fix** (`src/research_vault/research.py`):
+  - `_load_notes_index` now also mines the `url:` field for an arXiv id
+    (`arxiv.org/abs/...`) or a DOI (`doi.org/10....`) when the dedicated
+    fields are absent — declared fields still take priority.
+  - New `_load_notes_title_index` + a third `_corpus_annotation` tier:
+    first-author-family + long-title (>=20 normalized chars) fallback,
+    for the rarer case where a note carries no id anywhere (Aher's note
+    links a conference-proceedings page with no DOI/arXiv pattern).
+    Deliberately year-agnostic — a paper's canonical S2 year and a note's
+    recorded venue year commonly differ (preprint vs. eventual publication
+    year), and gating on year would reintroduce the exact under-detection
+    this fix exists to close.
+  - Threaded `notes_title_index` through `_print_candidates`,
+    `cmd_find`, `cmd_cited_by`, `cmd_references` — all three verbs now
+    share one strengthened annotation path (parity restored, not a
+    references-only patch).
+- **Tests** (`tests/test_research_corpus_dedup.py`, +4, all
+  red-before-green against real Argyle/Aher note + live-fetched S2
+  reference-item shapes): url-derived arXiv-id indexing, Argyle
+  url-only-note annotation, Aher title+author-fallback annotation
+  (with the S2/note year mismatch reproduced), and a
+  cited-by-vs-references parity test.
+- **Review tightening (independent review of PR #172 — BLOCK on one
+  issue, rest PASS):** the year-agnostic title-fallback tier over-matched
+  on genuinely distinct papers. Reviewer reproduced three cases
+  empirically: (A) title-superset (a shorter title is a strict prefix of
+  a longer, different paper's title by the same author); (B) series
+  prefix ("Part I" is a strict prefix of a genuinely different "Part II"
+  sequel); (C) surname collision (two different people sharing a
+  surname, titles sharing a long generic opening phrase then diverging —
+  the exact vector the removed 30-char-prefix arm let through). A false
+  `[IN-CORPUS]` is the *silent* failure mode for SR-LR-1 saturation (a
+  non-saturated round looks saturated, hiding a real frontier paper) —
+  worse than the false-`[NEW]` this fix was closing.
+  - Replaced the loose match (30-char-prefix-equal OR either-contains-
+    the-other) with `_title_fallback_match`: exact normalized-title
+    equality, OR containment gated by a length ratio
+    `min(len)/max(len) >= 0.9`. The 30-char-prefix arm is gone entirely
+    (it alone drove case C). Verified: the legitimate Aher catch is ratio
+    1.0 (survives); A/B/C fail the ratio gate (case C no longer even
+    reaches containment once the prefix arm is removed).
+  - `_load_notes_title_index` is now SCOPED to notes with **no**
+    extractable id (declared or url-derived) — matching what its own
+    docstring always claimed. It previously indexed every note,
+    needlessly widening the over-match surface for notes tier 2 (the id
+    index) already serves.
+  - 8 new regression tests: 4 unit-level on `_title_fallback_match`
+    (A/B/C rejected, Aher ratio-1.0 accepted) + 3 end-to-end
+    `_corpus_annotation` cases (A/B/C stay `[NEW]`) + 1 confirming the
+    title index excludes id-carrying notes. No ratio-threshold false
+    rejection found against the existing legitimate-catch fixtures.
+
+### Decisions
+- The year-agnostic title-fallback tier is a deliberate divergence from
+  the sibling `vault research` tool's own `cite.py::_match_one`, which
+  disables its equivalent lenient tier specifically for external-candidate
+  annotation (citing surname-collision false-positive risk). Judged the
+  trade-off differently here: false-NEW (under-detection, causing
+  hand-re-annotation at scale) is empirically the costlier failure mode
+  for this project's saturation loop; the length-ratio gate (post-review
+  tightening) keeps the false-positive surface small while preserving the
+  legitimate no-id catch. Flagged, not silently ported — future
+  maintainers should know this is a considered choice, not an oversight.
+
+### Open / next
+- **Separate, pre-existing bug surfaced (not fixed here, out of scope):**
+  `tests/test_project.py::test_cmd_add_no_config_raises` fails on this
+  machine because PR #171's XDG config auto-discovery has no test
+  isolation against a developer's real `~/.config/research_vault/config.toml`
+  — the test expects "no config found" but the XDG fallback finds the
+  real file instead. Confirmed this test failure is unrelated to this PR's
+  diff (which touches only `research.py` + its test file) and does not
+  reproduce in CI (fresh runner, no such file). Found the real config had
+  already been polluted with a bogus `[projects.x]` entry by some prior,
+  unisolated test run — backed up, **not removed** (out of this PR's
+  scope; needs an explicit decision + a conftest fix that isolates
+  `XDG_CONFIG_HOME`/`HOME` for tests exercising the "no config" path).
+
 ## 2026-07-07 (release/0.2.1: config auto-discovery)
 
 ### Done

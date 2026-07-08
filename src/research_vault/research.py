@@ -268,6 +268,49 @@ def _load_corpus_index(refs_path: str | None) -> dict[str, str]:
     return index
 
 
+def _arxiv_from_url(url: str | None) -> str | None:
+    """Extract a normalized arXiv id from a `url:` frontmatter field.
+
+    rv-refs-corpus-fix: real literature notes commonly carry ONLY a `url:`
+    field pointing at the arXiv abstract page (e.g.
+    ``https://arxiv.org/abs/2209.06899``) — never a separate `arxiv_id:`
+    field.  Mirrors the URL-mining the sibling ``vault research`` tool's
+    cite.py already relies on (``_arxiv_of``) for the same real-world shape.
+    """
+    if not url:
+        return None
+    m = re.search(r"arxiv\.org/abs/(\d{4}\.\d{4,5}(?:v\d+)?)", url, re.IGNORECASE)
+    if m:
+        return _normalize_arxiv(m.group(1))
+    return None
+
+
+def _doi_from_url(url: str | None) -> str | None:
+    """Extract a normalized DOI from a `https://doi.org/10.xxxx/...` `url:` field."""
+    if not url:
+        return None
+    m = re.search(r"doi\.org/(10\.\S+)", url, re.IGNORECASE)
+    if m:
+        return _normalize_doi(m.group(1).rstrip(".,;)"))
+    return None
+
+
+def _norm_title_str(s: str | None) -> str:
+    """Normalize a title for fallback matching: lowercase, alnum-only."""
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _first_author_family(authors_field: str | None) -> str:
+    """Extract the normalized family name of the first author from a
+    ``"Family, Given; Family, Given; ..."`` frontmatter `authors:` string
+    (the convention used by ``rv note new literature``)."""
+    if not authors_field:
+        return ""
+    first = authors_field.split(";", 1)[0].strip()
+    family = first.split(",", 1)[0].strip()
+    return _norm_title_str(family)
+
+
 def _load_notes_index(literature_dir: Path | None) -> dict[str, str]:
     """Build a normalized-id → citekey lookup by scanning literature/*.md frontmatter.
 
@@ -276,8 +319,13 @@ def _load_notes_index(literature_dir: Path | None) -> dict[str, str]:
     from the doi: and arxiv_id: frontmatter fields that literature notes now carry as
     optional placeholders.  The citekey is the note's filename stem.
 
+    rv-refs-corpus-fix: also mines the `url:` field for an arXiv/DOI id when the
+    dedicated `doi:`/`arxiv_id:` fields are absent — real notes overwhelmingly use
+    only `url:` (see _arxiv_from_url / _doi_from_url).  Declared doi:/arxiv_id:
+    fields always take priority when present.
+
     Returns an empty dict when literature_dir is None or does not exist.
-    Only notes with a non-empty doi or arxiv_id frontmatter field are indexed.
+    Only notes with a non-empty doi or arxiv_id (declared or url-derived) are indexed.
     """
     if literature_dir is None:
         return {}
@@ -296,14 +344,94 @@ def _load_notes_index(literature_dir: Path | None) -> dict[str, str]:
         except OSError:
             continue
         fields, _ = _parse_frontmatter(text)
+        url = fields.get("url") or None
 
-        doi = _normalize_doi(fields.get("doi") or None)
+        doi = _normalize_doi(fields.get("doi") or None) or _doi_from_url(url)
         if doi:
             index[doi] = citekey
 
-        arxiv = _normalize_arxiv(fields.get("arxiv_id") or None)
+        arxiv = _normalize_arxiv(fields.get("arxiv_id") or None) or _arxiv_from_url(url)
         if arxiv:
             index[arxiv] = citekey
+
+    return index
+
+
+def _title_fallback_match(title_norm: str, note_title: str) -> bool:
+    """Conservative title-fallback match for `_corpus_annotation` tier 3.
+
+    rv-refs-corpus-fix review tightening: the original prefix/either-contains
+    heuristic over-matched on real, distinct papers — a reviewer reproduced
+    three cases empirically: title-superset (one title a strict prefix of a
+    longer, different paper's title), a series prefix ("Part I" vs "Part II"
+    sharing everything up to that suffix), and two different authors sharing
+    a surname with a generic shared title fragment.  The fix: require EITHER
+    exact equality, OR containment gated by a length ratio
+    ``min(len)/max(len) >= 0.9`` — so a short title can't be a false substring
+    match against an unrelated, much longer title.  The legitimate Aher catch
+    (identical titles, ratio 1.0) survives; the three over-match repros
+    (ratios 0.50/0.83/0.76) are correctly rejected.
+    """
+    if not title_norm or not note_title:
+        return False
+    if title_norm == note_title:
+        return True
+    if title_norm in note_title or note_title in title_norm:
+        shorter = min(len(title_norm), len(note_title))
+        longer = max(len(title_norm), len(note_title))
+        return (shorter / longer) >= 0.9
+    return False
+
+
+def _load_notes_title_index(literature_dir: Path | None) -> dict[str, list[tuple[str, str]]]:
+    """Build a first-author-family → [(citekey, normalized_title)] fallback lookup.
+
+    rv-refs-corpus-fix: a small fraction of real notes carry NO extractable id
+    anywhere (e.g. a conference-proceedings `url:` with no DOI/arXiv pattern —
+    the "Aher 2022" case).  For those, the only remaining corpus signal is the
+    note's own title + first author.  This tier is deliberately year-agnostic:
+    a paper's canonical S2 year commonly differs from a note's recorded venue
+    year (arXiv preprint year vs. eventual conference/journal year), so gating
+    on year here would just reintroduce the same under-detection this fix
+    exists to close.  Conservative safety valves: (a) only titles that
+    normalize to >= 20 alnum characters are indexed, so a short/generic title
+    can't produce a cheap surname-collision false-positive; (b) review
+    tightening — this index is SCOPED to notes with NO extractable id
+    (declared doi:/arxiv_id: or url-derived) at all.  A note that already has
+    an id is fully served by `_load_notes_index` (tier 2) — including it here
+    too would only widen the over-match surface for id-carrying notes without
+    adding any real detection power.
+
+    Returns an empty dict when literature_dir is None or does not exist.
+    """
+    if literature_dir is None:
+        return {}
+    lit_path = Path(literature_dir)
+    if not lit_path.exists():
+        return {}
+
+    from .note import _parse_frontmatter
+
+    index: dict[str, list[tuple[str, str]]] = {}
+    for note_path in sorted(lit_path.glob("*.md")):
+        citekey = note_path.stem
+        try:
+            text = note_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fields, _ = _parse_frontmatter(text)
+        url = fields.get("url") or None
+
+        # Skip notes that already carry an extractable id — tier 2 handles them.
+        doi = _normalize_doi(fields.get("doi") or None) or _doi_from_url(url)
+        arxiv = _normalize_arxiv(fields.get("arxiv_id") or None) or _arxiv_from_url(url)
+        if doi or arxiv:
+            continue
+
+        fam = _first_author_family(fields.get("authors"))
+        title_norm = _norm_title_str(fields.get("title"))
+        if fam and len(title_norm) >= 20:
+            index.setdefault(fam, []).append((citekey, title_norm))
 
     return index
 
@@ -313,16 +441,26 @@ def _corpus_annotation(
     corpus_index: dict[str, str],
     *,
     notes_index: dict[str, str] | None = None,
+    notes_title_index: dict[str, list[tuple[str, str]]] | None = None,
 ) -> str:
     """Return [IN-CORPUS:<citekey>] or [NEW] for a candidate S2 paper dict.
 
-    Checks two sources in order:
-      1. corpus_index — built from the project's Zotero library.json.
-      2. notes_index  — built from literature/*.md doi/arxiv_id frontmatter
-                        (Fix #32: filed notes count as in-corpus even before
-                        Zotero sync updates library.json).
+    Checks sources in order:
+      1. corpus_index       — built from the project's Zotero library.json.
+      2. notes_index        — built from literature/*.md doi/arxiv_id
+                               frontmatter, declared OR url-derived (Fix #32 +
+                               rv-refs-corpus-fix: filed notes count as
+                               in-corpus even before Zotero sync updates
+                               library.json, and even when the note only
+                               carries a `url:` field).
+      3. notes_title_index  — first-author-family + long-title fallback for
+                               notes with NO extractable id anywhere
+                               (rv-refs-corpus-fix).  Year-agnostic by design
+                               (canonical S2 year vs. a note's own venue year
+                               commonly differ) — see _load_notes_title_index
+                               for the conservative-title-length rationale.
 
-    Returns [NEW] only if the paper matches neither source.
+    Returns [NEW] only if the paper matches none of the sources.
     """
     ext = paper.get("externalIds") or {}
 
@@ -343,6 +481,17 @@ def _corpus_annotation(
             return f"[IN-CORPUS:{ni[doi]}]"
         if arxiv and arxiv in ni:
             return f"[IN-CORPUS:{ni[arxiv]}]"
+
+    # 3. Title + first-author fallback (rv-refs-corpus-fix) — only reached when
+    #    no id matched above.
+    nti = notes_title_index or {}
+    if nti:
+        fam = _normalize_author_name(paper.get("authors")).lower()
+        title_norm = _norm_title_str(paper.get("title"))
+        if fam and len(title_norm) >= 20:
+            for ck, note_title in nti.get(fam, []):
+                if _title_fallback_match(title_norm, note_title):
+                    return f"[IN-CORPUS:{ck}]"
 
     return "[NEW]"
 
@@ -377,14 +526,16 @@ def _print_candidates(
     corpus_index: dict[str, str] | None = None,
     *,
     notes_index: dict[str, str] | None = None,
+    notes_title_index: dict[str, list[tuple[str, str]]] | None = None,
 ) -> None:
     """Print S2 paper candidates in a human-readable table.
 
     When corpus_index is provided (loaded from the project's library.json) and/or
-    notes_index (loaded from the project's literature/ OKF dir — Fix #32), each
-    candidate is annotated [IN-CORPUS:<citekey>] or [NEW] so the lit-review
-    saturation stopping rule (SR-LR-1) can detect when a snowball round adds no
-    new papers.
+    notes_index (loaded from the project's literature/ OKF dir — Fix #32, extended
+    by rv-refs-corpus-fix to mine `url:`) and/or notes_title_index (title+author
+    fallback — rv-refs-corpus-fix), each candidate is annotated
+    [IN-CORPUS:<citekey>] or [NEW] so the lit-review saturation stopping rule
+    (SR-LR-1) can detect when a snowball round adds no new papers.
     """
     idx = corpus_index or {}
     print(f"\n{len(papers)} candidate(s)\n")
@@ -396,7 +547,9 @@ def _print_candidates(
         arxiv = ext.get("ArXiv", "")
         doi = ext.get("DOI", "")
         id_str = f"arXiv:{arxiv}" if arxiv else (f"DOI:{doi}" if doi else "")
-        annotation = _corpus_annotation(p, idx, notes_index=notes_index)
+        annotation = _corpus_annotation(
+            p, idx, notes_index=notes_index, notes_title_index=notes_title_index,
+        )
         print(f"  {annotation}  {first_author} {year}  {title}")
         if id_str:
             print(f"  {'':12}  {id_str}")
@@ -481,7 +634,10 @@ def cmd_find(args: argparse.Namespace) -> int:
         if project else None
     )
     notes_index = _load_notes_index(lit_dir)
-    _print_candidates(papers, corpus_index, notes_index=notes_index)
+    notes_title_index = _load_notes_title_index(lit_dir)
+    _print_candidates(
+        papers, corpus_index, notes_index=notes_index, notes_title_index=notes_title_index,
+    )
     return 0
 
 
@@ -532,7 +688,10 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
         if (cfg and project) else None
     )
     notes_index = _load_notes_index(lit_dir)
-    _print_candidates(papers, corpus_index, notes_index=notes_index)
+    notes_title_index = _load_notes_title_index(lit_dir)
+    _print_candidates(
+        papers, corpus_index, notes_index=notes_index, notes_title_index=notes_title_index,
+    )
     return 0
 
 
@@ -588,7 +747,10 @@ def cmd_references(args: argparse.Namespace) -> int:
         if (cfg and project) else None
     )
     notes_index = _load_notes_index(lit_dir)
-    _print_candidates(papers, corpus_index, notes_index=notes_index)
+    notes_title_index = _load_notes_title_index(lit_dir)
+    _print_candidates(
+        papers, corpus_index, notes_index=notes_index, notes_title_index=notes_title_index,
+    )
     return 0
 
 
