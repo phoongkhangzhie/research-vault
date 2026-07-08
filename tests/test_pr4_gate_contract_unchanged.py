@@ -19,6 +19,19 @@ notes even before PR-4; the fallback-to-`role` shortcut is deliberately NOT
 added (it would imply a false semantic equivalence). This test is the
 grounding evidence for that claim, not just an assertion of it.
 
+★ CONSCIOUS FORECLOSURE (coordinator confirmation, PR #178 delta): this split
+does not merely leave J-2 inert (it already was for relate-produced notes) —
+it PERMANENTLY FORECLOSES the possibility of a relate-note ever triggering
+J-2 again. `role`'s fixed vocabulary is a contribution-TYPE axis
+(methodological/empirical/theoretical/counter-position), never an
+evidence-STRENGTH axis, so nothing a relate-note emits can ever match J-2's
+{exploratory, pilot, tentative} trigger going forward. This is a deliberate,
+documented choice, not a silent regression — flagged here + in DEVLOG.md +
+the PR body for Khang. Follow-up option, if wanted later: a real
+evidence-strength gate for lit-review claims would need the relate protocol
+to emit its OWN evidence-strength marker (e.g. a `confidence:` field) for
+J-2 (or a J-2-equivalent) to read — this wave does not add one.
+
 sr: NG-lit-review-wave0 (PR-4 confirmation)
 """
 from __future__ import annotations

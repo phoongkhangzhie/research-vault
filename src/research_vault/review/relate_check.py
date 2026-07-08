@@ -49,6 +49,39 @@ CONTENT of the reasoning is never judged. A bare tag with no reasoning is
 rejected (too thin); the reasoning's quality is left entirely to the
 subagent's judgment (never over-rigidified).
 
+THE `[TAG]` IS AUTHORITATIVE, `(kind)` IS AN OPTIONAL MIRROR (architect review,
+PR #178 delta)
+================================================================================
+The bracket TAG (`[SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS]`) is required
+and derives the Noblit & Hare relation kind mechanically (SUPPORTS→reciprocal,
+CONTRADICTS→refutational, PARTIAL/EXTENDS→line-of-argument). The trailing
+`(kind)` suffix is an OPTIONAL human-readable mirror — same "ledger wins, body
+mirrors" precedent as `key_equations`'s `*(critical)*` tag. If a stated `(kind)`
+disagrees with the tag-derived kind, the TAG WINS and the edge carries a
+`kind_mismatch` field so the disagreement is surfaced, never silently resolved
+one way. Requiring `(kind)` (the pre-review shape) meant a valid edge that
+simply omitted it lost the WHOLE edge — the single most likely malformation
+maximized silent loss. Optional-and-derived closes that hole.
+
+SURFACE MALFORMED EDGES, NEVER SILENTLY SKIP (architect review, the load-bearing
+fix)
+================================================================================
+The pre-review `parse_paper_relations` used `finditer` over a strict regex and
+silently dropped any non-matching line — a note with 3 edges where 1 is
+typo'd would pass with that edge invisibly lost, and since
+`review_synthesize_tips` instructs "traverse, don't re-derive," a lost edge
+was gone for good. Now: any line under `## Related papers` that OPENS with
+the `- [` bracket-shape (an unambiguously attempted typed edge — e.g.
+`- [SUPRTS] xiong2023`, a typo'd tag) but does not parse to a valid edge is
+collected into `ParsedRelations.malformed` — surfaced by
+`parse_paper_relations`, `relations_report`, AND `check_relate_presence` (a
+hard FAIL, matching this module's existing rejects-only-FAIL posture). A
+plain `- ` bullet with NO bracket (free-form commentary, e.g.
+`- Also worth noting: ...`) is legitimate prose and is never flagged — the
+`- [` prefix is the precise, false-positive-free signal that separates a
+broken edge attempt from prose (coordinator clarification, PR #178 delta 2).
+A `- [`-shaped line is never `finditer`'d-and-skipped again.
+
 Stdlib only.
 sr: NG-lit-review-wave0 (PR-1, PR-2, PR-4, PR-5)
 """
@@ -57,6 +90,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from ..note import _parse_frontmatter
 
@@ -85,6 +119,16 @@ _RELATION_TAGS: frozenset[str] = frozenset({
     "SUPPORTS", "CONTRADICTS", "PARTIAL", "EXTENDS",
 })
 
+# The TAG derives the kind mechanically — SSOT for the derivation (architect
+# review: "[TAG] authoritative"). A stated (kind) suffix that disagrees with
+# this mapping is a mirror-mismatch, never a second source of truth.
+_TAG_TO_KIND: dict[str, str] = {
+    "SUPPORTS": "reciprocal",
+    "CONTRADICTS": "refutational",
+    "PARTIAL": "line-of-argument",
+    "EXTENDS": "line-of-argument",
+}
+
 _YES_NO: frozenset[str] = frozenset({"yes", "no"})
 
 # Minimum non-trivial length for a "substance" clause (position narrative,
@@ -100,12 +144,21 @@ _RESULT_HEADING_RE = re.compile(r"^#{2,3}\s+Result\s*$", re.IGNORECASE | re.MULT
 _RELATED_PAPERS_HEADING_RE = re.compile(
     r"^#{2,3}\s+Related papers\s*$", re.IGNORECASE | re.MULTILINE
 )
-# "- [SUPPORTS] xiong2023-stepwise — <reason> (reciprocal)"
-_PAPER_EDGE_RE = re.compile(
-    r"^\s*-\s*\[(SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS)\]\s+"
+# The distinguishing signal between "a broken edge attempt" and "legitimate
+# free prose" in this section is the `- [` bracket-shape (coordinator
+# clarification, PR #178 delta): a bullet that opens with `[` is
+# unambiguously an attempted typed edge (e.g. `- [SUPRTS] xiong2023` — a
+# typo'd tag), never prose. A plain `- ` bullet with no bracket (e.g.
+# `- Also worth noting: ...`) is legitimate free-form commentary and must
+# NOT be flagged malformed. Only `- [`-shaped lines are the candidate set
+# that MUST parse to a valid edge or be surfaced as malformed.
+_BULLET_RE = re.compile(r"^-\s*\[")
+# "- [SUPPORTS] xiong2023-stepwise — <reason> [(reciprocal)]" — the (kind)
+# suffix is now OPTIONAL (architect review; the tag alone is authoritative).
+_PAPER_EDGE_LINE_RE = re.compile(
+    r"^-\s*\[(SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS)\]\s+"
     r"([A-Za-z0-9][A-Za-z0-9_.\-]*)\s*(?:—|-)\s*(.+?)\s*"
-    r"\((reciprocal|refutational|line-of-argument)\)\s*$",
-    re.MULTILINE,
+    r"(?:\((reciprocal|refutational|line-of-argument)\))?\s*$"
 )
 
 
@@ -126,7 +179,25 @@ def _find_section_body(body: str, heading_re: "re.Pattern[str]") -> str | None:
     return body[start:end].strip()
 
 
-def parse_paper_relations(body: str) -> list[dict[str, str]]:
+@dataclass
+class ParsedRelations:
+    """The result of parsing a '## Related papers' section.
+
+    ``edges``     — successfully-parsed paper→paper typed edges.
+    ``malformed`` — raw text of any ``- [``-shaped line (an unambiguously
+                    attempted typed edge) that did NOT parse to a valid edge.
+                    NEVER silently dropped (architect review, the
+                    load-bearing fix) — a caller that ignores this list
+                    re-introduces the exact silent-loss defect the fix closes.
+                    A plain ``- `` bullet with no bracket is legitimate
+                    prose and is excluded from this list.
+    """
+
+    edges: list[dict[str, Any]] = field(default_factory=list)
+    malformed: list[str] = field(default_factory=list)
+
+
+def parse_paper_relations(body: str) -> ParsedRelations:
     """Parse PR-2 paper→paper typed edges from a note body's '## Related papers'
     section.
 
@@ -135,22 +206,51 @@ def parse_paper_relations(body: str) -> list[dict[str, str]]:
     targets a bare citekey and lives inside the dedicated '## Related papers'
     section, so the two edge kinds never collide during parsing.
 
-    Returns a list of dicts: {"tag", "target", "reason", "type"}. Empty list
-    if the section is absent or contains no matching edge lines.
+    Each edge dict: {"tag", "target", "reason", "type", "kind_mismatch"}.
+    ``type`` is ALWAYS the tag-derived kind (the tag wins — see module
+    docstring); ``kind_mismatch`` is ``None`` unless a stated ``(kind)``
+    suffix disagreed with the tag, in which case it is
+    ``{"stated": <kind>, "derived": <kind>}`` — surfaced, never silently
+    resolved.
+
+    Any ``- [``-shaped line under the heading (an unambiguously attempted
+    typed edge — a typo'd tag, a missing target, etc.) that does NOT parse to
+    a valid edge is collected into ``.malformed`` (line-by-line — never
+    ``finditer``-and-skip across the whole section). A plain ``- `` bullet
+    with no bracket is legitimate free-form prose and is left alone — the
+    ``- [`` prefix is the precise, false-positive-free signal that separates
+    a broken edge attempt from prose.
+
+    Returns ``ParsedRelations(edges=[], malformed=[])`` if the section is
+    absent.
     """
     section = _find_section_body(body, _RELATED_PAPERS_HEADING_RE)
     if not section:
-        return []
-    out: list[dict[str, str]] = []
-    for m in _PAPER_EDGE_RE.finditer(section):
-        tag, target, reason, rel_type = m.groups()
-        out.append({
+        return ParsedRelations()
+
+    edges: list[dict[str, Any]] = []
+    malformed: list[str] = []
+    for raw_line in section.splitlines():
+        line = raw_line.strip()
+        if not line or not _BULLET_RE.match(line):
+            continue  # blank / non-bullet prose — not an edge-shaped line
+        m = _PAPER_EDGE_LINE_RE.match(line)
+        if m is None:
+            malformed.append(line)
+            continue
+        tag, target, reason, stated_kind = m.groups()
+        derived_kind = _TAG_TO_KIND[tag]
+        kind_mismatch = None
+        if stated_kind is not None and stated_kind != derived_kind:
+            kind_mismatch = {"stated": stated_kind, "derived": derived_kind}
+        edges.append({
             "tag": tag,
             "target": target,
             "reason": reason.strip(),
-            "type": rel_type,
+            "type": derived_kind,
+            "kind_mismatch": kind_mismatch,
         })
-    return out
+    return ParsedRelations(edges=edges, malformed=malformed)
 
 
 # ---------------------------------------------------------------------------
@@ -278,23 +378,36 @@ def check_relate_presence(note_path: Path) -> RelatePresenceResult:
             f"'paper_relations_sought' has unrecognized value {relations_sought!r} "
             "(must be exactly 'yes' or 'no' — fail-closed on any other spelling)"
         )
-    elif relations_sought == "yes":
-        edges = parse_paper_relations(body)
-        if not edges:
+    else:
+        parsed = parse_paper_relations(body)
+        if relations_sought == "yes" and not parsed.edges and not parsed.malformed:
             findings.append(
                 "'paper_relations_sought: yes' but no typed paper→paper edge "
                 "found in a '## Related papers' body section — Move 4 requires "
                 "at least one '[SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS] <citekey> "
-                "— <reason> (reciprocal|refutational|line-of-argument)' line"
+                "— <reason>' line (a trailing '(kind)' mirror is optional)"
             )
-        else:
-            for edge in edges:
-                if len(edge["reason"]) < _MIN_SUBSTANCE_CHARS:
-                    findings.append(
-                        f"paper→paper edge to {edge['target']!r} carries a bare "
-                        "tag with no real reasoning — a relation reduced to a "
-                        "tag with no substance is as thin as no relation "
-                        "(the over-rigidity guard, §5 caveat)"
-                    )
+        for edge in parsed.edges:
+            if len(edge["reason"]) < _MIN_SUBSTANCE_CHARS:
+                findings.append(
+                    f"paper→paper edge to {edge['target']!r} carries a bare "
+                    "tag with no real reasoning — a relation reduced to a "
+                    "tag with no substance is as thin as no relation "
+                    "(the over-rigidity guard, §5 caveat)"
+                )
+        # Architect review (the load-bearing fix): a malformed edge-shaped
+        # line is a hard FAIL regardless of the yes/no answer — surfacing it
+        # is never conditional on 'yes', because a line under this heading
+        # opening with '- [' is unambiguously an attempted edge (never
+        # prose) whether or not the note claims relations were sought.
+        for bad_line in parsed.malformed:
+            findings.append(
+                f"malformed paper→paper edge line under '## Related papers': "
+                f"{bad_line!r} — a '- [' -shaped line must parse to "
+                "'[SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS] <citekey> — <reason>' "
+                "(optionally followed by '(reciprocal|refutational|"
+                "line-of-argument)'); it was silently dropped before this fix "
+                "— never again (charter §2)"
+            )
 
     return RelatePresenceResult(findings=findings)

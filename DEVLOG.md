@@ -56,6 +56,42 @@
   end-to-end (dedicated regression tests, `test_pr4_gate_contract_unchanged.py`) —
   same code path, `position`'s richer narrative is now MORE judge-visible
   evidence than the old ambiguous `stance` field gave, not less.
+- **Architect review delta (PR #178, Wren):** CHANGES-NEEDED, targeted —
+  the edge-storage shape (body-section, bracket-edge grammar) was
+  confirmed correct and kept as-is.
+  - **The load-bearing fix**: `parse_paper_relations` previously used
+    `finditer` over a strict regex and silently DROPPED any non-matching
+    line — a note with 3 edges where 1 was typo'd would pass, that edge
+    invisibly lost, and (since `review_synthesize_tips` now says
+    "traverse, don't re-derive") never recovered. Fixed: any line under
+    `## Related papers` that opens with the `- [` bracket-shape (an
+    unambiguously attempted edge — a typo'd tag, a missing target) but
+    does not parse is now collected into a `malformed` list and
+    surfaced by `parse_paper_relations`, `relations_report`
+    (`rv review relations`), AND `check_relate_presence` (a hard FAIL).
+    A plain `- ` bullet with no bracket is legitimate free prose and is
+    never flagged (the `- [` prefix is the precise, false-positive-free
+    signal — a coordinator clarification after the initial architect
+    note).
+  - **`(kind)` made optional, `[TAG]` made authoritative.** The trailing
+    `(reciprocal|refutational|line-of-argument)` mirror was previously
+    REQUIRED — a valid edge that simply omitted it lost the whole edge
+    (the most likely malformation, maximizing silent loss). Now: the
+    bracket TAG mechanically derives the kind
+    (SUPPORTS→reciprocal, CONTRADICTS→refutational,
+    PARTIAL/EXTENDS→line-of-argument); the `(kind)` suffix is an
+    optional human-readable mirror, and if it disagrees with the
+    tag-derived kind, the TAG WINS and the disagreement is surfaced as
+    `kind_mismatch` on the edge (same "ledger wins, body mirrors"
+    precedent as `key_equations`'s `*(critical)*` tag).
+  - **Recommended, added**: `relations_report` now also flags dangling
+    edges (a target citekey with no matching literature note in the
+    project) — mirrors `coverage_report`'s orphan reporting.
+  - **Confirmed additive**: `review/style.py`'s changes here add
+    `per_paper_relate_tips` + `review_synthesize_tips` only —
+    `git merge-tree` against #177 (Wave A, landing alongside this PR,
+    which touches the SAME file's `review_scope_tips` +
+    `review_snowball_tips`) auto-merges cleanly with zero conflict.
 
 ### Decisions
 - **PR-3 (live concept edges, kill TODO-drift) excluded from this
@@ -65,12 +101,27 @@
   section), not a new frontmatter mapping-list — this keeps the same
   free-body-driven convention the existing paper→concept edges already
   use, rather than inventing a second edge-storage mechanism.
+  Confirmed correct by the architect review (kept as-is, no schema
+  switch).
 - Whitelist, never blacklist, for the two new mandatory yes/no fields
   (`result_reported`, `paper_relations_sought`) — an agent-stamped
   free-ish field's "did you answer" check must accept only the known-good
   spelling, per the PR #175-delta lesson (a blacklist of "known bad"
   spellings cannot enumerate every way an agent might dodge the
   question).
+- **★ Conscious foreclosure (flagged for the operator):** PR-4's `stance` →
+  `role` + `position` split permanently forecloses the support-matcher's
+  J-2 exploratory→confirmatory BLOCK ever firing for a relate-produced
+  note — `role`'s fixed vocabulary is a contribution-TYPE axis
+  (methodological/empirical/theoretical/counter-position), never an
+  evidence-STRENGTH axis, so nothing a relate-note emits can match J-2's
+  `{exploratory, pilot, tentative}` trigger going forward. This is inert
+  today (the old `stance` vocabulary never matched that trigger either —
+  confirmed, not assumed, in `test_pr4_gate_contract_unchanged.py`), but
+  it is a deliberate, permanent choice, not a side-effect. Follow-up
+  option if a citation-strength gate is wanted for surveys later: the
+  relate protocol would need to emit its own evidence-strength marker
+  (e.g. a `confidence:` field) for J-2 (or a J-2-equivalent) to read.
 
 ### Open / next
 - Wave A (breadth, NG-1..3), Wave B (presentation + single-pass,

@@ -69,19 +69,25 @@ _RELATED_BODY = (
 
 class TestParsePaperRelations:
     def test_parses_a_typed_edge(self):
-        edges = parse_paper_relations(_RELATED_BODY)
-        assert len(edges) == 1
-        e = edges[0]
+        parsed = parse_paper_relations(_RELATED_BODY)
+        assert len(parsed.edges) == 1
+        assert parsed.malformed == []
+        e = parsed.edges[0]
         assert e["tag"] == "CONTRADICTS"
         assert e["target"] == "huang2022"
         assert e["type"] == "refutational"
         assert "load-bearing" in e["reason"]
+        assert e["kind_mismatch"] is None
 
     def test_no_section_returns_empty(self):
-        assert parse_paper_relations("## Some other section\n\ntext\n") == []
+        parsed = parse_paper_relations("## Some other section\n\ntext\n")
+        assert parsed.edges == []
+        assert parsed.malformed == []
 
     def test_section_present_but_empty_returns_empty(self):
-        assert parse_paper_relations("## Related papers\n\n## Next\n\ntext\n") == []
+        parsed = parse_paper_relations("## Related papers\n\n## Next\n\ntext\n")
+        assert parsed.edges == []
+        assert parsed.malformed == []
 
     def test_multiple_edges_all_parsed(self):
         body = (
@@ -91,9 +97,10 @@ class TestParsePaperRelations:
             "- [PARTIAL] liu2021 — extends the argument to stochastic "
             "rewards, a special case of the general claim. (line-of-argument)\n"
         )
-        edges = parse_paper_relations(body)
-        assert {e["target"] for e in edges} == {"li2023", "liu2021"}
-        assert {e["type"] for e in edges} == {"reciprocal", "line-of-argument"}
+        parsed = parse_paper_relations(body)
+        assert {e["target"] for e in parsed.edges} == {"li2023", "liu2021"}
+        assert {e["type"] for e in parsed.edges} == {"reciprocal", "line-of-argument"}
+        assert parsed.malformed == []
 
     def test_paper_edge_distinct_from_concept_edge(self):
         # A paper->concept edge elsewhere in the body must NOT be picked up
@@ -104,9 +111,117 @@ class TestParsePaperRelations:
             "## Related papers\n\n"
             "- [SUPPORTS] li2023 — agrees on mechanism, same regime tested. (reciprocal)\n"
         )
-        edges = parse_paper_relations(body)
-        assert len(edges) == 1
-        assert edges[0]["target"] == "li2023"
+        parsed = parse_paper_relations(body)
+        assert len(parsed.edges) == 1
+        assert parsed.edges[0]["target"] == "li2023"
+
+    # -- architect review, PR #178 delta: (kind) optional, [TAG] authoritative --
+
+    def test_kind_suffix_is_optional(self):
+        """A valid edge with NO trailing (kind) mirror must still parse fully
+        — the pre-review regex REQUIRED it, silently losing an otherwise-valid
+        edge that simply omitted it (the most likely malformation)."""
+        body = (
+            "## Related papers\n\n"
+            "- [EXTENDS] li2023 — generalizes the earlier special case to a "
+            "broader class of MDPs.\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert parsed.malformed == []
+        assert len(parsed.edges) == 1
+        e = parsed.edges[0]
+        assert e["target"] == "li2023"
+        assert e["type"] == "line-of-argument"  # derived from [EXTENDS]
+        assert e["kind_mismatch"] is None
+
+    def test_tag_derives_kind_for_every_tag(self):
+        mapping = {
+            "SUPPORTS": "reciprocal",
+            "CONTRADICTS": "refutational",
+            "PARTIAL": "line-of-argument",
+            "EXTENDS": "line-of-argument",
+        }
+        for tag, expected_kind in mapping.items():
+            body = (
+                "## Related papers\n\n"
+                f"- [{tag}] li2023 — some real reasoning about the relation.\n"
+            )
+            parsed = parse_paper_relations(body)
+            assert parsed.malformed == [], (tag, parsed.malformed)
+            assert parsed.edges[0]["type"] == expected_kind, tag
+
+    def test_stated_kind_agreeing_with_tag_no_mismatch(self):
+        body = (
+            "## Related papers\n\n"
+            "- [SUPPORTS] li2023 — agrees on the mechanism. (reciprocal)\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert parsed.edges[0]["kind_mismatch"] is None
+
+    def test_stated_kind_disagreeing_with_tag_surfaces_mismatch_tag_wins(self):
+        """Ledger-wins precedent (mirrors key_equations' critical: flag vs its
+        *(critical)* body mirror): [TAG] is authoritative; a disagreeing
+        (kind) mirror is surfaced, not silently resolved either way."""
+        body = (
+            "## Related papers\n\n"
+            "- [CONTRADICTS] huang2022 — the bound removes the known-baseline "
+            "assumption huang2022 relies on. (reciprocal)\n"  # mismatched on purpose
+        )
+        parsed = parse_paper_relations(body)
+        assert len(parsed.edges) == 1
+        e = parsed.edges[0]
+        # Tag wins: CONTRADICTS derives 'refutational', not the stated 'reciprocal'.
+        assert e["type"] == "refutational"
+        assert e["kind_mismatch"] == {"stated": "reciprocal", "derived": "refutational"}
+
+    # -- architect review, the LOAD-BEARING fix: surface malformed, never drop --
+
+    def test_typo_tag_is_surfaced_as_malformed_not_silently_dropped(self):
+        """The exact defect the architect flagged: a '- [' -shaped line with
+        a typo'd tag must be SURFACED in .malformed, never silently skipped
+        by a finditer-style scan. RED-before-green regression test."""
+        body = (
+            "## Related papers\n\n"
+            "- [SUPRTS] xiong2023-stepwise — the bound removes the known-"
+            "baseline assumption the other paper relies on.\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert parsed.edges == []
+        assert len(parsed.malformed) == 1
+        assert "SUPRTS" in parsed.malformed[0]
+
+    def test_missing_target_is_surfaced_as_malformed(self):
+        body = "## Related papers\n\n- [SUPPORTS] — no citekey given here.\n"
+        parsed = parse_paper_relations(body)
+        assert parsed.edges == []
+        assert len(parsed.malformed) == 1
+
+    def test_valid_and_malformed_edges_coexist_both_surfaced(self):
+        """3 edges where 1 is typo'd: the 2 valid edges parse AND the 1
+        malformed line is surfaced — neither silently absorbs the other."""
+        body = (
+            "## Related papers\n\n"
+            "- [SUPPORTS] li2023 — agrees on the mechanism in a related setting.\n"
+            "- [CONTRADCTS] huang2022 — typo'd tag, should be surfaced.\n"
+            "- [EXTENDS] liu2021 — generalizes to a broader class of MDPs.\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert {e["target"] for e in parsed.edges} == {"li2023", "liu2021"}
+        assert len(parsed.malformed) == 1
+        assert "CONTRADCTS" in parsed.malformed[0]
+
+    def test_plain_prose_bullet_is_not_flagged_malformed(self):
+        """Coordinator clarification: a plain '- ' bullet with NO bracket is
+        legitimate free-form prose in this section — it must NEVER be
+        surfaced as malformed (that would be a false positive)."""
+        body = (
+            "## Related papers\n\n"
+            "- [SUPPORTS] li2023 — agrees on the mechanism.\n"
+            "- Also worth noting: both papers share the same benchmark suite.\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert len(parsed.edges) == 1
+        assert parsed.malformed == []
 
 
 # ===========================================================================
@@ -373,6 +488,84 @@ class TestMove4PaperRelationsSought:
         assert any(
             "paper_relations_sought" in f and "unrecognized" in f for f in result.findings
         )
+
+
+class TestMove4MalformedEdgeSurfacing:
+    """Architect review, PR #178 delta — the LOAD-BEARING fix: a malformed
+    '- [' -shaped line under '## Related papers' must FAIL the presence
+    check, never silently pass. RED-before-green: this class asserts the
+    behavior the pre-fix `finditer`-and-skip implementation did NOT have."""
+
+    def test_typo_tag_line_fails_the_presence_check(self, tmp_path):
+        body = (
+            _RESULT_BODY
+            + "## Related papers\n\n"
+            + "- [SUPRTS] xiong2023-stepwise — the bound removes the "
+            "known-baseline assumption the other paper relies on.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any("malformed" in f.lower() for f in result.findings)
+        assert any("SUPRTS" in f for f in result.findings)
+
+    def test_malformed_line_alongside_valid_edges_still_fails(self, tmp_path):
+        """A note with 2 valid edges + 1 typo'd edge must still FAIL on the
+        malformed line — the valid edges do not mask the defect."""
+        body = (
+            _RESULT_BODY
+            + "## Related papers\n\n"
+            + "- [SUPPORTS] li2023 — agrees on the mechanism in a related setting.\n"
+            + "- [CONTRADCTS] huang2022 — typo'd tag.\n"
+            + "- [EXTENDS] liu2021 — generalizes to a broader class of MDPs.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any("malformed" in f.lower() and "CONTRADCTS" in f for f in result.findings)
+
+    def test_malformed_line_fails_even_when_sought_is_no(self, tmp_path):
+        """A '- [' -shaped line is unambiguously an attempted edge regardless
+        of what 'paper_relations_sought' claims — the malformed check is not
+        conditioned on the yes/no answer."""
+        fields = dict(_COMPLETE_FIELDS)
+        fields["paper_relations_sought"] = "no"
+        body = (
+            _RESULT_BODY
+            + "## Related papers\n\n"
+            + "- [SUPRTS] xiong2023-stepwise — typo'd tag even though sought=no.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any("malformed" in f.lower() for f in result.findings)
+
+    def test_plain_prose_bullet_does_not_fail_the_presence_check(self, tmp_path):
+        """A plain '- ' bullet with no bracket is legitimate prose commentary
+        and must NOT be flagged — this is the false-positive-free boundary
+        the coordinator's '- [' clarification establishes."""
+        body = (
+            _RESULT_BODY
+            + "## Related papers\n\n"
+            + "- [SUPPORTS] li2023 — agrees on the mechanism in a related setting.\n"
+            + "- Also worth noting: both papers share the same benchmark suite.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
+        result = check_relate_presence(note)
+        assert result.ok, result.findings
+
+    def test_kind_optional_edge_passes_without_the_kind_suffix(self, tmp_path):
+        """A valid edge omitting the OPTIONAL (kind) mirror must pass cleanly
+        — the pre-review regex required it and silently lost the edge."""
+        body = (
+            _RESULT_BODY
+            + "## Related papers\n\n"
+            + "- [EXTENDS] li2023 — generalizes the earlier special case to "
+            "a broader class of MDPs.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
+        result = check_relate_presence(note)
+        assert result.ok, result.findings
 
 
 # ===========================================================================

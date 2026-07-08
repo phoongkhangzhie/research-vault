@@ -845,9 +845,33 @@ def _run_relations(args: argparse.Namespace) -> int:
         f"{c['line-of-argument']} line-of-argument"
     )
     for e in report["edges"]:
-        print(f"  [{e['tag']}] {e['source']} → {e['target']} ({e['type']}) — {e['reason']}")
+        mismatch_note = ""
+        if e.get("kind_mismatch"):
+            mismatch_note = (
+                f"  [kind-mismatch: stated {e['kind_mismatch']['stated']!r}, "
+                f"tag says {e['kind_mismatch']['derived']!r} — tag wins]"
+            )
+        print(
+            f"  [{e['tag']}] {e['source']} → {e['target']} ({e['type']}) — "
+            f"{e['reason']}{mismatch_note}"
+        )
     if not report["edges"]:
         print("  No paper→paper edges found yet.")
+
+    # Architect review (the load-bearing fix): malformed edges are ALWAYS
+    # surfaced, never silently absorbed into a clean-looking total.
+    if report["malformed"]:
+        print(f"\nMalformed ({c['malformed']}) — surfaced, never silently dropped:")
+        for m in report["malformed"]:
+            print(f"  [MALFORMED] {m['source']}: {m['line']!r}")
+
+    # Recommended (architect review): dangling edges, mirrors coverage_report's
+    # orphan reporting — a SIGNAL, not a hard error.
+    if report["dangling"]:
+        print(f"\nDangling ({c['dangling']}) — target citekey not in this project's corpus:")
+        for d in report["dangling"]:
+            print(f"  [DANGLING] {d['source']} → {d['target']}")
+
     return 0
 
 
