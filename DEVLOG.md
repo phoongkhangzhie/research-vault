@@ -1,7 +1,8 @@
-## 2026-07-08 (release/0.2.5: Wave 0 — Reading, the relate-<key> protocol)
+## 2026-07-08 (release/0.2.6: Wave 0 — Reading, the relate-<key> protocol)
 
 ### Done
-- Version bump `0.2.4 → 0.2.5` — **feature**: the relate-<key> node's
+- Version bump `0.2.5 → 0.2.6` (reconciled onto main after #177 took
+  0.2.5 first) — **feature**: the relate-<key> node's
   per-paper reading protocol (Wave 0 of the next-gen lit-review loop
   design, PR-1/PR-2/PR-4/PR-5). Fixes the reading DISCIPLINE, never the
   note SCHEMA — no 10th OKF note type, no frontmatter straitjacket.
@@ -124,12 +125,77 @@
   (e.g. a `confidence:` field) for J-2 (or a J-2-equivalent) to read.
 
 ### Open / next
-- Wave A (breadth, NG-1..3), Wave B (presentation + single-pass,
-  RD-1..6 + NG-7/8), and Wave C (autonomy, NG-4..6b) remain to be
-  dispatched per the design doc's PR breakdown (§8).
+- Wave A (breadth, NG-1..3) landed separately as #177 (0.2.5, reconciled
+  in below); Wave B (presentation + single-pass, RD-1..6 + NG-7/8) and
+  Wave C (autonomy, NG-4..6b) remain to be dispatched per the design
+  doc's PR breakdown (§8).
 - PR-3 to be picked up once NG-6a's `rv review refresh` verb exists.
 
 ---
+
+## 2026-07-08 (release/0.2.5: Wave A breadth-then-depth — source adapters, width-sweep, utility floor, derivative-of discounting)
+
+### Done
+- Version bump `0.2.4 → 0.2.5` — **feature**: Wave A (Breadth) of the
+  next-gen lit-review loop design (NG-1/NG-2/NG-3/NG-9), grounded in
+  `2026-07-08-next-gen-lit-review-loop-design.md` §2-4/§7. Additive: existing
+  `_protocol.md` files with a flat `seed_queries:` list still parse
+  (`parse_angle_matrix` returns `{}` for the legacy shape, and callers treat
+  that as "fall back," never crash); `rv research find/cited-by/references`
+  are byte-identical (pure refactor, zero behavior change).
+- **NG-1 — source-adapter abstraction** (`research_vault/sources/`):
+  `SourceAdapter` Protocol + normalized `PaperHit` record. `SemanticScholarAdapter`
+  is a pure refactor of the asta subprocess calls previously inlined in
+  `research.py`'s `cmd_find`/`cmd_cited_by`/`cmd_references` — `PaperHit.raw`
+  carries the original S2 dict so the existing `_corpus_annotation`/
+  `_print_candidates` pipeline is untouched (all existing tests pass unmodified).
+- **NG-2 — additional adapters + cross-source dedup**: `ArxivAdapter` (arXiv
+  Atom API), `OpenAlexAdapter` (OpenAlex Works API — supports both citation-graph
+  directions), `PubMedAdapter` (NCBI E-utilities, opt-in per D4). All stdlib
+  `urllib`/`json` only — no forced third-party dependency. `sources/dedup.py`
+  collapses multi-source hits on normalized identity (DOI > arXiv > OpenAlex >
+  normalized-title), unions `external_ids`, tracks the independent-source set.
+- **NG-3 — multi-angle protocol schema + parallel width-sweep + utility
+  ranker**: `_protocol.md`'s `seed_queries:` becomes an angle matrix
+  (`by-method`/`by-outcome`/`by-paradigm`/`by-population`) + a `sources:`
+  field, both frozen at `approve-protocol` (anti-fishing unchanged — the sweep
+  module has no write path back to the protocol). `sources/sweep.py` runs the
+  `(angle × source)` cross-product concurrently (`ThreadPoolExecutor`) under a
+  `~65`-source fetch budget (D4). `sources/ranker.py` implements the 6-dim
+  utility score (Authority/Novelty/Stance-diversity/Coverage/Redundancy/
+  Freshness, 0-3 each) and `rank_and_select`'s **saturation-paired floor**:
+  any candidate with fewer than 3 independent sources is NEVER capped out by
+  budget — it is always kept and flagged `below_floor` so the depth snowball
+  keeps chasing it (mutation-tested: reverting the guard fails the dedicated
+  regression test). New CLI verb `rv research sweep <protocol-path>`.
+- **NG-9 — `derivative-of` overlap discounting** (`sources/derivative.py`,
+  promoted optional → recommended): >60%-token-overlap near-duplicate
+  restatements are flagged `derivative_of`, never deleted; `count_independent`
+  is the count the saturation stop rule should read. Planted-derivative test
+  proves discount-not-delete (mutation-tested: disabling the Jaccard check
+  fails the test).
+- `review/style.py`'s `review_scope_tips`/`review_search_tips`/
+  `review_snowball_tips` updated to document the angle matrix, the `sources:`
+  field, `rv research sweep`, and derivative-of discounting in the STOP rule.
+
+### Decisions
+- PubMed/web adapters: PubMed shipped real (NCBI E-utilities, opt-in per D4);
+  a WebAdapter (grey-literature pass) is **deferred** — no established
+  fetch mechanism exists in this repo to build it on honestly within this
+  wave, and D4 already marks web as opt-in per-protocol, not default-on.
+  Flagged as a follow-up PR, not silently dropped.
+- Stance-diversity and Coverage dims in the utility ranker are DISTINCT axes
+  by construction (distinct angle-categories vs. distinct independent
+  sources) even though they will often correlate in practice — documented as
+  an approximation, not a fabricated independent signal.
+
+### Open / next
+- Web adapter (grey literature) — follow-up PR when a fetch mechanism is
+  decided.
+- `review-search`/`review-snowball` DAG node topology is unchanged (still
+  `afterok`); this PR wires the CALLABLE surface (`rv research sweep`) the
+  agent node's brief now instructs it to use — NG-4's autonomy/DAG rewiring
+  is a separate wave.
 
 ## 2026-07-08 (release/0.2.4: review-snowball saturation backstop)
 
