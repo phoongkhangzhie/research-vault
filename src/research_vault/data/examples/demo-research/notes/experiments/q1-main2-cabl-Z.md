@@ -5,7 +5,7 @@ title: "Q1 Exp 2 conditional ablation Z — per-pair decomposition (fires if mai
 stance: confirmatory
 plan_role: conditional_ablation
 preregistration: experiments/q1-plan
-supports_main: experiments/q1-main2
+supports_main: q1-main2
 status: stub
 trigger: "q1-main2 results_summary > 0.75"
 trigger_result: ''
@@ -26,7 +26,7 @@ results_summary: ''
 **stance:** confirmatory
 **plan_role:** conditional_ablation
 **preregistration:** experiments/q1-plan
-**supports_main:** experiments/q1-main2
+**supports_main:** q1-main2
 
 ---
 

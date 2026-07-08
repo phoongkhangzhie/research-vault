@@ -5,7 +5,7 @@ title: "Q1 Exp 1 conditional ablation Y — low-resource language generalization
 stance: confirmatory
 plan_role: conditional_ablation
 preregistration: experiments/q1-plan
-supports_main: experiments/q1-main1
+supports_main: q1-main1
 status: stub
 trigger: "q1-main1 results_summary > 0.80"
 trigger_result: ''
@@ -27,7 +27,7 @@ Report in methods: "pre-committed conditional not triggered (main acc ≤ 0.80).
 **stance:** confirmatory
 **plan_role:** conditional_ablation
 **preregistration:** experiments/q1-plan
-**supports_main:** experiments/q1-main1
+**supports_main:** q1-main1
 
 ---
 

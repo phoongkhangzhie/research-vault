@@ -1,0 +1,12 @@
+# CITATION.cff — how to cite this software.
+# See doctrine/code-conventions.md §2.6 (Releasable from day one).
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "research-vault"
+authors:
+  - family-names: "Phoong"
+    given-names: "Khang Zhie"
+version: "0.1.4"
+date-released: "2026-07-07"
+repository-code: "https://github.com/phoongkhangzhie/research-vault"
+license: "MIT"

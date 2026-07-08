@@ -5,7 +5,7 @@ title: "Q1 Exp 1 ablation A — isolates instruction style (not language)"
 stance: confirmatory
 plan_role: supporting_ablation
 preregistration: experiments/q1-plan
-supports_main: experiments/q1-main1
+supports_main: q1-main1
 status: stub
 results_location: results/q1-main1-abl-A/scores.jsonl
 results_hash: ''
@@ -24,7 +24,7 @@ instruction *style* rather than language.
 **stance:** confirmatory
 **plan_role:** supporting_ablation
 **preregistration:** experiments/q1-plan
-**supports_main:** experiments/q1-main1
+**supports_main:** q1-main1
 
 ---
 
