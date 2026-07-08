@@ -1,6 +1,6 @@
 [project]
 name = "research-vault"
-version = "0.2.4"
+version = "0.2.5"
 description = "Research Vault — an adoptable, batteries-included AI research-assistant framework"
 readme = "README.md"
 license = {file = "LICENSE"}

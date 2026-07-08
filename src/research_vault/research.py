@@ -44,6 +44,7 @@ from typing import Any
 
 from .config import Config, load_config
 from .adapters.base import EnvSecretStore
+from .sources.semantic_scholar import SemanticScholarAdapter
 
 
 # ---------------------------------------------------------------------------
@@ -552,16 +553,11 @@ def cmd_find(args: argparse.Namespace) -> int:
     else:
         # Over-fetch: request pool candidates (or just limit when --no-rerank)
         fetch_n = pool if do_rerank else args.limit
-        cmd = [
-            "asta", "papers", "search", args.query,
-            "--format", "json", "--limit", str(fetch_n),
-            "--fields", fields,
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True)
-        if r.returncode != 0:
-            sys.exit(f"asta papers search failed:\n{r.stderr}")
-        raw = json.loads(r.stdout)
-        papers = raw.get("data") or []
+        # NG-1: pure refactor — the S2 search subprocess call now lives in
+        # SemanticScholarAdapter (research_vault.sources); PaperHit.raw carries
+        # the original S2 dict so this pipeline is byte-identical downstream.
+        hits = SemanticScholarAdapter().search(args.query, limit=fetch_n, fields=fields)
+        papers = [h.raw for h in hits]
 
     if do_rerank and papers:
         # Build body for each paper: title + abstract (tolerate missing abstract)
@@ -605,17 +601,10 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
     # F12: normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
     paper_id = _normalize_paper_id_for_asta(args.paper_id)
 
-    fields = "title,year,authors,externalIds,citationCount"
-    cmd = [
-        "asta", "papers", "citations", paper_id,
-        "--format", "json", "--limit", str(args.limit),
-        "--fields", fields,
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        sys.exit(f"asta papers citations failed:\n{r.stderr}")
-    raw = json.loads(r.stdout)
-    papers = [item.get("citingPaper", item) for item in (raw.get("data") or [])]
+    # NG-1: pure refactor — the S2 citations subprocess call now lives in
+    # SemanticScholarAdapter; PaperHit.raw carries the original S2 dict.
+    hits = SemanticScholarAdapter().cited_by(paper_id, limit=args.limit)
+    papers = [h.raw for h in hits]
 
     # F12: zero-result hint when the id was normalized (bare input may still be wrong)
     if not papers and paper_id != args.paper_id:
@@ -659,20 +648,10 @@ def cmd_references(args: argparse.Namespace) -> int:
     # F12: normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
     paper_id = _normalize_paper_id_for_asta(args.paper_id)
 
-    fields = (
-        "references.title,references.year,references.authors,"
-        "references.externalIds,references.citationCount"
-    )
-    cmd = [
-        "asta", "papers", "get", paper_id,
-        "--fields", fields,
-        "--format", "json",
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        sys.exit(f"asta papers get failed:\n{r.stderr}")
-    raw = json.loads(r.stdout)
-    papers = raw.get("references") or []
+    # NG-1: pure refactor — the S2 references subprocess call now lives in
+    # SemanticScholarAdapter; PaperHit.raw carries the original S2 dict.
+    hits = SemanticScholarAdapter().references(paper_id)
+    papers = [h.raw for h in hits]
 
     # F12: zero-result hint when the id was normalized (bare input may still be wrong)
     if not papers and paper_id != args.paper_id:
@@ -830,6 +809,69 @@ def cmd_add(args: argparse.Namespace) -> int:
     r = subprocess.run(cite_cmd)
     if r.returncode != 0:
         sys.exit(f"rv cite add failed (exit {r.returncode})")
+    return 0
+
+
+def cmd_sweep(args: argparse.Namespace) -> int:
+    """sweep: NG-3 parallel width-sweep over the FROZEN _protocol.md angle
+    matrix + sources.
+
+    Reads (never widens) the angle matrix + sources frozen at
+    `approve-protocol` (anti-fishing, §4.2) — this command has no write path
+    back to `_protocol.md`. Runs the cross-product (angle x source) fetch
+    concurrently under the fetch budget, then composes: cross-source dedup
+    (NG-2) -> derivative-of overlap discounting (NG-9) -> the 6-dim utility
+    rank + saturation-paired floor (NG-3). Annotates the kept set vs the
+    project's filed literature notes, same [NEW]/[IN-CORPUS:*] contract as
+    `rv research find`.
+    """
+    from .sources.annotate import annotate_deduped
+    from .sources.sweep import run_sweep_from_protocol
+
+    protocol_path = Path(args.protocol)
+    if not protocol_path.exists():
+        print(f"rv research sweep: protocol not found: {protocol_path}", file=sys.stderr)
+        return 1
+
+    try:
+        cfg = load_config()
+    except Exception:
+        cfg = None
+    project = getattr(args, "project", None)
+    if cfg and not project:
+        project = _default_project(cfg)
+
+    try:
+        result = run_sweep_from_protocol(
+            protocol_path,
+            budget=getattr(args, "budget", None) or 65,
+            per_cell_limit=getattr(args, "per_cell_limit", 20),
+        )
+    except ValueError as e:
+        print(f"rv research sweep: {e}", file=sys.stderr)
+        return 1
+
+    lit_dir = cfg.project_notes_dir(project) / "literature" if (cfg and project) else None
+    notes_index = _load_notes_index(lit_dir)
+    notes_title_index = _load_notes_title_index(lit_dir)
+
+    print(
+        f"\nWidth-sweep: {result.total_hits_fetched} raw hit(s) fetched, "
+        f"{len(result.kept)} kept after dedup+rank "
+        f"({result.independent_count} independent, non-derivative)\n"
+    )
+    for d in result.kept:
+        annotation = annotate_deduped(d, notes_index=notes_index, notes_title_index=notes_title_index)
+        floor_flag = " [BELOW-FLOOR: needs more sources]" if d.hit.below_floor else ""
+        deriv_flag = f" [DERIVATIVE-OF:{d.hit.derivative_of}]" if d.hit.derivative_of else ""
+        srcs = ",".join(sorted(d.sources))
+        print(f"  {annotation}  {d.hit.title[:70]}  (sources: {srcs}){floor_flag}{deriv_flag}")
+
+    if result.errors:
+        print(f"\n{len(result.errors)} adapter cell(s) degraded (non-fatal):", file=sys.stderr)
+        for err in result.errors:
+            print(f"  - {err}", file=sys.stderr)
+
     return 0
 
 
@@ -992,6 +1034,35 @@ def build_parser(
         ),
     )
 
+    # sweep — NG-3 parallel width-sweep over the frozen protocol angle matrix
+    sweep_p = sub.add_parser(
+        "sweep",
+        help=(
+            "Parallel (angle x source) width-sweep over a FROZEN _protocol.md "
+            "(breadth-then-depth, NG-1..3/NG-9). Reads-only — never widens the "
+            "frozen angle matrix or sources (anti-fishing)."
+        ),
+        description=(
+            "Reads the frozen seed_queries angle matrix + sources from "
+            "_protocol.md, fetches the cross-product concurrently under the "
+            "fetch budget, cross-source dedups, discounts derivative-of "
+            "near-duplicates, and ranks+selects via the 6-dim utility floor "
+            "(never capping a below-floor boundary item). "
+            "Anti-pattern: do NOT hand-edit seed_queries/sources after this "
+            "runs — that is a scope deviation, not a sweep re-run."
+        ),
+    )
+    sweep_p.add_argument("protocol", help="Path to the review's frozen _protocol.md")
+    sweep_p.add_argument("--project", default=None, help="Project slug for corpus annotation.")
+    sweep_p.add_argument(
+        "--budget", type=int, default=None,
+        help="Fetch budget across the whole sweep (default 65, D4's validated range).",
+    )
+    sweep_p.add_argument(
+        "--per-cell-limit", dest="per_cell_limit", type=int, default=20,
+        help="Result limit per (angle, source) cell (default 20).",
+    )
+
     return p
 
 
@@ -1009,6 +1080,8 @@ def run(args: argparse.Namespace) -> int:
             return cmd_add(args)
         elif cmd == "corroborate":
             return cmd_corroborate(args)
+        elif cmd == "sweep":
+            return cmd_sweep(args)
         else:
             print(f"rv research: unknown subcommand {cmd!r}", file=sys.stderr)
             return 1
