@@ -14,12 +14,76 @@ Fingerprint constant (tests only): ``TEST_APPROVER_FINGERPRINT``
 To test fail-closed behaviour, unset ``RV_APPROVER_TOKEN`` inside your test:
     monkeypatch.delenv("RV_APPROVER_TOKEN", raising=False)
 and assert the cmd returns 1 with the doctrine slug in stderr.
+
+SR-TEST-ISOLATION: the operator's real config-discovery chain (see
+``research_vault.config`` module docstring) walks up from CWD and falls back
+to ``$XDG_CONFIG_HOME/research_vault/config.toml`` / ``~/.config/research_vault/
+config.toml``. Without isolation, a test that exercises this path for real
+(e.g. one that doesn't set ``RESEARCH_VAULT_CONFIG``) can read — or worse,
+WRITE — the operator's live registry. This bit for real: an unisolated
+``test_cmd_add_no_config_raises`` run silently appended a bogus
+``[projects.x]`` entry into the operator's real
+``~/.vault-state/rv/research_vault.toml``.
+
+The autouse, session-scoped ``_isolate_home`` fixture below points ``HOME``
+and ``XDG_CONFIG_HOME`` at a fresh session tmp dir and unsets
+``RESEARCH_VAULT_CONFIG`` before any test runs, so:
+  - CWD walk-up never escapes into a real ancestor directory's
+    ``research_vault.toml`` (pytest's rootdir/cwd during the run is the repo
+    checkout, which has no ``research_vault.toml`` at any level — this
+    fixture's HOME/XDG isolation covers the *fallback* level; individual
+    tests are still responsible for not chdir-ing into a real ancestor tree).
+  - XDG fallback resolves under the sandboxed HOME, never the operator's own.
+  - No stray ``RESEARCH_VAULT_CONFIG`` from the outer shell leaks into a test
+    that forgets to set its own.
 """
 
 import os
 import sys
 import pytest
 from pathlib import Path
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_home(tmp_path_factory):
+    """SR-TEST-ISOLATION: sandbox HOME/XDG_CONFIG_HOME for the whole session.
+
+    Prevents any test — including ones that don't explicitly set
+    ``RESEARCH_VAULT_CONFIG`` — from resolving, reading, or writing the
+    operator's real ``~/.config/research_vault/config.toml`` or
+    ``~/.vault-state/rv/research_vault.toml`` via the XDG fallback level of
+    config discovery (see ``research_vault.config`` module docstring).
+
+    Session-scoped + applied once, before any test module import runs, so it
+    is in effect even for tests that construct a Config or call cmd_add
+    before ever touching ``RESEARCH_VAULT_CONFIG`` themselves.
+    """
+    sandbox_home = tmp_path_factory.mktemp("sandbox_home")
+    sandbox_xdg = sandbox_home / ".config"
+    sandbox_xdg.mkdir(parents=True, exist_ok=True)
+
+    old_home = os.environ.get("HOME")
+    old_xdg = os.environ.get("XDG_CONFIG_HOME")
+    old_rv_config = os.environ.get("RESEARCH_VAULT_CONFIG")
+
+    os.environ["HOME"] = str(sandbox_home)
+    os.environ["XDG_CONFIG_HOME"] = str(sandbox_xdg)
+    os.environ.pop("RESEARCH_VAULT_CONFIG", None)
+
+    yield
+
+    if old_home is None:
+        os.environ.pop("HOME", None)
+    else:
+        os.environ["HOME"] = old_home
+    if old_xdg is None:
+        os.environ.pop("XDG_CONFIG_HOME", None)
+    else:
+        os.environ["XDG_CONFIG_HOME"] = old_xdg
+    if old_rv_config is None:
+        os.environ.pop("RESEARCH_VAULT_CONFIG", None)
+    else:
+        os.environ["RESEARCH_VAULT_CONFIG"] = old_rv_config
 
 # ---------------------------------------------------------------------------
 # SR-APPROVE-GATE: test-token constants

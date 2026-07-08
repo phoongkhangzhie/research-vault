@@ -1,3 +1,50 @@
+## 2026-07-07 (test isolation: sandbox HOME/XDG for the test suite)
+
+### Done
+- **Test isolation for config auto-discovery** — PR #171's XDG config
+  fallback (`$XDG_CONFIG_HOME/research_vault/config.toml` → `~/.config/
+  research_vault/config.toml`) had no test-side isolation. An unisolated
+  test run of `test_cmd_add_no_config_raises` wrote a bogus
+  `[projects.x]` entry straight into the operator's real
+  `~/.vault-state/rv/research_vault.toml` registry (via the symlinked
+  `~/.config/research_vault/config.toml`), and the test itself FAILED on
+  any machine with a real config present, because it assumed "no config
+  exists" without isolating the environment.
+- Added an autouse, session-scoped `_isolate_home` fixture in
+  `tests/conftest.py` that points `HOME`/`XDG_CONFIG_HOME` at a fresh
+  `tmp_path_factory` sandbox and unsets `RESEARCH_VAULT_CONFIG` before any
+  test runs — so the full config-discovery chain (`--config` → env →
+  CWD walk-up → XDG) can never resolve into the operator's real registry
+  from any test, whether or not the test explicitly sets its own config.
+- No change needed to `test_cmd_add_no_config_raises` itself — it was
+  failing solely due to the missing isolation, not a real regression;
+  under the new fixture it passes cleanly (asserts the genuine
+  "no config found → FileNotFoundError" path in a truly empty sandbox).
+- **Verified the isolation holds**: ran the full suite twice
+  (2805 passed, 3 skipped, exit 0 both times) and confirmed via
+  mtime + sha256 snapshot before/after that neither
+  `~/.config/research_vault/config.toml` nor
+  `~/.vault-state/rv/research_vault.toml` changed across either run.
+
+### Decisions
+- No version bump — test-infra only, no package-behavior change; rides
+  the next release. `0.2.2` is a separate in-review PR; this PR does not
+  touch `pyproject.toml`.
+- Session-scoped (not function-scoped) fixture: the sandbox HOME is set
+  once, before any test module runs, so even a test that constructs a
+  `Config` or calls `cmd_add` before ever touching
+  `RESEARCH_VAULT_CONFIG` itself is still covered.
+
+### Open / next
+- **Known pollution incident, not yet cleaned up as of this entry**: while
+  reproducing the bug (running the suite once, pre-fix, to confirm RED),
+  the same bogus `[projects.x]` entry was written into the operator's
+  real `~/.vault-state/rv/research_vault.toml` a second time. An attempted
+  automated restore (via `sed`/`Edit`) was correctly blocked by the
+  permission classifier as an irreversible edit to a file outside project
+  scope — surfaced to the operator to restore by hand or explicitly
+  authorize, rather than silently working around the block.
+
 ## 2026-07-07 (release/0.2.1: config auto-discovery)
 
 ### Done
