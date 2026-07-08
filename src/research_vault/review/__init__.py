@@ -366,6 +366,81 @@ def coverage_report(
 
 
 # ---------------------------------------------------------------------------
+# Wave 0 (Reading) PR-2 — paper→paper typed-edge aggregation (the "consume" seam)
+# ---------------------------------------------------------------------------
+
+def relations_report(
+    project: str,
+    scope: str,
+    *,
+    config: Config | None = None,
+) -> dict[str, Any]:
+    """Deterministic, corpus-wide paper→paper typed-edge listing (PR-2).
+
+    This is the mechanical "consume" seam the design doc calls for: instead of
+    `review-synthesize` (and `review-coverage-critic`) RE-DERIVING the
+    comparative spine from prose each run, they traverse the edges the
+    relate-<key> fan-out already emitted (`## Related papers` body sections,
+    parsed by ``relate_check.parse_paper_relations``). Mirrors
+    ``coverage_report``'s pattern exactly — same anti-pattern this closes
+    ("do NOT hand-stem-match... run the deterministic command").
+
+    Reuse-over-create (charter §6): zero new edge mechanism — this is a
+    corpus-wide fold of the SAME parser the presence check uses per-note.
+
+    Returns:
+        dict with keys:
+          edges:   list[dict] — {source, target, tag, type, reason} per edge,
+                   source = the citing literature note's citekey.
+          by_pair: dict[(source, target)] → the edge dict (for traversal
+                   lookups by the synthesize/critic agent nodes).
+          counts:  summary counts by relation type.
+
+    surface, never green-and-empty: an empty corpus returns empty lists, not None.
+
+    sr: NG-lit-review-wave0 (PR-2)
+    """
+    from .relate_check import parse_paper_relations
+
+    cfg = config or load_config()
+    project_notes_dir = cfg.project_notes_dir(project)
+    literature_dir = project_notes_dir / "literature"
+
+    edges: list[dict[str, Any]] = []
+    if literature_dir.exists():
+        for note_path in sorted(literature_dir.glob("*.md")):
+            try:
+                text = note_path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            fields, body = _parse_frontmatter(text)
+            source_citekey = (fields.get("citekey") or "").strip() or note_path.stem
+            for edge in parse_paper_relations(body):
+                edges.append({
+                    "source": source_citekey,
+                    "target": edge["target"],
+                    "tag": edge["tag"],
+                    "type": edge["type"],
+                    "reason": edge["reason"],
+                })
+
+    by_pair: dict[tuple[str, str], dict[str, Any]] = {
+        (e["source"], e["target"]): e for e in edges
+    }
+
+    counts: dict[str, int] = {"reciprocal": 0, "refutational": 0, "line-of-argument": 0}
+    for e in edges:
+        if e["type"] in counts:
+            counts[e["type"]] += 1
+
+    return {
+        "edges": edges,
+        "by_pair": by_pair,
+        "counts": {**counts, "total": len(edges)},
+    }
+
+
+# ---------------------------------------------------------------------------
 # Phase-1 DAG manifest builder
 # ---------------------------------------------------------------------------
 

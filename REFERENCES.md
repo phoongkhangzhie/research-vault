@@ -127,3 +127,37 @@ five *narrative* surveys (none of which states an explicit search/inclusion prot
   short, verbatim search/inclusion protocol statement (screened-count → retained-count funnel,
   databases + date window, criteria + snowballing named) that the five narrative exemplar surveys
   do not provide. Exemplar of the *scope / PRISMA-style method* move.
+
+---
+
+## Paper-reading protocol — the relate-<key> node's 5-move discipline (Wave 0, PR-1..5)
+
+Informs: `review/style.py` `per_paper_relate_tips` (the relate-<key> node's reading protocol) +
+`review/relate_check.py` (the rejects-only presence check). Research pass: Ada, 2026-07-08
+(`~/vault/docs/superpowers/specs/2026-07-08-okf-sufficiency-and-paper-reading.md`). These are
+methodology anchors that inform the design (like the review loop's existing PRISMA-P/Wohlin
+anchors above), NOT corpus citekeys.
+
+- Higgins, J. P. T., Thomas, J., Chandler, J., Cumpston, M., Li, T., Page, M. J. & Welch, V. A.
+  (eds.). *Cochrane Handbook for Systematic Reviews of Interventions*, ch. 5 "Collecting data."
+  https://www.cochrane.org/authors/handbooks-and-manuals/handbook/current/chapter-05 — systematic-review
+  data extraction driven by a pre-specified item list (population/method/comparison/outcome +
+  effect size + limitations) so every study is mined the SAME way. Grounds Move 1/2/3 of the
+  5-move reading protocol (`contribution_kind`, the exact-arrow `claim`, `result_reported` +
+  magnitude/conditions/limitations) — the fix for inconsistent per-paper extraction.
+  Companion practical guide: Covidence, *A Practical Guide — Data Extraction for Intervention
+  Systematic Reviews* (2024).
+  https://www.covidence.org/wp-content/uploads/2024/01/A_practical_guide-Data-Extraction_for_Intervention_Systematic_Reviews_2024.pdf
+- Noblit, G. W. & Hare, R. D. — meta-ethnography's "reading the studies" / "determining how the
+  studies are related" phases, and its three-way inter-study relation typing (reciprocal /
+  refutational / line-of-argument). BMC Health Services Research guide:
+  https://link.springer.com/article/10.1186/s12913-020-06049-w ; JGME "A Beginner's Guide to
+  Meta-Ethnography": https://meridian.allenpress.com/jgme/article/15/1/46/490835/A-Beginner-s-Guide-to-Meta-Ethnography
+  — grounds Move 4 (PR-2): the first-class paper→paper typed edge
+  (`paper_relations_sought` + the `## Related papers` body section), mapped onto
+  `[SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS]`.
+- Webster, J. & Watson, R. T. (2002). *Analyzing the Past to Prepare for the Future: Writing a
+  Literature Review.* MIS Quarterly, 26(2), xiii–xxiii.
+  https://web.njit.edu/~egan/Writing_A_Literature_Review.pdf — the concept matrix (papers ×
+  concepts × stance), concept-centric review over author-centric collection. Grounds the
+  `role`/`position` split (PR-4) and Move 5's live, stance-bearing concept edges.

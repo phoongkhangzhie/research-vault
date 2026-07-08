@@ -393,6 +393,31 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help="Review scope identifier (same as used in rv review new).",
     )
 
+    # ── relations (Wave 0 / PR-2) ────────────────────────────────────────────
+    relations_p = sub.add_parser(
+        "relations",
+        help=(
+            "Deterministic corpus-wide paper->paper typed-edge listing (PR-2). "
+            "Reads the '## Related papers' body sections the relate-<key> fan-out "
+            "emits (reciprocal/refutational/line-of-argument, mapped onto "
+            "[SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS])."
+        ),
+        description=(
+            "When to use: run `rv review <project> relations <scope>` from "
+            "review-synthesize (and review-coverage-critic) to TRAVERSE the "
+            "carried comparative spine instead of re-deriving it from prose. "
+            "Anti-pattern: do NOT hand-re-read every literature/ note to "
+            "reconstruct which papers refute/extend which — the relate-<key> "
+            "fan-out already discovered and typed these relations; this "
+            "command surfaces them deterministically."
+        ),
+    )
+    relations_p.add_argument(
+        "scope",
+        metavar="<scope>",
+        help="Review scope identifier (same as used in rv review new).",
+    )
+
     return p
 
 
@@ -425,12 +450,15 @@ def run(args: argparse.Namespace) -> int:
         return _run_gap_promote(args)
     elif subcommand == "coverage":
         return _run_coverage(args)
+    elif subcommand == "relations":
+        return _run_relations(args)
     else:
         print(
             "rv review: missing subcommand. "
             "Use `rv review <project> new <scope> --question '...'`, "
             "`rv review <project> expand <scope>`, "
             "`rv review <project> coverage <scope>`, "
+            "`rv review <project> relations <scope>`, "
             "`rv review <project> list`, `rv review <project> tips`, "
             "`rv review <project> gap-scan`, `rv review <project> gap-scope [--target …]`, "
             "`rv review <project> gap-route [--target …]` (alias for gap-scope), "
@@ -789,6 +817,37 @@ def _run_coverage(args: argparse.Namespace) -> int:
     if report["materialized"] and not report["unmaterialized"] and not report["orphan"]:
         print("  All corpus citekeys materialized and referenced in MOCs.")
 
+    return 0
+
+
+def _run_relations(args: argparse.Namespace) -> int:
+    """Report the corpus-wide paper->paper typed-edge listing (PR-2)."""
+    from research_vault.config import load_config
+    from research_vault.review import relations_report
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv review relations: config error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        report = relations_report(args.project, args.scope, config=cfg)
+    except Exception as e:
+        print(f"rv review relations: error: {e}", file=sys.stderr)
+        return 1
+
+    c = report["counts"]
+    print(
+        f"rv review relations ({args.project}/{args.scope}): "
+        f"{c['total']} paper→paper edge(s) — "
+        f"{c['reciprocal']} reciprocal, {c['refutational']} refutational, "
+        f"{c['line-of-argument']} line-of-argument"
+    )
+    for e in report["edges"]:
+        print(f"  [{e['tag']}] {e['source']} → {e['target']} ({e['type']}) — {e['reason']}")
+    if not report["edges"]:
+        print("  No paper→paper edges found yet.")
     return 0
 
 
