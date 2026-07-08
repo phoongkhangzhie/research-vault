@@ -8,8 +8,44 @@ on:
       - "v*.*.*"
 
 jobs:
+  release-gate:
+    # PR-CC-7: the release-blocking subset (CHECK-8b/c — CITATION.cff/LICENSE)
+    # gates the actual release path. `rv code check` degrades CHECK-8b/c to
+    # WARN in local/CI-push mode (scripts/ci_dogfood_checks.sh) but HARD here
+    # (--release), on rv's own repo — a real tag push must not publish a
+    # release missing/invalid CITATION.cff or LICENSE.
+    # See docs/superpowers/specs/2026-07-07-code-conventions-design.md §8.
+    name: Release-blocking code-conventions gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install package
+        run: uv sync
+
+      - name: rv code check --release (CHECK-8b/c HARD — CITATION.cff + LICENSE)
+        run: |
+          CONFIG_FILE="$(mktemp)"
+          cat > "$CONFIG_FILE" <<EOF
+          instance_root = "$(pwd)"
+
+          [projects.research-vault]
+          source_dir = "$(pwd)"
+          EOF
+          RESEARCH_VAULT_CONFIG="$CONFIG_FILE" uv run rv code check research-vault --release
+
   build:
     name: Build distribution
+    needs: release-gate
     runs-on: ubuntu-latest
 
     steps:

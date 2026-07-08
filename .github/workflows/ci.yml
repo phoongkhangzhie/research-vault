@@ -74,7 +74,7 @@ jobs:
           # (PR-1/PR-2) — rv dogfoods its own scaffold on itself; must be clean.
           # REFERENCES.md and SETUP.md scanned when present (future artifacts).
           # LICENSE + pyproject.toml added (SR-SETUP: ship to PyPI — must be clean).
-          for f in README.md architecture.md QUICKSTART.md REFERENCES.md SETUP.md LICENSE pyproject.toml RELEASING.md; do
+          for f in README.md architecture.md QUICKSTART.md REFERENCES.md SETUP.md LICENSE CITATION.cff pyproject.toml RELEASING.md; do
             if [ -f "$f" ]; then
               echo "--- scanning $f ---"
               bash scripts/leakage_scan.sh "$f"
@@ -149,3 +149,65 @@ jobs:
 
       - name: Run rv lint (full repo)
         run: uv run rv lint
+
+  # ── Code-conventions dogfood (PR-CC-7) ──────────────────────────────────────
+  # Wires the note-plane gate (`rv note check`) and the repo-plane gate
+  # (`rv code check`) into CI so the code-conventions capability (CC-1..CC-6)
+  # actually fires on every push/PR — not just when a human remembers to run it
+  # locally. Two real fixtures (rv has no OKF notes of its own to check):
+  #   - note-plane: the packaged demo-research example (real OKF content —
+  #     non-vacuous; this dogfood run surfaced + fixed a real supports_main
+  #     content bug, see DEVLOG).
+  #   - repo-plane: rv's own repo tree (real dogfood — CHECK-8b/c fire
+  #     against rv's actual CITATION.cff/LICENSE).
+  # Also runs the release-blocking subset (--release: CHECK-8b/c HARD) here
+  # so drift is caught on every push, ahead of an actual release tag.
+  # verify-CI-not-relay: this step must be read via the Actions API to confirm
+  # it actually ran + passed — never taken on a relayed "green" claim.
+  code-conventions-dogfood:
+    name: Code-conventions dogfood (rv note check + rv code check)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install package
+        run: uv sync
+
+      - name: rv note check + rv code check (repo-wide dogfood)
+        run: bash scripts/ci_dogfood_checks.sh
+
+  # ── Release-gate canary (PR-CC-7) ────────────────────────────────────────────
+  # A rejects-only proof (charter §9/§10) that `rv code check --release` really
+  # flips: RED on a missing/invalid CITATION.cff, GREEN when present+valid.
+  # Runs against an ephemeral fixture (not rv's own repo) so this job's result
+  # never depends on rv's own release-readiness — it only certifies the GATE
+  # MECHANISM itself. See scripts/release_gate_canary.sh.
+  release-gate-canary:
+    name: Release-gate canary (CHECK-8b/c flip proof)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install package
+        run: uv sync
+
+      - name: Prove the release gate flips (red on missing CITATION.cff, green otherwise)
+        run: bash scripts/release_gate_canary.sh

@@ -5,7 +5,7 @@ title: "Q1 Exp 2 ablation B — isolates chain structure (removes reasoning scaf
 stance: confirmatory
 plan_role: supporting_ablation
 preregistration: experiments/q1-plan
-supports_main: experiments/q1-main2
+supports_main: q1-main2
 status: stub
 results_location: results/q1-main2-abl-B/scores.jsonl
 results_hash: ''
@@ -24,7 +24,7 @@ rather than chain structure.
 **stance:** confirmatory
 **plan_role:** supporting_ablation
 **preregistration:** experiments/q1-plan
-**supports_main:** experiments/q1-main2
+**supports_main:** q1-main2
 
 ---
 

@@ -1,3 +1,67 @@
+## 2026-07-07 (feat/cc7-ci-release-gate: PR-CC-7 CI release-gate wiring — completes the code-conventions bundle)
+
+### Done
+- **PR-CC-7** — the last PR in the code-conventions bundle. Wires the
+  note-plane gate (`rv note check`) and repo-plane gate (`rv code check`,
+  PR-CC-5) into CI so they actually **fire** on every push/PR, not just
+  locally. New CI job `code-conventions-dogfood` in `.github/workflows/ci.yml`
+  runs `scripts/ci_dogfood_checks.sh`:
+  - `rv note check` over the packaged **demo-research** example (real OKF
+    content — rv has no OKF notes of its own; this is the meaningful
+    non-vacuous fixture, per the D-CC-4 CI row).
+  - `rv code check` over **rv's own repo** (real dogfood: CHECK-8b/c fire
+    against rv's actual `CITATION.cff`/`LICENSE`; CHECK-3b/5/6a/7/8a are
+    honest no-ops since rv's own repo has no `code/`/`data/`/`results/` tree).
+  - `rv code check --release` over rv's own repo, so the release-blocking
+    subset is exercised on every push too (ahead of an actual release tag).
+- **Real bug the dogfood surfaced (charter §9/§10 — the screen has teeth):**
+  running `rv note check` against the *real* demo-research example (not a
+  hand-built test fixture) found `supports_main: experiments/q1-main1`-style
+  values in four child notes (`q1-main1-abl-A/cabl-Y`, `q1-main2-abl-B/cabl-Z`)
+  — inconsistent with `check_plan_child_links`'s resolution (`notes_root /
+  f"{supports_main}.md"`, called with the experiments dir itself) and with the
+  sibling `covers:` field's bare-id convention. Fixed the four notes to use
+  bare ids (`supports_main: q1-main1` / `q1-main2`) — the content was wrong,
+  not the check. This is exactly the drift class PR-CC-7 exists to catch:
+  a note-plane check that had never been run against real content before.
+- **Release path (`publish.yml`)**: new `release-gate` job, `needs:` by
+  `build`, runs `rv code check research-vault --release` — CHECK-8b/c
+  (`CITATION.cff`/`LICENSE`) are HARD here, blocking an actual tag-push
+  release if either is missing/invalid. CHECK-6b (manuscript results-macros)
+  is **not** wired here — manuscript-loop-owned, per the design (§3, §8).
+- **Filled the real gap it surfaced**: rv's own repo was missing
+  `CITATION.cff` — added one (real author/version/repo-code, not a stub) so
+  the new release-gate job is green today, not perpetually red on rv's own
+  release. `LICENSE` already existed (MIT).
+- **Release-gate-flips proof**: `scripts/release_gate_canary.sh`, wired as a
+  new CI job `release-gate-canary` — a rejects-only proof (charter §9/§10)
+  that `rv code check --release` flips in **both** directions, against an
+  ephemeral fixture (not rv's own repo, so this job's result never depends on
+  rv's own release-readiness — it only certifies the *gate mechanism*):
+  1. valid `CITATION.cff` + real SPDX `LICENSE` → GREEN (exit 0).
+  2. `CITATION.cff` removed → RED (exit 1).
+  3. `CITATION.cff` present but missing required keys → RED (exit 1).
+  Each direction self-verifies (the script itself exits nonzero if the wrong
+  direction is observed) — this is the "described CI-run" proof PR-CC-7's
+  acceptance criterion asks for, confirmed live via a real Actions run (see
+  PR description for the run link) — never taken on a relayed "green" claim.
+- Added `CITATION.cff` to the leakage-scan root-file list in `ci.yml`.
+
+### Decisions
+- The note-plane dogfood target is the packaged **demo-research example**,
+  not rv's own repo — rv is the tool, not a research project; running `rv
+  note check` against rv's own (nonexistent) OKF notes would be vacuous.
+  The repo-plane dogfood target IS rv's own repo — CHECK-8b/c (releasability)
+  apply meaningfully to any repo, including rv's.
+- Did not touch CHECK-6b (manuscript results-macros → hashed-score
+  resolution) — explicitly deferred to the manuscript-loop PR per the design
+  (§3, §8); wiring it here would misattribute ownership.
+
+### Open / next
+- This completes the 0.2.0 code-conventions bundle (CC-1, CC-2, CC-4, CC-5,
+  CC-6, CC-7). Next: backfill the convention to the downstream research project
+  that consumes rv's conventions.
+
 ## 2026-07-07 (feat/pr-m9-capstone: PR-M9 — CAPSTONE: discoverability + documentation)
 
 ### Done
