@@ -120,6 +120,70 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
+# Saturation backstop (SR-LR-1-BACKSTOP) — coverage-gate surfacing
+# ---------------------------------------------------------------------------
+
+def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
+    """Read the snowball loop's ``stop_reason:`` off ``_saturation.md``.
+
+    The saturation loop is agent-executed (an INTERNAL loop inside the
+    ``review-snowball`` node — no per-round DAG nodes, §5L.2). It stamps flat
+    frontmatter at the top of ``_saturation.md`` recording which stop rule
+    fired:
+      - ``stop_reason: saturated``          — PRIMARY rule: 2-consecutive-zero
+        rounds (genuine saturation plateau).
+      - ``stop_reason: backstop:<N>-waves`` — BACKSTOP rule (SR-LR-1-BACKSTOP):
+        the wave cap (``saturation_backstop_waves``, default 3) fired WITHOUT
+        the primary rule converging first. The corpus is bounded, NOT
+        saturated.
+
+    Uses ``note._parse_frontmatter`` (the canonical parser) — no re-rolled
+    YAML/regex logic (charter §6: reuse over create), mirroring
+    ``check_protocol_gate``'s use of the same parser on ``_protocol.md``.
+
+    Args:
+        saturation_path: path to the review's ``_saturation.md`` artifact.
+
+    Returns:
+        dict with keys:
+          exists:      bool       — whether _saturation.md was found.
+          stop_reason: str        — the raw stamped value ("" if absent/missing).
+          is_backstop: bool       — True iff stop_reason starts with "backstop:".
+          wave_count:  int | None — parsed N from "backstop:N-waves", else None.
+
+    charter §2 (surface, never silently drop): a MISSING or unparseable
+    ``stop_reason`` is never defaulted to "saturated" — it is surfaced as an
+    empty string so the caller (the ``coverage-gate`` human-go wiring) can
+    flag the ambiguity rather than silently assuming genuine saturation.
+
+    sr: SR-LR-1-BACKSTOP
+    """
+    if not saturation_path.exists():
+        return {"exists": False, "stop_reason": "", "is_backstop": False, "wave_count": None}
+
+    text = saturation_path.read_text(encoding="utf-8")
+    fields, _ = _parse_frontmatter(text)
+    stop_reason = fields.get("stop_reason", "")
+    if isinstance(stop_reason, list):
+        stop_reason = " ".join(str(item) for item in stop_reason)
+    stop_reason = str(stop_reason).strip()
+
+    is_backstop = stop_reason.lower().startswith("backstop:")
+    wave_count: int | None = None
+    if is_backstop:
+        m = re.match(r"^backstop:(\d+)-waves?$", stop_reason, re.IGNORECASE)
+        if m:
+            wave_count = int(m.group(1))
+
+    return {
+        "exists": True,
+        "stop_reason": stop_reason,
+        "is_backstop": is_backstop,
+        "wave_count": wave_count,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Coverage report (F16+F17) — deterministic, keyed by citekey
 # ---------------------------------------------------------------------------
 

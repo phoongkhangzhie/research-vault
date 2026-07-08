@@ -1095,6 +1095,55 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
+    # Saturation backstop surfacing (SR-LR-1-BACKSTOP): the review loop's
+    # ``coverage-gate`` node (§5L.4 phase boundary) reads ``stop_reason:`` off
+    # the ``review-snowball`` node's ``_saturation.md`` and, when the corpus
+    # terminated via the wave-count backstop (bounded, NOT the primary
+    # 2-consecutive-zero saturation rule), LOUDLY flags it to the approving
+    # human — a backstop-terminated corpus must never look identical to a
+    # genuinely-saturated one at this gate. Non-blocking (mirrors the
+    # approve-manuscript SIGNAL pattern above): the backstop is a deliberate,
+    # additive escape hatch, not a failure — approval still proceeds, but the
+    # human authorizes it informed. --reject bypasses entirely (an abandoned
+    # gate has nothing to surface).
+    if node_id == "coverage-gate" and not reject:
+        snowball_node = nodes_lookup.get("review-snowball")
+        saturation_ref = None
+        if snowball_node is not None:
+            produces = snowball_node.get("produces")
+            if isinstance(produces, dict):
+                saturation_ref = produces.get("_saturation.md")
+        if saturation_ref:
+            from ..review import check_saturation_backstop
+
+            info = check_saturation_backstop(Path(saturation_ref))
+            if info["exists"] and info["is_backstop"]:
+                gaps_path = Path(saturation_ref).parent / "_coverage-gaps.md"
+                print(
+                    "rv dag approve: coverage-gate SIGNAL: ⚠ backstop-terminated, "
+                    "NOT saturated — the review-snowball loop hit the wave cap "
+                    f"({info['stop_reason']}) before the primary 2-consecutive-zero "
+                    "saturation rule converged. You are authorizing a BOUNDED "
+                    f"corpus, not a complete one. See {gaps_path} for the declared "
+                    "open frontier.",
+                    file=sys.stderr,
+                )
+                if not gaps_path.exists():
+                    print(
+                        "rv dag approve: coverage-gate SIGNAL: the residue note is "
+                        f"REQUIRED on backstop-termination but was not found at "
+                        f"{gaps_path} — the open frontier was never declared "
+                        "(review_snowball_tips §SR-LR-1-BACKSTOP).",
+                        file=sys.stderr,
+                    )
+            elif info["exists"] and not info["stop_reason"]:
+                print(
+                    "rv dag approve: coverage-gate SIGNAL: _saturation.md has "
+                    "no stop_reason recorded — cannot confirm whether the corpus "
+                    "is genuinely saturated or backstop-terminated.",
+                    file=sys.stderr,
+                )
+
     # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
     #
     # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]

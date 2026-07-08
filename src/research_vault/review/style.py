@@ -29,6 +29,18 @@ SEAM CONTRACT
   every node spec string — adopted via ``[review_style] preamble = "..."`` in
   ``research_vault.toml``.
 
+  ``get_saturation_backstop_waves(config=None)`` returns the wave-count cap for
+  the review-snowball loop's TERMINATION BACKSTOP (SR-LR-1-BACKSTOP) — a
+  guaranteed-termination escape hatch for when the primary saturation rule
+  (2-consecutive-zero rounds) doesn't converge (an exploding-intersection RQ
+  where every wave keeps finding more).  Adopted via
+  ``[review_style] saturation_backstop_waves = <int>`` in
+  ``research_vault.toml``; default 3.  This is additive, NOT a weakening of the
+  primary rule — the primary rule still fires first whenever it converges; the
+  backstop only fires when it doesn't, and the corpus is then recorded as
+  ``backstop-terminated`` (bounded, NOT saturated), never conflated with a
+  genuine saturation plateau.
+
 Two halves independently mergeable:
   - Engineer ships this module (SR-LR-1 plumbing).
   - The researcher owns the default payload — the retrieval-grounded section 5L.6 strings.
@@ -150,20 +162,64 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "regions does its abstract touch? (cheap signal; verified edges come later in "
         "the `relate-<key>` fan-out).\n"
         "  5. Apply inclusion/exclusion from the protocol; exclude non-matching papers.\n\n"
-        "STOP when 2 CONSECUTIVE rounds yield:\n"
+        "STOP (PRIMARY rule, unchanged) when 2 CONSECUTIVE rounds yield:\n"
         "  - 0 new `[NEW]` citekeys (forward + backward combined), AND\n"
-        "  - 0 new concept-tags.\n\n"
+        "  - 0 new concept-tags.\n"
+        "This is genuine saturation — the plateau is real, read off the curve, "
+        "never eyeballed.\n\n"
         "Direction-starvation check: if backward citations are consistently 0 while "
         "forward are positive (or vice versa), the frontier may be direction-starved — "
         "flag this in the saturation curve as a premature-plateau risk.\n\n"
-        "Emit TWO artifacts:\n"
+        "TERMINATION BACKSTOP (SR-LR-1-BACKSTOP — guaranteed termination, NOT a "
+        "weakening of the primary rule):\n"
+        "  Some review questions have an EXPLODING-INTERSECTION frontier — every "
+        "wave keeps finding more (a genuinely broad or fast-moving literature) and "
+        "the primary 2-consecutive-zero rule may never fire. Without a backstop "
+        "this is an unbounded loop. Check the `saturation_backstop_waves` config "
+        "value (default 3; adopted per-project via "
+        "`[review_style] saturation_backstop_waves` in research_vault.toml) — the "
+        "MAXIMUM number of snowball rounds/waves to run before terminating "
+        "regardless of whether the primary rule has fired.\n"
+        "  - If the primary rule fires first (2-consecutive-zero) → terminate "
+        "with `stop_reason: saturated`. This is the expected, preferred path.\n"
+        "  - If round count reaches `saturation_backstop_waves` WITHOUT the "
+        "primary rule having fired → terminate anyway, with "
+        "`stop_reason: backstop:N-waves` (N = the wave cap that fired). The "
+        "corpus is BOUNDED, not saturated — never record it as `saturated`; "
+        "that would fabricate a plateau that never happened.\n"
+        "  - On backstop-termination ONLY, additionally emit a THIRD artifact: "
+        "`_coverage-gaps.md` — the honest residue note. This is the "
+        "anti-fabrication move: a bounded-not-saturated corpus must DECLARE its "
+        "incompleteness, not hide it behind a green gate. Required contents:\n"
+        "      1. A plain statement: 'terminated by backstop after N waves; "
+        "corpus is bounded-not-saturated.'\n"
+        "      2. Which `counter-position` sub-literature (from `_protocol.md`) "
+        "remains open/under-explored, if any.\n"
+        "      3. Which `concepts/`/`mocs/` regions were still growing "
+        "(new concept-tags still appearing) at termination.\n"
+        "      4. The un-screened candidate count: how many citation-graph hits "
+        "were discovered in the final round but not yet round-processed "
+        "(the frontier that was cut off, not absorbed).\n"
+        "  - Do NOT emit `_coverage-gaps.md` when the primary rule fires — it is "
+        "reserved for the backstop path; its presence IS the backstop signal.\n\n"
+        "Emit artifacts (TWO always; a THIRD only on backstop-termination):\n"
         "  `_corpus.md`: the frozen `[NEW]` citekey list (table: annotation | citekey | title).\n"
-        "  `_saturation.md`: the saturation curve — a table of "
-        "(round, new_citekeys_forward, new_citekeys_backward, new_concept_tags, "
-        "cumulative_corpus) showing the plateau. If a direction is dry while the other "
-        "is active, annotate the row as `DIRECTION-STARVED`.\n\n"
-        "The `_corpus.md` and `_saturation.md` are the phase-boundary artifacts: "
-        "the `coverage-gate` human-go reads them before authorizing Phase-2."
+        "  `_saturation.md`: the saturation curve. Stamp flat frontmatter at the "
+        "top with a REQUIRED `stop_reason:` field — exactly `saturated` or "
+        "`backstop:N-waves` (N = an integer, no other text) — followed by the "
+        "curve body: a table of (round, new_citekeys_forward, new_citekeys_backward, "
+        "new_concept_tags, cumulative_corpus) showing the plateau (or the cut-off "
+        "point, if backstop-terminated). If a direction is dry while the other "
+        "is active, annotate the row as `DIRECTION-STARVED`.\n"
+        "  `_coverage-gaps.md` (backstop-termination ONLY): the residue note "
+        "described above.\n\n"
+        "The `_corpus.md` and `_saturation.md` (and `_coverage-gaps.md` when "
+        "present) are the phase-boundary artifacts: the `coverage-gate` human-go "
+        "reads them before authorizing Phase-2. `rv dag approve <run> "
+        "coverage-gate` structurally reads `stop_reason:` from `_saturation.md` "
+        "and, on backstop-termination, LOUDLY flags it to the approving human "
+        "(⚠ backstop-terminated, NOT saturated) — a bounded corpus must never "
+        "look identical to a saturated one at this gate."
     ),
     "per_paper_relate_tips": (
         "Distill this paper into an OKF `literature/<citekey>.md` note.\n\n"
@@ -384,3 +440,45 @@ def get_review_style_preamble(config: Any = None) -> str:
             if isinstance(preamble, str) and preamble.strip():
                 return preamble
     return _DEFAULT_PREAMBLE
+
+
+# ---------------------------------------------------------------------------
+# Saturation backstop config seam (SR-LR-1-BACKSTOP)
+# ---------------------------------------------------------------------------
+
+DEFAULT_SATURATION_BACKSTOP_WAVES: int = 3
+
+
+def get_saturation_backstop_waves(config: Any = None) -> int:
+    """Return the review-snowball TERMINATION BACKSTOP wave-count cap.
+
+    The primary saturation stop-rule (2-consecutive-zero rounds, §5L.2) is
+    principled but not guaranteed to converge — an exploding-intersection
+    review question (every wave finds more) can run it unboundedly.  This
+    backstop is HyperResearch's termination guarantee, additively grafted
+    onto rv's principled primary rule (rv keeps the primary rule as the
+    preferred stop; HR has no saturation notion at all and just caps at N
+    waves, "proceeding anyway, marking gaps thin" — rv's backstop mirrors
+    that cap but ALSO requires the honest residue declaration in
+    ``_coverage-gaps.md``, section 5L.2-backstop).
+
+    Args:
+        config: a loaded Config instance (or None for the shipped default).
+                If the config has ``[review_style] saturation_backstop_waves = N``
+                (a positive int), that value overrides the default.
+
+    Returns:
+        The wave-count cap (int, >= 1).  Default 3.  A non-int, non-positive,
+        or missing override falls back to the default (never a crash, never a
+        silently-accepted nonsensical cap like 0 or a negative number).
+
+    sr: SR-LR-1-BACKSTOP
+    """
+    if config is not None:
+        raw = getattr(config, "_raw", {})
+        override = raw.get("review_style", {})
+        if isinstance(override, dict):
+            value = override.get("saturation_backstop_waves")
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+                return value
+    return DEFAULT_SATURATION_BACKSTOP_WAVES
