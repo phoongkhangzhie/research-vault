@@ -1,3 +1,111 @@
+## 2026-07-08 (release/0.2.4: review-snowball saturation backstop)
+
+### Done
+- Version bump `0.2.3 → 0.2.4` — **feature**: additive termination guarantee
+  for the review-snowball loop; no breaking change (existing reviews with no
+  `stop_reason:` stamped in `_saturation.md` degrade to a soft "ambiguous"
+  SIGNAL at the gate, never a block).
+- **Saturation backstop (SR-LR-1-BACKSTOP)** — the review loop's principled
+  saturation stop-rule (2-consecutive-zero rounds, §5L.2, canonically defined
+  in `review/style.py`'s `review_snowball_tips` prose) has no guaranteed
+  termination: an exploding-intersection review question (every wave finds
+  more) can run the internal snowball loop unboundedly. Grafted
+  HyperResearch's termination-guarantee cap on ADDITIVELY, per the design
+  brief — HR has no saturation notion at all and just caps at N waves,
+  "proceeding anyway, marking gaps thin"; rv keeps its primary rule as the
+  preferred stop and adds the cap only as a backstop, plus an honest residue
+  declaration HR doesn't have.
+  - **Config seam**: `get_saturation_backstop_waves(config)` in
+    `review/style.py` — `[review_style] saturation_backstop_waves = <int>`,
+    default 3. Non-positive/non-int/bool overrides fall back to the default.
+  - **Two-way stop rule**: the primary rule (unchanged) still fires first
+    whenever it converges → `stop_reason: saturated`. If the wave count hits
+    the cap WITHOUT the primary rule converging → `stop_reason:
+    backstop:N-waves` — the corpus is bounded, NOT saturated, and must never
+    be recorded as `saturated`.
+  - **`check_saturation_backstop`** (`review/__init__.py`) reads the
+    `stop_reason:` frontmatter field off `_saturation.md` via the canonical
+    `note._parse_frontmatter` (reuse, not a re-rolled parser — mirrors
+    `check_protocol_gate`'s use of the same parser on `_protocol.md`).
+    A missing/unparseable `stop_reason` is surfaced as `""`, never
+    fabricated as `"saturated"`.
+  - **`_coverage-gaps.md` residue note** — emitted by the agent ONLY on
+    backstop-termination (its presence IS the backstop signal): a plain
+    "terminated by backstop after N waves; corpus is bounded-not-saturated"
+    statement, the still-open `counter-position` sub-literature, the
+    concept regions still growing at cutoff, and the un-screened candidate
+    count. Documented in `review_snowball_tips`; not code-generated (the
+    snowball loop is agent-executed, same as the primary rule always was).
+  - **Coverage-gate surfacing** — wired into `rv dag approve <run>
+    coverage-gate` (`dag/verbs.py`, mirrors the existing `approve-protocol`/
+    `approve-manuscript` node-id-keyed gate pattern): on backstop-termination,
+    prints a loud non-blocking SIGNAL ("⚠ backstop-terminated, NOT
+    saturated — ... see `_coverage-gaps.md`") plus a second SIGNAL if the
+    residue note is missing. Approval still proceeds in all cases — the
+    backstop is a deliberate escape hatch, not a failure; the human
+    authorizes a bounded corpus informed, never told it's identical to a
+    saturated one.
+- Tests: `tests/test_review_saturation_backstop.py` (26 cases) — config-seam
+  defaults/overrides/invalid-fallback, `stop_reason` parsing (missing file /
+  saturated / backstop:N-waves / absent field), the real `cmd_approve`
+  wiring (saturated → silent; backstop+residue-note → SIGNAL, still
+  succeeds; backstop w/o residue-note → extra SIGNAL; `--reject` bypasses
+  entirely), and the non-canonical `stop_reason` sweep (below).
+
+### Review-delta fix (independent review, same PR)
+- **Fail-open gap (M3 class) caught in review**: the coverage-gate SIGNAL
+  logic was originally a BLACKLIST — it only recognized the literal
+  `backstop:` colon-prefix as needing a signal, and only truly-empty
+  `stop_reason` tripped the softer ambiguity signal. Since `stop_reason` is
+  agent-stamped FREE PROSE with no fixed vocabulary, every other spelling of
+  a non-saturated outcome (`backstop-3-waves` with a dash, `backstop after 3
+  waves`, bare `backstop`, `terminated by wave cap`, or plain garbage) sailed
+  through SILENTLY and looked identical to genuine saturation at the gate —
+  defeating the feature's entire purpose.
+- **Fix**: inverted to a WHITELIST — `dag/verbs.py`'s coverage-gate branch
+  now signals on anything that is NOT the exact string `"saturated"`
+  (compared via `.strip().lower()`, so case/whitespace variants of the
+  canonical word stay silent, but nothing else does). The sharper
+  `backstop:N-waves`-specific message still fires first when recognized;
+  the whitelist condition is the residual catch-all for everything the
+  narrower check doesn't recognize.
+- Corrected `check_saturation_backstop`'s docstring, which had claimed an
+  "unparseable" `stop_reason` is "surfaced as an empty string" — untrue: a
+  non-canonical value is returned VERBATIM (not blanked); it is the
+  CALLER's whitelist, not this function, that decides what needs surfacing.
+- Added `TestNonCanonicalStopReasonSweep` (9 new cases) — a parametrized
+  sweep of non-canonical `stop_reason` spellings against the real
+  `cmd_approve` path, each asserting the loud SIGNAL fires (mutation-tested:
+  confirmed RED against the pre-fix blacklist, GREEN with the whitelist);
+  `saturated` (and case/whitespace variants) asserts silent.
+
+### Decisions
+- Explicitly did NOT bundle the `derivative-of` overlap-discounting idea —
+  a separate follow-up, kept out of this PR's scope per the brief.
+- Did NOT touch `review_critic_tips` (the coverage-critic's four judging
+  axes) — the brief scoped this PR to the backstop only; whether a
+  backstop-terminated-with-a-proper-residue-note corpus should be treated
+  differently from a "premature plateau" by axis 1 is a real open question,
+  flagged below for a follow-up rather than expanded in-PR.
+- `_saturation.md`'s `stop_reason:` lives in flat frontmatter (`---` block),
+  not a bespoke line-scan regex — reuses `note._parse_frontmatter`
+  (charter §6), consistent with how `_protocol.md`'s `counter-position` is
+  already read by `check_protocol_gate`.
+- Patch-level bump (`0.2.4`, not `0.3.0`): this repo's version history bumps
+  the patch component per merged PR regardless of feat/fix conventional-commit
+  type (e.g. the W&B per-project logging feature and the XDG config-discovery
+  feature both landed as patch bumps, not minor) — a minor bump here would be
+  inconsistent with observed practice for a similarly-scoped additive PR.
+
+### Open / next
+- Follow-up candidate: should `review_critic_tips` axis 1 (saturation
+  plateau judgment) explicitly accept a backstop-terminated corpus with a
+  complete, honest `_coverage-gaps.md` residue note as a legitimate (if
+  bounded) pass, rather than risk the critic treating it identically to an
+  undeclared "premature plateau"? Left open per the brief's scope; worth a
+  dedicated follow-up once a real backstop-terminated review exists to
+  ground the critic's calibration against.
+
 ## 2026-07-07 (test isolation: sandbox HOME/XDG for the test suite)
 
 ### Done

@@ -1095,6 +1095,73 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
+    # Saturation backstop surfacing (SR-LR-1-BACKSTOP): the review loop's
+    # ``coverage-gate`` node (§5L.4 phase boundary) reads ``stop_reason:`` off
+    # the ``review-snowball`` node's ``_saturation.md`` and, when the corpus
+    # terminated via the wave-count backstop (bounded, NOT the primary
+    # 2-consecutive-zero saturation rule), LOUDLY flags it to the approving
+    # human — a backstop-terminated corpus must never look identical to a
+    # genuinely-saturated one at this gate. Non-blocking (mirrors the
+    # approve-manuscript SIGNAL pattern above): the backstop is a deliberate,
+    # additive escape hatch, not a failure — approval still proceeds, but the
+    # human authorizes it informed. --reject bypasses entirely (an abandoned
+    # gate has nothing to surface).
+    if node_id == "coverage-gate" and not reject:
+        snowball_node = nodes_lookup.get("review-snowball")
+        saturation_ref = None
+        if snowball_node is not None:
+            produces = snowball_node.get("produces")
+            if isinstance(produces, dict):
+                saturation_ref = produces.get("_saturation.md")
+        if saturation_ref:
+            from ..review import check_saturation_backstop
+
+            info = check_saturation_backstop(Path(saturation_ref))
+            if info["exists"] and info["is_backstop"]:
+                gaps_path = Path(saturation_ref).parent / "_coverage-gaps.md"
+                print(
+                    "rv dag approve: coverage-gate SIGNAL: ⚠ backstop-terminated, "
+                    "NOT saturated — the review-snowball loop hit the wave cap "
+                    f"({info['stop_reason']}) before the primary 2-consecutive-zero "
+                    "saturation rule converged. You are authorizing a BOUNDED "
+                    f"corpus, not a complete one. See {gaps_path} for the declared "
+                    "open frontier.",
+                    file=sys.stderr,
+                )
+                if not gaps_path.exists():
+                    print(
+                        "rv dag approve: coverage-gate SIGNAL: the residue note is "
+                        f"REQUIRED on backstop-termination but was not found at "
+                        f"{gaps_path} — the open frontier was never declared "
+                        "(review_snowball_tips §SR-LR-1-BACKSTOP).",
+                        file=sys.stderr,
+                    )
+            elif info["exists"] and info["stop_reason"].strip().lower() != "saturated":
+                # WHITELIST, not a blacklist (independent reviewer's PR #175 delta):
+                # ``stop_reason`` is agent-stamped free prose — a blacklist that
+                # only recognizes the literal ``backstop:`` prefix fails OPEN on
+                # every other spelling (``backstop-3-waves``, ``backstop after
+                # 3 waves``, bare ``backstop``, garbage, ...) — those would sail
+                # through SILENTLY and look identical to a genuine saturated
+                # corpus at the gate, defeating the whole point of the backstop
+                # surfacing. The only value that may stay silent is the exact
+                # canonical ``saturated`` string; anything else — empty,
+                # malformed backstop variants, or unrecognized text — trips this
+                # catch-all SIGNAL (the ``is_backstop`` branch above already
+                # gave the sharper backstop-specific message when it recognizes
+                # the canonical ``backstop:N-waves`` form; this is the residual
+                # net for everything it doesn't).
+                print(
+                    "rv dag approve: coverage-gate SIGNAL: _saturation.md's "
+                    f"stop_reason is {info['stop_reason']!r}, not the exact "
+                    "string 'saturated' — cannot confirm whether the corpus is "
+                    "genuinely saturated or backstop-terminated under a "
+                    "non-canonical spelling. Verify _coverage-gaps.md and the "
+                    "saturation curve by hand before treating this corpus as "
+                    "genuinely saturated.",
+                    file=sys.stderr,
+                )
+
     # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
     #
     # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]
