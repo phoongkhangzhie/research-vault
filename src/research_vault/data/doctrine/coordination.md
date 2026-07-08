@@ -311,3 +311,13 @@ naming the path to create — never a crash.
 (or the dispatched agent) haven't been actively working in — the cold-switch case this
 whole section describes. For staying oriented mid-session on the *already-loaded* project,
 `rv status` alone is enough (the strategic layer doesn't change turn to turn).
+
+## The three loops, at a glance
+
+Alfred runs three DAG-driven loop families over a project — `rv experiment` and `rv review`
+**build** `notes/` (the crew-reasoning pillar); the **manuscript loop** (`rv manuscript`)
+**transforms** `notes/` into `manuscripts/<slug>/` (the user-facing deliverable pillar), by
+type. See [manuscript-loop.md](./manuscript-loop.md) for the manuscript loop's "reach for
+this when" trigger, the full survey walkthrough, and its known limitations; see
+[project-structure.md](./project-structure.md)'s "two content pillars" section for the
+structural framing all three loops share.
