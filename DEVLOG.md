@@ -1,3 +1,92 @@
+## 2026-07-07 (release/0.2.0: version bump to 0.2.0)
+
+### Done
+- Version bump `0.1.4 → 0.2.0` in `pyproject.toml` and
+  `src/research_vault/__init__.py`. **Minor** bump per semver — this release
+  ships two whole new capabilities on top of the 0.1.x line, not a patch.
+- Ships the **manuscript lit-review loop** (PR-M0..M9), the loop that turns
+  `notes/` into a user-facing `manuscripts/<slug>/` deliverable:
+  - `rv manuscript` with a `ManuscriptType` registry (`--type lit-review` the
+    first concrete type); Phase-1 framework selection, Phase-2 section-set
+    expansion, `source_transform`, and per-section style briefs.
+  - A shareable `research_vault.gates` package (`support_matcher.py` +
+    `coldread.py`, extracted to a top-level module sibling to `manuscript/`/
+    `review/`/`experiment/` so any loop can call the claim→source support
+    check or the self-containment cold-read judge, not just the manuscript
+    loop) — the 4-verdict `[SUPPORTS|PARTIAL|ABSENT|CONTRADICTS]` matcher and
+    the 3-verdict `[STANDS-ALONE|DANGLING|NEEDS-CONTEXT]` judge, both
+    fail-closed on a dead/raising judge.
+  - Hermetic `.bib` generation; equation machinery (`manuscript/equations.py`)
+    that extracts a literature note's `## Key equations` body block + its
+    `key_equations:` frontmatter criticality ledger and joins them by label —
+    a dropped `critical: true` equation SIGNALs (never BLOCKs, per D-MS-2).
+  - The 2×3 FLOOR-not-average conference-style review-revise board with the
+    calibrated 8-dimension rubric, per-lens reviewers, and a mandatory
+    annotated-bibliography canary (a live, blind-judge check that the review
+    pipeline can actually detect a known-bad annotation before it's trusted
+    on real content).
+  - In-context few-shot exemplars (`manuscript/exemplars.py` +
+    `data/exemplars/manuscript/`) — real excerpted passages, both
+    editorial-principle anchors (injected into the writer's preamble) and
+    body move-to-imitate blocks (injected into per-section tips).
+  - Discoverability: `cli.py`'s `manuscript` verb entry rewritten to the
+    actual shipped state; new `doctrine/manuscript-loop.md` (trigger, full
+    walkthrough, honest known-limitations section); README.md and
+    architecture.md updated from "two loops" to "three loops."
+- Ships **code-conventions** (PR-CC-1/2/4/5/6/7), a repo-plane + note-plane
+  releasability and provenance discipline:
+  - New `doctrine/code-conventions.md`.
+  - **CHECK-1** (flagship, HARD) — `check_provenance_chain` in `note.py`:
+    once an experiment note claims a `scores:` result, `results_commit`,
+    `repro_seed`, the config-hash pair, and a dataset link must all be
+    non-sentinel (folds in the former CHECK-2/CHECK-3a). Rides the DAG
+    complete-gate for free. Dogfooded against a real adopting project's 10
+    experiment notes: 7/7 result-claiming notes failed on first run — the
+    gate has teeth.
+  - `rv code check <project>` (new `code_check.py`) — the repo-plane half:
+    no notebooks under `code/src/`, a lockfile-grade env pin, no
+    data/results content-hash duplication, `# science-critical` symbols have
+    a corresponding test, no secrets/absolute-personal paths under `code/`,
+    and `CITATION.cff`/`LICENSE` releasability (WARN locally, HARD with
+    `--release`).
+  - `repro_determinism` field (`exact | tol:<eps> | stochastic`) — the
+    tolerance taxonomy a future golden-rerun runner will compare against.
+  - The `CITATION.cff`/`LICENSE` releasability scaffold, and a CI
+    `release-gate` job (tag-triggered `publish.yml`) that HARD-blocks a
+    release missing either — proven to flip in both directions by a
+    rejects-only canary script (`scripts/release_gate_canary.sh`).
+  - `code-conventions-dogfood` CI job: `rv note check` against the packaged
+    demo-research example, `rv code check` (+ `--release`) against rv's own
+    repo — real fixtures, not vacuous ones. Surfaced and fixed a real
+    `supports_main` bare-id drift bug in four demo notes.
+- **Fixes** carried in this bundle:
+  - `[dataset-provenance]` WARN was hard-failing `rv note check` (missing
+    from `note.run`'s `_WARN_PREFIXES`, contradicting the check's own
+    documented WARN-only contract) — fixed, degrades to WARN as intended.
+  - `rv orient`/`rv status`/`rv devlog` resolved `pointers.md`/
+    `architecture.md`/`DEVLOG.md` relative to `source_dir`, but the CS-project
+    convention (`source_dir = <repo>/notes`) places all three at the repo
+    root, one level up — `rv orient` reported "none yet" on projects that
+    had them. Fixed via a single structural resolver
+    (`config.resolve_repo_root`), used at all affected call sites; unchanged
+    for flat-convention projects.
+  - Literature-note reading enrichment: the paper-reading prompt
+    (`review/style.py`) now also extracts `key_equations:` (the criticality
+    ledger feeding the equation-fidelity gate above), plus `repo:` and
+    `artifacts:` pointers, in the same read pass — populated by hand from
+    what the paper actually states, never guessed.
+- Full suite green, `rv lint` PASS, `rv help --check` OK, leakage scan clean.
+
+### Decisions
+- Held PR: this release bump does not self-merge or push the tag. The
+  maintainer merges and tags — the tag push is the OIDC publish trigger, an
+  irreversible outward-facing action (charter §5), so it waits for an
+  explicit go.
+
+### Open / next
+- After merge: `git tag v0.2.0 <merge-sha> && git push origin v0.2.0` to
+  trigger the publish workflow.
+
 ## 2026-07-07 (feat/cc7-ci-release-gate: PR-CC-7 CI release-gate wiring — completes the code-conventions bundle)
 
 ### Done
