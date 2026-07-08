@@ -4,7 +4,7 @@
 - Version bump `0.2.1 → 0.2.2` — **patch**: bug fix, no breaking change.
 - **Fixed real corpus-under-annotation bug**: `rv research references`
   (backward snowball) was flagging known in-corpus papers as `[NEW]` — 0
-  `[IN-CORPUS]` / 90 `[NEW]` on a live `cultural-social-sim` snowball round
+  `[IN-CORPUS]` / 90 `[NEW]` on a live research-project snowball round
   that included two papers (Argyle 2022, Aher 2022) with filed
   `literature/` notes. Blocked a review-loop saturation round (683
   hand-re-annotations forced).
