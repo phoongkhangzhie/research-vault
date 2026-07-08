@@ -41,16 +41,43 @@
     `approve-manuscript` node-id-keyed gate pattern): on backstop-termination,
     prints a loud non-blocking SIGNAL ("⚠ backstop-terminated, NOT
     saturated — ... see `_coverage-gaps.md`") plus a second SIGNAL if the
-    residue note is missing; on a missing/unparseable `stop_reason`, a softer
-    ambiguity SIGNAL. Approval still proceeds in all cases — the backstop is
-    a deliberate escape hatch, not a failure; the human authorizes a bounded
-    corpus informed, never told it's identical to a saturated one.
-- Tests: `tests/test_review_saturation_backstop.py` (17 cases) — config-seam
+    residue note is missing. Approval still proceeds in all cases — the
+    backstop is a deliberate escape hatch, not a failure; the human
+    authorizes a bounded corpus informed, never told it's identical to a
+    saturated one.
+- Tests: `tests/test_review_saturation_backstop.py` (26 cases) — config-seam
   defaults/overrides/invalid-fallback, `stop_reason` parsing (missing file /
-  saturated / backstop:N-waves / absent field), and the real `cmd_approve`
+  saturated / backstop:N-waves / absent field), the real `cmd_approve`
   wiring (saturated → silent; backstop+residue-note → SIGNAL, still
-  succeeds; backstop w/o residue-note → extra SIGNAL; missing stop_reason →
-  ambiguity SIGNAL; `--reject` bypasses entirely).
+  succeeds; backstop w/o residue-note → extra SIGNAL; `--reject` bypasses
+  entirely), and the non-canonical `stop_reason` sweep (below).
+
+### Review-delta fix (independent review, same PR)
+- **Fail-open gap (M3 class) caught in review**: the coverage-gate SIGNAL
+  logic was originally a BLACKLIST — it only recognized the literal
+  `backstop:` colon-prefix as needing a signal, and only truly-empty
+  `stop_reason` tripped the softer ambiguity signal. Since `stop_reason` is
+  agent-stamped FREE PROSE with no fixed vocabulary, every other spelling of
+  a non-saturated outcome (`backstop-3-waves` with a dash, `backstop after 3
+  waves`, bare `backstop`, `terminated by wave cap`, or plain garbage) sailed
+  through SILENTLY and looked identical to genuine saturation at the gate —
+  defeating the feature's entire purpose.
+- **Fix**: inverted to a WHITELIST — `dag/verbs.py`'s coverage-gate branch
+  now signals on anything that is NOT the exact string `"saturated"`
+  (compared via `.strip().lower()`, so case/whitespace variants of the
+  canonical word stay silent, but nothing else does). The sharper
+  `backstop:N-waves`-specific message still fires first when recognized;
+  the whitelist condition is the residual catch-all for everything the
+  narrower check doesn't recognize.
+- Corrected `check_saturation_backstop`'s docstring, which had claimed an
+  "unparseable" `stop_reason` is "surfaced as an empty string" — untrue: a
+  non-canonical value is returned VERBATIM (not blanked); it is the
+  CALLER's whitelist, not this function, that decides what needs surfacing.
+- Added `TestNonCanonicalStopReasonSweep` (9 new cases) — a parametrized
+  sweep of non-canonical `stop_reason` spellings against the real
+  `cmd_approve` path, each asserting the loud SIGNAL fires (mutation-tested:
+  confirmed RED against the pre-fix blacklist, GREEN with the whitelist);
+  `saturated` (and case/whitespace variants) asserts silent.
 
 ### Decisions
 - Explicitly did NOT bundle the `derivative-of` overlap-discounting idea —

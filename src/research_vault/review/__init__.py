@@ -151,10 +151,18 @@ def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
           is_backstop: bool       — True iff stop_reason starts with "backstop:".
           wave_count:  int | None — parsed N from "backstop:N-waves", else None.
 
-    charter §2 (surface, never silently drop): a MISSING or unparseable
-    ``stop_reason`` is never defaulted to "saturated" — it is surfaced as an
-    empty string so the caller (the ``coverage-gate`` human-go wiring) can
-    flag the ambiguity rather than silently assuming genuine saturation.
+    charter §2 (surface, never silently drop): this function never fabricates
+    ``"saturated"`` for anything it can't confirm. A MISSING field returns
+    ``stop_reason == ""``; a NON-CANONICAL value (e.g. ``"backstop-3-waves"``
+    with a dash, free prose, or garbage) is returned VERBATIM, not blanked —
+    ``is_backstop`` is simply False for it, same as for an empty string. It is
+    the CALLER's job (the ``coverage-gate`` human-go wiring in ``dag/verbs.py``)
+    to treat "anything that isn't the exact string 'saturated'" as needing a
+    loud SIGNAL — a WHITELIST on the one recognized-good value, not a
+    blacklist on the one recognized-bad prefix. A blacklist here would fail
+    OPEN: agent-stamped free prose has no fixed vocabulary, so every
+    non-``backstop:``-prefixed spelling of a non-saturated outcome would sail
+    through silently and look identical to genuine saturation at the gate.
 
     sr: SR-LR-1-BACKSTOP
     """

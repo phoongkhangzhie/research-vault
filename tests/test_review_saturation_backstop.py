@@ -327,7 +327,7 @@ class TestApproveCoverageGateBackstopSurfacing:
             captured = capsys.readouterr()
 
             assert rc == 0
-            assert "no stop_reason recorded" in captured.err
+            assert "not the exact string 'saturated'" in captured.err
 
             rs = store.load("review-no-reason")
             assert rs.node_status("coverage-gate") == "succeeded"
@@ -354,6 +354,118 @@ class TestApproveCoverageGateBackstopSurfacing:
             assert rc == 0
             rs = store.load("review-backstop-reject")
             assert rs.node_status("coverage-gate") == "blocked"
+        finally:
+            _restore_env(old)
+
+
+# ---------------------------------------------------------------------------
+# 3b. Non-canonical stop_reason sweep — the M3 fail-open regression guard
+#     (independent reviewer, PR #175 delta): a BLACKLIST that only recognizes the
+#     literal ``backstop:`` prefix fails OPEN on every other spelling — those
+#     used to sail through SILENTLY, looking identical to a genuine saturated
+#     corpus at the gate. The fix is a WHITELIST: only the exact canonical
+#     string ``saturated`` may stay silent; every other value (empty,
+#     malformed backstop variants, garbage) must trip the loud SIGNAL.
+# ---------------------------------------------------------------------------
+
+class TestNonCanonicalStopReasonSweep:
+    @pytest.mark.parametrize(
+        "stop_reason",
+        [
+            "backstop-3-waves",        # dash instead of colon
+            "backstop after 3 waves",  # free prose
+            "backstop",                # bare, no wave count
+            "terminated by wave cap",  # unrelated prose describing the same event
+            "garbage-token-xyz",       # pure garbage
+        ],
+    )
+    def test_non_canonical_stop_reason_trips_loud_signal(self, tmp_path, capsys, stop_reason):
+        """Every non-'saturated' value must trip the loud catch-all SIGNAL —
+        never a silent pass. This is the M3 fail-open regression guard: a
+        blacklist that only recognized the literal 'backstop:' prefix let all
+        of these sail through silently before the fix."""
+        from research_vault.dag.verbs import cmd_approve
+
+        old = _set_run_env(tmp_path)
+        try:
+            run_id = f"review-sweep-{abs(hash(stop_reason))}"
+            saturation_path = tmp_path / "reviews" / f"scope-{abs(hash(stop_reason))}" / "_saturation.md"
+            _saturation_note(saturation_path, stop_reason=stop_reason)
+            store = _make_awaiting_run(tmp_path, run_id, saturation_path)
+
+            args = argparse.Namespace(run_id=run_id, node_id="coverage-gate")
+            rc = cmd_approve(args)
+            captured = capsys.readouterr()
+
+            assert rc == 0, "surfacing is non-blocking — approval still proceeds"
+            assert captured.err.strip() != "", (
+                f"stop_reason={stop_reason!r} sailed through with NO signal at all — "
+                "fail-open regression (M3 class)"
+            )
+            assert "SIGNAL" in captured.err, (
+                f"stop_reason={stop_reason!r} produced output but not a SIGNAL — "
+                f"got: {captured.err!r}"
+            )
+
+            rs = store.load(run_id)
+            assert rs.node_status("coverage-gate") == "succeeded"
+        finally:
+            _restore_env(old)
+
+    def test_exact_saturated_stays_silent(self, tmp_path, capsys):
+        """The ONLY value permitted to stay silent: the exact canonical string
+        'saturated' (case/whitespace-insensitively, since cmd_approve compares
+        via .strip().lower())."""
+        from research_vault.dag.verbs import cmd_approve
+
+        old = _set_run_env(tmp_path)
+        try:
+            saturation_path = tmp_path / "reviews" / "scope-canonical" / "_saturation.md"
+            _saturation_note(saturation_path, stop_reason="saturated")
+            store = _make_awaiting_run(tmp_path, "review-canonical-sat", saturation_path)
+
+            args = argparse.Namespace(run_id="review-canonical-sat", node_id="coverage-gate")
+            rc = cmd_approve(args)
+            captured = capsys.readouterr()
+
+            assert rc == 0
+            assert captured.err == "", (
+                f"exact 'saturated' must stay silent at the gate; got: {captured.err!r}"
+            )
+
+            rs = store.load("review-canonical-sat")
+            assert rs.node_status("coverage-gate") == "succeeded"
+        finally:
+            _restore_env(old)
+
+    @pytest.mark.parametrize("stop_reason", ["Saturated", " saturated ", "SATURATED"])
+    def test_canonical_normalization_tolerates_case_and_whitespace(
+        self, tmp_path, capsys, stop_reason
+    ):
+        """The whitelist compares via .strip().lower() — case and surrounding
+        whitespace around the canonical word are tolerated (still silent);
+        this is deliberate normalization, not a fail-open hole, since the only
+        thing being tolerated is the exact same word under trivial formatting."""
+        from research_vault.dag.verbs import cmd_approve
+
+        old = _set_run_env(tmp_path)
+        try:
+            run_id = f"review-norm-{abs(hash(stop_reason))}"
+            saturation_path = (
+                tmp_path / "reviews" / f"scope-norm-{abs(hash(stop_reason))}" / "_saturation.md"
+            )
+            _saturation_note(saturation_path, stop_reason=stop_reason)
+            store = _make_awaiting_run(tmp_path, run_id, saturation_path)
+
+            args = argparse.Namespace(run_id=run_id, node_id="coverage-gate")
+            rc = cmd_approve(args)
+            captured = capsys.readouterr()
+
+            assert rc == 0
+            assert captured.err == ""
+
+            rs = store.load(run_id)
+            assert rs.node_status("coverage-gate") == "succeeded"
         finally:
             _restore_env(old)
 

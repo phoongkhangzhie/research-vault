@@ -1136,11 +1136,29 @@ def cmd_approve(args: argparse.Namespace) -> int:
                         "(review_snowball_tips §SR-LR-1-BACKSTOP).",
                         file=sys.stderr,
                     )
-            elif info["exists"] and not info["stop_reason"]:
+            elif info["exists"] and info["stop_reason"].strip().lower() != "saturated":
+                # WHITELIST, not a blacklist (independent reviewer's PR #175 delta):
+                # ``stop_reason`` is agent-stamped free prose — a blacklist that
+                # only recognizes the literal ``backstop:`` prefix fails OPEN on
+                # every other spelling (``backstop-3-waves``, ``backstop after
+                # 3 waves``, bare ``backstop``, garbage, ...) — those would sail
+                # through SILENTLY and look identical to a genuine saturated
+                # corpus at the gate, defeating the whole point of the backstop
+                # surfacing. The only value that may stay silent is the exact
+                # canonical ``saturated`` string; anything else — empty,
+                # malformed backstop variants, or unrecognized text — trips this
+                # catch-all SIGNAL (the ``is_backstop`` branch above already
+                # gave the sharper backstop-specific message when it recognizes
+                # the canonical ``backstop:N-waves`` form; this is the residual
+                # net for everything it doesn't).
                 print(
-                    "rv dag approve: coverage-gate SIGNAL: _saturation.md has "
-                    "no stop_reason recorded — cannot confirm whether the corpus "
-                    "is genuinely saturated or backstop-terminated.",
+                    "rv dag approve: coverage-gate SIGNAL: _saturation.md's "
+                    f"stop_reason is {info['stop_reason']!r}, not the exact "
+                    "string 'saturated' — cannot confirm whether the corpus is "
+                    "genuinely saturated or backstop-terminated under a "
+                    "non-canonical spelling. Verify _coverage-gaps.md and the "
+                    "saturation curve by hand before treating this corpus as "
+                    "genuinely saturated.",
                     file=sys.stderr,
                 )
 
