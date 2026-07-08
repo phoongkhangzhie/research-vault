@@ -821,3 +821,366 @@ def test_cmd_find_filed_note_shows_in_corpus(tmp_path: Path, monkeypatch, capsys
         f"Filed literature note must show [IN-CORPUS]; got output:\n{out}"
     )
     assert "[NEW]" in out  # CANDIDATE_NEW has no matching note
+
+
+# ---------------------------------------------------------------------------
+# Tests 21+: rv-refs-corpus-fix — real-project bug reproduction
+#
+# Root-cause investigation (2026-07-07) disconfirmed the original hypothesis
+# ("references-payload id-shape differs from cited-by's").  Live-checked: both
+# `asta papers citations` (cited-by) and `asta papers get --fields
+# references.*` (references) hand back items with an identical
+# `externalIds: {ArXiv, DOI, ...}` shape, and cmd_cited_by/cmd_references
+# already call the exact same _corpus_annotation/_print_candidates path.
+#
+# The REAL bug is upstream of both: real project literature notes
+# never populate `doi:`/`arxiv_id:` frontmatter — only a `url:` field (e.g.
+# `https://arxiv.org/abs/2209.06899`) or, for some papers (e.g. a conference
+# proceedings page with no id at all), nothing extractable whatsoever.  So
+# `_load_notes_index` returns an EMPTY index for every real note, and ALL
+# THREE rv verbs (find/cited-by/references) under-annotate identically.  The
+# fixtures below mirror the two real cases (Argyle 2022 — url has an
+# extractable arXiv id; Aher 2022 — no id in url, but title+first-author
+# match, with a canonical S2 year (2022) that differs from the note's own
+# venue year (2023, ICML publication year vs. arXiv preprint year)).
+# ---------------------------------------------------------------------------
+
+ARGYLE_NOTE_FRONTMATTER = {
+    "title": "Out of One, Many: Using Language Models to Simulate Human Samples",
+    "authors": "Argyle, Lisa P.; Busby, E. C.; Fulda, N.; Gubler, J. R.; Rytting, C.; Wingate, D.",
+    "year": "2023",
+    "url": "https://arxiv.org/abs/2209.06899",
+}
+
+AHER_NOTE_FRONTMATTER = {
+    "title": "Using Large Language Models to Simulate Multiple Humans and Replicate Human Subject Studies",
+    "authors": "Aher, Gati; Arriaga, Rosa I.; Kalai, Adam Tauman",
+    "year": "2023",
+    "url": "https://proceedings.mlr.press/v202/aher23a.html",
+}
+
+# Real S2 reference-item shapes (from a live `asta papers get --fields
+# references.*` call against arXiv:2511.04500), confirming the externalIds
+# shape is identical to cited-by's and find's.
+ARGYLE_S2_CANDIDATE = {
+    "title": "Out of One, Many: Using Language Models to Simulate Human Samples",
+    "year": 2022,
+    "authors": [{"name": "Lisa P. Argyle"}],
+    "externalIds": {"ArXiv": "2209.06899", "DOI": "10.1017/pan.2023.2", "CorpusId": 252280474},
+    "citationCount": 1161,
+}
+
+AHER_S2_CANDIDATE = {
+    "title": "Using Large Language Models to Simulate Multiple Humans and Replicate Human Subject Studies",
+    "year": 2022,  # canonical S2 year differs from the note's own venue year (2023)
+    "authors": [{"name": "Gati Aher"}],
+    "externalIds": {"ArXiv": "2208.10264", "CorpusId": 251719353},
+    "citationCount": 741,
+}
+
+
+def _write_realistic_note(literature_dir: Path, citekey: str, frontmatter: dict) -> Path:
+    """Write a literature note with the REAL frontmatter shape (url:, no doi:/arxiv_id:)."""
+    literature_dir.mkdir(parents=True, exist_ok=True)
+    note_path = literature_dir / f"{citekey}.md"
+    lines = ["---", "type: literature"]
+    for k, v in frontmatter.items():
+        lines.append(f'{k}: {v}')
+    lines.append(f"citekey: {citekey}")
+    lines += ["---", "", f"# {citekey}", ""]
+    note_path.write_text("\n".join(lines), encoding="utf-8")
+    return note_path
+
+
+def test_load_notes_index_extracts_arxiv_from_url_field(tmp_path: Path) -> None:
+    """RED before fix: a note with ONLY a url: field (no arxiv_id:) is not indexed.
+
+    GREEN after fix: `_load_notes_index` must also mine the url: field for an
+    arXiv id — this is the real-world shape (Argyle's filed note).
+    """
+    lit_dir = tmp_path / "literature"
+    _write_realistic_note(lit_dir, "argyleOutOneMany2022", ARGYLE_NOTE_FRONTMATTER)
+
+    idx = research_mod._load_notes_index(lit_dir)
+    assert "2209.06899" in idx, (
+        f"Expected the url-derived arXiv id to be indexed; got {idx}"
+    )
+    assert idx["2209.06899"] == "argyleOutOneMany2022"
+
+
+def test_corpus_annotation_argyle_url_only_note_is_in_corpus(tmp_path: Path) -> None:
+    """The real Argyle S2 candidate must annotate [IN-CORPUS] from a url-only note."""
+    lit_dir = tmp_path / "literature"
+    _write_realistic_note(lit_dir, "argyleOutOneMany2022", ARGYLE_NOTE_FRONTMATTER)
+    notes_index = research_mod._load_notes_index(lit_dir)
+
+    result = research_mod._corpus_annotation(
+        ARGYLE_S2_CANDIDATE, corpus_index={}, notes_index=notes_index,
+    )
+    assert result == "[IN-CORPUS:argyleOutOneMany2022]", (
+        f"Argyle must be [IN-CORPUS] via url-derived arXiv id; got {result!r}"
+    )
+
+
+def test_corpus_annotation_aher_title_author_fallback_is_in_corpus(tmp_path: Path) -> None:
+    """Aher has NO id anywhere in its note (mlr.press url) — only title+author fallback
+    can recognize it, and the canonical S2 year (2022) differs from the note's own
+    venue year (2023) — the fallback must be year-agnostic.
+    """
+    lit_dir = tmp_path / "literature"
+    _write_realistic_note(lit_dir, "aherLargeLanguageModels2022", AHER_NOTE_FRONTMATTER)
+
+    # Confirm the id-based index genuinely has nothing for Aher (no id extractable)
+    notes_index = research_mod._load_notes_index(lit_dir)
+    assert "aherLargeLanguageModels2022" not in notes_index.values(), (
+        "Aher's note has no id anywhere — the id-index must NOT contain it "
+        "(this is the structural proof that only the title fallback can catch it)"
+    )
+
+    notes_title_index = research_mod._load_notes_title_index(lit_dir)
+    result = research_mod._corpus_annotation(
+        AHER_S2_CANDIDATE,
+        corpus_index={},
+        notes_index=notes_index,
+        notes_title_index=notes_title_index,
+    )
+    assert result == "[IN-CORPUS:aherLargeLanguageModels2022]", (
+        f"Aher must be [IN-CORPUS] via title+author fallback; got {result!r}"
+    )
+
+
+def test_cmd_references_parity_with_cited_by_on_notes_only_corpus(tmp_path: Path, monkeypatch, capsys) -> None:
+    """RED before fix: cmd_references under-annotates relative to cmd_cited_by even
+    though both call the identical _corpus_annotation/_print_candidates path — because
+    the shared upstream notes_index/notes_title_index never mined url:/title fallback.
+    GREEN after fix: cmd_references and cmd_cited_by annotate the SAME S2 candidate
+    (Argyle) identically as [IN-CORPUS], proving parity restored.
+    """
+    project_notes_dir = tmp_path / "notes" / "demo-proj"
+    lit_dir = project_notes_dir / "literature"
+    _write_realistic_note(lit_dir, "argyleOutOneMany2022", ARGYLE_NOTE_FRONTMATTER)
+
+    lib = _make_library_json(tmp_path, items=[])  # empty — Zotero not synced
+    cfg_path = tmp_path / "research_vault.toml"
+    cfg_path.write_text(
+        f'[projects.demo-proj]\n'
+        f'refs = "{lib}"\n'
+        f'source_dir = "{project_notes_dir}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(cfg_path))
+    from research_vault.config import reset_config_cache
+    reset_config_cache()
+
+    monkeypatch.setattr(research_mod, "_preflight_asta", lambda: None)
+
+    # cited-by path
+    def fake_run_cited_by(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"data": [{"citingPaper": ARGYLE_S2_CANDIDATE}]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run_cited_by)
+    rc = research_mod.cmd_cited_by(argparse.Namespace(
+        research_cmd="cited-by", paper_id="ARXIV:2511.04500", limit=20, project="demo-proj",
+    ))
+    assert rc == 0
+    cited_by_out = capsys.readouterr().out
+    assert "[IN-CORPUS:argyleOutOneMany2022]" in cited_by_out
+
+    # references path — must match
+    def fake_run_references(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"references": [ARGYLE_S2_CANDIDATE]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run_references)
+    rc = research_mod.cmd_references(argparse.Namespace(
+        research_cmd="references", paper_id="ARXIV:2511.04500", project="demo-proj",
+    ))
+    assert rc == 0
+    references_out = capsys.readouterr().out
+    assert "[IN-CORPUS:argyleOutOneMany2022]" in references_out, (
+        f"references must annotate Argyle [IN-CORPUS] exactly like cited-by; got:\n{references_out}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests 25+: reviewer-verified title-fallback over-match tightening (2026-07-07)
+#
+# Independent review of PR #172 reproduced three genuinely-distinct-paper
+# false [IN-CORPUS] matches under the original loose heuristic
+# (title[:30]-prefix-equal OR either-contains-the-other, no length gate):
+#   A. title-superset  — a shorter title is a strict prefix of a longer,
+#                         DIFFERENT paper's title by the same author.
+#   B. series prefix   — "Part I" is a strict prefix of "Part II ...<subtitle>"
+#                         (a real sequel paper — genuinely a different entry).
+#   C. surname collision — two DIFFERENT people sharing a surname, titles
+#                         sharing a long generic opening phrase then diverging
+#                         (the exact vector the removed 30-char-prefix arm let
+#                         through).
+# A false [IN-CORPUS] is the SILENT failure mode for SR-LR-1 saturation
+# (a non-saturated round looks saturated, hiding a real frontier paper) —
+# worse than the false-NEW this fix was closing.  The tightening: exact
+# normalized-title equality, OR containment gated by a length ratio
+# min(len)/max(len) >= 0.9.  All three repros here fail that ratio gate
+# (the shared-prefix case has NO containment at all once the 30-char-prefix
+# arm is removed); the legitimate Aher catch (identical titles, ratio 1.0)
+# still passes.
+# ---------------------------------------------------------------------------
+
+def test_title_fallback_match_rejects_title_superset() -> None:
+    """Case A: a shorter title is a strict prefix of a longer, different title."""
+    note_title = research_mod._norm_title_str("Language Models Are Few-Shot Learners")
+    s2_title = research_mod._norm_title_str(
+        "Language Models Are Few-Shot Learners For Clinical Diagnosis And "
+        "Treatment Planning In Radiology"
+    )
+    assert note_title in s2_title, "test setup check: old heuristic's containment must hold"
+    assert research_mod._title_fallback_match(s2_title, note_title) is False
+
+
+def test_title_fallback_match_rejects_series_prefix() -> None:
+    """Case B: 'Part I' is a strict prefix of a genuinely different 'Part II' paper."""
+    note_title = research_mod._norm_title_str(
+        "Emergent Reasoning Abilities in Large Language Models Part I"
+    )
+    s2_title = research_mod._norm_title_str(
+        "Emergent Reasoning Abilities in Large Language Models Part II: "
+        "A Follow-Up Study With Expanded Benchmarks"
+    )
+    assert note_title in s2_title, "test setup check: old heuristic's containment must hold"
+    assert research_mod._title_fallback_match(s2_title, note_title) is False
+
+
+def test_title_fallback_match_rejects_shared_prefix_surname_collision() -> None:
+    """Case C: two different people sharing a surname; titles share a long
+    generic opening phrase (>= 30 normalized chars) then diverge completely —
+    the exact vector the removed 30-char-prefix arm let through."""
+    note_title = research_mod._norm_title_str(
+        "Self-Instruct: Aligning Language Models with Self-Generated Instructions"
+    )
+    s2_title = research_mod._norm_title_str(
+        "Self-Instruct: Aligning Language Models for Robotic Manipulation "
+        "Policies in Simulated Warehouse Environments"
+    )
+    assert note_title[:30] == s2_title[:30], "test setup check: shared 30-char prefix must hold"
+    assert note_title not in s2_title and s2_title not in note_title, (
+        "test setup check: no containment relationship (isolates the prefix-arm vector)"
+    )
+    assert research_mod._title_fallback_match(s2_title, note_title) is False
+
+
+def test_title_fallback_match_accepts_exact_title_ratio_one() -> None:
+    """The legitimate Aher catch (identical normalized titles, ratio 1.0) must survive."""
+    title = research_mod._norm_title_str(
+        "Using Large Language Models to Simulate Multiple Humans and "
+        "Replicate Human Subject Studies"
+    )
+    assert research_mod._title_fallback_match(title, title) is True
+
+
+def test_corpus_annotation_title_superset_stays_new(tmp_path: Path) -> None:
+    """End-to-end (Case A): a filed note must NOT falsely annotate a longer,
+    genuinely different paper by the same author as [IN-CORPUS]."""
+    lit_dir = tmp_path / "literature"
+    _write_realistic_note(lit_dir, "brownFewShotLearners2020", {
+        "title": "Language Models Are Few-Shot Learners",
+        "authors": "Brown, Tom B.",
+        "year": "2020",
+        "url": "https://proceedings.neurips.cc/paper/2020/brown",
+    })
+    notes_index = research_mod._load_notes_index(lit_dir)
+    notes_title_index = research_mod._load_notes_title_index(lit_dir)
+
+    distinct_candidate = {
+        "title": "Language Models Are Few-Shot Learners For Clinical Diagnosis "
+                 "And Treatment Planning In Radiology",
+        "year": 2022,
+        "authors": [{"name": "Tom B. Brown"}],
+        "externalIds": {},
+    }
+    result = research_mod._corpus_annotation(
+        distinct_candidate, corpus_index={}, notes_index=notes_index,
+        notes_title_index=notes_title_index,
+    )
+    assert result == "[NEW]", f"Genuinely different superset-titled paper must be [NEW]; got {result!r}"
+
+
+def test_corpus_annotation_series_sequel_stays_new(tmp_path: Path) -> None:
+    """End-to-end (Case B): a 'Part I' note must NOT falsely annotate the
+    genuinely different 'Part II' sequel paper as [IN-CORPUS]."""
+    lit_dir = tmp_path / "literature"
+    _write_realistic_note(lit_dir, "smithEmergentReasoningPart12023", {
+        "title": "Emergent Reasoning Abilities in Large Language Models Part I",
+        "authors": "Smith, Jane",
+        "year": "2023",
+        "url": "https://proceedings.example.org/smith-part-i",
+    })
+    notes_index = research_mod._load_notes_index(lit_dir)
+    notes_title_index = research_mod._load_notes_title_index(lit_dir)
+
+    part_two_candidate = {
+        "title": "Emergent Reasoning Abilities in Large Language Models Part II: "
+                 "A Follow-Up Study With Expanded Benchmarks",
+        "year": 2024,
+        "authors": [{"name": "Jane Smith"}],
+        "externalIds": {},
+    }
+    result = research_mod._corpus_annotation(
+        part_two_candidate, corpus_index={}, notes_index=notes_index,
+        notes_title_index=notes_title_index,
+    )
+    assert result == "[NEW]", f"Genuinely different Part II sequel must be [NEW]; got {result!r}"
+
+
+def test_corpus_annotation_surname_collision_shared_prefix_stays_new(tmp_path: Path) -> None:
+    """End-to-end (Case C): two different people sharing a surname, titles
+    sharing a long generic opening phrase, must NOT false-match."""
+    lit_dir = tmp_path / "literature"
+    _write_realistic_note(lit_dir, "wangSelfInstruct2022", {
+        "title": "Self-Instruct: Aligning Language Models with Self-Generated Instructions",
+        "authors": "Wang, Li",
+        "year": "2022",
+        "url": "https://proceedings.example.org/wang-self-instruct",  # no extractable id
+    })
+    notes_index = research_mod._load_notes_index(lit_dir)
+    notes_title_index = research_mod._load_notes_title_index(lit_dir)
+
+    different_wang_candidate = {
+        "title": "Self-Instruct: Aligning Language Models for Robotic Manipulation "
+                 "Policies in Simulated Warehouse Environments",
+        "year": 2023,
+        "authors": [{"name": "Chen Wang"}],
+        "externalIds": {},
+    }
+    result = research_mod._corpus_annotation(
+        different_wang_candidate, corpus_index={}, notes_index=notes_index,
+        notes_title_index=notes_title_index,
+    )
+    assert result == "[NEW]", f"A different Wang's paper must stay [NEW]; got {result!r}"
+
+
+def test_load_notes_title_index_scoped_to_notes_without_id(tmp_path: Path) -> None:
+    """_load_notes_title_index must SKIP notes that already carry an
+    extractable id (declared or url-derived) — id-carrying notes are fully
+    served by _load_notes_index (tier 2); including them here only widens
+    the over-match surface for no additional detection power."""
+    lit_dir = tmp_path / "literature"
+    # Argyle's note HAS an extractable id (url-derived arXiv) — must be excluded
+    _write_realistic_note(lit_dir, "argyleOutOneMany2022", ARGYLE_NOTE_FRONTMATTER)
+    # Aher's note has NO extractable id — must be included
+    _write_realistic_note(lit_dir, "aherLargeLanguageModels2022", AHER_NOTE_FRONTMATTER)
+
+    notes_title_index = research_mod._load_notes_title_index(lit_dir)
+    all_citekeys = {ck for lst in notes_title_index.values() for ck, _ in lst}
+    assert "argyleOutOneMany2022" not in all_citekeys, (
+        f"An id-carrying note must not appear in the title index; got {notes_title_index}"
+    )
+    assert "aherLargeLanguageModels2022" in all_citekeys, (
+        f"A no-id note must appear in the title index; got {notes_title_index}"
+    )
