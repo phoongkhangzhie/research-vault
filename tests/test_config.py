@@ -7,13 +7,21 @@ defaults, env override, and error handling. All hermetic (tmp_path).
 import os
 import pytest
 from pathlib import Path
-from research_vault.config import load_config, reset_config_cache, resolve_repo_root
+from research_vault.config import (
+    load_config,
+    reset_config_cache,
+    resolve_repo_root,
+    _locate_config_with_source,
+    _xdg_config_path,
+)
 
 
 def test_defaults_without_config_file(tmp_path, monkeypatch):
     """load_config() without a config file uses cwd-relative defaults."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+    # Isolate from any real XDG config on the test-runner's machine.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no_xdg_here"))
     reset_config_cache()
 
     cfg = load_config(reload=True)
@@ -236,3 +244,194 @@ source_dir = "{repo}"
         reset_config_cache()
         cfg = load_config(reload=True)
         assert cfg.project_devlog("flat-devlog-demo") == repo / "DEVLOG.md"
+
+
+# ---------------------------------------------------------------------------
+# rv config auto-discovery — precedence chain + source tracking
+#
+# Order (first hit wins): --config flag (CLI-injected via env) > env var >
+# CWD walk-up > XDG user config (~/.config/research_vault/config.toml,
+# or $XDG_CONFIG_HOME/research_vault/config.toml) > none (defaults).
+# ---------------------------------------------------------------------------
+
+class TestLocateConfigWithSource:
+    """_locate_config_with_source() returns (path, source) — the SSOT the
+    CLI's --show-instance reads to report *how* a config was found."""
+
+    def test_env_source(self, tmp_path, monkeypatch):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(f'instance_root = "{tmp_path}"\n', encoding="utf-8")
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(toml))
+        path, source = _locate_config_with_source()
+        assert path == toml
+        assert source == "env"
+
+    def test_walkup_source(self, tmp_path, monkeypatch):
+        instance = tmp_path / "vault"
+        subdir = instance / "sub" / "dir"
+        instance.mkdir()
+        subdir.mkdir(parents=True)
+        toml = instance / "research_vault.toml"
+        toml.write_text(f'instance_root = "{instance}"\n', encoding="utf-8")
+
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.chdir(subdir)
+        # Isolate from any real XDG config on the test-runner's machine.
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no_xdg_here"))
+
+        path, source = _locate_config_with_source()
+        assert path == toml
+        assert source == "walk-up"
+
+    def test_xdg_source_when_nothing_else(self, tmp_path, monkeypatch):
+        """XDG config is discovered only when no env var and no walk-up hit."""
+        xdg_home = tmp_path / "xdg"
+        xdg_cfg = xdg_home / "research_vault" / "config.toml"
+        xdg_cfg.parent.mkdir(parents=True)
+        instance_root = tmp_path / "xdg_instance"
+        instance_root.mkdir()
+        xdg_cfg.write_text(f'instance_root = "{instance_root}"\n', encoding="utf-8")
+
+        cwd_dir = tmp_path / "cwd_no_toml"
+        cwd_dir.mkdir()
+
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_home))
+        monkeypatch.chdir(cwd_dir)
+
+        path, source = _locate_config_with_source()
+        assert path == xdg_cfg
+        assert source == "xdg"
+
+    def test_none_when_nothing_found(self, tmp_path, monkeypatch):
+        cwd_dir = tmp_path / "empty_cwd"
+        cwd_dir.mkdir()
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no_xdg_here"))
+        monkeypatch.chdir(cwd_dir)
+
+        path, source = _locate_config_with_source()
+        assert path is None
+        assert source == "none"
+
+    def test_walkup_beats_xdg(self, tmp_path, monkeypatch):
+        """CWD walk-up wins over XDG when both exist (precedence order)."""
+        xdg_home = tmp_path / "xdg"
+        xdg_cfg = xdg_home / "research_vault" / "config.toml"
+        xdg_cfg.parent.mkdir(parents=True)
+        xdg_cfg.write_text(f'instance_root = "{tmp_path}"\n', encoding="utf-8")
+
+        instance = tmp_path / "local_vault"
+        instance.mkdir()
+        local_toml = instance / "research_vault.toml"
+        local_toml.write_text(f'instance_root = "{instance}"\n', encoding="utf-8")
+
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_home))
+        monkeypatch.chdir(instance)
+
+        path, source = _locate_config_with_source()
+        assert path == local_toml
+        assert source == "walk-up"
+
+    def test_env_beats_xdg(self, tmp_path, monkeypatch):
+        xdg_home = tmp_path / "xdg"
+        xdg_cfg = xdg_home / "research_vault" / "config.toml"
+        xdg_cfg.parent.mkdir(parents=True)
+        xdg_cfg.write_text(f'instance_root = "{tmp_path}"\n', encoding="utf-8")
+
+        env_toml = tmp_path / "env_cfg.toml"
+        env_toml.write_text(f'instance_root = "{tmp_path}"\n', encoding="utf-8")
+
+        cwd_dir = tmp_path / "cwd_no_toml"
+        cwd_dir.mkdir()
+
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(env_toml))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_home))
+        monkeypatch.chdir(cwd_dir)
+
+        path, source = _locate_config_with_source()
+        assert path == env_toml
+        assert source == "env"
+
+
+class TestXdgConfigPath:
+    def test_uses_xdg_config_home_when_set(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "custom"))
+        assert _xdg_config_path() == tmp_path / "custom" / "research_vault" / "config.toml"
+
+    def test_falls_back_to_home_config_when_unset(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        assert _xdg_config_path() == tmp_path / ".config" / "research_vault" / "config.toml"
+
+
+class TestLoadConfigXdgIntegration:
+    """load_config() actually loads the XDG-discovered file end-to-end,
+    and Config.config_source reflects the resolution path used."""
+
+    def test_load_config_via_xdg(self, tmp_path, monkeypatch):
+        xdg_home = tmp_path / "xdg"
+        xdg_cfg = xdg_home / "research_vault" / "config.toml"
+        xdg_cfg.parent.mkdir(parents=True)
+        instance_root = tmp_path / "xdg_instance"
+        proj_dir = instance_root / "projects" / "xdg-proj"
+        proj_dir.mkdir(parents=True)
+        xdg_cfg.write_text(
+            f"""
+instance_root = "{instance_root}"
+
+[projects.xdg-proj]
+source_dir = "{proj_dir}"
+""",
+            encoding="utf-8",
+        )
+
+        cwd_dir = tmp_path / "cwd_no_toml"
+        cwd_dir.mkdir()
+
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_home))
+        monkeypatch.chdir(cwd_dir)
+        reset_config_cache()
+
+        cfg = load_config(reload=True)
+        assert cfg.instance_root == instance_root
+        assert "xdg-proj" in cfg.projects
+        assert cfg.config_file == xdg_cfg
+        assert cfg.config_source == "xdg"
+
+    def test_config_source_is_walk_up(self, tmp_path, monkeypatch):
+        instance = tmp_path / "vault"
+        instance.mkdir()
+        toml = instance / "research_vault.toml"
+        toml.write_text(f'instance_root = "{instance}"\n', encoding="utf-8")
+
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no_xdg_here"))
+        monkeypatch.chdir(instance)
+        reset_config_cache()
+
+        cfg = load_config(reload=True)
+        assert cfg.config_source == "walk-up"
+
+    def test_config_source_is_env(self, tmp_path, monkeypatch):
+        toml = tmp_path / "cfg.toml"
+        toml.write_text(f'instance_root = "{tmp_path}"\n', encoding="utf-8")
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(toml))
+        reset_config_cache()
+
+        cfg = load_config(reload=True)
+        assert cfg.config_source == "env"
+
+    def test_config_source_is_none_with_defaults(self, tmp_path, monkeypatch):
+        cwd_dir = tmp_path / "empty_cwd"
+        cwd_dir.mkdir()
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no_xdg_here"))
+        monkeypatch.chdir(cwd_dir)
+        reset_config_cache()
+
+        cfg = load_config(reload=True)
+        assert cfg.config_source == "none"
+        assert cfg.config_file is None

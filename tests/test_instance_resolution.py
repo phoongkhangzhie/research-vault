@@ -293,6 +293,119 @@ class TestInstanceRootSurfacedInStatus:
 # Back-compat: existing callers not broken
 # ---------------------------------------------------------------------------
 
+class TestShowInstanceSourceReporting:
+    """--show-instance reports the resolution source: --config / env /
+    walk-up / xdg / none — so config resolution is debuggable, not magic."""
+
+    def test_reports_config_flag(self, tmp_path, monkeypatch, capsys):
+        instance = tmp_path / "flag_instance"
+        instance.mkdir()
+        toml = _write_instance(instance)
+
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.chdir(tmp_path)
+        reset_config_cache()
+
+        rc = main(["--config", str(toml), "--show-instance"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "(via: --config)" in out
+
+    def test_reports_env_var(self, tmp_path, monkeypatch, capsys):
+        instance = tmp_path / "env_instance"
+        instance.mkdir()
+        toml = _write_instance(instance)
+
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(toml))
+        monkeypatch.chdir(tmp_path)
+        reset_config_cache()
+
+        rc = main(["--show-instance"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "(via: env)" in out
+
+    def test_reports_walk_up(self, tmp_path, monkeypatch, capsys):
+        instance = tmp_path / "walkup_instance"
+        instance.mkdir()
+        _write_instance(instance)
+
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no_xdg_here"))
+        monkeypatch.chdir(instance)
+        reset_config_cache()
+
+        rc = main(["--show-instance"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "(via: walk-up)" in out
+
+    def test_reports_xdg(self, tmp_path, monkeypatch, capsys):
+        xdg_home = tmp_path / "xdg"
+        xdg_cfg = xdg_home / "research_vault" / "config.toml"
+        xdg_cfg.parent.mkdir(parents=True)
+        instance_root = tmp_path / "xdg_instance"
+        proj_dir = instance_root / "projects" / "xdg-proj"
+        proj_dir.mkdir(parents=True)
+        xdg_cfg.write_text(
+            f"""
+instance_root = "{instance_root}"
+
+[projects.xdg-proj]
+source_dir = "{proj_dir}"
+""",
+            encoding="utf-8",
+        )
+
+        cwd_dir = tmp_path / "cwd_no_toml"
+        cwd_dir.mkdir()
+
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_home))
+        monkeypatch.chdir(cwd_dir)
+        reset_config_cache()
+
+        rc = main(["--show-instance"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "(via: xdg)" in out
+        assert str(instance_root) in out
+
+    def test_reports_none_with_defaults(self, tmp_path, monkeypatch, capsys):
+        cwd_dir = tmp_path / "empty_cwd"
+        cwd_dir.mkdir()
+        monkeypatch.delenv("RESEARCH_VAULT_CONFIG", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no_xdg_here"))
+        monkeypatch.chdir(cwd_dir)
+        reset_config_cache()
+
+        rc = main(["--show-instance"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "config_file:   (none — defaults)" in out
+
+    def test_config_flag_wins_over_env_source_label(self, tmp_path, monkeypatch, capsys):
+        """When both --config and RESEARCH_VAULT_CONFIG are set, the flag
+        wins on resolution AND on the reported source label (not "env")."""
+        instance_env = tmp_path / "instance_env"
+        instance_flag = tmp_path / "instance_flag"
+        instance_env.mkdir()
+        instance_flag.mkdir()
+
+        toml_env = _write_instance(instance_env, slug="proj-env")
+        toml_flag = _write_instance(instance_flag, slug="proj-flag")
+
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(toml_env))
+        monkeypatch.chdir(tmp_path)
+        reset_config_cache()
+
+        rc = main(["--config", str(toml_flag), "--show-instance"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "(via: --config)" in out
+        assert "(via: env)" not in out
+
+
 class TestBackwardCompat:
     def test_no_flag_no_env_uses_cwd(self, tmp_path, monkeypatch):
         """load_config() without flag or env still does CWD walk-up (back-compat)."""

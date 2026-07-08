@@ -171,7 +171,14 @@ one exists.
 `config.py` is the sole SSOT for path resolution — every verb resolves paths
 via `Config`, zero hardcoded paths or codenames. Resolution precedence:
 `--config PATH` → `RESEARCH_VAULT_CONFIG` env var → CWD walk-up to
-`research_vault.toml`. The project registry (`config["projects"]`) maps
+`research_vault.toml` → XDG user config
+(`$XDG_CONFIG_HOME/research_vault/config.toml`, falling back to
+`~/.config/research_vault/config.toml`) → zero-config defaults. The XDG level
+is the ergonomic fix for the out-of-repo case (a bare `rv` call from anywhere
+on the machine still finds the operator's vault registry if it's
+symlinked/copied to the XDG path) — `rv --show-instance` reports both the
+resolved `config_file` and which level found it (`--config`/`env`/`walk-up`/
+`xdg`/`none`). The project registry (`config["projects"]`) maps
 slug → `{code, source_dir, roster, ...}`; `cfg.project_notes_dir(slug)`
 resolves `source_dir` directly (no `notes_root / slug` indirection).
 

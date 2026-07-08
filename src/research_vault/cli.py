@@ -999,9 +999,12 @@ def _build_top_parser(instance_verbs: dict | None = None) -> argparse.ArgumentPa
         metavar="PATH",
         default=None,
         help=(
-            "Path to a research_vault.toml file. "
-            "Overrides RESEARCH_VAULT_CONFIG env var and CWD walk-up. "
-            "Errors loudly if the path does not exist."
+            "Path to a research_vault.toml file. Wins over all auto-discovery "
+            "(RESEARCH_VAULT_CONFIG env var, CWD walk-up, XDG user config). "
+            "Errors loudly if the path does not exist. Discovery order when "
+            "--config is absent: RESEARCH_VAULT_CONFIG env var > CWD walk-up "
+            "> XDG (~/.config/research_vault/config.toml) > none (defaults). "
+            "Run --show-instance to see which level resolved."
         ),
     )
     parser.add_argument(
@@ -1009,7 +1012,8 @@ def _build_top_parser(instance_verbs: dict | None = None) -> argparse.ArgumentPa
         action="store_true",
         default=False,
         help=(
-            "Print the resolved instance root and config file path, then exit. "
+            "Print the resolved instance root and config file path (with the "
+            "discovery source: --config/env/walk-up/xdg/none), then exit. "
             "Useful to confirm which vault 'rv' is targeting (multi-instance guard)."
         ),
     )
@@ -1097,7 +1101,15 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "show_instance", False):
             try:
                 cfg = load_config()
-                config_src = str(cfg.config_file) if cfg.config_file else "(none — defaults)"
+                if cfg.config_file is None:
+                    config_src = "(none — defaults)"
+                else:
+                    # The --config flag is injected into RESEARCH_VAULT_CONFIG
+                    # upstream (see _early_config above), so config.py can't
+                    # tell it apart from a real env var — only the CLI knows
+                    # whether --config was actually passed on this invocation.
+                    via = "--config" if _early_config is not None else cfg.config_source
+                    config_src = f"{cfg.config_file} (via: {via})"
                 print(f"instance_root: {cfg.instance_root}")
                 print(f"config_file:   {config_src}")
             except Exception as e:

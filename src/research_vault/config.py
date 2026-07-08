@@ -9,9 +9,22 @@ Resolution precedence (highest → lowest):
   1. ``--config PATH`` CLI flag  (wired via RESEARCH_VAULT_CONFIG env by the CLI)
   2. ``RESEARCH_VAULT_CONFIG`` env var (absolute path to the TOML file)
   3. CWD walk-up — search current directory and parents for ``research_vault.toml``
+  4. XDG user config — ``$XDG_CONFIG_HOME/research_vault/config.toml``, falling
+     back to ``~/.config/research_vault/config.toml`` when XDG_CONFIG_HOME is
+     unset. This is the discovery level that fixes the out-of-repo case: a
+     `rv` call from anywhere on the machine (no repo-local research_vault.toml
+     underfoot, no explicit --config/env) still resolves the operator's
+     vault registry if it's symlinked/copied to the XDG path.
+  5. None found — falls through to zero-config defaults (empty registry,
+     instance_root = cwd).
 
 Both ``--config`` and ``RESEARCH_VAULT_CONFIG`` error loudly when the path does not
-exist, rather than silently falling through to the CWD walk-up.
+exist, rather than silently falling through to CWD walk-up / XDG. Steps 3–5 are
+soft: not finding a file at that step just falls through to the next.
+
+Run ``rv --show-instance`` to see which config file (if any) was resolved and
+via which of the levels above (``--config`` / ``env`` / ``walk-up`` / ``xdg`` /
+``none``) — resolution is meant to be debuggable, never magic.
 
 Multi-project registry: config["projects"] is a dict mapping project-slug → project record.
 Verb invocations are project-scoped: `rv task <project> …` resolves paths via the registry.
@@ -29,20 +42,40 @@ from typing import Any
 # Location resolution
 # ---------------------------------------------------------------------------
 
-def _find_config_path() -> Path | None:
-    """Locate the research_vault.toml file.
+def _xdg_config_path() -> Path:
+    """Return the XDG user-config location for research_vault (may not exist).
 
-    Search order:
-    1. RESEARCH_VAULT_CONFIG env var (must be an absolute path)
-    2. Current working directory
-    3. Parent directories up to the filesystem root
-    Returns None if not found (caller decides whether to error or use defaults).
+    ``$XDG_CONFIG_HOME/research_vault/config.toml``, falling back to
+    ``~/.config/research_vault/config.toml`` per the XDG base-dir spec.
+    Stdlib only — no `platformdirs` dependency (research-vault ships dep-light
+    by design; see the module docstring).
+    """
+    xdg_home = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg_home).expanduser() if xdg_home else Path.home() / ".config"
+    return base / "research_vault" / "config.toml"
+
+
+def _locate_config_with_source() -> tuple[Path | None, str]:
+    """Locate the research_vault.toml file, and report *how* it was found.
+
+    Search order (first hit wins):
+    1. RESEARCH_VAULT_CONFIG env var (must point to an existing file)
+    2. CWD walk-up — current directory and parents
+    3. XDG user config — see `_xdg_config_path()`
+    Returns (None, "none") if nothing is found (caller decides whether to
+    error or fall through to defaults).
+
+    Source labels: "env" | "walk-up" | "xdg" | "none". The CLI's `--config`
+    flag is injected into RESEARCH_VAULT_CONFIG upstream (see cli.main), so
+    it is indistinguishable from a real env var at this layer — the CLI
+    itself relabels it "--config" for `--show-instance` display, since it
+    alone knows whether the flag was passed.
     """
     env_override = os.environ.get("RESEARCH_VAULT_CONFIG")
     if env_override:
         p = Path(env_override)
         if p.is_file():
-            return p
+            return p, "env"
         # Explicit override that doesn't exist — surface loudly rather than fall through
         raise FileNotFoundError(
             f"RESEARCH_VAULT_CONFIG={env_override!r} does not exist or is not a file"
@@ -53,9 +86,23 @@ def _find_config_path() -> Path | None:
     for directory in [cwd, *cwd.parents]:
         candidate = directory / "research_vault.toml"
         if candidate.is_file():
-            return candidate
+            return candidate, "walk-up"
 
-    return None
+    xdg_path = _xdg_config_path()
+    if xdg_path.is_file():
+        return xdg_path, "xdg"
+
+    return None, "none"
+
+
+def _find_config_path() -> Path | None:
+    """Locate the research_vault.toml file (path only — no source label).
+
+    Back-compat wrapper around `_locate_config_with_source()` for callers
+    (project.py) that only need the path, not how it was resolved.
+    """
+    path, _source = _locate_config_with_source()
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -196,9 +243,18 @@ class Config:
     `path_*` properties; raw strings via direct attribute access.
     """
 
-    def __init__(self, raw: dict[str, Any], config_file: Path | None = None):
+    def __init__(
+        self,
+        raw: dict[str, Any],
+        config_file: Path | None = None,
+        config_source: str = "none",
+    ):
         self._raw = raw
         self.config_file = config_file
+        # How config_file was resolved: "env" | "walk-up" | "xdg" | "none".
+        # ("--config" is relabeled by the CLI, which alone knows the flag was
+        # passed — see _locate_config_with_source()'s docstring.)
+        self.config_source = config_source
         self.instance_root = Path(raw["instance_root"])
         self.notes_root = Path(raw["notes_root"])
         self.state_dir = Path(raw["state_dir"])
@@ -319,7 +375,7 @@ def load_config(*, reload: bool = False) -> Config:
         return _CACHE
 
     defaults = _default_config()
-    config_path = _find_config_path()
+    config_path, config_source = _locate_config_with_source()
 
     if config_path is None:
         cfg = defaults
@@ -333,7 +389,7 @@ def load_config(*, reload: bool = False) -> Config:
         cfg = _merge(defaults, raw)
 
     cfg = _expand_paths(cfg, instance_root if config_path else Path(defaults["instance_root"]))
-    _CACHE = Config(cfg, config_path)
+    _CACHE = Config(cfg, config_path, config_source)
     return _CACHE
 
 

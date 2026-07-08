@@ -1,3 +1,55 @@
+## 2026-07-07 (release/0.2.1: config auto-discovery)
+
+### Done
+- Version bump `0.2.0 → 0.2.1` in `pyproject.toml` and
+  `src/research_vault/__init__.py`. **Patch** bump — an ergonomic fix, no
+  breaking change, no new capability.
+- **`rv` config auto-discovery** — the fix for the recurring "`rv` needs
+  `--config` everywhere" friction (a bare `rv` resolves an empty registry
+  because it doesn't discover the vault's `research_vault.toml` when neither
+  `--config` nor `RESEARCH_VAULT_CONFIG` is set and CWD walk-up doesn't hit).
+  Extended the precedence chain in `config.py`:
+  1. `--config PATH` (CLI flag) — unchanged, always wins.
+  2. `RESEARCH_VAULT_CONFIG` env var — unchanged.
+  3. CWD walk-up for `research_vault.toml` — unchanged (pre-existing).
+  4. **XDG user config** (new) — `$XDG_CONFIG_HOME/research_vault/config.toml`,
+     falling back to `~/.config/research_vault/config.toml`. Stdlib only, no
+     new dependency (`platformdirs` not added — matches the dep-light design
+     stated in `config.py`'s own docstring). This is the level that fixes the
+     out-of-repo case: a bare `rv` call from anywhere on the machine still
+     finds the operator's vault registry if it's symlinked to the XDG path.
+  5. None found → unchanged zero-config default (empty registry,
+     `instance_root = cwd`).
+  - `Config` gained a `config_source` attribute (`"env"`/`"walk-up"`/`"xdg"`/
+    `"none"`); `_find_config_path()` kept its old path-only signature
+    (back-compat for `project.py`'s two callers) as a thin wrapper over the
+    new `_locate_config_with_source()`.
+  - `rv --show-instance` now reports **how** the config was found —
+    `config_file:   /path/to/research_vault.toml (via: xdg)` (also
+    `--config`/`env`/`walk-up`), or `(none — defaults)` when nothing
+    resolved. The CLI relabels the injected-`--config`-via-env case as
+    `--config` (not `env`) since only the CLI layer knows the flag was
+    actually passed — `config.py` alone can't distinguish it from a real
+    `RESEARCH_VAULT_CONFIG` set in the shell.
+  - `architecture.md` and the `--config`/`--show-instance` help text updated
+    to document the new precedence level.
+
+### Decisions
+- XDG resolved via stdlib (`$XDG_CONFIG_HOME` env + `Path.home()` fallback),
+  not the `platformdirs` package — `research-vault` ships dep-light by
+  design (see `pyproject.toml`'s Tier-1 dependency comment); adding a dep for
+  a two-line XDG-base-dir lookup isn't warranted (charter §6, reuse over
+  create — the stdlib primitive already covers it).
+- `_find_config_path()`'s path-only signature is preserved for `project.py`'s
+  two callers rather than threading the source tuple through every call site
+  — minimal blast radius; the source label is only needed at the
+  `--show-instance` reporting boundary.
+
+### Open / next
+- None — this closes the friction ticket. `rv config` is not (yet) a
+  standalone verb; discovery lives entirely in `config.py` + the
+  `--config`/`--show-instance` global flags.
+
 ## 2026-07-07 (release/0.2.0: version bump to 0.2.0)
 
 ### Done
