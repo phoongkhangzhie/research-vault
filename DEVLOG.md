@@ -1,3 +1,76 @@
+## 2026-07-07 (release/0.2.2: corpus-annotation under-detection fix)
+
+### Done
+- Version bump `0.2.1 → 0.2.2` — **patch**: bug fix, no breaking change.
+- **Fixed real corpus-under-annotation bug**: `rv research references`
+  (backward snowball) was flagging known in-corpus papers as `[NEW]` — 0
+  `[IN-CORPUS]` / 90 `[NEW]` on a live `cultural-social-sim` snowball round
+  that included two papers (Argyle 2022, Aher 2022) with filed
+  `literature/` notes. Blocked a review-loop saturation round (683
+  hand-re-annotations forced).
+- **Root cause — disconfirmed the initial hypothesis, found the real one.**
+  The brief for this fix assumed a references-vs-cited-by S2 payload
+  *shape* difference. Live-checked both `asta papers citations` and
+  `asta papers get --fields references.*`: identical `externalIds`
+  shape, and `cmd_cited_by`/`cmd_references` already call the exact same
+  `_corpus_annotation`/`_print_candidates` path — no shape divergence
+  exists. Reproducing `rv research find`/`cited-by` directly (not via the
+  `vault research` wrapper, which has its own independent, more permissive
+  matcher against a different, hub-wide bibliography) showed **all three**
+  rv verbs under-annotate identically for this project. The actual defect:
+  `_load_notes_index` only recognized `doi:`/`arxiv_id:` frontmatter
+  fields, but real literature notes almost universally carry only a
+  `url:` field (e.g. `https://arxiv.org/abs/2209.06899`) — never a
+  separate id field.
+- **Fix** (`src/research_vault/research.py`):
+  - `_load_notes_index` now also mines the `url:` field for an arXiv id
+    (`arxiv.org/abs/...`) or a DOI (`doi.org/10....`) when the dedicated
+    fields are absent — declared fields still take priority.
+  - New `_load_notes_title_index` + a third `_corpus_annotation` tier:
+    first-author-family + long-title (>=20 normalized chars) fallback,
+    for the rarer case where a note carries no id anywhere (Aher's note
+    links a conference-proceedings page with no DOI/arXiv pattern).
+    Deliberately year-agnostic — a paper's canonical S2 year and a note's
+    recorded venue year commonly differ (preprint vs. eventual publication
+    year), and gating on year would reintroduce the exact under-detection
+    this fix exists to close.
+  - Threaded `notes_title_index` through `_print_candidates`,
+    `cmd_find`, `cmd_cited_by`, `cmd_references` — all three verbs now
+    share one strengthened annotation path (parity restored, not a
+    references-only patch).
+- **Tests** (`tests/test_research_corpus_dedup.py`, +4, all
+  red-before-green against real Argyle/Aher note + live-fetched S2
+  reference-item shapes): url-derived arXiv-id indexing, Argyle
+  url-only-note annotation, Aher title+author-fallback annotation
+  (with the S2/note year mismatch reproduced), and a
+  cited-by-vs-references parity test.
+
+### Decisions
+- The year-agnostic title-fallback tier is a deliberate divergence from
+  the sibling `vault research` tool's own `cite.py::_match_one`, which
+  disables its equivalent lenient tier specifically for external-candidate
+  annotation (citing surname-collision false-positive risk). Judged the
+  trade-off differently here: false-NEW (under-detection, causing
+  hand-re-annotation at scale) is empirically the costlier failure mode
+  for this project's saturation loop; the >=20-char full-title-overlap
+  gate keeps the false-positive surface small. Flagged, not silently
+  ported — future maintainers should know this is a considered choice,
+  not an oversight.
+
+### Open / next
+- **Separate, pre-existing bug surfaced (not fixed here, out of scope):**
+  `tests/test_project.py::test_cmd_add_no_config_raises` fails on this
+  machine because PR #171's XDG config auto-discovery has no test
+  isolation against a developer's real `~/.config/research_vault/config.toml`
+  — the test expects "no config found" but the XDG fallback finds the
+  real file instead. Confirmed this test failure is unrelated to this PR's
+  diff (which touches only `research.py` + its test file) and does not
+  reproduce in CI (fresh runner, no such file). Found the real config had
+  already been polluted with a bogus `[projects.x]` entry by some prior,
+  unisolated test run — backed up, **not removed** (out of this PR's
+  scope; needs an explicit decision + a conftest fix that isolates
+  `XDG_CONFIG_HOME`/`HOME` for tests exercising the "no config" path).
+
 ## 2026-07-07 (release/0.2.1: config auto-discovery)
 
 ### Done
