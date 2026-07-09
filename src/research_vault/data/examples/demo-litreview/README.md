@@ -36,8 +36,10 @@ single static illustration:
 10. **review-coverage-critic** (reviewer, rejects-only) — flags premature
     saturation, orphan concepts, protocol non-adherence, and a missing/ignored
     counter-position ([PASS]/[BLOCK])
-11. **approve-review** — Gate 3: human approves the review — [BLOCK] count +
-    counter-position verdict
+11. **approve-review** — Gate 3: [BLOCK] count + counter-position verdict —
+    resolved AUTONOMOUSLY (single-human-gate design: only `approve-protocol`,
+    Gate 1, is a human gate; `rv dag approve --auto` or the self-advancing
+    runner resolve this one from `review-coverage-critic`'s verdict)
 
 ## The two-phase fan-out
 
