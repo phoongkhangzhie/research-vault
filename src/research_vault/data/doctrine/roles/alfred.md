@@ -40,6 +40,18 @@ hat-slips); this rule removes it from the loop.
 | **Designer (Iris)** | Visual identity; you dispatch it for figure/identity work; it drafts until you or the operator approve the public release |
 | **Researcher (Ada)** | Deep research work; you dispatch it for literature and experiment; it returns findings + proposed experiments for the operator to decide |
 
+## Project lifecycle — register ↔ stand down
+
+Separate from edge stewardship below (which manages *relatedness between* already-live
+projects): the registry itself has a lifecycle, `rv project add`/`new` to register a
+project through to `rv project remove <slug>` to stand one down. See
+[doctrine/project-structure.md](../project-structure.md)'s "Project lifecycle" section
+for the full shape — including `remove`'s safety model (local-only teardown, GitHub
+preserved by default, the unpushed-work firewall, `--purge-repo`/`--purge-agents`/
+`--archive-github`/`--dry-run`, and the `⟦VAULT-TEARDOWN⟧` handoff to the vault side).
+These are KEEP-bucket lifecycle primitives, not loop steps — reach for them directly,
+never via a DAG node.
+
 ## Cross-project edge stewardship (SR-XPB)
 
 You **own** the declared cross-project edge registry because you hold the registry overview.

@@ -221,3 +221,43 @@ cold context-switch needs. `rv orient <slug>` bundles them with the operational 
 status` read in one call — see [coordination.md](./coordination.md)'s "`rv orient` —
 the one-shot cold-context-switch primitive" section for the trigger and the blessed
 `pointers.md` MUST-contain skeleton.
+
+## Project lifecycle — register ↔ stand down
+
+Everything above describes what a *live* project looks like. The lifecycle that gets a
+project into (and out of) that state is a small, KEEP-bucket set of primitives — distinct
+from the loop step-verbs that collapse into DAG node-execution (the verb-consolidation
+program, D1..D5): these are standalone tools an operator/Alfred calls directly, not steps
+a loop's DAG carries.
+
+- **Register** — `rv project add`/`rv project new` scaffolds a project into the registry
+  (`research_vault.toml`'s `[projects.<slug>]` table) and lays down the folder convention
+  this page describes (`notes/`, `manuscripts/`, the mechanical roots). This is the entry
+  point every other section on this page assumes has already run.
+- **Operate** — the project lives through the OKF loops (`experiment`, `lit-review`, the
+  manuscript loop) described above; `rv project relate`/`rv project edges` manage its
+  *declared peer* graph (cross-project corroboration, SR-XPB) — a separate axis from
+  lifecycle.
+- **Stand down** — `rv project remove <slug>` is `add`'s parity counterpart: local
+  teardown of the registry entry + scaffolded folders. The safety model, briefly (an
+  Alfred reaching for this should know the shape before invoking it):
+  - **Local, not remote** — removes the local registration/scaffolding; the project's
+    GitHub repo (if any) is **preserved** by default, never deleted as a side effect.
+  - **Non-destructive by default** — a plain `rv project remove <slug>` does not purge
+    anything irreversible; destructive extras are explicit opt-ins.
+  - **The unpushed-work firewall** — refuses (or loudly warns) when there is unpushed
+    local work under the project, so a teardown can't silently discard it.
+  - **Explicit opt-in flags** for the destructive extras: `--purge-repo` (delete the
+    scaffolded repo content), `--purge-agents` (remove the project's `.claude/agents/`
+    materialization), `--archive-github` (archive rather than delete the GitHub repo),
+    `--dry-run` (preview the teardown plan with no writes — the cheap screen before the
+    real operation, charter §9).
+  - **Emits `⟦VAULT-TEARDOWN⟧`** — a structured handoff so the **vault side** (the hub's
+    own registry/state, outside this repo's scope) can complete its half of the teardown;
+    `rv project remove` owns the *project*-side teardown, not the hub's bookkeeping.
+
+Register and stand-down are lifecycle **primitives**, not loop nodes — no DAG manifest
+ever calls them, and they are never collapsed by the verb-consolidation program (D1..D5)
+the way `sweep`/`coverage`/`expand`/etc. are. They are the KEEP-bucket peers of `research
+find`/`research add`/`note check` (verb-consolidation §4.3): atomic ops Alfred or a human
+calls directly, outside any loop's frontier.
