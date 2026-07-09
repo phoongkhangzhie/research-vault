@@ -101,7 +101,7 @@ class TestMatchSupport:
         from research_vault.gates.support_matcher import match_support
         note = _literature_note(tmp_path, "smith2023")
         v = match_support(
-            "We show that X is true \\cite{smith2023}.",
+            "We show that X is true [[smith2023]].",
             "smith2023",
             note,
             judge_fn=_mock_judge("SUPPORTS", "Finding A: X is true."),
@@ -115,7 +115,7 @@ class TestMatchSupport:
         from research_vault.gates.support_matcher import match_support
         note = _literature_note(tmp_path, "jones2024")
         v = match_support(
-            "We show Y \\cite{jones2024}.",
+            "We show Y [[jones2024]].",
             "jones2024",
             note,
             judge_fn=_mock_judge("ABSENT", "none"),
@@ -127,7 +127,7 @@ class TestMatchSupport:
         from research_vault.gates.support_matcher import match_support
         note = _literature_note(tmp_path, "doe2023")
         v = match_support(
-            "X does not exist \\cite{doe2023}.",
+            "X does not exist [[doe2023]].",
             "doe2023",
             note,
             judge_fn=_mock_judge("CONTRADICTS", "none", "negative"),
@@ -139,7 +139,7 @@ class TestMatchSupport:
         from research_vault.gates.support_matcher import match_support
         note = _literature_note(tmp_path, "lee2022")
         v = match_support(
-            "We definitively prove X \\cite{lee2022}.",
+            "We definitively prove X [[lee2022]].",
             "lee2022",
             note,
             judge_fn=_mock_judge("PARTIAL", "Finding A: X may be true."),
@@ -166,7 +166,7 @@ class TestVerbatimSpanOrBlock:
                 "POLARITY: neutral\nREASONING: n/a\n"
             )
 
-        v = match_support("Z \\cite{spanleak2024}.", "spanleak2024", note, judge_fn=_bad_judge)
+        v = match_support("Z [[spanleak2024]].", "spanleak2024", note, judge_fn=_bad_judge)
         assert v.verdict == "ABSENT"
         assert v.verbatim_span is None
 
@@ -184,7 +184,7 @@ class TestFailClosed:
         def _raising_judge(prompt: str) -> str:
             raise RuntimeError("simulated network failure")
 
-        v = match_support("Q \\cite{raises2024}.", "raises2024", note, judge_fn=_raising_judge)
+        v = match_support("Q [[raises2024]].", "raises2024", note, judge_fn=_raising_judge)
         assert v.verdict == "ABSENT"
         assert v.blocks
 
@@ -193,7 +193,7 @@ class TestFailClosed:
         from research_vault.gates.support_matcher import match_support
         missing = tmp_path / "literature" / "nobody2025.md"
         v = match_support(
-            "We cite nobody \\cite{nobody2025}.",
+            "We cite nobody [[nobody2025]].",
             "nobody2025",
             missing,
             judge_fn=_mock_judge("SUPPORTS"),  # even a SUPPORTS-happy judge cannot rescue this
@@ -209,7 +209,7 @@ class TestFailClosed:
         def _garbled_judge(prompt: str) -> str:
             return "I think this is probably fine, no clear verdict token here."
 
-        v = match_support("W \\cite{garbled2024}.", "garbled2024", note, judge_fn=_garbled_judge)
+        v = match_support("W [[garbled2024]].", "garbled2024", note, judge_fn=_garbled_judge)
         assert v.verdict == "ABSENT"
 
 
@@ -256,7 +256,7 @@ class TestAntiAnchoring:
         )
         fields = _read_note_structured_fields(note)
         prompt = _build_judge_prompt(
-            "Accuracy reaches 71% \\cite{abstest2025}.", "abstest2025", fields,
+            "Accuracy reaches 71% [[abstest2025]].", "abstest2025", fields,
             get_support_rubric(),
         )
         assert "revolutionary breakthrough" not in prompt
@@ -290,7 +290,7 @@ class TestAntiAnchoring:
         )
         v = match_support(
             "The method improves accuracy by 12.4 points over the baseline "
-            "\\cite{richfulltext2026}.",
+            "[[richfulltext2026]].",
             "richfulltext2026", note,
             judge_fn=lambda prompt: (
                 "VERDICT: [SUPPORTS]\n"
@@ -377,7 +377,7 @@ class TestScopeExtraction:
             assert "[ABSENT]" in prompt  # sanity: rubric text does mention it
             return "VERDICT: [SUPPORTS]\nVERBATIM_SPAN: Finding A: X is true.\nREASONING: ok\n"
 
-        v = match_support("X holds \\cite{scopetest2024}.", "scopetest2024", note, judge_fn=_judge)
+        v = match_support("X holds [[scopetest2024]].", "scopetest2024", note, judge_fn=_judge)
         assert v.verdict == "SUPPORTS"
 
 
@@ -392,7 +392,7 @@ class TestJ2StanceEscalation:
         })
         from research_vault.gates.support_matcher import match_support
         v = match_support(
-            "We establish that X is definitively true \\cite{exp2023}.",
+            "We establish that X is definitively true [[exp2023]].",
             "exp2023", note, stance="exploratory", judge_fn=_mock_judge("SUPPORTS"),
         )
         assert v.j2_escalation
@@ -426,7 +426,7 @@ class TestPlantedUnsupportedClaimIsCaught:
         # A claim about an ENTIRELY unrelated subject the note never discusses.
         planted_claim = (
             "The model exhibits emergent multi-hop reasoning across 12 languages "
-            "\\cite{plant2024}."
+            "[[plant2024]]."
         )
 
         # A discriminating mock judge: it actually reads the injected note

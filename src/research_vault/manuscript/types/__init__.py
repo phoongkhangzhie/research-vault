@@ -40,7 +40,7 @@ class SectionSpec:
 
     Attributes:
         name: section key — used as the Phase-2 DAG node id AND the
-            ``sections/<name>.tex`` stem.
+            ``sections/<name>.md`` stem.
         assembly_class: ``"M"`` (mechanical/deterministic) | ``"S"``
             (synthesized, LLM-scaffolded + gated) | ``"H"`` (human-led). See
             design §3's table header for the class legend.

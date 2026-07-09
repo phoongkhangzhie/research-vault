@@ -31,7 +31,7 @@ _DEFAULT_PREAMBLE: str = (
     "You are drafting a section of a manuscript in the Research Vault manuscript "
     "loop (type-generic core, PR-M1).\n"
     "Anti-fabrication spine: numbers, citations, table cells, and pivotal equations "
-    "are DATA — injected by the machine (hermetic .bib in PR-M2, results/equation "
+    "are DATA — injected by the machine (hermetic references.md build in PR-M2, results/equation "
     "injection in PR-M2/PR-M4), never typed by you. Claims and comparisons are "
     "PROSE you synthesize, gated against their source notes (the fidelity gates, "
     "PR-M3)."

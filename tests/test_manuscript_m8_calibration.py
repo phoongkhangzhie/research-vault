@@ -345,7 +345,7 @@ class TestJudgeLoudFailGuardUnweakened:
         project_notes_dir = tmp_path / "notes"
         tree_root = project_notes_dir / "manuscripts" / "survey-cal"
         (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-        (tree_root / "refs.bib").write_text("", encoding="utf-8")
+        (tree_root / "references.md").write_text("", encoding="utf-8")
         ms_type = get_type("lit-review")
 
         with pytest.raises(RuntimeError, match="judge_fn is required"):

@@ -79,8 +79,8 @@ def test_judge_emit_then_ingest_roundtrip(cfg, tmp_path):
     _scaffold(cfg, tmp_path)
     tree_root = _manuscript_tree_root("demo-research", "survey-x", cfg)
     (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-    (tree_root / "sections" / "intro.tex").write_text(
-        "A claim about the topic. \\cite{paper1}", encoding="utf-8",
+    (tree_root / "sections" / "intro.md").write_text(
+        "A claim about the topic. [[paper1]]", encoding="utf-8",
     )
     lit_dir = cfg.project_notes_dir("demo-research") / "literature"
     lit_dir.mkdir(parents=True, exist_ok=True)

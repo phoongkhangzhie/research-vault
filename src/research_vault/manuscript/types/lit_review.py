@@ -747,7 +747,7 @@ STYLE_BRIEFS: dict[str, str] = {
     ),
     "references": (
         "RD-1: this is `## Sources`, MECHANICAL not prose — the reference "
-        "list is built from the hermetic citekey ledger (`refs.bib`, from "
+        "list is built from the hermetic citekey ledger (`references.md`, from "
         "`literature/` frontmatter) — never hand-type or invent an entry. "
         "Use the injected comparison-table citekey list verbatim. Cite in "
         "the body with `[[citekey]]` markdown wikilinks, never `\\cite{}` "
@@ -776,7 +776,7 @@ STYLE_BRIEFS: dict[str, str] = {
     ),
     "assemble": (
         "RD-1: join the drafted sections into `report.md` (markdown, not "
-        "`main.tex`) in READER-FIRST reading order (RD-2): Abstract, "
+        "markdown, not a separate assembly step) in READER-FIRST reading order (RD-2): Abstract, "
         "Introduction (thesis + spine-at-a-glance), Thematic sections, "
         "Cross-cutting analysis, Open problems, Conclusion, Sources "
         "(References), Appendix A (Appendix-methods) — even though Abstract "

@@ -46,9 +46,9 @@ def _make_ms_tree(tmp_path: Path) -> Path:
     return tree_root
 
 
-def _write_tex_with_cites(tree_root: Path, n: int) -> None:
-    lines = [f"This is claim {i}. \\cite{{paper{i}}}" for i in range(n)]
-    (tree_root / "sections" / "intro.tex").write_text("\n\n".join(lines), encoding="utf-8")
+def _write_md_with_cites(tree_root: Path, n: int) -> None:
+    lines = [f"This is claim {i}. [[paper{i}]]" for i in range(n)]
+    (tree_root / "sections" / "intro.md").write_text("\n\n".join(lines), encoding="utf-8")
 
 
 def _literature_note(notes_root: Path, citekey: str) -> None:
@@ -72,7 +72,7 @@ class TestIncompleteFanoutRoutesToNotRun:
     def test_missing_verdicts_file_lands_in_not_run_and_halts(self, tmp_path):
         tree_root = _make_ms_tree(tmp_path)
         project_notes_dir = tmp_path
-        _write_tex_with_cites(tree_root, 2)
+        _write_md_with_cites(tree_root, 2)
         for i in range(2):
             _literature_note(project_notes_dir, f"paper{i}")
 
@@ -100,7 +100,7 @@ class TestIncompleteFanoutRoutesToNotRun:
     def test_canary_abort_sets_payload_flag_and_halts(self, tmp_path):
         tree_root = _make_ms_tree(tmp_path)
         project_notes_dir = tmp_path
-        _write_tex_with_cites(tree_root, 2)
+        _write_md_with_cites(tree_root, 2)
         for i in range(2):
             _literature_note(project_notes_dir, f"paper{i}")
 

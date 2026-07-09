@@ -61,8 +61,8 @@ class TestCheckSupportTally:
         notes_root = tmp_path / "notes"
         _literature_note(notes_root, "smith2023")
         _literature_note(notes_root, "jones2024")
-        (tree_root / "sections" / "results-discussion.tex").write_text(
-            r"We found X \cite{smith2023}. Additionally Y \cite{jones2024}.",
+        (tree_root / "sections" / "results-discussion.md").write_text(
+            "We found X [[smith2023]]. Additionally Y [[jones2024]].",
             encoding="utf-8",
         )
 
@@ -83,8 +83,8 @@ class TestCheckSupportTally:
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path / "notes"
         _literature_note(notes_root, "smith2023")
-        (tree_root / "sections" / "results.tex").write_text(
-            r"We found that X is true \cite{smith2023}.", encoding="utf-8",
+        (tree_root / "sections" / "results.md").write_text(
+            "We found that X is true [[smith2023]].", encoding="utf-8",
         )
 
         def _blind_judge(prompt: str) -> str:
@@ -100,8 +100,8 @@ class TestCheckSupportTally:
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path / "notes"
         _literature_note(notes_root, "smith2023")
-        (tree_root / "sections" / "results.tex").write_text(
-            r"We found that X is true \cite{smith2023}.", encoding="utf-8",
+        (tree_root / "sections" / "results.md").write_text(
+            "We found that X is true [[smith2023]].", encoding="utf-8",
         )
 
         def _sighted_judge(prompt: str) -> str:
@@ -110,7 +110,7 @@ class TestCheckSupportTally:
         result = check_support_tally(tree_root, notes_root=notes_root, judge_fn=_sighted_judge)
         assert result["canary_aborted"] is False
 
-    def test_no_tex_files_returns_zero_tally(self, tmp_path):
+    def test_no_draft_files_returns_zero_tally(self, tmp_path):
         from research_vault.manuscript.fidelity_gates import check_support_tally
         tree_root = _make_ms_tree(tmp_path)
         result = check_support_tally(tree_root, judge_fn=lambda p: "VERDICT: [SUPPORTS]\n")
@@ -119,8 +119,8 @@ class TestCheckSupportTally:
 
     def test_rd1_fires_on_markdown_wikilink_citation(self, tmp_path):
         """RD-1 acceptance: the support-matcher (citation-fidelity floor)
-        keeps firing when the draft is markdown (`report.md`/`sections/*.md`
-        with `[[citekey]]` wikilink citations), not just legacy .tex."""
+        fires on markdown (`report.md`/`sections/*.md` with `[[citekey]]`
+        wikilink citations) — the ONLY draft/citation format now."""
         from research_vault.manuscript.fidelity_gates import check_support_tally
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path / "notes"

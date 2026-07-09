@@ -189,12 +189,13 @@ Turns a saturated `notes/` corpus into a submittable document, **by type**
 (`type: lit-review` — a survey/review paper — ships today; a future
 `type: experiment-paper` is designed for, not built). The organizing framework
 is a human commitment, never machine-discovered; every draft/revise round
-re-fires hard fidelity gates (hermetic `.bib` build, citation-resolve, coverage,
+re-fires hard fidelity gates (hermetic references build, citation-resolve, coverage,
 equation-fidelity) and, when a judge is configured, LLM-judged support-matcher +
 cold-read gates; a 2-round × 3-reviewer conference-style board scores FLOOR axes
 by MIN-across-3 (never average) plus a **mandatory** annotated-bibliography
 canary that must not clear. OKF inputs: `literature/`, `concepts/`, `mocs/`,
-`gaps/`. Output: `manuscripts/<slug>/{main.tex, sections/, refs.bib, figures/}`.
+`gaps/`. Output: `manuscripts/<slug>/{report.md, sections/, references.md, figures/}`
+(markdown only — no LaTeX).
 
 ```mermaid
 flowchart LR

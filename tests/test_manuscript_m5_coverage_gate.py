@@ -121,7 +121,7 @@ class TestCheckCoverageGate:
         _write_manuscript_note(tree_root, corpus_hash=digest)
 
         (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-        (tree_root / "sections" / "prisma-scope.tex").write_text(
+        (tree_root / "sections" / "prisma-scope.md").write_text(
             "| Category | Count |\n"
             "| --- | --- |\n"
             "| Corpus (frozen citekeys) | 2 |\n",
@@ -145,7 +145,7 @@ class TestCheckCoverageGate:
         _write_manuscript_note(tree_root, corpus_hash=digest)
 
         (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-        (tree_root / "sections" / "prisma-scope.tex").write_text(
+        (tree_root / "sections" / "prisma-scope.md").write_text(
             "| Category | Count |\n"
             "| --- | --- |\n"
             "| Corpus (frozen citekeys) | 2 |\n",
@@ -171,7 +171,7 @@ class TestBuildApprovePayloadWiresCoverageGate:
         stale_digest = hash_file(corpus_path)
         tree_root = project_notes_dir / "manuscripts" / slug
         _write_manuscript_note(tree_root, corpus_hash=stale_digest)
-        (tree_root / "refs.bib").write_text("", encoding="utf-8")
+        (tree_root / "references.md").write_text("", encoding="utf-8")
         _write_corpus(project_notes_dir, slug, ["smith2024", "jones2023"])  # mutate
 
         ms_type = get_type("lit-review")
@@ -210,7 +210,7 @@ class TestMalformedManuscriptTypeSurfacesLoudly:
                 encoding="utf-8",
             )
             (manifest_dir / "sections").mkdir(parents=True, exist_ok=True)
-            (manifest_dir / "sections" / "thematic-sections.tex").write_text(
+            (manifest_dir / "sections" / "thematic-sections.md").write_text(
                 "hi\n", encoding="utf-8",
             )
             store = _make_awaiting_run(tmp_path, "ms-bad-type", manifest_dir)

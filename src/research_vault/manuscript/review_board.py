@@ -1151,8 +1151,8 @@ def run_review_board(
     payload (honest failure, never a silent pass, never an infinite loop).
 
     Args:
-        draft_text:        the rendered manuscript draft text (main.tex +
-                            sections/*.tex, joined -- see
+        draft_text:        the rendered manuscript draft text (report.md +
+                            sections/*.md, joined -- see
                             ``check_gates._read_draft_text``).
         tree_root:          the manuscript folder (``manuscripts/<slug>/``).
         project_notes_dir:  the project's OKF notes root.

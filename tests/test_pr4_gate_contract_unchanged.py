@@ -78,8 +78,8 @@ class TestSupportMatcherContractUnchanged:
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path / "notes"
         _pr4_literature_note(notes_root, "xiong2023-stepwise")
-        (tree_root / "sections" / "results.tex").write_text(
-            r"We found that X holds \cite{xiong2023-stepwise}.", encoding="utf-8",
+        (tree_root / "sections" / "results.md").write_text(
+            "We found that X holds [[xiong2023-stepwise]].", encoding="utf-8",
         )
 
         def _judge(prompt: str) -> str:

@@ -7,7 +7,7 @@ ACTUALLY assembled and wired, not just individually unit-tested:
     -> cmd_expand -> build_approve_payload
 
 Coverage (the four scenarios named in the integration brief):
-  (a) a dangling ``\\cite{}`` -> the hermetic-.bib gate BLOCKs.
+  (a) a dangling ``[[citekey]]`` -> the hermetic-.bib gate BLOCKs.
   (b) a dropped MARKED-CRITICAL equation -> the equation gate SIGNALs,
       never blocks (D-MS-2).
   (c) M6's ``source_transform`` output (the comparison table + the frozen
@@ -142,11 +142,11 @@ def test_e2e_dangling_cite_blocks_dropped_equation_signals_transform_wired(cfg):
     # renderer's output flows into the spec at all.
     assert "PRISMA scope & method" in draft_spec
 
-    # ── Simulate a drafted manuscript: a dangling \cite AND a dropped
+    # ── Simulate a drafted manuscript: a dangling [[citekey]] AND a dropped
     #    marked-critical equation (never reproduced). ───────────────────────
     (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-    (tree_root / "sections" / "thematic-sections.tex").write_text(
-        "Prior work \\cite{missingpaper2024} explored related representations, "
+    (tree_root / "sections" / "thematic-sections.md").write_text(
+        "Prior work [[missingpaper2024]] explored related representations, "
         "but never formalized the ELBO the way kingma2013 did.\n",
         encoding="utf-8",
     )
@@ -164,7 +164,7 @@ def test_e2e_dangling_cite_blocks_dropped_equation_signals_transform_wired(cfg):
         if old_key is not None:
             os.environ["ANTHROPIC_API_KEY"] = old_key
 
-    # (a) the dangling \cite{missingpaper2024} -> hard BLOCK.
+    # (a) the dangling [[missingpaper2024]] -> hard BLOCK.
     assert payload["ok"] is False
     assert any("missingpaper2024" in b for b in payload["blocking"]), payload["blocking"]
     assert any("hermetic-bib" in b for b in payload["blocking"])
@@ -201,8 +201,8 @@ def test_no_dangling_cite_and_equation_present_only_signals_or_clean(cfg):
     cmd_expand(project, slug, config=cfg)
 
     (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-    (tree_root / "sections" / "thematic-sections.tex").write_text(
-        "As kingma2013 \\cite{kingma2013} showed, "
+    (tree_root / "sections" / "thematic-sections.md").write_text(
+        "As kingma2013 [[kingma2013]] showed, "
         "$$ \\log p(x) \\ge \\mathbb{E}_{q}[\\log p(x,z) - \\log q(z)] $$ "
         "is the evidence lower bound.\n",
         encoding="utf-8",
@@ -241,7 +241,7 @@ def test_planted_pipeline_vocab_leak_blocks_at_build_approve_payload(cfg):
     cmd_expand(project, slug, config=cfg)
 
     (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-    (tree_root / "sections" / "thematic-sections.tex").write_text(
+    (tree_root / "sections" / "thematic-sections.md").write_text(
         "This survey defends CP3 against the alternative framing, "
         "a conclusion review-snowball only reached after several waves.\n",
         encoding="utf-8",
@@ -345,8 +345,8 @@ class TestApproveManuscriptGateWiring:
                 spine_shape="pipeline", branches=["representation-learning"],
             )
             (manifest_dir / "sections").mkdir(parents=True, exist_ok=True)
-            (manifest_dir / "sections" / "thematic-sections.tex").write_text(
-                "Prior work \\cite{missingpaper2024} explored this.\n", encoding="utf-8",
+            (manifest_dir / "sections" / "thematic-sections.md").write_text(
+                "Prior work [[missingpaper2024]] explored this.\n", encoding="utf-8",
             )
             store = _make_awaiting_run(tmp_path, "ms-wiring-block", manifest_dir)
 
@@ -373,8 +373,8 @@ class TestApproveManuscriptGateWiring:
                 spine_shape="pipeline", branches=["representation-learning"],
             )
             (manifest_dir / "sections").mkdir(parents=True, exist_ok=True)
-            (manifest_dir / "sections" / "thematic-sections.tex").write_text(
-                "As kingma2013 \\cite{kingma2013} showed, "
+            (manifest_dir / "sections" / "thematic-sections.md").write_text(
+                "As kingma2013 [[kingma2013]] showed, "
                 "$$ \\log p(x) \\ge \\mathbb{E}_{q}[\\log p(x,z) - \\log q(z)] $$ "
                 "is the evidence lower bound.\n",
                 encoding="utf-8",
@@ -407,8 +407,8 @@ class TestApproveManuscriptGateWiring:
             manifest_dir = project_notes_dir / "manuscripts" / "survey-wiring-reject"
             _manuscript_note_for_wiring(manifest_dir / "_manuscript.md", spine_shape="", branches=[])
             (manifest_dir / "sections").mkdir(parents=True, exist_ok=True)
-            (manifest_dir / "sections" / "thematic-sections.tex").write_text(
-                "\\cite{missingpaper2024}\n", encoding="utf-8",
+            (manifest_dir / "sections" / "thematic-sections.md").write_text(
+                "[[missingpaper2024]]\n", encoding="utf-8",
             )
             store = _make_awaiting_run(tmp_path, "ms-wiring-reject", manifest_dir)
 

@@ -6,10 +6,10 @@ support-matcher — lives in the SHAREABLE ``research_vault.gates`` package
 (D-SV-0), not here. This module is the manuscript-loop's own thin,
 additive wiring on top of it:
 
-  check_support_tally(tree_root, ...) — walks every ``*.tex`` file under a
-      manuscript tree, finds every sentence carrying a ``\\cite{key}``, and
-      calls ``gates.support_matcher.match_support()`` once per (sentence,
-      citekey) pair. Runs the blind-judge canary FIRST (honesty-gates.md §4)
+  check_support_tally(tree_root, ...) — walks every ``*.md`` file under a
+      manuscript tree, finds every sentence carrying a ``[[citekey]]``
+      wikilink, and calls ``gates.support_matcher.match_support()`` once per
+      (sentence, citekey) pair. Runs the blind-judge canary FIRST (honesty-gates.md §4)
       — a known-supported synthetic probe through the SAME extractor+judge
       path; if it comes back [ABSENT], the judge/extractor is blind and the
       whole tally aborts loudly rather than emit false-BLOCKs.
@@ -57,37 +57,18 @@ from research_vault.gates.support_matcher import match_support
 # RV_JUDGE_MODEL env var; never pinned to a versioned ID in source.
 _DEFAULT_JUDGE_MODEL: str = os.environ.get("RV_JUDGE_MODEL", "")
 
-# Same pattern as gates.support_matcher / bib.py (inline to avoid an import
-# cycle with the not-yet-built manuscript.bib / manuscript.check_gates).
-_CITE_RE = re.compile(r"\\cite[a-z]*\*?\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
-
-# RD-1 (next-gen lit-review design §6): the markdown render target's citation
-# syntax — a `[[citekey]]` wikilink (mirrors bib.py's `_WIKILINK_CITE_RE`;
-# duplicated inline rather than imported, same import-cycle-avoidance
-# rationale as _CITE_RE above).
+# RD-1 (next-gen lit-review design §6): the markdown render target's ONLY
+# citation syntax — a `[[citekey]]` wikilink (mirrors bib.py's
+# `_WIKILINK_CITE_RE`; duplicated inline rather than imported, to avoid an
+# import cycle with manuscript.bib / manuscript.check_gates).
 _WIKILINK_CITE_RE = re.compile(r"\[\[([A-Za-z0-9_.\-]+)\]\]")
-
-
-def _strip_comments(text: str) -> str:
-    """Strip LaTeX line comments (% to end of line, excluding \\%)."""
-    lines: list[str] = []
-    for line in text.split("\n"):
-        stripped = line
-        i = 0
-        while i < len(line):
-            if line[i] == "%" and (i == 0 or line[i - 1] != "\\"):
-                stripped = line[:i]
-                break
-            i += 1
-        lines.append(stripped)
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
 # _collect_support_items — shared (sentence, citekey, section) extraction
 # ---------------------------------------------------------------------------
 
-def _collect_support_items(tex_files: "list[Path]") -> list[tuple[str, str, str]]:
+def _collect_support_items(draft_files: "list[Path]") -> list[tuple[str, str, str]]:
     """Extract every (sentence, citekey, section) triple carrying a citation.
 
     Shared by BOTH judge paths (charter §6: single source, not two
@@ -97,25 +78,19 @@ def _collect_support_items(tex_files: "list[Path]") -> list[tuple[str, str, str]
     see the EXACT same set of (claim, citekey) pairs for a given draft.
     """
     all_items: list[tuple[str, str, str]] = []
-    for tex in tex_files:
-        if not tex.exists():
+    for md in draft_files:
+        if not md.exists():
             continue
         try:
-            text = tex.read_text(encoding="utf-8", errors="replace")
+            text = md.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        text = _strip_comments(text)
-        section_name = tex.stem
+        section_name = md.stem
         sentences = re.split(r"(?<=[.!?])\s+|\n{2,}", text)
         for sent in sentences:
             sent = sent.strip()
             if not sent:
                 continue
-            for cm in _CITE_RE.finditer(sent):
-                for k in cm.group(1).split(","):
-                    k = k.strip()
-                    if k:
-                        all_items.append((sent, k, section_name))
             for cm in _WIKILINK_CITE_RE.finditer(sent):
                 k = cm.group(1).strip()
                 if k:
@@ -136,9 +111,9 @@ def check_support_tally(
     rubric_override: str | None = None,
     config: Any | None = None,
 ) -> dict[str, Any]:
-    r"""Run the claim->source support-matcher on all (sentence, \\cite{key}) pairs.
+    r"""Run the claim->source support-matcher on all (sentence, [[citekey]]) pairs.
 
-    For each sentence containing a \\cite{}, calls gates.support_matcher's
+    For each sentence containing a [[citekey]] wikilink, calls gates.support_matcher's
     match_support() with the cited literature/ note's structured fields.
 
     Returns a dict with:
@@ -160,8 +135,8 @@ def check_support_tally(
     """
     from research_vault.manuscript.draft_files import resolve_draft_files
 
-    tex_files = resolve_draft_files(tree_root)
-    if not tex_files:
+    draft_files = resolve_draft_files(tree_root)
+    if not draft_files:
         return {
             "verdicts": [], "n_sentences": 0, "m_citations": 0,
             "k_block": 0, "j_warn": 0,
@@ -225,7 +200,7 @@ def check_support_tally(
             }
 
     # ── Collect every (sentence, citekey, section) triple ───────────────────
-    all_items = _collect_support_items(tex_files)
+    all_items = _collect_support_items(draft_files)
 
     verdicts: list[Any] = []
     errors: list[str] = []
@@ -266,14 +241,14 @@ def check_support_tally(
 
         if v.blocks:
             errors.append(
-                f"support-matcher [{v.verdict}] BLOCK: \\cite{{{citekey}}} — "
+                f"support-matcher [{v.verdict}] BLOCK: [[{citekey}]] — "
                 f"claim: '{sentence[:120]}' — "
                 f"quoted span: {v.verbatim_span or 'none'} — "
                 f"reasoning: {v.reasoning[:200]}"
             )
         elif v.warns:
             warnings.append(
-                f"support-matcher [PARTIAL] WARN: \\cite{{{citekey}}} — "
+                f"support-matcher [PARTIAL] WARN: [[{citekey}]] — "
                 f"claim: '{sentence[:120]}' — "
                 f"reasoning: {v.reasoning[:200]}"
             )
@@ -479,7 +454,7 @@ def emit_support_tasks(
         ``gates.judge_seam.write_json`` (the canary_key_doc goes to a
         location the hub/judges never read, per design §1.9).
 
-    A draft with zero \\cite pairs is a correct, honest no-op: both docs
+    A draft with zero [[citekey]] pairs is a correct, honest no-op: both docs
     carry an empty ``tasks``/``canaries`` collection, never fabricated.
 
     sr: NG-4
@@ -491,10 +466,10 @@ def emit_support_tasks(
         get_support_rubric,
     )
 
-    tex_files = resolve_draft_files(tree_root)
+    draft_files = resolve_draft_files(tree_root)
     _notes_root = notes_root if notes_root is not None else tree_root.parent.parent
 
-    all_items = _collect_support_items(tex_files) if tex_files else []
+    all_items = _collect_support_items(draft_files) if draft_files else []
     citation_set_hash = _compute_citation_set_hash(all_items)
 
     real_tasks: list[dict[str, Any]] = []
@@ -593,7 +568,7 @@ def ingest_support_verdicts(
         only ``ingest_support_verdicts_from_dir`` (which has live draft
         access) supplies it.
 
-    A zero-task ``tasks_doc`` (the draft had no \\cite pairs) is an honest
+    A zero-task ``tasks_doc`` (the draft had no [[citekey]] pairs) is an honest
     no-op — no halt, zero everything.
 
     sr: NG-4
@@ -706,13 +681,13 @@ def ingest_support_verdicts(
                 )
             )
             errors.append(
-                f"support-matcher [{verdict}] BLOCK: \\cite{{{task['citekey']}}} — "
+                f"support-matcher [{verdict}] BLOCK: [[{task['citekey']}]] — "
                 f"claim: '{task['claim'][:120]}' — id: {tid} — {reason}"
             )
         elif verdict == "PARTIAL":
             j_warn += 1
             warnings.append(
-                f"support-matcher [PARTIAL] WARN: \\cite{{{task['citekey']}}} — "
+                f"support-matcher [PARTIAL] WARN: [[{task['citekey']}]] — "
                 f"claim: '{task['claim'][:120]}' — id: {tid}"
             )
 
@@ -780,8 +755,8 @@ def ingest_support_verdicts_from_dir(
     _tree_root = tree_root if tree_root is not None else judge_dir.parent.parent
     current_hash: str | None = None
     try:
-        tex_files = resolve_draft_files(_tree_root)
-        current_items = _collect_support_items(tex_files) if tex_files else []
+        draft_files = resolve_draft_files(_tree_root)
+        current_items = _collect_support_items(draft_files) if draft_files else []
         current_hash = _compute_citation_set_hash(current_items)
     except (OSError, ValueError):
         # Can't resolve the current draft — leave current_hash None, which

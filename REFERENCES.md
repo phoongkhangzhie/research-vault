@@ -6,7 +6,7 @@ retrieval, support-checked, not memory). Grouped by the capability the source in
 
 ---
 
-## Lit-review → LaTeX survey consolidation
+## Lit-review → Markdown survey consolidation
 
 Informs: the OKF-lit-review → survey-paper capability. Research pass: Ada, 2026-07-07.
 

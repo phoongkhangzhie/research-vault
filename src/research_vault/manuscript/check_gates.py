@@ -14,7 +14,7 @@ judge-guard policy (the resolved call carried in the dispatching brief — see
 explicit operator override on a design doc's own recommendation is followed,
 and the divergence is documented, not silently applied):
 
-  - ``check_hermetic_bib`` (``manuscript/bib.py``, PR-M2)         -> hard BLOCK,
+  - ``check_citation_resolve`` (``manuscript/bib.py``, PR-M2)     -> hard BLOCK,
     deterministic, ALWAYS runs (no judge dependency at all).
   - ``check_equation_fidelity`` (``manuscript/equations.py``, PR-M4) -> SIGNAL
     ONLY (D-MS-2 — never BLOCK, even marked-critical). Deterministic; ALWAYS
@@ -68,7 +68,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
-from research_vault.manuscript.bib import check_hermetic_bib
+from research_vault.manuscript.bib import check_citation_resolve
 from research_vault.manuscript import equations as _equations
 from research_vault.manuscript import fidelity_gates as _fidelity_gates
 from research_vault.note import _parse_frontmatter as _pfm_gates
@@ -96,14 +96,13 @@ def _judge_configured(judge_fn: Callable[[str], str] | None) -> bool:
 
 # ---------------------------------------------------------------------------
 # Draft-text assembly (shared by the equation gate — the whole draft, not
-# just one section — the same main.tex+sections fallback resolution pattern
-# used elsewhere in this loop, PR-M3).
+# just one section — the same report.md+sections resolution pattern used
+# elsewhere in this loop, PR-M3).
 # ---------------------------------------------------------------------------
 
 def _read_draft_text(tree_root: Path) -> str:
-    """Join every draft file (``report.md``/``main.tex`` + ``sections/*``,
-    RD-1: ``.md`` and legacy ``.tex`` both scanned — see ``draft_files.py``)
-    into one draft-text blob.
+    """Join every draft file (``report.md`` + ``sections/*.md`` — see
+    ``draft_files.py``) into one draft-text blob.
 
     Best-effort, never raises: an unreadable/missing file simply contributes
     nothing (a fresh manuscript folder with no draft yet -> empty string,
@@ -464,8 +463,9 @@ def build_approve_payload(
     # untrustworthy judge — charter §10). See evaluation_from_structural_payload.
     canary_aborted = False
 
-    # ── 1. Hermetic .bib — deterministic, ALWAYS runs, hard BLOCK (PR-M2) ──
-    bib_result = check_hermetic_bib(project_notes_dir, tree_root)
+    # ── 1. Hermetic references.md — deterministic, ALWAYS runs, hard BLOCK
+    #      (PR-M2) ──
+    bib_result = check_citation_resolve(project_notes_dir, tree_root)
     if not bib_result["ok"]:
         blocking.extend(f"[hermetic-bib] {e}" for e in bib_result["errors"])
 

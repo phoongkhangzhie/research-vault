@@ -41,12 +41,13 @@ round via ``review_board.run_revise``):
   rubric/canary calibration (PR-M8, NOT YET BUILT).
 
 Per-manuscript folder (design §0, NOT an OKF taxonomy — too few manuscripts to
-warrant one):
+warrant one). Markdown is the ONLY render target — LaTeX has been removed
+entirely (the operator's explicit call — see DEVLOG):
   manuscripts/<slug>/
   ├── _manuscript.md   # control + frontmatter: manuscript_type, spine, corpus_hash, run_state
-  ├── report.md      # RD-1: markdown reader path (retired: main.tex)
-  ├── sections/*.md    # RD-1: markdown sections (retired: sections/*.tex)
-  ├── refs.bib         # hermetic citekey-resolution ledger (PR-M2/RD-1) — see manuscript/bib.py
+  ├── report.md        # RD-1: markdown reader path
+  ├── sections/*.md    # RD-1: markdown sections
+  ├── references.md    # hermetic citekey-resolution ledger (PR-M2/RD-1) — see manuscript/bib.py
   └── figures/
 
 Stdlib only.
@@ -105,12 +106,12 @@ def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
     """Write a neutral markdown report stub to tree_root (idempotent).
 
     RD-1 (next-gen lit-review design §6): the manuscript's reader path
-    renders MARKDOWN — ``report.md`` (this stub) + ``sections/*.md`` —
-    retiring ``main.tex``/tex-macro injection as the reader-path target for
-    NEW manuscripts. Citations use the ``[[citekey]]`` wikilink form (see
-    ``manuscript/bib.py``'s ``_WIKILINK_CITE_RE``); ``refs.bib`` keeps its
-    name (the hermetic-bib gate's artifact) but is now a citekey-resolution
-    ledger for markdown wikilinks, not a LaTeX-only bibliography.
+    renders MARKDOWN — ``report.md`` (this stub) + ``sections/*.md``. LaTeX
+    (``main.tex``/tex-macro injection) has been removed entirely as a render
+    target. Citations use the ``[[citekey]]`` wikilink form (see
+    ``manuscript/bib.py``'s ``_WIKILINK_CITE_RE``); ``references.md`` is the
+    hermetic-bib gate's artifact — a markdown-native citekey-resolution
+    ledger, never a BibTeX file.
 
     A self-contained inline template (no package-data dependency) — the real
     per-type template/exemplar machinery is design §8/PR-M8 territory; this
@@ -123,7 +124,7 @@ def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
         f"# {slug}\n\n"
         f"<!-- Manuscript: {slug}  (type: {ms_type_key}) -->\n"
         "<!-- Machine-injected results/equation data + hermetic citekey resolution:\n"
-        "     refs.bib is built hermetically by manuscript/bib.py (PR-M2, RD-1);\n"
+        "     references.md is built hermetically by manuscript/bib.py (PR-M2, RD-1);\n"
         "     pivotal equations are injected into the writer briefs by\n"
         "     manuscript/equations.py (PR-M4) and checked every round by\n"
         "     check_gates.py::build_approve_payload. -->\n\n"
@@ -445,11 +446,12 @@ def cmd_new(
     per-manuscript folder convention (design §0/§12) — hand-creating
     ``manuscripts/<slug>/`` skips the type registration + the DAG-driven loop.
 
-    Anti-pattern: do NOT hand-write a .tex and hand-collect citations from
-    OKF piles — run this so the drafting DAG (``rv manuscript expand`` +
-    ``rv dag run``) drives the section-by-section scaffold, with the hermetic
-    ``.bib`` (PR-M2), fidelity gates (PR-M3), equation machinery (PR-M4), and
-    review-revise board (PR-M5) plugging into this same folder as they land.
+    Anti-pattern: do NOT hand-write markdown sections and hand-collect
+    citations from OKF piles — run this so the drafting DAG (``rv manuscript
+    expand`` + ``rv dag run``) drives the section-by-section scaffold, with
+    the hermetic references build (PR-M2), fidelity gates (PR-M3), equation
+    machinery (PR-M4), and review-revise board (PR-M5) plugging into this
+    same folder as they land.
 
     NG-7 §2.6 (explore-rl friction #6): the manuscript slug is expected to
     match its underlying ``rv review`` scope id (``reviews/<slug>/_corpus.md``)
@@ -582,12 +584,14 @@ def cmd_new(
 
     _write_report_md_stub(tree_root, slug, ms_type.key)
 
-    refs_bib = tree_root / "refs.bib"
-    if not refs_bib.exists():
-        refs_bib.write_text(
-            "% refs.bib — hermetic build from literature/ frontmatter, PR-M2\n"
-            "% (landed). See manuscript/bib.py::build_refs_bib — re-run the\n"
-            "% manuscript bib gate to regenerate. Do NOT hand-edit citekeys here.\n",
+    references_md = tree_root / "references.md"
+    if not references_md.exists():
+        references_md.write_text(
+            "# References\n\n"
+            "<!-- references.md — hermetic build from literature/ frontmatter, -->\n"
+            "<!-- PR-M2 (landed). See manuscript/bib.py::build_references_md — -->\n"
+            "<!-- re-run the manuscript bib gate to regenerate. Do NOT hand-edit -->\n"
+            "<!-- citekeys here. -->\n",
             encoding="utf-8",
         )
 

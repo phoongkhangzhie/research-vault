@@ -39,8 +39,8 @@ user's deliverable — plus the **mechanical roots** that supply their raw mater
   KNOWLEDGE LOOPS                          THE MANUSCRIPT LOOP
   (experiment, lit-review, …)              (by type)
   build ──►  notes/         ──transform──►  manuscripts/<slug>/     ──►  user-facing deliverable
-            (crew reasoning)  by type       (main.tex, sections/,
-                                             refs.bib, figures/)
+            (crew reasoning)  by type       (report.md, sections/,
+                                             references.md, figures/)
 ```
 
 **Reach for the manuscript loop** (`rv manuscript <project> new <slug> --type <type>`) when
@@ -85,9 +85,9 @@ project repo — the project repo carries only its own content.
 ├── manuscripts/                  # ★ the deliverable pillar — one self-contained folder
 │   └── <slug>/                     per manuscript (NOT an OKF-typed taxonomy — see below)
 │       ├── _manuscript.md           control + frontmatter: `type:` (e.g. lit-review), spine
-│       ├── main.tex
-│       ├── sections/*.tex
-│       ├── refs.bib                 hermetic — built from notes/literature/ frontmatter
+│       ├── report.md
+│       ├── sections/*.md
+│       ├── references.md           hermetic — built from notes/literature/ frontmatter
 │       └── figures/
 ├── architecture.md                the Architect's living Mermaid map (USER-OWNED)
 ├── DEVLOG.md                      engineering decisions (Done / Decisions / Open-next)
@@ -117,9 +117,9 @@ enough manuscripts in a project to warrant one; a flat per-slug folder is the ri
 ```
 manuscripts/<slug>/
 ├── _manuscript.md        # control + frontmatter: type, spine, corpus_hash, run_state
-├── main.tex
-├── sections/*.tex
-├── refs.bib               # hermetic — built from notes/literature/ frontmatter
+├── report.md
+├── sections/*.md
+├── references.md          # hermetic — built from notes/literature/ frontmatter
 └── figures/
 ```
 

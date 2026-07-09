@@ -4,7 +4,7 @@ fan-out emit/ingest seam for support-matcher (design §1.9).
 Support-matcher-ONLY — the cold-read self-containment critic that
 originally shared this seam was removed (SIGNAL-only, non-actionable
 under hands-off autonomy, redundant with the review board + RD-6;
-Khang's call, see DEVLOG).
+the operator's call, see DEVLOG).
 
 Covers:
   1. emit_support_tasks: batched task shape, canaries interleaved unmarked
@@ -54,11 +54,11 @@ def _literature_note(notes_root: Path, citekey: str, *, fields: dict | None = No
     return path
 
 
-def _write_tex_with_cites(tree_root: Path, n: int) -> None:
+def _write_md_with_cites(tree_root: Path, n: int) -> None:
     lines = []
     for i in range(n):
-        lines.append(f"This is claim number {i} about the topic. \\cite{{paper{i}}}")
-    (tree_root / "sections" / "intro.tex").write_text("\n\n".join(lines), encoding="utf-8")
+        lines.append(f"This is claim number {i} about the topic. [[paper{i}]]")
+    (tree_root / "sections" / "intro.md").write_text("\n\n".join(lines), encoding="utf-8")
 
 
 # ===========================================================================
@@ -71,7 +71,7 @@ class TestEmitSupportTasks:
 
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path
-        _write_tex_with_cites(tree_root, 5)
+        _write_md_with_cites(tree_root, 5)
         for i in range(5):
             _literature_note(notes_root, f"paper{i}")
 
@@ -118,7 +118,7 @@ class TestEmitSupportTasks:
 
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path
-        _write_tex_with_cites(tree_root, 5)
+        _write_md_with_cites(tree_root, 5)
         for i in range(5):
             _literature_note(notes_root, f"paper{i}")
 
@@ -148,7 +148,7 @@ class TestEmitSupportTasks:
 
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path
-        _write_tex_with_cites(tree_root, 3)
+        _write_md_with_cites(tree_root, 3)
         for i in range(3):
             _literature_note(notes_root, f"paper{i}")
 
@@ -174,7 +174,7 @@ class TestEmitSupportTasks:
 
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path
-        _write_tex_with_cites(tree_root, 4)
+        _write_md_with_cites(tree_root, 4)
         for i in range(4):
             _literature_note(notes_root, f"paper{i}")
 
@@ -197,7 +197,7 @@ class TestIngestSupportVerdicts:
 
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path
-        _write_tex_with_cites(tree_root, n)
+        _write_md_with_cites(tree_root, n)
         for i in range(n):
             _literature_note(notes_root, f"paper{i}")
         return emit_support_tasks(tree_root, notes_root=notes_root, manuscript_slug="ms-test")
@@ -343,7 +343,7 @@ class TestDraftTasksBinding:
 
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path
-        _write_tex_with_cites(tree_root, 3)
+        _write_md_with_cites(tree_root, 3)
         for i in range(3):
             _literature_note(notes_root, f"paper{i}")
 
@@ -362,7 +362,7 @@ class TestDraftTasksBinding:
 
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path
-        _write_tex_with_cites(tree_root, 2)
+        _write_md_with_cites(tree_root, 2)
         for i in range(2):
             _literature_note(notes_root, f"paper{i}")
 
@@ -383,7 +383,7 @@ class TestDraftTasksBinding:
 
         # Now the draft gains a NEW citation after the tasks were emitted
         # (and after the fan-out already ran over the old set).
-        _write_tex_with_cites(tree_root, 3)
+        _write_md_with_cites(tree_root, 3)
         _literature_note(notes_root, "paper2")
 
         result = ingest_support_verdicts_from_dir(judge_dir)
@@ -402,7 +402,7 @@ class TestDraftTasksBinding:
 
         tree_root = _make_ms_tree(tmp_path)
         notes_root = tmp_path
-        _write_tex_with_cites(tree_root, 2)
+        _write_md_with_cites(tree_root, 2)
         for i in range(2):
             _literature_note(notes_root, f"paper{i}")
 
@@ -452,7 +452,7 @@ class TestBuildApprovePayloadColdFanout:
 
         tree_root = _make_ms_tree(tmp_path)
         project_notes_dir = tmp_path
-        _write_tex_with_cites(tree_root, 2)
+        _write_md_with_cites(tree_root, 2)
         for i in range(2):
             _literature_note(project_notes_dir, f"paper{i}")
 

@@ -463,8 +463,8 @@ class TestBuildApprovePayloadPropagatesCanaryAborted:
 
         tree_root = tmp_path / "manuscripts" / "ms-canary"
         (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-        (tree_root / "sections" / "intro.tex").write_text(
-            "A finding. \\cite{paper2024}\n", encoding="utf-8",
+        (tree_root / "sections" / "intro.md").write_text(
+            "A finding. [[paper2024]]\n", encoding="utf-8",
         )
         project_notes_dir = tmp_path
         lit_dir = project_notes_dir / "literature"
