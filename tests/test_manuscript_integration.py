@@ -117,28 +117,30 @@ def test_e2e_dangling_cite_blocks_dropped_equation_signals_transform_wired(cfg):
 
     manifest = cmd_expand(project, slug, config=cfg)
 
-    # ── (c) source_transform is WIRED, not dead code ────────────────────────
+    # NG-7: lit-review's Phase-2 is now the single-pass phase2_builder —
+    # outline -> draft -> assemble, replacing the per-section chain. Every
+    # section's tip (references/introduction/thematic-sections/appendix-
+    # methods) is consolidated into the ONE "draft" node's spec.
     node_specs = {n["id"]: n.get("spec", "") for n in manifest["nodes"]}
-    assert "kingma2013" in node_specs["references"], (
+    assert set(node_specs) >= {"outline", "draft", "assemble", "approve-manuscript"}
+    draft_spec = node_specs["draft"]
+
+    # ── (c) source_transform is WIRED, not dead code ────────────────────────
+    assert "kingma2013" in draft_spec, (
         "M6's comparison-table rows (source_transform) never reached the "
-        "'references' section spec — source_transform is still dead code."
+        "consolidated draft spec — source_transform is still dead code."
     )
     # RD-4: the standalone 'framework' body section is deleted — the frozen
-    # branches now fold into 'introduction' (spine-at-a-glance orientation).
-    assert "framework" not in node_specs
-    assert "representation-learning" in node_specs["introduction"], (
-        "The frozen framework branches never reached the 'introduction' "
-        "section spec (RD-4: spine-at-a-glance folded into introduction)."
+    # branches now fold into 'introduction' (spine-at-a-glance orientation),
+    # which is itself folded into the single draft spec.
+    assert "representation-learning" in draft_spec, (
+        "The frozen framework branches never reached the consolidated draft "
+        "spec (RD-4: spine-at-a-glance folded into introduction)."
     )
-    assert "representation-learning" in node_specs["thematic-sections"], (
-        "The frozen framework branches never reached the 'thematic-sections' spec "
-        "— the writer wouldn't know how many branches to draft."
-    )
-    # RD-3: the PRISMA ledger renders into 'appendix-methods' (was 'prisma-scope'),
-    # honestly, no frozen corpus in this test — proves the renderer's output
-    # flows into the spec at all.
-    assert "prisma-scope" not in node_specs
-    assert "PRISMA scope & method" in node_specs["appendix-methods"]
+    # RD-3: the PRISMA ledger renders into 'appendix-methods' (was
+    # 'prisma-scope'), honestly, no frozen corpus in this test — proves the
+    # renderer's output flows into the spec at all.
+    assert "PRISMA scope & method" in draft_spec
 
     # ── Simulate a drafted manuscript: a dangling \cite AND a dropped
     #    marked-critical equation (never reproduced). ───────────────────────

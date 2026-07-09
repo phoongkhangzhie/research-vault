@@ -229,30 +229,30 @@ def test_cmd_expand_wires_exemplar_bundle_into_mapped_section_spec(cfg):
     cmd_new("demo-research", "survey-exemplar-wiring", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-exemplar-wiring", config=cfg)
 
-    thematic_node = next(n for n in manifest["nodes"] if n["id"] == "thematic-sections")
-    # RD-4: the standalone 'framework' body section is deleted — its
-    # exemplar category folds into 'introduction' (the spine-at-a-glance
-    # orientation table that replaced it).
-    introduction_node = next(n for n in manifest["nodes"] if n["id"] == "introduction")
+    # NG-7: lit-review's Phase-2 is the single-pass phase2_builder — every
+    # section's tip (including "thematic-sections" and "introduction",
+    # RD-4's folded framework category) is consolidated into ONE "draft" node.
+    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
 
     blocks = ex.load_exemplar_bundle("lit-review")
 
-    # NG-8: the section spec carries the must-read pointer marker + a real
-    # `read <path>` line, not the verbatim excerpt text.
-    assert ex.MUST_READ_HEADER in thematic_node["spec"]
-    assert ex.MUST_READ_HEADER in introduction_node["spec"]
-    assert "read " in thematic_node["spec"]
-    assert "imitate the MOVE, not the words" in thematic_node["spec"]
+    # NG-8: the consolidated spec carries the must-read pointer marker + a
+    # real `read <path>` line, not the verbatim excerpt text.
+    assert ex.MUST_READ_HEADER in draft_node["spec"]
+    assert "read " in draft_node["spec"]
+    assert "imitate the MOVE, not the words" in draft_node["spec"]
 
-    # The presence check agrees for both mapped sections.
-    ok_t, _ = ex.check_exemplar_pointer_presence("thematic-sections", thematic_node["spec"], blocks)
-    ok_i, _ = ex.check_exemplar_pointer_presence("introduction", introduction_node["spec"], blocks)
+    # The presence check agrees for both mapped tip-keys (still meaningful
+    # even consolidated — check_exemplar_pointer_presence only requires the
+    # marker be PRESENT somewhere in the checked spec).
+    ok_t, _ = ex.check_exemplar_pointer_presence("thematic-sections", draft_node["spec"], blocks)
+    ok_i, _ = ex.check_exemplar_pointer_presence("introduction", draft_node["spec"], blocks)
     assert ok_t is True
     assert ok_i is True
 
     # NG-8: the exemplar bundle's absolute dir is wired into `reads:` so the
     # harness's reads-grounding resolver surfaces the pointed-at files.
-    assert any("exemplars" in r and "lit-review" in r for r in thematic_node["reads"])
+    assert any("exemplars" in r and "lit-review" in r for r in draft_node["reads"])
 
 
 def test_cmd_expand_wires_principle_anchors_into_every_node_via_preamble(cfg):
@@ -264,27 +264,26 @@ def test_cmd_expand_wires_principle_anchors_into_every_node_via_preamble(cfg):
     blocks = ex.load_exemplar_bundle("lit-review")
     e17 = next(b for b in blocks if b["id"] == "E17")
 
-    # the preamble is prepended to EVERY section's spec (_spec() closure) —
-    # check a section with no direct exemplar match still carries the
-    # principle anchor (proves it travels via the preamble, not per-section).
-    intro_node = next(n for n in manifest["nodes"] if n["id"] == "introduction")
-    assert e17["verbatim"] in intro_node["spec"]
+    # NG-7: lit-review's single-pass "draft" node consolidates every
+    # section's tip into ONE spec, with the preamble prepended once — the
+    # principle anchor travels via that shared preamble.
+    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
+    assert e17["verbatim"] in draft_node["spec"]
 
 
-def test_type_scoped_unmapped_section_key_gets_no_exemplar_injection(cfg):
-    """A section key with no category mapping (e.g. `conclusion`) never gets
-    a fabricated match — honest no-op, proving injection is matched, not
-    blanket-applied.
-    """
+def test_no_verbatim_exemplar_render_leaks_into_draft_spec(cfg):
+    """NG-8 regression guard: inject_exemplar_briefs uses the POINTER form —
+    the old verbatim render_exemplar_block's "[EXEMPLAR —" bracket marker
+    must never appear in the consolidated draft spec (that would mean a
+    verbatim-embed code path leaked back in, un-reverting NG-8)."""
     from research_vault.manuscript import cmd_new, cmd_expand
 
     cmd_new("demo-research", "survey-unmapped-section", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-unmapped-section", config=cfg)
 
-    conclusion_node = next(n for n in manifest["nodes"] if n["id"] == "conclusion")
-    # no "[EXEMPLAR —" few-shot block appears for conclusion (no category
-    # mapping) — only the principle-anchor preamble text (if any) is present.
-    assert "[EXEMPLAR —" not in conclusion_node["spec"]
+    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
+    assert "[EXEMPLAR —" not in draft_node["spec"]
+    assert ex.MUST_READ_HEADER in draft_node["spec"]
 
 
 # ---------------------------------------------------------------------------

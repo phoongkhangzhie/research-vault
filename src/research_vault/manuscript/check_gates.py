@@ -210,6 +210,74 @@ def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# check_heading_order — HR-craft rec 5 (design §7), NG-7's structural-mirror
+# H2-order diff (deterministic, ALWAYS runs, SIGNAL only — no judge dependency)
+# ---------------------------------------------------------------------------
+
+def check_heading_order(draft_text: str, expected_order: "list[str] | tuple[str, ...]") -> dict[str, Any]:
+    """HR-craft rec 5 (design §7): a deterministic H2-heading-order diff.
+
+    HR's instruction-critic diffs the draft's ordered H2 list element-wise
+    against a frozen heading contract; NG-7's single-pass outline already
+    freezes a reading-order spine (``lit_review.READING_ORDER``, RD-2) — this
+    is the cheap, mechanical cross-check confirming the draft actually
+    delivered the frozen frame.
+
+    SIGNAL only, never BLOCK (design table): a structural drift is
+    informative — the writer may have deliberately merged/split sections —
+    never a hard stop on its own.
+
+    Headings not among ``expected_order`` (e.g. a sub-heading, a figure
+    caption) are ignored — this only orders the INTERSECTION of found H2s
+    against the frozen contract, never penalizes extra structure.
+
+    Args:
+        draft_text: the assembled reader body (or the whole draft blob).
+        expected_order: the frozen heading contract, e.g.
+            ``manuscript.types.lit_review.READING_ORDER``.
+
+    Returns:
+        {"ok": bool, "warnings": list[str]} — ok is True when the found H2
+        order (filtered to the expected set) matches the expected order, or
+        when fewer than 2 matching headings are found (nothing to compare).
+
+    sr: NG-lit-review-waveB (NG-7, HR-craft rec 5)
+    """
+    import re
+
+    found = re.findall(r"^\s*#{1,2}\s+(.+?)\s*$", draft_text, re.MULTILINE)
+    expected_norm = [str(e).strip().lower() for e in expected_order]
+
+    def _norm(h: str) -> str:
+        return h.strip().lower().lstrip("#").strip()
+
+    found_norm = [_norm(h) for h in found]
+    filtered_found = [h for h in found_norm if any(e in h or h in e for e in expected_norm)]
+
+    if len(filtered_found) < 2:
+        return {"ok": True, "warnings": []}
+
+    # Build the expected sub-order restricted to headings actually found.
+    def _matches(found_h: str, exp: str) -> bool:
+        return exp in found_h or found_h in exp
+
+    expected_restricted = [e for e in expected_norm if any(_matches(h, e) for h in filtered_found)]
+
+    if filtered_found == expected_restricted:
+        return {"ok": True, "warnings": []}
+
+    return {
+        "ok": False,
+        "warnings": [
+            f"heading-order diff SIGNAL: the draft's H2 order {filtered_found!r} "
+            f"does not match the frozen reading-order contract "
+            f"{expected_restricted!r} — check whether this is a deliberate "
+            f"merge/split or an assembly drift."
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # check_coverage_gate — design §10 gate-4, PR-M5's scope (deterministic,
 # ALWAYS runs, hard BLOCK — no judge dependency)
 # ---------------------------------------------------------------------------
@@ -423,6 +491,16 @@ def build_approve_payload(
     hygiene_draft_text = _read_draft_text(tree_root)
     hygiene_result = check_reader_hygiene(hygiene_draft_text)
     blocking.extend(f"[reader-hygiene] {e}" for e in hygiene_result["errors"])
+
+    # ── 7. Heading-order diff (HR-craft rec 5, NG-7) — deterministic, ALWAYS
+    #      runs (when the type declares a frozen reading order), SIGNAL only.
+    #      Only lit-review declares READING_ORDER today; a type with none is
+    #      a correct no-op (never fabricated for a type that hasn't defined one).
+    if getattr(ms_type, "key", "") == "lit-review":
+        from research_vault.manuscript.types.lit_review import READING_ORDER
+
+        heading_result = check_heading_order(hygiene_draft_text, READING_ORDER)
+        signals.extend(f"[heading-order] {w}" for w in heading_result["warnings"])
 
     return {
         "ok": not blocking,

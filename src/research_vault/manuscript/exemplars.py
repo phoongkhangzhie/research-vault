@@ -142,7 +142,7 @@ def resolve_exemplar_bundle_path(bundle_key: str | None) -> Any:
 
     NG-8 (next-gen lit-review design §3.1): "the bundle is package data, not
     a filesystem path a subagent can ``read``" — this resolver is the fix.
-    Package-path resolver (Khang's build-time recommendation, design §9):
+    Package-path resolver (the operator's build-time recommendation, design §9):
     NO copy is made — for a normal (non-zip) install, ``importlib.resources
     .files()`` already resolves to a real directory on disk; this just
     returns it as a ``pathlib.Path``.

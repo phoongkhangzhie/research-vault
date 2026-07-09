@@ -76,7 +76,12 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     new_p.add_argument(
         "slug",
         metavar="<slug>",
-        help="Manuscript identifier slug (e.g. 'survey-llm-eval').",
+        nargs="?",
+        default=None,
+        help=(
+            "Manuscript identifier slug (e.g. 'survey-llm-eval'). Optional "
+            "when --from-review is given (adopted from it, NG-7 §2.6)."
+        ),
     )
     new_p.add_argument(
         "--type",
@@ -85,6 +90,18 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help=(
             "Registered ManuscriptType key (e.g. 'lit-review'). Unknown types "
             "fail loudly — no silent fallback."
+        ),
+    )
+    new_p.add_argument(
+        "--from-review",
+        metavar="<scope>",
+        default=None,
+        help=(
+            "An `rv review` scope id to adopt as the slug (NG-7 §2.6) — "
+            "pre-binds the corpus by making the manuscript slug equal the "
+            "review scope id, the convention every corpus-lookup keys off. "
+            "An explicit <slug> that differs from this is warned, not "
+            "silently overridden."
         ),
     )
 
@@ -171,6 +188,7 @@ def _run_new(args: argparse.Namespace) -> int:
             args.slug,
             ms_type_key=args.type,
             config=cfg,
+            from_review=getattr(args, "from_review", None),
         )
         print(f"rv manuscript: created note: {note_path}")
         print(f"rv manuscript: folder: {tree_root}")

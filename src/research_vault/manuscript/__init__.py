@@ -271,6 +271,19 @@ def _build_phase2_manifest(
 
     sr: PR-M1 (manuscript-integration: source_transform wiring, §4)
     """
+    # NG-7 (next-gen lit-review design §2): a type's custom Phase-2 builder
+    # (single-pass outline -> draft -> assemble) takes over entirely when
+    # present — mirrors ``_build_phase1_manifest``'s delegation exactly.
+    if ms_type.phase2_builder is not None:
+        return ms_type.phase2_builder(
+            project=project,
+            slug=slug,
+            project_notes_dir=project_notes_dir,
+            tree_root=tree_root,
+            manuscript_fields=manuscript_fields,
+            config=config,
+        )
+
     if not ms_type.section_set:
         raise ValueError(
             f"rv manuscript expand: type {ms_type.key!r} has an empty section_set — "
@@ -418,10 +431,11 @@ def _build_phase2_manifest(
 
 def cmd_new(
     project: str,
-    slug: str,
+    slug: str | None = None,
     *,
     ms_type_key: str,
     config: Config | None = None,
+    from_review: str | None = None,
 ) -> tuple[Path, Path, dict[str, Any] | None]:
     """Scaffold a per-manuscript folder + (type-optional) Phase-1 manifest.
 
@@ -436,12 +450,28 @@ def cmd_new(
     ``.bib`` (PR-M2), fidelity gates (PR-M3), equation machinery (PR-M4), and
     review-revise board (PR-M5) plugging into this same folder as they land.
 
+    NG-7 §2.6 (explore-rl friction #6): the manuscript slug is expected to
+    match its underlying ``rv review`` scope id (``reviews/<slug>/_corpus.md``)
+    — a silent mismatch surfaces two DAG nodes deep as an unexplained "no
+    frozen corpus" from the ``scope``/``coverage-gate`` machinery. Two fixes:
+      - ``from_review``: adopts the scope id AS the slug (pre-binds the
+        corpus by construction) when ``slug`` is omitted. Passing BOTH an
+        explicit ``slug`` and a DIFFERENT ``from_review`` is a real mismatch
+        — warned, never silently "fixed" by picking one for you.
+      - a warn-at-creation: ANY slug (with or without ``--from-review``)
+        that has no matching ``reviews/<slug>/_corpus.md`` gets a loud
+        ``UserWarning`` at creation time, not a confusing failure downstream.
+
     Args:
         project: project slug (must be registered in config).
-        slug: manuscript identifier slug (e.g. "survey-llm-eval").
+        slug: manuscript identifier slug (e.g. "survey-llm-eval"). Optional
+            when ``from_review`` is given (adopted from it).
         ms_type_key: the registered ManuscriptType key (e.g. "lit-review").
             Unknown types fail loudly — see ``_unknown_type_error``.
         config: optional Config (loaded if None).
+        from_review: an ``rv review`` scope id to adopt as the slug (NG-7
+            §2.6) — pre-binds the corpus by making the manuscript slug equal
+            the review scope id, the convention every corpus-lookup keys off.
 
     Returns:
         (note_path, tree_root, manifest) where:
@@ -450,8 +480,33 @@ def cmd_new(
           manifest:  the Phase-1 manifest dict, or None (pass-through type —
                      design §1: this type's Phase-1 is skipped entirely).
 
-    sr: PR-M1
+    sr: PR-M1; NG-lit-review-waveB (NG-7 §2.6: --from-review + warn-at-creation)
     """
+    import warnings
+
+    if from_review:
+        if slug and slug != from_review:
+            warnings.warn(
+                f"rv manuscript new: explicit slug {slug!r} differs from "
+                f"--from-review scope {from_review!r} — the manuscript-slug "
+                f"== review-scope-id convention will NOT hold for this "
+                f"manuscript (corpus_hash/coverage-gate lookups key off the "
+                f"slug). Proceeding with the EXPLICIT slug {slug!r} — "
+                f"--from-review is not silently substituted when a slug is "
+                f"also given.",
+                UserWarning,
+                stacklevel=2,
+            )
+        elif not slug:
+            slug = from_review
+
+    if not slug:
+        raise ValueError(
+            "rv manuscript new: a slug is required — pass it directly, or "
+            "pass --from-review <scope> to adopt the review scope id as the "
+            "slug (NG-7 §2.6)."
+        )
+
     ms_type = get_type(ms_type_key)
     if ms_type is None:
         raise _unknown_type_error(ms_type_key)
@@ -469,6 +524,23 @@ def cmd_new(
             f"rv manuscript new: {note_path} already exists. "
             f"Pick a different slug, or remove the existing folder to recreate it "
             f"(avoiding a silent overwrite of an in-progress manuscript)."
+        )
+
+    # NG-7 §2.6 warn-at-creation: a slug with no matching frozen review
+    # corpus is a silent landmine that surfaces two nodes deep (scope/
+    # coverage-gate report "no frozen corpus" with no explanation of why).
+    expected_corpus = project_notes_dir / "reviews" / slug / "_corpus.md"
+    if not expected_corpus.exists():
+        warnings.warn(
+            f"rv manuscript new: no frozen review corpus found at "
+            f"{expected_corpus} for slug {slug!r}. If this manuscript "
+            f"summarizes a completed `rv review` loop, the manuscript slug "
+            f"is expected to MATCH that review's scope id — consider `rv "
+            f"manuscript new --from-review <scope>` instead. Proceeding — "
+            f"source_transform/coverage-gate will render an honest 'no "
+            f"corpus' state until one is frozen at this slug.",
+            UserWarning,
+            stacklevel=2,
         )
 
     tree_root.mkdir(parents=True, exist_ok=True)

@@ -600,15 +600,19 @@ def test_e2e_new_and_expand_full_manifest(cfg):
     p1_ids = [n["id"] for n in phase1["nodes"]]
     assert p1_ids == ["scope", "framework-propose", "approve-framework"]
 
+    # NG-7: lit-review's Phase-2 is the single-pass phase2_builder — the
+    # 8-row section-set (RD-2/RD-4) is consolidated SOURCE DATA feeding the
+    # single "draft" node's brief, not one DAG node per section (design §2.2).
     phase2 = cmd_expand("demo-research", "survey-m6-e2e", config=cfg)
     validate_manifest(phase2)
     p2_ids = [n["id"] for n in phase2["nodes"]]
-    assert len(p2_ids) == 8 + 2  # 8 sections (RD-2/RD-4) + assemble + approve-manuscript
+    assert p2_ids == ["outline", "draft", "assemble", "approve-manuscript"]
+    draft_spec = next(n["spec"] for n in phase2["nodes"] if n["id"] == "draft")
     for expected in (
         "introduction", "thematic-sections",
         "cross-cutting-analysis", "open-problems", "conclusion", "references",
         "appendix-methods", "abstract",
     ):
-        assert expected in p2_ids
+        assert f"Section: {expected}" in draft_spec, f"{expected!r} missing from consolidated draft brief"
     assert "prisma-scope" not in p2_ids
     assert "framework" not in p2_ids

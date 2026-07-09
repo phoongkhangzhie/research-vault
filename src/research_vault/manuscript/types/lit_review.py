@@ -773,6 +773,445 @@ SECTION_SET: tuple[SectionSpec, ...] = (
 
 
 # ---------------------------------------------------------------------------
+# NG-7 (next-gen lit-review design §2): single-pass Phase-2 — outline -> draft
+# -> assemble, replacing the type-generic per-section chain. SECTION_SET +
+# STYLE_BRIEFS above stay the SOURCE DATA (one writer's brief now
+# CONSOLIDATES them, rather than one DAG node per section — design §2.6:
+# "the mechanical injections that were spread across per-section briefs ...
+# now inject into ONE brief + the outline").
+# ---------------------------------------------------------------------------
+
+# The engineer's build-time number (design §2.4, D3: "start conservative,
+# e.g. the point where the whole draft + injected inputs approaches the
+# drafter's context budget"). Override via research_vault.toml:
+#   [manuscript_lit_review]
+#   single_pass_corpus_ceiling = 60
+_DEFAULT_SINGLE_PASS_CORPUS_CEILING = 40
+
+# RD-2's reader-first reading order (§6) — the order the consolidated draft
+# brief presents each section's contract in, and the order `assemble` joins
+# them in `report.md`. Abstract is listed first here (reading order) even
+# though it is drafted conceptually last within the single pass (it must
+# summarize the finished body — the single-pass writer holds the whole
+# survey in view, so "drafted last" is a sequencing note inside one prompt,
+# not a separate DAG node).
+READING_ORDER: tuple[str, ...] = (
+    "abstract", "introduction", "thematic-sections", "cross-cutting-analysis",
+    "open-problems", "conclusion", "references", "appendix-methods",
+)
+
+# RD-6 (design §6) + HR-craft rec 1 (§7): drafting-style rules folded into
+# the single consolidated draft brief (was spread across the 9-node chain's
+# individual briefs pre-Wave-B).
+_RD6_STYLE_RULES = (
+    "Drafting-style rules (RD-6, binding across every section of this "
+    "single pass):\n"
+    "1. BOLD topic sentences — the first sentence of each paragraph states "
+    "its claim in bold, not buried after the evidence.\n"
+    "2. Define technical terms INLINE on first use (a hard gate — an "
+    "undefined term the reader must chase elsewhere is a self-containment "
+    "failure, cold-read SIGNAL).\n"
+    "3. Prefer shorter paragraphs / bullets for enumerations over long "
+    "unbroken prose blocks.\n"
+    "4. Name every counter-position INLINE by its actual argument — 'X "
+    "argue instead that...' — NEVER by an internal handle (`CPk`). The "
+    "reader-hygiene leak-gate (RD-5) BLOCKs a literal `CPk`/`Qk` handle.\n\n"
+    "HR-craft rec 1 — integrate-by-scoping, don't append-as-caveat: when "
+    "counter-evidence lands, NARROW the claim's scope ('X holds in A; in B, "
+    "Z changes the regime') instead of hedging ('X, though this may "
+    "differ'). A narrowed claim sharpens the thesis; a hedge dissolves it — "
+    "always prefer the former."
+)
+
+
+def _get_single_pass_corpus_ceiling(config: Any = None) -> int:
+    """Resolve ``single_pass_corpus_ceiling`` (design §2.4, D3).
+
+    Adopter override: ``[manuscript_lit_review] single_pass_corpus_ceiling``.
+    Falls back to the conservative shipped default.
+
+    sr: NG-lit-review-waveB (NG-7)
+    """
+    if config is not None:
+        raw = getattr(config, "_raw", {})
+        override = raw.get("manuscript_lit_review", {})
+        if isinstance(override, dict):
+            val = override.get("single_pass_corpus_ceiling")
+            if isinstance(val, int) and val > 0:
+                return val
+    return _DEFAULT_SINGLE_PASS_CORPUS_CEILING
+
+
+def _corpus_size(project_notes_dir: Path, slug: str) -> int:
+    """Frozen corpus size (0 if no ``_corpus.md`` exists yet — honest, not an error)."""
+    corpus_path = project_notes_dir / "reviews" / slug / "_corpus.md"
+    if not corpus_path.exists():
+        return 0
+    from research_vault.review import _parse_corpus_citekeys
+
+    return len(_parse_corpus_citekeys(corpus_path))
+
+
+def render_relations_ledger(
+    project: str,
+    slug: str,
+    *,
+    config: Any = None,
+) -> str:
+    """PR-2's consume seam (Wave 0) for the single-pass draft brief (NG-7).
+
+    Traverses the corpus-wide paper->paper typed-edge listing
+    (``review.relations_report``) — mechanical, zero-hallucination DATA the
+    drafter reads instead of re-deriving the comparative spine from prose
+    (design §5's net simplification: "less inference, more structure").
+
+    ``relations_report`` unavailable/erroring (e.g. no literature/ dir yet)
+    degrades to an honest empty-ledger note, never an exception that blocks
+    the whole manifest build.
+
+    sr: NG-lit-review-waveB (NG-7)
+    """
+    from research_vault.review import relations_report
+
+    try:
+        report = relations_report(project, slug, config=config)
+    except Exception:
+        return (
+            "_No paper->paper typed-edge data available yet "
+            "(review.relations_report unavailable for this scope)._\n"
+        )
+
+    edges = report.get("edges", [])
+    if not edges:
+        return (
+            "_No paper->paper typed edges found yet in this corpus "
+            "(Wave 0 PR-2 — run `rv review <project> relate-check` on the "
+            "corpus to populate them)._\n"
+        )
+
+    lines = [
+        "## Paper -> paper typed edges (PR-2, Wave 0 — TRAVERSE, do not re-derive)\n",
+        "Every claim comparing >=2 papers should ground its relation in one "
+        "of these typed edges (or a note's own `role`/`position` fields), "
+        "never invented:\n",
+    ]
+    for e in edges:
+        lines.append(f"- [{e['type']}] {e['source']} -> {e['target']}: {e['reason']}")
+
+    dangling = report.get("dangling", [])
+    if dangling:
+        lines.append(
+            "\n_Dangling edges (target citekey not found in this project's "
+            "corpus — a candidate typo/uningested paper, SIGNAL only, do "
+            "NOT treat as a real relation):_"
+        )
+        for d in dangling:
+            lines.append(f"- {d['source']} -> {d['target']}")
+
+    return "\n".join(lines) + "\n"
+
+
+def check_outline_gate(outline_path: Path, branches: list[str]) -> list[str]:
+    """NG-7's cheap, rejects-only outline pre-pass gate (design §2.2/§3.2).
+
+    A cheap screen that can only REJECT (charter §9): before the expensive
+    whole-draft runs, confirm every frozen branch is anchored to something
+    real in ``_outline.md`` — surfacing a framework/corpus problem in
+    minutes, not after a full draft.
+
+    Checks, per frozen branch:
+      1. the branch name appears in the outline (an anchored thesis-claim).
+      2. SOMEWHERE in the outline, an exemplar-move citation is present
+         (design §3.2's enforcement hook — an ``eNN`` id reference, e.g.
+         "imitates e07") — an outline section with no exemplar-move
+         reference is incomplete.
+      3. at least 2 distinct ``[[citekey]]`` paper references appear overall
+         (design §2.2: "the >=2 papers it will compare").
+
+    Args:
+        outline_path: path to ``_outline.md``.
+        branches: the frozen ``branches:`` list from ``_manuscript.md``.
+
+    Returns:
+        A list of finding strings (empty = OK). Never raises — a missing
+        file is a finding, not an exception (mirrors the OKF-type/relate-
+        presence gate's structural posture).
+
+    sr: NG-lit-review-waveB (NG-7)
+    """
+    import re
+
+    if not outline_path.exists():
+        return [
+            f"outline gate: {outline_path} not found — the outline pre-pass "
+            f"must produce _outline.md before `draft` may proceed (design §2.2)."
+        ]
+
+    try:
+        text = outline_path.read_text(encoding="utf-8")
+    except OSError as e:
+        return [f"outline gate: cannot read {outline_path}: {e}"]
+
+    text_lower = text.lower()
+    issues: list[str] = []
+
+    for branch in branches:
+        b = str(branch).strip()
+        if not b:
+            continue
+        if b.lower() not in text_lower:
+            issues.append(
+                f"outline gate: frozen branch {b!r} has no corresponding entry "
+                f"in {outline_path.name} — every frozen branch must be anchored "
+                f"to a thesis-claim before drafting proceeds."
+            )
+
+    if branches and not re.search(r"\be\d+\b", text_lower):
+        issues.append(
+            "outline gate: no exemplar-move citation (e.g. 'imitates e07') "
+            "found anywhere in the outline — design §3.2's enforcement hook "
+            "requires each section name the exemplar id whose move it imitates."
+        )
+
+    wikilink_count = len(re.findall(r"\[\[[\w.\-]+\]\]", text))
+    if branches and wikilink_count < 2:
+        issues.append(
+            f"outline gate: fewer than 2 [[citekey]] paper references found "
+            f"({wikilink_count}) — each thematic branch must marshal >=2 "
+            f"papers to compare (design §2.2)."
+        )
+
+    return issues
+
+
+def _build_consolidated_draft_brief(tips: dict[str, str]) -> str:
+    """Consolidate the per-section tips (RD-2's reading order) into ONE
+    single-pass draft brief (design §2.2/§2.6): "the mechanical injections
+    ... now inject into ONE brief + the outline"."""
+    parts: list[str] = []
+    for key in READING_ORDER:
+        if key in tips:
+            parts.append(f"### Section: {key}\n\n{tips[key]}")
+    parts.append(f"### Drafting-style rules\n\n{_RD6_STYLE_RULES}")
+    return "\n\n---\n\n".join(parts)
+
+
+def phase2_builder(
+    *,
+    project: str,
+    slug: str,
+    project_notes_dir: Path,
+    tree_root: Path,
+    manuscript_fields: dict[str, Any] | None = None,
+    config: Any = None,
+) -> dict[str, Any]:
+    """NG-7: build the single-pass Phase-2 manifest — outline -> draft ->
+    assemble -> [HG: approve-manuscript] (design §2.2).
+
+    Default topology (corpus at/under ``single_pass_corpus_ceiling``, D3):
+      outline -> draft -> assemble -> approve-manuscript
+
+    Above the ceiling (D3's fan-out path, design §2.4): drafting itself fans
+    out per-branch, with a coherence node (label-manifest check, design
+    §2.5) that reads all branch drafts and revises for cross-section
+    consistency before assemble:
+      outline -> draft-<branch-1> ... draft-<branch-N> -> coherence -> assemble
+      -> approve-manuscript
+
+    Matches the ``ManuscriptType.phase2_builder`` signature
+    (``manuscript/types/__init__.py``).
+
+    sr: NG-lit-review-waveB (NG-7)
+    """
+    from research_vault.manuscript.style import (
+        get_manuscript_section_tips,
+        get_manuscript_style_preamble,
+    )
+    from research_vault.manuscript import equations as _equations
+    from research_vault.manuscript import exemplars as _exemplars
+    from research_vault.manuscript import _inject_source_transform_tips
+
+    tips = get_manuscript_section_tips(LIT_REVIEW, config=config)
+    preamble = get_manuscript_style_preamble(config=config)
+
+    if LIT_REVIEW.equation_sources:
+        ledger = _equations.extract_equation_ledger(project_notes_dir, LIT_REVIEW.equation_sources)
+        tips = _equations.inject_equation_brief(
+            tips, ledger, LIT_REVIEW.section_set, LIT_REVIEW.equation_sources
+        )
+
+    spine = {
+        "spine_shape": (manuscript_fields or {}).get("spine_shape", ""),
+        "branches": (manuscript_fields or {}).get("branches", ""),
+    }
+    transform = source_transform(project, project_notes_dir, tree_root, spine, config=config)
+    tips = _inject_source_transform_tips(tips, transform)
+
+    exemplar_blocks: list[dict[str, Any]] = []
+    if LIT_REVIEW.exemplar_bundle:
+        exemplar_blocks = _exemplars.load_exemplar_bundle(LIT_REVIEW.exemplar_bundle)
+        tips = _exemplars.inject_exemplar_briefs(tips, exemplar_blocks)
+        principle_block = _exemplars.build_principle_anchor_block(exemplar_blocks)
+        if principle_block:
+            preamble = preamble.rstrip() + "\n\n---\n\n" + principle_block
+        # NG-8 §3.3: the same pre-dispatch presence assertion as the
+        # generic-chain path — a hand-rolled consolidated brief that
+        # dropped a mapped section's pointer fails loudly here too.
+        for section_key in tips:
+            ok, msg = _exemplars.check_exemplar_pointer_presence(section_key, tips[section_key], exemplar_blocks)
+            if not ok:
+                raise ValueError(f"rv manuscript expand: {msg}")
+
+    branches_raw = spine.get("branches", [])
+    if isinstance(branches_raw, str):
+        branches = [b.strip() for b in branches_raw.split(",") if b.strip()]
+    else:
+        branches = list(branches_raw)
+
+    relations_ledger = render_relations_ledger(project, slug, config=config)
+
+    def _afterok(from_id: str) -> dict[str, str]:
+        return {"from": from_id, "edge": "afterok"}
+
+    def _rel(okf_type: str) -> str:
+        return str(project_notes_dir / okf_type)
+
+    exemplar_bundle_dir = _exemplars.resolve_exemplar_bundle_path(LIT_REVIEW.exemplar_bundle)
+    sections_dir_abs = str(tree_root / "sections")
+    outline_path = tree_root / "_outline.md"
+
+    all_source_atoms = sorted({atom for s in LIT_REVIEW.section_set for atom in s.source_atoms})
+    common_reads = [_rel(atom) for atom in all_source_atoms] + [sections_dir_abs]
+    if exemplar_bundle_dir is not None:
+        common_reads = common_reads + [str(exemplar_bundle_dir)]
+
+    outline_spec = (
+        preamble.rstrip() + "\n\n---\n\n"
+        "Outline pre-pass (NG-7, design §2.2) — a CHEAP, rejects-only screen. "
+        "For EACH frozen branch (`branches:` in `_manuscript.md`), write a "
+        "block in `_outline.md` naming: (1) the section's thesis-claim, (2) "
+        "the `concepts/`/`gaps/` anchors it will marshal, (3) the >=2 papers "
+        "it will compare (as `[[citekey]]` wikilinks), and (4) WHICH "
+        "exemplar-move it will imitate (cite the exemplar id, e.g. 'imitates "
+        "e07 — comparison-synthesis move'). If a branch cannot be anchored "
+        "to real concepts/gaps, FAIL here — surface the framework/corpus "
+        "problem now, before the expensive whole-draft.\n\n"
+        f"Frozen branches: {', '.join(branches) if branches else '(none frozen yet)'}"
+    )
+    draft_brief = _build_consolidated_draft_brief(tips)
+    draft_spec = (
+        preamble.rstrip() + "\n\n---\n\n"
+        "Single-pass whole-survey draft (NG-7, design §2.2): ONE subagent "
+        "drafts EVERY section below against `_outline.md`, holding the "
+        "entire survey in view for coherence. Read `_outline.md` first — "
+        "every frozen branch must already be anchored there (the outline "
+        "gate FAILs otherwise).\n\n"
+        + relations_ledger
+        + "\n---\n\n"
+        + draft_brief
+    )
+    assemble_spec = tips.get(
+        "assemble",
+        (
+            "RD-1: join the drafted sections into `report.md` (markdown) in "
+            "READER-FIRST reading order (RD-2): " + ", ".join(READING_ORDER) + ". "
+            "Prepend the injected `provenance_header` blockquote (RD-3, "
+            "hash-free) as the very first lines, before the Abstract."
+        ),
+    )
+
+    corpus_size = _corpus_size(project_notes_dir, slug)
+    ceiling = _get_single_pass_corpus_ceiling(config)
+
+    nodes: list[dict[str, Any]] = [
+        {
+            "id": "outline",
+            "type": "agent",
+            "label": "Outline pre-pass — cheap, rejects-only (NG-7)",
+            "spec": outline_spec,
+            "reads": common_reads,
+            "produces": {"_outline.md": str(outline_path)},
+            "needs": [],
+        },
+    ]
+
+    if corpus_size <= ceiling:
+        # Default single-pass path (D3).
+        nodes.append({
+            "id": "draft",
+            "type": "agent",
+            "label": "Single-pass whole-survey draft (NG-7)",
+            "spec": draft_spec,
+            "reads": common_reads,
+            "needs": [_afterok("outline")],
+        })
+        last_draft_id = "draft"
+    else:
+        # D3's fan-out-above-ceiling path (design §2.4): per-branch drafters
+        # + a coherence node that reads all of them + a label-manifest check
+        # (design §2.5 — the residual `\label`/`\ref` drift case).
+        branch_ids: list[str] = []
+        for branch in branches or ["survey"]:
+            branch_slug = "".join(c if c.isalnum() or c == "-" else "-" for c in branch.lower())
+            node_id = f"draft-{branch_slug}"
+            nodes.append({
+                "id": node_id,
+                "type": "agent",
+                "label": f"Fan-out draft for branch {branch!r} (above single_pass_corpus_ceiling, NG-7 §2.4)",
+                "spec": draft_spec + f"\n\n---\n\nYou are drafting ONLY the {branch!r} branch this pass.",
+                "reads": common_reads,
+                "needs": [_afterok("outline")],
+            })
+            branch_ids.append(node_id)
+
+        nodes.append({
+            "id": "coherence",
+            "type": "agent",
+            "label": "Coherence pass — cross-section consistency + label-manifest check (NG-7 §2.5)",
+            "spec": (
+                preamble.rstrip() + "\n\n---\n\n"
+                "Coherence pass (design §2.4/§2.5): read every branch draft "
+                "under `sections/`, revise for cross-section consistency, and "
+                "run the LABEL-MANIFEST CHECK — every `\\label{}`/`[[#anchor]]` "
+                "a section declares vs. every one another section refs must "
+                "match (a fan-out drift is caught HERE, not at compile). This "
+                "check is ONLY required on this fan-out path — the default "
+                "single-pass needs no label manifest (design §2.5)."
+            ),
+            "reads": common_reads,
+            "needs": [_afterok(bid) for bid in branch_ids],
+        })
+        last_draft_id = "coherence"
+
+    nodes.append({
+        "id": "assemble",
+        "type": "agent",
+        "label": "Assemble — join drafted sections into report.md (RD-1)",
+        "spec": preamble.rstrip() + "\n\n---\n\n" + assemble_spec,
+        "reads": [sections_dir_abs],
+        "needs": [_afterok(last_draft_id)],
+    })
+
+    nodes.append({
+        "id": "approve-manuscript",
+        "type": "human-go",
+        "label": (
+            "Gate: Approve manuscript draft (gated by "
+            "manuscript/check_gates.py::build_approve_payload)"
+        ),
+        "needs": [_afterok("assemble")],
+    })
+
+    return {
+        "run_id": f"manuscript-{slug}-phase2",
+        "project": project,
+        "name": f"Manuscript Phase-2 (lit-review, single-pass NG-7): {slug}",
+        "global_cap": 1,
+        "nodes": nodes,
+    }
+
+
+# ---------------------------------------------------------------------------
 # The registered type
 # ---------------------------------------------------------------------------
 
@@ -796,6 +1235,7 @@ LIT_REVIEW = ManuscriptType(
         "synthesis-vs-enumeration-adversary",
     ),
     canaries=(),                             # PR-M8: strong / weak / annotated-bib (§11.3)
+    phase2_builder=phase2_builder,          # NG-7 — single-pass outline->draft->assemble
 )
 
 register_type(LIT_REVIEW)

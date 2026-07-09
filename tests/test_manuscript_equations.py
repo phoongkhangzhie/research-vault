@@ -379,15 +379,15 @@ def test_cmd_expand_wires_equation_ledger_into_section_spec(cfg):
     cmd_new("demo-research", "survey-eq-wiring", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-eq-wiring", config=cfg)
 
-    draft_node = next(n for n in manifest["nodes"] if n["id"] == "thematic-sections")
-    # The lit-review type's real section-set (types/lit_review.py SECTION_SET,
-    # landed in PR-M6) has no "draft" section any more — "thematic-sections" is
-    # the section whose source_atoms=("concepts", "literature") overlap
-    # equation_sources=("concepts", "literature"), so the ledger must be
-    # injected into its spec. NOTE: the thematic-sections brief itself (PR-M6,
-    # §3.1) already contains a bare "REQUIRE" ("REQUIRE a theme-claim + AT
-    # LEAST TWO papers..."), unrelated to equations — so the equation-ledger
-    # marker must be the block's own distinctive header, not bare "REQUIRE".
+    # NG-7: lit-review's Phase-2 is now the single-pass phase2_builder
+    # (outline -> draft -> assemble) — the equation ledger is injected into
+    # the "thematic-sections" TIP, which is folded into the single "draft"
+    # node's consolidated spec (no standalone "thematic-sections" node).
+    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
+    # NOTE: the thematic-sections brief itself (PR-M6, §3.1) already contains
+    # a bare "REQUIRE" ("REQUIRE a theme-claim + AT LEAST TWO papers..."),
+    # unrelated to equations — so the equation-ledger marker must be the
+    # block's own distinctive header, not bare "REQUIRE".
     assert "eq:elbo" in draft_node["spec"]
     assert "★ REQUIRE — pivotal equations from your source notes" in draft_node["spec"]
 
@@ -398,6 +398,6 @@ def test_cmd_expand_noop_when_no_equations_present(cfg):
     cmd_new("demo-research", "survey-no-eq", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-no-eq", config=cfg)
 
-    draft_node = next(n for n in manifest["nodes"] if n["id"] == "thematic-sections")
+    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
     assert "eq:" not in draft_node["spec"]
     assert "★ REQUIRE — pivotal equations from your source notes" not in draft_node["spec"]

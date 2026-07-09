@@ -844,6 +844,46 @@ def cmd_complete(args: argparse.Namespace) -> int:
     # validate the note's type:dir matches.
     if status == "succeeded" and "produces" in node:
         produces = node["produces"]
+
+        # NG-7 (next-gen lit-review design §2.2/§3.2): the outline pre-pass's
+        # cheap, rejects-only gate — ride at complete-time exactly like
+        # check_framework_gate rides at approve-time (node-id-keyed gate
+        # wiring, the established 3+-instance pattern). Only fires for the
+        # lit-review single-pass `outline` node completing `_outline.md`.
+        if node_id == "outline" and "_outline.md" in produces:
+            outline_ref = produces["_outline.md"]
+            outline_path = Path(outline_ref)
+            manuscript_note_path = manifest_path.parent / "_manuscript.md"
+            branches: list[str] = []
+            if manuscript_note_path.exists():
+                from ..note import _parse_frontmatter as _pfm_outline
+
+                _fields, _ = _pfm_outline(manuscript_note_path.read_text(encoding="utf-8"))
+                _branches_raw = _fields.get("branches", "")
+                if isinstance(_branches_raw, str):
+                    branches = [b.strip() for b in _branches_raw.split(",") if b.strip()]
+                else:
+                    branches = [str(b).strip() for b in _branches_raw if str(b).strip()]
+
+            from ..manuscript.types.lit_review import check_outline_gate
+
+            outline_issues = check_outline_gate(outline_path, branches)
+            if outline_issues:
+                print(
+                    f"rv dag complete: outline gate FAILED for node {node_id!r}:",
+                    file=sys.stderr,
+                )
+                for issue in outline_issues:
+                    print(f"  {issue}", file=sys.stderr)
+                print(
+                    "  Fix: anchor every frozen branch to a real thesis-claim + "
+                    ">=2 papers + the exemplar-move it imitates in _outline.md "
+                    "(NG-7, design §2.2/§3.2) — a cheap screen that catches a "
+                    "framework/corpus problem before the expensive whole-draft.",
+                    file=sys.stderr,
+                )
+                return 1
+
         if "note" in produces:
             # F21 (adopter fix): resolve produces.note against the project's
             # source_dir, not the shared notes_root.  The manifest may declare

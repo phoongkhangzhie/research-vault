@@ -93,6 +93,16 @@ class ManuscriptType:
         rubric: rubric identifier/string (design §11, PR-M8).
         reviewer_lenses: reviewer lens specs (design §11.2, PR-M5).
         canaries: canary probe identifiers (design §11.3, PR-M8).
+        phase2_builder: optional callable building a CUSTOM Phase-2 manifest
+            (NG-7, next-gen lit-review design §2: single-pass
+            outline -> draft -> assemble, replacing the type-generic
+            per-section chain). Mirrors ``phase1_builder``'s already-
+            established override shape exactly (reuse-over-create, charter
+            §6). Signature: ``(project, slug, project_notes_dir, tree_root,
+            *, manuscript_fields, config) -> dict[str, Any]`` (a DAG manifest
+            dict). ``None`` = the core's default section_set chain
+            (``_build_phase2_manifest``) — a type with no Phase-2 override
+            keeps the N-section chain unchanged (backward compatible).
     """
 
     key: str
@@ -105,6 +115,7 @@ class ManuscriptType:
     rubric: str | None = None
     reviewer_lenses: tuple[Any, ...] = ()
     canaries: tuple[str, ...] = ()
+    phase2_builder: Callable[..., dict[str, Any]] | None = None
 
 
 # ---------------------------------------------------------------------------

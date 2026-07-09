@@ -246,24 +246,21 @@ def test_cmd_expand_emits_valid_manifest(cfg):
 
 
 def test_cmd_expand_node_shape(cfg):
-    """PR-M6/RD-2/RD-4: the real reader-first 8-row lit-review section-set
-    (design §6), not the PR-M1 stub's single 'draft' section."""
+    """NG-7: lit-review's Phase-2 is the single-pass outline -> draft ->
+    assemble -> approve-manuscript chain (design §2.2), replacing the
+    PR-M6/RD-2/RD-4 8-row per-section chain — the 8-row section-set
+    (types/lit_review.py SECTION_SET) is now SOURCE DATA consolidated into
+    the single "draft" node's brief, not one DAG node per section."""
     from research_vault.manuscript import cmd_new, cmd_expand
 
     cmd_new("demo-research", "survey-shape2", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-shape2", config=cfg)
     ids = [n["id"] for n in manifest["nodes"]]
-    for expected in (
-        "introduction", "thematic-sections",
-        "cross-cutting-analysis", "open-problems", "conclusion", "references",
-        "appendix-methods", "abstract", "assemble", "approve-manuscript",
-    ):
-        assert expected in ids, f"{expected!r} missing from {ids}"
-    assert "prisma-scope" not in ids  # RD-3: relocated to appendix-methods
-    assert "framework" not in ids  # RD-4: body row deleted
-    assert ids.index("abstract") < ids.index("assemble") < ids.index("approve-manuscript")
-    # abstract is drafted LAST among the sections (design §3: "S (last)")
-    assert ids.index("abstract") == 7
+    assert ids == ["outline", "draft", "assemble", "approve-manuscript"]
+    assert "prisma-scope" not in ids
+    assert "framework" not in ids
+    assert "introduction" not in ids
+    assert ids.index("outline") < ids.index("draft") < ids.index("assemble") < ids.index("approve-manuscript")
 
 
 def test_cmd_expand_approve_manuscript_is_human_go(cfg):
@@ -290,8 +287,8 @@ def test_cmd_expand_reads_are_absolute(cfg):
 
     cmd_new("demo-research", "survey-reads", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-reads", config=cfg)
-    intro_node = next(n for n in manifest["nodes"] if n["id"] == "introduction")
-    for r in intro_node["reads"]:
+    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
+    for r in draft_node["reads"]:
         assert Path(r).is_absolute(), f"reads: pointer not absolute: {r}"
 
 

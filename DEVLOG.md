@@ -1,3 +1,89 @@
+## 2026-07-08 (release/0.2.7: Wave B — Presentation + single-pass + exemplar-pointers)
+
+### Done
+- **RD-5 — reader-hygiene leak-gate.** `check_reader_hygiene` (deterministic,
+  fail-closed BLOCK) added to `build_approve_payload` — internal pipeline
+  vocabulary (`CPk`/`Qk` handles, `sha256:` hashes, `_artifact.md` filenames,
+  tool/verb tokens) leaking into reader prose now hard-blocks
+  `approve-manuscript`. Independent of every other gate — lands first per
+  the wave-B sequencing.
+- **RD-1 — markdown render target.** `cmd_new` scaffolds `report.md` (was
+  `main.tex`) for new manuscripts; citations use `[[citekey]]` markdown
+  wikilinks alongside legacy `\cite{}`/`\citep{}`. New
+  `manuscript/draft_files.py::resolve_draft_files` is the single-sourced
+  resolver `bib.py`/`fidelity_gates.py`/`check_gates.py` now share (was
+  three near-identical `.rglob("*.tex")` globs). The hermetic-bib BLOCK and
+  the support-matcher/cold-read fidelity gates keep firing — now against
+  markdown, not just `.tex`.
+- **RD-2/RD-3/RD-4 — reader-first restructure.** The lit-review section-set
+  drops from 9 to 8 rows: `prisma-scope` and `framework` are removed as
+  BODY sections. `introduction` now leads on the thesis (RD-2) and folds in
+  a compact spine-at-a-glance orientation table (RD-4 — the "why this spine"
+  candidate-rejection defense stays internal, in
+  `_framework-candidates.md`). `prisma-scope` relocates to `appendix-methods`
+  (RD-3), rendered LAST in reading order; a new hash-free
+  `render_provenance_header()` blockquote (no `sha256:`, no counts) is
+  prepended to `report.md`. ★ RD-3/NG-6a dependency flagged, not silently
+  resolved: the appendix's PRISMA counts are only as fresh as the frozen
+  `_corpus.md` this wave reads — the known tool-vs-corpus count
+  reconciliation bug is NOT fixed here, that's NG-6a's `rv review refresh`
+  verb (Wave C). This wave only relocates the display.
+- **NG-8 — exemplars as must-read pointers.** `inject_exemplar_briefs` now
+  appends a `read <abs-path>` pointer block (`MUST_READ_HEADER` marker)
+  instead of embedding the excerpt verbatim (was ~6900 chars for the old
+  framework brief). New `resolve_exemplar_bundle_path` is the package-path
+  resolver (no copy). ★ `check_exemplar_pointer_presence` is wired as a
+  pre-dispatch assertion in the manifest builder — a section this bundle
+  covers that ships without the pointer marker (e.g. a hand-rolled brief
+  that bypassed injection) raises `ValueError` loudly, never silently ships
+  a voiceless section (design §3.3's "a dropped pointer is invisible").
+- **NG-7 — single-pass manuscript.** New `ManuscriptType.phase2_builder`
+  hook (mirrors `phase1_builder`'s established override shape) lets
+  lit-review replace the type-generic per-section chain with
+  `outline -> draft -> assemble` — one subagent drafts the WHOLE survey
+  against a frozen `_outline.md` for coherence. `check_outline_gate` is a
+  cheap, rejects-only screen (wired into `rv dag complete` at the `outline`
+  node, the established node-id-keyed gate pattern) — every frozen branch
+  must be anchored to a thesis-claim, ≥2 `[[citekey]]` papers, and an
+  exemplar-move citation before the expensive draft proceeds. ★ The draft
+  brief consumes PR-2's paper→paper typed edges via
+  `render_relations_ledger` (traverses `review.relations_report`, never
+  re-derives). Default single-pass; above `single_pass_corpus_ceiling`
+  (config, default 40) fans out per-branch `draft-<branch>` nodes + a
+  `coherence` node with a label-manifest check (D3's fan-out path, only
+  this path needs it). RD-6's drafting-style rules (bold topic sentences,
+  inline term-definition, name counter-positions inline) + HR-craft rec 1
+  (integrate-by-scoping, not append-as-caveat) fold into the consolidated
+  draft brief. `rv manuscript new --from-review <scope>` adopts the scope
+  id as the slug (pre-binds the corpus); a warn-at-creation fires for ANY
+  slug with no matching `reviews/<slug>/_corpus.md` (explore-rl friction
+  #6). HR-craft rec 5's deterministic H2-heading-order diff
+  (`check_heading_order`) is wired as a SIGNAL confirming the draft
+  delivered the frozen reading-order contract.
+- Version bump `0.2.6 → 0.2.7`.
+
+### Decisions
+- **RD-3's appendix-move ships WITHOUT fixing the underlying count-bug** —
+  by design, per the dispatch brief's explicit sequencing. NG-6a (Wave C)
+  is the fix; this wave only relocates where an already-correct-or-not
+  count is displayed. Flagged in `render_provenance_header`'s docstring and
+  here so it's tracked, not lost.
+- **`phase2_builder` is additive, not a breaking change to the type
+  contract** — `None` (the default) keeps the existing per-section chain
+  for any future type that wants it; only `lit-review` opts into single-pass.
+- **Heading-order diff wired lit-review-specific**, not type-generic — only
+  `lit-review` declares a frozen `READING_ORDER` today; a future type with
+  none is a correct no-op.
+
+### Open / next
+- Wave C (NG-4/NG-5/NG-6a/NG-6b) — the autonomy gate-policy engine, bounded
+  auto-revise, and the deviation log (incl. NG-6a's `rv review refresh` —
+  the fix RD-3's dependency is waiting on).
+- The fan-out-above-ceiling path (NG-7 §2.4) is implemented + tested
+  end-to-end at the manifest-build level; it has not been exercised by a
+  real multi-branch drafting run yet — flag for the first NG run to
+  deploy-and-judge-live per the design's own risk note (§10).
+
 ## 2026-07-08 (release/0.2.6: Wave 0 — Reading, the relate-<key> protocol)
 
 ### Done
