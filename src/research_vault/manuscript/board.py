@@ -25,6 +25,8 @@ sr: PR-B3
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Callable
 
 from research_vault.gates.board_seam import (
@@ -232,3 +234,44 @@ def run_bounded_board(
         "halt": halted,
         "n_rounds_run": len(rounds),
     }
+
+
+# ---------------------------------------------------------------------------
+# The final board-result artifact — the handoff INTO
+# ``approve-manuscript --auto``'s gate-policy dispatch (dag/verbs.py).
+# ---------------------------------------------------------------------------
+#
+# The board's rounds require out-of-process cold-agent-judge fanouts
+# between rounds (an external hub action no DAG node can synchronously
+# block on) — so ``run_bounded_board`` is driven ONCE, out-of-band, by
+# whatever orchestrates the manuscript loop's board phase, and its result
+# is written here for the DAG's approve-manuscript gate to pick up.
+# ``_evaluate_autonomous_gate`` treats a MISSING result file as "the board
+# was never run for this manuscript" — an honest no-op that leaves the
+# structural-gate-only disposition unchanged (never a fabricated GO/HALT
+# for a board that was never driven), mirroring the support-matcher's own
+# not_run convention for "no judge configured."
+
+BOARD_RESULT_FILENAME = "_board-result.json"
+
+
+def write_board_result(judge_board_dir: Path, result: dict[str, Any]) -> None:
+    """Write ``run_bounded_board``'s return dict as the final board-result
+    artifact (``judge_board_dir / "_board-result.json"``)."""
+    judge_board_dir.mkdir(parents=True, exist_ok=True)
+    (judge_board_dir / BOARD_RESULT_FILENAME).write_text(
+        json.dumps(result, indent=2, sort_keys=False) + "\n", encoding="utf-8",
+    )
+
+
+def read_board_result(judge_board_dir: Path) -> dict[str, Any] | None:
+    """Read the final board-result artifact; ``None`` if absent/unreadable
+    (never raises — an absent board result is a legitimate "board not run
+    yet" state, not a crash)."""
+    path = judge_board_dir / BOARD_RESULT_FILENAME
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
