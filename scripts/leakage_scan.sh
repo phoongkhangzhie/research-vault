@@ -26,6 +26,13 @@
 #   8. Real citekeys              (Pandoc [@key] citations reveal private bibliography)
 #   9. Real projects.json entries (private project registry slugs/codes not in class 1)
 #  10. Crew narrative-names in .py (Ada/Wren/Mason/Argus/Iris/Atlas must not appear in Python source)
+#  11. Private local dev-paths (~/vault, docs/superpowers/ internal-spec refs) — a shipped
+#      doctrine/root .md file that cites an author-local path (the operator's hub instance
+#      or its internal, unshipped spec directory) tells an adopter to go look at a path they
+#      don't have. Scoped to NON-.py files (mirrors class 10's inverse: internal-spec-path /
+#      boundary-safety comments in Python source are an established, accepted development-
+#      history convention, out of scope here) and DEVLOG.md is grandfathered (its historical,
+#      append-only entries predate this class and are not rewritten for cosmetic scrubbing).
 #
 # Self-exclusion: the scanner skips itself, ci.yml, and the test file
 # (all three intentionally list the marker strings).
@@ -146,6 +153,15 @@ _grep_word_except() {
     # string (e.g. pyproject.toml for PyPI author metadata) prevents the allowlist
     # from silently suppressing detections in every other file type.
     #
+    # -H is REQUIRED (not cosmetic): GNU grep on a single explicit non-directory
+    # file argument (CI's per-file invocations, e.g. `leakage_scan.sh DEVLOG.md`)
+    # omits the filename prefix by default even with -r — this shifts $1 to the
+    # line number and silently breaks FILE_PAT matching (and, worse, can silently
+    # drop the check entirely via the NF>=3 guard on colon-less content). BSD grep
+    # (macOS) always includes it, so this only surfaces on Linux CI. Found via
+    # the class-11 CI failure on PR #195; -H makes the filename position
+    # deterministic on both platforms.
+    #
     # After masking, a case-insensitive substring check confirms the word survived.
     # This is equivalent to word-boundary matching in practice: if the word only
     # appeared inside the masked phrase, no substring remains after gsub.
@@ -161,7 +177,7 @@ _grep_word_except() {
                 | grep -Ev "$SKIP_PATTERN" \
                 | awk -F: -v word="$word" -v allow_ere="$allow_ere" -v file_pat="$file_pat" "$_MASK_AWK" || true)
     else
-        found=$(grep -rn --include="*.md" --include="*.yml" --include="*.yaml" \
+        found=$(grep -rnH --include="*.md" --include="*.yml" --include="*.yaml" \
                      --include="*.toml" --include="*.json" --include="*.py" \
                      -wi "$word" "$TARGET" 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" \
@@ -196,7 +212,7 @@ _grep_literal_except_re() {
                 | grep -Ev "$SKIP_PATTERN" \
                 | awk -F: -v lit="$lit" -v allow_ere="$allow_ere" -v file_pat="$file_pat" "$_MASK_AWK" || true)
     else
-        found=$(grep -rn --include="*.md" --include="*.yml" --include="*.yaml" \
+        found=$(grep -rnH --include="*.md" --include="*.yml" --include="*.yaml" \
                      --include="*.toml" --include="*.json" --include="*.py" \
                      -F "$lit" "$TARGET" 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" \
@@ -248,6 +264,42 @@ _grep_py_word() {
     fi
 }
 
+_grep_literal_non_py_except() {
+    # _grep_literal_non_py_except LABEL LITERAL EXEMPT_FILE_PAT
+    # Like _grep_literal but:
+    #   (a) EXCLUDES .py files entirely — internal dev-path references in Python source
+    #       comments/docstrings (design-of-record citations, boundary-safety notes) are an
+    #       established, accepted convention across this codebase (mirrors class 10's
+    #       inverse .py-only scoping: that class is .py-ONLY, this one is .py-EXCLUDED).
+    #   (b) masks the literal out of any file whose grep-output filename field ($1) matches
+    #       EXEMPT_FILE_PAT before re-checking — grandfathers DEVLOG.md, whose historical,
+    #       append-only entries predate this class and are out of the A-1/A-2 blocker scope
+    #       (a devlog is a real record, not rewritten for cosmetic scrubbing).
+    local label="$1" lit="$2" exempt_file_pat="$3"
+    local found
+    local _MASK_AWK='NF>=3{
+        content=$3; for(i=4;i<=NF;i++) content=content":"$i
+        if($1 ~ exempt_file_pat) { gsub(lit, "", content) }
+        if(index(content, lit)>0) print $0
+    }'
+    if [ "$STAGED" -eq 1 ]; then
+        found=$(echo "$STAGED_FILES" | grep -v '\.py$' | xargs -I{} grep -nH -F "$lit" {} 2>/dev/null \
+                | grep -Ev "$SKIP_PATTERN" \
+                | awk -F: -v lit="$lit" -v exempt_file_pat="$exempt_file_pat" "$_MASK_AWK" || true)
+    else
+        found=$(grep -rnH --include="*.md" --include="*.yml" --include="*.yaml" \
+                     --include="*.toml" --include="*.json" \
+                     -F "$lit" "$TARGET" 2>/dev/null \
+                | grep -Ev "$SKIP_PATTERN" \
+                | awk -F: -v lit="$lit" -v exempt_file_pat="$exempt_file_pat" "$_MASK_AWK" || true)
+    fi
+    if [ -n "$found" ]; then
+        echo "$found"
+        echo "FAIL [$label]: literal '$lit' matched (non-.py, outside grandfathered files)"
+        FAIL=1
+    fi
+}
+
 _grep_literal_except() {
     # _grep_literal_except LABEL LITERAL ALLOW_ERE
     # Like _grep_literal but instead of DROPPING entire lines that match ALLOW_ERE,
@@ -295,7 +347,7 @@ _grep_literal_except() {
                 | grep -Ev "$SKIP_PATTERN" \
                 | awk -F: -v lit="$lit" "$_MASK_AWK" || true)
     else
-        found=$(grep -rn --include="*.md" --include="*.yml" --include="*.yaml" \
+        found=$(grep -rnH --include="*.md" --include="*.yml" --include="*.yaml" \
                      --include="*.toml" --include="*.json" --include="*.py" \
                      -F "$lit" "$TARGET" 2>/dev/null \
                 | grep -Ev "$SKIP_PATTERN" \
@@ -420,6 +472,15 @@ _grep_py_word "crew-name/mason"  "mason"
 _grep_py_word "crew-name/argus"  "argus"
 _grep_py_word "crew-name/iris"   "iris"
 _grep_py_word "crew-name/atlas"  "atlas"
+
+# ── Class 11: Private local dev-paths ─────────────────────────────────────────
+# ~/vault (the operator's own hub instance) and docs/superpowers/ (its internal,
+# unshipped spec directory) are author-local paths — citing them in a shipped
+# doctrine/root .md file tells an adopter to go look at a path they don't have.
+# Non-.py, DEVLOG.md-grandfathered (see helper docstring above).
+DEVLOG_EXEMPT='(^|/)DEVLOG\.md$'
+_grep_literal_non_py_except "path/tilde-vault"       "~/vault"           "$DEVLOG_EXEMPT"
+_grep_literal_non_py_except "path/docs-superpowers"  "docs/superpowers/" "$DEVLOG_EXEMPT"
 
 fi  # end SECRETS_ONLY=0 block
 

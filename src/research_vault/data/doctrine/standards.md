@@ -1,10 +1,5 @@
 # The bar — quality standards
 
-<!-- SSOT: this file (doctrine/standards.md in the research-vault repo) is the source of
-truth. It is mirrored manually to ~/vault (the live Astro site) — that mirror carries drift
-risk. If you find divergence, treat this file as correct and update the mirror. A cross-repo
-CI check is not feasible from the OSS repo; drift-guard is a ~/vault-side follow-up. -->
-
 What "good" looks like, enforced two ways: **continuously** by linters and **deeply** by
 review passes. Each project's control file restates these; a project's profile decides which apply.
 

@@ -24,9 +24,8 @@ hand-collect citations/numbers/equations from OKF piles — the manuscript loop'
 folder is what the hermetic `.bib` build, the hard fidelity gates, the equation machinery, and
 the review-revise board all plug into.
 
-Design of record:
-`docs/superpowers/specs/2026-07-07-survey-capability-design.md` (the full type-system design,
-PR breakdown, and the resolved operator decisions this loop was built to).
+Design of record: the survey type-system design (the full type-system design, PR breakdown,
+and the resolved operator decisions this loop was built to).
 
 ---
 
