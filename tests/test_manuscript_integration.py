@@ -217,6 +217,46 @@ def test_no_dangling_cite_and_equation_present_only_signals_or_clean(cfg):
     assert not any("eq:elbo" in s for s in payload["signals"]), payload["signals"]
 
 
+def test_planted_pipeline_vocab_leak_blocks_at_build_approve_payload(cfg):
+    """RD-5 wiring proof: a planted CP3 handle in the drafted reader body
+    must BLOCK at build_approve_payload (never a SIGNAL, never silently
+    dropped) — the weakened-gate-needs-leak-planting discipline applied to
+    a NEW gate landing clean, not just a regression guard."""
+    from research_vault.manuscript import cmd_new, cmd_expand
+    from research_vault.manuscript.check_gates import build_approve_payload
+    from research_vault.manuscript.types import get_type
+
+    project = "demo-research"
+    slug = "survey-leak"
+    project_notes_dir = cfg.project_notes_dir(project)
+
+    note_path, tree_root, _ = cmd_new(project, slug, ms_type_key="lit-review", config=cfg)
+    _freeze_spine(note_path, spine_shape="pipeline", branches=["representation-learning"])
+    cmd_expand(project, slug, config=cfg)
+
+    (tree_root / "sections").mkdir(parents=True, exist_ok=True)
+    (tree_root / "sections" / "thematic-sections.tex").write_text(
+        "This survey defends CP3 against the alternative framing, "
+        "a conclusion review-snowball only reached after several waves.\n",
+        encoding="utf-8",
+    )
+
+    ms_type = get_type("lit-review")
+    old_judge = os.environ.pop("RV_JUDGE_MODEL", None)
+    old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        payload = build_approve_payload(tree_root, project_notes_dir, ms_type)
+    finally:
+        if old_judge is not None:
+            os.environ["RV_JUDGE_MODEL"] = old_judge
+        if old_key is not None:
+            os.environ["ANTHROPIC_API_KEY"] = old_key
+
+    assert payload["ok"] is False
+    assert any("reader-hygiene" in b and "CP3" in b for b in payload["blocking"]), payload["blocking"]
+    assert any("reader-hygiene" in b and "review-snowball" in b for b in payload["blocking"]), payload["blocking"]
+
+
 # ---------------------------------------------------------------------------
 # Real `rv dag approve` wiring at approve-manuscript (mirrors M6's
 # TestApproveFrameworkGateWiring pattern for approve-framework).

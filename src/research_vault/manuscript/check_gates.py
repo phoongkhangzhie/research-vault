@@ -122,6 +122,98 @@ def _read_draft_text(tree_root: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# check_reader_hygiene — RD-5, next-gen lit-review design §6 (deterministic,
+# ALWAYS runs, hard BLOCK, no judge dependency — the presentation program's
+# most transferable HR mechanic, rv's biggest packaging gap before this PR).
+# ---------------------------------------------------------------------------
+
+# Internal pipeline-vocabulary handles that must never leak into reader prose.
+# \bCP\d+\b / \bQ\d+\b require a digit immediately after the letter(s) so
+# ordinary prose ("Q&A", "CParser", "Quarter") never false-positives — only
+# the exact counter-position/question handle shape trips this.
+_LEAK_CP_HANDLE_RE = re.compile(r"\bCP\d+\b")
+_LEAK_Q_HANDLE_RE = re.compile(r"\bQ\d+\b")
+_LEAK_SHA256_RE = re.compile(r"\bsha256:[0-9a-fA-F]+\b")
+# Loop/control-artifact filenames (the review/manuscript control notes) —
+# never a reader-facing citation; a real citekey never starts with '_'.
+_LEAK_ARTIFACT_FILENAME_RE = re.compile(r"\b_[a-z][a-z-]*\.md\b")
+# Tool/verb/node-vocabulary tokens leaking loop internals into reader prose.
+_LEAK_TOOL_TOKENS: tuple[str, ...] = (
+    "rv research",
+    "rv review",
+    "rv manuscript",
+    "rv dag",
+    "review-snowball",
+    "review-search",
+    "review-synthesize",
+    "review-coverage-critic",
+    "coverage-gate",
+    "coverage-critic",
+    "approve-protocol",
+    "approve-framework",
+    "approve-manuscript",
+)
+
+
+def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
+    """The reader-hygiene leak-gate (RD-5) — BLOCK on pipeline vocabulary
+    leaking into reader-facing prose.
+
+    When to use: run over the ASSEMBLED reader body (the joined, rendered
+    survey text a reader will actually see — never the internal control
+    artifacts like ``_framework-candidates.md``/``_saturation.md``, which are
+    ALLOWED to carry these handles). Fail-closed, rv-style: any hit BLOCKs
+    declare-final; a clean body passes with zero errors.
+
+    Deterministic and independent of every other gate — no judge, no network,
+    no dependency on markdown vs. tex render target. Every hit is surfaced
+    (never truncated to the first match, charter §2 — a `.strip()`/`[:1]`
+    shortcut here would silently hide every leak after the first).
+
+    Args:
+        reader_body: the assembled reader-facing text to scan.
+
+    Returns:
+        {"ok": bool, "errors": list[str]} — ok is False iff errors is non-empty.
+
+    sr: NG-lit-review-waveB (RD-5)
+    """
+    errors: list[str] = []
+
+    for m in _LEAK_CP_HANDLE_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: counter-position handle {m.group(0)!r} leaked "
+            f"into reader prose — name the counter-position inline (RD-6), never "
+            f"by its internal handle."
+        )
+    for m in _LEAK_Q_HANDLE_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: internal question handle {m.group(0)!r} leaked "
+            f"into reader prose — this is a loop-control artifact, never reader-facing."
+        )
+    for m in _LEAK_SHA256_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: a corpus hash {m.group(0)!r} leaked into reader "
+            f"prose — route hashes to the control note / DEVLOG (RD-3), never the "
+            f"manuscript body."
+        )
+    for m in _LEAK_ARTIFACT_FILENAME_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: internal artifact filename {m.group(0)!r} leaked "
+            f"into reader prose — this is a loop-control artifact name, not a citation."
+        )
+    for token in _LEAK_TOOL_TOKENS:
+        if token in reader_body:
+            errors.append(
+                f"reader-hygiene BLOCK: tool/loop vocabulary {token!r} leaked into "
+                f"reader prose — the reader never needs to know which rv verb "
+                f"produced this survey."
+            )
+
+    return {"ok": not errors, "errors": errors}
+
+
+# ---------------------------------------------------------------------------
 # check_coverage_gate — design §10 gate-4, PR-M5's scope (deterministic,
 # ALWAYS runs, hard BLOCK — no judge dependency)
 # ---------------------------------------------------------------------------
@@ -329,6 +421,12 @@ def build_approve_payload(
     blocking.extend(f"[coverage-gate] {e}" for e in coverage_result["errors"])
     if coverage_result["warnings"]:
         not_run.extend(f"[coverage-gate] {w}" for w in coverage_result["warnings"])
+
+    # ── 6. Reader-hygiene leak-gate (RD-5) — deterministic, ALWAYS runs,
+    #      hard BLOCK. No judge dependency; independent of every other gate.
+    hygiene_draft_text = _read_draft_text(tree_root)
+    hygiene_result = check_reader_hygiene(hygiene_draft_text)
+    blocking.extend(f"[reader-hygiene] {e}" for e in hygiene_result["errors"])
 
     return {
         "ok": not blocking,
