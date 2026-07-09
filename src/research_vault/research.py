@@ -44,6 +44,7 @@ from typing import Any
 
 from .config import Config, load_config
 from .adapters.base import EnvSecretStore
+from .sources.base import AdapterFetchError
 from .sources.semantic_scholar import SemanticScholarAdapter
 from .sources.identifiers import write_external_ids_to_note
 
@@ -604,7 +605,13 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
 
     # NG-1: pure refactor — the S2 citations subprocess call now lives in
     # SemanticScholarAdapter; PaperHit.raw carries the original S2 dict.
-    hits = SemanticScholarAdapter().cited_by(paper_id, limit=args.limit)
+    # AdapterFetchError is a catchable Exception (not sys.exit) so the
+    # multi-round snowball walk can degrade gracefully on one bad seed
+    # (sources/snowball.py); this single-lookup CLI still fails fast.
+    try:
+        hits = SemanticScholarAdapter().cited_by(paper_id, limit=args.limit)
+    except AdapterFetchError as e:
+        sys.exit(str(e))
     papers = [h.raw for h in hits]
 
     # F12: zero-result hint when the id was normalized (bare input may still be wrong)
@@ -651,7 +658,13 @@ def cmd_references(args: argparse.Namespace) -> int:
 
     # NG-1: pure refactor — the S2 references subprocess call now lives in
     # SemanticScholarAdapter; PaperHit.raw carries the original S2 dict.
-    hits = SemanticScholarAdapter().references(paper_id)
+    # AdapterFetchError is a catchable Exception (not sys.exit) so the
+    # multi-round snowball walk can degrade gracefully on one bad seed
+    # (sources/snowball.py); this single-lookup CLI still fails fast.
+    try:
+        hits = SemanticScholarAdapter().references(paper_id)
+    except AdapterFetchError as e:
+        sys.exit(str(e))
     papers = [h.raw for h in hits]
 
     # F12: zero-result hint when the id was normalized (bare input may still be wrong)

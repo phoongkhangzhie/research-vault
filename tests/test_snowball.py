@@ -155,6 +155,154 @@ def test_stop_reason_never_blank_and_exactly_canonical():
     assert result.stop_reason == "saturated"
 
 
+# ---------------------------------------------------------------------------
+# 2026-07-09 live-asta validation bugs — graceful degradation on an
+# adapter error (Bug 1) + id normalization before the citations/references
+# call (Bug 2). These close the "faked-adapter" gap: the adapter here RAISES
+# a catchable error (mirroring the real AdapterFetchError a live 404
+# produces) rather than a fully scripted always-succeeds double.
+# ---------------------------------------------------------------------------
+
+class _RaisingSeedAdapter:
+    """A fake SourceAdapter where ONE specific (normalized) paper id raises
+    on both directions (a 404-style lookup failure); every other id follows
+    the scripted round script normally. Records the exact ids it was called
+    with (for the id-normalization spy tests)."""
+
+    name = "fake"
+
+    def __init__(self, script, *, bad_ids: set[str]):
+        self.script = script
+        self.bad_ids = bad_ids
+        self._cited_by_calls = 0
+        self.cited_by_ids: list[str] = []
+        self.references_ids: list[str] = []
+
+    def search(self, query, *, limit=20):
+        raise NotSupported("search not used by snowball")
+
+    def cited_by(self, paper_id, *, limit=20):
+        self.cited_by_ids.append(paper_id)
+        if paper_id in self.bad_ids:
+            raise RuntimeError(f"asta papers citations failed: 404 for {paper_id}")
+        self._cited_by_calls += 1
+        fwd, _ = self.script.get(self._cited_by_calls, ([], []))
+        return fwd
+
+    def references(self, paper_id, *, limit=20):
+        self.references_ids.append(paper_id)
+        if paper_id in self.bad_ids:
+            raise RuntimeError(f"asta papers get failed: 404 for {paper_id}")
+        _, bwd = self.script.get(self._cited_by_calls, ([], []))
+        return bwd
+
+
+def test_one_bad_seed_is_skipped_walk_continues_and_completes():
+    """The live-crash regression: seed `2407.16891` 404s -> the WHOLE node
+    must NOT abort. A good seed resolves normally alongside it; the walk
+    completes with the good seed's hits kept and the bad one recorded."""
+    good_hit = _hit("Good Seed Citation", doi="10.1/good1")
+    adapter = _RaisingSeedAdapter(
+        {1: ([good_hit], [])}, bad_ids={"ARXIV:2407.16891"},
+    )
+    result = run_snowball_to_saturation(
+        ["10.1/goodseed", "2407.16891"], adapter=adapter, backstop_waves=3,
+    )
+    # Never aborts/raises (the test reaching here at all is half the proof).
+    assert result.stop_reason  # never blank
+    assert result.stop_reason != "no-seeds-resolved"  # one seed DID resolve
+    assert any(d.hit.title == "Good Seed Citation" for d in result.kept)
+    assert "2407.16891" in result.unresolvable_ids
+    assert any("2407.16891" in e for e in result.errors)
+
+
+def test_all_seeds_fail_degrades_gracefully_no_crash():
+    """Every seed 404s -> graceful empty-corpus outcome with a distinct,
+    honest stop_reason (never mislabeled "saturated") — no crash."""
+    adapter = _RaisingSeedAdapter({}, bad_ids={"ARXIV:1111.11111", "DOI:10.1234/allbad2"})
+    result = run_snowball_to_saturation(
+        ["1111.11111", "10.1234/allbad2"], adapter=adapter, backstop_waves=3,
+    )
+    assert result.stop_reason == "no-seeds-resolved"
+    assert result.kept == []
+    assert set(result.unresolvable_ids) == {"1111.11111", "10.1234/allbad2"}
+    assert len(result.errors) >= 2  # both directions, both seeds
+
+
+def test_all_seeds_fail_still_writes_artifacts(tmp_path):
+    adapter = _RaisingSeedAdapter({}, bad_ids={"ARXIV:1111.11111"})
+    result = run_snowball_to_saturation(["1111.11111"], adapter=adapter, backstop_waves=3)
+
+    corpus_out = write_corpus_raw(result, tmp_path / "_corpus_raw.md")
+    assert corpus_out.exists()
+    assert "no-seeds-resolved" in corpus_out.read_text()
+
+    sat_out = write_saturation(result, tmp_path / "_saturation.md")
+    sat_text = sat_out.read_text()
+    assert "stop_reason: no-seeds-resolved" in sat_text
+    assert "unresolvable_count: 1" in sat_text
+    assert "1111.11111" in sat_text
+
+
+def test_seed_ids_normalized_before_adapter_call():
+    """Bug 2: a bare arXiv id must reach the adapter ARXIV:-prefixed; a bare
+    DOI reaches it DOI:-prefixed; an already-prefixed / S2-sha id passes
+    through unchanged. Spy on the actual argument the adapter receives."""
+    adapter = _RaisingSeedAdapter({}, bad_ids=set())
+    run_snowball_to_saturation(
+        ["2005.14165", "10.1234/x.2023", "ARXIV:1706.03762"],
+        adapter=adapter, backstop_waves=1,
+    )
+    assert adapter.cited_by_ids == ["ARXIV:2005.14165", "DOI:10.1234/x.2023", "ARXIV:1706.03762"]
+    assert adapter.references_ids == ["ARXIV:2005.14165", "DOI:10.1234/x.2023", "ARXIV:1706.03762"]
+
+
+def test_real_semantic_scholar_adapter_404_degrades_walk_continues(monkeypatch):
+    """Closes the faked-adapter gap directly: drives the REAL
+    ``SemanticScholarAdapter`` (only ``subprocess.run`` mocked at the network
+    boundary — the same seam a live 404 crosses) through
+    ``run_snowball_to_saturation`` with its DEFAULT adapter (``adapter=None``).
+    One seed 404s on both directions; the other resolves normally. Before
+    the fix, the adapter's ``sys.exit`` on a non-zero asta exit (SystemExit,
+    a BaseException) would propagate straight out of this call and abort the
+    whole test/process — this proves it no longer does."""
+    import json
+    import subprocess as _subprocess
+    from unittest.mock import MagicMock
+
+    good_paper = {
+        "title": "A Good Citing Paper", "year": 2023,
+        "authors": [{"name": "A. Author"}],
+        "externalIds": {"DOI": "10.1/goodcite"},
+        "citationCount": 5,
+    }
+
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        if any("9999.99999" in str(a) for a in cmd):
+            r.returncode = 1
+            r.stdout = ""
+            r.stderr = "asta: 404 not found"
+        else:
+            r.returncode = 0
+            if "citations" in cmd:
+                r.stdout = json.dumps({"data": [{"citingPaper": good_paper}]})
+            else:
+                r.stdout = json.dumps({"references": []})
+            r.stderr = ""
+        return r
+
+    monkeypatch.setattr(_subprocess, "run", fake_run)
+
+    result = run_snowball_to_saturation(
+        ["9999.99999", "ARXIV:1706.03762"], backstop_waves=2,
+    )
+    assert result.stop_reason  # never blank, walk completed (didn't crash)
+    assert "9999.99999" in result.unresolvable_ids
+    assert any("citations failed" in e or "get failed" in e for e in result.errors)
+    assert any(d.hit.title == "A Good Citing Paper" for d in result.kept)
+
+
 def test_write_corpus_raw_and_saturation(tmp_path):
     adapter = _ScriptedAdapter({
         1: ([_hit("New Paper 1", doi="10.1/new1")], []),

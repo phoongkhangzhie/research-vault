@@ -14,6 +14,9 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+import pytest
+
+from research_vault.sources.base import AdapterFetchError
 from research_vault.sources.semantic_scholar import SemanticScholarAdapter
 
 S2_PAPER = {
@@ -155,8 +158,6 @@ def test_search_no_oa_pointer_when_openaccesspdf_absent(monkeypatch) -> None:
 
 
 def test_search_exits_on_asta_failure(monkeypatch) -> None:
-    import pytest
-
     def fake_run(cmd, **kwargs):
         r = MagicMock()
         r.returncode = 1
@@ -168,3 +169,53 @@ def test_search_exits_on_asta_failure(monkeypatch) -> None:
     adapter = SemanticScholarAdapter()
     with pytest.raises(SystemExit):
         adapter.search("q")
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-09 live-asta validation bug: cited_by/references must raise a
+# catchable AdapterFetchError (NOT sys.exit) on a non-zero asta exit (e.g. a
+# 404 for one seed id) — SystemExit is a BaseException, invisible to the
+# multi-round snowball walk's `except Exception` degrade clauses, so it used
+# to abort the ENTIRE walk on one unresolvable seed. `search` is unaffected
+# (still sys.exit — a single-shot CLI action, no multi-item walk to degrade).
+# ---------------------------------------------------------------------------
+
+def test_cited_by_raises_adapter_fetch_error_not_systemexit(monkeypatch) -> None:
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 1
+        r.stdout = ""
+        r.stderr = "asta: paper not found (404)"
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    with pytest.raises(AdapterFetchError):
+        adapter.cited_by("ARXIV:9999.9999")
+    # Explicitly NOT SystemExit — the whole point of the fix.
+    try:
+        adapter.cited_by("ARXIV:9999.9999")
+    except AdapterFetchError:
+        pass
+    except SystemExit:
+        pytest.fail("cited_by must not raise SystemExit — it must raise AdapterFetchError")
+
+
+def test_references_raises_adapter_fetch_error_not_systemexit(monkeypatch) -> None:
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 1
+        r.stdout = ""
+        r.stderr = "asta: paper not found (404)"
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    with pytest.raises(AdapterFetchError):
+        adapter.references("ARXIV:9999.9999")
+    try:
+        adapter.references("ARXIV:9999.9999")
+    except AdapterFetchError:
+        pass
+    except SystemExit:
+        pytest.fail("references must not raise SystemExit — it must raise AdapterFetchError")
