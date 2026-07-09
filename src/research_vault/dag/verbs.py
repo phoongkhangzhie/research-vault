@@ -240,6 +240,14 @@ def _resolve_reads_or_warn(
               f"fix the manifest's reads: field(s) before dispatching.", file=_sys.stderr)
 
 
+# NG-4b item 1: the three gates the gate-policy engine (review/autonomy.py)
+# may resolve without a human keypress. approve-protocol is DELIBERATELY
+# excluded — it is the one retained human gate (§1.1). Module-level (was
+# previously redeclared locally inside cmd_approve) so both cmd_approve's
+# explicit --auto path and the always-on autonomous resolution inside
+# _recompute_awaiting_go share exactly ONE definition (never drift).
+_AUTONOMOUS_GATE_IDS = frozenset({"coverage-gate", "approve-framework", "approve-manuscript"})
+
 _TOOL_AUTO_EXEC_MAX_PASSES = 100  # bounded loop guard — never spin forever
 
 
@@ -298,26 +306,228 @@ def _auto_execute_tool_nodes(
     return executed_any
 
 
+def _evaluate_autonomous_gate(
+    node_id: str,
+    nodes_lookup: dict[str, Any],
+    manifest_path: Path,
+    run_state: RunState,
+) -> Any:
+    """The SINGLE-SOURCED dispatch from a DAG node id to a
+    ``review.autonomy`` disposition (NG-4b: previously duplicated inline
+    inside ``cmd_approve``'s ``--auto`` block AND absent entirely from the
+    always-on runner — now used by BOTH so the three autonomous gates
+    resolve identically whether triggered by an explicit ``--auto`` flag
+    or by the self-advancing runner in ``_recompute_awaiting_go``).
+
+    ``coverage-gate`` additionally runs through the NG-4b item-2 live
+    coverage-deviation check (``classify_coverage_gate_with_deviation_check``)
+    — the frozen-corpus stamp lives in ``run_state.meta``, which is why this
+    function (unlike the pre-existing inline block) takes ``run_state``.
+    """
+    from ..review import autonomy as _autonomy
+    from ..review import check_saturation_backstop
+
+    if node_id == "coverage-gate":
+        snowball_node = nodes_lookup.get("review-snowball")
+        saturation_ref = None
+        if snowball_node is not None:
+            produces = snowball_node.get("produces")
+            if isinstance(produces, dict):
+                saturation_ref = produces.get("_saturation.md")
+        if not saturation_ref:
+            return _autonomy.DispositionResult(
+                _autonomy.HALT_DECLARE,
+                "coverage-gate --auto: no _saturation.md producer found upstream "
+                "(review-snowball node missing/malformed) — cannot self-certify.",
+            )
+        info = check_saturation_backstop(Path(saturation_ref))
+        review_dir = Path(saturation_ref).parent
+        gaps_path = review_dir / "_coverage-gaps.md"
+        corpus_path = review_dir / "_corpus.md"
+        deviations_path = review_dir / "_deviations.md"
+        return _autonomy.classify_coverage_gate_with_deviation_check(
+            run_state.meta,
+            info,
+            corpus_path=corpus_path,
+            deviations_path=deviations_path,
+            coverage_gaps_path=gaps_path,
+        )
+
+    if node_id == "approve-framework":
+        manuscript_note_path = manifest_path.parent / "_manuscript.md"
+        from ..manuscript.types.lit_review import check_framework_gate as _cfg_check
+        _ok, _msg = _cfg_check(manuscript_note_path)
+        return _autonomy.classify_disposition(_autonomy.evaluation_from_framework_gate(_ok, _msg))
+
+    if node_id == "approve-manuscript":
+        tree_root = manifest_path.parent
+        manuscript_note_path = tree_root / "_manuscript.md"
+        if not manuscript_note_path.exists():
+            return _autonomy.DispositionResult(
+                _autonomy.HALT_DECLARE,
+                f"approve-manuscript --auto: {manuscript_note_path} not found.",
+            )
+        from ..note import _parse_frontmatter as _pfm_auto
+        from ..manuscript.types import get_type as _get_ms_type_auto
+        from ..manuscript.check_gates import build_approve_payload as _bap
+
+        _text = manuscript_note_path.read_text(encoding="utf-8")
+        _fields, _ = _pfm_auto(_text)
+        _ms_type = _get_ms_type_auto(_fields.get("manuscript_type", ""))
+        if _ms_type is None:
+            return _autonomy.DispositionResult(
+                _autonomy.HALT_DECLARE,
+                f"approve-manuscript --auto: manuscript_type "
+                f"{_fields.get('manuscript_type', '')!r} is unrecognized — "
+                "cannot self-certify with no registered fidelity gates.",
+            )
+        _project_notes_dir = tree_root.parent.parent
+        _payload = _bap(tree_root, _project_notes_dir, _ms_type)
+        return _autonomy.classify_disposition(_autonomy.evaluation_from_structural_payload(_payload))
+
+    raise ValueError(f"_evaluate_autonomous_gate: {node_id!r} is not an autonomous gate id")
+
+
+def _derive_project_and_id(manifest: dict[str, Any], *, prefix: str, suffix: str) -> tuple[str, str] | None:
+    """Derive ``(project, scope_or_slug)`` from a Phase-1 manifest's
+    ``run_id``/``project`` fields (``review-<scope>-phase1`` /
+    ``manuscript-<slug>-phase1``, the SR-LR-1/PR-M1 naming convention — see
+    ``review._build_phase1_manifest`` / ``manuscript.types.lit_review.phase1_builder``).
+
+    Returns ``None`` if the manifest doesn't carry the expected shape
+    (never guesses — a phase-transition emission that can't derive its own
+    inputs must fail loudly, not silently skip, charter §2).
+    """
+    project = manifest.get("project")
+    run_id = str(manifest.get("run_id", ""))
+    if not project or not run_id.startswith(prefix) or not run_id.endswith(suffix):
+        return None
+    ident = run_id[len(prefix):-len(suffix)] if suffix else run_id[len(prefix):]
+    if not ident:
+        return None
+    return str(project), ident
+
+
+def _start_dag_run_inprocess(
+    manifest: dict[str, Any],
+    manifest_path: Path,
+    store: RunStore,
+) -> RunState:
+    """The IN-PROCESS core of ``cmd_run`` (no argparse, no printing) — the
+    seam ``_emit_next_phase`` uses to auto-start a phase's DAG run instead
+    of stranding at "now hand-run `rv dag run <phase2-manifest>`".
+
+    Recurses into ``_recompute_awaiting_go`` on the new run so the
+    self-advancing walk continues seamlessly across the phase boundary
+    (a chain of tool nodes, or an immediately-resolvable autonomous gate,
+    in the new phase advances in the SAME call — no separate tick needed).
+    """
+    run_id = manifest["run_id"]
+    child = RunState(run_id=run_id, manifest_path=str(manifest_path), created_at=time.time())
+    child.init_nodes(manifest)
+    store.create(child)
+    _recompute_awaiting_go(child, manifest, store)
+    return child
+
+
+def _emit_next_phase(
+    node_id: str,
+    manifest: dict[str, Any],
+    manifest_path: Path,
+    run_state: RunState,
+    store: RunStore,
+) -> None:
+    """NG-4b item 1: the self-advancing runner's phase-transition
+    auto-emission. On a GO/GO-WITH-RESIDUE disposition at ``coverage-gate``
+    (review Phase-1 -> Phase-2) or ``approve-framework`` (manuscript
+    Phase-1 -> Phase-2), auto-emit the next phase's manifest AND
+    auto-start its DAG run in-process — retiring the "stranded ops" state
+    where a GO'd autonomous gate left the loop needing a human to hand-run
+    ``rv review expand`` / ``rv manuscript expand`` + ``rv dag run``
+    (both CLI verbs were hard-removed by verb-consolidation on the
+    assumption this wiring would exist — see ``cli_removed_verbs``).
+
+    A no-op for every other node id (nothing to expand after
+    ``approve-manuscript`` — it is the terminal gate of its DAG).
+
+    Any failure to derive/emit is stamped onto the node's state as
+    ``phase_transition_error`` and surfaced (never silently dropped,
+    charter §2) — the gate itself already resolved GO; a failed
+    auto-emission is a distinct, loud signal that manual follow-up
+    (``rv review expand`` / ``rv manuscript expand`` by hand) is needed.
+    """
+    if node_id not in ("coverage-gate", "approve-framework"):
+        return
+
+    ns = run_state.node_states.setdefault(node_id, {})
+    try:
+        from ..config import load_config
+        cfg = load_config()
+
+        if node_id == "coverage-gate":
+            derived = _derive_project_and_id(manifest, prefix="review-", suffix="-phase1")
+            if derived is None:
+                raise ValueError(
+                    f"cannot derive (project, scope) from manifest run_id="
+                    f"{manifest.get('run_id')!r} project={manifest.get('project')!r}"
+                )
+            project, scope_id = derived
+            from ..review import cmd_expand as _review_cmd_expand
+            phase2_manifest = _review_cmd_expand(project, scope_id, config=cfg)
+        else:  # approve-framework
+            derived = _derive_project_and_id(manifest, prefix="manuscript-", suffix="-phase1")
+            if derived is None:
+                raise ValueError(
+                    f"cannot derive (project, slug) from manifest run_id="
+                    f"{manifest.get('run_id')!r} project={manifest.get('project')!r}"
+                )
+            project, slug = derived
+            from ..manuscript import cmd_expand as _ms_cmd_expand
+            phase2_manifest = _ms_cmd_expand(project, slug, config=cfg)
+
+        phase2_path = manifest_path.parent / "phase2-dag.json"
+        child = _start_dag_run_inprocess(phase2_manifest, phase2_path, store)
+        run_state.meta.setdefault("child_runs", {})[node_id] = child.run_id
+        ns["emitted_next_phase_run_id"] = child.run_id
+    except Exception as e:  # noqa: BLE001 — surface, never swallow (charter §2)
+        ns["phase_transition_error"] = str(e)[:2000]
+
+
 def _recompute_awaiting_go(
     run_state: RunState,
     manifest: dict[str, Any],
     store: RunStore,
 ) -> list[FrontierNode]:
-    """Compute frontier and auto-advance human-go nodes to 'awaiting-go' status.
+    """Compute frontier and auto-advance human-go/autonomous-gate nodes.
 
-    Any human-go node that appears in the frontier as "await-go" and is still
-    "pending" in the run state gets promoted to "awaiting-go" here.
-    This is the transition: pending → awaiting-go (not dispatchable).
+    Three outcomes for a "await-go"-frontier node that is still "pending":
+      - **approve-protocol** (or any other true human-go node, never one of
+        ``_AUTONOMOUS_GATE_IDS``) — promoted to "awaiting-go" as before
+        (the one retained human gate, §1.1 — the run genuinely stops here
+        for a human keypress).
+      - **An autonomous gate (coverage-gate / approve-framework /
+        approve-manuscript)** — NG-4b item 1: resolved AUTOMATICALLY via
+        ``_evaluate_autonomous_gate``, no external ``--auto`` call needed.
+        GO/GO-WITH-RESIDUE -> "succeeded" (+ ``_emit_next_phase``, item 1);
+        HALT-DECLARE -> "blocked" (a first-class NOT-CLEARED artifact,
+        never left sitting in "awaiting-go" looking like it needs a human);
+        REVISE -> promoted to "awaiting-go" same as a human gate (NG-5's
+        bounded auto-revise dispatch is a SEPARATE, agent-driven follow-up
+        this runner cannot execute in-process — an LLM revise round is not
+        a tool op).
 
     D4 (verb consolidation): also auto-executes any ready 'tool' node
     IN-PROCESS, before computing the frontier returned to the caller — a
     tool node must never sit in the frontier waiting for a human/agent to
     "dispatch" it by hand.
 
-    The run state is saved after any promotions/tool-executions.
+    The run state is saved after any promotions/tool-executions/autonomy
+    resolutions/phase-emissions.
     """
     tool_executed = _auto_execute_tool_nodes(run_state, manifest, store)
 
+    manifest_path = Path(run_state.manifest_path)
+    nodes_lookup = manifest_nodes_by_id(manifest)
     cap = manifest_global_cap(manifest)
     frontier = compute_frontier(
         manifest,
@@ -326,16 +536,39 @@ def _recompute_awaiting_go(
         cap,
     )
 
-    # Promote pending human-go nodes that are now await-go-ready
-    promoted = False
+    # Promote pending human-go nodes / auto-resolve pending autonomous gates
+    # that are now await-go-ready.
+    mutated = False
     for item in frontier:
-        if item.action == "await-go":
-            current = run_state.node_status(item.node_id)
-            if current == "pending":
-                run_state.set_node_status(item.node_id, "awaiting-go")
-                promoted = True
+        if item.action != "await-go":
+            continue
+        node_id = item.node_id
+        current = run_state.node_status(node_id)
+        if current != "pending":
+            continue
 
-    if promoted or tool_executed:
+        if node_id in _AUTONOMOUS_GATE_IDS:
+            from ..review import autonomy as _autonomy
+
+            disposition = _evaluate_autonomous_gate(node_id, nodes_lookup, manifest_path, run_state)
+            mutated = True
+            ns = run_state.node_states.setdefault(node_id, {})
+            ns["decision_note"] = f"{disposition.disposition} (auto): {disposition.reason}"
+            ns["approved_by"] = "review.autonomy"
+            ns["approval_method"] = "autonomous-gate-policy-engine"
+
+            if disposition.disposition == _autonomy.HALT_DECLARE:
+                run_state.set_node_status(node_id, "blocked", error=disposition.reason[:4000])
+            elif disposition.is_go:
+                run_state.set_node_status(node_id, "succeeded")
+                _emit_next_phase(node_id, manifest, manifest_path, run_state, store)
+            else:  # REVISE — no in-process fix available; stays a stop point.
+                run_state.set_node_status(node_id, "awaiting-go")
+        else:
+            run_state.set_node_status(node_id, "awaiting-go")
+            mutated = True
+
+    if mutated or tool_executed:
         store.save(run_state)
 
     # Recompute after promotion (awaiting-go nodes are now non-advanceable,
@@ -1335,72 +1568,18 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
-    # ── NG-4 §1: autonomous-gate dispatch ──────────────────────────────────
+    # ── NG-4 §1 / NG-4b: autonomous-gate dispatch ──────────────────────────
     # coverage-gate / approve-framework / approve-manuscript may be resolved
     # by the gate-policy engine (review/autonomy.py) instead of a human
     # keypress. approve-protocol is DELIBERATELY excluded — it is the one
     # retained human gate (§1.1) and is never eligible for --auto.
-    _AUTONOMOUS_GATE_IDS = frozenset({"coverage-gate", "approve-framework", "approve-manuscript"})
+    # NG-4b: dispatch through the SAME `_evaluate_autonomous_gate` the
+    # self-advancing runner uses (single-sourced, no drift between the
+    # explicit --auto flag and the always-on runner path).
     if auto and not reject and node_id in _AUTONOMOUS_GATE_IDS:
         from ..review import autonomy as _autonomy
 
-        _disposition_result = None
-
-        if node_id == "coverage-gate":
-            snowball_node = nodes_lookup.get("review-snowball")
-            saturation_ref = None
-            if snowball_node is not None:
-                produces = snowball_node.get("produces")
-                if isinstance(produces, dict):
-                    saturation_ref = produces.get("_saturation.md")
-            if saturation_ref:
-                info = check_saturation_backstop(Path(saturation_ref))
-                gaps_path = Path(saturation_ref).parent / "_coverage-gaps.md"
-                _disposition_result = _autonomy.classify_coverage_gate(info, coverage_gaps_path=gaps_path)
-            else:
-                _disposition_result = _autonomy.DispositionResult(
-                    _autonomy.HALT_DECLARE,
-                    "coverage-gate --auto: no _saturation.md producer found upstream "
-                    "(review-snowball node missing/malformed) — cannot self-certify.",
-                )
-
-        elif node_id == "approve-framework":
-            manuscript_note_path = manifest_path.parent / "_manuscript.md"
-            from ..manuscript.types.lit_review import check_framework_gate as _cfg_check
-            _ok, _msg = _cfg_check(manuscript_note_path)
-            _disposition_result = _autonomy.classify_disposition(
-                _autonomy.evaluation_from_framework_gate(_ok, _msg)
-            )
-
-        elif node_id == "approve-manuscript":
-            tree_root = manifest_path.parent
-            manuscript_note_path = tree_root / "_manuscript.md"
-            if manuscript_note_path.exists():
-                from ..note import _parse_frontmatter as _pfm_auto
-                from ..manuscript.types import get_type as _get_ms_type_auto
-                from ..manuscript.check_gates import build_approve_payload as _bap
-
-                _text = manuscript_note_path.read_text(encoding="utf-8")
-                _fields, _ = _pfm_auto(_text)
-                _ms_type = _get_ms_type_auto(_fields.get("manuscript_type", ""))
-                if _ms_type is not None:
-                    _project_notes_dir = tree_root.parent.parent
-                    _payload = _bap(tree_root, _project_notes_dir, _ms_type)
-                    _disposition_result = _autonomy.classify_disposition(
-                        _autonomy.evaluation_from_structural_payload(_payload)
-                    )
-                else:
-                    _disposition_result = _autonomy.DispositionResult(
-                        _autonomy.HALT_DECLARE,
-                        f"approve-manuscript --auto: manuscript_type "
-                        f"{_fields.get('manuscript_type', '')!r} is unrecognized — "
-                        "cannot self-certify with no registered fidelity gates.",
-                    )
-            else:
-                _disposition_result = _autonomy.DispositionResult(
-                    _autonomy.HALT_DECLARE,
-                    f"approve-manuscript --auto: {manuscript_note_path} not found.",
-                )
+        _disposition_result = _evaluate_autonomous_gate(node_id, nodes_lookup, manifest_path, run_state)
 
         print(
             f"rv dag approve --auto: {node_id!r} disposition = "
@@ -1423,8 +1602,16 @@ def cmd_approve(args: argparse.Namespace) -> int:
             reject = True
             if decision_note is None:
                 decision_note = f"HALT-DECLARE (auto): {_disposition_result.reason}"
-        # GO / GO-WITH-RESIDUE: fall through to the normal approve path below
-        # (reject stays False) — the gate resolves autonomously.
+        else:
+            # GO / GO-WITH-RESIDUE: fall through to the normal approve path
+            # below (reject stays False) — the gate resolves autonomously.
+            if decision_note is None:
+                decision_note = f"{_disposition_result.disposition} (auto): {_disposition_result.reason}"
+            # NG-4b item 1: an explicit `--auto` call gets the SAME
+            # phase-transition auto-emission the always-on runner performs —
+            # no behavior gap between "the loop resolved this gate on its
+            # own tick" and "an operator explicitly drove --auto by hand".
+            _emit_next_phase(node_id, manifest, manifest_path, run_state, store)
 
     # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
     #

@@ -174,12 +174,23 @@ def classify_disposition(ev: GateEvaluation) -> DispositionResult:
 
 def evaluation_from_structural_payload(payload: dict[str, Any]) -> GateEvaluation:
     """Adapt ``manuscript.check_gates.build_approve_payload``'s
-    ``{ok, blocking, signals, not_run}`` shape (hermetic-bib / equation /
-    support-matcher) into a ``GateEvaluation``.
+    ``{ok, blocking, signals, not_run, canary_aborted}`` shape (hermetic-bib /
+    equation / support-matcher) into a ``GateEvaluation``.
+
+    NG-4b (item 3): ``canary_aborted`` is read as a TOP-LEVEL flag, not
+    inferred from ``blocking`` text — a support-matcher ``CanaryAbortError``
+    must classify as HALT-DECLARE (untrustworthy signal, priority 1), never
+    REVISE (a canary-abort landing only in ``blocking`` would be downgraded
+    to an ordinary fixable BLOCK and dispatch a bounded auto-revise against
+    the SAME broken judge — the exact priority violation §1.2 exists to
+    prevent; charter §10, never auto-retry an untrustworthy judge). Absent
+    key defaults to ``False`` — backward compatible with any older payload
+    shape that predates this field.
     """
     return GateEvaluation(
         blocking=list(payload.get("blocking", [])),
         not_run=list(payload.get("not_run", [])),
+        canary_aborted=bool(payload.get("canary_aborted", False)),
     )
 
 
@@ -281,6 +292,73 @@ def classify_coverage_gate(
         "saturation record is untrustworthy/malformed, fail-closed.",
         {"stop_reason": stop_reason},
     )
+
+
+def classify_coverage_gate_with_deviation_check(
+    run_state_meta: dict[str, Any],
+    saturation_info: dict[str, Any],
+    *,
+    corpus_path: Path,
+    deviations_path: Path,
+    coverage_gaps_path: Path | None = None,
+) -> DispositionResult:
+    """NG-4b item 2: the LIVE coverage-deviation BLOCK — wires
+    ``check_undeclared_deviation`` (§1.5, D2) into the coverage-gate --auto
+    path, in front of (not behind) the saturation disposition.
+
+    The frozen corpus citekey-set is stamped into ``run_state_meta`` (a
+    mutable dict — the caller passes ``run_state.meta`` directly and is
+    responsible for persisting it, e.g. via ``store.save``) the FIRST time
+    this function is called for a given scope. Every subsequent call
+    compares the corpus currently on disk against that frozen baseline via
+    ``check_undeclared_deviation``: an undeclared delta is a DIRECT
+    HALT-DECLARE (never routed through the generic bounded-auto-revise
+    class — a silent corpus edit must surface to a human, not be
+    "fixed" by an autonomous revise round, per §1.5's transparency-not-
+    permission contract). A fully declared delta (recorded via
+    ``record_deviation`` into ``deviations_path``) passes through to the
+    normal ``classify_coverage_gate`` saturation-based disposition.
+
+    ★ Engineering note (NG-4b, grounded against the actual Phase-1 DAG
+    shape — review-scope -> approve-protocol -> review-search ->
+    review-snowball -> coverage-gate): the design doc's §1.5 prose says the
+    frozen baseline is stamped "at approve-protocol". No corpus exists at
+    that point in the shipped DAG (``_corpus.md`` is a review-snowball
+    output, downstream of approve-protocol) — there is nothing to stamp
+    yet. This function instead stamps the baseline at coverage-gate's FIRST
+    evaluation (the earliest point a citekey set actually exists), which is
+    the structurally-sound equivalent: "frozen the first time the corpus is
+    evaluated" mirrors "frozen at the human pre-registration gate" in
+    spirit (a single, load-bearing baseline that every later delta is
+    measured against) without requiring citekeys that don't exist yet.
+    """
+    current_citekeys = set(_parse_corpus_citekeys_helper(corpus_path))
+    frozen_raw = run_state_meta.get("frozen_corpus_citekeys")
+
+    if frozen_raw is None:
+        run_state_meta["frozen_corpus_citekeys"] = sorted(current_citekeys)
+    else:
+        frozen_citekeys = set(frozen_raw)
+        ok, msg = check_undeclared_deviation(frozen_citekeys, current_citekeys, deviations_path)
+        if not ok:
+            return DispositionResult(
+                HALT_DECLARE,
+                msg,
+                {"undeclared_deviation": True, "frozen": sorted(frozen_citekeys), "current": sorted(current_citekeys)},
+            )
+
+    return classify_coverage_gate(saturation_info, coverage_gaps_path=coverage_gaps_path)
+
+
+def _parse_corpus_citekeys_helper(corpus_path: Path) -> list[str]:
+    """Thin call-through to ``review._parse_corpus_citekeys`` (reuse, charter
+    §6) — a lazy import avoids a module-level circular import (``review``'s
+    package ``__init__`` imports from other review submodules; autonomy.py
+    is itself imported by ``review/verbs.py`` and ``dag/verbs.py``).
+    """
+    from research_vault.review import _parse_corpus_citekeys
+
+    return _parse_corpus_citekeys(corpus_path)
 
 
 # ---------------------------------------------------------------------------
