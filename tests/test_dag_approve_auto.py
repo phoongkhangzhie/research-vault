@@ -322,3 +322,178 @@ class TestApproveReviewGateAuto:
         args = argparse.Namespace(run_id="auto-run-9", node_id="approve-review", auto=True)
         cmd_approve(args)
         assert "provisional" not in critic_path.read_text().lower()
+
+
+class TestCoverageCriticVerdictAnchoring:
+    """PR #201 review delta (2026-07-09): ``check_coverage_critic_verdict``
+    must anchor the verdict to the line that OPENS with ``[PASS]``/
+    ``[BLOCK]`` — never an unanchored anywhere-search. The prior
+    implementation took the FIRST bracket token anywhere in the note, so a
+    real ``[BLOCK]`` verdict that merely MENTIONED ``[PASS]`` earlier in
+    prose (or a legend line) silently parsed as PASS -> GO -> auto-approved
+    a bad review, unreviewed (the humanless single-gate design removed the
+    backstop). Reviewer-reproduced repro strings below.
+    """
+
+    def test_pre_verdict_pass_mention_in_prose_still_blocks(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "...does not merit [PASS] on axis 4.\n"
+            "[BLOCK]: counter-position absent, axis 4 hard block.\n"
+            "  - COUNTER-POSITION ABSENT\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result["not_run"] == []
+        assert result["blocking"] == ["COUNTER-POSITION ABSENT"]
+
+    def test_legend_line_mentioning_both_tokens_still_blocks(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "Output legend: [PASS] = clean, [BLOCK] = holes.\n"
+            "\n"
+            "[BLOCK]: 3 papers, 1 round; PROTOCOL-DRIFT detected.\n"
+            "  - PROTOCOL-DRIFT\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result["not_run"] == []
+        assert result["blocking"] == ["PROTOCOL-DRIFT"]
+
+    def test_ambiguous_verdict_line_both_tokens_fails_closed(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        # The verdict LINE itself (line-opening bracket) carries BOTH
+        # tokens — genuinely ambiguous, never guess which one is real.
+        note.write_text(
+            "[PASS][BLOCK]: contradictory verdict, 2 papers.\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"] != []
+        assert "ambiguous" in result["not_run"][0].lower()
+
+    def test_no_line_opens_with_bracket_fails_closed(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "The review looks solid overall, no concerns to flag here.\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"] != []
+
+    def test_wellformed_pass_still_go(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "[PASS]: 12 papers, 4 rounds, plateau at round 3; 0 BLOCK(s).\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result == {"blocking": [], "not_run": []}
+
+    def test_wellformed_block_still_blocks(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "[BLOCK]: 5 papers, 2 rounds; 1 BLOCK(s).\n"
+            "  - COUNTER-POSITION ABSENT (axis 4 — hard block)\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result["not_run"] == []
+        assert result["blocking"] == ["COUNTER-POSITION ABSENT (axis 4 — hard block)"]
+
+    def test_missing_artifact_still_not_run(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_never-written.md"
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"] == [str(note)]
+
+
+class TestApproveReviewGateAntiFishing:
+    """End-to-end (cmd_approve --auto) proof that the reviewer-reproduced
+    fail-open shapes resolve REVISE (rc == 2), never GO (rc == 0) — the
+    single-human-gate design has no backstop, so a silent GO here would
+    ship an unreviewed corpus (PR #201 review delta, 2026-07-09)."""
+
+    def _critic_note(self, path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _review_manifest(self, run_id: str, critic_path: Path) -> dict:
+        return {
+            "run_id": run_id, "name": "review-phase2", "global_cap": 1,
+            "nodes": [
+                {
+                    "id": "review-coverage-critic", "type": "agent",
+                    "spec": "task://demo#critic",
+                    "produces": {"_coverage-critic.md": str(critic_path)},
+                    "needs": [],
+                },
+                {
+                    "id": "approve-review", "type": "human-go",
+                    "needs": [{"from": "review-coverage-critic", "edge": "afterok"}],
+                },
+            ],
+        }
+
+    def test_pre_verdict_pass_mention_resolves_revise_not_go(
+        self, run_env: Path, capsys,
+    ):
+        from research_vault.dag.verbs import cmd_approve
+
+        critic_path = run_env / "reviews" / "scope-i" / "_coverage-critic.md"
+        self._critic_note(
+            critic_path,
+            "...does not merit [PASS] on axis 4.\n"
+            "[BLOCK]: counter-position absent, axis 4 hard block.\n"
+            "  - COUNTER-POSITION ABSENT\n",
+        )
+        manifest = self._review_manifest("auto-run-10", critic_path)
+        store = _make_awaiting_run(run_env, "auto-run-10", manifest, "approve-review")
+
+        args = argparse.Namespace(run_id="auto-run-10", node_id="approve-review", auto=True)
+        rc = cmd_approve(args)
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert "REVISE" in captured.err
+        assert "COUNTER-POSITION ABSENT" in captured.err
+        rs = store.load("auto-run-10")
+        assert rs.node_status("approve-review") == "awaiting-go"
+
+    def test_legend_line_resolves_revise_not_go(self, run_env: Path, capsys):
+        from research_vault.dag.verbs import cmd_approve
+
+        critic_path = run_env / "reviews" / "scope-j" / "_coverage-critic.md"
+        self._critic_note(
+            critic_path,
+            "Output legend: [PASS] = clean, [BLOCK] = holes.\n"
+            "\n"
+            "[BLOCK]: 3 papers, 1 round; PROTOCOL-DRIFT detected.\n"
+            "  - PROTOCOL-DRIFT\n",
+        )
+        manifest = self._review_manifest("auto-run-11", critic_path)
+        store = _make_awaiting_run(run_env, "auto-run-11", manifest, "approve-review")
+
+        args = argparse.Namespace(run_id="auto-run-11", node_id="approve-review", auto=True)
+        rc = cmd_approve(args)
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert "REVISE" in captured.err
+        assert "PROTOCOL-DRIFT" in captured.err
+        rs = store.load("auto-run-11")
+        assert rs.node_status("approve-review") == "awaiting-go"

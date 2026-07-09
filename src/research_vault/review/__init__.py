@@ -133,10 +133,18 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
 # parse review-coverage-critic's [PASS]/[BLOCK] verdict artifact
 # ---------------------------------------------------------------------------
 
-# Matches the bracketed gate token anywhere in the note (case-insensitive) —
-# the critic's own template (``review_critic_tips``'s "Honest output
-# template") always opens with ``[PASS]: ...`` or ``[BLOCK]: ...``.
+# Matches the bracketed gate token anywhere WITHIN a candidate verdict line
+# (used only to count tokens on that line for the ambiguity check, below).
 _COVERAGE_CRITIC_VERDICT_RE = re.compile(r"\[(PASS|BLOCK)\]", re.IGNORECASE)
+# Matches only when the bracket token OPENS the line (mod. leading whitespace)
+# — the critic's own template (``review_critic_tips``'s "Honest output
+# template") always OPENS a line with ``[PASS]: ...`` or ``[BLOCK]: ...``.
+# Anchoring at line-start (not an anywhere-search) is the fail-open fix
+# (2026-07-09, reviewer-confirmed on PR #201): free prose that merely
+# MENTIONS the other token mid-sentence (e.g. "...does not merit [PASS] on
+# axis 4.") is never mistaken for the real verdict, because the mention is
+# not at the start of its line.
+_COVERAGE_CRITIC_VERDICT_LINE_RE = re.compile(r"^\s*\[(PASS|BLOCK)\]", re.IGNORECASE)
 _COVERAGE_CRITIC_BULLET_RE = re.compile(r"^\s*-\s+(.+?)\s*$")
 
 
@@ -149,40 +157,66 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
 
     - Missing artifact -> ``not_run`` (a floor gate that never ran must never
       look like a pass, §1.2 priority 2 / explore-rl #3).
-    - No recognized ``[PASS]``/``[BLOCK]`` token found -> ``not_run`` (an
-      unparseable verdict is untrustworthy, not a silent PASS — charter §2
-      whitelist-not-blacklist).
-    - ``[PASS]`` -> ``blocking: []`` (GO).
-    - ``[BLOCK]`` -> ``blocking`` is every ``- <reason>`` bullet line
-      immediately following the verdict line (the critic's own "list each"
-      template); an empty bullet list still counts as one generic blocking
-      reason (never a BLOCK verdict silently downgraded to a pass because no
-      bullets were parsed).
+    - No line that OPENS with a ``[PASS]``/``[BLOCK]`` token -> ``not_run``
+      (an unparseable verdict is untrustworthy, not a silent PASS — charter
+      §2 whitelist-not-blacklist). A bracket token mentioned mid-sentence
+      elsewhere in the note is NEVER treated as the verdict.
+    - The verdict LINE carries more than one recognized token (e.g. a legend
+      line ``[PASS] = clean, [BLOCK] = holes`` that happens to open with a
+      bracket, or a malformed ``[PASS][BLOCK]: ...`` line) -> ``not_run``
+      (ambiguous, fail-closed — never guess which token is the real verdict).
+    - ``[PASS]`` (sole token, line-opening) -> ``blocking: []`` (GO).
+    - ``[BLOCK]`` (sole token, line-opening) -> ``blocking`` is every
+      ``- <reason>`` bullet line immediately following the verdict line (the
+      critic's own "list each" template); an empty bullet list still counts
+      as one generic blocking reason (never a BLOCK verdict silently
+      downgraded to a pass because no bullets were parsed).
+
+    sr: PR #201 review delta (fail-open fix) — 2026-07-09
     """
     if not critic_note_path.exists():
         return {"blocking": [], "not_run": [str(critic_note_path)]}
 
     text = critic_note_path.read_text(encoding="utf-8")
-    m = _COVERAGE_CRITIC_VERDICT_RE.search(text)
-    if m is None:
+    lines = text.splitlines()
+
+    verdict_idx = None
+    for i, line in enumerate(lines):
+        if _COVERAGE_CRITIC_VERDICT_LINE_RE.match(line):
+            verdict_idx = i
+            break
+
+    if verdict_idx is None:
         return {
             "blocking": [],
             "not_run": [
-                f"{critic_note_path}: no recognized [PASS]/[BLOCK] verdict token found"
+                f"{critic_note_path}: no line opens with a [PASS]/[BLOCK] "
+                f"verdict token — the critic's template requires the "
+                f"verdict at the START of a line; a mid-sentence mention "
+                f"elsewhere in the note is never treated as the verdict"
             ],
         }
 
-    verdict = m.group(1).upper()
+    verdict_line = lines[verdict_idx]
+    tokens = _COVERAGE_CRITIC_VERDICT_RE.findall(verdict_line)
+    if len(tokens) != 1:
+        return {
+            "blocking": [],
+            "not_run": [
+                f"{critic_note_path}: verdict line is ambiguous — carries "
+                f"{len(tokens)} [PASS]/[BLOCK] tokens, not exactly one: "
+                f"{verdict_line.strip()!r}"
+            ],
+        }
+
+    verdict = tokens[0].upper()
     if verdict == "PASS":
         return {"blocking": [], "not_run": []}
 
     # BLOCK: collect every "- <reason>" bullet line contiguous with the
     # verdict line (skipping blank lines), per the critic's own template.
-    # ``lines[0]`` is the REST of the verdict line itself (e.g. ": N papers,
-    # ... k BLOCK(s).") — never bullet-shaped; scan starts on the line after.
-    lines = text[m.end():].splitlines()[1:]
     reasons: list[str] = []
-    for line in lines:
+    for line in lines[verdict_idx + 1:]:
         if not line.strip():
             continue
         bullet_m = _COVERAGE_CRITIC_BULLET_RE.match(line)
