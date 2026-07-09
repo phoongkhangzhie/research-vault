@@ -260,3 +260,103 @@ def run_sweep_from_protocol(
     sources = parse_sources(text)
     cells = run_width_sweep(angle_matrix, sources, per_cell_limit=per_cell_limit)
     return compose_sweep_result(cells, budget=budget, floor=floor)
+
+
+# ---------------------------------------------------------------------------
+# _search_hits.md rendering (review-loop-nodekind-drift-fix §4-A)
+# ---------------------------------------------------------------------------
+
+def _paper_id_of_hit(hit: PaperHit) -> str | None:
+    """Best-available external identifier for a hit — DOI > arXiv > S2 id.
+
+    Used both for the [NEW]/[IN-CORPUS] annotation lookup and as the seed
+    identifier the review-screen agent hands to the review-snowball tool op.
+    """
+    return (
+        hit.external_ids.get("doi")
+        or hit.external_ids.get("arxiv")
+        or hit.external_ids.get("s2")
+    )
+
+
+def _annotate_hit(
+    hit: PaperHit,
+    *,
+    notes_index: dict[str, str] | None,
+    notes_title_index: dict[str, list[tuple[str, str]]] | None,
+) -> str:
+    """[NEW] / [IN-CORPUS:<citekey>] annotation for a PaperHit.
+
+    Bridges the PaperHit shape (normalized ``external_ids`` dict) to the
+    ``_corpus_annotation`` S2-native-dict contract it was written against —
+    reuse over reinvention (charter §6), not a second annotation mechanism.
+    """
+    from research_vault.research import _corpus_annotation  # avoid import cycle
+
+    paper = {
+        "externalIds": {
+            "DOI": hit.external_ids.get("doi"),
+            "ArXiv": hit.external_ids.get("arxiv"),
+        },
+        "title": hit.title,
+        "authors": [{"name": a} for a in hit.authors],
+    }
+    return _corpus_annotation(paper, notes_index=notes_index, notes_title_index=notes_title_index)
+
+
+def write_search_hits(
+    result: SweepResult,
+    out_path: Path,
+    *,
+    notes_index: dict[str, str] | None = None,
+    notes_title_index: dict[str, list[tuple[str, str]]] | None = None,
+) -> Path:
+    """Render the width-sweep result to ``_search_hits.md`` (Option C §4-A).
+
+    Per-``(angle,source)`` cell counts (including degraded/errored cells),
+    the ranked deduped kept set with ``[NEW]``/``[IN-CORPUS:<citekey>]``
+    annotation (mechanical, against the real corpus index — never
+    reinvented) and ``[DERIVATIVE-OF:*]``/``[BELOW-FLOOR:*]`` flags.
+
+    This is the artifact the ``review-screen`` agent node reads to apply the
+    frozen protocol's inclusion/exclusion criteria and accept a seed
+    frontier — the tool op writes the mechanical record, the agent judges it.
+    """
+    lines: list[str] = ["# Search hits\n"]
+
+    lines.append("## Cells\n")
+    lines.append("| Angle | Source | Hits | Error |")
+    lines.append("|---|---|---|---|")
+    for cell in result.cells:
+        err = cell.error or ""
+        lines.append(f"| {cell.angle} | {cell.source} | {len(cell.hits)} | {err} |")
+    lines.append("")
+
+    lines.append(f"Total hits fetched: {result.total_hits_fetched}\n")
+    lines.append(f"Independent (non-derivative) count: {result.independent_count}\n")
+
+    if result.errors:
+        lines.append("## Errors\n")
+        for e in result.errors:
+            lines.append(f"- {e}")
+        lines.append("")
+
+    lines.append("## Kept (ranked, deduped, budget-selected)\n")
+    lines.append("| Annotation | Paper-id | Title | Flags |")
+    lines.append("|---|---|---|---|")
+    for d in result.kept:
+        hit = d.hit
+        annotation = _annotate_hit(hit, notes_index=notes_index, notes_title_index=notes_title_index)
+        pid = _paper_id_of_hit(hit) or ""
+        flags: list[str] = []
+        if hit.derivative_of is not None:
+            flags.append(f"[DERIVATIVE-OF:{hit.derivative_of}]")
+        if hit.below_floor:
+            flags.append("[BELOW-FLOOR: needs more sources]")
+        title = (hit.title or "").replace("|", "/")
+        lines.append(f"| {annotation} | {pid} | {title} | {' '.join(flags)} |")
+    lines.append("")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(lines), encoding="utf-8")
+    return out_path

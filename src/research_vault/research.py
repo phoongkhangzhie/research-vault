@@ -19,17 +19,16 @@ Commands:
     --rerank / --no-rerank        TF-IDF rerank candidates (default on)
     --min-score FLOAT             minimum similarity threshold (default 0.0 = reorder-not-drop)
     --project NAME                match candidates against this project's corpus
-  rv research cited-by <paper-id> forward snowball — papers that cite this paper
-    --limit N                     result count (default 20)
-    --project NAME                match against project's corpus
-    (see also: rv research references — backward snowball)
-  rv research references <paper-id> backward snowball — papers in this paper's reference list
-    --project NAME                match against project's corpus
-    (see also: rv research cited-by — forward snowball)
   rv research add <doi|arxiv>     add a paper (dedup gate → cite add)
     --project NAME                target project/collection
     --force                       bypass dedup gate (logs loudly)
     --dry-run                     preview without writing
+
+  D1 (verb consolidation) HARD-REMOVED ``sweep``/``cited-by``/``references`` —
+  they collapsed into the review-loop DAG's ``sweep``/``snowball`` tool
+  node-ops (invoked IN-PROCESS by ``rv dag run``, never shelled directly).
+  Use ``rv review <project> new <scope> ...`` + ``rv dag run`` instead of
+  either verb; see cli_removed_verbs.py for the redirect stubs.
 """
 from __future__ import annotations
 
@@ -997,7 +996,8 @@ def build_parser(
             "Use --no-rerank to reproduce the legacy asta-order output. "
             "--deep/WebSearch escalation still recommended for deep recall. "
             "Anti-pattern: do NOT rely on find alone for systematic lit review — it is a "
-            "starting point; use rv research cited-by + rv research references for snowball."
+            "starting point; use `rv review <project> new <scope>` + `rv dag run` "
+            "for a protocol-gated, saturation-snowballed systematic review."
         ),
     )
     find_p.add_argument("query")

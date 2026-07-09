@@ -471,15 +471,18 @@ class TestNonCanonicalStopReasonSweep:
 
 
 # ---------------------------------------------------------------------------
-# 4. review_snowball_tips prose documents the backstop
+# 4. review_curate_tips prose documents the backstop (Option C hybrid,
+#    review-loop-nodekind-drift-fix: the backstop residue-note discipline
+#    moved from review_snowball_tips, since review-snowball is now a
+#    deterministic tool node and review-curate is the judgment layer that
+#    writes _coverage-gaps.md)
 # ---------------------------------------------------------------------------
 
-class TestReviewSnowballTipsDocumentsBackstop:
+class TestReviewCurateTipsDocumentsBackstop:
     def test_tips_mention_backstop_config_and_stop_reason(self):
         from research_vault.review.style import get_review_tips
         tips = get_review_tips(config=None)
-        snowball = tips["review_snowball_tips"]
-        assert "saturation_backstop_waves" in snowball
-        assert "stop_reason" in snowball
-        assert "_coverage-gaps.md" in snowball
-        assert "backstop" in snowball.lower()
+        curate = tips["review_curate_tips"]
+        assert "stop_reason" in curate
+        assert "_coverage-gaps.md" in curate
+        assert "backstop" in curate.lower()

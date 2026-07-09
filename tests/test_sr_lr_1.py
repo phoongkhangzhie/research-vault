@@ -91,11 +91,14 @@ def test_review_tips_keys_all_present():
 
 
 def test_review_tips_keys_fixed_set():
-    """REVIEW_TIPS_KEYS contains exactly the 6 required keys."""
+    """REVIEW_TIPS_KEYS contains exactly the 6 required keys (Option C hybrid,
+    review-loop-nodekind-drift-fix: review_search_tips/review_snowball_tips
+    replaced by review_screen_tips/review_curate_tips — a breaking key
+    change, see the spec §F)."""
     assert REVIEW_TIPS_KEYS == frozenset({
         "review_scope_tips",
-        "review_search_tips",
-        "review_snowball_tips",
+        "review_screen_tips",
+        "review_curate_tips",
         "per_paper_relate_tips",
         "review_synthesize_tips",
         "review_critic_tips",
@@ -120,7 +123,7 @@ def test_review_tips_adopter_override_merges(tmp_instance, cfg):
     assert tips["review_scope_tips"] == "CUSTOM scope"
     assert "unknown_key" not in tips
     # Other keys unaffected
-    assert tips["review_search_tips"] != ""
+    assert tips["review_screen_tips"] != ""
 
 
 def test_review_tips_none_config_returns_default():
@@ -184,17 +187,37 @@ def test_review_manifest_validates(review_new_result):
 
 
 def test_review_manifest_has_required_nodes(review_new_result):
-    """Phase-1 manifest has the 5 required node ids."""
+    """Phase-1 manifest has the 7 required node ids (Option C hybrid,
+    review-loop-nodekind-drift-fix: review-search/review-snowball split into
+    tool+agent pairs — review-screen/review-curate added)."""
     note_path, review_dir, manifest = review_new_result
     node_ids = {n["id"] for n in manifest["nodes"]}
     required = {
         "review-scope",
         "approve-protocol",
         "review-search",
+        "review-screen",
         "review-snowball",
+        "review-curate",
         "coverage-gate",
     }
     assert required <= node_ids, f"Missing nodes: {required - node_ids}"
+
+
+def test_review_search_is_tool_node(review_new_result):
+    """review-search is now a deterministic TOOL node (op 'sweep') — no LLM."""
+    note_path, review_dir, manifest = review_new_result
+    node = next(n for n in manifest["nodes"] if n["id"] == "review-search")
+    assert node["type"] == "tool"
+    assert node["op"] == "sweep"
+
+
+def test_review_snowball_is_tool_node(review_new_result):
+    """review-snowball is now a deterministic TOOL node (op 'snowball') — no LLM."""
+    note_path, review_dir, manifest = review_new_result
+    node = next(n for n in manifest["nodes"] if n["id"] == "review-snowball")
+    assert node["type"] == "tool"
+    assert node["op"] == "snowball"
 
 
 def test_review_scope_produces_protocol(review_new_result):
@@ -218,14 +241,24 @@ def test_review_search_watches_protocol(review_new_result):
     )
 
 
-def test_review_snowball_produces_corpus_and_saturation(review_new_result):
-    """review-snowball produces _corpus.md and _saturation.md."""
+def test_review_snowball_produces_corpus_raw_and_saturation(review_new_result):
+    """review-snowball (tool) produces _corpus_raw.md and _saturation.md —
+    the FINAL _corpus.md is review-curate's output (Option C hybrid)."""
     note_path, review_dir, manifest = review_new_result
     snowball_node = next(n for n in manifest["nodes"] if n["id"] == "review-snowball")
     produces = snowball_node.get("produces", [])
     produces_str = " ".join(str(p) for p in produces)
-    assert "_corpus.md" in produces_str, f"Missing _corpus.md in produces: {produces!r}"
+    assert "_corpus_raw.md" in produces_str, f"Missing _corpus_raw.md in produces: {produces!r}"
     assert "_saturation.md" in produces_str, f"Missing _saturation.md in produces: {produces!r}"
+
+
+def test_review_curate_produces_final_corpus(review_new_result):
+    """review-curate (agent) produces the FINAL _corpus.md."""
+    note_path, review_dir, manifest = review_new_result
+    node = next(n for n in manifest["nodes"] if n["id"] == "review-curate")
+    produces = node.get("produces", [])
+    produces_str = " ".join(str(p) for p in produces)
+    assert "_corpus.md" in produces_str and "_corpus_raw.md" not in produces_str
 
 
 def test_coverage_gate_is_human_go(review_new_result):
@@ -242,17 +275,17 @@ def test_review_scope_spec_nonempty(review_new_result):
     assert scope_node.get("spec", "").strip()
 
 
-def test_review_search_spec_nonempty(review_new_result):
-    """review-search agent node has a non-empty spec."""
+def test_review_screen_spec_nonempty(review_new_result):
+    """review-screen agent node has a non-empty spec."""
     note_path, review_dir, manifest = review_new_result
-    node = next(n for n in manifest["nodes"] if n["id"] == "review-search")
+    node = next(n for n in manifest["nodes"] if n["id"] == "review-screen")
     assert node.get("spec", "").strip()
 
 
-def test_review_snowball_spec_nonempty(review_new_result):
-    """review-snowball agent node has a non-empty spec."""
+def test_review_curate_spec_nonempty(review_new_result):
+    """review-curate agent node has a non-empty spec."""
     note_path, review_dir, manifest = review_new_result
-    node = next(n for n in manifest["nodes"] if n["id"] == "review-snowball")
+    node = next(n for n in manifest["nodes"] if n["id"] == "review-curate")
     assert node.get("spec", "").strip()
 
 

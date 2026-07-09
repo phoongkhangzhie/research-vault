@@ -76,12 +76,17 @@ def _argns(**kwargs):
     return argparse.Namespace(**kwargs)
 
 
-def _tool_node(nid: str, op: str, args: dict | None = None, needs: list | None = None) -> dict:
+def _tool_node(
+    nid: str, op: str, args: dict | None = None, needs: list | None = None,
+    produces: dict | None = None,
+) -> dict:
     n: dict = {"id": nid, "type": "tool", "op": op}
     if args is not None:
         n["args"] = args
     if needs:
         n["needs"] = needs
+    if produces is not None:
+        n["produces"] = produces
     return n
 
 
@@ -265,6 +270,80 @@ class TestToolNodeAutoExecution:
         rs = RunStore.from_config(load_config()).load("tool-run-5")
         assert rs.node_status("t1") == "blocked"
         assert "unknown tool op" in rs.node_states["t1"].get("tool_error", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# 3b. produces: enforcement (review-loop-nodekind-drift-fix §4-D)
+# ---------------------------------------------------------------------------
+
+class TestToolNodeProducesEnforcement:
+    def test_op_that_writes_declared_artifact_succeeds(self, tmp_instance: Path, monkeypatch):
+        artifact = tmp_instance / "_written.md"
+
+        def fake_sweep(**kw):
+            artifact.write_text("hits", encoding="utf-8")
+            return str(artifact)
+
+        monkeypatch.setitem(autonomy.OP_REGISTRY, "sweep", fake_sweep)
+
+        m = {
+            "run_id": "tool-produces-1",
+            "global_cap": 4,
+            "nodes": [_tool_node("t1", "sweep", {}, produces={"_written.md": str(artifact)})],
+        }
+        mf = tmp_instance / "manifest.json"
+        mf.write_text(json.dumps(m), encoding="utf-8")
+
+        cmd_run(_argns(manifest=str(mf)))
+
+        from research_vault.dag.store import RunStore
+        from research_vault.config import load_config
+        rs = RunStore.from_config(load_config()).load("tool-produces-1")
+        assert rs.node_status("t1") == "succeeded"
+
+    def test_op_that_skips_declared_artifact_is_blocked(self, tmp_instance: Path, monkeypatch):
+        never_written = tmp_instance / "_never_written.md"
+
+        def fake_sweep_no_write(**kw):
+            return "some in-memory result, no file written"
+
+        monkeypatch.setitem(autonomy.OP_REGISTRY, "sweep", fake_sweep_no_write)
+
+        m = {
+            "run_id": "tool-produces-2",
+            "global_cap": 4,
+            "nodes": [_tool_node("t1", "sweep", {}, produces={"_never_written.md": str(never_written)})],
+        }
+        mf = tmp_instance / "manifest.json"
+        mf.write_text(json.dumps(m), encoding="utf-8")
+
+        cmd_run(_argns(manifest=str(mf)))
+
+        from research_vault.dag.store import RunStore
+        from research_vault.config import load_config
+        rs = RunStore.from_config(load_config()).load("tool-produces-2")
+        assert rs.node_status("t1") == "blocked"
+        assert "_never_written.md" in rs.node_states["t1"].get("tool_error", "")
+
+    def test_tool_node_without_produces_is_exempt(self, tmp_instance: Path, monkeypatch):
+        """A tool node with no produces: dict (e.g. coverage/relations, an
+        in-memory report) is never blocked by this gate."""
+        monkeypatch.setitem(autonomy.OP_REGISTRY, "coverage", lambda **kw: {"ok": True})
+
+        m = {
+            "run_id": "tool-produces-3",
+            "global_cap": 4,
+            "nodes": [_tool_node("t1", "coverage", {"project": "p", "scope": "s"})],
+        }
+        mf = tmp_instance / "manifest.json"
+        mf.write_text(json.dumps(m), encoding="utf-8")
+
+        cmd_run(_argns(manifest=str(mf)))
+
+        from research_vault.dag.store import RunStore
+        from research_vault.config import load_config
+        rs = RunStore.from_config(load_config()).load("tool-produces-3")
+        assert rs.node_status("t1") == "succeeded"
 
 
 # ---------------------------------------------------------------------------
