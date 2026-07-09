@@ -246,22 +246,24 @@ def test_cmd_expand_emits_valid_manifest(cfg):
 
 
 def test_cmd_expand_node_shape(cfg):
-    """PR-M6: the real 9-row lit-review section-set (design §3), not the
-    PR-M1 stub's single 'draft' section."""
+    """PR-M6/RD-2/RD-4: the real reader-first 8-row lit-review section-set
+    (design §6), not the PR-M1 stub's single 'draft' section."""
     from research_vault.manuscript import cmd_new, cmd_expand
 
     cmd_new("demo-research", "survey-shape2", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-shape2", config=cfg)
     ids = [n["id"] for n in manifest["nodes"]]
     for expected in (
-        "introduction", "prisma-scope", "framework", "thematic-sections",
+        "introduction", "thematic-sections",
         "cross-cutting-analysis", "open-problems", "conclusion", "references",
-        "abstract", "assemble", "approve-manuscript",
+        "appendix-methods", "abstract", "assemble", "approve-manuscript",
     ):
         assert expected in ids, f"{expected!r} missing from {ids}"
+    assert "prisma-scope" not in ids  # RD-3: relocated to appendix-methods
+    assert "framework" not in ids  # RD-4: body row deleted
     assert ids.index("abstract") < ids.index("assemble") < ids.index("approve-manuscript")
     # abstract is drafted LAST among the sections (design §3: "S (last)")
-    assert ids.index("abstract") == 8
+    assert ids.index("abstract") == 7
 
 
 def test_cmd_expand_approve_manuscript_is_human_go(cfg):

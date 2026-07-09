@@ -82,18 +82,26 @@ from research_vault.dag.schema import validate_manifest
 # 1. The section-set (design §3)
 # ---------------------------------------------------------------------------
 
-def test_section_set_has_nine_rows():
+def test_section_set_has_eight_rows():
+    """RD-2/RD-4 (next-gen lit-review design §6): prisma-scope and framework
+    are removed as body rows (methods -> appendix, spine shown by structure
+    only); appendix-methods is added — net 9 -> 8."""
     ms_type = get_type("lit-review")
-    assert len(ms_type.section_set) == 9
+    assert len(ms_type.section_set) == 8
 
 
-def test_section_set_names():
+def test_section_set_names_reader_first_order():
+    """RD-2: reader-first order — thesis/framing leads, methods demoted to
+    a distinct appendix-methods row rendered last (in chain order; the
+    assemble brief places it last in the READING order too, after references)."""
     names = [s.name for s in SECTION_SET]
     assert names == [
-        "introduction", "prisma-scope", "framework", "thematic-sections",
+        "introduction", "thematic-sections",
         "cross-cutting-analysis", "open-problems", "conclusion",
-        "references", "abstract",
+        "references", "appendix-methods", "abstract",
     ]
+    assert "prisma-scope" not in names
+    assert "framework" not in names
 
 
 def test_abstract_is_last():
@@ -538,6 +546,13 @@ def test_source_transform_combines_pieces(tmp_path):
     assert "a2023" in result["references"]
     assert result["framework_branches"] == ["collect", "train"]
     assert result["spine_shape"] == "pipeline"
+    # RD-3: the appendix-methods key (was prisma-scope) carries the PRISMA
+    # ledger; the provenance_header key carries the hash-free blockquote
+    # (RD-3: hash/reconciliation flags route to the control note, never here).
+    assert "PRISMA scope & method" in result["appendix-methods"]
+    assert "prisma-scope" not in result
+    assert "sha256" not in result["provenance_header"].lower()
+    assert result["provenance_header"].strip()
 
 
 def test_source_transform_branches_comma_string(tmp_path):
@@ -588,10 +603,12 @@ def test_e2e_new_and_expand_full_manifest(cfg):
     phase2 = cmd_expand("demo-research", "survey-m6-e2e", config=cfg)
     validate_manifest(phase2)
     p2_ids = [n["id"] for n in phase2["nodes"]]
-    assert len(p2_ids) == 9 + 2  # 9 sections + assemble + approve-manuscript
+    assert len(p2_ids) == 8 + 2  # 8 sections (RD-2/RD-4) + assemble + approve-manuscript
     for expected in (
-        "introduction", "prisma-scope", "framework", "thematic-sections",
+        "introduction", "thematic-sections",
         "cross-cutting-analysis", "open-problems", "conclusion", "references",
-        "abstract",
+        "appendix-methods", "abstract",
     ):
         assert expected in p2_ids
+    assert "prisma-scope" not in p2_ids
+    assert "framework" not in p2_ids

@@ -199,15 +199,22 @@ def build_principle_anchor_block(blocks: list[dict[str, Any]]) -> str:
 
 # The lit-review section keys mapped to the exemplar ``category`` buckets
 # relevant to what that section's writer must produce (design §8: "matched to
-# the section being drafted"). A section key absent here (introduction,
-# conclusion, references, abstract, assemble) has no exemplar coverage in
-# the researcher-curated corpus (§ Coverage map) and is an honest no-op, never a forced match.
+# the section being drafted"). A section key absent here (conclusion,
+# references, abstract, assemble) has no exemplar coverage in the
+# researcher-curated corpus (§ Coverage map) and is an honest no-op, never a
+# forced match.
+#
+# RD-4 (next-gen lit-review design §6): the standalone ``framework`` body
+# section is deleted — its exemplar category ("framework"/"figure-caption")
+# now folds into ``introduction``, which carries the spine-at-a-glance
+# orientation table that replaced it. RD-3: ``prisma-scope`` is renamed
+# ``appendix-methods`` (relocated to the appendix, same category).
 LIT_REVIEW_SECTION_CATEGORY_MAP: dict[str, tuple[str, ...]] = {
-    "framework": ("framework", "figure-caption"),
+    "introduction": ("framework", "figure-caption"),
     "thematic-sections": ("synthesis", "comparison"),
     "cross-cutting-analysis": ("synthesis", "comparison"),
     "open-problems": ("gap",),
-    "prisma-scope": ("scope-method",),
+    "appendix-methods": ("scope-method",),
 }
 
 

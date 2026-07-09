@@ -182,11 +182,17 @@ def _inject_source_transform_tips(
     never injected anywhere, so its briefs' "use the injected PRISMA ledger /
     comparison table" instructions dangled. This makes it real:
 
-      - ``prisma-scope``       -> appended to the ``prisma-scope`` tip.
+      - ``appendix-methods``   -> appended to the ``appendix-methods`` tip
+        (RD-3: the PRISMA ledger relocates from the removed ``prisma-scope``
+        body row to the reader-optional appendix).
       - ``references``         -> appended to the ``references`` tip.
-      - ``framework_branches`` -> appended to BOTH the ``framework`` tip
-        (the frozen spine's rendering) and the ``thematic-sections`` tip
-        (which needs to know how many branches to draft one section per).
+      - ``provenance_header``  -> appended to the ``assemble`` tip (RD-3: the
+        hash-free blockquote the assembler prepends atop ``report.md``).
+      - ``framework_branches`` -> appended to BOTH the ``introduction`` tip
+        (RD-4: the spine-at-a-glance orientation table folded into the
+        opening section, since the standalone ``framework`` body row is
+        deleted) and the ``thematic-sections`` tip (which needs to know how
+        many branches to draft one section per).
 
     A key absent from ``transform`` (e.g. a future type whose
     ``source_transform`` returns a different shape) or a falsy value is a
@@ -195,13 +201,22 @@ def _inject_source_transform_tips(
     """
     result = dict(tips)
 
-    prisma = transform.get("prisma-scope")
-    if prisma and "prisma-scope" in result:
-        result["prisma-scope"] = result["prisma-scope"].rstrip() + "\n\n---\n\n" + prisma
+    appendix_methods = transform.get("appendix-methods")
+    if appendix_methods and "appendix-methods" in result:
+        result["appendix-methods"] = (
+            result["appendix-methods"].rstrip() + "\n\n---\n\n" + appendix_methods
+        )
 
     references = transform.get("references")
     if references and "references" in result:
         result["references"] = result["references"].rstrip() + "\n\n---\n\n" + references
+
+    provenance_header = transform.get("provenance_header")
+    if provenance_header and "assemble" in result:
+        result["assemble"] = (
+            result["assemble"].rstrip() + "\n\n---\n\nInjected provenance_header "
+            "(prepend verbatim atop report.md):\n\n" + provenance_header
+        )
 
     branches = transform.get("framework_branches")
     if branches:
@@ -210,7 +225,7 @@ def _inject_source_transform_tips(
             "approve-framework — NEVER re-derive): "
             + ", ".join(branches if isinstance(branches, list) else [str(branches)])
         )
-        for key in ("framework", "thematic-sections"):
+        for key in ("introduction", "thematic-sections"):
             if key in result:
                 result[key] = result[key].rstrip() + "\n\n" + branches_block
 

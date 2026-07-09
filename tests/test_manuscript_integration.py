@@ -123,16 +123,22 @@ def test_e2e_dangling_cite_blocks_dropped_equation_signals_transform_wired(cfg):
         "M6's comparison-table rows (source_transform) never reached the "
         "'references' section spec — source_transform is still dead code."
     )
-    assert "representation-learning" in node_specs["framework"], (
-        "The frozen framework branches never reached the 'framework' section spec."
+    # RD-4: the standalone 'framework' body section is deleted — the frozen
+    # branches now fold into 'introduction' (spine-at-a-glance orientation).
+    assert "framework" not in node_specs
+    assert "representation-learning" in node_specs["introduction"], (
+        "The frozen framework branches never reached the 'introduction' "
+        "section spec (RD-4: spine-at-a-glance folded into introduction)."
     )
     assert "representation-learning" in node_specs["thematic-sections"], (
         "The frozen framework branches never reached the 'thematic-sections' spec "
         "— the writer wouldn't know how many branches to draft."
     )
-    # The PRISMA ledger renders (honestly, no frozen corpus in this test) —
-    # proves the renderer's output flows into the spec at all.
-    assert "PRISMA scope & method" in node_specs["prisma-scope"]
+    # RD-3: the PRISMA ledger renders into 'appendix-methods' (was 'prisma-scope'),
+    # honestly, no frozen corpus in this test — proves the renderer's output
+    # flows into the spec at all.
+    assert "prisma-scope" not in node_specs
+    assert "PRISMA scope & method" in node_specs["appendix-methods"]
 
     # ── Simulate a drafted manuscript: a dangling \cite AND a dropped
     #    marked-critical equation (never reproduced). ───────────────────────

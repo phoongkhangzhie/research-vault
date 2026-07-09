@@ -132,7 +132,9 @@ def test_principle_anchor_block_empty_when_no_principles():
 # ---------------------------------------------------------------------------
 
 def test_inject_noop_on_empty_blocks():
-    tips = {"framework": "Write the framework section."}
+    # RD-4: the "framework" exemplar category folds into "introduction"
+    # (the standalone framework body section is deleted).
+    tips = {"introduction": "Write the introduction section."}
     result = ex.inject_exemplar_briefs(tips, [])
     assert result == tips
     assert result is not tips  # new dict returned (additive contract)
@@ -140,33 +142,33 @@ def test_inject_noop_on_empty_blocks():
 
 def test_inject_only_touches_mapped_sections_with_verbatim_text():
     tips = {
-        "framework": "Write the framework section.",
-        "introduction": "Write the introduction.",
+        "introduction": "Write the introduction section.",
+        "conclusion": "Write the conclusion.",
     }
     blocks = ex.load_exemplar_bundle("lit-review")
     result = ex.inject_exemplar_briefs(tips, blocks)
-    # framework is mapped to ("framework", "figure-caption") categories
+    # introduction is mapped to ("framework", "figure-caption") categories (RD-4)
     e1 = next(b for b in blocks if b["id"] == "E1")
-    assert e1["verbatim"] in result["framework"]
-    # introduction has no category mapping in the lit-review map -> untouched
-    assert result["introduction"] == "Write the introduction."
+    assert e1["verbatim"] in result["introduction"]
+    # conclusion has no category mapping in the lit-review map -> untouched
+    assert result["conclusion"] == "Write the conclusion."
 
 
 def test_inject_skips_section_key_absent_from_tips_no_error():
-    tips = {"introduction": "Write the introduction."}
+    tips = {"conclusion": "Write the conclusion."}
     blocks = ex.load_exemplar_bundle("lit-review")
-    result = ex.inject_exemplar_briefs(tips, blocks)  # "framework" absent from tips
-    assert result == {"introduction": "Write the introduction."}
+    result = ex.inject_exemplar_briefs(tips, blocks)  # "introduction" absent from tips
+    assert result == {"conclusion": "Write the conclusion."}
 
 
 def test_inject_never_embeds_principle_blocks_in_body_tips():
-    tips = {"framework": "Write the framework section."}
+    tips = {"introduction": "Write the introduction section."}
     blocks = ex.load_exemplar_bundle("lit-review")
     result = ex.inject_exemplar_briefs(tips, blocks)
     e17 = next(b for b in blocks if b["id"] == "E17")
     e18 = next(b for b in blocks if b["id"] == "E18")
-    assert e17["verbatim"] not in result["framework"]
-    assert e18["verbatim"] not in result["framework"]
+    assert e17["verbatim"] not in result["introduction"]
+    assert e18["verbatim"] not in result["introduction"]
 
 
 # ---------------------------------------------------------------------------
@@ -209,14 +211,17 @@ def test_cmd_expand_wires_exemplar_bundle_into_mapped_section_spec(cfg):
     manifest = cmd_expand("demo-research", "survey-exemplar-wiring", config=cfg)
 
     thematic_node = next(n for n in manifest["nodes"] if n["id"] == "thematic-sections")
-    framework_node = next(n for n in manifest["nodes"] if n["id"] == "framework")
+    # RD-4: the standalone 'framework' body section is deleted — its
+    # exemplar category folds into 'introduction' (the spine-at-a-glance
+    # orientation table that replaced it).
+    introduction_node = next(n for n in manifest["nodes"] if n["id"] == "introduction")
 
     blocks = ex.load_exemplar_bundle("lit-review")
     e7 = next(b for b in blocks if b["id"] == "E7")   # synthesis
     e1 = next(b for b in blocks if b["id"] == "E1")   # framework
 
     assert e7["verbatim"] in thematic_node["spec"]
-    assert e1["verbatim"] in framework_node["spec"]
+    assert e1["verbatim"] in introduction_node["spec"]
     assert "Imitate the MOVE, not the words" in thematic_node["spec"]
 
 

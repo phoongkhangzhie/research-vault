@@ -464,6 +464,38 @@ def render_comparison_table(rows: list[dict[str, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_provenance_header() -> str:
+    """Render the RD-3 provenance blockquote (2-3 lines, no hash/no counts).
+
+    RD-3 (next-gen lit-review design §6): a short, mechanical, hash-free
+    provenance statement for the top of the assembled document. The corpus
+    hash and any reconciliation flags route to the control note / DEVLOG —
+    NEVER the manuscript body (the RD-5 reader-hygiene leak-gate structurally
+    enforces this: a literal ``sha256:...`` in reader prose is a hard BLOCK).
+
+    This is deliberately static boilerplate, not survey-specific data — the
+    per-survey counts/funnel/saturation-stop detail lives in Appendix A
+    (``render_prisma_ledger``), never fabricated here.
+
+    ★ NG-6a dependency (flagged, not silently resolved): the appendix's
+    PRISMA counts are only as fresh as the frozen ``_corpus.md`` /
+    ``coverage_report`` this reads — the known tool-vs-corpus count
+    reconciliation bug (green-but-stale after a remediation append) is fixed
+    by NG-6a's ``rv review refresh`` verb (Wave C), NOT by this wave. RD-3's
+    appendix-move must not ship as if it silently fixed that bug — it only
+    relocates WHERE an (already-correct-or-not) count is displayed.
+
+    sr: NG-lit-review-waveB (RD-3)
+    """
+    return (
+        "> This survey follows a pre-registered protocol — frozen inclusion/"
+        "exclusion criteria, a documented multi-source search and snowball "
+        "process, and a saturation-verified stopping rule. The full audit "
+        "trail (PRISMA funnel, corpus provenance, any scope deviations) is "
+        "in Appendix A and the project's control note."
+    )
+
+
 def source_transform(
     project: str,
     project_notes_dir: Path,
@@ -480,11 +512,14 @@ def source_transform(
     a count, or a table cell):
       - the PRISMA ledger (``render_prisma_ledger``, via ``review.coverage_report``
         under the ``reviews/<slug>/`` convention — manuscript slug == review
-        scope id; degrades to an honest "no corpus" ledger otherwise)
+        scope id; degrades to an honest "no corpus" ledger otherwise) — RD-3:
+        injected into the ``appendix-methods`` section, NOT a body section.
       - the comparison-table rows (``index_literature_rows`` /
         ``render_comparison_table``)
       - the frozen framework's branches (from ``spine`` — the `_manuscript.md`
         fields written at ``approve-framework``)
+      - RD-3: a hash-free ``provenance_header`` blockquote for the top of the
+        assembled document (``render_provenance_header``).
 
     Args:
         project: project slug.
@@ -500,7 +535,7 @@ def source_transform(
         the core's section-drafting wiring read this field — recorded here
         now so the transform is complete per the type contract, design §1).
 
-    sr: PR-M6
+    sr: PR-M6; RD-3 appendix-move (NG-lit-review-waveB)
     """
     slug = tree_root.name
 
@@ -522,7 +557,8 @@ def source_transform(
         branches = list(branches_raw)
 
     return {
-        "prisma-scope": render_prisma_ledger(coverage),
+        "appendix-methods": render_prisma_ledger(coverage),
+        "provenance_header": render_provenance_header(),
         "references": render_comparison_table(rows),
         "framework_branches": branches,
         "spine_shape": spine.get("spine_shape", "") if spine else "",
@@ -570,27 +606,21 @@ _THEMATIC_BRIEF = (
 
 STYLE_BRIEFS: dict[str, str] = {
     "introduction": (
-        "Introduce the survey's scope and why-now, previewing the organizing "
-        "framework (`spine_shape:`/`branches:` — already frozen at "
-        "`approve-framework`, never re-derive it here) and stating the "
-        "contributions. Draw scope framing from `mocs/` and open questions "
-        "from `gaps/` — never invent a gap not anchored in a real `gaps/` note."
-    ),
-    "prisma-scope": (
-        "Render the PRISMA-style scope & method section from the injected "
-        "PRISMA ledger (mechanical — counts come from `rv review coverage`, "
-        "never estimated by you): inclusion/exclusion criteria, corpus "
-        "assembly process, and the counts table. State the corpus hash "
-        "verbatim from `_manuscript.md`'s `corpus_hash:` field — never "
-        "recompute or approximate it."
-    ),
-    "framework": (
-        "Write up the organizing framework/taxonomy section. The spine is "
-        "ALREADY FROZEN (`spine_shape:`+`branches:` in `_manuscript.md`, "
-        "written at `approve-framework`) — render it faithfully (the figure/ "
-        "table + its defense from the MOCs), do NOT alter or re-derive the "
-        "shape here. If the frozen spine is nested (D5's 'bigger spine'), "
-        "render the nesting explicitly."
+        "RD-2 (reader-first): open on the THESIS, not the methods — the "
+        "survey's central claim and why-now, in the first paragraph. Bold "
+        "the topic sentence (RD-6). Do NOT lead with corpus size, search "
+        "process, or a methods preamble — that is Appendix A's job now.\n\n"
+        "RD-4: render ONLY a compact 'spine at a glance' orientation table "
+        "(the frozen `spine_shape:`/`branches:` from `_manuscript.md`, "
+        "approve-framework) + a 2-3 sentence organizing line explaining why "
+        "this shape fits the corpus. Do NOT write a 'why this spine over "
+        "rejected candidates' section — that reasoning stays internal, in "
+        "`_framework-candidates.md` (never re-derive or alter the frozen "
+        "shape here; the candidate-rejection defense is not reader-facing).\n\n"
+        "Draw scope framing from `mocs/` and open questions from `gaps/` — "
+        "never invent a gap not anchored in a real `gaps/` note. Preview the "
+        "contributions, then hand off directly into the thematic sections — "
+        "no PRISMA/methods detour (RD-2/RD-3)."
     ),
     "thematic-sections": _THEMATIC_BRIEF,
     "cross-cutting-analysis": (
@@ -614,10 +644,26 @@ STYLE_BRIEFS: dict[str, str] = {
         "thematic sections and cross-cutting analysis."
     ),
     "references": (
-        "This section is MECHANICAL, not prose: the reference list is built "
-        "from the hermetic `.bib` (PR-M2, from `literature/` frontmatter) — "
-        "never hand-type or invent an entry. Until PR-M2's build lands, use "
-        "the injected comparison-table citekey list verbatim."
+        "RD-1: this is `## Sources`, MECHANICAL not prose — the reference "
+        "list is built from the hermetic citekey ledger (`refs.bib`, from "
+        "`literature/` frontmatter) — never hand-type or invent an entry. "
+        "Use the injected comparison-table citekey list verbatim. Cite in "
+        "the body with `[[citekey]]` markdown wikilinks, never `\\cite{}` "
+        "(RD-1 retires tex-macro citations from the reader path)."
+    ),
+    "appendix-methods": (
+        "RD-3: render Appendix A — the full methods/audit-trail record "
+        "(inclusion/exclusion criteria, PRISMA funnel table, saturation "
+        "stop, counter-position list) from the injected PRISMA ledger "
+        "(mechanical — counts come from `rv review coverage`, never "
+        "estimated by you). This is the relocated `prisma-scope` content — "
+        "reader-optional, never the reader's entry point. Do NOT include a "
+        "corpus hash or any raw `sha256:` value here or anywhere in the "
+        "reader body — hashes and reconciliation flags live in the control "
+        "note / DEVLOG only (RD-3; the reader-hygiene leak-gate, RD-5, "
+        "BLOCKs on a literal hash leaking into this document). Name every "
+        "counter-position by its actual argument, never by an internal `CPk` "
+        "handle (RD-6)."
     ),
     "abstract": (
         "Write the abstract LAST, after every other section is drafted — it "
@@ -627,25 +673,41 @@ STYLE_BRIEFS: dict[str, str] = {
         "fidelity failure). Never introduce a new claim here."
     ),
     "assemble": (
-        "Join the drafted sections into `main.tex` in reading order: Abstract, "
-        "Introduction, PRISMA scope & method, Framework, Thematic sections, "
-        "Cross-cutting analysis, Open problems, Conclusion, References — even "
-        "though Abstract and References were DRAFTED in a different order "
-        "(Abstract last, so it could summarize the finished body; References "
-        "mechanically from the `.bib`). Do not reorder or drop a section."
+        "RD-1: join the drafted sections into `report.md` (markdown, not "
+        "`main.tex`) in READER-FIRST reading order (RD-2): Abstract, "
+        "Introduction (thesis + spine-at-a-glance), Thematic sections, "
+        "Cross-cutting analysis, Open problems, Conclusion, Sources "
+        "(References), Appendix A (Appendix-methods) — even though Abstract "
+        "and Appendix-methods were DRAFTED in a different chain order "
+        "(Abstract last, so it could summarize the finished body). Prepend "
+        "the injected `provenance_header` blockquote (RD-3, hash-free) as "
+        "the very first lines of `report.md`, before the Abstract. Do not "
+        "reorder or drop a section."
     ),
 }
 
 
 # ---------------------------------------------------------------------------
-# §3 — the survey's real 9-row section-set
+# §3/§6 — the survey's reader-first 8-row section-set (RD-2/RD-4)
 # ---------------------------------------------------------------------------
 # Chain order (this tuple) is the Phase-2 DAG's drafting order (each afterok
 # the previous) — NOT the final document order (see the "assemble" brief
 # above). Abstract is drafted LAST (assembly class "S (last)", design §3):
 # it must be a subset of the finished body, so it needs the body written
-# first. References is mechanical (M) and has no prose dependency, so it
-# runs right before Abstract for simplicity.
+# first. References/appendix-methods are mechanical (M) and have no prose
+# dependency, so they run right before Abstract for simplicity.
+#
+# RD-2/RD-4 (next-gen lit-review design §6): pre-Wave-B this tuple had 9 rows
+# including `prisma-scope` and `framework` as BODY sections — a reader
+# traversed ~475 lines of methodology/framework internals before the first
+# survey sentence. Both are removed as body rows here:
+#   - `prisma-scope` -> relocated to `appendix-methods` (RD-3), rendered LAST
+#     in the READING order (see the "assemble" brief) — reader-optional.
+#   - `framework` -> DELETED entirely (RD-4); the spine is now shown by
+#     SECTION ORDER + a compact orientation table folded into `introduction`
+#     (no "why this spine over rejected candidates" body section — that
+#     defense stays internal, in `_framework-candidates.md`).
+# Net: 9 -> 8 rows. `introduction` now leads on the thesis, not the corpus.
 #
 # "Thematic sections (N)" (design §3 row 5) is represented here as ONE
 # section node covering all N branches (the frozen framework's top-level
@@ -664,18 +726,6 @@ SECTION_SET: tuple[SectionSpec, ...] = (
         assembly_class="S",
         source_atoms=("mocs", "gaps"),
         brief_key="introduction",
-    ),
-    SectionSpec(
-        name="prisma-scope",
-        assembly_class="M",
-        source_atoms=("literature", "reviews"),
-        brief_key="prisma-scope",
-    ),
-    SectionSpec(
-        name="framework",
-        assembly_class="H",
-        source_atoms=("mocs", "concepts", "gaps"),
-        brief_key="framework",
     ),
     SectionSpec(
         name="thematic-sections",
@@ -706,6 +756,12 @@ SECTION_SET: tuple[SectionSpec, ...] = (
         assembly_class="M",
         source_atoms=("literature",),
         brief_key="references",
+    ),
+    SectionSpec(
+        name="appendix-methods",
+        assembly_class="M",
+        source_atoms=("literature", "reviews"),
+        brief_key="appendix-methods",
     ),
     SectionSpec(
         name="abstract",
