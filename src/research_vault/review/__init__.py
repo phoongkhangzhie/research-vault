@@ -146,6 +146,11 @@ def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
         the wave cap (``saturation_backstop_waves``, default 3) fired WITHOUT
         the primary rule converging first. The corpus is bounded, NOT
         saturated.
+      - ``stop_reason: no-seeds-resolved``   — every seed id failed to
+        resolve on both directions (e.g. all-404) and zero hits were ever
+        obtained (2026-07-09 live-asta fix) — NOT genuine saturation; falls
+        through the whitelist below to HALT-DECLARE, same as any other
+        non-canonical value.
 
     Uses ``note._parse_frontmatter`` (the canonical parser) — no re-rolled
     YAML/regex logic (charter §6: reuse over create), mirroring

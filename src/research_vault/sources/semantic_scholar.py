@@ -2,12 +2,24 @@
 """sources/semantic_scholar.py — SemanticScholarAdapter (NG-1, pure refactor).
 
 Wraps the exact asta subprocess calls ``research.py``'s ``cmd_find`` /
-``cmd_cited_by`` / ``cmd_references`` shelled out to inline, with ZERO
-behavior change: same asta subcommands, same ``--fields`` projections, same
-error handling (a non-zero exit still calls ``sys.exit`` with the same
-message shape). ``research.py`` now calls this adapter instead of shelling
-out directly; ``hit.raw`` carries the original S2 dict so the existing
-``_corpus_annotation`` / ``_print_candidates`` pipeline is untouched.
+``cmd_cited_by`` / ``cmd_references`` shelled out to inline, same asta
+subcommands, same ``--fields`` projections. ``research.py`` now calls this
+adapter instead of shelling out directly; ``hit.raw`` carries the original
+S2 dict so the existing ``_corpus_annotation`` / ``_print_candidates``
+pipeline is untouched.
+
+Error handling — ``search`` still calls ``sys.exit`` on a non-zero asta exit
+(a single-shot CLI action with no multi-item walk to degrade). ``cited_by``/
+``references`` instead raise ``AdapterFetchError`` (a normal, catchable
+``Exception`` — see ``sources/base.py``): a live-asta 404 on one seed id used
+to ``sys.exit`` the WHOLE ``review-snowball`` walk (``SystemExit`` is a
+``BaseException``, invisible to the walk's ``except Exception`` degrade
+clauses) — this is the fix (2026-07-09, a downstream project's live-asta
+validation run).
+``research.py``'s ``cmd_cited_by``/``cmd_references`` catch
+``AdapterFetchError`` and re-raise as ``sys.exit`` themselves, so the
+single-lookup CLI UX is unchanged; ``sources/snowball.py``'s multi-round
+walk catches it per-(paper,direction) and degrades instead.
 """
 from __future__ import annotations
 
@@ -16,7 +28,7 @@ import subprocess
 import sys
 from typing import Any
 
-from .base import PaperHit
+from .base import AdapterFetchError, PaperHit
 
 
 def _authors_to_names(authors_raw: Any) -> list[str]:
@@ -122,7 +134,7 @@ class SemanticScholarAdapter:
         ]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
-            sys.exit(f"asta papers citations failed:\n{r.stderr}")
+            raise AdapterFetchError(f"asta papers citations failed:\n{r.stderr}")
         raw = json.loads(r.stdout)
         items = [item.get("citingPaper", item) for item in (raw.get("data") or [])]
         return [_s2_item_to_hit(p) for p in items]
@@ -174,7 +186,7 @@ class SemanticScholarAdapter:
         ]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
-            sys.exit(f"asta papers get failed:\n{r.stderr}")
+            raise AdapterFetchError(f"asta papers get failed:\n{r.stderr}")
         raw = json.loads(r.stdout)
         items = raw.get("references") or []
         return [_s2_item_to_hit(p) for p in items]

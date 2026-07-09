@@ -27,6 +27,24 @@ class NotSupported(Exception):
     """
 
 
+class AdapterFetchError(Exception):
+    """Raised by an adapter method when the underlying lookup fails (a
+    non-zero exit / a 404 / any transport error) for a SPECIFIC paper id.
+
+    This is a normal, catchable ``Exception`` — deliberately NOT ``sys.exit``
+    (``SystemExit`` is a ``BaseException`` and is invisible to a caller's
+    ``except Exception`` clause, which is exactly the bug this class exists
+    to close: a single unresolvable seed id used to abort an entire
+    multi-round snowball walk, live-asta-observed 2026-07-09). Direct
+    single-lookup CLI callers (``rv research cited-by``/``references``, via
+    ``research.py``'s ``cmd_cited_by``/``cmd_references``) catch this and
+    re-raise as ``sys.exit`` themselves, preserving their existing
+    fail-fast CLI UX; a multi-seed walk (``sources/snowball.py``) catches it
+    per-(paper,direction) and degrades gracefully instead — SKIP this one
+    lookup, continue the walk.
+    """
+
+
 @dataclass
 class PaperHit:
     """A normalized, source-agnostic search/citation-graph result.

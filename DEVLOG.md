@@ -1,3 +1,51 @@
+## 2026-07-09 (review-snowball live-asta validation fixes — graceful degradation + id normalization)
+
+### Done
+- **Bug 1 (critical, the true blocker) — graceful degradation on adapter
+  error**: `SemanticScholarAdapter.cited_by`/`references` called
+  `sys.exit` on any non-zero asta exit (a 404 especially). `SystemExit` is
+  a `BaseException`, invisible to `sources/snowball.py`'s
+  `run_snowball_to_saturation` `except Exception` degrade clauses — one
+  unresolvable seed used to abort the ENTIRE snowball walk (observed live
+  against real asta: an arXiv id 404'd, then a genuinely-absent ACL
+  Anthology DOI 404'd, both killed the whole node — no `_corpus_raw.md`/
+  `_saturation.md` written). Fix: `cited_by`/`references` now raise a new
+  `sources.base.AdapterFetchError` (a normal, catchable `Exception`)
+  instead of `sys.exit`; `research.py`'s `cmd_cited_by`/`cmd_references`
+  catch it and re-raise as `sys.exit` themselves (unchanged single-lookup
+  CLI UX). `run_snowball_to_saturation` now records a `pid` that fails on
+  BOTH directions in `unresolvable_ids` (surfaced as a count + list in
+  `_saturation.md`) and continues the walk on the resolvable subset. If
+  EVERY seed is unresolvable, `stop_reason` is the distinct
+  `"no-seeds-resolved"` — never mislabeled `"saturated"` (which would
+  misrepresent a total lookup failure as a genuine plateau); this falls
+  through `review.autonomy.classify_coverage_gate`'s existing
+  whitelist-only check to `HALT_DECLARE`, fail-closed.
+- **Bug 2 — id normalization before the citations/references call**: asta
+  404s on a bare arXiv id (`2407.16891`) but resolves the `ARXIV:`-prefixed
+  form; `run_snowball_to_saturation` never normalized seed/frontier ids
+  before calling the adapter (unlike `research.py`'s `cmd_cited_by`/
+  `cmd_references`, which already did via `_normalize_paper_id_for_asta`).
+  Fixed by reusing that same normalizer (lazy import, avoids the
+  research.py <-> sources.snowball import cycle) immediately before each
+  `cited_by`/`references` call — no new id-shape grammar.
+- **Closed the faked-adapter test gap** the drift-fix's integration test
+  left open (it fully faked the S2 adapter, so the real asta error path
+  was never exercised): `tests/test_snowball.py` gained a test driving the
+  REAL `SemanticScholarAdapter` (only `subprocess.run` mocked at the
+  network boundary) through `run_snowball_to_saturation`'s default
+  adapter — proven to reproduce the exact live crash (`SystemExit`
+  propagating) against pre-fix code, and to pass clean post-fix. Plus: a
+  partial-failure/continues test, an all-seeds-fail test, and an
+  id-normalization spy test (asserts the actual argument string reaching
+  the adapter).
+
+### Decisions
+- `AdapterFetchError` lives in `sources/base.py` alongside `NotSupported`
+  — the adapter-error vocabulary stays in one place (charter §6).
+- `search` keeps its `sys.exit` behavior (single-shot CLI action, no
+  multi-item walk to degrade) — only `cited_by`/`references` changed.
+
 ## 2026-07-09 (review-loop node-kind drift fix — Option C hybrid)
 
 ### Done
