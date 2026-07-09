@@ -414,6 +414,80 @@ class TestDagRunGuard:
 
 
 # ---------------------------------------------------------------------------
+# 7b. DAG-run → project matching must not prefix-false-positive on a
+#     sibling slug ("foo" vs "foobar") — str.startswith on the resolved
+#     path string is not path-aware.  Regression for the silent
+#     cross-project mutation where a *terminal* run belonging to a
+#     prefix-sibling project gets archived (shutil.move'd) as if it were
+#     this project's own run.
+# ---------------------------------------------------------------------------
+
+class TestDagRunPrefixSiblingGuard:
+    def test_foobar_run_not_matched_by_foo_removal(self, rv_instance: Path) -> None:
+        cfg = _cfg(rv_instance)
+        # Two independently-registered projects sharing a name prefix.
+        foo_src = rv_instance / "projects" / "foo"
+        foobar_src = rv_instance / "projects" / "foobar"
+        foo_bare = rv_instance / "bare-foo.git"
+        foobar_bare = rv_instance / "bare-foobar.git"
+        for bare in (foo_bare, foobar_bare):
+            subprocess.run(
+                ["git", "init", "-q", "--bare", "--initial-branch=main", str(bare)],
+                check=True, capture_output=True,
+            )
+        assert cmd_new("foo", "fo", str(foo_src), DEFAULT_ROSTER) == 0
+        _git(foo_src, "remote", "add", "origin", str(foo_bare))
+        _git(foo_src, "push", "-q", "-u", "origin", "main")
+
+        assert cmd_new("foobar", "fb", str(foobar_src), DEFAULT_ROSTER) == 0
+        _git(foobar_src, "remote", "add", "origin", str(foobar_bare))
+        _git(foobar_src, "push", "-q", "-u", "origin", "main")
+        reset_config_cache()
+        cfg = load_config(reload=True)
+
+        # A terminal DAG run belonging ONLY to "foobar".
+        store = RunStore.from_config(cfg)
+        rs = RunState(
+            run_id="foobar-loop-done",
+            manifest_path=str(foobar_src / "manifest.json"),
+        )
+        rs.node_states["n1"] = {"status": "succeeded"}
+        store.create(rs)
+
+        # Remove "foo" — must NOT touch foobar's run.
+        cmd_remove("foo")
+
+        run_file = cfg.state_dir / "dag" / "foobar-loop-done.json"
+        assert run_file.exists(), (
+            "foobar's terminal run must NOT be archived by removing the "
+            "prefix-sibling project 'foo' (str.startswith false-positive)"
+        )
+        archived = list((cfg.state_dir / "dag" / "_archive").glob("foobar-loop-done*.json"))
+        assert not archived, "foobar's run must not have been moved into foo's teardown archive"
+
+    def test_genuine_child_path_still_matches(self, demo_project: Path) -> None:
+        """Sanity: the fix must not regress the genuine (non-prefix) match —
+        a run whose manifest is truly nested under the project's own repo
+        root must still be found and archived."""
+        cfg = _cfg(demo_project)
+        src = demo_project / "projects" / "demo"
+        store = RunStore.from_config(cfg)
+        rs = RunState(
+            run_id="demo-loop-nested",
+            manifest_path=str(src / "sub" / "dir" / "manifest.json"),
+        )
+        rs.node_states["n1"] = {"status": "succeeded"}
+        store.create(rs)
+
+        cmd_remove("demo")
+
+        run_file = cfg.state_dir / "dag" / "demo-loop-nested.json"
+        assert not run_file.exists()
+        archived = list((cfg.state_dir / "dag" / "_archive").glob("demo-loop-nested*.json"))
+        assert archived
+
+
+# ---------------------------------------------------------------------------
 # 8. The ⟦VAULT-TEARDOWN⟧ handoff
 # ---------------------------------------------------------------------------
 
@@ -429,6 +503,44 @@ class TestVaultTeardownHandoff:
         assert "deploy" in out or "mirror" in out
         assert "github-repo" in out
         assert "PRESERVED" in out
+
+    def test_handoff_agents_dir_not_a_vault_todo_when_purge_agents(
+        self, demo_project: Path, capsys
+    ) -> None:
+        """rv itself archives `.agents/<slug>/` under --purge-agents — the
+        handoff must NOT also tell the vault consumer to archive it (same
+        artifact, double-claimed).  It must instead be informational: state
+        the actual action rv already took (and where)."""
+        cmd_remove("demo", purge_agents=True, input_fn=lambda _p: "demo")
+        out = capsys.readouterr().out
+        handoff = out[out.index("VAULT-TEARDOWN"):]
+        agents_line = next(
+            line for line in handoff.splitlines() if line.strip().startswith("agents-dir:")
+        )
+        assert "archive" in agents_line.lower()
+        # Must not read as a to-do for the vault side ("-> archive"); must
+        # reflect that rv already did it.
+        assert "archived by rv" in agents_line
+        archive_root = Path(os.environ["RV_ARCHIVE_ROOT"])
+        assert str(archive_root) in agents_line
+
+    def test_handoff_agents_dir_left_in_place_when_no_purge(
+        self, demo_project: Path, capsys
+    ) -> None:
+        """Without --purge-agents, `.agents/<slug>/` is untouched — the
+        handoff must say so, never instruct the vault side to archive an
+        artifact that rv now owns archiving."""
+        agents_dir = demo_project / ".agents" / "demo"
+        cmd_remove("demo")
+        out = capsys.readouterr().out
+        handoff = out[out.index("VAULT-TEARDOWN"):]
+        agents_line = next(
+            line for line in handoff.splitlines() if line.strip().startswith("agents-dir:")
+        )
+        assert "left in place" in agents_line
+        assert str(agents_dir) in agents_line
+        assert "--purge-agents" in agents_line
+        assert "-> archive" not in agents_line
 
 
 # ---------------------------------------------------------------------------

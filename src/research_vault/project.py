@@ -661,6 +661,14 @@ def _archive_root() -> Path:
     return Path.home() / "vault-archive"
 
 
+def _agents_archive_dest(slug: str) -> Path:
+    """The (deterministic, per-day) destination `.agents/<slug>/` archives
+    to under --purge-agents.  Shared by the actual archive step and the
+    handoff line so both name the same path."""
+    import datetime
+    return _archive_root() / f"{slug}-{datetime.date.today().isoformat()}"
+
+
 def _rollback_registry(config_path: Path, name: str) -> None:
     """Un-append the [projects.<name>] section from the config file.
 
@@ -1057,13 +1065,18 @@ def _worktree_paths(wt_home: Path) -> list[Path]:
 
 def _project_dag_runs(cfg: Config, slug: str) -> list[tuple[str, "Any"]]:
     """Return [(run_id, RunState)] for DAG runs whose manifest lives under this
-    project's repo root or notes dir.  Matching is by path prefix — the
+    project's repo root or notes dir.  Matching is by resolved path
+    containment (component-wise, via ``Path.is_relative_to``) — the
     manifest_path a review/experiment/manuscript loop node writes always
-    resolves under the project's own tree."""
+    resolves under the project's own tree.
+
+    NOT a string-prefix match: ``str.startswith`` would false-positive a
+    prefix-sibling slug (e.g. "foo" matching "foobar"'s manifest path),
+    silently archiving another project's run as this project's own."""
     from .dag.store import RunStore
 
-    repo_root = str(cfg.project_repo_root(slug))
-    notes_dir = str(cfg.project_notes_dir(slug))
+    repo_root = cfg.project_repo_root(slug).resolve()
+    notes_dir = cfg.project_notes_dir(slug).resolve()
     store = RunStore.from_config(cfg)
     matches = []
     for run_id in store.list_runs():
@@ -1071,8 +1084,8 @@ def _project_dag_runs(cfg: Config, slug: str) -> list[tuple[str, "Any"]]:
             rs = store.load(run_id)
         except Exception:
             continue
-        mp = str(Path(rs.manifest_path))
-        if mp.startswith(repo_root) or mp.startswith(notes_dir):
+        mp = Path(rs.manifest_path).resolve()
+        if mp.is_relative_to(repo_root) or mp.is_relative_to(notes_dir):
             matches.append((run_id, rs))
     return matches
 
@@ -1205,12 +1218,30 @@ def _print_removal_plan(plan: dict[str, Any], *, purge_repo: bool, purge_agents:
         print(f"  NOTE: {plan['open_pr_warning']}")
 
 
-def _print_vault_teardown_handoff(plan: dict[str, Any]) -> None:
+def _print_vault_teardown_handoff(
+    plan: dict[str, Any],
+    *,
+    purge_agents: bool = False,
+    agents_archived_dest: Path | None = None,
+) -> None:
+    """Print the ⟦VAULT-TEARDOWN⟧ handoff.
+
+    ``.agents/<slug>/`` is now archived BY RV ITSELF under --purge-agents
+    (never by the vault consumer) — so the agents-dir line must never read
+    as a vault-side to-do.  It's purely informational, reflecting the
+    action rv actually took (or the fact it left the dir untouched)."""
     slug = plan["slug"]
     github_repo = plan["github_repo"] or "(no remote detected)"
     print(f"\n⟦VAULT-TEARDOWN {slug}⟧")
     print(f"  projects.json:  un-insert {slug!r}  -> held human-go PR (protected SSOT)")
-    print(f"  agents-dir:     {plan['agents_dir_slug']}  -> archive (has crew memory)")
+    if purge_agents:
+        dest = agents_archived_dest or _agents_archive_dest(slug)
+        print(f"  agents-dir:     archived by rv -> {dest}")
+    else:
+        print(
+            f"  agents-dir:     left in place at {plan['agents_dir_slug']} "
+            "(pass --purge-agents to archive)"
+        )
     print(f"  hub-clone:      <hub clone path>  -> remove IF clone_sync classifies IN_SYNC; else FLAG")
     print(f"  deploy/mirror:  suppressed by deregister; external mirror teardown = manual")
     print(f"  github-repo:    {github_repo}  -> PRESERVED, untouched (opt --archive-github = gh repo archive; never deleted)")
@@ -1306,7 +1337,7 @@ def cmd_remove(
 
     if dry_run:
         _print_removal_plan(plan, purge_repo=purge_repo, purge_agents=purge_agents)
-        _print_vault_teardown_handoff(plan)
+        _print_vault_teardown_handoff(plan, purge_agents=purge_agents)
         return 0
 
     _print_removal_plan(plan, purge_repo=purge_repo, purge_agents=purge_agents)
@@ -1381,6 +1412,8 @@ def cmd_remove(
     _archive_dag_runs(cfg, plan["terminal_runs"])
 
     # ── Purge agents (flag-gated, always archive-not-delete) ────────────────
+    agents_archived = False
+    agents_archived_dest: Path | None = None
     if purge_agents:
         agents_src = plan["agents_dir_slug"]
         if agents_src.exists():
@@ -1390,11 +1423,12 @@ def cmd_remove(
                 input_fn,
             )
             if confirmed:
-                import datetime
-                dest = _archive_root() / f"{slug}-{datetime.date.today().isoformat()}"
+                dest = _agents_archive_dest(slug)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(agents_src), str(dest))
                 print(f"  archived: .agents/{slug}/ -> {dest}")
+                agents_archived = True
+                agents_archived_dest = dest
             else:
                 print(f"rv project remove: --purge-agents declined; .agents/{slug}/ left intact.")
                 blocked = True
@@ -1423,7 +1457,9 @@ def cmd_remove(
                     f"Manual step: gh repo archive {github_repo}"
                 )
 
-    _print_vault_teardown_handoff(plan)
+    _print_vault_teardown_handoff(
+        plan, purge_agents=agents_archived, agents_archived_dest=agents_archived_dest
+    )
 
     return 1 if blocked else 0
 
