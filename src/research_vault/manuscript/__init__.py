@@ -309,18 +309,22 @@ def _build_phase2_manifest(
         )
         tips = _inject_source_transform_tips(tips, transform)
 
-    # PR-M7 (§8, seam edit — minimal + additive, mirrors the PR-M4 block
-    # above): embed the type's real-excerpt few-shot exemplar bundle into the
-    # matching sections' briefs — VERBATIM, not a prose "write in a synthesis
-    # style" description (design §8: "the real text is in the prompt"). A
-    # type with no `exemplar_bundle`, or a bundle dir that doesn't exist yet,
-    # is a no-op (empty bundle -> tips/preamble unchanged) — never an error.
+    # PR-M7 (§8) / NG-8 (next-gen lit-review design §3, supersedes the
+    # verbatim form): embed the type's exemplar bundle into the matching
+    # sections' briefs as MUST-READ POINTERS (``read <path>``), not a
+    # verbatim embed and not a prose "write in a synthesis style"
+    # description. A type with no `exemplar_bundle`, or a bundle dir that
+    # doesn't exist yet, is a no-op (empty bundle -> tips/preamble unchanged)
+    # — never an error.
+    exemplar_blocks: list[dict[str, Any]] = []
     if ms_type.exemplar_bundle:
         exemplar_blocks = _exemplars.load_exemplar_bundle(ms_type.exemplar_bundle)
         tips = _exemplars.inject_exemplar_briefs(tips, exemplar_blocks)
         principle_block = _exemplars.build_principle_anchor_block(exemplar_blocks)
         if principle_block:
             preamble = preamble.rstrip() + "\n\n---\n\n" + principle_block
+
+    exemplar_bundle_dir = _exemplars.resolve_exemplar_bundle_path(ms_type.exemplar_bundle)
 
     def _spec(key: str) -> str:
         tip = tips.get(key, f"Write the {key} section.")
@@ -343,11 +347,27 @@ def _build_phase2_manifest(
     for section in ms_type.section_set:
         node_id = section.name
         reads = [_rel(atom) for atom in section.source_atoms] + [sections_dir_abs]
+        # NG-8: wire the exemplar bundle's absolute dir into `reads:` so the
+        # harness's reads-grounding resolver surfaces the pointed-at files as
+        # available context (design §3.1: "the `reads:` wiring guarantees
+        # availability; the outline citation guarantees use").
+        if exemplar_bundle_dir is not None:
+            reads.append(str(exemplar_bundle_dir))
+        node_spec = _spec(section.brief_key or section.name)
+
+        # NG-8 (§3.3): the pre-dispatch presence assertion — a driver that
+        # somehow bypassed inject_exemplar_briefs for a section this bundle
+        # covers fails LOUDLY here, never silently ships a voiceless brief.
+        if exemplar_blocks:
+            ok, msg = _exemplars.check_exemplar_pointer_presence(node_id, node_spec, exemplar_blocks)
+            if not ok:
+                raise ValueError(f"rv manuscript expand: {msg}")
+
         node: dict[str, Any] = {
             "id": node_id,
             "type": "agent",
             "label": f"Draft section '{section.name}' (assembly class: {section.assembly_class})",
-            "spec": _spec(section.brief_key or section.name),
+            "spec": node_spec,
             "reads": reads,
             "needs": [_afterok(prev_id)] if prev_id else [],
         }
