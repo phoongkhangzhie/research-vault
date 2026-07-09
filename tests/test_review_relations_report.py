@@ -153,14 +153,25 @@ class TestRelationsReport:
 
 
 class TestRelationsVerb:
-    def test_relations_subcommand_registered(self, tmp_instance):
-        from research_vault.review.verbs import build_parser
+    """D1 (verb consolidation): `rv review relations` is HARD-REMOVED from
+    the curated CLI — the parsed subcommand is now a redirect stub
+    (test_relations_subcommand_is_removed_stub below). The presentation
+    logic these tests protect (`_run_relations`'s formatting of edge
+    counts/malformed/dangling sections) is UNCHANGED and remains
+    importable — exercised directly rather than through `run()`'s dispatch,
+    which now short-circuits to the D1 redirect for the real CLI path."""
+
+    def test_relations_subcommand_is_removed_stub(self, tmp_instance, capsys):
+        from research_vault.review.verbs import build_parser, run
         parser = build_parser()
         args = parser.parse_args(["demo-litreview", "relations", "scope-any"])
         assert args.review_cmd == "relations"
-        assert args.scope == "scope-any"
+        assert getattr(args, "_rv_removed_verb", None) is not None
+        rc = run(args)
+        assert rc == 2
+        assert "REMOVED" in capsys.readouterr().err
 
-    def test_relations_verb_reports_edges(self, tmp_instance, capsys):
+    def test_relations_presentation_reports_edges(self, tmp_instance, capsys):
         from research_vault.review import verbs as review_verbs
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
@@ -173,28 +184,26 @@ class TestRelationsVerb:
             "(line-of-argument)\n",
         )
 
-        parser = review_verbs.build_parser()
-        args = parser.parse_args(["demo-litreview", "relations", "scope-any"])
-        rc = review_verbs.run(args)
+        args = argparse.Namespace(project="demo-litreview", scope="scope-any")
+        rc = review_verbs._run_relations(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "1 paper→paper edge" in out
         assert "xiong2023-stepwise → li2023" in out
 
-    def test_relations_verb_no_edges_reports_zero_not_crash(self, tmp_instance, capsys):
+    def test_relations_presentation_no_edges_reports_zero_not_crash(self, tmp_instance, capsys):
         from research_vault.review import verbs as review_verbs
-        parser = review_verbs.build_parser()
-        args = parser.parse_args(["demo-litreview", "relations", "scope-any"])
-        rc = review_verbs.run(args)
+        args = argparse.Namespace(project="demo-litreview", scope="scope-any")
+        rc = review_verbs._run_relations(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "0 paper→paper edge" in out
         assert "No paper→paper edges found yet." in out
 
-    def test_relations_verb_surfaces_malformed_edges(self, tmp_instance, capsys):
-        """Architect review, the load-bearing fix: the CLI verb must print
-        malformed edges under their own headed section — never silently
-        absorbed into a clean-looking edge total."""
+    def test_relations_presentation_surfaces_malformed_edges(self, tmp_instance, capsys):
+        """Architect review, the load-bearing fix: the presentation layer
+        must print malformed edges under their own headed section — never
+        silently absorbed into a clean-looking edge total."""
         from research_vault.review import verbs as review_verbs
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
@@ -204,15 +213,14 @@ class TestRelationsVerb:
             "## Related papers\n\n"
             "- [CONTRADCTS] huang2022 — typo'd tag, must be surfaced.\n",
         )
-        parser = review_verbs.build_parser()
-        args = parser.parse_args(["demo-litreview", "relations", "scope-any"])
-        rc = review_verbs.run(args)
+        args = argparse.Namespace(project="demo-litreview", scope="scope-any")
+        rc = review_verbs._run_relations(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Malformed (1)" in out
         assert "CONTRADCTS" in out
 
-    def test_relations_verb_surfaces_dangling_edges(self, tmp_instance, capsys):
+    def test_relations_presentation_surfaces_dangling_edges(self, tmp_instance, capsys):
         from research_vault.review import verbs as review_verbs
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
@@ -222,9 +230,8 @@ class TestRelationsVerb:
             "## Related papers\n\n"
             "- [CONTRADICTS] never-ingested-2019 — a citekey with no note.\n",
         )
-        parser = review_verbs.build_parser()
-        args = parser.parse_args(["demo-litreview", "relations", "scope-any"])
-        rc = review_verbs.run(args)
+        args = argparse.Namespace(project="demo-litreview", scope="scope-any")
+        rc = review_verbs._run_relations(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Dangling (1)" in out

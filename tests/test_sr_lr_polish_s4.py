@@ -12,6 +12,7 @@ Acceptance criteria:
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -214,19 +215,27 @@ def test_coverage_report_includes_all_keys(review_with_corpus, tmp_instance):
 # rv review <p> coverage <scope> verb — exits 0 with output
 # ---------------------------------------------------------------------------
 
-def test_coverage_verb_exits_0(review_with_corpus, tmp_instance, capsys):
-    """rv review <project> coverage <scope> exits 0."""
+def test_coverage_verb_removed_stub_exits_2(review_with_corpus, tmp_instance, capsys):
+    """D1 (verb consolidation): rv review <project> coverage <scope> is a
+    HARD-REMOVED stub — exits 2 with a redirect breadcrumb, never dispatches
+    to coverage_report anymore (that now runs as the 'coverage' tool
+    node-op). See test_coverage_presentation_exits_0 below for the
+    underlying presentation function, which is unchanged."""
     from research_vault.review.verbs import run as review_run, build_parser
-    cfg, _, _ = review_with_corpus
 
     p = build_parser()
     args = p.parse_args(["demo-research", "coverage", "scope-cov"])
+    rc = review_run(args)
+    assert rc == 2
+    assert "REMOVED" in capsys.readouterr().err
 
-    # Override load_config to return test cfg
-    import research_vault.review.verbs as verbs_mod
-    orig_load = verbs_mod.__dict__.get("load_config")
 
-    # Monkeypatch via direct attribute on the imported coverage_report
+def test_coverage_presentation_exits_0(review_with_corpus, tmp_instance, capsys):
+    """The underlying presentation function (_run_coverage) still exits 0
+    on success — it is unchanged, only no longer reachable via the CLI."""
+    from research_vault.review import verbs as review_mod_verbs
+    cfg, _, _ = review_with_corpus
+
     from research_vault import review as review_mod
     orig_coverage_report = review_mod.coverage_report
 
@@ -235,24 +244,24 @@ def test_coverage_verb_exits_0(review_with_corpus, tmp_instance, capsys):
 
     review_mod.coverage_report = mock_coverage_report
     try:
-        rc = review_run(args)
+        args = argparse.Namespace(project="demo-research", scope="scope-cov")
+        rc = review_mod_verbs._run_coverage(args)
     finally:
         review_mod.coverage_report = orig_coverage_report
 
-    # Accept 0 or 1 — 0 means success; 1 means config error in test env (acceptable)
-    # The key test is that the verb EXISTS and routes correctly (no AttributeError/KeyError)
-    assert rc in (0, 1), f"rv review coverage must exit 0 or 1; got {rc}"
+    assert rc in (0, 1), f"_run_coverage must exit 0 or 1; got {rc}"
 
 
-def test_coverage_subcommand_registered(tmp_instance):
-    """coverage is a registered subcommand in the review parser."""
+def test_coverage_subcommand_is_removed_stub(tmp_instance):
+    """coverage still PARSES (as a D1 redirect stub) but no longer carries
+    a 'scope' positional — the real scope-checking logic lives in the
+    'coverage' tool node-op now."""
     from research_vault.review.verbs import build_parser
     p = build_parser()
-    # Should not raise
     args = p.parse_args(["demo-research", "coverage", "scope-test"])
     assert args.review_cmd == "coverage"
-    assert args.scope == "scope-test"
     assert args.project == "demo-research"
+    assert getattr(args, "_rv_removed_verb", None) is not None
 
 
 # ---------------------------------------------------------------------------

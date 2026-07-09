@@ -105,7 +105,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-NODE_TYPES: frozenset[str] = frozenset({"agent", "human-go"})
+NODE_TYPES: frozenset[str] = frozenset({"agent", "human-go", "tool"})
 EDGE_KINDS: frozenset[str] = frozenset({"afterok", "after", "afterany", "soft"})
 REQUIRED_MANIFEST_FIELDS: frozenset[str] = frozenset({"run_id", "nodes"})
 
@@ -220,6 +220,15 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
             _validate_no_reads_on_human_go(nid, node)
             # ── SR-RETRY: human-go must NOT carry max_retries (D-RETRY-1) ─────
             _validate_no_max_retries_on_human_go(nid, node)
+
+        # ── D4 (verb consolidation): tool nodes require a non-empty 'op' ──────
+        # and are exempt from spec/continues/reads/max_retries (they are
+        # executed IN-PROCESS by the runner, never dispatched to a crew agent
+        # or a human — same "not a dispatch target" shape as human-go).
+        if node_type == "tool":
+            _validate_tool_op(nid, node)
+            _validate_no_reads_on_human_go(nid, node, kind="tool")
+            _validate_no_max_retries_on_human_go(nid, node, kind="tool")
 
         # Validate produces (optional)
         produces = node.get("produces")
@@ -431,16 +440,19 @@ def _validate_reads_structure(nid: str, node: dict) -> None:
             )
 
 
-def _validate_no_reads_on_human_go(nid: str, node: dict) -> None:
-    """Raise ManifestError if a human-go node carries a reads: field.
+def _validate_no_reads_on_human_go(nid: str, node: dict, *, kind: str = "human-go") -> None:
+    """Raise ManifestError if a human-go (or, per D4, a tool) node carries a
+    reads: field.
 
     human-go nodes are decision gates, not dispatch targets — they have no
-    reading-scope (same exemption as spec/continues, SR-SCOPE).
+    reading-scope (same exemption as spec/continues, SR-SCOPE). tool nodes
+    (D4, verb consolidation) are executed IN-PROCESS by the runner, not
+    dispatched to a crew agent — same exemption, shared validator.
     """
     if "reads" in node:
         raise ManifestError(
-            f"Node {nid!r}: 'reads' is not allowed on human-go nodes — "
-            f"human-go nodes are decision gates, not dispatch targets (SR-SCOPE). "
+            f"Node {nid!r}: 'reads' is not allowed on {kind} nodes — "
+            f"{kind} nodes are not dispatch targets (SR-SCOPE). "
             f"Remove the 'reads' field from this node."
         )
 
@@ -472,16 +484,44 @@ def _validate_max_retries(nid: str, node: dict) -> None:
         )
 
 
-def _validate_no_max_retries_on_human_go(nid: str, node: dict) -> None:
-    """Raise ManifestError if a human-go node carries max_retries (D-RETRY-1, SR-RETRY).
+def _validate_tool_op(nid: str, node: dict) -> None:
+    """Validate that a tool (D4, deterministic-op) node has a non-empty
+    'op' field naming a registered ``review.autonomy.OP_REGISTRY`` entry.
 
-    human-go nodes are decision gates, not dispatch targets — retry is meaningless.
-    Mirror of _validate_no_reads_on_human_go.
+    Registry membership is NOT checked here (schema.py is a pure/in-memory
+    validator with no import of the op registry — a circularity smell) —
+    only the structural shape (non-empty string). An unregistered op name
+    fails loudly at execution time (``review.autonomy.run_tool_op``).
+    """
+    op = node.get("op")
+    if op is None:
+        raise ManifestError(
+            f"Node {nid!r}: tool nodes require a non-empty 'op' field naming "
+            f"the deterministic op to invoke IN-PROCESS (D4, verb "
+            f"consolidation). Example: \"op\": \"coverage\""
+        )
+    if not isinstance(op, str) or not op.strip():
+        raise ManifestError(
+            f"Node {nid!r}: 'op' must be a non-empty string, got {op!r}"
+        )
+    args = node.get("args")
+    if args is not None and not isinstance(args, dict):
+        raise ManifestError(
+            f"Node {nid!r}: 'args' must be a dict when present, got {type(args).__name__}"
+        )
+
+
+def _validate_no_max_retries_on_human_go(nid: str, node: dict, *, kind: str = "human-go") -> None:
+    """Raise ManifestError if a human-go (or, per D4, a tool) node carries
+    max_retries (D-RETRY-1, SR-RETRY).
+
+    human-go/tool nodes are decision gates or in-process ops, not dispatch
+    targets — retry is meaningless. Mirror of _validate_no_reads_on_human_go.
     """
     if "max_retries" in node:
         raise ManifestError(
-            f"Node {nid!r}: 'max_retries' is not allowed on human-go nodes — "
-            f"human-go nodes are decision gates, not dispatch targets (SR-RETRY, D-RETRY-1). "
+            f"Node {nid!r}: 'max_retries' is not allowed on {kind} nodes — "
+            f"{kind} nodes are not dispatch targets (SR-RETRY, D-RETRY-1). "
             f"Remove the 'max_retries' field from this node."
         )
 

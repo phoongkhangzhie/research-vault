@@ -437,15 +437,20 @@ def test_smoke_cli_new_scaffolds_folder(tmp_instance):
 
 
 def test_smoke_cli_expand_then_validate(tmp_instance):
+    """D1 (verb consolidation): `manuscript expand` is a HARD-REMOVED CLI
+    stub — the manifest-emission logic it drove (manuscript.cmd_expand) is
+    unchanged and still directly callable; this smoke test now exercises
+    it that way instead of through the retired CLI verb."""
     from research_vault.cli import main
 
     rc1 = main(["manuscript", "demo-research", "new", "survey-smoke2", "--type", "lit-review"])
     assert rc1 == 0
-    rc2 = main(["manuscript", "demo-research", "expand", "survey-smoke2"])
-    assert rc2 == 0
 
     from research_vault.config import load_config
+    from research_vault.manuscript import cmd_expand
     cfg = load_config(reload=True)
+    cmd_expand("demo-research", "survey-smoke2", config=cfg)
+
     tree_root = cfg.project_notes_dir("demo-research") / "manuscripts" / "survey-smoke2"
     manifest_path = tree_root / "phase2-dag.json"
     assert manifest_path.exists()

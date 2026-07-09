@@ -180,32 +180,38 @@ def test_references_asta_error_exits(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 5: Parser — ``rv research references`` is a registered subcommand
+# Test 5: Parser — ``rv research references`` is D1-HARD-REMOVED (verb
+# consolidation) — it still PARSES (as a redirect stub), it no longer runs
+# the old cited-by/references behavior. See test_verb_consolidation.py for
+# the shared D1 acceptance; this file's own regression pin lives here too
+# since it tests cmd_references (the underlying function, unchanged/still
+# importable) heavily above.
 # ---------------------------------------------------------------------------
 
-def test_references_parser_registered() -> None:
-    """build_parser() must register 'references' as a subcommand."""
+def test_references_parser_registered_as_removed_stub() -> None:
+    """build_parser() still registers 'references' (as a D1 redirect stub) —
+    it no longer accepts paper_id; any trailing args are swallowed."""
     p = research_mod.build_parser()
-    # Should not raise
     args = p.parse_args(["references", "ARXIV:2005.14165"])
     assert args.research_cmd == "references"
-    assert args.paper_id == "ARXIV:2005.14165"
+    assert getattr(args, "_rv_removed_verb", None) is not None
 
 
 # ---------------------------------------------------------------------------
-# Test 6: run() dispatches to cmd_references
+# Test 6: run() dispatches the D1 stub to its redirect breadcrumb (exit 2),
+# NOT to cmd_references (the CLI verb is removed; cmd_references itself is
+# still directly callable, per tests 1-4/10 above).
 # ---------------------------------------------------------------------------
 
-def test_run_dispatches_references(monkeypatch, capsys) -> None:
-    """run() must route research_cmd=='references' to cmd_references."""
-    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _make_asta_get_result(SAMPLE_REFS))
-    monkeypatch.setattr(research_mod, "_preflight_asta", lambda: None)
-
-    args = argparse.Namespace(research_cmd="references", paper_id="ARXIV:2005.14165", project=None)
+def test_run_dispatches_removed_references_stub(capsys) -> None:
+    """run() must route the D1-removed 'references' verb to the redirect
+    breadcrumb (exit 2) — never to cmd_references anymore."""
+    p = research_mod.build_parser()
+    args = p.parse_args(["references", "ARXIV:2005.14165"])
     rc = research_mod.run(args)
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "candidate(s)" in out
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "REMOVED" in err
 
 
 # ---------------------------------------------------------------------------
@@ -245,43 +251,23 @@ def test_cli_help_check_still_green() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 9: Cross-reference in help text
+# Test 9: D1 (verb consolidation) — cited-by/references are both REMOVED
+# stubs now; the cross-referencing help text they used to carry is retired
+# along with the verbs. Each stub's help instead redirects to the DAG
+# node-op equivalent (see cli_removed_verbs.py / test_verb_consolidation.py).
 # ---------------------------------------------------------------------------
 
-def test_cited_by_help_mentions_references() -> None:
-    """cited-by parser help must mention 'references' (cross-reference backward snowball)."""
+def test_cited_by_and_references_stubs_redirect_to_dag(capsys) -> None:
+    """Both removed stubs point at `rv dag run` (the node-op equivalent),
+    not at each other — the old cross-reference help text is retired with
+    the verbs it described."""
     p = research_mod.build_parser()
-    # Dump the formatter output or check the subparser help
-    import io
-    buf = io.StringIO()
-    try:
-        p.parse_args(["cited-by", "--help"])
-    except SystemExit:
-        pass
-    # Check the subparser description / help text for 'references'
-    # We verify by inspecting the parser action groups
-    sub_actions = p._subparsers._group_actions[0]._name_parser_map  # type: ignore[attr-defined]
-    cb_parser = sub_actions.get("cited-by")
-    assert cb_parser is not None
-
-    # Help text or description must reference 'references'
-    help_text = (cb_parser.description or "") + (cb_parser.format_help() or "")
-    assert "references" in help_text.lower() or "backward" in help_text.lower(), (
-        f"cited-by help text must mention 'references' or 'backward'; got:\n{help_text}"
-    )
-
-
-def test_references_help_mentions_cited_by() -> None:
-    """references parser help must mention 'cited-by' (cross-reference forward snowball)."""
-    p = research_mod.build_parser()
-    sub_actions = p._subparsers._group_actions[0]._name_parser_map  # type: ignore[attr-defined]
-    ref_parser = sub_actions.get("references")
-    assert ref_parser is not None, "references subcommand must be registered"
-
-    help_text = (ref_parser.description or "") + (ref_parser.format_help() or "")
-    assert "cited-by" in help_text.lower() or "forward" in help_text.lower(), (
-        f"references help text must mention 'cited-by' or 'forward'; got:\n{help_text}"
-    )
+    for verb in ("cited-by", "references"):
+        args = p.parse_args([verb, "ARXIV:1"])
+        rc = research_mod.run(args)
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "rv dag run" in err
 
 
 # ---------------------------------------------------------------------------

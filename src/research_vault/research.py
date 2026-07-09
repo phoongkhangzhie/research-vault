@@ -946,44 +946,19 @@ def build_parser(
         ),
     )
 
-    # cited-by (forward snowball)
-    cb_p = sub.add_parser(
-        "cited-by",
-        help="Forward snowball: papers that cite this paper (annotated vs corpus).",
-        description=(
-            "Forward snowball — discover who has cited the seed paper after publication. "
-            "See also: rv research references (backward snowball — what the seed itself cites)."
-        ),
+    # cited-by / references — D1 HARD-REMOVED (verb consolidation): both
+    # collapsed into the "snowball-forward"/"snowball-backward" tool node-ops
+    # invoked by the review-snowball node. See cli_removed_verbs.py.
+    from .cli_removed_verbs import add_removed_verb_stub
+    add_removed_verb_stub(
+        sub, "cited-by",
+        op_or_transition="the 'snowball-forward' tool node-op (review-snowball node)",
+        redirect="rv dag run <phase1-manifest> (the review-snowball node fans forward citations automatically)",
     )
-    cb_p.add_argument("paper_id", help="S2 paper id: ARXIV:xxx, DOI:xxx, CorpusId:xxx")
-    cb_p.add_argument("--limit", type=int, default=20)
-    cb_p.add_argument(
-        "--project", default=None,
-        help=(
-            "Project slug (from config registry). Annotates candidates "
-            "[IN-CORPUS:<citekey>] or [NEW] against the project's literature/ notes."
-        ),
-    )
-
-    # references (backward snowball)
-    ref_p = sub.add_parser(
-        "references",
-        help="Backward snowball: papers in this paper's own reference list.",
-        description=(
-            "Backward snowball — fetch what the seed paper itself cites. "
-            "See also: rv research cited-by (forward snowball — who cites the seed paper). "
-            "Anti-pattern: do NOT hand-copy a bibliography — use this command instead."
-        ),
-    )
-    ref_p.add_argument("paper_id", help="S2 paper id: ARXIV:xxx, DOI:xxx, CorpusId:xxx")
-    ref_p.add_argument(
-        "--project", default=None,
-        help=(
-            "Project slug (from config registry). When set, each candidate is "
-            "annotated [IN-CORPUS:<citekey>] or [NEW] by matching against the "
-            "project's literature/ notes — enabling the saturation stopping "
-            "rule for the lit-review loop (SR-LR-1)."
-        ),
+    add_removed_verb_stub(
+        sub, "references",
+        op_or_transition="the 'snowball-backward' tool node-op (review-snowball node)",
+        redirect="rv dag run <phase1-manifest> (the review-snowball node fans backward citations automatically)",
     )
 
     # add
@@ -1034,33 +1009,12 @@ def build_parser(
         ),
     )
 
-    # sweep — NG-3 parallel width-sweep over the frozen protocol angle matrix
-    sweep_p = sub.add_parser(
-        "sweep",
-        help=(
-            "Parallel (angle x source) width-sweep over a FROZEN _protocol.md "
-            "(breadth-then-depth, NG-1..3/NG-9). Reads-only — never widens the "
-            "frozen angle matrix or sources (anti-fishing)."
-        ),
-        description=(
-            "Reads the frozen seed_queries angle matrix + sources from "
-            "_protocol.md, fetches the cross-product concurrently under the "
-            "fetch budget, cross-source dedups, discounts derivative-of "
-            "near-duplicates, and ranks+selects via the 6-dim utility floor "
-            "(never capping a below-floor boundary item). "
-            "Anti-pattern: do NOT hand-edit seed_queries/sources after this "
-            "runs — that is a scope deviation, not a sweep re-run."
-        ),
-    )
-    sweep_p.add_argument("protocol", help="Path to the review's frozen _protocol.md")
-    sweep_p.add_argument("--project", default=None, help="Project slug for corpus annotation.")
-    sweep_p.add_argument(
-        "--budget", type=int, default=None,
-        help="Fetch budget across the whole sweep (default 65, D4's validated range).",
-    )
-    sweep_p.add_argument(
-        "--per-cell-limit", dest="per_cell_limit", type=int, default=20,
-        help="Result limit per (angle, source) cell (default 20).",
+    # sweep — D1 HARD-REMOVED (verb consolidation): collapsed into the
+    # "sweep" tool node-op invoked by the review-search node.
+    add_removed_verb_stub(
+        sub, "sweep",
+        op_or_transition="the 'sweep' tool node-op (review-search node)",
+        redirect="rv dag run <phase1-manifest> (the review-search node runs the width-sweep automatically)",
     )
 
     return p
@@ -1068,20 +1022,20 @@ def build_parser(
 
 def run(args: argparse.Namespace) -> int:
     """Dispatch research subcommands. Returns exit code."""
+    # D1 (verb consolidation): cited-by / references / sweep are
+    # HARD-REMOVED stubs — always dispatch to the redirect breadcrumb.
+    if getattr(args, "_rv_removed_verb", None) is not None:
+        from .cli_removed_verbs import run_removed_verb_stub
+        return run_removed_verb_stub(args)
+
     cmd = args.research_cmd
     try:
         if cmd == "find":
             return cmd_find(args)
-        elif cmd == "cited-by":
-            return cmd_cited_by(args)
-        elif cmd == "references":
-            return cmd_references(args)
         elif cmd == "add":
             return cmd_add(args)
         elif cmd == "corroborate":
             return cmd_corroborate(args)
-        elif cmd == "sweep":
-            return cmd_sweep(args)
         else:
             print(f"rv research: unknown subcommand {cmd!r}", file=sys.stderr)
             return 1

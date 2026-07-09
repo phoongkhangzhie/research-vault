@@ -105,33 +105,28 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         ),
     )
 
-    # ── expand ──────────────────────────────────────────────────────────────
-    expand_p = sub.add_parser(
-        "expand",
-        help=(
-            "Emit the Phase-2 draft manifest generically from the registered "
-            "type's section_set: section(s) -> assemble -> [HG:approve-manuscript]."
+    # ── expand / review — D1 HARD-REMOVED (verb consolidation) ────────────
+    # expand collapsed into the autonomous Phase-1->2 draft emission
+    # (fires when approve-framework GOes). review (the 2x3 board) collapsed
+    # into an agent-fan-out node + the NG-4 cold-judge seam consumed at
+    # approve-manuscript --auto. Both underlying functions
+    # (manuscript.cmd_expand, manuscript.review_board.run_review_board)
+    # remain importable.
+    from ..cli_removed_verbs import add_removed_verb_stub
+    add_removed_verb_stub(
+        sub, "expand",
+        op_or_transition="the autonomous Phase-1->2 draft emission (fires when approve-framework GOes, NG-4)",
+        redirect="rv dag approve <run> approve-framework --auto (Phase-2 is emitted automatically on GO)",
+    )
+    add_removed_verb_stub(
+        sub, "review",
+        op_or_transition="the review-board agent-fan-out node + the NG-4 cold-judge seam",
+        redirect=(
+            "rv dag approve <run> approve-manuscript --auto (consumes the "
+            "structural fidelity gates today; wiring the full 2x3 board into "
+            "--auto is a flagged NG-5 follow-up — see the PR description) "
+            "or manuscript.review_board.run_review_board directly"
         ),
-    )
-    expand_p.add_argument(
-        "slug",
-        metavar="<slug>",
-        help="Manuscript identifier (same as used in rv manuscript new).",
-    )
-
-    # ── review ────────────────────────────────────────────────────────────────
-    review_p = sub.add_parser(
-        "review",
-        help=(
-            "Run the 2-round x 3-reviewer adversarial review-revise board "
-            "(design §9). Requires RV_JUDGE_MODEL + ANTHROPIC_API_KEY — raises "
-            "loudly rather than silently no-op-ing when no judge is configured."
-        ),
-    )
-    review_p.add_argument(
-        "slug",
-        metavar="<slug>",
-        help="Manuscript identifier.",
     )
 
     # ── list ─────────────────────────────────────────────────────────────────
@@ -191,14 +186,15 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
 
 def run(args: argparse.Namespace) -> int:
     """Dispatch manuscript subcommands. Returns exit code."""
+    # D1 (verb consolidation): expand / review are HARD-REMOVED stubs.
+    if getattr(args, "_rv_removed_verb", None) is not None:
+        from ..cli_removed_verbs import run_removed_verb_stub
+        return run_removed_verb_stub(args)
+
     subcommand = getattr(args, "manuscript_cmd", None)
 
     if subcommand == "new":
         return _run_new(args)
-    elif subcommand == "expand":
-        return _run_expand(args)
-    elif subcommand == "review":
-        return _run_review(args)
     elif subcommand == "list":
         return _run_list(args)
     elif subcommand == "judge-emit":
@@ -209,11 +205,11 @@ def run(args: argparse.Namespace) -> int:
         print(
             "rv manuscript: missing subcommand. "
             "Use `rv manuscript <project> new <slug> --type <type>`, "
-            "`rv manuscript <project> expand <slug>`, "
-            "`rv manuscript <project> review <slug>`, "
             "`rv manuscript <project> judge-emit <slug>`, "
             "`rv manuscript <project> judge-ingest <slug>`, "
-            "or `rv manuscript <project> list`.",
+            "or `rv manuscript <project> list`. "
+            "expand/review were HARD-REMOVED (D1, verb consolidation) — "
+            "they now run automatically via the DAG's autonomous gates.",
             file=sys.stderr,
         )
         return 1

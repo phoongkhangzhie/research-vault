@@ -239,6 +239,64 @@ def _resolve_reads_or_warn(
               f"fix the manifest's reads: field(s) before dispatching.", file=_sys.stderr)
 
 
+_TOOL_AUTO_EXEC_MAX_PASSES = 100  # bounded loop guard — never spin forever
+
+
+def _auto_execute_tool_nodes(
+    run_state: RunState,
+    manifest: dict[str, Any],
+    store: RunStore,
+) -> bool:
+    """D4 (verb consolidation): execute every ready 'tool' node IN-PROCESS,
+    no subprocess, no human, no CLI verb — the DAG runner's op-registry
+    seam (``review.autonomy.run_tool_op``).
+
+    Repeatedly recomputes the frontier and executes any 'dispatch'-action
+    tool node it finds, since completing one tool node may open the next
+    (a tool → tool chain). Bounded by ``_TOOL_AUTO_EXEC_MAX_PASSES`` so a
+    manifest bug can never spin this forever.
+
+    On success: node -> succeeded, ``tool_result_summary`` stored on the
+    node state (truncated) for the audit trail.
+    On exception: node -> blocked (never silently retried — a tool-op
+    failure is itself a HALT-DECLARE-shaped signal the human/autonomy
+    engine must see, not a transient hiccup to paper over).
+
+    Returns True iff any tool node was executed (caller should save+recompute).
+    """
+    from research_vault.review.autonomy import run_tool_op
+
+    cap = manifest_global_cap(manifest)
+    executed_any = False
+
+    for _ in range(_TOOL_AUTO_EXEC_MAX_PASSES):
+        frontier = compute_frontier(
+            manifest, run_state.node_states, run_state.edge_registered_ts, cap,
+        )
+        tool_items = [
+            item for item in frontier
+            if item.action == "dispatch" and item.node.get("type") == "tool"
+        ]
+        if not tool_items:
+            break
+
+        for item in tool_items:
+            nid = item.node_id
+            op = item.node.get("op", "")
+            op_args = item.node.get("args", {}) or {}
+            ns = run_state.node_states.setdefault(nid, {})
+            try:
+                result = run_tool_op(op, **op_args)
+                ns["tool_result_summary"] = str(result)[:2000]
+                run_state.set_node_status(nid, "succeeded")
+            except Exception as e:  # noqa: BLE001 — surface, never swallow (charter §2)
+                ns["tool_error"] = str(e)[:2000]
+                run_state.set_node_status(nid, "blocked", error=str(e)[:_FAILURE_SUMMARY_MAX_CHARS])
+            executed_any = True
+
+    return executed_any
+
+
 def _recompute_awaiting_go(
     run_state: RunState,
     manifest: dict[str, Any],
@@ -249,8 +307,16 @@ def _recompute_awaiting_go(
     Any human-go node that appears in the frontier as "await-go" and is still
     "pending" in the run state gets promoted to "awaiting-go" here.
     This is the transition: pending → awaiting-go (not dispatchable).
-    The run state is saved after any promotions.
+
+    D4 (verb consolidation): also auto-executes any ready 'tool' node
+    IN-PROCESS, before computing the frontier returned to the caller — a
+    tool node must never sit in the frontier waiting for a human/agent to
+    "dispatch" it by hand.
+
+    The run state is saved after any promotions/tool-executions.
     """
+    tool_executed = _auto_execute_tool_nodes(run_state, manifest, store)
+
     cap = manifest_global_cap(manifest)
     frontier = compute_frontier(
         manifest,
@@ -268,7 +334,7 @@ def _recompute_awaiting_go(
                 run_state.set_node_status(item.node_id, "awaiting-go")
                 promoted = True
 
-    if promoted:
+    if promoted or tool_executed:
         store.save(run_state)
 
     # Recompute after promotion (awaiting-go nodes are now non-advanceable,
@@ -1047,6 +1113,11 @@ def cmd_approve(args: argparse.Namespace) -> int:
     decision_note: str | None = getattr(args, "note", None) or None
     raw_outputs: list[str] = getattr(args, "output", None) or []
     reject: bool = bool(getattr(args, "reject", False))
+    # NG-4 §1: the autonomy flag — coverage-gate / approve-framework /
+    # approve-manuscript may be resolved by the gate-policy engine instead
+    # of a human keypress. approve-protocol is NEVER eligible (the one
+    # retained human gate, §1.1) — see the AUTONOMOUS_GATE_IDS check below.
+    auto: bool = bool(getattr(args, "auto", False))
 
     try:
         cfg = load_config()
@@ -1124,7 +1195,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     # ``spine_shape``+``branches``. Only the lit-review type registers a
     # Phase-1 with this node id; other types' Phase-1 (if any) never hits this
     # branch. --reject is the escape hatch, same convention as approve-protocol.
-    if node_id == "approve-framework" and not reject:
+    if node_id == "approve-framework" and not reject and not auto:
         manuscript_note_path = manifest_path.parent / "_manuscript.md"
         from ..manuscript.types.lit_review import check_framework_gate
         ok, msg = check_framework_gate(manuscript_note_path)
@@ -1139,7 +1210,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     # above exactly: ``manifest_path.parent`` IS the manuscript tree root
     # (Phase-2 manifests are written to ``manuscripts/<slug>/phase2-dag.json``,
     # sibling to ``_manuscript.md``). --reject is the same escape hatch.
-    if node_id == "approve-manuscript" and not reject:
+    if node_id == "approve-manuscript" and not reject and not auto:
         tree_root = manifest_path.parent
         manuscript_note_path = tree_root / "_manuscript.md"
         if manuscript_note_path.exists():
@@ -1263,6 +1334,97 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
+    # ── NG-4 §1: autonomous-gate dispatch ──────────────────────────────────
+    # coverage-gate / approve-framework / approve-manuscript may be resolved
+    # by the gate-policy engine (review/autonomy.py) instead of a human
+    # keypress. approve-protocol is DELIBERATELY excluded — it is the one
+    # retained human gate (§1.1) and is never eligible for --auto.
+    _AUTONOMOUS_GATE_IDS = frozenset({"coverage-gate", "approve-framework", "approve-manuscript"})
+    if auto and not reject and node_id in _AUTONOMOUS_GATE_IDS:
+        from ..review import autonomy as _autonomy
+
+        _disposition_result = None
+
+        if node_id == "coverage-gate":
+            snowball_node = nodes_lookup.get("review-snowball")
+            saturation_ref = None
+            if snowball_node is not None:
+                produces = snowball_node.get("produces")
+                if isinstance(produces, dict):
+                    saturation_ref = produces.get("_saturation.md")
+            if saturation_ref:
+                info = check_saturation_backstop(Path(saturation_ref))
+                gaps_path = Path(saturation_ref).parent / "_coverage-gaps.md"
+                _disposition_result = _autonomy.classify_coverage_gate(info, coverage_gaps_path=gaps_path)
+            else:
+                _disposition_result = _autonomy.DispositionResult(
+                    _autonomy.HALT_DECLARE,
+                    "coverage-gate --auto: no _saturation.md producer found upstream "
+                    "(review-snowball node missing/malformed) — cannot self-certify.",
+                )
+
+        elif node_id == "approve-framework":
+            manuscript_note_path = manifest_path.parent / "_manuscript.md"
+            from ..manuscript.types.lit_review import check_framework_gate as _cfg_check
+            _ok, _msg = _cfg_check(manuscript_note_path)
+            _disposition_result = _autonomy.classify_disposition(
+                _autonomy.evaluation_from_framework_gate(_ok, _msg)
+            )
+
+        elif node_id == "approve-manuscript":
+            tree_root = manifest_path.parent
+            manuscript_note_path = tree_root / "_manuscript.md"
+            if manuscript_note_path.exists():
+                from ..note import _parse_frontmatter as _pfm_auto
+                from ..manuscript.types import get_type as _get_ms_type_auto
+                from ..manuscript.check_gates import build_approve_payload as _bap
+
+                _text = manuscript_note_path.read_text(encoding="utf-8")
+                _fields, _ = _pfm_auto(_text)
+                _ms_type = _get_ms_type_auto(_fields.get("manuscript_type", ""))
+                if _ms_type is not None:
+                    _project_notes_dir = tree_root.parent.parent
+                    _payload = _bap(tree_root, _project_notes_dir, _ms_type)
+                    _disposition_result = _autonomy.classify_disposition(
+                        _autonomy.evaluation_from_structural_payload(_payload)
+                    )
+                else:
+                    _disposition_result = _autonomy.DispositionResult(
+                        _autonomy.HALT_DECLARE,
+                        f"approve-manuscript --auto: manuscript_type "
+                        f"{_fields.get('manuscript_type', '')!r} is unrecognized — "
+                        "cannot self-certify with no registered fidelity gates.",
+                    )
+            else:
+                _disposition_result = _autonomy.DispositionResult(
+                    _autonomy.HALT_DECLARE,
+                    f"approve-manuscript --auto: {manuscript_note_path} not found.",
+                )
+
+        print(
+            f"rv dag approve --auto: {node_id!r} disposition = "
+            f"{_disposition_result.disposition} — {_disposition_result.reason}",
+            file=sys.stderr,
+        )
+
+        if _disposition_result.disposition == _autonomy.REVISE:
+            print(
+                f"rv dag approve --auto: {node_id!r} needs a bounded auto-revise "
+                "round before it can autonomously GO — dispatch the revise node "
+                "and re-run `rv dag approve --auto` (NG-5). The node remains "
+                "'awaiting-go' — no state change.",
+                file=sys.stderr,
+            )
+            return 2
+        if _disposition_result.disposition == _autonomy.HALT_DECLARE:
+            # A HALT-DECLARE is a first-class NOT-CLEARED artifact — surface
+            # it loudly and reject the gate (never silently pass, charter §2).
+            reject = True
+            if decision_note is None:
+                decision_note = f"HALT-DECLARE (auto): {_disposition_result.reason}"
+        # GO / GO-WITH-RESIDUE: fall through to the normal approve path below
+        # (reject stays False) — the gate resolves autonomously.
+
     # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
     #
     # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]
@@ -1338,13 +1500,25 @@ def cmd_approve(args: argparse.Namespace) -> int:
     # SR-APPROVE-GATE: human-presence check — BEFORE any state write.
     # Covers both approve (→ succeeded) and --reject (→ blocked).
     # Fail-closed: non-TTY + no valid token → return 1, state UNCHANGED.
-    from .approval import check_human_presence
-    from ..adapters.base import EnvSecretStore
-    _secrets = EnvSecretStore()
-    _ok, _method, _approver, _reason = check_human_presence(args, cfg, _secrets)
-    if not _ok:
-        print(_reason, file=sys.stderr)
-        return 1
+    #
+    # NG-4 §1: an autonomous-gate node resolved via --auto (coverage-gate /
+    # approve-framework / approve-manuscript) is DELIBERATELY exempt — the
+    # whole point of §1.1's autonomy program is that no human keypress is
+    # required at these three gates; the gate-policy engine's disposition
+    # (stamped in decision_note above) IS the authorizing decision, and it
+    # is itself grounded in mechanical, reproducible gates. approve-protocol
+    # (the one retained human gate) is never in _AUTONOMOUS_GATE_IDS, so it
+    # always falls through to the human-presence check below.
+    if auto and node_id in _AUTONOMOUS_GATE_IDS:
+        _method, _approver = "autonomous-gate-policy-engine", "review.autonomy"
+    else:
+        from .approval import check_human_presence
+        from ..adapters.base import EnvSecretStore
+        _secrets = EnvSecretStore()
+        _ok, _method, _approver, _reason = check_human_presence(args, cfg, _secrets)
+        if not _ok:
+            print(_reason, file=sys.stderr)
+            return 1
 
     # F13: determine final status (approve → succeeded; reject → blocked).
     final_status = "blocked" if reject else "succeeded"
@@ -1559,6 +1733,101 @@ def cmd_insert(args: argparse.Namespace) -> int:
 # Verb: status
 # ---------------------------------------------------------------------------
 
+def cmd_veto(args: argparse.Namespace) -> int:
+    """NG-4 §1.7 / verb-consolidation D3: the async-veto CLI surface.
+
+    Casts a veto over an OPEN provisional decision (a framework choice, D1,
+    or a scope/membership deviation, D2) — the shared machinery both
+    autonomy programs consume (``review.autonomy.cast_veto``).
+
+    The veto surface note is resolved from the node's ``produces`` field
+    (same convention every other gate wiring in this file uses) unless
+    ``--note`` overrides it. Rolls back: the note is stamped
+    ``provisional: vetoed`` (never silently reverted to clean — the audit
+    trail of the veto survives) and the node's run-state status is set to
+    'blocked' (HALT-DECLARE-shaped rollback, §1.7).
+    """
+    from ..review import autonomy as _autonomy
+
+    run_id = args.run_id
+    node_id = args.node_id
+    reason = args.reason
+    note_override = getattr(args, "note", None)
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv dag veto: config error: {e}", file=sys.stderr)
+        return 1
+
+    store = RunStore.from_config(cfg)
+    try:
+        run_state = store.load(run_id)
+    except StoreError as e:
+        print(f"rv dag veto: {e}", file=sys.stderr)
+        return 1
+
+    manifest_path = Path(run_state.manifest_path)
+    try:
+        manifest = load_manifest(manifest_path)
+    except ManifestError as e:
+        print(f"rv dag veto: manifest error: {e}", file=sys.stderr)
+        return 1
+
+    nodes_lookup = manifest_nodes_by_id(manifest)
+    if node_id not in nodes_lookup:
+        print(f"rv dag veto: node {node_id!r} not in manifest", file=sys.stderr)
+        return 1
+    node = nodes_lookup[node_id]
+
+    if note_override:
+        note_path = Path(note_override)
+    else:
+        produces = node.get("produces")
+        note_path = None
+        if isinstance(produces, dict):
+            for candidate_key in ("note", "_manuscript.md", "_deviations.md"):
+                if candidate_key in produces:
+                    note_path = Path(produces[candidate_key])
+                    break
+        if note_path is None:
+            print(
+                f"rv dag veto: node {node_id!r} has no resolvable decision "
+                "note (no 'produces' entry and no --note override given).",
+                file=sys.stderr,
+            )
+            return 1
+
+    if not note_path.exists():
+        print(f"rv dag veto: decision note not found: {note_path}", file=sys.stderr)
+        return 1
+
+    from ..note import _parse_frontmatter as _pfm_veto
+    _fields, _ = _pfm_veto(note_path.read_text(encoding="utf-8"))
+    provisional = str(_fields.get("provisional", "")).strip().lower()
+    if provisional != "true":
+        print(
+            f"rv dag veto: {note_path} is not currently 'provisional: true' "
+            f"(found {provisional!r}) — nothing to veto. A decision can only "
+            "be vetoed while its async-veto window is open (§1.7).",
+            file=sys.stderr,
+        )
+        return 1
+
+    window = _autonomy.VetoWindow(kind="unknown", opened_at=_fields.get("veto_window_opened_at", ""))
+    _autonomy.cast_veto(note_path, window, reason=reason)
+
+    ns = run_state.node_states.setdefault(node_id, {})
+    ns["decision_note"] = f"VETOED (async-veto, §1.7): {reason}"
+    run_state.set_node_status(node_id, "blocked")
+    store.save(run_state)
+
+    print(f"rv dag veto: {node_id!r} VETOED — {note_path} rolled back (provisional: vetoed).")
+    print(f"  reason: {reason}")
+    print(f"Node {node_id!r} → blocked")
+    return 0
+
+
 def cmd_templates(args: argparse.Namespace) -> int:
     """Print the built-in loop catalog — discovery entry for all four research loops.
 
@@ -1742,6 +2011,16 @@ def cmd_brief(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    if node_type == "tool":
+        print(
+            f"rv dag brief: node {node_id!r} is a tool (deterministic-op) node — "
+            "briefs are for agent nodes only; tool nodes are executed "
+            "IN-PROCESS by the runner (D4, verb consolidation), never "
+            "dispatched to a crew agent. It auto-executes when the "
+            "run/tick frontier reaches it.",
+            file=sys.stderr,
+        )
+        return 1
 
     node_state = run_state.node_states.get(node_id, {})
 
@@ -1880,6 +2159,21 @@ def build_parser(
             "(use a provisioned token for non-interactive approval instead)."
         ),
     )
+    app_p.add_argument(
+        "--auto",
+        action="store_true",
+        default=False,
+        help=(
+            "NG-4: resolve this gate via the gate-policy engine "
+            "(review/autonomy.py) instead of a human keypress. Only valid on "
+            "coverage-gate / approve-framework / approve-manuscript — the "
+            "three autonomous gates (§1.1). approve-protocol is NEVER "
+            "eligible (the one retained human gate) and ignores --auto. "
+            "GO/GO-WITH-RESIDUE -> approved; HALT-DECLARE -> rejected with "
+            "the NOT-CLEARED reason recorded; REVISE -> exit 2, no state "
+            "change (dispatch a bounded auto-revise round first, NG-5)."
+        ),
+    )
 
     # add
     add_p = sub.add_parser("add", help="Add a node from a JSON patch file.")
@@ -1898,6 +2192,29 @@ def build_parser(
     # status
     stat_p = sub.add_parser("status", help="Print the current run status.")
     stat_p.add_argument("run_id", help="The run_id.")
+
+    # veto  (NG-4 §1.7 / D3 — the async-veto surface)
+    veto_p = sub.add_parser(
+        "veto",
+        help=(
+            "NG-4 §1.7: cast an async veto over an OPEN provisional decision "
+            "(a framework choice or a scope/membership deviation). Rolls "
+            "back + blocks the node."
+        ),
+    )
+    veto_p.add_argument("run_id", help="The run_id.")
+    veto_p.add_argument("node_id", help="The provisional node id to veto.")
+    veto_p.add_argument(
+        "--reason", required=True, metavar="TEXT",
+        help="Why this decision is being vetoed (recorded in the audit trail).",
+    )
+    veto_p.add_argument(
+        "--note", metavar="PATH", default=None,
+        help=(
+            "Override the decision-note path to stamp (default: resolved "
+            "from the node's produces field)."
+        ),
+    )
 
     # templates  (SR-HUB-DAG §A2 — discovery entry for all four research loops)
     sub.add_parser(
@@ -1933,6 +2250,7 @@ def run(args: argparse.Namespace) -> int:
         "add": cmd_add,
         "insert": cmd_insert,
         "status": cmd_status,
+        "veto": cmd_veto,
         "templates": cmd_templates,
         "brief": cmd_brief,
     }
