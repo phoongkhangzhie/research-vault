@@ -162,6 +162,10 @@ class TestFC1NoTokenNoFingerprint:
         assert not ok, "Must fail closed when no token and no fingerprint"
         assert method == ""
         assert "[crew-cannot-self-approve]" in reason
+        assert "rv onboard" in reason, (
+            "Fail-closed message must point first-time users at `rv onboard` "
+            "(provisions the inline-approval token) — not just 'rv approval setup'."
+        )
 
     def test_cmd_approve_returns_1_state_unchanged(self, tmp_path, monkeypatch, capsys):
         """FC-1 end-to-end: cmd_approve returns 1, node stays awaiting-go."""
@@ -183,6 +187,20 @@ class TestFC1NoTokenNoFingerprint:
         )
         err = capsys.readouterr().err
         assert "[crew-cannot-self-approve]" in err
+        assert "rv onboard" in err, (
+            "cmd_approve's fail-closed stderr must surface `rv onboard` as the "
+            "one-time fix for a non-TTY first-time user."
+        )
+
+    def test_fail_closed_msg_leads_with_rv_onboard(self):
+        """_FAIL_CLOSED_MSG must mention `rv onboard` as the one-time inline-approval
+        setup — the lead recommendation for a first-time non-TTY user — while still
+        keeping `rv approval setup` / terminal guidance as alternatives.
+        """
+        msg = _FAIL_CLOSED_MSG.format(run_id="r1", node_id="n1")
+        assert "rv onboard" in msg
+        assert "rv approval setup" in msg
+        assert "At your terminal" in msg or "terminal" in msg
 
 
 # ─── FC-2: token set but no fingerprint in config → fail closed ──────────────
