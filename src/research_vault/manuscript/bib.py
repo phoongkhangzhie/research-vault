@@ -35,15 +35,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE as _WIKILINK_CITE_RE
 from research_vault.note import _parse_frontmatter
-
-# RD-1 (next-gen lit-review design §6): the markdown render target's citation
-# syntax — a `[[citekey]]` wikilink, mirroring the vault-navigable literature
-# note pointer convention elsewhere in rv. One citekey per wikilink (no
-# multi-cite comma form — markdown prose reads better with one link per
-# paper; `Smith [[smith2023]] and Jones [[jones2022]]` rather than a bundled
-# `[[smith2023,jones2022]]`).
-_WIKILINK_CITE_RE = re.compile(r"\[\[([A-Za-z0-9_.\-]+)\]\]")
 
 # Matches the citekey out of a written references.md entry line:
 # "- **citekey** — Title...".

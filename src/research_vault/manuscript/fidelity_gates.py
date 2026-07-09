@@ -52,16 +52,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from research_vault.gates.support_matcher import match_support
+from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE as _WIKILINK_CITE_RE
 
 # Opus-tier model for semantic judgment gates (D-MS-4). Resolved via
 # RV_JUDGE_MODEL env var; never pinned to a versioned ID in source.
 _DEFAULT_JUDGE_MODEL: str = os.environ.get("RV_JUDGE_MODEL", "")
-
-# RD-1 (next-gen lit-review design §6): the markdown render target's ONLY
-# citation syntax — a `[[citekey]]` wikilink (mirrors bib.py's
-# `_WIKILINK_CITE_RE`; duplicated inline rather than imported, to avoid an
-# import cycle with manuscript.bib / manuscript.check_gates).
-_WIKILINK_CITE_RE = re.compile(r"\[\[([A-Za-z0-9_.\-]+)\]\]")
 
 
 # ---------------------------------------------------------------------------

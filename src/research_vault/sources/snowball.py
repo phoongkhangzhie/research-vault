@@ -60,6 +60,18 @@ DEFAULT_BACKSTOP_WAVES = 3
 # a stale/foreign artifact blindly).
 _CHECKPOINT_VERSION = 1
 
+# Every key the resume path reads directly off a loaded checkpoint dict. A
+# checkpoint missing ANY of these (truncated write, hand-edited, a foreign
+# file that happens to parse as JSON) must be treated as absent/corrupt —
+# i.e. a fresh start — never a KeyError crash (charter §5: same "never trust
+# a stale/foreign artifact blindly" reversibility this module already
+# applies to the version/seed_ids/backstop_waves mismatch case).
+_REQUIRED_CHECKPOINT_KEYS = (
+    "seen_identities", "visited_pids", "all_hits", "errors", "rounds",
+    "unresolvable_ids", "unresolvable_seen", "frontier", "consecutive_zero",
+    "completed_round",
+)
+
 
 def _default_progress(msg: str) -> None:
     """Default progress sink — stderr (keeps stdout clean for any caller
@@ -70,10 +82,29 @@ def _default_progress(msg: str) -> None:
 
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     """Write JSON atomically (tmp file + ``os.replace``) — a kill mid-write
-    must never leave a half-written, corrupt checkpoint on disk."""
+    must never leave a half-written, corrupt checkpoint on disk.
+
+    All adapters today put a JSON-serializable ``dict``/``list``/scalar into
+    ``PaperHit.raw``, but a future adapter storing something else (a custom
+    object, a set, ``bytes``) must not crash the whole walk at end-of-round —
+    that would be strictly WORSE than not having checkpointing at all. On a
+    ``json.dumps`` failure the checkpoint write is skipped (loudly, to
+    stderr) and the walk continues in-memory-only for this round; the next
+    round tries again (transient/self-healing if a later round's state is
+    serializable)."""
+    try:
+        text = json.dumps(data)
+    except (TypeError, ValueError) as e:
+        print(
+            "snowball: checkpoint write skipped this round — state is not "
+            f"JSON-serializable ({type(e).__name__}: {e}); walk continues "
+            "in-memory (this round's progress is not persisted)",
+            file=sys.stderr,
+        )
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data), encoding="utf-8")
+    tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
 
 
@@ -220,6 +251,13 @@ def run_snowball_to_saturation(
         progress(
             "snowball: checkpoint present but does not match this walk's "
             "seed_ids/backstop_waves — ignoring it, starting fresh"
+        )
+        loaded = None
+
+    if loaded is not None and any(k not in loaded for k in _REQUIRED_CHECKPOINT_KEYS):
+        progress(
+            "snowball: checkpoint present but missing required fields "
+            "(truncated or foreign file) — ignoring it, starting fresh"
         )
         loaded = None
 
