@@ -455,3 +455,84 @@ def test_write_corpus_raw_and_saturation(tmp_path):
     sat_text = sat_out.read_text()
     assert "stop_reason: saturated" in sat_text
     assert "| Round |" in sat_text
+
+
+# ---------------------------------------------------------------------------
+# Pre-publish hardening #199 followup: checkpoint write must degrade
+# gracefully on a non-JSON-serializable state, and checkpoint LOAD must
+# treat a key-missing (truncated/foreign) file as absent, never crash.
+# ---------------------------------------------------------------------------
+
+
+class _NotJSONSerializable:
+    """A stand-in for a future adapter's non-serializable ``raw`` payload."""
+
+    def __repr__(self):
+        return "<_NotJSONSerializable>"
+
+
+def test_atomic_write_json_degrades_on_non_serializable_state(tmp_path, capsys):
+    from research_vault.sources.snowball import _atomic_write_json
+
+    ckpt = tmp_path / "_snowball_checkpoint.json"
+    # A dict with a genuinely non-JSON-serializable value (a bare object,
+    # mirroring a future adapter stashing something exotic in PaperHit.raw).
+    bad_state = {"all_hits": [{"raw": _NotJSONSerializable()}]}
+
+    _atomic_write_json(ckpt, bad_state)  # must NOT raise
+
+    assert not ckpt.exists()  # no half-written / corrupt file left behind
+    err = capsys.readouterr().err
+    assert "checkpoint write skipped" in err
+
+
+def test_snowball_walk_survives_non_serializable_raw_in_hit(tmp_path):
+    """End-to-end: a hit carrying a non-serializable ``raw`` must not crash
+    the whole walk at end-of-round — the walk completes, just without a
+    persisted checkpoint for that round."""
+    ckpt = tmp_path / "_snowball_checkpoint.json"
+    bad_hit = _hit("Bad Raw Paper", doi="10.1/badraw")
+    bad_hit.raw = _NotJSONSerializable()
+    adapter = _ScriptedAdapter({
+        1: ([bad_hit], []),
+        2: ([], []),
+        3: ([], []),
+    })
+    result = run_snowball_to_saturation(
+        ["10.1/seed"], adapter=adapter, backstop_waves=3, checkpoint_path=ckpt,
+    )
+    assert result.stop_reason == "saturated"
+    assert [d.hit.title for d in result.kept] == ["Bad Raw Paper"]
+
+
+def test_checkpoint_missing_required_key_treated_as_absent(tmp_path):
+    """A checkpoint that matches version/seed_ids/backstop_waves but is
+    missing a key the resume path reads directly (e.g. a truncated write,
+    or a hand-edited/foreign file) must be treated as absent — a fresh
+    start — never a KeyError crash."""
+    ckpt = tmp_path / "_snowball_checkpoint.json"
+    seed = "10.1/seed"
+    # Matches the version/seed_ids/backstop_waves gate, but is missing
+    # "all_hits" (and several other required resume-path keys) entirely.
+    ckpt.write_text(json.dumps({
+        "version": 1,
+        "seed_ids": [seed],
+        "backstop_waves": 3,
+        "completed_round": 1,
+        "frontier": [seed],
+        # "all_hits", "seen_identities", "visited_pids", "errors", "rounds",
+        # "unresolvable_ids", "unresolvable_seen", "consecutive_zero" absent.
+    }), encoding="utf-8")
+
+    adapter = _ScriptedAdapter({
+        1: ([_hit("New Paper 1", doi="10.1/new1")], []),
+        2: ([], []),
+        3: ([], []),
+    })
+    # Must NOT KeyError — must fall through to a fresh start (round 1 runs
+    # again, fetching the seed).
+    result = run_snowball_to_saturation(
+        [seed], adapter=adapter, backstop_waves=3, checkpoint_path=ckpt,
+    )
+    assert result.stop_reason == "saturated"
+    assert adapter.calls.count(("cited_by", seed)) == 1  # fresh-start refetch
