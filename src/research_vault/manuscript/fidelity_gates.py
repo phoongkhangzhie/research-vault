@@ -357,6 +357,17 @@ def _support_canary_bank() -> list[tuple[dict[str, str], str]]:
     Returns (task_fields_without_id, expected_verdict) pairs. ``kind`` and
     the claim/citekey/source shape are IDENTICAL to a real task — no field
     marks these as canaries (design §1.9: "canaries carry NO marker").
+
+    PR #180 BLOCK fix: the citekeys here are deliberately ordinary
+    bibtex-style slugs (``smith2019`` etc.), indistinguishable from a real
+    task's citekey. The ORIGINAL bank used self-labeling citekeys
+    (``canary-known-supported``/``-absent``/``-contradicts``) — a cold
+    judge reading the public ``_judge-tasks.json`` could read the expected
+    verdict directly off the citekey string, acing all 3 canaries without
+    ever judging claim-vs-source, which defeats the whole "is the judge
+    actually working" check. The expected verdict now lives ONLY in the
+    caller-assembled ``canary_key`` (never serialized into the public
+    tasks doc) — see ``test_no_tell_value_level_serialized_doc``.
     """
     return [
         (
@@ -366,7 +377,7 @@ def _support_canary_bank() -> list[tuple[dict[str, str], str]]:
                     "The model achieves 85.3% accuracy, significantly above "
                     "the 80.1% baseline."
                 ),
-                "citekey": "canary-known-supported",
+                "citekey": "smith2019",
                 "source": (
                     "result: The accuracy on the benchmark is 85.3%, a "
                     "statistically significant improvement over the 80.1% "
@@ -382,7 +393,7 @@ def _support_canary_bank() -> list[tuple[dict[str, str], str]]:
                     "The model was trained using reinforcement learning "
                     "from human feedback."
                 ),
-                "citekey": "canary-known-absent",
+                "citekey": "chen2021",
                 "source": (
                     "result: The accuracy on the benchmark is 85.3%, a "
                     "statistically significant improvement over the 80.1% "
@@ -395,7 +406,7 @@ def _support_canary_bank() -> list[tuple[dict[str, str], str]]:
             {
                 "kind": "support",
                 "claim": "The model's accuracy is below the 80.1% baseline.",
-                "citekey": "canary-known-contradicts",
+                "citekey": "patel2020",
                 "source": (
                     "result: The accuracy on the benchmark is 85.3%, a "
                     "statistically significant improvement over the 80.1% "

@@ -95,6 +95,48 @@ class TestEmitSupportTasks:
         for t in tasks_doc["tasks"]:
             assert not any("canary" in k.lower() for k in t.keys())
 
+    def test_no_tell_value_level_serialized_doc(self, tmp_path):
+        """PR #180 BLOCK regression: the original canary bank used
+        self-labeling citekeys (``canary-known-supported`` etc.) — a
+        dict-KEYS-only "no marker" check (see the test above) missed this
+        entirely because the tell was in a VALUE, not a key. Assert over
+        the FULL serialized ``_judge-tasks.json`` bytes: neither the word
+        "canary" nor any fixed-vocab expected-verdict token may appear
+        anywhere in the public tasks doc — a cold judge must not be able
+        to ace the canaries (or infer real-task expectations) by reading
+        the file, only by actually judging the claim/source pair.
+        """
+        import json
+
+        from research_vault.manuscript.fidelity_gates import emit_support_tasks
+
+        tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path
+        _write_tex_with_cites(tree_root, 5)
+        for i in range(5):
+            _literature_note(notes_root, f"paper{i}")
+
+        result = emit_support_tasks(
+            tree_root, notes_root=notes_root, manuscript_slug="ms-test",
+        )
+        tasks_doc = result["tasks_doc"]
+        serialized_full = json.dumps(tasks_doc).lower()
+        assert "canary" not in serialized_full
+
+        # No fixed-vocab verdict token may be derivable from any public
+        # TASK field (a citekey like "canary-known-absent" leaks
+        # "absent"). Scoped to the ``tasks`` list only — the ``rubric``
+        # field LEGITIMATELY spells out the verdict vocabulary (that's
+        # the judge's instructions, shared identically for every task,
+        # not a tell about which specific task is a canary).
+        serialized_tasks = json.dumps(tasks_doc["tasks"]).lower()
+        for verdict in ("supports", "partial", "absent", "contradicts"):
+            assert verdict not in serialized_tasks, (
+                f"verdict token {verdict!r} is present somewhere in a "
+                f"public task's fields — a cold judge could read it off "
+                f"without actually judging the claim/source pair"
+            )
+
     def test_canary_key_is_separate_and_private_shaped(self, tmp_path):
         from research_vault.manuscript.fidelity_gates import emit_support_tasks
 
