@@ -31,6 +31,7 @@ sr: PR-M6
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -352,7 +353,61 @@ def phase1_builder(
 # §4 — the OKF -> survey source_transform (deterministic pieces)
 # ---------------------------------------------------------------------------
 
-def render_prisma_ledger(coverage: dict[str, Any]) -> str:
+def _parse_deviation_blocks(deviations_path: Path) -> list[dict[str, Any]]:
+    """Parse every ``## Deviation v(k-1) -> v(k) (...)`` block written by
+    ``review.autonomy.record_deviation`` into a structured list, one dict
+    per block: ``{version_from, version_to, removed, added, rationale}``.
+
+    Scoped to exactly the fixed-format lines ``record_deviation`` writes —
+    not a general markdown parser (mirrors
+    ``review.autonomy._parse_deviation_citekey_deltas``'s scoping, but keeps
+    each block's own removed/added/rationale separate instead of a single
+    flattened union, since the PRISMA ledger needs to show EACH version's
+    delta + reason, not just the aggregate).
+
+    Returns ``[]`` if the file doesn't exist or carries no recognizable block
+    — never raises (a malformed/absent deviation log degrades to "nothing to
+    show", the honest no-op for a manuscript with no scope revisions).
+    """
+    if not deviations_path.exists():
+        return []
+    text = deviations_path.read_text(encoding="utf-8")
+    blocks: list[dict[str, Any]] = []
+    header_re = re.compile(r"^##\s+Deviation\s+v(\d+)\s*->\s*v(\d+)", re.MULTILINE)
+    headers = list(header_re.finditer(text))
+    for i, m in enumerate(headers):
+        start = m.end()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+        section = text[start:end]
+
+        def _line(label: str) -> str:
+            lm = re.search(rf"^\*\*{label}:\*\*\s*(.*)$", section, re.MULTILINE)
+            return lm.group(1).strip() if lm else ""
+
+        def _citekeys(label: str) -> list[str]:
+            raw = _line(label)
+            if not raw or raw == "(none)":
+                return []
+            return [v.strip() for v in raw.split(",") if v.strip()]
+
+        rationale_m = re.search(r"\*\*Rationale:\*\*\s*(.*)", section, re.DOTALL)
+        rationale = rationale_m.group(1).strip() if rationale_m else ""
+
+        blocks.append({
+            "version_from": int(m.group(1)),
+            "version_to": int(m.group(2)),
+            "removed": _citekeys("Removed citekeys"),
+            "added": _citekeys("Added citekeys"),
+            "rationale": rationale,
+        })
+    return blocks
+
+
+def render_prisma_ledger(
+    coverage: dict[str, Any],
+    *,
+    deviations_path: Path | None = None,
+) -> str:
     """Render a PRISMA-style inclusion/exclusion ledger from a coverage report.
 
     ``coverage`` is the dict shape returned by ``review.coverage_report()``
@@ -360,14 +415,27 @@ def render_prisma_ledger(coverage: dict[str, Any]) -> str:
     no LLM, no invented numbers; this is a sibling to ``coverage_report``
     itself (design §4).
 
+    NG-4b item 5 (NG-6b, scoped — see the module-level test file's docstring
+    for the grounded scoping note vs the design doc's full NG-6a dependency):
+    when ``deviations_path`` points at a real ``_deviations.md``
+    (``review.autonomy.record_deviation``'s output), every declared
+    scope/membership deviation renders as an explicit denominator-change row
+    — the PRISMA "records excluded, with reasons" row, made real (§1.5
+    requirement 2). A corpus that changed size with NO deviation section is
+    silently unremarkable (nothing to show is the correct no-op); the point
+    is that a declared change is never buried behind a bare final count.
+
     Args:
         coverage: a ``review.coverage_report()``-shaped dict, or ``{}`` if no
             frozen corpus exists yet (renders an honest "no corpus" ledger).
+        deviations_path: optional path to this review's ``_deviations.md``.
+            ``None`` or a non-existent file is a correct no-op (no deviation
+            section rendered) — most manuscripts never revise scope.
 
     Returns:
         Markdown PRISMA-style ledger.
 
-    sr: PR-M6
+    sr: PR-M6, NG-6b
     """
     counts = coverage.get("counts", {}) if coverage else {}
     if not coverage or not coverage.get("corpus_citekeys"):
@@ -391,6 +459,30 @@ def render_prisma_ledger(coverage: dict[str, Any]) -> str:
         f"Unmaterialized citekeys: {coverage.get('unmaterialized', [])}",
         f"Orphan citekeys: {coverage.get('orphan', [])}",
     ]
+
+    deviation_blocks = _parse_deviation_blocks(deviations_path) if deviations_path else []
+    if deviation_blocks:
+        lines.append("")
+        lines.append("### Deviations from the frozen protocol (records excluded, with reasons)\n")
+        running = counts.get("corpus", 0) - sum(
+            len(b["added"]) - len(b["removed"]) for b in deviation_blocks
+        )
+        for b in deviation_blocks:
+            n_after = running + len(b["added"]) - len(b["removed"])
+            lines.append(
+                f"- **v{b['version_from']} → v{b['version_to']}**: "
+                f"N₀={running} → N₁={n_after} "
+                f"(−{len(b['removed'])}, +{len(b['added'])})"
+            )
+            if b["removed"]:
+                lines.append(f"  - Excluded: {', '.join(b['removed'])}")
+            if b["added"]:
+                lines.append(f"  - Added: {', '.join(b['added'])}")
+            if b["rationale"]:
+                lines.append(f"  - Reason: {b['rationale']}")
+            running = n_after
+        lines.append("")
+
     return "\n".join(lines) + "\n"
 
 
@@ -556,8 +648,10 @@ def source_transform(
     else:
         branches = list(branches_raw)
 
+    deviations_path = project_notes_dir / "reviews" / slug / "_deviations.md"
+
     return {
-        "appendix-methods": render_prisma_ledger(coverage),
+        "appendix-methods": render_prisma_ledger(coverage, deviations_path=deviations_path),
         "provenance_header": render_provenance_header(),
         "references": render_comparison_table(rows),
         "framework_branches": branches,

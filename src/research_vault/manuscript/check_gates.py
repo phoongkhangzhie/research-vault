@@ -452,6 +452,16 @@ def build_approve_payload(
     blocking: list[str] = []
     signals: list[str] = []
     not_run: list[str] = []
+    # NG-4b item 3: a support-matcher canary-abort (blind-judge probe fails)
+    # must be visible to review.autonomy's gate-policy engine as a TOP-LEVEL
+    # flag, not buried inside a `blocking` string. classify_disposition's
+    # priority order checks `canary_aborted` BEFORE `blocking` (untrustworthy
+    # signal > deterministic block) — without this flag, a canary-abort was
+    # indistinguishable from an ordinary fixable BLOCK, so the gate-policy
+    # engine would REVISE it (dispatch a bounded auto-revise against the SAME
+    # broken judge) instead of HALT-DECLARE-ing (fail-closed, never retry an
+    # untrustworthy judge — charter §10). See evaluation_from_structural_payload.
+    canary_aborted = False
 
     # ── 1. Hermetic .bib — deterministic, ALWAYS runs, hard BLOCK (PR-M2) ──
     bib_result = check_hermetic_bib(project_notes_dir, tree_root)
@@ -481,7 +491,9 @@ def build_approve_payload(
         # so it BLOCKs regardless (fail-closed: cannot confirm citation
         # fidelity -> cannot proceed, never silently treated as a pass).
         blocking.extend(f"[support-matcher] {e}" for e in support_result["errors"])
-        if not support_result.get("canary_aborted"):
+        if support_result.get("canary_aborted"):
+            canary_aborted = True
+        else:
             signals.extend(f"[support-matcher:PARTIAL] {w}" for w in support_result["warnings"])
     elif _cold_fanout_dirs_present(tree_root):
         # NG-4 (design §1.9, PRIMARY path): no live judge_fn/env, but a
@@ -507,14 +519,24 @@ def build_approve_payload(
                 "errors": [f"CANARY ABORT (HALT-DECLARE): {e}"],
                 "warnings": [], "canary_aborted": True, "halt": True,
             }
-        blocking.extend(f"[support-matcher] {e}" for e in support_result["errors"])
-        if support_result.get("halt") and not support_result.get("canary_aborted"):
-            blocking.append(
+        if support_result.get("canary_aborted"):
+            canary_aborted = True
+            blocking.extend(f"[support-matcher] {e}" for e in support_result["errors"])
+        elif support_result.get("halt"):
+            # NG-4b: an incomplete/missing judge-fanout is the §1.2 "floor
+            # gate NOT RUN" failure class, NOT a fixable BLOCK — it belongs
+            # in `not_run` (-> HALT-DECLARE, priority 2) so the gate-policy
+            # engine never dispatches a bounded auto-revise against a floor
+            # that never actually ran (explore-rl #3: a floor gate that
+            # didn't run must never look like an ordinary fixable finding).
+            not_run.extend(f"[support-matcher] {e}" for e in support_result["errors"])
+            not_run.append(
                 "[support-matcher] HALT-DECLARE: judge-fanout did not "
                 "complete — see the error above; this manuscript cannot "
                 "self-certify its citation-fidelity floor."
             )
-        if not support_result.get("canary_aborted"):
+        else:
+            blocking.extend(f"[support-matcher] {e}" for e in support_result["errors"])
             signals.extend(f"[support-matcher:PARTIAL] {w}" for w in support_result.get("warnings", []))
     else:
         not_run.append(
@@ -557,4 +579,7 @@ def build_approve_payload(
         "blocking": blocking,
         "signals": signals,
         "not_run": not_run,
+        # NG-4b: top-level canary-abort flag — see comment at the top of
+        # this function. Consumed by review.autonomy.evaluation_from_structural_payload.
+        "canary_aborted": canary_aborted,
     }
