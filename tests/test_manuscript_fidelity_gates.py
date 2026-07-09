@@ -117,6 +117,29 @@ class TestCheckSupportTally:
         assert result["m_citations"] == 0
         assert result["canary_aborted"] is False
 
+    def test_rd1_fires_on_markdown_wikilink_citation(self, tmp_path):
+        """RD-1 acceptance: the support-matcher (citation-fidelity floor)
+        keeps firing when the draft is markdown (`report.md`/`sections/*.md`
+        with `[[citekey]]` wikilink citations), not just legacy .tex."""
+        from research_vault.manuscript.fidelity_gates import check_support_tally
+        tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path / "notes"
+        _literature_note(notes_root, "smith2023")
+        (tree_root / "sections" / "moves.md").write_text(
+            "We found that X is true [[smith2023]].", encoding="utf-8",
+        )
+
+        def _judge(prompt: str) -> str:
+            if "85.3%" in prompt:  # the blind-judge canary probe — must pass
+                return "VERDICT: [SUPPORTS]\nSPAN: 85.3% accuracy\nREASONING: canary ok.\n"
+            return "VERDICT: [ABSENT]\nREASONING: not found.\n"
+
+        result = check_support_tally(tree_root, notes_root=notes_root, judge_fn=_judge)
+        assert result["canary_aborted"] is False
+        assert result["m_citations"] == 1
+        assert result["k_block"] == 1
+        assert any("smith2023" in e for e in result["errors"])
+
 
 # ===========================================================================
 # check_cold_read_tally
@@ -178,3 +201,40 @@ class TestCheckColdReadTally:
         assert result["overall"] == "STANDS-ALONE"
         assert result["canary_aborted"] is False
         assert any("no pdf text extracted" in w.lower() or "no text" in w.lower() for w in result["warnings"])
+
+    def test_rd1_falls_back_to_report_md_and_sections_md(self, tmp_path):
+        """RD-1 acceptance: with no PDF and no explicit pdf_text, the fallback
+        resolves report.md + sections/*.md (RD-1's markdown render target),
+        not just legacy main.tex/sections/*.tex."""
+        from research_vault.manuscript.fidelity_gates import check_cold_read_tally
+        tree_root = _make_ms_tree(tmp_path)
+        tree_root_report = tree_root / "report.md"
+        tree_root_report.write_text("# Survey\n\nA markdown reader-facing draft.\n", encoding="utf-8")
+        (tree_root / "sections" / "moves.md").write_text(
+            "This section is the target of the cold-read judge.\n", encoding="utf-8",
+        )
+
+        captured_prompts: list[str] = []
+        _calls = {"n": 0}
+
+        def _judge(prompt: str) -> str:
+            captured_prompts.append(prompt)
+            _calls["n"] += 1
+            if _calls["n"] == 1:  # canary a — must self-contain
+                return "SUMMARY:\nOVERALL: [STANDS-ALONE]\nBLOCK_COUNT: 0\nWARN_COUNT: 0\nSWEPT: done.\n"
+            if _calls["n"] == 2:  # canary b — must catch the planted leak
+                return (
+                    "FLAG:\nVERDICT: [DANGLING]\nSPAN: \"run covers_hash abc\"\n"
+                    "KIND: internal-plumbing\nWHERE: S3\nMISSING: internal id.\n\n"
+                    "SUMMARY:\nOVERALL: [DANGLING]\nBLOCK_COUNT: 2\nWARN_COUNT: 0\nSWEPT: done.\n"
+                )
+            # real call — the markdown draft is clean, self-contained
+            return "SUMMARY:\nOVERALL: [STANDS-ALONE]\nBLOCK_COUNT: 0\nWARN_COUNT: 0\nSWEPT: done.\n"
+
+        result = check_cold_read_tally(tree_root, judge_fn=_judge)
+        assert result["canary_aborted"] is False
+        assert result["overall"] == "STANDS-ALONE"
+        # Proves the markdown fallback actually fed the real draft text to the
+        # 3rd (real) call, not an empty string — the "no text extracted" WARN
+        # path is disjoint from this assertion.
+        assert any("markdown reader-facing draft" in p or "cold-read judge" in p for p in captured_prompts)

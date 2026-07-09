@@ -43,9 +43,9 @@ Per-manuscript folder (design §0, NOT an OKF taxonomy — too few manuscripts t
 warrant one):
   manuscripts/<slug>/
   ├── _manuscript.md   # control + frontmatter: manuscript_type, spine, corpus_hash, run_state
-  ├── main.tex
-  ├── sections/*.tex
-  ├── refs.bib         # hermetic build (PR-M2, landed) — see manuscript/bib.py
+  ├── report.md      # RD-1: markdown reader path (retired: main.tex)
+  ├── sections/*.md    # RD-1: markdown sections (retired: sections/*.tex)
+  ├── refs.bib         # hermetic citekey-resolution ledger (PR-M2/RD-1) — see manuscript/bib.py
   └── figures/
 
 Stdlib only.
@@ -100,45 +100,36 @@ def _unknown_type_error(key: str) -> ValueError:
     )
 
 
-def _write_main_tex_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
-    """Write a neutral article-class main.tex stub to tree_root (idempotent).
+def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
+    """Write a neutral markdown report stub to tree_root (idempotent).
+
+    RD-1 (next-gen lit-review design §6): the manuscript's reader path
+    renders MARKDOWN — ``report.md`` (this stub) + ``sections/*.md`` —
+    retiring ``main.tex``/tex-macro injection as the reader-path target for
+    NEW manuscripts. Citations use the ``[[citekey]]`` wikilink form (see
+    ``manuscript/bib.py``'s ``_WIKILINK_CITE_RE``); ``refs.bib`` keeps its
+    name (the hermetic-bib gate's artifact) but is now a citekey-resolution
+    ledger for markdown wikilinks, not a LaTeX-only bibliography.
 
     A self-contained inline template (no package-data dependency) — the real
-    per-type template/exemplar machinery is design §8/PR-M8 territory; PR-M1
-    only needs a compilable skeleton so the folder is genuinely scaffolded.
+    per-type template/exemplar machinery is design §8/PR-M8 territory; this
+    only needs a scaffolded skeleton so the folder is genuinely scaffolded.
     """
-    main_tex = tree_root / "main.tex"
-    if main_tex.exists():
+    report_md = tree_root / "report.md"
+    if report_md.exists():
         return  # idempotent — never overwrite an existing draft
     content = (
-        "\\documentclass[11pt]{article}\n"
-        "\\usepackage[utf8]{inputenc}\n"
-        "\\usepackage[T1]{fontenc}\n"
-        "\\usepackage{hyperref}\n"
-        "\\usepackage{natbib}\n"
-        "\n"
-        f"% Manuscript: {slug}  (type: {ms_type_key})\n"
-        "% Machine-injected results/equation macros: refs.bib is built hermetically\n"
-        "% by manuscript/bib.py (PR-M2, landed); pivotal equations are injected into\n"
-        "% the writer briefs by manuscript/equations.py (PR-M4, landed) and checked\n"
-        "% every round by check_gates.py::build_approve_payload.\n"
-        "\n"
-        "\\begin{document}\n"
-        "\n"
-        f"\\title{{{slug}}}\n"
-        "\\author{}\n"
-        "\\date{}\n"
-        "\\maketitle\n"
-        "\n"
-        "% Body sections (populated by rv dag run against the Phase-2 manifest)\n"
-        "% \\input{sections/draft}\n"
-        "\n"
-        "\\bibliographystyle{plainnat}\n"
-        "\\bibliography{refs}\n"
-        "\n"
-        "\\end{document}\n"
+        f"# {slug}\n\n"
+        f"<!-- Manuscript: {slug}  (type: {ms_type_key}) -->\n"
+        "<!-- Machine-injected results/equation data + hermetic citekey resolution:\n"
+        "     refs.bib is built hermetically by manuscript/bib.py (PR-M2, RD-1);\n"
+        "     pivotal equations are injected into the writer briefs by\n"
+        "     manuscript/equations.py (PR-M4) and checked every round by\n"
+        "     check_gates.py::build_approve_payload. -->\n\n"
+        "<!-- Body sections (populated by rv dag run against the Phase-2\n"
+        "     manifest) are joined here in reading order by the assemble node. -->\n"
     )
-    main_tex.write_text(content, encoding="utf-8")
+    report_md.write_text(content, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +235,7 @@ def _build_phase2_manifest(
     Each section node reads its declared ``source_atoms`` (OKF type dirs,
     absolute paths — Fix #34 lesson: absolute so the reads:-grounding resolver
     finds them regardless of project_root at run/tick time) + the sections/
-    working dir. ``assemble`` joins the drafted sections into ``main.tex``.
+    working dir. ``assemble`` joins the drafted sections into ``report.md`` (RD-1).
     ``approve-manuscript`` is the terminal human-go gate; the hermetic-.bib
     (PR-M2), fidelity (PR-M3), and equation (PR-M4) gates that feed it are
     assembled by ``manuscript/check_gates.py::build_approve_payload`` and
@@ -349,11 +340,11 @@ def _build_phase2_manifest(
         section_ids.append(node_id)
         prev_id = node_id
 
-    # assemble — joins the drafted sections into main.tex
+    # assemble — joins the drafted sections into report.md (RD-1)
     nodes.append({
         "id": "assemble",
         "type": "agent",
-        "label": "Assemble — join drafted sections into main.tex",
+        "label": "Assemble — join drafted sections into report.md (RD-1)",
         "spec": _spec("assemble"),
         "reads": [sections_dir_abs],
         "needs": [_afterok(section_ids[-1])],
@@ -461,7 +452,7 @@ def cmd_new(
         "branches": "",       # PR-M6: scalar list of the frozen framework's top-level branch names
         "corpus_hash": "",    # stale-corpus guard (PR-M6)
         "run_state": "",      # dag_run id, set once Phase-1/2 is emitted
-        "manuscript_location": str(tree_root / "main.tex"),
+        "manuscript_location": str(tree_root / "report.md"),
     }
     body = (
         "\n"
@@ -481,7 +472,7 @@ def cmd_new(
     )
     note_path.write_text(_render_frontmatter(fields) + "\n" + body, encoding="utf-8")
 
-    _write_main_tex_stub(tree_root, slug, ms_type.key)
+    _write_report_md_stub(tree_root, slug, ms_type.key)
 
     refs_bib = tree_root / "refs.bib"
     if not refs_bib.exists():

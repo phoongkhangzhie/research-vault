@@ -98,26 +98,22 @@ def _judge_configured(judge_fn: Callable[[str], str] | None) -> bool:
 # ---------------------------------------------------------------------------
 
 def _read_draft_text(tree_root: Path) -> str:
-    """Join ``main.tex`` + every ``sections/*.tex`` into one draft-text blob.
+    """Join every draft file (``report.md``/``main.tex`` + ``sections/*``,
+    RD-1: ``.md`` and legacy ``.tex`` both scanned — see ``draft_files.py``)
+    into one draft-text blob.
 
     Best-effort, never raises: an unreadable/missing file simply contributes
     nothing (a fresh manuscript folder with no draft yet -> empty string,
     which every gate treats as "nothing to check yet", never an error).
     """
+    from research_vault.manuscript.draft_files import resolve_draft_files
+
     parts: list[str] = []
-    main_tex = tree_root / "main.tex"
-    if main_tex.exists():
+    for draft_file in resolve_draft_files(tree_root):
         try:
-            parts.append(main_tex.read_text(encoding="utf-8", errors="replace"))
+            parts.append(draft_file.read_text(encoding="utf-8", errors="replace"))
         except OSError:
             pass
-    sections_dir = tree_root / "sections"
-    if sections_dir.exists():
-        for tex in sorted(sections_dir.glob("*.tex")):
-            try:
-                parts.append(tex.read_text(encoding="utf-8", errors="replace"))
-            except OSError:
-                pass
     return "\n\n".join(parts)
 
 

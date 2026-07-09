@@ -61,6 +61,12 @@ _DEFAULT_JUDGE_MODEL: str = os.environ.get("RV_JUDGE_MODEL", "")
 # cycle with the not-yet-built manuscript.bib / manuscript.check_gates).
 _CITE_RE = re.compile(r"\\cite[a-z]*\*?\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 
+# RD-1 (next-gen lit-review design §6): the markdown render target's citation
+# syntax — a `[[citekey]]` wikilink (mirrors bib.py's `_WIKILINK_CITE_RE`;
+# duplicated inline rather than imported, same import-cycle-avoidance
+# rationale as _CITE_RE above).
+_WIKILINK_CITE_RE = re.compile(r"\[\[([A-Za-z0-9_.\-]+)\]\]")
+
 
 def _strip_comments(text: str) -> str:
     """Strip LaTeX line comments (% to end of line, excluding \\%)."""
@@ -112,7 +118,9 @@ def check_support_tally(
     When notes_root is None: inferred from tree_root (manuscripts/<id>/ ->
     the project notes root two levels up).
     """
-    tex_files = list(tree_root.rglob("*.tex"))
+    from research_vault.manuscript.draft_files import resolve_draft_files
+
+    tex_files = resolve_draft_files(tree_root)
     if not tex_files:
         return {
             "verdicts": [], "n_sentences": 0, "m_citations": 0,
@@ -197,6 +205,10 @@ def check_support_tally(
                     k = k.strip()
                     if k:
                         all_items.append((sent, k, section_name))
+            for cm in _WIKILINK_CITE_RE.finditer(sent):
+                k = cm.group(1).strip()
+                if k:
+                    all_items.append((sent, k, section_name))
 
     verdicts: list[Any] = []
     errors: list[str] = []
@@ -326,20 +338,22 @@ def check_cold_read_tally(
                 pass
 
         if resolved_pdf_text is None:
+            from research_vault.manuscript.draft_files import resolve_draft_files
+
             ms_text_parts: list[str] = []
-            main_tex = tree_root / "main.tex"
-            if main_tex.exists():
+            draft_files = resolve_draft_files(tree_root)
+            root_files = [f for f in draft_files if f.name in ("report.md", "main.tex")]
+            section_files = [f for f in draft_files if f not in root_files]
+            for f in root_files:
                 try:
-                    ms_text_parts.append(main_tex.read_text(encoding="utf-8", errors="replace")[:4000])
+                    ms_text_parts.append(f.read_text(encoding="utf-8", errors="replace")[:4000])
                 except OSError:
                     pass
-            sections_dir = tree_root / "sections"
-            if sections_dir.exists():
-                for tex in sorted(sections_dir.glob("*.tex"))[:6]:
-                    try:
-                        ms_text_parts.append(tex.read_text(encoding="utf-8", errors="replace")[:1500])
-                    except OSError:
-                        pass
+            for f in section_files[:6]:
+                try:
+                    ms_text_parts.append(f.read_text(encoding="utf-8", errors="replace")[:1500])
+                except OSError:
+                    pass
             resolved_pdf_text = "\n\n".join(ms_text_parts) if ms_text_parts else ""
 
     if not resolved_pdf_text.strip():
