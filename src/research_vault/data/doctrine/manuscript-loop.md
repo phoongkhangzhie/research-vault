@@ -99,12 +99,15 @@ Every draft/revise round runs, regardless of judge availability:
   marked-critical equation** (a deliberate divergence from the design doc's own BLOCK
   recommendation for marked-critical equations — the resolved operator call was SIGNAL for
   both marked-critical and unmarked; see "Known limitations").
-- **Support-matcher + cold-read** (the LLM-judged gates) — every synthesized claim traces to a
+- **Support-matcher** (the LLM-judged gate) — every synthesized claim traces to a
   substantiating `literature/`/`concepts/` note (4-verdict `[SUPPORTS|PARTIAL|CONTRADICTS|
-  ABSENT]`, disconfirm-first, verbatim-span-or-BLOCK); orphan prose / single-cite paragraphs
-  flagged. **These run ONLY when a judge is configured** (`RV_JUDGE_MODEL` +
-  `ANTHROPIC_API_KEY`) — **absence is surfaced loudly** ("support-matcher + cold-read gates
-  NOT RUN"), never a silent skip.
+  ABSENT]`, disconfirm-first, verbatim-span-or-BLOCK). **Runs ONLY when a judge is configured**
+  (`RV_JUDGE_MODEL` + `ANTHROPIC_API_KEY`) — **absence is surfaced loudly** ("support-matcher
+  gate NOT RUN"), never a silent skip. (The former cold-read self-containment critic that once
+  shared this seam was removed — SIGNAL-only, non-actionable under hands-off autonomy,
+  redundant with the review board's own coherence scoring + RD-6's term-definition rule.
+  the operator's call, see DEVLOG. Single-cite paragraphs / orphan prose are now caught by the review
+  board's SYNTHESIS-VS-ENUMERATION adversary, below.)
 
 ### 5. Review — `rv manuscript <project> review <slug>`
 
@@ -114,7 +117,7 @@ independent adversarial reviewers score 8 dimensions with a written justificatio
 FLOOR axes — citation fidelity and coverage/search-reproducibility — the axes bound to
 provenance the machine already holds, so a reviewer cannot inflate them past the ledger.
 Framework soundness is SURFACE (scored + shown, never autogate — you own the spine).
-Synthesis-not-enumeration and gap-validity are SIGNAL (cold-read weak-flags). A
+Synthesis-not-enumeration and gap-validity are SIGNAL (this board's own weak-flags). A
 rebuttal/revise step between rounds redrafts failing sections and **re-fires** the fidelity +
 equation + coverage gates. Every round also runs three **canary probes** through the same
 judge — known-STRONG (must not floor), known-WEAK (must not ceiling), and the **mandatory
@@ -159,12 +162,12 @@ network call reachable from the compile path.
    even a marked-critical equation silently dropped surfaces as a flag, not a hard stop (a
    deliberate resolved divergence from the design doc's own REC of BLOCK for marked-critical;
    the operator's call was SIGNAL for both marked-critical and unmarked). The support-matcher
-   and cold-read gates require a configured judge (`RV_JUDGE_MODEL` + `ANTHROPIC_API_KEY`) —
-   when absent, they do not silently no-op; they surface a loud "gates NOT RUN" notice, and a
-   manuscript can still reach `approve-manuscript` without them having fired. The human is the
+   gate requires a configured judge (`RV_JUDGE_MODEL` + `ANTHROPIC_API_KEY`) —
+   when absent, it does not silently no-op; it surfaces a loud "gate NOT RUN" notice, and a
+   manuscript can still reach `approve-manuscript` without it having fired. The human is the
    backstop in both cases.
 4. **SYNTH = SIGNAL, not a hard gate.** The synthesis-vs-enumeration dimension (an annotated
-   bibliography detected in the drafted sections) is a SIGNAL-class cold-read weak-flag, fed
+   bibliography detected in the drafted sections) is a SIGNAL-class review-board weak-flag, fed
    to the worst-findings list — it is **detected and surfaced**, never auto-blocked. The
    mandatory annotated-bib canary (item 3 above) exists precisely because this dimension is
    scored, not gated: it proves the judge is not blind to the failure the whole type exists to

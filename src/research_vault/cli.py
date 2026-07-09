@@ -716,7 +716,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT hand-write a .tex and hand-collect citations/numbers "
             "from OKF piles — run `rv manuscript new` so the per-manuscript folder "
             "carries the type-generic scaffold the hermetic .bib build, the hard "
-            "fidelity gates (citation-resolve, support-matcher, cold-read, coverage, "
+            "fidelity gates (citation-resolve, support-matcher, coverage, "
             "equation-fidelity), and the review-revise board all plug into. "
             "Anti-pattern: do NOT pass an unregistered --type and expect a silent "
             "fallback — an unknown type fails loudly (no default type). "

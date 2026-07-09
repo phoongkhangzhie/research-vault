@@ -174,13 +174,11 @@ def test_e2e_dangling_cite_blocks_dropped_equation_signals_transform_wired(cfg):
     assert any("equation-fidelity" in s and "critical" in s for s in payload["signals"])
     assert not any("eq:elbo" in b for b in payload["blocking"])
 
-    # (d) LLM gates land in not_run, surfaced loudly — never silently skipped,
-    # never treated as a pass.
-    assert any("support-matcher" in n and "cold-read" in n for n in payload["not_run"]), (
-        payload["not_run"]
-    )
+    # (d) The LLM gate lands in not_run, surfaced loudly — never silently
+    # skipped, never treated as a pass. (Cold-read was removed; the
+    # support-matcher gate is the ONE judge-gated check now.)
+    assert any("support-matcher" in n for n in payload["not_run"]), payload["not_run"]
     assert not any("support-matcher" in b for b in payload["blocking"])
-    assert not any("cold-read" in s for s in payload["signals"])
 
 
 def test_no_dangling_cite_and_equation_present_only_signals_or_clean(cfg):

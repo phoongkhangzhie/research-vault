@@ -1,9 +1,14 @@
 """tests/test_manuscript_judge_fanout.py — NG-4: the cold-agent-judge
-fan-out emit/ingest seam for support-matcher + cold-read (design §1.9).
+fan-out emit/ingest seam for support-matcher (design §1.9).
+
+Support-matcher-ONLY — the cold-read self-containment critic that
+originally shared this seam was removed (SIGNAL-only, non-actionable
+under hands-off autonomy, redundant with the review board + RD-6;
+Khang's call, see DEVLOG).
 
 Covers:
-  1. emit_support_tasks: batched task shape, canaries interleaved unmarked,
-     deterministic re-emit.
+  1. emit_support_tasks: batched task shape, canaries interleaved unmarked
+     (no citekey-level tell — PR #180 BLOCK fix), deterministic re-emit.
   2. ingest_support_verdicts: id-join happy path (matches check_support_tally
      shape), fixed vocab (do NOT widen), rejects-only semantics.
   3. Fail-closed: a task present in tasks but missing from verdicts ->
@@ -11,7 +16,8 @@ Covers:
   4. A verdicts file entirely missing/empty -> halt=True (§1.8 floor-gate
      NOT RUN, HALT-DECLARE disposition), never ok:True.
   5. A planted bad-canary verdict -> CanaryAbortError -> caller HALTs.
-  6. Same five for cold-read (emit_coldread_tasks / ingest_coldread_verdicts).
+  6. Draft<->tasks binding (PR #180 Finding C): a citation added to the
+     draft after emit -> ingest HALTs on the stale citation_set_hash.
   7. build_approve_payload wires the cold-fanout path when judge/*  files
      exist and no live judge is configured — existing not_run path is
      UNCHANGED (regression guard) when no judge/* dir exists at all.
@@ -415,113 +421,6 @@ class TestDraftTasksBinding:
         result = ingest_support_verdicts_from_dir(judge_dir)
         assert result["halt"] is False
         assert result["k_block"] == 0
-
-
-# ===========================================================================
-# emit_coldread_tasks / ingest_coldread_verdicts
-# ===========================================================================
-
-_SELF_CONTAINED_TEXT = (
-    "We evaluate accuracy across three models. As shown in Figure 1, the "
-    "strongest model reaches 91%. Section 2 details the method."
-)
-
-
-class TestColdreadFanout:
-    def test_emit_coldread_tasks_shape(self, tmp_path):
-        from research_vault.manuscript.fidelity_gates import emit_coldread_tasks
-
-        tree_root = _make_ms_tree(tmp_path)
-        result = emit_coldread_tasks(
-            tree_root, manuscript_slug="ms-test", pdf_text=_SELF_CONTAINED_TEXT,
-        )
-        tasks_doc = result["tasks_doc"]
-        assert tasks_doc["schema"] == "rv-judge-tasks/v1"
-        assert tasks_doc["gate"] == "cold-read"
-        assert len(tasks_doc["tasks"]) >= 3  # 1 real + >=2 canaries
-        for t in tasks_doc["tasks"]:
-            assert t["kind"] == "cold-read"
-            assert set(t.keys()) >= {"id", "kind", "unit", "question"}
-
-        canary_key_doc = result["canary_key_doc"]
-        assert canary_key_doc["schema"] == "rv-judge-canary-key/v1"
-        assert len(canary_key_doc["canaries"]) >= 2
-        for expected in canary_key_doc["canaries"].values():
-            assert expected in {"STANDS-ALONE", "DANGLING", "NEEDS-CONTEXT"}
-
-    def test_ingest_happy_path(self, tmp_path):
-        from research_vault.manuscript.fidelity_gates import emit_coldread_tasks, ingest_coldread_verdicts
-
-        tree_root = _make_ms_tree(tmp_path)
-        emitted = emit_coldread_tasks(tree_root, manuscript_slug="ms-test", pdf_text=_SELF_CONTAINED_TEXT)
-        tasks_doc = emitted["tasks_doc"]
-        canary_key_doc = emitted["canary_key_doc"]
-
-        verdicts = []
-        for t in tasks_doc["tasks"]:
-            expected = canary_key_doc["canaries"].get(t["id"])
-            verdicts.append({"id": t["id"], "verdict": expected or "STANDS-ALONE"})
-        verdicts_doc = {"verdicts": verdicts}
-
-        result = ingest_coldread_verdicts(tasks_doc, canary_key_doc, verdicts_doc)
-        assert result["halt"] is False
-        assert result["canary_aborted"] is False
-        assert result["overall"] == "STANDS-ALONE"
-        assert result["errors"] == []
-
-    def test_missing_verdicts_file_halts(self, tmp_path):
-        from research_vault.manuscript.fidelity_gates import emit_coldread_tasks, ingest_coldread_verdicts
-
-        tree_root = _make_ms_tree(tmp_path)
-        emitted = emit_coldread_tasks(tree_root, manuscript_slug="ms-test", pdf_text=_SELF_CONTAINED_TEXT)
-        result = ingest_coldread_verdicts(emitted["tasks_doc"], emitted["canary_key_doc"], None)
-        assert result["halt"] is True
-
-    def test_missing_real_task_defaults_to_dangling(self, tmp_path):
-        from research_vault.manuscript.fidelity_gates import emit_coldread_tasks, ingest_coldread_verdicts
-
-        tree_root = _make_ms_tree(tmp_path)
-        emitted = emit_coldread_tasks(tree_root, manuscript_slug="ms-test", pdf_text=_SELF_CONTAINED_TEXT)
-        tasks_doc = emitted["tasks_doc"]
-        canary_key_doc = emitted["canary_key_doc"]
-        real_id = next(t["id"] for t in tasks_doc["tasks"] if t["id"] not in canary_key_doc["canaries"])
-
-        verdicts = []
-        for t in tasks_doc["tasks"]:
-            if t["id"] == real_id:
-                continue
-            expected = canary_key_doc["canaries"].get(t["id"])
-            verdicts.append({"id": t["id"], "verdict": expected or "STANDS-ALONE"})
-        verdicts_doc = {"verdicts": verdicts}
-
-        result = ingest_coldread_verdicts(tasks_doc, canary_key_doc, verdicts_doc)
-        assert result["halt"] is False
-        assert real_id in result["missing_ids"]
-        assert result["overall"] == "DANGLING"
-        assert len(result["errors"]) >= 1
-
-    def test_bad_canary_raises(self, tmp_path):
-        from research_vault.manuscript.fidelity_gates import emit_coldread_tasks, ingest_coldread_verdicts
-
-        tree_root = _make_ms_tree(tmp_path)
-        emitted = emit_coldread_tasks(tree_root, manuscript_slug="ms-test", pdf_text=_SELF_CONTAINED_TEXT)
-        tasks_doc = emitted["tasks_doc"]
-        canary_key_doc = emitted["canary_key_doc"]
-        bad_id = next(iter(canary_key_doc["canaries"]))
-        expected = canary_key_doc["canaries"][bad_id]
-        planted = "DANGLING" if expected != "DANGLING" else "STANDS-ALONE"
-
-        verdicts = []
-        for t in tasks_doc["tasks"]:
-            if t["id"] == bad_id:
-                verdicts.append({"id": t["id"], "verdict": planted})
-            else:
-                e = canary_key_doc["canaries"].get(t["id"])
-                verdicts.append({"id": t["id"], "verdict": e or "STANDS-ALONE"})
-        verdicts_doc = {"verdicts": verdicts}
-
-        with pytest.raises(CanaryAbortError):
-            ingest_coldread_verdicts(tasks_doc, canary_key_doc, verdicts_doc)
 
 
 # ===========================================================================

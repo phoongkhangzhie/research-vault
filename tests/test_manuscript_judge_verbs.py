@@ -24,15 +24,19 @@ def test_verbs_judge_emit_parses():
     args = p.parse_args(["demo-research", "judge-emit", "survey-x"])
     assert args.manuscript_cmd == "judge-emit"
     assert args.slug == "survey-x"
-    assert args.gate == "both"
+    assert args.gate == "support-matcher"
 
 
-def test_verbs_judge_emit_gate_flag_parses():
+def test_verbs_judge_emit_gate_flag_only_accepts_support_matcher():
+    """The cold-read gate was removed (PR #180 scope addition) — --gate is
+    now support-matcher-only; any other value is rejected by argparse."""
     from research_vault.manuscript.verbs import build_parser
 
     p = build_parser()
-    args = p.parse_args(["demo-research", "judge-emit", "survey-x", "--gate", "cold-read"])
-    assert args.gate == "cold-read"
+    args = p.parse_args(["demo-research", "judge-emit", "survey-x", "--gate", "support-matcher"])
+    assert args.gate == "support-matcher"
+    with pytest.raises(SystemExit):
+        p.parse_args(["demo-research", "judge-emit", "survey-x", "--gate", "cold-read"])
 
 
 def test_verbs_judge_ingest_parses():
@@ -121,7 +125,7 @@ def test_run_judge_emit_and_ingest_cli_wrappers(cfg, tmp_path, capsys):
 
     _scaffold(cfg, tmp_path)
 
-    ns = argparse.Namespace(project="demo-research", slug="survey-x", gate="both")
+    ns = argparse.Namespace(project="demo-research", slug="survey-x", gate="support-matcher")
 
     import research_vault.manuscript.verbs as _verbs_mod
 

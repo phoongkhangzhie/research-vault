@@ -1,8 +1,10 @@
 """test_pr4_gate_contract_unchanged.py — Wave 0 (Reading) PR-4 confirmation.
 
-Confirms the design doc's §5 claim holds: "the support-matcher/cold-read
-gate contracts stay unchanged" under PR-4's `stance` → `role` + `position`
-field split. The J-2 stance-mismatch check in ``gates/support_matcher.py``
+Confirms the design doc's §5 claim holds: "the support-matcher gate
+contract stays unchanged" under PR-4's `stance` → `role` + `position`
+field split. (The cold-read gate this originally also covered was removed
+— see DEVLOG; ``TestColdReadContractUnchanged`` deleted with it.) The J-2
+stance-mismatch check in ``gates/support_matcher.py``
 reads a literature note's `stance:` frontmatter field via
 ``manuscript/fidelity_gates.py``'s ``nf.get("stance")`` — a PR-4-authored
 note never populates that field, so this test proves the gate degrades
@@ -114,49 +116,3 @@ class TestSupportMatcherContractUnchanged:
         # role IS present -- confirms this is a genuine PR-4 note, not an
         # accidentally-empty one.
         assert nf.get("role") == "theoretical"
-
-
-class TestColdReadContractUnchanged:
-    def test_cold_read_gate_has_no_relate_field_coupling(self):
-        """Structural confirmation: gates.coldread never references any of
-        the PR-1/2/4/5 relate fields — the cold-read gate contract has zero
-        surface area this wave could have touched. Word-boundary match (not
-        bare substring) so 'stance' doesn't false-positive on 'instance'."""
-        import inspect
-        import re
-        from research_vault.gates import coldread
-        src = inspect.getsource(coldread)
-        for field_name in (
-            "stance", "role", "position", "contribution_kind",
-            "result_reported", "paper_relations_sought",
-        ):
-            assert not re.search(rf"\b{field_name}\b", src), (
-                f"gates/coldread.py unexpectedly references {field_name!r} — "
-                "the cold-read gate contract was supposed to have zero surface "
-                "area touched by the Wave 0 relate-field changes"
-            )
-
-    def test_cold_read_tally_runs_normally_against_pr4_notes(self, tmp_path):
-        from research_vault.manuscript.fidelity_gates import check_cold_read_tally
-        tree_root = _make_ms_tree(tmp_path)
-        (tree_root / "sections" / "thematic.tex").write_text(
-            r"This section stands alone and cites \cite{xiong2023-stepwise}.",
-            encoding="utf-8",
-        )
-        _calls = {"n": 0}
-
-        def _judge(prompt: str) -> str:
-            _calls["n"] += 1
-            if _calls["n"] == 2:  # canary b — must see the leak
-                return (
-                    "FLAG:\nVERDICT: [DANGLING]\nSPAN: \"run covers_hash abc\"\n"
-                    "KIND: internal-plumbing\nWHERE: S3\nMISSING: internal id.\n\n"
-                    "SUMMARY:\nOVERALL: [DANGLING]\nBLOCK_COUNT: 2\nWARN_COUNT: 0\nSWEPT: done.\n"
-                )
-            return (
-                "SUMMARY:\nOVERALL: [STANDS-ALONE]\nBLOCK_COUNT: 0\nWARN_COUNT: 0\n"
-                "SWEPT: done.\n"
-            )
-
-        result = check_cold_read_tally(tree_root, judge_fn=_judge)
-        assert result["canary_aborted"] is False

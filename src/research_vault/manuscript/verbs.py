@@ -153,9 +153,12 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     judge_emit_p.add_argument("slug", metavar="<slug>", help="Manuscript identifier.")
     judge_emit_p.add_argument(
         "--gate",
-        choices=("support-matcher", "cold-read", "both"),
-        default="both",
-        help="Which gate's task set to emit (default: both).",
+        choices=("support-matcher",),
+        default="support-matcher",
+        help=(
+            "Which gate's task set to emit (support-matcher-only — the "
+            "cold-read self-containment critic was removed; see DEVLOG)."
+        ),
     )
 
     # ── judge-ingest (NG-4, design §1.9) ─────────────────────────────────────
@@ -171,9 +174,12 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     judge_ingest_p.add_argument("slug", metavar="<slug>", help="Manuscript identifier.")
     judge_ingest_p.add_argument(
         "--gate",
-        choices=("support-matcher", "cold-read", "both"),
-        default="both",
-        help="Which gate's verdicts to ingest (default: both).",
+        choices=("support-matcher",),
+        default="support-matcher",
+        help=(
+            "Which gate's verdicts to ingest (support-matcher-only — the "
+            "cold-read self-containment critic was removed; see DEVLOG)."
+        ),
     )
 
     return p

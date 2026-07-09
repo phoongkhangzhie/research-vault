@@ -2,14 +2,17 @@
 cold-agent-judge fan-out (design §1.9, the PRIMARY judge-orchestration path).
 
 The whole framework already runs on the Claude Code harness, so the fidelity
-judge (support-matcher, cold-read) is harness-orchestrated by default, not
-API-orchestrated: rv EMITS a task manifest, the hub fans OUT fresh cold
-subagent-judges over it (memoryless — no draft-thesis anchoring possible),
-and rv INGESTS the returned verdicts. This module is the SHARED low-level
-primitive both gates' emit_*_tasks/ingest_*_verdicts functions build on —
-the schema names, the id-join, the canary-key check, and the fail-closed
-defaulting are IDENTICAL shape across support-matcher and cold-read
-(charter §6: one source, not two independently-drifting copies).
+judge (support-matcher — the citation-fidelity floor) is harness-orchestrated
+by default, not API-orchestrated: rv EMITS a task manifest, the hub fans OUT
+fresh cold subagent-judges over it (memoryless — no draft-thesis anchoring
+possible), and rv INGESTS the returned verdicts. This module is the SHARED
+low-level primitive the gate's emit_*_tasks/ingest_*_verdicts functions
+build on — the schema names, the id-join, the canary-key check, and the
+fail-closed defaulting stay generic (any future judge-gated fan-out reuses
+this, not a fork; charter §6). (The cold-read self-containment critic
+that originally shared this seam was removed — SIGNAL-only, non-actionable
+under hands-off autonomy, redundant with the review board + RD-6. The
+operator's call; see DEVLOG.)
 
 THE THREE ARTIFACTS (design §1.9's NG-4 contract):
   _judge-tasks.json       (rv -> hub -> cold judges; PUBLIC — canaries carry

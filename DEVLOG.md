@@ -1,3 +1,68 @@
+## 2026-07-08 (PR #180 fix: canary-tell BLOCK, draft-hash HALT, cold-read removal)
+
+### Done
+- **Fixed the PR #180 BLOCK — support-matcher canary citekeys leaked the
+  expected verdict.** `_support_canary_bank()` used self-labeling citekeys
+  (`canary-known-supported`/`-absent`/`-contradicts`) written straight
+  into the PUBLIC `_judge-tasks.json` — a cold judge could read the
+  expected verdict off the citekey string alone and ace all 3 canaries
+  without ever judging the claim/source pair, defeating the "is the judge
+  working" check (violates design §1.9: "canaries carry NO marker"). Fixed
+  by using realistic bibtex-style citekeys (`smith2019`/`chen2021`/
+  `patel2020`), indistinguishable from a real task's citekey — mirrors the
+  cold-read fanout path's own no-tell shape, which never had this bug.
+  Added a value-level regression test asserting the FULL serialized
+  `_judge-tasks.json` (not just dict keys) carries neither the word
+  "canary" nor any fixed-vocab verdict token in the `tasks` list —
+  confirmed RED against the pre-fix citekeys before applying the fix.
+- **Fixed Finding C — draft<->tasks binding for the support-matcher
+  fan-out (fail-closed hardening for autonomy).** `ingest` trusted
+  `_judge-tasks.json` as the citation universe without checking it still
+  matched the CURRENT draft — a citation added to the draft AFTER emit was
+  never judged, and ingest reported ok (a silent floor-skip under
+  hands-off autonomy). Fixed: `emit_support_tasks` stamps a deterministic
+  `citation_set_hash` (sha256 over the sorted (sentence, citekey, section)
+  triples) into `tasks_doc`; `ingest_support_verdicts_from_dir` recomputes
+  it from the live draft and HALTs (fail-closed, same shape as the
+  existing fanout-incomplete halt) on a mismatch. Regression test confirms
+  an unchanged draft does NOT spuriously halt.
+- **Removed the cold-read (self-containment critic) gate entirely** — an
+  operator scope addition bundled into this same PR (same touched files,
+  avoids a conflict). Rationale: it was SIGNAL-only (no teeth),
+  non-actionable under hands-off autonomy, and redundant with the 2x3
+  review board's coherence axis (the SYNTHESIS-VS-ENUMERATION adversary
+  already flags single-cite paragraphs and unanchored gaps) + RD-6's
+  term-definition rule. It was never a BLOCK floor, so removing it loses
+  no integrity. Deleted `gates/coldread.py` outright (only
+  `manuscript/fidelity_gates.py` depended on it); removed
+  `check_cold_read_tally`/`emit_coldread_tasks`/`ingest_coldread_verdicts`
+  (+ `*_to_dir`/`*_from_dir` wrappers) and `_resolve_coldread_text` from
+  `fidelity_gates.py`; the cold-agent-judge fan-out seam (`gates/judge_seam.py`)
+  is now support-matcher-ONLY; `check_gates.build_approve_payload`'s
+  cold-fanout branch and `_cold_fanout_dirs_present` detector are
+  support-matcher-only; the `judge-emit`/`judge-ingest` `--gate` flag now
+  only accepts `support-matcher` (the `both`/`cold-read` choices removed).
+  Deleted `tests/test_gates_coldread.py` and the cold-read-specific test
+  classes in `test_manuscript_fidelity_gates.py`,
+  `test_manuscript_judge_fanout.py`, and `test_pr4_gate_contract_unchanged.py`
+  — kept every support-matcher + shared-guard test. Confirmed via full-repo
+  grep: no dangling functional references remain (only intentional
+  historical "removed" notes in docstrings/doctrine). Full suite green
+  (3057 passed), leakage scan clean, `rv lint` clean (module-level checks;
+  the reported config-schema issues are pre-existing local-registry noise,
+  unrelated to this change and absent in CI's fresh-checkout run).
+
+### Decisions
+- Grounding note on an editorial claim in `RD6_STYLE_RULES`: removed the
+  phrase "a hard gate" from the term-definition instruction — grepped the
+  codebase and found no mechanical hard-BLOCK gate for undefined terms
+  (only the writer-brief instruction + the review board's SIGNAL-class
+  SYNTH/coherence scoring). Flagging this rather than parroting the
+  stronger claim; if a literal hard gate is wanted, it needs to be built,
+  not just asserted in prose.
+
+---
+
 ## 2026-07-08 (release/0.2.8: NG-4 — cold-agent-judge fan-out for the fidelity gates)
 
 ### Done

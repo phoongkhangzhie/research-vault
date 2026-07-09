@@ -408,8 +408,8 @@ def _build_phase2_manifest(
         "label": (
             "Gate: Approve manuscript draft (gated by "
             "manuscript/check_gates.py::build_approve_payload — hermetic .bib "
-            "BLOCK, equation-fidelity SIGNAL, support-matcher/cold-read "
-            "BLOCK/SIGNAL behind the judge guard; the review-revise board "
+            "BLOCK, equation-fidelity SIGNAL, support-matcher BLOCK/SIGNAL "
+            "behind the judge guard; the review-revise board "
             "PR-M5 will re-fire these ahead of this gate once it lands)"
         ),
         "needs": [_afterok("assemble")],
@@ -787,7 +787,7 @@ def _stamp_review_meta(note_path: Path, result: dict[str, Any]) -> None:
 
     PR-M8: also stamps ``judge_model`` + the set of reviewer ``prompt_hash``
     values actually used this run — audit + drift-detection provenance (the
-    support-matcher/coldread convention), so a run's judge identity is
+    support-matcher convention), so a run's judge identity is
     durable state, not just a stdout line that scrolls away.
 
     sr: PR-M5; judge_model/prompt_hash logging PR-M8
@@ -826,25 +826,38 @@ def cmd_judge_emit(
     slug: str,
     *,
     config: Config | None = None,
-    gate: str = "both",
+    gate: str = "support-matcher",
 ) -> dict[str, Any]:
-    """Emit the NG-4 cold-agent-judge fan-out task set(s) (design §1.9,
+    """Emit the NG-4 cold-agent-judge fan-out task set (design §1.9,
     Phase A) — ``rv manuscript <project> judge-emit <slug>``.
 
-    Writes ``manuscripts/<slug>/judge/<gate>/_judge-tasks.json`` +
-    ``_judge-canary-key.json`` for ``gate in {"support-matcher", "cold-read"}``
-    (or both, the default). rv calls NO LLM on this path — the hub is
-    responsible for fanning cold subagent-judges out over the written
-    tasks file and writing ``_judge-verdicts.json`` alongside it; run
-    ``rv manuscript <project> judge-ingest <slug>`` once that lands.
+    Writes ``manuscripts/<slug>/judge/support-matcher/_judge-tasks.json`` +
+    ``_judge-canary-key.json``. Support-matcher-ONLY — the cold-read
+    self-containment critic that originally shared this seam was removed
+    (SIGNAL-only, non-actionable under hands-off autonomy, redundant with
+    the review board + RD-6; the operator's call, see DEVLOG). rv calls NO LLM on
+    this path — the hub is responsible for fanning cold subagent-judges
+    out over the written tasks file and writing ``_judge-verdicts.json``
+    alongside it; run ``rv manuscript <project> judge-ingest <slug>`` once
+    that lands.
 
-    Returns ``{"support-matcher": {...}, "cold-read": {...}}`` (only the
-    requested gate(s)) — each value is the emit function's own
-    ``{"tasks_doc", "canary_key_doc"}`` return.
+    ``gate`` is kept as a parameter (fixed to ``"support-matcher"``, the
+    only accepted value) rather than dropped outright, so the CLI wrapper
+    and any caller that already threads it through stay source-compatible.
+
+    Returns ``{"support-matcher": {...}}`` — the value is the emit
+    function's own ``{"tasks_doc", "canary_key_doc"}`` return.
 
     sr: NG-4
     """
     from research_vault.manuscript import fidelity_gates as _fg
+
+    if gate != "support-matcher":
+        raise ValueError(
+            f"rv manuscript judge-emit: unknown gate {gate!r} — only "
+            f"'support-matcher' is supported (the cold-read gate was "
+            f"removed; see DEVLOG)."
+        )
 
     cfg = config or load_config()
     project_notes_dir = cfg.project_notes_dir(project)
@@ -857,20 +870,14 @@ def cmd_judge_emit(
             f"Run `rv manuscript {project} new {slug} --type <type>` first."
         )
 
-    out: dict[str, Any] = {}
-    if gate in ("support-matcher", "both"):
-        out["support-matcher"] = _fg.emit_support_tasks_to_dir(
+    out: dict[str, Any] = {
+        "support-matcher": _fg.emit_support_tasks_to_dir(
             _judge_dir(tree_root, "support-matcher"),
             tree_root,
             notes_root=project_notes_dir,
             manuscript_slug=slug,
-        )
-    if gate in ("cold-read", "both"):
-        out["cold-read"] = _fg.emit_coldread_tasks_to_dir(
-            _judge_dir(tree_root, "cold-read"),
-            tree_root,
-            manuscript_slug=slug,
-        )
+        ),
+    }
     return out
 
 
@@ -879,55 +886,50 @@ def cmd_judge_ingest(
     slug: str,
     *,
     config: Config | None = None,
-    gate: str = "both",
+    gate: str = "support-matcher",
 ) -> dict[str, Any]:
     """Ingest ``_judge-verdicts.json`` for the NG-4 fan-out (design §1.9,
     Phase C) — ``rv manuscript <project> judge-ingest <slug>``.
 
     Reads whatever the hub wrote to
-    ``manuscripts/<slug>/judge/<gate>/_judge-verdicts.json`` and assembles
-    the ingest result. Does NOT raise on a canary abort — that exception
-    is caught here and folded into the return dict (``canary_aborted``,
-    ``halt``) so the CLI wrapper can print it loudly rather than crash;
-    ``rv dag approve`` (via ``build_approve_payload``) is the actual gate
-    that BLOCKs on this — this verb is a diagnostic/dry-run surface.
+    ``manuscripts/<slug>/judge/support-matcher/_judge-verdicts.json`` and
+    assembles the ingest result. Does NOT raise on a canary abort — that
+    exception is caught here and folded into the return dict
+    (``canary_aborted``, ``halt``) so the CLI wrapper can print it loudly
+    rather than crash; ``rv dag approve`` (via ``build_approve_payload``)
+    is the actual gate that BLOCKs on this — this verb is a
+    diagnostic/dry-run surface. Support-matcher-ONLY — see
+    ``cmd_judge_emit``'s docstring for the cold-read removal rationale.
 
-    Returns ``{"support-matcher": {...}, "cold-read": {...}}``.
+    Returns ``{"support-matcher": {...}}``.
 
     sr: NG-4
     """
     from research_vault.manuscript import fidelity_gates as _fg
     from research_vault.gates.judge_seam import CanaryAbortError
 
+    if gate != "support-matcher":
+        raise ValueError(
+            f"rv manuscript judge-ingest: unknown gate {gate!r} — only "
+            f"'support-matcher' is supported (the cold-read gate was "
+            f"removed; see DEVLOG)."
+        )
+
     cfg = config or load_config()
     tree_root = _manuscript_tree_root(project, slug, cfg)
 
     out: dict[str, Any] = {}
-    if gate in ("support-matcher", "both"):
-        try:
-            out["support-matcher"] = _fg.ingest_support_verdicts_from_dir(
-                _judge_dir(tree_root, "support-matcher")
-            )
-        except CanaryAbortError as e:
-            out["support-matcher"] = {
-                "errors": [str(e)], "warnings": [], "canary_aborted": True,
-                "halt": True, "halt_reason": str(e), "missing_ids": [],
-                "unrecognized_ids": [], "k_block": 0, "j_warn": 0,
-                "honest_report": "CANARY ABORTED",
-            }
-    if gate in ("cold-read", "both"):
-        try:
-            out["cold-read"] = _fg.ingest_coldread_verdicts_from_dir(
-                _judge_dir(tree_root, "cold-read")
-            )
-        except CanaryAbortError as e:
-            out["cold-read"] = {
-                "errors": [str(e)], "warnings": [], "canary_aborted": True,
-                "halt": True, "halt_reason": str(e), "missing_ids": [],
-                "unrecognized_ids": [], "block_count": 0, "warn_count": 0,
-                "overall": "DANGLING", "honest_report": "CANARY ABORTED",
-                "flags": [], "flag_a_hits": [], "meta": {},
-            }
+    try:
+        out["support-matcher"] = _fg.ingest_support_verdicts_from_dir(
+            _judge_dir(tree_root, "support-matcher"), tree_root=tree_root,
+        )
+    except CanaryAbortError as e:
+        out["support-matcher"] = {
+            "errors": [str(e)], "warnings": [], "canary_aborted": True,
+            "halt": True, "halt_reason": str(e), "missing_ids": [],
+            "unrecognized_ids": [], "k_block": 0, "j_warn": 0,
+            "honest_report": "CANARY ABORTED",
+        }
     return out
 
 

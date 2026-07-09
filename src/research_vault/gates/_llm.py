@@ -1,13 +1,13 @@
 """_llm.py — shared urllib-based Anthropic Messages API call for gates/*.
 
-Both ``support_matcher.py`` and ``coldread.py`` need the identical stdlib-only
-LLM call (same endpoint, same auth, same error handling) — only the
-``max_tokens`` budget and the timeout differ per caller. Extracted here so the
-two gates share ONE implementation instead of two independently-maintained
-copies of the same urllib plumbing (charter §6: reuse over create).
+``support_matcher.py`` needs a stdlib-only LLM call (same endpoint, same
+auth, same error handling); extracted here so any future gate can share
+ONE implementation instead of independently-maintained copies of the same
+urllib plumbing (charter §6: reuse over create). (Originally shared with
+the removed ``coldread.py`` gate — see ``gates/__init__.py``.)
 
 Stdlib only. Never imported eagerly by callers that only need mock judge_fn
-in tests — both gates call this lazily inside their own ``_default_judge_fn``
+in tests — gates call this lazily inside their own ``_default_judge_fn``
 wrapper, only when no ``judge_fn=`` override is supplied.
 """
 from __future__ import annotations
@@ -33,11 +33,11 @@ def call_anthropic_messages(
     Args:
         prompt:       the full prompt string to send.
         model:        the model-id to call.
-        max_tokens:   response token budget (coldread needs more than
-                      support_matcher — it may emit multiple FLAG blocks).
+        max_tokens:   response token budget (per-gate; a gate that may
+                      emit multiple blocks needs a larger budget).
         timeout:      request timeout in seconds.
-        caller_label: used only in the error message (e.g. "support-matcher",
-                      "cold-read") so a missing-key error names its gate.
+        caller_label: used only in the error message (e.g. "support-matcher")
+                      so a missing-key error names its gate.
 
     Raises RuntimeError if the API key is absent or the request fails.
     """
