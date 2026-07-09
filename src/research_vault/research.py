@@ -46,6 +46,7 @@ from typing import Any
 from .config import Config, load_config
 from .adapters.base import EnvSecretStore
 from .sources.semantic_scholar import SemanticScholarAdapter
+from .sources.identifiers import write_external_ids_to_note
 
 
 # ---------------------------------------------------------------------------
@@ -784,8 +785,57 @@ def cmd_corroborate(args: argparse.Namespace) -> int:
     return 0
 
 
+_ADDED_CITEKEY_RE = re.compile(r"^Added:\s*(\S+)", re.MULTILINE)
+
+
+def _resolve_full_external_ids(ident: str) -> dict[str, str]:
+    """Resolve the full normalized external-id set for *ident* (a doi or
+    arXiv id, as ``rv research add``/``rv cite add`` accept) at identifier-
+    persistence write time.
+
+    Starts from the identifier itself (``cite._resolve_ident`` — stdlib
+    regex, no network — reused rather than re-implemented), then best-effort
+    enriches via ``SemanticScholarAdapter.get`` (s2 corpus id, PMID, MAG —
+    whatever S2 resolved for this doi/arXiv id). The S2 lookup degrades
+    gracefully (returns None) on any failure — this is optional enrichment,
+    never a reason to fail the add.
+    """
+    from .cite import _resolve_ident
+
+    r = _resolve_ident(ident)
+    if not r:
+        return {}
+    kind, ident_val = r
+    external_ids: dict[str, str] = {kind: ident_val}
+
+    try:
+        paper_id = _normalize_paper_id_for_asta(ident_val)
+        hit = SemanticScholarAdapter().get(paper_id)
+    except Exception:
+        hit = None
+    if hit is not None:
+        # The identifier we resolved from `ident` itself is authoritative
+        # (it's exactly what the user/caller supplied) — S2's enrichment
+        # only FILLS IN keys we don't already have, never overrides.
+        for k, v in hit.external_ids.items():
+            external_ids.setdefault(k, v)
+
+    return external_ids
+
+
 def cmd_add(args: argparse.Namespace) -> int:
-    """add: dedup preflight → cite add → cite link."""
+    """add: dedup preflight → cite add → cite link → identifier persistence.
+
+    Identifier-persistence (write path): after a successful (non-dry-run)
+    ``cite add``, resolves the full normalized external-id set for *ident*
+    (doi/arxiv/pmcid/openalex/pmid/s2 — whichever are resolvable) and stamps
+    the present ones into the project's literature note frontmatter, IF that
+    note is already filed (``rv note new <project> literature <citekey>``).
+    If the note isn't filed yet, this is a no-op with a clear pointer — the
+    same "note not filed yet" contract ``fulltext.py``'s stamp already uses
+    — never an error (charter §2: surface, don't silently drop, but also
+    don't invent note-filing as a side effect of ``add``).
+    """
     _preflight_asta()
     _preflight_zotero()
 
@@ -807,9 +857,45 @@ def cmd_add(args: argparse.Namespace) -> int:
     if collection:
         cite_cmd += ["--collection", collection]
 
-    r = subprocess.run(cite_cmd)
+    r = subprocess.run(cite_cmd, capture_output=True, text=True)
+    sys.stdout.write(r.stdout)
+    if r.stderr:
+        sys.stderr.write(r.stderr)
     if r.returncode != 0:
         sys.exit(f"rv cite add failed (exit {r.returncode})")
+
+    if dry_run or not project:
+        return 0
+
+    m = _ADDED_CITEKEY_RE.search(r.stdout)
+    if not m:
+        # `cite add` succeeded (returncode 0) but we couldn't parse the
+        # citekey from its output — surface, don't silently skip persistence.
+        print(
+            "rv research add: could not parse citekey from `rv cite add` output — "
+            "skipping identifier persistence.",
+            file=sys.stderr,
+        )
+        return 0
+    citekey = m.group(1)
+
+    external_ids = _resolve_full_external_ids(args.ident)
+    note_path = cfg.project_notes_dir(project) / "literature" / f"{citekey}.md"
+    if not external_ids:
+        print(
+            f"rv research add: no external ids resolved from {args.ident!r} — "
+            "nothing to persist.",
+            file=sys.stderr,
+        )
+    elif write_external_ids_to_note(note_path, external_ids):
+        print(f"Stamped identifiers ({', '.join(sorted(external_ids))}) into {note_path}")
+    elif not note_path.is_file():
+        print(
+            f"Note {note_path} does not exist yet — nothing was persisted. "
+            f"File it with `rv note new {project} literature {citekey}` and "
+            f"re-run `rv research add {args.ident}` to re-resolve and stamp "
+            "the identifiers.",
+        )
     return 0
 
 

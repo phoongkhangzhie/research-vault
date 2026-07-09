@@ -349,6 +349,14 @@ def cmd_new(project: str, note_type: str, title: str, *,
     if note_type == "literature":
         fields["doi"] = ""        # fill in: DOI of the paper (e.g. 10.1234/example)
         fields["arxiv_id"] = ""   # fill in: ArXiv id (e.g. 2005.14165, NOT arXiv:...)
+        # identifier-persistence: the fuller external-id set (sources/identifiers.py) —
+        # stamped automatically by `rv research add` when this note is already filed;
+        # fill by hand otherwise. Absence is never a cmd_check violation (same
+        # optional-field precedent as doi/arxiv_id above).
+        fields["pmcid"] = ""      # fill in: PMC id (enables the pmc OA-fulltext provider)
+        fields["openalex"] = ""   # fill in: OpenAlex work id
+        fields["pmid"] = ""       # fill in: PubMed id
+        fields["s2"] = ""         # fill in: Semantic Scholar corpus id
         # PR-L1 (§7.5): the lit-review ingestion enrichment — three OPTIONAL
         # fields, populated by the relate-<key> node (review/style.py
         # per_paper_relate_tips) or filled by hand. Absence is never a

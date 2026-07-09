@@ -127,6 +127,36 @@ class SemanticScholarAdapter:
         items = [item.get("citingPaper", item) for item in (raw.get("data") or [])]
         return [_s2_item_to_hit(p) for p in items]
 
+    def get(
+        self,
+        paper_id: str,
+        *,
+        fields: str = "title,year,authors,externalIds,abstract,citationCount,openAccessPdf",
+    ) -> PaperHit | None:
+        """Fetch a single paper's own metadata (top-level ``externalIds``),
+        e.g. to enrich a doi/arXiv id with S2's fuller id set (s2 corpus id,
+        MAG, PMID) at identifier-persistence write time (``rv research add``).
+
+        Best-effort, deliberately NOT ``sys.exit`` on failure (unlike
+        ``search``/``cited_by``/``references``, which are primary
+        user-facing actions): this is an optional enrichment call a caller
+        already has a fallback for (the doi/arXiv id it started with), so a
+        transient asta failure must degrade gracefully, never abort the
+        caller's whole operation. Returns None on any failure (non-zero
+        exit, unparseable JSON, empty body).
+        """
+        cmd = ["asta", "papers", "get", paper_id, "--fields", fields, "--format", "json"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            return None
+        try:
+            raw = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            return None
+        if not raw or not isinstance(raw, dict):
+            return None
+        return _s2_item_to_hit(raw)
+
     def references(
         self,
         paper_id: str,

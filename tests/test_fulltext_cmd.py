@@ -137,6 +137,84 @@ class TestCmdFulltextFullTextPath:
         assert "full_text_url: https://arxiv.org/pdf/1706.03762.pdf" in text
 
 
+class TestReadIdentifiersFromFiledNoteNoReResolution:
+    """Identifier-persistence read path: `rv research fulltext` reads a
+    filed note's persisted identifiers instead of re-resolving them.
+
+    Drives the REAL provider selection (`sources.enrich.PMCProvider`, whose
+    `can_handle`/`fetch` read `hit.external_ids["pmcid"]` exactly as
+    production code does) — not a monkeypatched seam standing in for it.
+    Only the actual network boundary (`enrich._http_get_bytes`) is
+    monkeypatched; `subprocess.run` is blocked entirely to PROVE no adapter
+    call (asta/S2/etc.) — i.e. no identifier re-resolution — occurs when the
+    id already lives in the note's frontmatter.
+    """
+
+    def test_pmcid_read_from_note_drives_real_pmc_provider(
+        self, tmp_instance, monkeypatch, capsys,
+    ) -> None:
+        import subprocess as _subprocess
+
+        cfg = load_config(reload=True)
+        lit_dir = cfg.project_notes_dir("demo-research") / "literature"
+        lit_dir.mkdir(parents=True, exist_ok=True)
+        note = lit_dir / "pmcread2026.md"
+        # Identifier-persistence write path already ran (rv research add) —
+        # the note carries a persisted pmcid, no other id.
+        note.write_text(
+            "---\ntype: literature\ncitekey: pmcread2026\npmcid: PMC7654321\n---\n\nBody.\n",
+            encoding="utf-8",
+        )
+
+        # The real PMC provider (sources/enrich.py) — no fake stand-in.
+        from research_vault.sources.enrich import PMCProvider
+
+        monkeypatch.setattr(
+            enrich_mod, "default_fetch_providers", lambda **kw: [PMCProvider()],
+        )
+
+        body_text = (
+            "Real full-text body pulled via pmcid, no CLI flag supplied. " * 10
+        )
+        jats_xml = f"<article><body><p>{body_text}</p></body></article>"
+
+        def _fake_http_get_bytes(url, *, timeout=20):
+            assert "PMC7654321" in url  # the id from the NOTE reached the fetch URL
+            return jats_xml.encode("utf-8"), "application/xml"
+
+        monkeypatch.setattr(enrich_mod, "_http_get_bytes", _fake_http_get_bytes)
+
+        # No id flags at all on the CLI args — the note is the only source.
+        def _forbidden_subprocess(*a, **kw):
+            raise AssertionError(
+                "identifier re-resolution occurred (subprocess.run called) — "
+                "the persisted note pmcid should have made this unnecessary",
+            )
+
+        monkeypatch.setattr(_subprocess, "run", _forbidden_subprocess)
+
+        args = _args(project="demo-research", citekey="pmcread2026")
+        rc = fulltext.cmd_fulltext(args)
+        assert rc == 0
+
+        text = note.read_text(encoding="utf-8")
+        assert "read_basis: full-text" in text
+        assert "full_text_provider: pmc" in text
+        # The persisted pmcid is untouched (still in the note, never mutated
+        # by the fulltext read path).
+        assert "pmcid: PMC7654321" in text
+
+    def test_no_flags_no_note_ids_degrades_to_abstract_only(
+        self, tmp_instance, capsys,
+    ) -> None:
+        # Sanity: absent note / absent ids -> the existing abstract-only
+        # degrade path (unchanged by the read-from-note wiring).
+        args = _args(project="demo-research", citekey="noidsatall2026")
+        rc = fulltext.cmd_fulltext(args)
+        assert rc == 0
+        assert "abstract-only" in capsys.readouterr().out
+
+
 class TestCliWiring:
     def test_research_fulltext_reaches_the_dispatcher(self, tmp_instance) -> None:
         # No identifiers -> all providers decline -> exit 0 (graceful degrade).

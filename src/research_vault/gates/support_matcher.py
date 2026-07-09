@@ -437,6 +437,10 @@ def _read_note_structured_fields(note_path: Path) -> dict[str, str]:
         # metadata about HOW the note was read, not substantive claim
         # content the judge should weigh.
         "read_basis", "full_text_provider", "oa_status", "full_text_url",
+        # identifier-persistence: the fuller external-id set persisted at
+        # `rv research add` time (sources/identifiers.py). Provenance/
+        # bookkeeping — never substantive claim content the judge weighs.
+        "pmcid", "openalex", "pmid", "s2",
     })
 
     result: dict[str, str] = {}

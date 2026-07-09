@@ -21,13 +21,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
 from .config import Config, load_config
 from .sources.base import PaperHit
 from .sources.enrich import FetchResult, enrich_hit, providers_from_config
+from .sources.identifiers import read_external_ids_from_note, stamp_note_frontmatter
+
+__all__ = [
+    "build_parser",
+    "cmd_fulltext",
+    "run",
+    "stamp_note_frontmatter",
+]
 
 
 def build_parser(
@@ -64,8 +71,18 @@ def build_parser(
     return p
 
 
-def _hit_from_args(args: argparse.Namespace) -> PaperHit:
-    external_ids: dict[str, str] = {}
+def _hit_from_args(args: argparse.Namespace, note_external_ids: dict[str, str] | None = None) -> PaperHit:
+    """Build the PaperHit the OA fetch waterfall runs against.
+
+    Identifier-persistence (read path): *note_external_ids* — the id set
+    ``read_external_ids_from_note`` reconstructed from the filed literature
+    note's frontmatter, if any — seeds the defaults; explicit CLI flags
+    always override (a caller who passes ``--doi`` deliberately wins over
+    whatever the note carries). This is the no-re-resolution path: the
+    relate-<key> subagent (and any other caller) can invoke this tool with
+    NO id flags at all once the note already has ids persisted at add-time.
+    """
+    external_ids: dict[str, str] = dict(note_external_ids or {})
     if args.doi:
         external_ids["doi"] = args.doi
     if args.arxiv:
@@ -99,50 +116,10 @@ def _note_path_for(cfg: Config, project: str, citekey: str) -> Path:
     return cfg.project_notes_dir(project) / "literature" / f"{citekey}.md"
 
 
-def stamp_note_frontmatter(note_path: Path, fields: dict[str, str]) -> bool:
-    """Stamp/replace scalar frontmatter *fields* in *note_path* in place.
-
-    Regex-replaces an existing ``key: value`` line if present; otherwise
-    injects a new ``key: value`` line just before the closing ``---``
-    delimiter. Mirrors the existing stamp-or-inject convention used
-    elsewhere in the codebase (e.g. review's ``status:`` stamp) rather than
-    reserializing the whole frontmatter (which would risk corrupting fields
-    this module doesn't know about).
-
-    Returns False (no-op) if *note_path* does not exist — the caller treats
-    this as "note not filed yet, nothing to stamp" (not an error; the
-    subagent will file the note itself with these fields, or call this tool
-    again after filing).
-    """
-    if not note_path.is_file():
-        return False
-    text = note_path.read_text(encoding="utf-8")
-    if not text.startswith("---"):
-        return False
-
-    lines = text.split("\n")
-    # Locate the closing '---' (second occurrence).
-    delim_idxs = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
-    if len(delim_idxs) < 2:
-        return False
-
-    for key, value in fields.items():
-        pattern = re.compile(rf"^({re.escape(key)}:\s*).*$", re.MULTILINE)
-        if pattern.search(text) is not None:
-            # Existing field — replace in place (never a string-equality
-            # check: the new value can legitimately equal the old one, which
-            # would falsely read as "no match" and duplicate-inject).
-            text = pattern.sub(lambda m, v=value: f"{m.group(1)}{v}", text, count=1)
-        else:
-            # Inject before the closing delimiter.
-            lines = text.split("\n")
-            delim_idxs = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
-            close_idx = delim_idxs[1]
-            lines.insert(close_idx, f"{key}: {value}")
-            text = "\n".join(lines)
-
-    note_path.write_text(text, encoding="utf-8")
-    return True
+# ``stamp_note_frontmatter`` now lives in sources/identifiers.py (the
+# canonical stamp-or-inject helper, shared with the identifier-persistence
+# write path) — imported above and re-exported here for backward
+# compatibility (existing callers/tests reference ``fulltext.stamp_note_frontmatter``).
 
 
 def _provenance_fields(result: FetchResult | None) -> dict[str, str]:
@@ -163,14 +140,20 @@ def cmd_fulltext(args: argparse.Namespace) -> int:
         print(f"rv research fulltext: config error: {e}", file=sys.stderr)
         return 1
 
-    hit = _hit_from_args(args)
+    # Identifier-persistence (read path): if the literature note is already
+    # filed and carries a persisted external-id set (stamped at
+    # `rv research add` time), read it — no network re-resolution needed to
+    # reach pmcid/openalex/etc. Explicit CLI id flags still override.
+    note_path = _note_path_for(cfg, args.project, args.citekey)
+    note_external_ids = read_external_ids_from_note(note_path)
+
+    hit = _hit_from_args(args, note_external_ids=note_external_ids)
     cache_dir = _cache_dir_for(cfg, args.project)
     providers = providers_from_config(cfg)
 
     result = enrich_hit(hit, providers=providers, cache_dir=cache_dir)
     prov = _provenance_fields(result)
 
-    note_path = _note_path_for(cfg, args.project, args.citekey)
     stamped = stamp_note_frontmatter(note_path, prov)
 
     if result is None:
