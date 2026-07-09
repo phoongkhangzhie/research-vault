@@ -214,10 +214,10 @@ class TestCheckTierMatrix:
     """rv check extends to report Tier-1/2 coverage matrix."""
 
     def test_tier1_packages_registry_count(self):
-        """_TIER1_PACKAGES has exactly 28 packages (SR-MODEL-SEAM: weave promoted to core)."""
+        """_TIER1_PACKAGES has exactly 29 packages (0.3.0: pymupdf promoted to core)."""
         from research_vault.check import _TIER1_PACKAGES
-        assert len(_TIER1_PACKAGES) == 28, (
-            f"Expected exactly 28 Tier-1 core packages, got {len(_TIER1_PACKAGES)}"
+        assert len(_TIER1_PACKAGES) == 29, (
+            f"Expected exactly 29 Tier-1 core packages, got {len(_TIER1_PACKAGES)}"
         )
 
     def test_tier1_packages_registry_is_non_empty(self):
@@ -567,9 +567,10 @@ class TestRegistryAndHelpCheck:
         )
 
     def test_pyproject_tier1_not_empty(self):
-        """pyproject.toml [project].dependencies has exactly 28 Tier-1 core packages.
+        """pyproject.toml [project].dependencies has exactly 29 Tier-1 core packages.
 
-        SR-MODEL-SEAM: weave promoted from [observability] extra to core — count is 28.
+        SR-MODEL-SEAM: weave promoted from [observability] extra to core — count was 28.
+        OA-fulltext-enrichment (0.3.0): pymupdf promoted to core — count is now 29.
         """
         import tomllib
         pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
@@ -577,8 +578,8 @@ class TestRegistryAndHelpCheck:
             data = tomllib.load(f)
         # Count only real package entries (skip comment-only lines — toml strips those)
         deps = data["project"]["dependencies"]
-        assert len(deps) == 28, (
-            f"Expected exactly 28 Tier-1 default dependencies (SR-MODEL-SEAM: weave core), got {len(deps)}"
+        assert len(deps) == 29, (
+            f"Expected exactly 29 Tier-1 default dependencies (0.3.0: pymupdf core), got {len(deps)}"
         )
 
     def test_pyproject_has_local_extra(self):

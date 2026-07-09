@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """cross_project.py — cross-project discovery and corroboration for Research Vault.
 
 When to use:

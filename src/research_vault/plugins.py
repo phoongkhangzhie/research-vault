@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """plugins.py — `rv plugins` — show registered static adapters + config-selected ones.
 
 When to use: ``rv plugins list`` to see which backends/notifiers/secret-stores

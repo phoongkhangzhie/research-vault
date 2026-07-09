@@ -637,6 +637,44 @@ def test_red_on_khang_word_still_flagged(tmp_path):
     assert_red(run_scan(tmp_path))
 
 
+def test_green_on_shields_io_stars_badge_for_canonical_repo(tmp_path):
+    """A README stars-badge referencing the canonical repo via img.shields.io
+    (PR #184 — README badges) passes. The badge URL does NOT start with
+    'github.com/' (it's img.shields.io/github/stars/<owner>/<repo>), so it's
+    a DISTINCT allowlist case from the github.com/ URL mask — must be
+    explicitly covered, not accidentally caught by the existing mask."""
+    write_doc(
+        tmp_path,
+        '<a href="https://github.com/phoongkhangzhie/research-vault/stargazers">'
+        '<img src="https://img.shields.io/github/stars/phoongkhangzhie/'
+        'research-vault?style=social" alt="GitHub stars"></a>\n',
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_red_on_shields_io_stars_badge_non_canonical_repo(tmp_path):
+    """img.shields.io stars badge for a DIFFERENT repo still fails — the
+    shields.io allowlist mask stays research-vault-specific, teeth intact."""
+    write_doc(
+        tmp_path,
+        '<img src="https://img.shields.io/github/stars/phoongkhangzhie/'
+        'other-project?style=social" alt="GitHub stars">\n',
+    )
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_shields_io_stars_badge_plus_bare_handle_same_line(tmp_path):
+    """Co-occurrence regression for the new shields.io mask: the allowlisted
+    badge URL + a bare @phoongkhangzhie handle on the SAME line must still
+    surface the bare handle (mask-then-recheck, not line-drop)."""
+    content = (
+        '<img src="https://img.shields.io/github/stars/phoongkhangzhie/'
+        'research-vault?style=social"> and contact @phoongkhangzhie directly\n'
+    )
+    write_doc(tmp_path, content)
+    assert_red(run_scan(tmp_path))
+
+
 # ---------------------------------------------------------------------------
 # Co-occurrence regression (mask-then-recheck fix)
 # These are the exact cases Argus proved were GREEN under the old line-DROP

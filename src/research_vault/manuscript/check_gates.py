@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/check_gates.py — the INTEGRATION PR: assemble the manuscript-loop
 gates the parallel wave (M2/M3/M4/M6) built but never wired together.
 

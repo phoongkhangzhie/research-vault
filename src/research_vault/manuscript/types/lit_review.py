@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/types/lit_review.py — the ``lit-review`` ManuscriptType (PR-M6).
 
 Fills the PR-M1 stub with the survey's real machinery (design §3-§5):

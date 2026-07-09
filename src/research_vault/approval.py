@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """approval.py — `rv approval` verb for SR-APPROVE-GATE.
 
 Subverbs:

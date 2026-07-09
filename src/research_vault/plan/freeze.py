@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """plan/freeze.py — K-3 covers:-freeze-set hash (SR-PLAN-1, §5K.5.1).
 
 PURPOSE (§5K.5.1 K-3 FIX)

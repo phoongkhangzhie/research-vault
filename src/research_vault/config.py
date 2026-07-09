@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """config.py — the config plane SSOT for Research Vault.
 
 When to use: import `load_config()` whenever a verb needs to resolve a path or adapter.
@@ -162,6 +163,17 @@ def _default_config() -> dict[str, Any]:
             "run_logging": False,
             "wandb_project": "",
         },
+        # OA-fulltext-enrichment (tier 1, 0.3.0): unpaywall_email is a REQUIRED
+        # contact-info query param on Unpaywall's API terms (a config value,
+        # not a credential/secret — stays reproducible). Absent -> the
+        # unpaywall provider self-skips and says so in the run log, never
+        # silently. pdf_backend is currently informational only (pymupdf is
+        # the sole core PDF backend as of 0.3.0 — no adopter-selectable
+        # alternates shipped yet).
+        "fulltext": {
+            "unpaywall_email": "",
+            "pdf_backend": "pymupdf",
+        },
     }
 
 
@@ -273,6 +285,8 @@ class Config:
         # SR-MODEL-SEAM: observability config block (backend/run_logging/wandb_project).
         # Empty dict when absent so callers can .get(...) with defaults.
         self.observability: dict[str, Any] = raw.get("observability", {})
+        # OA-fulltext-enrichment: [fulltext] config block (see _default_config).
+        self.fulltext: dict[str, Any] = raw.get("fulltext", {})
         self.projects: dict[str, dict[str, Any]] = raw.get("projects", {})
         # SR-HARDENING: slug-collision guard — reject project slugs that collide
         # with OKF type names. Such slugs silently shadow note routing (the project

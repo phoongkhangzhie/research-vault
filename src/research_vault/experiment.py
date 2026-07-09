@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """experiment.py — `rv experiment new` scaffolder (SR-HUB-DAG §B).
 
 Purpose

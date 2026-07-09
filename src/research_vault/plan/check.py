@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """plan/check.py — shape-lint for pre-registered experiment plans (SR-PLAN-1/2, K-2).
 
 REJECTS-ONLY structural screen (charter §9): can only FAIL an ill-formed plan,

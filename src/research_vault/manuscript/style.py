@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/style.py — the manuscript-loop style seam (PR-M1, type-generic).
 
 Mirrors ``review/style.py``'s tips-seam pattern (design §2's module layout: the

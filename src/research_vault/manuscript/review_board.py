@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/review_board.py — PR-M5: the bounded-unroll review-revise loop
 MACHINERY (2 rounds x 3 conference-style reviewers).
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """observability_cli.py — SR-MODEL-SEAM: the `rv observability` verb.
 
 When to use: DISCOVER + TEST your model-seam observability wiring BEFORE a long run

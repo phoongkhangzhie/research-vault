@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """support_matcher.py — claim→source support-matcher (SR-MS-2).
 
 SHAREABLE LOCATION (D-SV-0, PR-M3): lives in research_vault.gates — a
@@ -382,6 +383,17 @@ def _read_note_structured_fields(note_path: Path) -> dict[str, str]:
     Returns a flat dict of non-empty fields (str values only).
 
     Does NOT read the paper's own abstract (anti-positivity move 2).
+
+    ★ OA-fulltext-enrichment (tier 1, 0.3.0): this contract is DELIBERATELY
+    UNCHANGED by full-text enrichment. The judge still only ever sees these
+    structured fields (## Result / findings / metrics, etc.) — never the
+    paper's raw full-text body, and never the abstract. What changes is
+    UPSTREAM: the note's `## Result` section is now written from full text
+    when available, so it carries a real magnitude/conditions/limitations
+    span instead of abstract-level vagueness — the judge gets better
+    evidence to adjudicate against, with its adversarial, abstract-blind
+    contract fully intact. See design 2026-07-08-oa-fulltext-enrichment.md
+    §4.2 for the exact chain.
     """
     if not note_path.exists():
         return {}
@@ -421,6 +433,10 @@ def _read_note_structured_fields(note_path: Path) -> dict[str, str]:
         "results_location", "results_hash", "results_commit",
         "manuscript_pdf", "manuscript_hash", "backed_by", "closes",
         "covers", "dag_run", "synthesized_okf",
+        # OA full-text-enrichment provenance fields (tier 1) — pointers/
+        # metadata about HOW the note was read, not substantive claim
+        # content the judge should weigh.
+        "read_basis", "full_text_provider", "oa_status", "full_text_url",
     })
 
     result: dict[str, str] = {}

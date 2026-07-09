@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/derivative.py — ``derivative-of`` overlap discounting (NG-9, HR-craft
 rec 3, §7.3 — "recommended", promoted from optional).
 

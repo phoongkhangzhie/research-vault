@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """project_edges.py — hub-owned cross-project edge store for Research Vault (SR-XPB).
 
 When to use:

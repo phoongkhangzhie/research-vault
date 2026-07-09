@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/pubmed.py — PubMedAdapter (NG-2, opt-in source per D4 — bio/medical RQs).
 
 NCBI E-utilities (esearch + esummary), stdlib ``urllib``/``json`` only — no
@@ -55,6 +56,11 @@ def _doc_to_hit(pmid: str, doc: dict[str, Any]) -> PaperHit:
     for aid in doc.get("articleids") or []:
         if aid.get("idtype") == "doi" and aid.get("value"):
             external_ids["doi"] = aid["value"]
+        # OA-fulltext-enrichment: PMCID is what the `pmc` provider needs
+        # (EuropePMC/NCBI OA full-text JATS XML) — surface it when esummary
+        # carries one (not every PubMed record has a PMC deposit).
+        if aid.get("idtype") == "pmc" and aid.get("value"):
+            external_ids["pmcid"] = aid["value"]
 
     authors = [
         a.get("name", "").strip()

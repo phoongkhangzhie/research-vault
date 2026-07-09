@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/arxiv.py — ArxivAdapter (NG-2, breadth source #2).
 
 arXiv's public API (export.arxiv.org Atom feed) has no citation graph — a
@@ -62,6 +63,10 @@ def _parse_atom_entry(entry: ET.Element) -> PaperHit:
     if doi:
         external_ids["doi"] = doi.strip()
 
+    # OA-fulltext-enrichment: every arXiv preprint IS open access — the PDF
+    # URL is trivially derivable from the id, no extra request needed.
+    oa_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf" if arxiv_id else None
+
     return PaperHit(
         title=title,
         year=year,
@@ -71,6 +76,9 @@ def _parse_atom_entry(entry: ET.Element) -> PaperHit:
         citation_count=0,  # arXiv does not expose citation counts
         source="arxiv",
         raw={"entry_id": entry_id},
+        oa_url=oa_url,
+        oa_status="green" if oa_url else None,
+        oa_source="arxiv" if oa_url else None,
     )
 
 

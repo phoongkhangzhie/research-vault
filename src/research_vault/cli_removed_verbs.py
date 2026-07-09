@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """cli_removed_verbs.py — D1 (verb consolidation, HARD-REMOVE — the
 operator resolved this deliberately): shared redirect-breadcrumb stub for
 a step-verb collapsed into DAG node-execution.

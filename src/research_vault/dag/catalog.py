@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """dag/catalog.py — static catalog SSOT for the two built-in research loops (SR-HUB-DAG).
 
 Purpose

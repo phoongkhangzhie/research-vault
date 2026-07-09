@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/base.py — the SourceAdapter protocol + the normalized PaperHit record.
 
 NG-1 (breadth-then-depth, §4.1). One narrow interface every source-adapter
@@ -65,6 +66,15 @@ class PaperHit:
     # source count is below the floor at selection time — "boundary item,
     # needs more sources / snowball attention", never "drop it".
     below_floor: bool = field(default=False, compare=False)
+
+    # OA-fulltext-enrichment (tier 1, 0.3.0): optional, small, provenance-only
+    # OA pointers an adapter captured at search time but did not previously
+    # keep. Never the full-text body itself (that is large — 100 KB-1 MB per
+    # paper — and lives in the sources/enrich.py cache + the note, not on the
+    # hit; see sources/enrich.py FetchResult).
+    oa_url: str | None = field(default=None, compare=False)
+    oa_status: str | None = field(default=None, compare=False)
+    oa_source: str | None = field(default=None, compare=False)
 
 
 @runtime_checkable

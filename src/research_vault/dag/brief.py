@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """brief.py — SR-DAG-BRIEF: deterministic crew dispatch brief emitter.
 
 Every agent node in a DAG run needs a dispatch brief: a grounded, role-framing

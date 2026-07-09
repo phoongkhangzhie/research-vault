@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/ranker.py — the 6-dim utility score + the saturation-paired floor
 (NG-3, HR-craft rec 2, §7.2).
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """review/relate_check.py — PR-1/PR-2/PR-4/PR-5 relate presence check (Wave 0).
 
 Design: docs/superpowers/specs/2026-07-08-next-gen-lit-review-loop-design.md §5,

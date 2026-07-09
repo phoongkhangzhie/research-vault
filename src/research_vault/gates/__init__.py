@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """gates — shared LLM-judged research-integrity gates for Research Vault (PR-M3).
 
 ★ SHAREABLE LOCATION (D-SV-0). The removed ``manuscript/support_matcher.py``

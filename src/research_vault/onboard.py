@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """onboard.py — `rv onboard` — guided, idempotent first-run setup.
 
 The adopter-facing front door for unlocking features.  Walks the ordered steps

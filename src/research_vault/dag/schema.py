@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """schema.py — DAG manifest schema for Research Vault (SR-3 + SR-DISP + SR-SCOPE + SR-RETRY).
 
 JSON manifest format:

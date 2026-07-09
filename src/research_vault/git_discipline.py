@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """git_discipline.py — identity-free git-discipline layer for Research Vault.
 
 When to use: ``rv git-discipline`` to install/manage git hooks that enforce

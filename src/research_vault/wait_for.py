@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """wait_for.py — the §R wait primitive for Research Vault.
 
 When to use: ``rv wait-for <watch> [--then '<cmd>'] [--timeout <secs>] [--interval <secs>]``

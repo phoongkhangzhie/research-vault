@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """keys.py — the credential / feature registry (the F4 SSOT).
 
 Single source of truth for:

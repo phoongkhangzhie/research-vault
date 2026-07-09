@@ -261,6 +261,76 @@ class TestAntiAnchoring:
         )
         assert "revolutionary breakthrough" not in prompt
 
+    def test_oa_fulltext_enrichment_contract_unchanged(self, tmp_path):
+        """OA-fulltext-enrichment (tier 1, 0.3.0): the support-matcher's
+        contract does NOT change. A note whose `## Result` is now full-text-
+        derived (real magnitude/conditions/limitations, not abstract-level
+        vagueness) still only surfaces via the SAME structured-field path —
+        an `## Abstract` section (even one present alongside a rich full-text
+        body) stays excluded, and the judge still gets a quotable verbatim
+        span from `## Result` alone. This is the exact "closes Moon/Kim/
+        Zhang" mechanism (design §4.2): richer evidence, unchanged contract.
+        """
+        from research_vault.gates.support_matcher import match_support
+
+        lit_dir = tmp_path / "literature"
+        lit_dir.mkdir(parents=True)
+        note = lit_dir / "richfulltext2026.md"
+        note.write_text(
+            "---\ntype: literature\nread_basis: full-text\n"
+            "full_text_provider: arxiv-pdf\noa_status: green\n---\n"
+            "## Abstract\n"
+            "We present a groundbreaking new method (self-serving framing).\n\n"
+            "## Result\n"
+            "On the held-out benchmark, our method reaches 12.4 points higher "
+            "accuracy than the baseline (78.9% vs 66.5%), averaged over five "
+            "random seeds. Limitations: results were only measured on English "
+            "text; generalization to other languages is untested.\n",
+            encoding="utf-8",
+        )
+        v = match_support(
+            "The method improves accuracy by 12.4 points over the baseline "
+            "\\cite{richfulltext2026}.",
+            "richfulltext2026", note,
+            judge_fn=lambda prompt: (
+                "VERDICT: [SUPPORTS]\n"
+                "VERBATIM_SPAN: our method reaches 12.4 points higher accuracy "
+                "than the baseline (78.9% vs 66.5%)\n"
+                "POLARITY: positive\n"
+                "REASONING: quoted verbatim from the Result section.\n"
+            ),
+        )
+        assert v.verdict == "SUPPORTS"
+        assert "groundbreaking" not in (v.verbatim_span or "")
+
+    def test_oa_provenance_fields_excluded_from_structured_fields(self, tmp_path):
+        """The OA-fulltext-enrichment provenance fields (`read_basis`,
+        `full_text_provider`, `oa_status`, `full_text_url`) are stamped as
+        flat frontmatter (tier 1) — they are pointers/metadata about HOW the
+        note was read, not substantive claim content. They must never reach
+        the judge prompt as noise (kz-argus follow-up, PR #184)."""
+        from research_vault.gates.support_matcher import _read_note_structured_fields
+        lit_dir = tmp_path / "literature"
+        lit_dir.mkdir(parents=True)
+        note = lit_dir / "provfields2026.md"
+        note.write_text(
+            "---\ntype: literature\n"
+            "read_basis: full-text\n"
+            "full_text_provider: unpaywall\n"
+            "oa_status: gold\n"
+            "full_text_url: https://example.org/paper.pdf\n"
+            "---\n"
+            "## Result\n"
+            "Observed accuracy: 88%.\n",
+            encoding="utf-8",
+        )
+        fields = _read_note_structured_fields(note)
+        assert "read_basis" not in fields
+        assert "full_text_provider" not in fields
+        assert "oa_status" not in fields
+        assert "full_text_url" not in fields
+        assert any("88" in v for v in fields.values())
+
 
 # ===========================================================================
 # 6. Scope extraction — rubric text must not contaminate the parsed verdict

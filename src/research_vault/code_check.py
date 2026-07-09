@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """code_check.py — repo-plane conventions gate: `rv code check <project>`.
 
 When to use: ``rv code check <project>`` validates the CODE TREE (not a note's
@@ -342,6 +343,11 @@ _SPDX_SIGNATURES: list[tuple[str, str]] = [
     ("Apache-2.0", "Apache License"),
     ("BSD-3-Clause", "Redistribution and use in source and binary forms"),
     ("BSD-2-Clause", "Redistribution and use in source and binary forms"),
+    # AGPL-3.0 checked before GPL-3.0: "GNU AFFERO GENERAL PUBLIC LICENSE" does
+    # not contain "GNU GENERAL PUBLIC LICENSE" as a substring (AFFERO breaks
+    # it), so order doesn't strictly matter here, but keep AGPL first for
+    # readability since rv itself ships AGPL-3.0 (2026-07-08 relicense).
+    ("AGPL-3.0", "GNU AFFERO GENERAL PUBLIC LICENSE"),
     ("GPL-3.0", "GNU GENERAL PUBLIC LICENSE"),
     ("GPL-2.0", "GNU GENERAL PUBLIC LICENSE"),
     ("LGPL-3.0", "GNU LESSER GENERAL PUBLIC LICENSE"),

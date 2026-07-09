@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """store.py — atomic file state for DAG runs (SR-3).
 
 State file location: <config.state_dir>/dag/<run_id>.json

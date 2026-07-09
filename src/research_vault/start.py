@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """start.py — `rv start` — front door: launch Claude Code in the vault.
 
 When to use: ``rv start [<vault_path>]`` to verify the vault and launch Claude

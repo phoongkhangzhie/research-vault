@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """review — SR-LR-1: staged, pre-registered, saturation-gated literature review loop.
 
 The review loop is the manuscript loop's sibling — it composes SR-3 (DAG) with zero

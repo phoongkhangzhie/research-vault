@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """cli.py — the Research Vault CLI dispatcher.
 
 When to use: this is the entry point for the `rv` command. It dispatches to verb modules

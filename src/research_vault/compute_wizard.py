@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """compute_wizard.py — the guided `run_compute_wizard()` interactive flow.
 
 Net-new module (kept OUT of compute.py so it does not collide with concurrent

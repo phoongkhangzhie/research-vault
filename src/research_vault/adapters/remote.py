@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """adapters/remote.py — Remote ComputeBackend adapter (SR-7).
 
 One manifest-driven adapter for ssh, slurm, pbs, and generic archetypes.

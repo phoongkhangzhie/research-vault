@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """review/verbs.py — rv review subcommand dispatcher (SR-LR-1 + SR-LR-2 + SR-GAP-ROUTE + SR-GAP-CLOSE, §5L).
 
 When to use: use ``rv review new <project> <scope> --question '...'`` to start a

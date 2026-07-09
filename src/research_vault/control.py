@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """control.py — project coordination control-file management.
 
 When to use: use `rv control <project> <subcommand>` to initialize, read, update,

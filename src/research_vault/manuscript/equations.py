@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/equations.py — the don't-drop-the-math machinery (PR-M4).
 
 Three coordinated pieces (design §7, type-generic — applies to any

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """plan/ — pre-registered experiment + ablation plan support (SR-PLAN-1).
 
 Modules:

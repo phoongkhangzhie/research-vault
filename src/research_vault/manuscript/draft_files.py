@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/draft_files.py — RD-1: single source of truth for "which files
 make up the reader-facing draft" (next-gen lit-review design §6, Wave B).
 

@@ -648,7 +648,16 @@ class TestRetryDiagnosisDirective:
 
 class TestWalkerByteForByte:
     def test_walker_not_modified_by_sr_retry(self):
-        """walker.py must have no staged/unstaged changes relative to origin/main."""
+        """walker.py's PURE compute_frontier logic must have no substantive
+        changes relative to origin/main.
+
+        Exemption: the repo-wide SPDX-License-Identifier header stamp
+        (v0.3.0 AGPL relicense checklist, PR #184) adds exactly one
+        mechanical, no-op comment line to every src/research_vault/*.py
+        file, walker.py included. That single-line addition is the ONLY
+        diff this test tolerates — any other change (even one extra line)
+        still fails, preserving the original purity guarantee.
+        """
         import subprocess
         result = subprocess.run(
             ["git", "diff", "origin/main", "--", "src/research_vault/dag/walker.py"],
@@ -656,8 +665,23 @@ class TestWalkerByteForByte:
             text=True,
             cwd=Path(__file__).parent.parent,
         )
-        assert result.stdout.strip() == "", (
-            f"walker.py must be UNCHANGED from origin/main:\n{result.stdout}"
+        diff = result.stdout.strip()
+        allowed_spdx_diff_line = "+# SPDX-License-Identifier: AGPL-3.0-or-later"
+        added_lines = [
+            line for line in diff.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ]
+        removed_lines = [
+            line for line in diff.splitlines()
+            if line.startswith("-") and not line.startswith("---")
+        ]
+        is_spdx_only = (
+            diff == ""
+            or (added_lines == [allowed_spdx_diff_line] and removed_lines == [])
+        )
+        assert is_spdx_only, (
+            "walker.py must be UNCHANGED from origin/main (except the "
+            f"SPDX header stamp):\n{diff}"
         )
 
 

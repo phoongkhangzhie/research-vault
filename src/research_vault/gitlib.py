@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """gitlib.py — shared git-utility functions for Research Vault.
 
 This module houses low-level git primitives that are consumed by multiple

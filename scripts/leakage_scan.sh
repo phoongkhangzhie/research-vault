@@ -279,9 +279,15 @@ _grep_literal_except() {
     # sed would mask the URL from the ENTIRE line including the filename, but the
     # final grep -F would still match on "phoongkhangzhie" in the filename (e.g.
     # pytest temp dirs like /pytest-of-phoongkhangzhie/...) causing false positives.
+    # PR #184 (README badges): img.shields.io/github/<kind>/<owner>/<repo>
+    # badge URLs (stars/forks/watchers) reference the SAME canonical repo
+    # identity as the github.com/ URL, just via a different badge CDN — they
+    # do NOT start with "github.com/" so need their own explicit mask
+    # (research-vault-specific, same as the github.com mask below).
     local _MASK_AWK='NF>=3{
         content=$3; for(i=4;i<=NF;i++) content=content":"$i
         gsub(/github[.]com\/phoongkhangzhie\/research-vault[A-Za-z0-9\/_.-]*/, "", content)
+        gsub(/img[.]shields[.]io\/github\/(stars|forks|watchers)\/phoongkhangzhie\/research-vault[A-Za-z0-9\/_.?=&-]*/, "", content)
         if(index(content, lit)>0) print $0
     }'
     if [ "$STAGED" -eq 1 ]; then

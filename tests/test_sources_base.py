@@ -18,6 +18,25 @@ def test_paperhit_defaults() -> None:
     assert hit.raw == {}
     assert hit.derivative_of is None
     assert hit.below_floor is False
+    # OA-fulltext-enrichment tier 1: optional, small provenance-only fields —
+    # absent by default (an adapter that never touches OA leaves them None).
+    assert hit.oa_url is None
+    assert hit.oa_status is None
+    assert hit.oa_source is None
+
+
+def test_paperhit_oa_fields_settable() -> None:
+    hit = PaperHit(
+        title="A Paper", year=2020, authors=["A. Author"],
+        external_ids={"doi": "10.1/x"}, abstract="abs", citation_count=5,
+        source="semantic-scholar",
+        oa_url="https://example.org/paper.pdf",
+        oa_status="gold",
+        oa_source="s2",
+    )
+    assert hit.oa_url == "https://example.org/paper.pdf"
+    assert hit.oa_status == "gold"
+    assert hit.oa_source == "s2"
 
 
 def test_notsupported_is_exception() -> None:

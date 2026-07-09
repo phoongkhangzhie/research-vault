@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """controllib.py — shared control-plane parser for Research Vault.
 
 ONE parser for control-file artifacts, used by BOTH faces of the plane:

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """doctor.py — `rv doctor` — principled DISCOVER → PROPOSE → CONFIRM → LEARN.
 
 When to use: ``rv doctor`` to probe and cache which capabilities are available

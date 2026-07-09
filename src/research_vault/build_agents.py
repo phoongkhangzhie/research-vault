@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """build_agents.py — agent hat file generation for Research Vault.
 
 When to use: ``rv build-agents [--target {agents-dir,claude-code}]``

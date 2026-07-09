@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """research.py — unified research-tooling namespace for Research Vault.
 
 When to use: ``rv research <subcommand>`` for Semantic Scholar search/find,
@@ -1017,6 +1018,12 @@ def build_parser(
         redirect="rv dag run <phase1-manifest> (the review-search node runs the width-sweep automatically)",
     )
 
+    # fulltext — OA-first full-text enrichment (tier 1, read-time; §8.6 of
+    # the design doc). Delegates to fulltext.py — kept out of this already-
+    # large module.
+    from .fulltext import build_parser as _build_fulltext_parser
+    _build_fulltext_parser(sub)
+
     return p
 
 
@@ -1036,6 +1043,9 @@ def run(args: argparse.Namespace) -> int:
             return cmd_add(args)
         elif cmd == "corroborate":
             return cmd_corroborate(args)
+        elif cmd == "fulltext":
+            from .fulltext import cmd_fulltext
+            return cmd_fulltext(args)
         else:
             print(f"rv research: unknown subcommand {cmd!r}", file=sys.stderr)
             return 1

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """compute.py — `rv compute` — compute manifest: declare + discover "how to run here".
 
 DECLARE → DISCOVER ordering (SR-CO):

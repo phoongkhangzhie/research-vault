@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources — the NG-1 source-adapter abstraction (breadth-then-depth, Wave A).
 
 One narrow protocol (``SourceAdapter``) that every literature-search backend

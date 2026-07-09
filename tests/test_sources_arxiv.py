@@ -41,6 +41,11 @@ def test_search_parses_atom_entries(monkeypatch) -> None:
     assert hit.external_ids["doi"] == "10.48550/arXiv.1706.03762"
     assert hit.source == "arxiv"
     assert hit.citation_count == 0
+    # OA-fulltext-enrichment: arXiv is trivially derivable OA (green) — every
+    # arXiv hit with an arxiv id gets an oa_url, no extra request needed.
+    assert hit.oa_url == "https://arxiv.org/pdf/1706.03762.pdf"
+    assert hit.oa_status == "green"
+    assert hit.oa_source == "arxiv"
 
 
 def test_cited_by_not_supported() -> None:

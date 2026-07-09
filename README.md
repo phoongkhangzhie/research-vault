@@ -1,4 +1,11 @@
-# Research Vault
+<h1 align="center">research-vault</h1>
+<p align="center"><em>A defensible, autonomous research harness</em></p>
+<p align="center">
+  <a href="https://pypi.org/project/research-vault/"><img src="https://img.shields.io/pypi/v/research-vault" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/research-vault/"><img src="https://img.shields.io/pypi/pyversions/research-vault" alt="Python versions"></a>
+  <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/License-AGPL%203.0-blue" alt="License: AGPL-3.0"></a>
+  <a href="https://github.com/phoongkhangzhie/research-vault/stargazers"><img src="https://img.shields.io/github/stars/phoongkhangzhie/research-vault?style=social" alt="GitHub stars"></a>
+</p>
 
 ![The Research Vault crew — Alfred (hub), Wren, Mason, Ada, Argus, and Iris](assets/hero-banner.png)
 
@@ -257,7 +264,7 @@ paths, not a re-typed summary.
 ## Install
 
 ```bash
-pip install research-vault      # a lean 28-package research toolkit
+pip install research-vault      # a lean 29-package research toolkit
 rv --help
 ```
 
@@ -265,7 +272,7 @@ The `rv` CLI and every verb run clean even with the toolkit absent (all toolkit
 imports are lazy) — so `pip install research-vault --no-deps` works, and
 `rv bootstrap` populates an isolated `.venv` if you need the full stack later.
 
-The 28-package core covers the model seam (**litellm** as the unified provider
+The 29-package core covers the model seam (**litellm** as the unified provider
 interface, plus the Anthropic SDK and a tokenizer), analysis (pandas, numpy,
 pyarrow, scipy, statsmodels, datasets), eval (inspect-ai, evaluate, sacrebleu,
 rouge-score), a multilingual set, integrations (**wandb** + **weave** for
@@ -354,7 +361,9 @@ are enforced by code you can read.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+AGPL-3.0-or-later. See [LICENSE](./LICENSE). (Relicensed from MIT at v0.3.0 —
+see DEVLOG.md 2026-07-08. Releases 0.1.0-0.2.8 remain MIT for already-
+distributed copies; the flip is go-forward only.)
 
 ## Contributing
 

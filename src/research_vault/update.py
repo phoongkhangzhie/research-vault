@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """update.py — `rv update` — refresh an existing vault's framework files.
 
 The gap this closes: ``pip install --upgrade research-vault`` updates the PACKAGE,

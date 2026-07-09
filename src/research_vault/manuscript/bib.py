@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """bib.py — PR-M2: hermetic ``.bib`` build + citation-resolve gate (design §6, D-SV-A).
 
 Re-instantiates the removed ``manuscript/bib.py`` (SR-RM-FIGMS deleted it),
