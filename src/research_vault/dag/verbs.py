@@ -1113,6 +1113,11 @@ def cmd_approve(args: argparse.Namespace) -> int:
     decision_note: str | None = getattr(args, "note", None) or None
     raw_outputs: list[str] = getattr(args, "output", None) or []
     reject: bool = bool(getattr(args, "reject", False))
+    # NG-4 §1: the autonomy flag — coverage-gate / approve-framework /
+    # approve-manuscript may be resolved by the gate-policy engine instead
+    # of a human keypress. approve-protocol is NEVER eligible (the one
+    # retained human gate, §1.1) — see the AUTONOMOUS_GATE_IDS check below.
+    auto: bool = bool(getattr(args, "auto", False))
 
     try:
         cfg = load_config()
@@ -1190,7 +1195,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     # ``spine_shape``+``branches``. Only the lit-review type registers a
     # Phase-1 with this node id; other types' Phase-1 (if any) never hits this
     # branch. --reject is the escape hatch, same convention as approve-protocol.
-    if node_id == "approve-framework" and not reject:
+    if node_id == "approve-framework" and not reject and not auto:
         manuscript_note_path = manifest_path.parent / "_manuscript.md"
         from ..manuscript.types.lit_review import check_framework_gate
         ok, msg = check_framework_gate(manuscript_note_path)
@@ -1205,7 +1210,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     # above exactly: ``manifest_path.parent`` IS the manuscript tree root
     # (Phase-2 manifests are written to ``manuscripts/<slug>/phase2-dag.json``,
     # sibling to ``_manuscript.md``). --reject is the same escape hatch.
-    if node_id == "approve-manuscript" and not reject:
+    if node_id == "approve-manuscript" and not reject and not auto:
         tree_root = manifest_path.parent
         manuscript_note_path = tree_root / "_manuscript.md"
         if manuscript_note_path.exists():
@@ -1329,6 +1334,97 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
+    # ── NG-4 §1: autonomous-gate dispatch ──────────────────────────────────
+    # coverage-gate / approve-framework / approve-manuscript may be resolved
+    # by the gate-policy engine (review/autonomy.py) instead of a human
+    # keypress. approve-protocol is DELIBERATELY excluded — it is the one
+    # retained human gate (§1.1) and is never eligible for --auto.
+    _AUTONOMOUS_GATE_IDS = frozenset({"coverage-gate", "approve-framework", "approve-manuscript"})
+    if auto and not reject and node_id in _AUTONOMOUS_GATE_IDS:
+        from ..review import autonomy as _autonomy
+
+        _disposition_result = None
+
+        if node_id == "coverage-gate":
+            snowball_node = nodes_lookup.get("review-snowball")
+            saturation_ref = None
+            if snowball_node is not None:
+                produces = snowball_node.get("produces")
+                if isinstance(produces, dict):
+                    saturation_ref = produces.get("_saturation.md")
+            if saturation_ref:
+                info = check_saturation_backstop(Path(saturation_ref))
+                gaps_path = Path(saturation_ref).parent / "_coverage-gaps.md"
+                _disposition_result = _autonomy.classify_coverage_gate(info, coverage_gaps_path=gaps_path)
+            else:
+                _disposition_result = _autonomy.DispositionResult(
+                    _autonomy.HALT_DECLARE,
+                    "coverage-gate --auto: no _saturation.md producer found upstream "
+                    "(review-snowball node missing/malformed) — cannot self-certify.",
+                )
+
+        elif node_id == "approve-framework":
+            manuscript_note_path = manifest_path.parent / "_manuscript.md"
+            from ..manuscript.types.lit_review import check_framework_gate as _cfg_check
+            _ok, _msg = _cfg_check(manuscript_note_path)
+            _disposition_result = _autonomy.classify_disposition(
+                _autonomy.evaluation_from_framework_gate(_ok, _msg)
+            )
+
+        elif node_id == "approve-manuscript":
+            tree_root = manifest_path.parent
+            manuscript_note_path = tree_root / "_manuscript.md"
+            if manuscript_note_path.exists():
+                from ..note import _parse_frontmatter as _pfm_auto
+                from ..manuscript.types import get_type as _get_ms_type_auto
+                from ..manuscript.check_gates import build_approve_payload as _bap
+
+                _text = manuscript_note_path.read_text(encoding="utf-8")
+                _fields, _ = _pfm_auto(_text)
+                _ms_type = _get_ms_type_auto(_fields.get("manuscript_type", ""))
+                if _ms_type is not None:
+                    _project_notes_dir = tree_root.parent.parent
+                    _payload = _bap(tree_root, _project_notes_dir, _ms_type)
+                    _disposition_result = _autonomy.classify_disposition(
+                        _autonomy.evaluation_from_structural_payload(_payload)
+                    )
+                else:
+                    _disposition_result = _autonomy.DispositionResult(
+                        _autonomy.HALT_DECLARE,
+                        f"approve-manuscript --auto: manuscript_type "
+                        f"{_fields.get('manuscript_type', '')!r} is unrecognized — "
+                        "cannot self-certify with no registered fidelity gates.",
+                    )
+            else:
+                _disposition_result = _autonomy.DispositionResult(
+                    _autonomy.HALT_DECLARE,
+                    f"approve-manuscript --auto: {manuscript_note_path} not found.",
+                )
+
+        print(
+            f"rv dag approve --auto: {node_id!r} disposition = "
+            f"{_disposition_result.disposition} — {_disposition_result.reason}",
+            file=sys.stderr,
+        )
+
+        if _disposition_result.disposition == _autonomy.REVISE:
+            print(
+                f"rv dag approve --auto: {node_id!r} needs a bounded auto-revise "
+                "round before it can autonomously GO — dispatch the revise node "
+                "and re-run `rv dag approve --auto` (NG-5). The node remains "
+                "'awaiting-go' — no state change.",
+                file=sys.stderr,
+            )
+            return 2
+        if _disposition_result.disposition == _autonomy.HALT_DECLARE:
+            # A HALT-DECLARE is a first-class NOT-CLEARED artifact — surface
+            # it loudly and reject the gate (never silently pass, charter §2).
+            reject = True
+            if decision_note is None:
+                decision_note = f"HALT-DECLARE (auto): {_disposition_result.reason}"
+        # GO / GO-WITH-RESIDUE: fall through to the normal approve path below
+        # (reject stays False) — the gate resolves autonomously.
+
     # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
     #
     # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]
@@ -1404,13 +1500,25 @@ def cmd_approve(args: argparse.Namespace) -> int:
     # SR-APPROVE-GATE: human-presence check — BEFORE any state write.
     # Covers both approve (→ succeeded) and --reject (→ blocked).
     # Fail-closed: non-TTY + no valid token → return 1, state UNCHANGED.
-    from .approval import check_human_presence
-    from ..adapters.base import EnvSecretStore
-    _secrets = EnvSecretStore()
-    _ok, _method, _approver, _reason = check_human_presence(args, cfg, _secrets)
-    if not _ok:
-        print(_reason, file=sys.stderr)
-        return 1
+    #
+    # NG-4 §1: an autonomous-gate node resolved via --auto (coverage-gate /
+    # approve-framework / approve-manuscript) is DELIBERATELY exempt — the
+    # whole point of §1.1's autonomy program is that no human keypress is
+    # required at these three gates; the gate-policy engine's disposition
+    # (stamped in decision_note above) IS the authorizing decision, and it
+    # is itself grounded in mechanical, reproducible gates. approve-protocol
+    # (the one retained human gate) is never in _AUTONOMOUS_GATE_IDS, so it
+    # always falls through to the human-presence check below.
+    if auto and node_id in _AUTONOMOUS_GATE_IDS:
+        _method, _approver = "autonomous-gate-policy-engine", "review.autonomy"
+    else:
+        from .approval import check_human_presence
+        from ..adapters.base import EnvSecretStore
+        _secrets = EnvSecretStore()
+        _ok, _method, _approver, _reason = check_human_presence(args, cfg, _secrets)
+        if not _ok:
+            print(_reason, file=sys.stderr)
+            return 1
 
     # F13: determine final status (approve → succeeded; reject → blocked).
     final_status = "blocked" if reject else "succeeded"
@@ -1954,6 +2062,21 @@ def build_parser(
             "SR-APPROVE-GATE: skip the confirmation keystroke when a TTY is present. "
             "Has NO EFFECT when stdin is not a TTY — the gate still fails closed "
             "(use a provisioned token for non-interactive approval instead)."
+        ),
+    )
+    app_p.add_argument(
+        "--auto",
+        action="store_true",
+        default=False,
+        help=(
+            "NG-4: resolve this gate via the gate-policy engine "
+            "(review/autonomy.py) instead of a human keypress. Only valid on "
+            "coverage-gate / approve-framework / approve-manuscript — the "
+            "three autonomous gates (§1.1). approve-protocol is NEVER "
+            "eligible (the one retained human gate) and ignores --auto. "
+            "GO/GO-WITH-RESIDUE -> approved; HALT-DECLARE -> rejected with "
+            "the NOT-CLEARED reason recorded; REVISE -> exit 2, no state "
+            "change (dispatch a bounded auto-revise round first, NG-5)."
         ),
     )
 
