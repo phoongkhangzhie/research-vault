@@ -132,41 +132,51 @@ def test_principle_anchor_block_empty_when_no_principles():
 # ---------------------------------------------------------------------------
 
 def test_inject_noop_on_empty_blocks():
-    tips = {"framework": "Write the framework section."}
+    # RD-4: the "framework" exemplar category folds into "introduction"
+    # (the standalone framework body section is deleted).
+    tips = {"introduction": "Write the introduction section."}
     result = ex.inject_exemplar_briefs(tips, [])
     assert result == tips
     assert result is not tips  # new dict returned (additive contract)
 
 
-def test_inject_only_touches_mapped_sections_with_verbatim_text():
+def test_inject_only_touches_mapped_sections_with_pointer_form():
+    """NG-8: inject_exemplar_briefs appends a must-read POINTER (a `read
+    <path>` line + MUST_READ_HEADER marker), NOT the verbatim excerpt text —
+    supersedes PR-M7's verbatim-embed form."""
     tips = {
-        "framework": "Write the framework section.",
-        "introduction": "Write the introduction.",
+        "introduction": "Write the introduction section.",
+        "conclusion": "Write the conclusion.",
     }
     blocks = ex.load_exemplar_bundle("lit-review")
     result = ex.inject_exemplar_briefs(tips, blocks)
-    # framework is mapped to ("framework", "figure-caption") categories
+    # introduction is mapped to ("framework", "figure-caption") categories (RD-4)
     e1 = next(b for b in blocks if b["id"] == "E1")
-    assert e1["verbatim"] in result["framework"]
-    # introduction has no category mapping in the lit-review map -> untouched
-    assert result["introduction"] == "Write the introduction."
+    assert ex.MUST_READ_HEADER in result["introduction"]
+    assert "read " in result["introduction"]
+    assert e1["id"] in result["introduction"] or e1["_file"] in result["introduction"]
+    # the verbatim excerpt text itself is NOT embedded (NG-8's whole point —
+    # bloat reduction; a section brief shrinks, it doesn't grow).
+    assert e1["verbatim"] not in result["introduction"]
+    # conclusion has no category mapping in the lit-review map -> untouched
+    assert result["conclusion"] == "Write the conclusion."
 
 
 def test_inject_skips_section_key_absent_from_tips_no_error():
-    tips = {"introduction": "Write the introduction."}
+    tips = {"conclusion": "Write the conclusion."}
     blocks = ex.load_exemplar_bundle("lit-review")
-    result = ex.inject_exemplar_briefs(tips, blocks)  # "framework" absent from tips
-    assert result == {"introduction": "Write the introduction."}
+    result = ex.inject_exemplar_briefs(tips, blocks)  # "introduction" absent from tips
+    assert result == {"conclusion": "Write the conclusion."}
 
 
 def test_inject_never_embeds_principle_blocks_in_body_tips():
-    tips = {"framework": "Write the framework section."}
+    tips = {"introduction": "Write the introduction section."}
     blocks = ex.load_exemplar_bundle("lit-review")
     result = ex.inject_exemplar_briefs(tips, blocks)
     e17 = next(b for b in blocks if b["id"] == "E17")
     e18 = next(b for b in blocks if b["id"] == "E18")
-    assert e17["verbatim"] not in result["framework"]
-    assert e18["verbatim"] not in result["framework"]
+    assert e17["verbatim"] not in result["introduction"]
+    assert e18["verbatim"] not in result["introduction"]
 
 
 # ---------------------------------------------------------------------------
@@ -178,18 +188,29 @@ def test_teeth_brief_without_injection_fails_the_assertion():
     section brief WITHOUT calling inject_exemplar_briefs, this exact
     assertion (which the real pipeline test below also runs) FAILS —
     proving the acceptance criterion "a section brief shipped without its
-    exemplar block fails its test" (design §8/PR-M7).
+    exemplar block fails its test" (design §8/PR-M7; NG-8: now checking the
+    pointer marker, not verbatim text).
     """
     tips = {"thematic-sections": "Draft the thematic sections."}
     blocks = ex.load_exemplar_bundle("lit-review")
-    e7 = next(b for b in blocks if b["id"] == "E7")
 
-    # RED: the un-injected brief does NOT carry the exemplar text.
-    assert e7["verbatim"] not in tips["thematic-sections"]
+    # RED: the un-injected brief does NOT carry the must-read pointer marker.
+    assert ex.MUST_READ_HEADER not in tips["thematic-sections"]
 
     # GREEN: after injection, it does.
     injected = ex.inject_exemplar_briefs(tips, blocks)
-    assert e7["verbatim"] in injected["thematic-sections"]
+    assert ex.MUST_READ_HEADER in injected["thematic-sections"]
+
+    # And the standalone presence check agrees (NG-8's reusable teeth).
+    ok, _ = ex.check_exemplar_pointer_presence(
+        "thematic-sections", injected["thematic-sections"], blocks,
+    )
+    assert ok is True
+    ok_missing, msg = ex.check_exemplar_pointer_presence(
+        "thematic-sections", tips["thematic-sections"], blocks,
+    )
+    assert ok_missing is False
+    assert "dropped pointer" in msg.lower() or "FAILED" in msg
 
 
 # ---------------------------------------------------------------------------
@@ -208,16 +229,30 @@ def test_cmd_expand_wires_exemplar_bundle_into_mapped_section_spec(cfg):
     cmd_new("demo-research", "survey-exemplar-wiring", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-exemplar-wiring", config=cfg)
 
-    thematic_node = next(n for n in manifest["nodes"] if n["id"] == "thematic-sections")
-    framework_node = next(n for n in manifest["nodes"] if n["id"] == "framework")
+    # NG-7: lit-review's Phase-2 is the single-pass phase2_builder — every
+    # section's tip (including "thematic-sections" and "introduction",
+    # RD-4's folded framework category) is consolidated into ONE "draft" node.
+    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
 
     blocks = ex.load_exemplar_bundle("lit-review")
-    e7 = next(b for b in blocks if b["id"] == "E7")   # synthesis
-    e1 = next(b for b in blocks if b["id"] == "E1")   # framework
 
-    assert e7["verbatim"] in thematic_node["spec"]
-    assert e1["verbatim"] in framework_node["spec"]
-    assert "Imitate the MOVE, not the words" in thematic_node["spec"]
+    # NG-8: the consolidated spec carries the must-read pointer marker + a
+    # real `read <path>` line, not the verbatim excerpt text.
+    assert ex.MUST_READ_HEADER in draft_node["spec"]
+    assert "read " in draft_node["spec"]
+    assert "imitate the MOVE, not the words" in draft_node["spec"]
+
+    # The presence check agrees for both mapped tip-keys (still meaningful
+    # even consolidated — check_exemplar_pointer_presence only requires the
+    # marker be PRESENT somewhere in the checked spec).
+    ok_t, _ = ex.check_exemplar_pointer_presence("thematic-sections", draft_node["spec"], blocks)
+    ok_i, _ = ex.check_exemplar_pointer_presence("introduction", draft_node["spec"], blocks)
+    assert ok_t is True
+    assert ok_i is True
+
+    # NG-8: the exemplar bundle's absolute dir is wired into `reads:` so the
+    # harness's reads-grounding resolver surfaces the pointed-at files.
+    assert any("exemplars" in r and "lit-review" in r for r in draft_node["reads"])
 
 
 def test_cmd_expand_wires_principle_anchors_into_every_node_via_preamble(cfg):
@@ -229,24 +264,69 @@ def test_cmd_expand_wires_principle_anchors_into_every_node_via_preamble(cfg):
     blocks = ex.load_exemplar_bundle("lit-review")
     e17 = next(b for b in blocks if b["id"] == "E17")
 
-    # the preamble is prepended to EVERY section's spec (_spec() closure) —
-    # check a section with no direct exemplar match still carries the
-    # principle anchor (proves it travels via the preamble, not per-section).
-    intro_node = next(n for n in manifest["nodes"] if n["id"] == "introduction")
-    assert e17["verbatim"] in intro_node["spec"]
+    # NG-7: lit-review's single-pass "draft" node consolidates every
+    # section's tip into ONE spec, with the preamble prepended once — the
+    # principle anchor travels via that shared preamble.
+    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
+    assert e17["verbatim"] in draft_node["spec"]
 
 
-def test_type_scoped_unmapped_section_key_gets_no_exemplar_injection(cfg):
-    """A section key with no category mapping (e.g. `conclusion`) never gets
-    a fabricated match — honest no-op, proving injection is matched, not
-    blanket-applied.
-    """
+def test_no_verbatim_exemplar_render_leaks_into_draft_spec(cfg):
+    """NG-8 regression guard: inject_exemplar_briefs uses the POINTER form —
+    the old verbatim render_exemplar_block's "[EXEMPLAR —" bracket marker
+    must never appear in the consolidated draft spec (that would mean a
+    verbatim-embed code path leaked back in, un-reverting NG-8)."""
     from research_vault.manuscript import cmd_new, cmd_expand
 
     cmd_new("demo-research", "survey-unmapped-section", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-unmapped-section", config=cfg)
 
-    conclusion_node = next(n for n in manifest["nodes"] if n["id"] == "conclusion")
-    # no "[EXEMPLAR —" few-shot block appears for conclusion (no category
-    # mapping) — only the principle-anchor preamble text (if any) is present.
-    assert "[EXEMPLAR —" not in conclusion_node["spec"]
+    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
+    assert "[EXEMPLAR —" not in draft_node["spec"]
+    assert ex.MUST_READ_HEADER in draft_node["spec"]
+
+
+# ---------------------------------------------------------------------------
+# 6. NG-8 — resolve_exemplar_bundle_path + the wired-in pre-dispatch assertion
+# ---------------------------------------------------------------------------
+
+def test_resolve_exemplar_bundle_path_returns_real_dir_for_lit_review():
+    p = ex.resolve_exemplar_bundle_path("lit-review")
+    assert p is not None
+    assert p.is_dir()
+    assert (p / "e01-framework.md").exists() or any(p.glob("e01-*.md"))
+
+
+def test_resolve_exemplar_bundle_path_honest_none_for_unknown_bundle():
+    assert ex.resolve_exemplar_bundle_path("no-such-bundle") is None
+    assert ex.resolve_exemplar_bundle_path("") is None
+    assert ex.resolve_exemplar_bundle_path(None) is None
+
+
+def test_render_exemplar_pointer_carries_real_read_path_not_verbatim():
+    blocks = ex.load_exemplar_bundle("lit-review")
+    e1 = next(b for b in blocks if b["id"] == "E1")
+    pointer = ex.render_exemplar_pointer(e1)
+    assert pointer.startswith("- read ")
+    assert e1["_file"] in pointer
+    assert e1["verbatim"] not in pointer
+
+
+def test_build_phase2_manifest_raises_on_dropped_pointer_regression(cfg):
+    """NG-8 §3.3 acceptance: if inject_exemplar_briefs were bypassed for a
+    section this bundle covers, the manifest build must fail LOUDLY — never
+    silently ship a voiceless brief. Simulated by monkeypatching
+    inject_exemplar_briefs to a no-op, mirroring the friction-log's
+    hand-rolled-brief regression."""
+    import research_vault.manuscript as ms_mod
+
+    original = ms_mod._exemplars.inject_exemplar_briefs
+    ms_mod._exemplars.inject_exemplar_briefs = lambda tips, blocks, *a, **kw: dict(tips)
+    try:
+        from research_vault.manuscript import cmd_new
+
+        cmd_new("demo-research", "survey-dropped-pointer", ms_type_key="lit-review", config=cfg)
+        with pytest.raises(ValueError, match="exemplar-pointer presence check FAILED"):
+            ms_mod.cmd_expand("demo-research", "survey-dropped-pointer", config=cfg)
+    finally:
+        ms_mod._exemplars.inject_exemplar_briefs = original

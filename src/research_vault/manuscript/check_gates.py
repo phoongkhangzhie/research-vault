@@ -98,27 +98,183 @@ def _judge_configured(judge_fn: Callable[[str], str] | None) -> bool:
 # ---------------------------------------------------------------------------
 
 def _read_draft_text(tree_root: Path) -> str:
-    """Join ``main.tex`` + every ``sections/*.tex`` into one draft-text blob.
+    """Join every draft file (``report.md``/``main.tex`` + ``sections/*``,
+    RD-1: ``.md`` and legacy ``.tex`` both scanned — see ``draft_files.py``)
+    into one draft-text blob.
 
     Best-effort, never raises: an unreadable/missing file simply contributes
     nothing (a fresh manuscript folder with no draft yet -> empty string,
     which every gate treats as "nothing to check yet", never an error).
     """
+    from research_vault.manuscript.draft_files import resolve_draft_files
+
     parts: list[str] = []
-    main_tex = tree_root / "main.tex"
-    if main_tex.exists():
+    for draft_file in resolve_draft_files(tree_root):
         try:
-            parts.append(main_tex.read_text(encoding="utf-8", errors="replace"))
+            parts.append(draft_file.read_text(encoding="utf-8", errors="replace"))
         except OSError:
             pass
-    sections_dir = tree_root / "sections"
-    if sections_dir.exists():
-        for tex in sorted(sections_dir.glob("*.tex")):
-            try:
-                parts.append(tex.read_text(encoding="utf-8", errors="replace"))
-            except OSError:
-                pass
     return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# check_reader_hygiene — RD-5, next-gen lit-review design §6 (deterministic,
+# ALWAYS runs, hard BLOCK, no judge dependency — the presentation program's
+# most transferable HR mechanic, rv's biggest packaging gap before this PR).
+# ---------------------------------------------------------------------------
+
+# Internal pipeline-vocabulary handles that must never leak into reader prose.
+# \bCP\d+\b / \bQ\d+\b require a digit immediately after the letter(s) so
+# ordinary prose ("Q&A", "CParser", "Quarter") never false-positives — only
+# the exact counter-position/question handle shape trips this.
+_LEAK_CP_HANDLE_RE = re.compile(r"\bCP\d+\b")
+_LEAK_Q_HANDLE_RE = re.compile(r"\bQ\d+\b")
+_LEAK_SHA256_RE = re.compile(r"\bsha256:[0-9a-fA-F]+\b")
+# Loop/control-artifact filenames (the review/manuscript control notes) —
+# never a reader-facing citation; a real citekey never starts with '_'.
+_LEAK_ARTIFACT_FILENAME_RE = re.compile(r"\b_[a-z][a-z-]*\.md\b")
+# Tool/verb/node-vocabulary tokens leaking loop internals into reader prose.
+_LEAK_TOOL_TOKENS: tuple[str, ...] = (
+    "rv research",
+    "rv review",
+    "rv manuscript",
+    "rv dag",
+    "review-snowball",
+    "review-search",
+    "review-synthesize",
+    "review-coverage-critic",
+    "coverage-gate",
+    "coverage-critic",
+    "approve-protocol",
+    "approve-framework",
+    "approve-manuscript",
+)
+
+
+def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
+    """The reader-hygiene leak-gate (RD-5) — BLOCK on pipeline vocabulary
+    leaking into reader-facing prose.
+
+    When to use: run over the ASSEMBLED reader body (the joined, rendered
+    survey text a reader will actually see — never the internal control
+    artifacts like ``_framework-candidates.md``/``_saturation.md``, which are
+    ALLOWED to carry these handles). Fail-closed, rv-style: any hit BLOCKs
+    declare-final; a clean body passes with zero errors.
+
+    Deterministic and independent of every other gate — no judge, no network,
+    no dependency on markdown vs. tex render target. Every hit is surfaced
+    (never truncated to the first match, charter §2 — a `.strip()`/`[:1]`
+    shortcut here would silently hide every leak after the first).
+
+    Args:
+        reader_body: the assembled reader-facing text to scan.
+
+    Returns:
+        {"ok": bool, "errors": list[str]} — ok is False iff errors is non-empty.
+
+    sr: NG-lit-review-waveB (RD-5)
+    """
+    errors: list[str] = []
+
+    for m in _LEAK_CP_HANDLE_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: counter-position handle {m.group(0)!r} leaked "
+            f"into reader prose — name the counter-position inline (RD-6), never "
+            f"by its internal handle."
+        )
+    for m in _LEAK_Q_HANDLE_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: internal question handle {m.group(0)!r} leaked "
+            f"into reader prose — this is a loop-control artifact, never reader-facing."
+        )
+    for m in _LEAK_SHA256_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: a corpus hash {m.group(0)!r} leaked into reader "
+            f"prose — route hashes to the control note / DEVLOG (RD-3), never the "
+            f"manuscript body."
+        )
+    for m in _LEAK_ARTIFACT_FILENAME_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: internal artifact filename {m.group(0)!r} leaked "
+            f"into reader prose — this is a loop-control artifact name, not a citation."
+        )
+    for token in _LEAK_TOOL_TOKENS:
+        if token in reader_body:
+            errors.append(
+                f"reader-hygiene BLOCK: tool/loop vocabulary {token!r} leaked into "
+                f"reader prose — the reader never needs to know which rv verb "
+                f"produced this survey."
+            )
+
+    return {"ok": not errors, "errors": errors}
+
+
+# ---------------------------------------------------------------------------
+# check_heading_order — HR-craft rec 5 (design §7), NG-7's structural-mirror
+# H2-order diff (deterministic, ALWAYS runs, SIGNAL only — no judge dependency)
+# ---------------------------------------------------------------------------
+
+def check_heading_order(draft_text: str, expected_order: "list[str] | tuple[str, ...]") -> dict[str, Any]:
+    """HR-craft rec 5 (design §7): a deterministic H2-heading-order diff.
+
+    HR's instruction-critic diffs the draft's ordered H2 list element-wise
+    against a frozen heading contract; NG-7's single-pass outline already
+    freezes a reading-order spine (``lit_review.READING_ORDER``, RD-2) — this
+    is the cheap, mechanical cross-check confirming the draft actually
+    delivered the frozen frame.
+
+    SIGNAL only, never BLOCK (design table): a structural drift is
+    informative — the writer may have deliberately merged/split sections —
+    never a hard stop on its own.
+
+    Headings not among ``expected_order`` (e.g. a sub-heading, a figure
+    caption) are ignored — this only orders the INTERSECTION of found H2s
+    against the frozen contract, never penalizes extra structure.
+
+    Args:
+        draft_text: the assembled reader body (or the whole draft blob).
+        expected_order: the frozen heading contract, e.g.
+            ``manuscript.types.lit_review.READING_ORDER``.
+
+    Returns:
+        {"ok": bool, "warnings": list[str]} — ok is True when the found H2
+        order (filtered to the expected set) matches the expected order, or
+        when fewer than 2 matching headings are found (nothing to compare).
+
+    sr: NG-lit-review-waveB (NG-7, HR-craft rec 5)
+    """
+    import re
+
+    found = re.findall(r"^\s*#{1,2}\s+(.+?)\s*$", draft_text, re.MULTILINE)
+    expected_norm = [str(e).strip().lower() for e in expected_order]
+
+    def _norm(h: str) -> str:
+        return h.strip().lower().lstrip("#").strip()
+
+    found_norm = [_norm(h) for h in found]
+    filtered_found = [h for h in found_norm if any(e in h or h in e for e in expected_norm)]
+
+    if len(filtered_found) < 2:
+        return {"ok": True, "warnings": []}
+
+    # Build the expected sub-order restricted to headings actually found.
+    def _matches(found_h: str, exp: str) -> bool:
+        return exp in found_h or found_h in exp
+
+    expected_restricted = [e for e in expected_norm if any(_matches(h, e) for h in filtered_found)]
+
+    if filtered_found == expected_restricted:
+        return {"ok": True, "warnings": []}
+
+    return {
+        "ok": False,
+        "warnings": [
+            f"heading-order diff SIGNAL: the draft's H2 order {filtered_found!r} "
+            f"does not match the frozen reading-order contract "
+            f"{expected_restricted!r} — check whether this is a deliberate "
+            f"merge/split or an assembly drift."
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +485,22 @@ def build_approve_payload(
     blocking.extend(f"[coverage-gate] {e}" for e in coverage_result["errors"])
     if coverage_result["warnings"]:
         not_run.extend(f"[coverage-gate] {w}" for w in coverage_result["warnings"])
+
+    # ── 6. Reader-hygiene leak-gate (RD-5) — deterministic, ALWAYS runs,
+    #      hard BLOCK. No judge dependency; independent of every other gate.
+    hygiene_draft_text = _read_draft_text(tree_root)
+    hygiene_result = check_reader_hygiene(hygiene_draft_text)
+    blocking.extend(f"[reader-hygiene] {e}" for e in hygiene_result["errors"])
+
+    # ── 7. Heading-order diff (HR-craft rec 5, NG-7) — deterministic, ALWAYS
+    #      runs (when the type declares a frozen reading order), SIGNAL only.
+    #      Only lit-review declares READING_ORDER today; a type with none is
+    #      a correct no-op (never fabricated for a type that hasn't defined one).
+    if getattr(ms_type, "key", "") == "lit-review":
+        from research_vault.manuscript.types.lit_review import READING_ORDER
+
+        heading_result = check_heading_order(hygiene_draft_text, READING_ORDER)
+        signals.extend(f"[heading-order] {w}" for w in heading_result["warnings"])
 
     return {
         "ok": not blocking,

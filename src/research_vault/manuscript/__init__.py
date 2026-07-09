@@ -43,9 +43,9 @@ Per-manuscript folder (design §0, NOT an OKF taxonomy — too few manuscripts t
 warrant one):
   manuscripts/<slug>/
   ├── _manuscript.md   # control + frontmatter: manuscript_type, spine, corpus_hash, run_state
-  ├── main.tex
-  ├── sections/*.tex
-  ├── refs.bib         # hermetic build (PR-M2, landed) — see manuscript/bib.py
+  ├── report.md      # RD-1: markdown reader path (retired: main.tex)
+  ├── sections/*.md    # RD-1: markdown sections (retired: sections/*.tex)
+  ├── refs.bib         # hermetic citekey-resolution ledger (PR-M2/RD-1) — see manuscript/bib.py
   └── figures/
 
 Stdlib only.
@@ -100,45 +100,36 @@ def _unknown_type_error(key: str) -> ValueError:
     )
 
 
-def _write_main_tex_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
-    """Write a neutral article-class main.tex stub to tree_root (idempotent).
+def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
+    """Write a neutral markdown report stub to tree_root (idempotent).
+
+    RD-1 (next-gen lit-review design §6): the manuscript's reader path
+    renders MARKDOWN — ``report.md`` (this stub) + ``sections/*.md`` —
+    retiring ``main.tex``/tex-macro injection as the reader-path target for
+    NEW manuscripts. Citations use the ``[[citekey]]`` wikilink form (see
+    ``manuscript/bib.py``'s ``_WIKILINK_CITE_RE``); ``refs.bib`` keeps its
+    name (the hermetic-bib gate's artifact) but is now a citekey-resolution
+    ledger for markdown wikilinks, not a LaTeX-only bibliography.
 
     A self-contained inline template (no package-data dependency) — the real
-    per-type template/exemplar machinery is design §8/PR-M8 territory; PR-M1
-    only needs a compilable skeleton so the folder is genuinely scaffolded.
+    per-type template/exemplar machinery is design §8/PR-M8 territory; this
+    only needs a scaffolded skeleton so the folder is genuinely scaffolded.
     """
-    main_tex = tree_root / "main.tex"
-    if main_tex.exists():
+    report_md = tree_root / "report.md"
+    if report_md.exists():
         return  # idempotent — never overwrite an existing draft
     content = (
-        "\\documentclass[11pt]{article}\n"
-        "\\usepackage[utf8]{inputenc}\n"
-        "\\usepackage[T1]{fontenc}\n"
-        "\\usepackage{hyperref}\n"
-        "\\usepackage{natbib}\n"
-        "\n"
-        f"% Manuscript: {slug}  (type: {ms_type_key})\n"
-        "% Machine-injected results/equation macros: refs.bib is built hermetically\n"
-        "% by manuscript/bib.py (PR-M2, landed); pivotal equations are injected into\n"
-        "% the writer briefs by manuscript/equations.py (PR-M4, landed) and checked\n"
-        "% every round by check_gates.py::build_approve_payload.\n"
-        "\n"
-        "\\begin{document}\n"
-        "\n"
-        f"\\title{{{slug}}}\n"
-        "\\author{}\n"
-        "\\date{}\n"
-        "\\maketitle\n"
-        "\n"
-        "% Body sections (populated by rv dag run against the Phase-2 manifest)\n"
-        "% \\input{sections/draft}\n"
-        "\n"
-        "\\bibliographystyle{plainnat}\n"
-        "\\bibliography{refs}\n"
-        "\n"
-        "\\end{document}\n"
+        f"# {slug}\n\n"
+        f"<!-- Manuscript: {slug}  (type: {ms_type_key}) -->\n"
+        "<!-- Machine-injected results/equation data + hermetic citekey resolution:\n"
+        "     refs.bib is built hermetically by manuscript/bib.py (PR-M2, RD-1);\n"
+        "     pivotal equations are injected into the writer briefs by\n"
+        "     manuscript/equations.py (PR-M4) and checked every round by\n"
+        "     check_gates.py::build_approve_payload. -->\n\n"
+        "<!-- Body sections (populated by rv dag run against the Phase-2\n"
+        "     manifest) are joined here in reading order by the assemble node. -->\n"
     )
-    main_tex.write_text(content, encoding="utf-8")
+    report_md.write_text(content, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -191,11 +182,17 @@ def _inject_source_transform_tips(
     never injected anywhere, so its briefs' "use the injected PRISMA ledger /
     comparison table" instructions dangled. This makes it real:
 
-      - ``prisma-scope``       -> appended to the ``prisma-scope`` tip.
+      - ``appendix-methods``   -> appended to the ``appendix-methods`` tip
+        (RD-3: the PRISMA ledger relocates from the removed ``prisma-scope``
+        body row to the reader-optional appendix).
       - ``references``         -> appended to the ``references`` tip.
-      - ``framework_branches`` -> appended to BOTH the ``framework`` tip
-        (the frozen spine's rendering) and the ``thematic-sections`` tip
-        (which needs to know how many branches to draft one section per).
+      - ``provenance_header``  -> appended to the ``assemble`` tip (RD-3: the
+        hash-free blockquote the assembler prepends atop ``report.md``).
+      - ``framework_branches`` -> appended to BOTH the ``introduction`` tip
+        (RD-4: the spine-at-a-glance orientation table folded into the
+        opening section, since the standalone ``framework`` body row is
+        deleted) and the ``thematic-sections`` tip (which needs to know how
+        many branches to draft one section per).
 
     A key absent from ``transform`` (e.g. a future type whose
     ``source_transform`` returns a different shape) or a falsy value is a
@@ -204,13 +201,22 @@ def _inject_source_transform_tips(
     """
     result = dict(tips)
 
-    prisma = transform.get("prisma-scope")
-    if prisma and "prisma-scope" in result:
-        result["prisma-scope"] = result["prisma-scope"].rstrip() + "\n\n---\n\n" + prisma
+    appendix_methods = transform.get("appendix-methods")
+    if appendix_methods and "appendix-methods" in result:
+        result["appendix-methods"] = (
+            result["appendix-methods"].rstrip() + "\n\n---\n\n" + appendix_methods
+        )
 
     references = transform.get("references")
     if references and "references" in result:
         result["references"] = result["references"].rstrip() + "\n\n---\n\n" + references
+
+    provenance_header = transform.get("provenance_header")
+    if provenance_header and "assemble" in result:
+        result["assemble"] = (
+            result["assemble"].rstrip() + "\n\n---\n\nInjected provenance_header "
+            "(prepend verbatim atop report.md):\n\n" + provenance_header
+        )
 
     branches = transform.get("framework_branches")
     if branches:
@@ -219,7 +225,7 @@ def _inject_source_transform_tips(
             "approve-framework — NEVER re-derive): "
             + ", ".join(branches if isinstance(branches, list) else [str(branches)])
         )
-        for key in ("framework", "thematic-sections"):
+        for key in ("introduction", "thematic-sections"):
             if key in result:
                 result[key] = result[key].rstrip() + "\n\n" + branches_block
 
@@ -244,7 +250,7 @@ def _build_phase2_manifest(
     Each section node reads its declared ``source_atoms`` (OKF type dirs,
     absolute paths — Fix #34 lesson: absolute so the reads:-grounding resolver
     finds them regardless of project_root at run/tick time) + the sections/
-    working dir. ``assemble`` joins the drafted sections into ``main.tex``.
+    working dir. ``assemble`` joins the drafted sections into ``report.md`` (RD-1).
     ``approve-manuscript`` is the terminal human-go gate; the hermetic-.bib
     (PR-M2), fidelity (PR-M3), and equation (PR-M4) gates that feed it are
     assembled by ``manuscript/check_gates.py::build_approve_payload`` and
@@ -265,6 +271,19 @@ def _build_phase2_manifest(
 
     sr: PR-M1 (manuscript-integration: source_transform wiring, §4)
     """
+    # NG-7 (next-gen lit-review design §2): a type's custom Phase-2 builder
+    # (single-pass outline -> draft -> assemble) takes over entirely when
+    # present — mirrors ``_build_phase1_manifest``'s delegation exactly.
+    if ms_type.phase2_builder is not None:
+        return ms_type.phase2_builder(
+            project=project,
+            slug=slug,
+            project_notes_dir=project_notes_dir,
+            tree_root=tree_root,
+            manuscript_fields=manuscript_fields,
+            config=config,
+        )
+
     if not ms_type.section_set:
         raise ValueError(
             f"rv manuscript expand: type {ms_type.key!r} has an empty section_set — "
@@ -303,18 +322,22 @@ def _build_phase2_manifest(
         )
         tips = _inject_source_transform_tips(tips, transform)
 
-    # PR-M7 (§8, seam edit — minimal + additive, mirrors the PR-M4 block
-    # above): embed the type's real-excerpt few-shot exemplar bundle into the
-    # matching sections' briefs — VERBATIM, not a prose "write in a synthesis
-    # style" description (design §8: "the real text is in the prompt"). A
-    # type with no `exemplar_bundle`, or a bundle dir that doesn't exist yet,
-    # is a no-op (empty bundle -> tips/preamble unchanged) — never an error.
+    # PR-M7 (§8) / NG-8 (next-gen lit-review design §3, supersedes the
+    # verbatim form): embed the type's exemplar bundle into the matching
+    # sections' briefs as MUST-READ POINTERS (``read <path>``), not a
+    # verbatim embed and not a prose "write in a synthesis style"
+    # description. A type with no `exemplar_bundle`, or a bundle dir that
+    # doesn't exist yet, is a no-op (empty bundle -> tips/preamble unchanged)
+    # — never an error.
+    exemplar_blocks: list[dict[str, Any]] = []
     if ms_type.exemplar_bundle:
         exemplar_blocks = _exemplars.load_exemplar_bundle(ms_type.exemplar_bundle)
         tips = _exemplars.inject_exemplar_briefs(tips, exemplar_blocks)
         principle_block = _exemplars.build_principle_anchor_block(exemplar_blocks)
         if principle_block:
             preamble = preamble.rstrip() + "\n\n---\n\n" + principle_block
+
+    exemplar_bundle_dir = _exemplars.resolve_exemplar_bundle_path(ms_type.exemplar_bundle)
 
     def _spec(key: str) -> str:
         tip = tips.get(key, f"Write the {key} section.")
@@ -337,11 +360,27 @@ def _build_phase2_manifest(
     for section in ms_type.section_set:
         node_id = section.name
         reads = [_rel(atom) for atom in section.source_atoms] + [sections_dir_abs]
+        # NG-8: wire the exemplar bundle's absolute dir into `reads:` so the
+        # harness's reads-grounding resolver surfaces the pointed-at files as
+        # available context (design §3.1: "the `reads:` wiring guarantees
+        # availability; the outline citation guarantees use").
+        if exemplar_bundle_dir is not None:
+            reads.append(str(exemplar_bundle_dir))
+        node_spec = _spec(section.brief_key or section.name)
+
+        # NG-8 (§3.3): the pre-dispatch presence assertion — a driver that
+        # somehow bypassed inject_exemplar_briefs for a section this bundle
+        # covers fails LOUDLY here, never silently ships a voiceless brief.
+        if exemplar_blocks:
+            ok, msg = _exemplars.check_exemplar_pointer_presence(node_id, node_spec, exemplar_blocks)
+            if not ok:
+                raise ValueError(f"rv manuscript expand: {msg}")
+
         node: dict[str, Any] = {
             "id": node_id,
             "type": "agent",
             "label": f"Draft section '{section.name}' (assembly class: {section.assembly_class})",
-            "spec": _spec(section.brief_key or section.name),
+            "spec": node_spec,
             "reads": reads,
             "needs": [_afterok(prev_id)] if prev_id else [],
         }
@@ -349,11 +388,11 @@ def _build_phase2_manifest(
         section_ids.append(node_id)
         prev_id = node_id
 
-    # assemble — joins the drafted sections into main.tex
+    # assemble — joins the drafted sections into report.md (RD-1)
     nodes.append({
         "id": "assemble",
         "type": "agent",
-        "label": "Assemble — join drafted sections into main.tex",
+        "label": "Assemble — join drafted sections into report.md (RD-1)",
         "spec": _spec("assemble"),
         "reads": [sections_dir_abs],
         "needs": [_afterok(section_ids[-1])],
@@ -392,10 +431,11 @@ def _build_phase2_manifest(
 
 def cmd_new(
     project: str,
-    slug: str,
+    slug: str | None = None,
     *,
     ms_type_key: str,
     config: Config | None = None,
+    from_review: str | None = None,
 ) -> tuple[Path, Path, dict[str, Any] | None]:
     """Scaffold a per-manuscript folder + (type-optional) Phase-1 manifest.
 
@@ -410,12 +450,28 @@ def cmd_new(
     ``.bib`` (PR-M2), fidelity gates (PR-M3), equation machinery (PR-M4), and
     review-revise board (PR-M5) plugging into this same folder as they land.
 
+    NG-7 §2.6 (explore-rl friction #6): the manuscript slug is expected to
+    match its underlying ``rv review`` scope id (``reviews/<slug>/_corpus.md``)
+    — a silent mismatch surfaces two DAG nodes deep as an unexplained "no
+    frozen corpus" from the ``scope``/``coverage-gate`` machinery. Two fixes:
+      - ``from_review``: adopts the scope id AS the slug (pre-binds the
+        corpus by construction) when ``slug`` is omitted. Passing BOTH an
+        explicit ``slug`` and a DIFFERENT ``from_review`` is a real mismatch
+        — warned, never silently "fixed" by picking one for you.
+      - a warn-at-creation: ANY slug (with or without ``--from-review``)
+        that has no matching ``reviews/<slug>/_corpus.md`` gets a loud
+        ``UserWarning`` at creation time, not a confusing failure downstream.
+
     Args:
         project: project slug (must be registered in config).
-        slug: manuscript identifier slug (e.g. "survey-llm-eval").
+        slug: manuscript identifier slug (e.g. "survey-llm-eval"). Optional
+            when ``from_review`` is given (adopted from it).
         ms_type_key: the registered ManuscriptType key (e.g. "lit-review").
             Unknown types fail loudly — see ``_unknown_type_error``.
         config: optional Config (loaded if None).
+        from_review: an ``rv review`` scope id to adopt as the slug (NG-7
+            §2.6) — pre-binds the corpus by making the manuscript slug equal
+            the review scope id, the convention every corpus-lookup keys off.
 
     Returns:
         (note_path, tree_root, manifest) where:
@@ -424,8 +480,33 @@ def cmd_new(
           manifest:  the Phase-1 manifest dict, or None (pass-through type —
                      design §1: this type's Phase-1 is skipped entirely).
 
-    sr: PR-M1
+    sr: PR-M1; NG-lit-review-waveB (NG-7 §2.6: --from-review + warn-at-creation)
     """
+    import warnings
+
+    if from_review:
+        if slug and slug != from_review:
+            warnings.warn(
+                f"rv manuscript new: explicit slug {slug!r} differs from "
+                f"--from-review scope {from_review!r} — the manuscript-slug "
+                f"== review-scope-id convention will NOT hold for this "
+                f"manuscript (corpus_hash/coverage-gate lookups key off the "
+                f"slug). Proceeding with the EXPLICIT slug {slug!r} — "
+                f"--from-review is not silently substituted when a slug is "
+                f"also given.",
+                UserWarning,
+                stacklevel=2,
+            )
+        elif not slug:
+            slug = from_review
+
+    if not slug:
+        raise ValueError(
+            "rv manuscript new: a slug is required — pass it directly, or "
+            "pass --from-review <scope> to adopt the review scope id as the "
+            "slug (NG-7 §2.6)."
+        )
+
     ms_type = get_type(ms_type_key)
     if ms_type is None:
         raise _unknown_type_error(ms_type_key)
@@ -445,6 +526,23 @@ def cmd_new(
             f"(avoiding a silent overwrite of an in-progress manuscript)."
         )
 
+    # NG-7 §2.6 warn-at-creation: a slug with no matching frozen review
+    # corpus is a silent landmine that surfaces two nodes deep (scope/
+    # coverage-gate report "no frozen corpus" with no explanation of why).
+    expected_corpus = project_notes_dir / "reviews" / slug / "_corpus.md"
+    if not expected_corpus.exists():
+        warnings.warn(
+            f"rv manuscript new: no frozen review corpus found at "
+            f"{expected_corpus} for slug {slug!r}. If this manuscript "
+            f"summarizes a completed `rv review` loop, the manuscript slug "
+            f"is expected to MATCH that review's scope id — consider `rv "
+            f"manuscript new --from-review <scope>` instead. Proceeding — "
+            f"source_transform/coverage-gate will render an honest 'no "
+            f"corpus' state until one is frozen at this slug.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     tree_root.mkdir(parents=True, exist_ok=True)
     (tree_root / "sections").mkdir(parents=True, exist_ok=True)
     (tree_root / "figures").mkdir(parents=True, exist_ok=True)
@@ -461,7 +559,7 @@ def cmd_new(
         "branches": "",       # PR-M6: scalar list of the frozen framework's top-level branch names
         "corpus_hash": "",    # stale-corpus guard (PR-M6)
         "run_state": "",      # dag_run id, set once Phase-1/2 is emitted
-        "manuscript_location": str(tree_root / "main.tex"),
+        "manuscript_location": str(tree_root / "report.md"),
     }
     body = (
         "\n"
@@ -481,7 +579,7 @@ def cmd_new(
     )
     note_path.write_text(_render_frontmatter(fields) + "\n" + body, encoding="utf-8")
 
-    _write_main_tex_stub(tree_root, slug, ms_type.key)
+    _write_report_md_stub(tree_root, slug, ms_type.key)
 
     refs_bib = tree_root / "refs.bib"
     if not refs_bib.exists():

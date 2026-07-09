@@ -49,6 +49,14 @@ from research_vault.note import _parse_frontmatter
 # Also \cite[p. 1]{key}, \cite{key1,key2} (multi-cite).
 _CITE_RE = re.compile(r"\\cite[a-z]*\*?\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 
+# RD-1 (next-gen lit-review design §6): the markdown render target's citation
+# syntax — a `[[citekey]]` wikilink, mirroring the vault-navigable literature
+# note pointer convention elsewhere in rv. One citekey per wikilink (no
+# multi-cite comma form — markdown prose reads better with one link per
+# paper; `Smith [[smith2023]] and Jones [[jones2022]]` rather than a bundled
+# `[[smith2023,jones2022]]`).
+_WIKILINK_CITE_RE = re.compile(r"\[\[([A-Za-z0-9_.\-]+)\]\]")
+
 # Matches the citekey out of a written .bib entry line: "@type{key,".
 _BIB_ENTRY_KEY_RE = re.compile(r"^@\w+\{([^,\s]+),", re.MULTILINE)
 
@@ -74,13 +82,19 @@ def _strip_latex_comments(text: str) -> str:
 
 
 def extract_cited_keys(tex_files: list[Path]) -> set[str]:
-    r"""Extract all citekeys from \\cite{} commands in a list of .tex files.
+    r"""Extract all citekeys from a list of draft files — ``.tex``
+    (\\cite{}/\\citep{}/\\citet{}, legacy render target) and/or ``.md``
+    (``[[citekey]]`` wikilinks, RD-1's markdown render target). The file's
+    extension does not gate which pattern is scanned — both patterns are
+    matched in every file, so a mid-migration manuscript with mixed
+    ``.tex``/``.md`` sections is never silently under-scanned.
 
     Handles:
       \\cite{key}        — simple
       \\citep{key}       — natbib-style
       \\cite{key1,key2}  — multi-cite
       \\cite[p. 1]{key}  — optional note
+      [[key]]            — RD-1 markdown wikilink citation
 
     Strips LaTeX line comments (``%`` to end-of-line) before scanning so that
     commented-out examples (e.g. ``% every \\cite{key} must resolve``) do not
@@ -102,6 +116,10 @@ def extract_cited_keys(tex_files: list[Path]) -> set[str]:
                 k = k.strip()
                 if k:
                     keys.add(k)
+        for m in _WIKILINK_CITE_RE.finditer(text):
+            k = m.group(1).strip()
+            if k:
+                keys.add(k)
     return keys
 
 
@@ -233,7 +251,9 @@ def build_refs_bib(
     lit_index = _load_literature_bib_index(literature_dir)
 
     if tex_files is None:
-        tex_files = list(tree_root.rglob("*.tex"))
+        from research_vault.manuscript.draft_files import resolve_draft_files
+
+        tex_files = resolve_draft_files(tree_root)
     cited_keys = extract_cited_keys(tex_files)
 
     matched: dict[str, dict[str, Any]] = {}
@@ -295,7 +315,9 @@ def check_hermetic_bib(
     lit_index = _load_literature_bib_index(literature_dir)
 
     if tex_files is None:
-        tex_files = list(tree_root.rglob("*.tex"))
+        from research_vault.manuscript.draft_files import resolve_draft_files
+
+        tex_files = resolve_draft_files(tree_root)
     cited_keys = extract_cited_keys(tex_files)
     resolved_keys = cited_keys & set(lit_index)
 

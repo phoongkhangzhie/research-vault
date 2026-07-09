@@ -117,22 +117,30 @@ def test_e2e_dangling_cite_blocks_dropped_equation_signals_transform_wired(cfg):
 
     manifest = cmd_expand(project, slug, config=cfg)
 
-    # ── (c) source_transform is WIRED, not dead code ────────────────────────
+    # NG-7: lit-review's Phase-2 is now the single-pass phase2_builder —
+    # outline -> draft -> assemble, replacing the per-section chain. Every
+    # section's tip (references/introduction/thematic-sections/appendix-
+    # methods) is consolidated into the ONE "draft" node's spec.
     node_specs = {n["id"]: n.get("spec", "") for n in manifest["nodes"]}
-    assert "kingma2013" in node_specs["references"], (
+    assert set(node_specs) >= {"outline", "draft", "assemble", "approve-manuscript"}
+    draft_spec = node_specs["draft"]
+
+    # ── (c) source_transform is WIRED, not dead code ────────────────────────
+    assert "kingma2013" in draft_spec, (
         "M6's comparison-table rows (source_transform) never reached the "
-        "'references' section spec — source_transform is still dead code."
+        "consolidated draft spec — source_transform is still dead code."
     )
-    assert "representation-learning" in node_specs["framework"], (
-        "The frozen framework branches never reached the 'framework' section spec."
+    # RD-4: the standalone 'framework' body section is deleted — the frozen
+    # branches now fold into 'introduction' (spine-at-a-glance orientation),
+    # which is itself folded into the single draft spec.
+    assert "representation-learning" in draft_spec, (
+        "The frozen framework branches never reached the consolidated draft "
+        "spec (RD-4: spine-at-a-glance folded into introduction)."
     )
-    assert "representation-learning" in node_specs["thematic-sections"], (
-        "The frozen framework branches never reached the 'thematic-sections' spec "
-        "— the writer wouldn't know how many branches to draft."
-    )
-    # The PRISMA ledger renders (honestly, no frozen corpus in this test) —
-    # proves the renderer's output flows into the spec at all.
-    assert "PRISMA scope & method" in node_specs["prisma-scope"]
+    # RD-3: the PRISMA ledger renders into 'appendix-methods' (was
+    # 'prisma-scope'), honestly, no frozen corpus in this test — proves the
+    # renderer's output flows into the spec at all.
+    assert "PRISMA scope & method" in draft_spec
 
     # ── Simulate a drafted manuscript: a dangling \cite AND a dropped
     #    marked-critical equation (never reproduced). ───────────────────────
@@ -215,6 +223,46 @@ def test_no_dangling_cite_and_equation_present_only_signals_or_clean(cfg):
 
     assert not any("hermetic-bib" in b for b in payload["blocking"]), payload["blocking"]
     assert not any("eq:elbo" in s for s in payload["signals"]), payload["signals"]
+
+
+def test_planted_pipeline_vocab_leak_blocks_at_build_approve_payload(cfg):
+    """RD-5 wiring proof: a planted CP3 handle in the drafted reader body
+    must BLOCK at build_approve_payload (never a SIGNAL, never silently
+    dropped) — the weakened-gate-needs-leak-planting discipline applied to
+    a NEW gate landing clean, not just a regression guard."""
+    from research_vault.manuscript import cmd_new, cmd_expand
+    from research_vault.manuscript.check_gates import build_approve_payload
+    from research_vault.manuscript.types import get_type
+
+    project = "demo-research"
+    slug = "survey-leak"
+    project_notes_dir = cfg.project_notes_dir(project)
+
+    note_path, tree_root, _ = cmd_new(project, slug, ms_type_key="lit-review", config=cfg)
+    _freeze_spine(note_path, spine_shape="pipeline", branches=["representation-learning"])
+    cmd_expand(project, slug, config=cfg)
+
+    (tree_root / "sections").mkdir(parents=True, exist_ok=True)
+    (tree_root / "sections" / "thematic-sections.tex").write_text(
+        "This survey defends CP3 against the alternative framing, "
+        "a conclusion review-snowball only reached after several waves.\n",
+        encoding="utf-8",
+    )
+
+    ms_type = get_type("lit-review")
+    old_judge = os.environ.pop("RV_JUDGE_MODEL", None)
+    old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        payload = build_approve_payload(tree_root, project_notes_dir, ms_type)
+    finally:
+        if old_judge is not None:
+            os.environ["RV_JUDGE_MODEL"] = old_judge
+        if old_key is not None:
+            os.environ["ANTHROPIC_API_KEY"] = old_key
+
+    assert payload["ok"] is False
+    assert any("reader-hygiene" in b and "CP3" in b for b in payload["blocking"]), payload["blocking"]
+    assert any("reader-hygiene" in b and "review-snowball" in b for b in payload["blocking"]), payload["blocking"]
 
 
 # ---------------------------------------------------------------------------

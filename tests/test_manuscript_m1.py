@@ -12,7 +12,7 @@ Coverage:
      2d. adopter [manuscript_style] section-key override
   3. manuscript cmd_new — per-manuscript folder scaffold
      3a. creates manuscripts/<slug>/_manuscript.md with manuscript_type field
-     3b. creates main.tex, refs.bib, sections/, figures/
+     3b. creates report.md (RD-1: markdown reader path), refs.bib, sections/, figures/
      3c. unknown --type fails loudly (ValueError, no silent fallback)
      3d. re-creating an existing slug raises FileExistsError (no silent overwrite)
      3e. lit-review stub has phase1_builder=None -> cmd_new returns manifest=None
@@ -172,7 +172,7 @@ def test_cmd_new_scaffolds_folder_shape(cfg):
     _, tree_root, _ = cmd_new(
         "demo-research", "survey-shape", ms_type_key="lit-review", config=cfg,
     )
-    assert (tree_root / "main.tex").exists()
+    assert (tree_root / "report.md").exists()
     assert (tree_root / "refs.bib").exists()
     assert (tree_root / "sections").is_dir()
     assert (tree_root / "figures").is_dir()
@@ -246,22 +246,21 @@ def test_cmd_expand_emits_valid_manifest(cfg):
 
 
 def test_cmd_expand_node_shape(cfg):
-    """PR-M6: the real 9-row lit-review section-set (design §3), not the
-    PR-M1 stub's single 'draft' section."""
+    """NG-7: lit-review's Phase-2 is the single-pass outline -> draft ->
+    assemble -> approve-manuscript chain (design §2.2), replacing the
+    PR-M6/RD-2/RD-4 8-row per-section chain — the 8-row section-set
+    (types/lit_review.py SECTION_SET) is now SOURCE DATA consolidated into
+    the single "draft" node's brief, not one DAG node per section."""
     from research_vault.manuscript import cmd_new, cmd_expand
 
     cmd_new("demo-research", "survey-shape2", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-shape2", config=cfg)
     ids = [n["id"] for n in manifest["nodes"]]
-    for expected in (
-        "introduction", "prisma-scope", "framework", "thematic-sections",
-        "cross-cutting-analysis", "open-problems", "conclusion", "references",
-        "abstract", "assemble", "approve-manuscript",
-    ):
-        assert expected in ids, f"{expected!r} missing from {ids}"
-    assert ids.index("abstract") < ids.index("assemble") < ids.index("approve-manuscript")
-    # abstract is drafted LAST among the sections (design §3: "S (last)")
-    assert ids.index("abstract") == 8
+    assert ids == ["outline", "draft", "assemble", "approve-manuscript"]
+    assert "prisma-scope" not in ids
+    assert "framework" not in ids
+    assert "introduction" not in ids
+    assert ids.index("outline") < ids.index("draft") < ids.index("assemble") < ids.index("approve-manuscript")
 
 
 def test_cmd_expand_approve_manuscript_is_human_go(cfg):
@@ -288,8 +287,8 @@ def test_cmd_expand_reads_are_absolute(cfg):
 
     cmd_new("demo-research", "survey-reads", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-reads", config=cfg)
-    intro_node = next(n for n in manifest["nodes"] if n["id"] == "introduction")
-    for r in intro_node["reads"]:
+    draft_node = next(n for n in manifest["nodes"] if n["id"] == "draft")
+    for r in draft_node["reads"]:
         assert Path(r).is_absolute(), f"reads: pointer not absolute: {r}"
 
 
@@ -431,7 +430,7 @@ def test_smoke_cli_new_scaffolds_folder(tmp_instance):
     cfg = load_config(reload=True)
     tree_root = cfg.project_notes_dir("demo-research") / "manuscripts" / "survey-smoke"
     assert (tree_root / "_manuscript.md").exists()
-    assert (tree_root / "main.tex").exists()
+    assert (tree_root / "report.md").exists()
     assert (tree_root / "refs.bib").exists()
     assert (tree_root / "sections").is_dir()
     assert (tree_root / "figures").is_dir()
