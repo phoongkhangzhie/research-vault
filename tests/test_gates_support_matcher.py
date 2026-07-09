@@ -331,6 +331,33 @@ class TestAntiAnchoring:
         assert "full_text_url" not in fields
         assert any("88" in v for v in fields.values())
 
+    def test_identifier_persistence_fields_excluded_from_structured_fields(self, tmp_path):
+        """The identifier-persistence external-id fields (`pmcid`, `openalex`,
+        `pmid`, `s2` — sources/identifiers.py; `doi`/`arxiv_id` were already
+        denylisted) are provenance/bookkeeping about the paper's identity,
+        never substantive claim content the judge should weigh."""
+        from research_vault.gates.support_matcher import _read_note_structured_fields
+        lit_dir = tmp_path / "literature"
+        lit_dir.mkdir(parents=True)
+        note = lit_dir / "idfields2026.md"
+        note.write_text(
+            "---\ntype: literature\n"
+            "doi: 10.1234/example\n"
+            "arxiv_id: 2005.14165\n"
+            "pmcid: PMC1234567\n"
+            "openalex: W2741809807\n"
+            "pmid: 31000000\n"
+            "s2: 215416146\n"
+            "---\n"
+            "## Result\n"
+            "Observed accuracy: 91%.\n",
+            encoding="utf-8",
+        )
+        fields = _read_note_structured_fields(note)
+        for key in ("doi", "arxiv_id", "pmcid", "openalex", "pmid", "s2"):
+            assert key not in fields, f"{key!r} leaked into judged structured fields"
+        assert any("91" in v for v in fields.values())
+
 
 # ===========================================================================
 # 6. Scope extraction — rubric text must not contaminate the parsed verdict
