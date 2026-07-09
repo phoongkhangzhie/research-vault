@@ -145,15 +145,19 @@ into a submittable document (the user-facing deliverable pillar).
 ### Literature review (`rv review`)
 
 A pre-registered, saturation-gated review. The protocol must be approved before
-search fires (L-2 anti-fishing gate), snowball walks forward (cited-by) and
-backward (references), and Phase-2 relate nodes fan out over every in-scope paper.
+search fires (L-2 anti-fishing gate); a deterministic width-sweep (`review-search`)
+is screened by a thin agent judgment layer (`review-screen`) before the
+deterministic snowball walks forward (cited-by) and backward (references)
+(`review-snowball`), whose raw corpus is then concept-tagged and curated
+(`review-curate`); Phase-2 relate nodes fan out over every in-scope paper.
 OKF outputs: `literature/*.md` notes, `concepts/`, `mocs/`, and typed gap notes.
 
 ```mermaid
 flowchart LR
     scope[review-scope] --> HG1[["[HG] approve-protocol"]]
-    HG1 --> search[review-search] --> snowball[review-snowball]
-    snowball --> HG2[["[HG] coverage-gate"]]
+    HG1 --> search[review-search] --> screen[review-screen] --> snowball[review-snowball]
+    snowball --> curate[review-curate]
+    curate --> HG2[["[HG] coverage-gate"]]
     HG2 --> relate["relate-*\n(Phase-2 fan-out)"]
     relate --> synthesize[review-synthesize] --> critic[review-coverage-critic]
     critic --> HG3[["[HG] approve-review"]]

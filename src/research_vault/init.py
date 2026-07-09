@@ -188,29 +188,51 @@ Each project has a `source_dir` pointing to its repository root.
 
 Register a real project (a separate repo): `rv project add <slug> <path>`
 
-## The two canonical loops
+## The three canonical loops
 
-### Research loop
-
-```
-plan → plan-critic → [human-go] → run → score → analyze → [human-go]
-                                    ↑
-                    (blocked until the pre-registration note is filed)
-```
-
-Pre-registration is **structural**: the `run` node has an `afterok` watch on
-the pre-registration note. The experiment cannot run until the note exists.
-
-### Lit-review loop
+### Experiment loop
 
 ```
-scope → survey → distill-1 → [okf-coverage-gate] → synthesize → synthesis-critic → [human-go]
-                  distill-2 ↗
+plan → plan-critic → [human-go-plan] → harness (×N mains) → harness-review
+    → [human-go-harness] → run → score → analyze → [human-go-findings]
 ```
 
-OKF coverage is **structural**: the `okf-coverage-gate` human-go blocks until all
-distill nodes succeed. A distill node cannot succeed without its `literature/<key>.md`
-note (enforced by `rv dag complete`'s produces check).
+Pre-registration is **structural**: each main's `run` node has an `afterok`
+watch on the pre-registration note (and its own harness is reviewed
+independently before its own human-go gate). The experiment cannot run until
+the note exists.
+
+### Lit-review loop (Option C: pre-registered, saturation-gated)
+
+Phase-1 (discovery):
+```
+review-scope → [approve-protocol] → review-search → review-screen
+    → review-snowball → review-curate → [coverage-gate]
+```
+
+Phase-2 (per-paper distillation + synthesis, fanned out after coverage-gate approval):
+```
+relate-<key> (×N papers) → review-synthesize → review-coverage-critic → [approve-review]
+```
+
+The protocol must be approved (Gate 1) before search fires — the L-2
+anti-fishing gate. `review-search`/`review-snowball` are deterministic TOOL
+nodes (width-sweep, both-direction snowball); `review-screen`/`review-curate`
+are thin agent judgment layers. `coverage-gate` (Gate 2) is the phase
+boundary: it authorizes the Phase-2 relate fan-out, and every relate-<key>
+node cannot succeed without its `literature/<key>.md` note (enforced by
+`rv dag complete`'s produces check).
+
+### Manuscript loop
+
+```
+[approve-framework] (type-specific Phase-1, e.g. lit-review's framework
+    selection) → draft sections → structural/fidelity gates + review-revise
+    board → [approve-manuscript]
+```
+
+Transforms the OKF pillar (`notes/`) into a submittable document. Every
+registered manuscript type shares the terminal `approve-manuscript` gate.
 """
 
 # ---------------------------------------------------------------------------

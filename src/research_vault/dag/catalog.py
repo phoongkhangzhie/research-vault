@@ -222,9 +222,9 @@ LOOP_CATALOG: list[LoopEntry] = [
             ),
         ],
         topology_summary=(
-            "review-scope → [HG:approve-protocol] → review-search → review-snowball → "
-            "[HG:coverage-gate] → (Phase-2) relate-* → review-synthesize → "
-            "review-coverage-critic → [HG:approve-review]"
+            "review-scope → [HG:approve-protocol] → review-search → review-screen → "
+            "review-snowball → review-curate → [HG:coverage-gate] → (Phase-2) relate-* → "
+            "review-synthesize → review-coverage-critic → [HG:approve-review]"
         ),
     ),
 
