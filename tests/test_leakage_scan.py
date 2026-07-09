@@ -94,6 +94,24 @@ def write_doc(tmp_path: Path, content: str, filename: str = "test.md") -> Path:
     return f
 
 
+def run_scan_bare_file(file_path: Path) -> subprocess.CompletedProcess:
+    """Run leakage_scan.sh against a BARE FILE path (not its parent directory).
+
+    Mirrors CI's real per-file invocations exactly (e.g. `leakage_scan.sh
+    DEVLOG.md`, `leakage_scan.sh pyproject.toml`) — distinct from run_scan(),
+    which always passes a directory. This distinction is load-bearing: GNU
+    grep (Linux CI) omits the filename prefix for a single explicit
+    non-directory file argument even with -r, while BSD grep (macOS) always
+    includes it — a platform divergence that silently broke FILE_PAT-based
+    masking (class-11 CI failure on PR #195, fixed by adding -H).
+    """
+    return subprocess.run(
+        ["/bin/bash", str(SCRIPT), str(file_path)],
+        capture_output=True,
+        text=True,
+    )
+
+
 def assert_red(result: subprocess.CompletedProcess) -> None:
     assert result.returncode == 1, (
         f"Expected scanner to RED (exit 1) but got exit {result.returncode}.\n"
@@ -743,6 +761,51 @@ def test_green_on_pyproject_author_entry(tmp_path):
     assert_green(run_scan(tmp_path))
 
 
+# ---------------------------------------------------------------------------
+# Bare-file-target parity (CI's real per-file invocation shape)
+#
+# CI invokes leakage_scan.sh with a BARE FILE argument for DEVLOG.md and each
+# root-bound file (e.g. `leakage_scan.sh pyproject.toml`), never a directory
+# containing just that file. run_scan() above always passes a directory —
+# a blind spot that masked a real cross-platform bug: GNU grep (Linux CI)
+# drops the filename prefix for a single explicit non-directory file argument
+# even with -r, silently breaking every FILE_PAT-scoped masking helper (PR
+# #195's class-11 CI failure). Fixed by adding -H; these tests pin the fix
+# against the EXACT CI invocation shape, not a directory proxy for it.
+# ---------------------------------------------------------------------------
+
+
+def test_green_on_pyproject_author_entry_bare_file_target(tmp_path):
+    """Same as test_green_on_pyproject_author_entry, but scanned as a bare
+    file argument — the actual CI invocation shape."""
+    f = write_doc(
+        tmp_path,
+        '    {name = "Khang Zhie Phoong", email = "phoongkz@gmail.com"},\n',
+        filename="pyproject.toml",
+    )
+    assert_green(run_scan_bare_file(f))
+
+
+def test_green_on_devlog_grandfather_bare_file_target(tmp_path):
+    """DEVLOG.md's ~/vault + docs/superpowers/ grandfather must hold when
+    scanned as a bare file argument (CI's real `leakage_scan.sh DEVLOG.md`
+    shape) — not just when DEVLOG.md sits inside a scanned directory."""
+    f = write_doc(
+        tmp_path,
+        "- ZERO ~/vault edits confirmed: all build + test work happened elsewhere.\n"
+        "- design: `docs/superpowers/specs/2026-07-07-survey-capability-design.md`.\n",
+        filename="DEVLOG.md",
+    )
+    assert_green(run_scan_bare_file(f))
+
+
+def test_red_on_bare_phoongkhangzhie_bare_file_target(tmp_path):
+    """Bare @phoongkhangzhie (no canonical URL) still fails when scanned as
+    a bare file argument — teeth intact under the real CI invocation shape."""
+    f = write_doc(tmp_path, "CODEOWNERS: @phoongkhangzhie\n", filename="CODEOWNERS.md")
+    assert_red(run_scan_bare_file(f))
+
+
 def test_green_on_phoongkz_in_email_field(tmp_path):
     """phoongkz@gmail.com in an email context passes — sanctioned author email."""
     write_doc(
@@ -811,6 +874,95 @@ def test_red_on_full_name_in_py_comment(tmp_path):
         tmp_path,
         "# Written by Khang Zhie Phoong\ndef placeholder(): pass\n",
         filename="test_module.py",
+    )
+    assert_red(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Class 11: Private local dev-paths (~/vault, docs/superpowers/ internal specs)
+#
+# Regression pin for the pre-publish BLOCKER (A-1/A-2/A-3): the scanner had NO
+# pattern class for these, so an author-local path citation in a shipped
+# doctrine .md file (or REFERENCES.md) passed CI green. Structural proof that
+# the hole existed: these plants were GREEN on the pre-fix scanner.
+# ---------------------------------------------------------------------------
+
+
+def test_red_on_tilde_vault_path(tmp_path):
+    """Bare '~/vault' in a shipped .md doc must be flagged — the A-2 leak shape."""
+    write_doc(tmp_path, "This file is mirrored manually to ~/vault (the live site).\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_docs_superpowers_path(tmp_path):
+    """'docs/superpowers/specs/...' in a shipped .md doc must be flagged — the A-1 leak shape."""
+    write_doc(
+        tmp_path,
+        "Design of record: `docs/superpowers/specs/2026-07-07-survey-capability-design.md`.\n",
+    )
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_scrubbed_local_dev_paths(tmp_path):
+    """Genericized phrasing (no author-local path) passes."""
+    write_doc(
+        tmp_path,
+        "Design of record: the survey type-system design.\n",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_tilde_vault_in_py_source(tmp_path):
+    """'~/vault' in a .py comment is exempt — class 11 is non-.py (mirrors class 10's
+    inverse .py-only scoping; boundary-safety comments in source are an established,
+    accepted development-history convention)."""
+    _write_py(tmp_path, '''\
+        # NEVER written to ~/vault — only the instance state_dir.
+        def fn(): pass
+    ''')
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_docs_superpowers_in_py_source(tmp_path):
+    """'docs/superpowers/specs/...' in a .py docstring is exempt — class 11 is non-.py."""
+    _write_py(tmp_path, '''\
+        """module.py — something.
+
+        Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md
+        """
+        def fn(): pass
+    ''')
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_tilde_vault_in_devlog_md(tmp_path):
+    """'~/vault' in DEVLOG.md is grandfathered — historical, append-only entries
+    predate this class and are out of the A-1/A-2 blocker scope."""
+    write_doc(
+        tmp_path,
+        "- ZERO ~/vault edits confirmed: all build + test work happened elsewhere.\n",
+        filename="DEVLOG.md",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_docs_superpowers_in_devlog_md(tmp_path):
+    """'docs/superpowers/specs/...' in DEVLOG.md is grandfathered (same rationale)."""
+    write_doc(
+        tmp_path,
+        "design: `docs/superpowers/specs/2026-07-07-survey-capability-design.md`.\n",
+        filename="DEVLOG.md",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_red_on_tilde_vault_in_non_devlog_md_still_flagged(tmp_path):
+    """The DEVLOG.md grandfather is file-scoped, not global — a non-DEVLOG .md
+    with the same content still fails (teeth intact outside the grandfather)."""
+    write_doc(
+        tmp_path,
+        "- ZERO ~/vault edits confirmed: all build + test work happened elsewhere.\n",
+        filename="not-devlog.md",
     )
     assert_red(run_scan(tmp_path))
 
