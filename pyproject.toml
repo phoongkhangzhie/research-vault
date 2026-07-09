@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 # copyright holders to reconcile). Old 0.1.0-0.2.8 releases stay irrevocably
 # MIT for already-distributed copies; the flip is go-forward only. See
 # DEVLOG.md 2026-07-08.
-# SR-PKG-TRIM: Tier-1 core — 28 packages: analysis/eval/integrations/harness.
+# SR-PKG-TRIM: Tier-1 core — 29 packages: analysis/eval/integrations/harness.
 # Third-party SDKs and plotting libs are NOT shipped — the adopter installs
 # them directly. litellm (core) covers most API targets without a dedicated SDK.
 # The framework/CLI import path stays dep-light: all toolkit imports are guarded
@@ -93,7 +93,7 @@ Repository = "https://github.com/phoongkhangzhie/research-vault"
 Issues = "https://github.com/phoongkhangzhie/research-vault/issues"
 
 # ---------------------------------------------------------------------------
-# Extras — opt-in capabilities on top of the 28-package core.
+# Extras — opt-in capabilities on top of the 29-package core.
 #
 # [local]     — GPU-fragile local inference. NEVER installed by default.
 #   CUDA-pinned wheels break installs on CPU-only machines (incl. CI runners).

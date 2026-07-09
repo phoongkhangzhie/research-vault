@@ -12,7 +12,7 @@ Checks:
      hard requirement — exit 1 only if this is missing)
   2. Provider key(s) — feature-required for API-model experiments; provider-plural
      (ANTHROPIC/OPENAI/…), resolvable via env var or keyring; "locked" if unset
-  3. Toolkit Tier-1 — 28-package research-toolkit core (installed by default)
+  3. Toolkit Tier-1 — 29-package research-toolkit core (installed by default)
   4. Toolkit Tier-2 — GPU-fragile local-inference stack ([local] extra)
   5. s2 / asta / Zotero / W&B — feature-required integrations (each unlocks a
      capability; shown "locked" until keyed, never a failure)
@@ -50,7 +50,7 @@ from .keys import (
 
 
 # ---------------------------------------------------------------------------
-# Tier-1 package registry — 28-package research-toolkit core
+# Tier-1 package registry — 29-package research-toolkit core
 # ---------------------------------------------------------------------------
 # Each entry: (pip_name, import_name, group_label, purpose)
 _TIER1_PACKAGES: list[tuple[str, str, str, str]] = [
@@ -88,6 +88,9 @@ _TIER1_PACKAGES: list[tuple[str, str, str, str]] = [
     ("jinja2",          "jinja2",        "utils",        "templating"),
     ("rich",            "rich",          "utils",        "terminal formatting"),
     ("python-dotenv",   "dotenv",        "utils",        ".env loading"),
+    # OA-fulltext-enrichment (tier 1, 0.3.0): pymupdf is the PDF->text
+    # backend for the last-resort PDF-only OA providers (sources/enrich.py).
+    ("pymupdf",         "pymupdf",       "utils",        "PDF text extraction (OA full-text)"),
 ]
 # Note: asta is reported as an optional integration via _check_asta() — not in _TIER1_PACKAGES.
 # asta is the Allen AI MCP server (NOT a pip package); detected by key presence, not by import.
@@ -498,7 +501,7 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
     # ── Tier-1 section ───────────────────────────────────────────────────────
     lines.append("")
     lines.append(
-        "Toolkit Tier-1 (28-package core — pip install research-vault):"
+        "Toolkit Tier-1 (29-package core — pip install research-vault):"
     )
     tier1_lines, tier1_missing = _fmt_tier_section(tier1_results, warn_missing=False)
     lines.extend(tier1_lines)
@@ -628,7 +631,7 @@ def build_parser(
     When to use: ``rv check`` before running any research loop. The agent
     runtime (Claude CLI) is the only hard requirement; provider keys, s2, asta,
     W&B, Zotero, and compute are feature-required (shown "locked" until keyed,
-    never a failure). Also reports toolkit tiers (Tier-1 28-package core +
+    never a failure). Also reports toolkit tiers (Tier-1 29-package core +
     Tier-2 GPU); run `rv bootstrap` if Tier-1 packages are missing, `rv onboard`
     for guided setup of the locked features.
     Exit 0 if the runtime is present; exit 1 only if the runtime is missing.

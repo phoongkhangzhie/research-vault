@@ -257,7 +257,7 @@ paths, not a re-typed summary.
 ## Install
 
 ```bash
-pip install research-vault      # a lean 28-package research toolkit
+pip install research-vault      # a lean 29-package research toolkit
 rv --help
 ```
 
@@ -265,7 +265,7 @@ The `rv` CLI and every verb run clean even with the toolkit absent (all toolkit
 imports are lazy) — so `pip install research-vault --no-deps` works, and
 `rv bootstrap` populates an isolated `.venv` if you need the full stack later.
 
-The 28-package core covers the model seam (**litellm** as the unified provider
+The 29-package core covers the model seam (**litellm** as the unified provider
 interface, plus the Anthropic SDK and a tokenizer), analysis (pandas, numpy,
 pyarrow, scipy, statsmodels, datasets), eval (inspect-ai, evaluate, sacrebleu,
 rouge-score), a multilingual set, integrations (**wandb** + **weave** for
