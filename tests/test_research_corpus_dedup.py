@@ -489,26 +489,21 @@ def test_arxiv_version_stripped(tmp_path: Path) -> None:
 # references --project help text describes corpus annotation
 # ---------------------------------------------------------------------------
 
-def test_references_project_help_mentions_corpus() -> None:
-    """--project help for 'references' must not overpromise (now it IS implemented)."""
+def test_references_verb_removed_redirects_to_dag_node_op(capsys) -> None:
+    """D1 (verb consolidation): 'rv research references' is a HARD-REMOVED
+    stub — the corpus-dedup annotation this test used to check via --project
+    now happens automatically inside the review-snowball node-op
+    ('snowball-backward'); there is no longer a --project flag to describe
+    on this verb. Regression pin: the removal redirects cleanly, doesn't
+    silently succeed, and doesn't resurrect the retired library.json tier
+    wording anywhere in its message."""
     p = research_mod.build_parser()
-    sub_actions = p._subparsers._group_actions[0]._name_parser_map  # type: ignore[attr-defined]
-    ref_parser = sub_actions.get("references")
-    assert ref_parser is not None
-
-    help_text = ref_parser.format_help()
-    # After SR-LR-1 prereq, --project must be described (corpus dedup is live)
-    assert "project" in help_text.lower() or "--project" in help_text, (
-        f"references help must mention --project; got:\n{help_text}"
-    )
-    # Must not contain empty placeholder / "not yet implemented" wording
-    assert "not yet" not in help_text.lower() and "todo" not in help_text.lower(), (
-        f"references help contains overpromise wording: {help_text}"
-    )
-    # rv-023: must not reference the removed library.json tier
-    assert "library.json" not in help_text.lower(), (
-        f"references help must not reference the removed library.json corpus tier: {help_text}"
-    )
+    args = p.parse_args(["references", "ARXIV:1"])
+    rc = research_mod.run(args)
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "library.json" not in err.lower()
+    assert "REMOVED" in err
 
 
 # ---------------------------------------------------------------------------
