@@ -321,6 +321,102 @@ class TestIngestSupportVerdicts:
         assert result["k_block"] == 0
 
 
+class TestDraftTasksBinding:
+    """PR #180 Finding C: ``ingest`` trusted ``_judge-tasks.json`` as the
+    citation universe without checking it still matches the CURRENT draft
+    — a citation added to the draft AFTER emit was never judged and
+    ``ingest`` reported ok (a silent floor-skip under hands-off autonomy).
+
+    Fix: emit stamps a citation-set hash into ``tasks_doc``; ingest
+    recomputes it from the live draft and HALTs on mismatch (fail-closed
+    — stale tasks are exactly as untrustworthy as missing verdicts).
+    """
+
+    def test_emit_stamps_citation_set_hash(self, tmp_path):
+        from research_vault.manuscript.fidelity_gates import emit_support_tasks
+
+        tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path
+        _write_tex_with_cites(tree_root, 3)
+        for i in range(3):
+            _literature_note(notes_root, f"paper{i}")
+
+        result = emit_support_tasks(tree_root, notes_root=notes_root, manuscript_slug="ms-test")
+        assert "citation_set_hash" in result["tasks_doc"]
+        assert result["tasks_doc"]["citation_set_hash"]
+
+    def test_stale_tasks_halts_when_draft_gains_a_citation(self, tmp_path):
+        """A citation added to the draft AFTER emit must HALT ingest, not
+        silently pass judgment on a stale citation universe."""
+        from research_vault.gates.judge_seam import write_json
+        from research_vault.manuscript.fidelity_gates import (
+            emit_support_tasks_to_dir,
+            ingest_support_verdicts_from_dir,
+        )
+
+        tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path
+        _write_tex_with_cites(tree_root, 2)
+        for i in range(2):
+            _literature_note(notes_root, f"paper{i}")
+
+        judge_dir = tree_root / "judge" / "support-matcher"
+        emitted = emit_support_tasks_to_dir(
+            judge_dir, tree_root, notes_root=notes_root, manuscript_slug="ms-test",
+        )
+
+        # Fully answer every emitted task correctly, including canaries —
+        # a well-behaved fan-out for the tasks it WAS given.
+        tasks_doc = emitted["tasks_doc"]
+        canary_key_doc = emitted["canary_key_doc"]
+        verdicts = [
+            {"id": t["id"], "verdict": canary_key_doc["canaries"].get(t["id"], "SUPPORTS")}
+            for t in tasks_doc["tasks"]
+        ]
+        write_json(judge_dir / "_judge-verdicts.json", {"verdicts": verdicts})
+
+        # Now the draft gains a NEW citation after the tasks were emitted
+        # (and after the fan-out already ran over the old set).
+        _write_tex_with_cites(tree_root, 3)
+        _literature_note(notes_root, "paper2")
+
+        result = ingest_support_verdicts_from_dir(judge_dir)
+        assert result["halt"] is True
+        assert "stale" in result["halt_reason"].lower() or "mismatch" in result["halt_reason"].lower()
+        assert not result.get("canary_aborted")
+
+    def test_unchanged_draft_does_not_halt(self, tmp_path):
+        """The regression guard for the fix above: an UNCHANGED draft must
+        NOT spuriously halt — the hash check only fires on a real drift."""
+        from research_vault.gates.judge_seam import write_json
+        from research_vault.manuscript.fidelity_gates import (
+            emit_support_tasks_to_dir,
+            ingest_support_verdicts_from_dir,
+        )
+
+        tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path
+        _write_tex_with_cites(tree_root, 2)
+        for i in range(2):
+            _literature_note(notes_root, f"paper{i}")
+
+        judge_dir = tree_root / "judge" / "support-matcher"
+        emitted = emit_support_tasks_to_dir(
+            judge_dir, tree_root, notes_root=notes_root, manuscript_slug="ms-test",
+        )
+        tasks_doc = emitted["tasks_doc"]
+        canary_key_doc = emitted["canary_key_doc"]
+        verdicts = [
+            {"id": t["id"], "verdict": canary_key_doc["canaries"].get(t["id"], "SUPPORTS")}
+            for t in tasks_doc["tasks"]
+        ]
+        write_json(judge_dir / "_judge-verdicts.json", {"verdicts": verdicts})
+
+        result = ingest_support_verdicts_from_dir(judge_dir)
+        assert result["halt"] is False
+        assert result["k_block"] == 0
+
+
 # ===========================================================================
 # emit_coldread_tasks / ingest_coldread_verdicts
 # ===========================================================================

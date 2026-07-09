@@ -44,6 +44,8 @@ sr: PR-M3
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import tempfile
@@ -309,6 +311,23 @@ def check_support_tally(
 # path above — see ``gates/judge_seam.py`` for the shared primitives.
 # ---------------------------------------------------------------------------
 
+def _compute_citation_set_hash(items: "list[tuple[str, str, str]]") -> str:
+    """Deterministic hash of the draft's citation universe (the exact
+    (sentence, citekey, section) triples ``_collect_support_items``
+    extracts) — stamped into ``tasks_doc`` at emit time and recomputed at
+    ingest time (PR #180 Finding C: draft<->tasks binding).
+
+    A citation added to (or removed from) the draft AFTER emit changes
+    this hash — ``ingest_support_verdicts`` HALTs on a mismatch rather
+    than silently trusting a stale task set as the citation-fidelity
+    floor. Order-independent (sorted before hashing) so a no-op reflow of
+    the same citations does not spuriously trip the check.
+    """
+    normalized = sorted(json.dumps(list(item), sort_keys=True) for item in items)
+    blob = "\n".join(normalized).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
 _SUPPORT_VERDICT_VOCAB: frozenset[str] = frozenset(
     {"SUPPORTS", "PARTIAL", "ABSENT", "CONTRADICTS"}
 )
@@ -478,6 +497,7 @@ def emit_support_tasks(
     _notes_root = notes_root if notes_root is not None else tree_root.parent.parent
 
     all_items = _collect_support_items(tex_files) if tex_files else []
+    citation_set_hash = _compute_citation_set_hash(all_items)
 
     real_tasks: list[dict[str, Any]] = []
     for sentence, citekey, _section in all_items:
@@ -503,6 +523,7 @@ def emit_support_tasks(
             "rubric": get_support_rubric(override=rubric_override, config=config),
             "batches": [],
             "tasks": [],
+            "citation_set_hash": citation_set_hash,
         }
         canary_key_doc = {"schema": judge_seam.CANARY_KEY_SCHEMA, "canaries": {}}
         return {"tasks_doc": tasks_doc, "canary_key_doc": canary_key_doc}
@@ -526,6 +547,7 @@ def emit_support_tasks(
         "rubric": get_support_rubric(override=rubric_override, config=config),
         "batches": batches,
         "tasks": combined,
+        "citation_set_hash": citation_set_hash,
     }
     canary_key_doc = {"schema": judge_seam.CANARY_KEY_SCHEMA, "canaries": canary_key}
 
@@ -536,6 +558,8 @@ def ingest_support_verdicts(
     tasks_doc: dict[str, Any],
     canary_key_doc: dict[str, Any] | None,
     verdicts_doc: dict[str, Any] | None,
+    *,
+    current_citation_set_hash: str | None = None,
 ) -> dict[str, Any]:
     r"""Ingest ``_judge-verdicts.json`` for the support-matcher fan-out
     (design §1.9, Phase C) — the id-join, canary check, and fail-closed
@@ -559,6 +583,17 @@ def ingest_support_verdicts(
       - Fixed vocab: an unrecognized verdict string also fail-closed
         defaults to ABSENT, surfaced in ``unrecognized_ids`` — never
         silently coerced or ignored.
+      - Draft<->tasks binding (PR #180 Finding C): when
+        ``current_citation_set_hash`` is supplied and ``tasks_doc`` carries
+        a ``citation_set_hash`` stamp that does NOT match it, the tasks
+        file is STALE — the draft changed (a citation was added, removed,
+        or reworded) since this task set was emitted, so the citation
+        universe the fan-out judged is no longer the citation universe on
+        the page -> ``halt=True`` (fail-closed; never a silent pass on a
+        stale floor gate). ``current_citation_set_hash=None`` (the default,
+        used by direct/pure callers and existing tests) skips this check —
+        only ``ingest_support_verdicts_from_dir`` (which has live draft
+        access) supplies it.
 
     A zero-task ``tasks_doc`` (the draft had no \\cite pairs) is an honest
     no-op — no halt, zero everything.
@@ -582,6 +617,35 @@ def ingest_support_verdicts(
             "errors": [], "warnings": [],
             "canary_aborted": False,
             "halt": False, "halt_reason": "",
+            "missing_ids": [], "unrecognized_ids": [],
+        }
+
+    stamped_hash = tasks_doc.get("citation_set_hash")
+    if (
+        current_citation_set_hash is not None
+        and stamped_hash is not None
+        and stamped_hash != current_citation_set_hash
+    ):
+        return {
+            "verdicts": [], "n_sentences": 0, "m_citations": 0,
+            "k_block": 0, "j_warn": 0,
+            "honest_report": "0 sentences, 0 citations, 0 BLOCK, 0 WARN (STALE TASKS)",
+            "errors": [
+                "support-matcher judge-fanout HALT: _judge-tasks.json is "
+                "STALE — the manuscript draft's citation set has changed "
+                "since this task set was emitted (citation_set_hash "
+                "mismatch). A citation added after emit was never judged; "
+                "this is NOT a pass. Re-run `rv manuscript judge-emit` and "
+                "re-fan the fresh task set before approving."
+            ],
+            "warnings": [],
+            "canary_aborted": False,
+            "halt": True,
+            "halt_reason": (
+                "citation_set_hash mismatch — the draft changed since "
+                "emit; the tasks file no longer reflects the current "
+                "citation universe (stale)."
+            ),
             "missing_ids": [], "unrecognized_ids": [],
         }
 
@@ -688,20 +752,49 @@ def emit_support_tasks_to_dir(judge_dir: Path, tree_root: Path, **kwargs: Any) -
     return result
 
 
-def ingest_support_verdicts_from_dir(judge_dir: Path) -> dict[str, Any]:
+def ingest_support_verdicts_from_dir(
+    judge_dir: Path, tree_root: Path | None = None,
+) -> dict[str, Any]:
     """Convenience wrapper: read all three artifacts from ``judge_dir`` and
     ingest. Returns the ``ingest_support_verdicts`` result, OR (if
     ``_judge-tasks.json`` itself is absent — nothing was ever emitted) an
     honest zero-task no-op, mirroring the empty-tasks_doc case.
+
+    Recomputes the CURRENT draft's citation-set hash (PR #180 Finding C)
+    and passes it to ``ingest_support_verdicts`` so a draft that changed
+    since emit HALTs rather than silently trusting stale tasks — this is
+    the one caller with live filesystem access to do so.
+
+    ``tree_root`` defaults to ``judge_dir.parent.parent`` (the
+    ``tree_root / "judge" / "support-matcher"`` layout every emit path in
+    this codebase uses — see ``_judge_dir`` in ``manuscript/__init__.py``);
+    pass it explicitly if a caller ever uses a non-standard layout.
     """
     from research_vault.gates import judge_seam
+    from research_vault.manuscript.draft_files import resolve_draft_files
 
     tasks_doc = judge_seam.read_json_or_none(judge_dir / "_judge-tasks.json")
     if tasks_doc is None:
         tasks_doc = {"tasks": []}
     canary_key_doc = judge_seam.read_json_or_none(judge_dir / "_judge-canary-key.json")
     verdicts_doc = judge_seam.read_json_or_none(judge_dir / "_judge-verdicts.json")
-    return ingest_support_verdicts(tasks_doc, canary_key_doc, verdicts_doc)
+
+    _tree_root = tree_root if tree_root is not None else judge_dir.parent.parent
+    current_hash: str | None = None
+    try:
+        tex_files = resolve_draft_files(_tree_root)
+        current_items = _collect_support_items(tex_files) if tex_files else []
+        current_hash = _compute_citation_set_hash(current_items)
+    except (OSError, ValueError):
+        # Can't resolve the current draft — leave current_hash None, which
+        # skips the staleness check (same honest-degrade the rest of this
+        # module uses when a filesystem read fails outside its own gate).
+        current_hash = None
+
+    return ingest_support_verdicts(
+        tasks_doc, canary_key_doc, verdicts_doc,
+        current_citation_set_hash=current_hash,
+    )
 
 
 # ---------------------------------------------------------------------------

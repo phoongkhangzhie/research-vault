@@ -507,7 +507,7 @@ def build_approve_payload(
 
         try:
             support_result = _fidelity_gates.ingest_support_verdicts_from_dir(
-                tree_root / "judge" / "support-matcher"
+                tree_root / "judge" / "support-matcher", tree_root=tree_root,
             )
         except CanaryAbortError as e:
             support_result = {
