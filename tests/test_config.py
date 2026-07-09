@@ -112,6 +112,14 @@ def test_adapters_defaults(tmp_instance):
     assert cfg.adapters["secrets"] == "env"
 
 
+def test_fulltext_defaults(tmp_instance):
+    """[fulltext] defaults: unpaywall_email empty (config, not a credential —
+    absent means the unpaywall OA provider self-skips), pdf_backend pymupdf."""
+    cfg = load_config(reload=True)
+    assert cfg.fulltext["unpaywall_email"] == ""
+    assert cfg.fulltext["pdf_backend"] == "pymupdf"
+
+
 def test_minimal_config_derives_paths_from_instance_root(tmp_path, monkeypatch):
     """A config that sets ONLY instance_root must resolve all derived paths under it.
 

@@ -104,6 +104,12 @@ data/*.npy
 data/*.npz
 data/*.pkl
 data/*.ckpt
+
+# OA-fulltext-enrichment (tier 1, 0.3.0): the full-text fetch cache is
+# disposable + re-fetchable (identity-keyed; the note frontmatter's
+# full_text_url is the provenance source of truth, not this cache) — same
+# "large + re-derivable -> gitignored" convention as results/runs above.
+**/literature/.fulltext/
 """
 
 #: Framework-managed single-file statics: (package-relative source, vault-relative dst).
