@@ -79,6 +79,7 @@ def _s2_item_to_hit(item: dict[str, Any]) -> PaperHit:
         external_ids["pmid"] = str(ext["PMID"])
 
     oa_url, oa_status = _oa_pointer_from_item(item)
+    venue = (item.get("venue") or "").strip() or None
 
     return PaperHit(
         title=item.get("title") or "",
@@ -92,6 +93,7 @@ def _s2_item_to_hit(item: dict[str, Any]) -> PaperHit:
         oa_url=oa_url,
         oa_status=oa_status,
         oa_source="semantic-scholar" if oa_url else None,
+        venue=venue,
     )
 
 
@@ -107,7 +109,7 @@ class SemanticScholarAdapter:
         query: str,
         *,
         limit: int = 20,
-        fields: str = "title,year,authors,externalIds,abstract,citationCount,openAccessPdf",
+        fields: str = "title,year,authors,externalIds,abstract,citationCount,openAccessPdf,venue,tldr",
     ) -> list[PaperHit]:
         cmd = [
             "asta", "papers", "search", query,
@@ -143,7 +145,7 @@ class SemanticScholarAdapter:
         self,
         paper_id: str,
         *,
-        fields: str = "title,year,authors,externalIds,abstract,citationCount,openAccessPdf",
+        fields: str = "title,year,authors,externalIds,abstract,citationCount,openAccessPdf,venue",
     ) -> PaperHit | None:
         """Fetch a single paper's own metadata (top-level ``externalIds``),
         e.g. to enrich a doi/arXiv id with S2's fuller id set (s2 corpus id,

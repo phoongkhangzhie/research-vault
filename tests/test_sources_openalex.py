@@ -48,6 +48,32 @@ def test_search_parses_works(monkeypatch) -> None:
     assert hit.oa_source == "openalex"
 
 
+def test_search_carries_venue_from_primary_location(monkeypatch) -> None:
+    work_with_venue = {
+        **WORK,
+        "primary_location": {**WORK["primary_location"], "source": {"display_name": "NeurIPS"}},
+    }
+    monkeypatch.setattr(oa_mod, "_fetch_json", lambda url: {"results": [work_with_venue]})
+    adapter = oa_mod.OpenAlexAdapter()
+    hits = adapter.search("attention")
+    assert hits[0].venue == "NeurIPS"
+
+
+def test_search_venue_falls_back_to_host_venue(monkeypatch) -> None:
+    work_legacy = {**WORK, "host_venue": {"display_name": "Legacy Venue"}}
+    monkeypatch.setattr(oa_mod, "_fetch_json", lambda url: {"results": [work_legacy]})
+    adapter = oa_mod.OpenAlexAdapter()
+    hits = adapter.search("attention")
+    assert hits[0].venue == "Legacy Venue"
+
+
+def test_search_venue_absent_is_none(monkeypatch) -> None:
+    monkeypatch.setattr(oa_mod, "_fetch_json", lambda url: {"results": [WORK]})
+    adapter = oa_mod.OpenAlexAdapter()
+    hits = adapter.search("attention")
+    assert hits[0].venue is None
+
+
 def test_search_no_oa_when_closed(monkeypatch) -> None:
     monkeypatch.setattr(oa_mod, "_fetch_json", lambda url: {"results": [WORK_CLOSED]})
     adapter = oa_mod.OpenAlexAdapter()

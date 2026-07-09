@@ -62,6 +62,74 @@ def test_search_calls_asta_papers_search(monkeypatch) -> None:
     assert hit.raw == S2_PAPER  # zero-behavior-change seam
 
 
+def test_search_carries_venue_when_present(monkeypatch) -> None:
+    paper_with_venue = {**S2_PAPER, "venue": "NeurIPS"}
+
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"data": [paper_with_venue]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    hits = adapter.search("attention", limit=10)
+    assert hits[0].venue == "NeurIPS"
+
+
+def test_search_venue_absent_is_none(monkeypatch) -> None:
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"data": [S2_PAPER]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    hits = adapter.search("attention", limit=10)
+    assert hits[0].venue is None
+
+
+def test_search_fields_projection_includes_venue_and_tldr(monkeypatch) -> None:
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"data": [S2_PAPER]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    adapter.search("attention", limit=10)
+
+    fields_idx = captured["cmd"].index("--fields") + 1
+    assert "venue" in captured["cmd"][fields_idx]
+    assert "tldr" in captured["cmd"][fields_idx]
+
+
+def test_search_tldr_carried_in_raw_for_abstract_fallback(monkeypatch) -> None:
+    paper_with_tldr = {**S2_PAPER, "tldr": {"model": "tldr@v2", "text": "Short summary."}}
+
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"data": [paper_with_tldr]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    hits = adapter.search("attention", limit=10)
+    # zero-behavior-change seam: tldr lives in raw, not a bespoke new field —
+    # sweep.py's evidence-snippet fallback reads it from there.
+    assert hits[0].raw["tldr"]["text"] == "Short summary."
+
+
 def test_cited_by_calls_asta_papers_citations(monkeypatch) -> None:
     captured = {}
 

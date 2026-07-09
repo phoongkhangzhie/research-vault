@@ -71,6 +71,8 @@ def _doc_to_hit(pmid: str, doc: dict[str, Any]) -> PaperHit:
     pubdate = doc.get("pubdate") or ""
     year = int(pubdate[:4]) if pubdate[:4].isdigit() else None
 
+    venue = (doc.get("fulljournalname") or doc.get("source") or "").strip() or None
+
     return PaperHit(
         title=doc.get("title") or "",
         year=year,
@@ -80,6 +82,7 @@ def _doc_to_hit(pmid: str, doc: dict[str, Any]) -> PaperHit:
         citation_count=0,  # PubMed esummary does not expose citation counts
         source="pubmed",
         raw=doc,
+        venue=venue,
     )
 
 

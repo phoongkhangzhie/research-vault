@@ -84,6 +84,99 @@ def test_write_search_hits_below_floor_flag(tmp_path):
     assert "[BELOW-FLOOR: needs more sources]" in text
 
 
+def test_write_search_hits_carries_abstract(tmp_path):
+    hit = _hit("Paper With Abstract", doi="10.1/abs")
+    hit.abstract = "This paper studies a novel architecture for X."
+    kept = [DedupedHit(hit=hit, sources={"semantic-scholar"}, external_ids={})]
+    result = SweepResult(kept=kept, independent_count=1, total_hits_fetched=1, cells=[], errors=[])
+    out = write_search_hits(result, tmp_path / "_search_hits.md", notes_index={})
+    text = out.read_text()
+    assert "This paper studies a novel architecture for X." in text
+
+
+def test_write_search_hits_falls_back_to_tldr_when_abstract_empty(tmp_path):
+    hit = _hit("Paper With Only TLDR", doi="10.1/tldr")
+    hit.abstract = ""
+    hit.raw = {"tldr": {"model": "tldr@v2", "text": "A short tldr summary."}}
+    kept = [DedupedHit(hit=hit, sources={"semantic-scholar"}, external_ids={})]
+    result = SweepResult(kept=kept, independent_count=1, total_hits_fetched=1, cells=[], errors=[])
+    out = write_search_hits(result, tmp_path / "_search_hits.md", notes_index={})
+    text = out.read_text()
+    assert "A short tldr summary." in text
+
+
+def test_write_search_hits_no_evidence_when_both_absent(tmp_path):
+    hit = _hit("Paper With No Evidence", doi="10.1/none")
+    hit.abstract = ""
+    kept = [DedupedHit(hit=hit, sources={"semantic-scholar"}, external_ids={})]
+    result = SweepResult(kept=kept, independent_count=1, total_hits_fetched=1, cells=[], errors=[])
+    out = write_search_hits(result, tmp_path / "_search_hits.md", notes_index={})
+    # no crash, no fabricated text — just an honestly-blank cell.
+    assert out.exists()
+
+
+def test_write_search_hits_venue_and_year_present(tmp_path):
+    hit = _hit("Venued Paper", doi="10.1/venue")
+    hit.venue = "NeurIPS"
+    hit.year = 2023
+    kept = [DedupedHit(hit=hit, sources={"semantic-scholar"}, external_ids={})]
+    result = SweepResult(kept=kept, independent_count=1, total_hits_fetched=1, cells=[], errors=[])
+    out = write_search_hits(result, tmp_path / "_search_hits.md", notes_index={})
+    text = out.read_text()
+    assert "NeurIPS" in text
+    assert "2023" in text
+
+
+def test_write_search_hits_venue_blank_when_absent(tmp_path):
+    hit = _hit("Venueless Paper", doi="10.1/novenue")
+    hit.venue = None
+    kept = [DedupedHit(hit=hit, sources={"semantic-scholar"}, external_ids={})]
+    result = SweepResult(kept=kept, independent_count=1, total_hits_fetched=1, cells=[], errors=[])
+    out = write_search_hits(result, tmp_path / "_search_hits.md", notes_index={})
+    # renders cleanly with no crash and no fabricated "None" string
+    text = out.read_text()
+    assert "None" not in text
+
+
+def test_write_search_hits_below_floor_discriminates_when_mixed(tmp_path):
+    below = _hit("Boundary Paper", doi="10.1/below")
+    below.below_floor = True
+    above = _hit("Well-Sourced Paper", doi="10.1/above")
+    above.below_floor = False
+    kept = [
+        DedupedHit(hit=below, sources={"semantic-scholar"}, external_ids={}),
+        DedupedHit(hit=above, sources={"semantic-scholar", "arxiv", "openalex"}, external_ids={}),
+    ]
+    result = SweepResult(kept=kept, independent_count=2, total_hits_fetched=2, cells=[], errors=[])
+    out = write_search_hits(result, tmp_path / "_search_hits.md", notes_index={})
+    text = out.read_text()
+    # the flag differentiates: present on the boundary row, absent elsewhere
+    below_line = next(line for line in text.splitlines() if "Boundary Paper" in line)
+    above_line = next(line for line in text.splitlines() if "Well-Sourced Paper" in line)
+    assert "[BELOW-FLOOR" in below_line
+    assert "[BELOW-FLOOR" not in above_line
+
+
+def test_write_search_hits_below_floor_suppressed_when_universal(tmp_path):
+    hit_a = _hit("Paper A", doi="10.1/a2")
+    hit_a.below_floor = True
+    hit_b = _hit("Paper B", doi="10.1/b2")
+    hit_b.below_floor = True
+    kept = [
+        DedupedHit(hit=hit_a, sources={"semantic-scholar"}, external_ids={}),
+        DedupedHit(hit=hit_b, sources={"arxiv"}, external_ids={}),
+    ]
+    result = SweepResult(kept=kept, independent_count=2, total_hits_fetched=2, cells=[], errors=[])
+    out = write_search_hits(result, tmp_path / "_search_hits.md", notes_index={})
+    text = out.read_text()
+    # zero signal (100% of kept rows below floor) -> the per-row flag
+    # (`[BELOW-FLOOR: ...]`, distinct from the suppression note's own
+    # `[BELOW-FLOOR]` mention) is gone from every row; the suppression
+    # itself is surfaced (never silent).
+    assert "[BELOW-FLOOR: needs more sources]" not in text
+    assert "suppressed" in text.lower()
+
+
 def test_write_search_hits_creates_parent_dirs(tmp_path):
     result = SweepResult(kept=[], independent_count=0, total_hits_fetched=0, cells=[], errors=[])
     out_path = tmp_path / "reviews" / "scope1" / "_search_hits.md"

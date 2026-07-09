@@ -90,6 +90,33 @@ def test_search_no_pmcid_when_absent(monkeypatch) -> None:
     assert "pmcid" not in hits[0].external_ids
 
 
+def test_search_carries_venue_from_fulljournalname(monkeypatch) -> None:
+    doc = {**ESUMMARY_RESULT["result"]["12345"], "fulljournalname": "The Lancet"}
+    result_with_venue = {"result": {"uids": ["12345"], "12345": doc}}
+
+    def fake_fetch(url):
+        if "esearch" in url:
+            return ESEARCH_RESULT
+        return result_with_venue
+
+    monkeypatch.setattr(pubmed_mod, "_fetch_json", fake_fetch)
+    adapter = pubmed_mod.PubMedAdapter()
+    hits = adapter.search("covid", limit=10)
+    assert hits[0].venue == "The Lancet"
+
+
+def test_search_venue_absent_is_none(monkeypatch) -> None:
+    def fake_fetch(url):
+        if "esearch" in url:
+            return ESEARCH_RESULT
+        return ESUMMARY_RESULT
+
+    monkeypatch.setattr(pubmed_mod, "_fetch_json", fake_fetch)
+    adapter = pubmed_mod.PubMedAdapter()
+    hits = adapter.search("covid", limit=10)
+    assert hits[0].venue is None
+
+
 def test_search_no_results(monkeypatch) -> None:
     monkeypatch.setattr(
         pubmed_mod, "_fetch_json",
