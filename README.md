@@ -1,4 +1,4 @@
-<h1 align="center"><img src="assets/wordmark.png" alt="research-vault" width="560"></h1>
+<h1 align="center"><img src="assets/wordmark.png" alt="research-vault" width="640"></h1>
 <p align="center">
   <a href="https://pypi.org/project/research-vault/"><img src="https://img.shields.io/pypi/v/research-vault" alt="PyPI version"></a>
   <a href="https://pypi.org/project/research-vault/"><img src="https://img.shields.io/pypi/pyversions/research-vault" alt="Python versions"></a>
