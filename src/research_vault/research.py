@@ -1063,6 +1063,12 @@ def build_parser(
         help="Result limit per (angle, source) cell (default 20).",
     )
 
+    # fulltext — OA-first full-text enrichment (tier 1, read-time; §8.6 of
+    # the design doc). Delegates to fulltext.py — kept out of this already-
+    # large module.
+    from .fulltext import build_parser as _build_fulltext_parser
+    _build_fulltext_parser(sub)
+
     return p
 
 
@@ -1082,6 +1088,9 @@ def run(args: argparse.Namespace) -> int:
             return cmd_corroborate(args)
         elif cmd == "sweep":
             return cmd_sweep(args)
+        elif cmd == "fulltext":
+            from .fulltext import cmd_fulltext
+            return cmd_fulltext(args)
         else:
             print(f"rv research: unknown subcommand {cmd!r}", file=sys.stderr)
             return 1
