@@ -913,7 +913,7 @@ def cmd_edges(
 # project remove — clean local teardown (the reversal of `new`/`add`)
 # ---------------------------------------------------------------------------
 #
-# Design: docs/superpowers/specs/2026-07-08-rv-project-remove.md (Wren, Architect).
+# Design: docs/superpowers/specs/2026-07-08-rv-project-remove.md (the architect).
 # Grounded reversal of every artifact `cmd_new`/`cmd_add` stand up (R1-R9 in the
 # design's inventory).  rv owns the RV-SIDE teardown authoritatively and emits a
 # structured ``VAULT-TEARDOWN`` handoff for the thin `vault project remove` to

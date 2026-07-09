@@ -83,7 +83,10 @@ def demo_project(rv_instance: Path) -> Path:
     """A real `rv project new` project — bare origin remote configured + pushed."""
     src = rv_instance / "projects" / "demo"
     bare = rv_instance / "bare-demo.git"
-    subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-q", "--bare", "--initial-branch=main", str(bare)],
+        check=True, capture_output=True,
+    )
     rc = cmd_new("demo", "dm", str(src), DEFAULT_ROSTER)
     assert rc == 0
     _git(src, "remote", "add", "origin", str(bare))
