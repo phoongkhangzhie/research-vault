@@ -1,5 +1,4 @@
-<h1 align="center">research-vault</h1>
-<p align="center"><em>A defensible, autonomous research harness</em></p>
+<h1 align="center"><img src="assets/wordmark.png" alt="research-vault" width="480"></h1>
 <p align="center">
   <a href="https://pypi.org/project/research-vault/"><img src="https://img.shields.io/pypi/v/research-vault" alt="PyPI version"></a>
   <a href="https://pypi.org/project/research-vault/"><img src="https://img.shields.io/pypi/pyversions/research-vault" alt="Python versions"></a>
