@@ -105,6 +105,9 @@ def get_config_id(cfg: "Config") -> str:
 
 _FAIL_CLOSED_MSG = (
     "rv dag approve: this human-go gate needs you.\n"
+    "  → First time? Run `rv onboard` once to provision the inline-approval\n"
+    "    token (keyring); afterwards `rv dag approve` works from any shell —\n"
+    "    no terminal needed.\n"
     "  → At your terminal: rv dag approve {run_id} {node_id}\n"
     "  → For scripts/CI: rv approval setup (one-time approver token)\n"
     "Crew agents can't self-approve — by design. [crew-cannot-self-approve]"
