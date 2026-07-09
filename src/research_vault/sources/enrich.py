@@ -40,7 +40,7 @@ from typing import Any, Protocol, runtime_checkable
 from .base import PaperHit
 from .dedup import identity_key
 
-_USER_AGENT = "research-vault-oa-fetch/1.0 (+https://github.com/phoongkhangzhie/research-vault)"
+_USER_AGENT = "research-vault-oa-fetch/1.0"
 
 
 @dataclass
