@@ -1,3 +1,51 @@
+## 2026-07-08 (PR #184 merge-clean pass — 0.3.0 AGPL release prep)
+
+### Done
+- **Reconciled `feat/oa-fulltext-enrichment` with `origin/main`** (the NG-4/5/6
+  autonomy engine + D1-D5 verb-consolidation merge, #182). Conflicts:
+  `DEVLOG.md` (both same-day entries kept, stacked) and `research.py`
+  (kept the new `rv research fulltext` dispatch, dropped the `sweep`
+  dispatch case per #182's hard-removal — `cmd_sweep` itself stays
+  importable). `pyproject.toml` merged clean (0.3.0, AGPL, pymupdf all
+  already correct on this branch).
+- **Version synced to 0.3.0 everywhere**: `__init__.py` (was 0.2.6),
+  `CITATION.cff` (was 0.1.4) — pyproject.toml was already 0.3.0.
+- **README badges** — centered title + PyPI/Python-versions/AGPL/stars
+  badge block at the top.
+- **SPDX headers** — `# SPDX-License-Identifier: AGPL-3.0-or-later` stamped
+  as the first line of all 104 `src/research_vault/*.py` files (the
+  relicense checklist's promised step). Fixed the one casualty: the
+  `TestWalkerByteForByte` purity guard (diffs `walker.py` against
+  `origin/main` byte-for-byte) now tolerates exactly this one-line
+  addition and nothing else — verified teeth intact via a temporary dummy
+  line.
+- **Leakage-scan fix**: the new README stars badge
+  (`img.shields.io/github/stars/<owner>/<repo>`) references the canonical
+  repo but doesn't start with `github.com/`, so the existing URL-allowlist
+  mask never covered it — false-flagged as a leak. Extended the
+  mask-then-recheck AWK in `_grep_literal_except` to also strip the
+  shields.io stars/forks/watchers badge URL for this repo specifically.
+  Red-before-green test + two leak-plant regressions (non-canonical repo
+  via the same badge CDN, bare `@handle` co-occurring on the same line)
+  confirm the allowlist stayed narrow.
+- **Two kz-argus follow-ups folded in**: (a) `_FM_DENYLIST` in
+  `support_matcher.py` now excludes the OA-provenance frontmatter fields
+  (`read_basis`/`full_text_provider`/`oa_status`/`full_text_url`) so they
+  never reach the judge prompt as noise; (b) `enrich.py`'s bare `"auth"`
+  login-signal substring-matched legitimate prose about "author(s)" —
+  tightened to `"authenticate"` (still catches the login-wall fixture).
+  Both fixes have red-before-green tests.
+
+### Open / next
+- Full suite green post-reconcile + all edits (3223+ tests); `rv lint`,
+  leakage scan (all classes), `rv help --check`, and the code-conventions
+  dogfood all pass in isolation (note: `rv lint`/dogfood must be run with
+  an isolated `HOME`/`XDG_CONFIG_HOME` — the operator's real
+  `~/.vault-state` registry has pre-existing, unrelated schema warnings
+  that are NOT this repo's concern).
+- Not tagged/published — held for the operator's hand-merge as the 0.3.0
+  AGPL release.
+
 ## 2026-07-08 (OA-first full-text enrichment, tier 1 — completes Wave-0 reading)
 
 ### Done
