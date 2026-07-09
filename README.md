@@ -1,4 +1,11 @@
-# Research Vault
+<h1 align="center">research-vault</h1>
+<p align="center"><em>A defensible, autonomous research harness</em></p>
+<p align="center">
+  <a href="https://pypi.org/project/research-vault/"><img src="https://img.shields.io/pypi/v/research-vault" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/research-vault/"><img src="https://img.shields.io/pypi/pyversions/research-vault" alt="Python versions"></a>
+  <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/License-AGPL%203.0-blue" alt="License: AGPL-3.0"></a>
+  <a href="https://github.com/phoongkhangzhie/research-vault/stargazers"><img src="https://img.shields.io/github/stars/phoongkhangzhie/research-vault?style=social" alt="GitHub stars"></a>
+</p>
 
 ![The Research Vault crew — Alfred (hub), Wren, Mason, Ada, Argus, and Iris](assets/hero-banner.png)
 
