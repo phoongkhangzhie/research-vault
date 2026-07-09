@@ -227,6 +227,15 @@ class TestCheckUnits:
         violations = code_check.check_science_critical_tests(repo_root / "code")
         assert violations == []
 
+    def test_check_license_recognizes_agpl(self, repo_root):
+        # rv itself relicensed MIT -> AGPL-3.0 (2026-07-08); check_license must
+        # recognize the real GNU AGPL-3.0 signature, not just GPL/MIT/etc.
+        (repo_root / "LICENSE").write_text(
+            "GNU AFFERO GENERAL PUBLIC LICENSE\nVersion 3, 19 November 2007\n",
+            encoding="utf-8",
+        )
+        assert code_check.check_license(repo_root) == []
+
     def test_citation_cff_missing_required_key(self, repo_root):
         (repo_root / "CITATION.cff").write_text(
             'cff-version: 1.2.0\nmessage: "cite me"\ntitle: "x"\n',  # no authors

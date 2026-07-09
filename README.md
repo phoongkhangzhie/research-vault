@@ -354,7 +354,9 @@ are enforced by code you can read.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+AGPL-3.0-or-later. See [LICENSE](./LICENSE). (Relicensed from MIT at v0.3.0 —
+see DEVLOG.md 2026-07-08. Releases 0.1.0-0.2.8 remain MIT for already-
+distributed copies; the flip is go-forward only.)
 
 ## Contributing
 

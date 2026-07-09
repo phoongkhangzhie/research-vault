@@ -1,10 +1,17 @@
 [project]
 name = "research-vault"
-version = "0.2.8"
+version = "0.3.0"
 description = "Research Vault — an adoptable, batteries-included AI research-assistant framework"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.12"
+# RELICENSE (2026-07-08, v0.3.0): MIT -> AGPL-3.0-or-later. rv becomes a true
+# copyleft open-source project; pymupdf (AGPL) core for academic-PDF full-text
+# extraction forces the combined work to AGPL. Contributor consent is clear
+# (all commits are the operator or the operator's crew — no external
+# copyright holders to reconcile). Old 0.1.0-0.2.8 releases stay irrevocably
+# MIT for already-distributed copies; the flip is go-forward only. See
+# DEVLOG.md 2026-07-08.
 # SR-PKG-TRIM: Tier-1 core — 28 packages: analysis/eval/integrations/harness.
 # Third-party SDKs and plotting libs are NOT shipped — the adopter installs
 # them directly. litellm (core) covers most API targets without a dedicated SDK.
@@ -49,6 +56,13 @@ dependencies = [
     "jinja2>=3.1",
     "rich>=13.7",
     "python-dotenv>=1.0",
+    # -- OA full-text enrichment (0.3.0, tier 1) --
+    # pymupdf is the last-resort PDF->text backend when a paper's OA source is
+    # PDF-only (most OA hits are XML/HTML and never touch it — see
+    # sources/enrich.py provider ordering). Core, not an optional extra: full-
+    # text reading is core to how rv reads (one-tier, not adopter-gated). This
+    # is the dependency that forces the AGPL-3.0 relicense (see LICENSE).
+    "pymupdf>=1.24",
 ]
 authors = [
     {name = "Khang Zhie Phoong", email = "phoongkz@gmail.com"},
@@ -65,7 +79,7 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

@@ -1,3 +1,56 @@
+## 2026-07-08 (relicense MIT -> AGPL-3.0, v0.3.0 — pymupdf-core for OA full-text)
+
+### Done
+- **Relicensed rv from MIT to AGPL-3.0-or-later, effective v0.3.0.** This is
+  the first half of "OA-first full-text enrichment" (design:
+  `2026-07-08-oa-fulltext-enrichment.md`) — landing the license flip and the
+  `pymupdf` core dependency as its own standalone-reviewable commit, ahead of
+  the feature work that depends on it.
+- **`LICENSE`** replaced wholesale with the real GNU AGPL-3.0 text (fetched
+  from gnu.org, not paraphrased/reconstructed), with the standard "how to
+  apply" notice block filled in with rv's name/copyright holder.
+- **`pyproject.toml`**: `version = "0.3.0"`; classifier
+  `License :: OSI Approved :: GNU Affero General Public License v3 or later
+  (AGPLv3+)`; added `pymupdf>=1.24` as a **core** dependency (not an optional
+  extra) — full-text PDF extraction is core to how rv reads a paper, so it is
+  one-tier, not adopter-gated. This is the dependency that forces the
+  copyleft flip: pymupdf is itself AGPL-3.0, and a combined work depending on
+  it as core cannot stay MIT.
+- **`README.md`** / **`CITATION.cff`**: license mentions updated to
+  AGPL-3.0-or-later, with a note that 0.1.0-0.2.8 remain MIT.
+- **`code_check.check_license`** (the repo-plane releasability gate used by
+  `rv code check <project>` on *adopter* repos) gained an AGPL-3.0 SPDX
+  signature — it previously only recognized MIT/Apache/BSD/GPL/LGPL/MPL/
+  Unlicense, so an adopter choosing AGPL (as rv itself now has) would have
+  false-failed the release gate. Test-first: planted an AGPL LICENSE fixture,
+  confirmed RED (unrecognized signature) before adding the entry.
+- Confirmed rv's own `src/` carries **no** per-file SPDX headers today (grepped
+  `SPDX-License-Identifier` across `src/research_vault/*.py` — zero hits), so
+  there is no existing per-file convention to update; the doctrine mentions of
+  SPDX (`code_check.py`, `scaffold.py`, `code-conventions.md`) are the
+  *adopter*-repo release-stub gate, unaffected by rv's own license choice.
+
+### Decisions
+- **Contributor consent is clear**: every commit in rv's history is the
+  operator or the operator's crew (mason/others) — no external copyright
+  holders to reconcile before relicensing.
+- **Old releases (0.1.0-0.2.8) stay MIT, unyanked.** Already-distributed
+  copies (git history, forks, lockfiles, PyPI mirrors) are irrevocably MIT
+  regardless of what the LICENSE file says going forward; yanking would only
+  break existing users without un-MIT-ing anything. The flip is go-forward
+  only, and 0.3.0 is the explicit line (a real minor bump, not a stealth
+  patch flip inside 0.2.x).
+- Copyleft is the **goal**, not a cost: rv is meant to be a true open-source
+  research-integrity tool where derivatives stay open/reproducible — the
+  "barrier to commercial adopters" AGPL creates is the intended posture here,
+  not an unfortunate side effect of the pymupdf choice.
+
+### Open / next
+- The OA full-text enrichment feature itself (PaperHit OA-pointer fields,
+  `sources/enrich.py`, the 5 OA providers, note-frontmatter provenance, the
+  `per_paper_relate_tips` reads-contract edit) is the follow-on PR on top of
+  this relicense — see the design doc for the full work breakdown.
+
 ## 2026-07-08 (PR #180 fix: canary-tell BLOCK, draft-hash HALT, cold-read removal)
 
 ### Done
