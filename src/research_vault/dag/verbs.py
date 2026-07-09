@@ -239,6 +239,64 @@ def _resolve_reads_or_warn(
               f"fix the manifest's reads: field(s) before dispatching.", file=_sys.stderr)
 
 
+_TOOL_AUTO_EXEC_MAX_PASSES = 100  # bounded loop guard — never spin forever
+
+
+def _auto_execute_tool_nodes(
+    run_state: RunState,
+    manifest: dict[str, Any],
+    store: RunStore,
+) -> bool:
+    """D4 (verb consolidation): execute every ready 'tool' node IN-PROCESS,
+    no subprocess, no human, no CLI verb — the DAG runner's op-registry
+    seam (``review.autonomy.run_tool_op``).
+
+    Repeatedly recomputes the frontier and executes any 'dispatch'-action
+    tool node it finds, since completing one tool node may open the next
+    (a tool → tool chain). Bounded by ``_TOOL_AUTO_EXEC_MAX_PASSES`` so a
+    manifest bug can never spin this forever.
+
+    On success: node -> succeeded, ``tool_result_summary`` stored on the
+    node state (truncated) for the audit trail.
+    On exception: node -> blocked (never silently retried — a tool-op
+    failure is itself a HALT-DECLARE-shaped signal the human/autonomy
+    engine must see, not a transient hiccup to paper over).
+
+    Returns True iff any tool node was executed (caller should save+recompute).
+    """
+    from research_vault.review.autonomy import run_tool_op
+
+    cap = manifest_global_cap(manifest)
+    executed_any = False
+
+    for _ in range(_TOOL_AUTO_EXEC_MAX_PASSES):
+        frontier = compute_frontier(
+            manifest, run_state.node_states, run_state.edge_registered_ts, cap,
+        )
+        tool_items = [
+            item for item in frontier
+            if item.action == "dispatch" and item.node.get("type") == "tool"
+        ]
+        if not tool_items:
+            break
+
+        for item in tool_items:
+            nid = item.node_id
+            op = item.node.get("op", "")
+            op_args = item.node.get("args", {}) or {}
+            ns = run_state.node_states.setdefault(nid, {})
+            try:
+                result = run_tool_op(op, **op_args)
+                ns["tool_result_summary"] = str(result)[:2000]
+                run_state.set_node_status(nid, "succeeded")
+            except Exception as e:  # noqa: BLE001 — surface, never swallow (charter §2)
+                ns["tool_error"] = str(e)[:2000]
+                run_state.set_node_status(nid, "blocked", error=str(e)[:_FAILURE_SUMMARY_MAX_CHARS])
+            executed_any = True
+
+    return executed_any
+
+
 def _recompute_awaiting_go(
     run_state: RunState,
     manifest: dict[str, Any],
@@ -249,8 +307,16 @@ def _recompute_awaiting_go(
     Any human-go node that appears in the frontier as "await-go" and is still
     "pending" in the run state gets promoted to "awaiting-go" here.
     This is the transition: pending → awaiting-go (not dispatchable).
-    The run state is saved after any promotions.
+
+    D4 (verb consolidation): also auto-executes any ready 'tool' node
+    IN-PROCESS, before computing the frontier returned to the caller — a
+    tool node must never sit in the frontier waiting for a human/agent to
+    "dispatch" it by hand.
+
+    The run state is saved after any promotions/tool-executions.
     """
+    tool_executed = _auto_execute_tool_nodes(run_state, manifest, store)
+
     cap = manifest_global_cap(manifest)
     frontier = compute_frontier(
         manifest,
@@ -268,7 +334,7 @@ def _recompute_awaiting_go(
                 run_state.set_node_status(item.node_id, "awaiting-go")
                 promoted = True
 
-    if promoted:
+    if promoted or tool_executed:
         store.save(run_state)
 
     # Recompute after promotion (awaiting-go nodes are now non-advanceable,
@@ -1739,6 +1805,16 @@ def cmd_brief(args: argparse.Namespace) -> int:
             f"rv dag brief: node {node_id!r} is a human-go gate — "
             "briefs are for agent nodes only. "
             "Use `rv dag approve <run_id> <node_id>` to advance this gate.",
+            file=sys.stderr,
+        )
+        return 1
+    if node_type == "tool":
+        print(
+            f"rv dag brief: node {node_id!r} is a tool (deterministic-op) node — "
+            "briefs are for agent nodes only; tool nodes are executed "
+            "IN-PROCESS by the runner (D4, verb consolidation), never "
+            "dispatched to a crew agent. It auto-executes when the "
+            "run/tick frontier reaches it.",
             file=sys.stderr,
         )
         return 1
