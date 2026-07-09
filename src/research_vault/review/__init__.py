@@ -196,19 +196,43 @@ def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
 # Coverage report (F16+F17) — deterministic, keyed by citekey
 # ---------------------------------------------------------------------------
 
+class CorpusSchemaError(ValueError):
+    """A row inside the ``_corpus.md`` table has a bracket-shaped annotation
+    (column 0 looks like ``[...]``) that is NEITHER ``[NEW]`` nor
+    ``[IN-CORPUS:*]`` — a malformed hand-written or remediation-appended row.
+
+    NG-6a §3 (the green-but-stale fix, explore-rl #2): the pre-NG-6a parser
+    silently ``continue``d past such a row, so a malformed remediation
+    append vanished from the corpus set and ``coverage_report``/the
+    coverage-gate audited a stale subset while reporting green. This is a
+    loud reject instead (charter §2 — surface, never silently drop).
+
+    Narrow structural signal, not "any unrecognized row": a bullet/prose
+    line or a header/separator row (whose column-0 is NOT bracket-shaped)
+    is still a correct, silent skip — only a row that LOOKS like a tagged
+    corpus row (``[...]``-shaped column 0) but isn't one of the two
+    recognized tags is a schema violation.
+    """
+
+
 def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
     """Return ALL citekeys in _corpus.md (both [NEW] and [IN-CORPUS:*]).
 
     Used by coverage_report as the source-of-truth key set.
     The corpus is the frozen manifest — it is always right.
 
-    sr: SR-LR-1
+    Raises ``CorpusSchemaError`` (loud reject) on a bracket-shaped column-0
+    annotation that is neither ``[NEW]`` nor ``[IN-CORPUS:*]`` — see
+    ``CorpusSchemaError`` (NG-6a §3). Non-table prose and header/separator
+    rows (column-0 is NOT bracket-shaped) are still a correct, silent skip.
+
+    sr: SR-LR-1, NG-6a
     """
     if not corpus_path.exists():
         return []
     text = corpus_path.read_text(encoding="utf-8")
     citekeys: list[str] = []
-    for line in text.splitlines():
+    for lineno, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped.startswith("|"):
             continue
@@ -221,6 +245,17 @@ def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
             citekey = cols[1]
             if re.match(r"^[A-Za-z0-9_:\-\.]+$", citekey):
                 citekeys.append(citekey)
+            continue
+        if re.match(r"^\[.*\]$", annotation):
+            # Bracket-shaped but not a recognized tag — a schema violation.
+            # Loud reject, never a silent skip (NG-6a §3).
+            raise CorpusSchemaError(
+                f"{corpus_path}:{lineno}: malformed corpus row annotation "
+                f"{annotation!r} — expected '[NEW]' or '[IN-CORPUS:<citekey>]'. "
+                f"Row: {stripped!r}"
+            )
+        # Not bracket-shaped at all (header row, separator row, free prose
+        # bullet inside the table region) — a correct, silent skip.
     return citekeys
 
 

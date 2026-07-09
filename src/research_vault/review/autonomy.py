@@ -66,8 +66,18 @@ GO = "GO"
 GO_WITH_RESIDUE = "GO-WITH-RESIDUE"
 REVISE = "REVISE"
 HALT_DECLARE = "HALT-DECLARE"
+# NG-6a §4.1: a coverage-gate-only disposition — backstop-terminated (open
+# frontier) + remediation budget remaining + the last wave found something
+# new. Never returned by `classify_coverage_gate`/`classify_disposition`
+# (the general gate-policy engine); only by
+# `review.remediation.resolve_coverage_gate`, which extends the coverage-gate
+# disposition specifically. `dag/verbs.py` is the sole consumer that acts on
+# it (dispatches one bounded remediation round, `review.remediation`).
+REMEDIATE = "REMEDIATE"
 
-_VALID_DISPOSITIONS: frozenset[str] = frozenset({GO, GO_WITH_RESIDUE, REVISE, HALT_DECLARE})
+_VALID_DISPOSITIONS: frozenset[str] = frozenset(
+    {GO, GO_WITH_RESIDUE, REVISE, HALT_DECLARE, REMEDIATE}
+)
 
 
 @dataclasses.dataclass
@@ -519,6 +529,19 @@ def check_declare_final_gate(note_path: Path) -> tuple[bool, str]:
 # 3. The deviation log (§1.5, D2) — the transparency contract + repurposed BLOCK
 # ---------------------------------------------------------------------------
 
+# NG-6a §5 layer 2: the two recognized `kind` values. `within-criteria-append`
+# is the ONLY kind the autonomous remediation loop may self-author — its
+# invariant (pre==post criteria, no removals) is asserted below, so the loop
+# can never smuggle a criteria edit or a removal through this kind. A
+# `criteria-change` deviation is unconstrained (any pre/post, any
+# removed/added) and is human-authored only (never called by
+# `review.remediation`). ``None`` (the default) is a generic/legacy
+# deviation with no kind-specific invariant — back-compat for callers that
+# predate NG-6a's typing.
+DEVIATION_KIND_WITHIN_CRITERIA_APPEND = "within-criteria-append"
+DEVIATION_KIND_CRITERIA_CHANGE = "criteria-change"
+
+
 def record_deviation(
     deviations_path: Path,
     *,
@@ -528,12 +551,25 @@ def record_deviation(
     removed: list[str] | None = None,
     added: list[str] | None = None,
     rationale: str,
+    kind: str | None = None,
     now: datetime.datetime | None = None,
 ) -> str:
     """Append a DECLARED ``v(k)->v(k+1)`` deviation block to
     ``_deviations.md`` (§1.5 requirement 1). Never a silent edit — every
     criteria/membership change goes through this function or it is
     undeclared (and will trip ``check_undeclared_deviation``'s BLOCK).
+
+    ``kind`` (NG-6a §5 layer 2, optional — ``None`` is back-compat with
+    pre-NG-6a callers):
+      - ``"within-criteria-append"`` — asserts the invariant
+        ``pre_criteria == post_criteria and removed == []``. This is the
+        ONLY kind ``review.remediation``'s autonomous loop may author; the
+        assertion means the loop structurally CANNOT self-author a criteria
+        edit or a removal — a violation raises ``ValueError`` rather than
+        silently recording an out-of-invariant block.
+      - ``"criteria-change"`` — unconstrained; human-authored only (never
+        called by the remediation loop).
+      - ``None`` — no invariant enforced (generic/legacy deviation).
 
     Returns the appended block (for the caller to also push into the
     ``⟦RETURN⟧``/control-bus surface, per §1.5's auditability-teeth
@@ -542,8 +578,23 @@ def record_deviation(
     now = now or datetime.datetime.now(tz=datetime.timezone.utc)
     removed = removed or []
     added = added or []
+    if kind == DEVIATION_KIND_WITHIN_CRITERIA_APPEND:
+        if pre_criteria != post_criteria or removed:
+            raise ValueError(
+                "record_deviation: kind='within-criteria-append' requires "
+                "pre_criteria == post_criteria AND removed == [] (the "
+                "denominator may only GROW within the frozen criteria — "
+                "NG-6a §5 layer 2 invariant). Got "
+                f"pre_criteria==post_criteria: {pre_criteria == post_criteria!r}, "
+                f"removed={removed!r}. A criteria edit or a removal must be "
+                "recorded as a human-authored kind='criteria-change' "
+                "deviation, never self-authored by the autonomous "
+                "remediation loop."
+            )
+    kind_line = f"**Kind:** {kind}\n" if kind else ""
     block = (
         f"\n## Deviation v{version - 1} -> v{version} ({now.isoformat()})\n\n"
+        f"{kind_line}"
         f"**Pre-criteria:**\n{pre_criteria}\n\n"
         f"**Post-criteria:**\n{post_criteria}\n\n"
         f"**Removed citekeys:** {', '.join(sorted(removed)) if removed else '(none)'}\n"

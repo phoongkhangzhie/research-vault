@@ -1,3 +1,107 @@
+## 2026-07-09 (NG-6a — `rv review refresh` + autonomous coverage-gap remediation)
+
+### Done
+- **`corpus_freeze`** (`review/corpus_freeze.py`, new): the explicit,
+  versioned corpus baseline — `{version, corpus_hash, corpus_citekeys,
+  criteria_hash, corpus_path, protocol_path, frozen_at}` in
+  `run_state.meta`, mirroring the `plan_freeze` precedent (`plan/freeze.py`).
+  Deliberately kept a SEPARATE, richer wrapper around #185's existing
+  `frozen_corpus_citekeys` flat field rather than replacing it — the two
+  are kept in sync on every stamp/refresh, so `classify_coverage_gate_with_deviation_check`
+  (#185, already wired + already covered by `test_ng4b_autonomy_wiring.py`)
+  is untouched. `criteria_hash` canonicalizes `_protocol.md`'s
+  `question`/`inclusion`/`exclusion`/`coverage_claim` frontmatter fields +
+  the `seed_queries:` angle matrix + `sources:` list (reusing
+  `sources.sweep.parse_angle_matrix`/`parse_sources` — the SAME parsers the
+  width-sweep itself reads the frozen protocol with).
+- **Parser hardening** (`review/_parse_corpus_citekeys`): a bracket-shaped
+  (`[...]`) but unrecognized corpus-row annotation now raises
+  `CorpusSchemaError` instead of being silently skipped (the green-but-stale
+  hole) — narrow structural signal (bracket-open), non-bracket rows
+  (header/prose) still a correct silent skip.
+- **`record_deviation` kind typing** (`review/autonomy.py`): new optional
+  `kind` param. `kind="within-criteria-append"` asserts the invariant
+  (`pre==post` criteria, `removed==[]`) — this is what makes it structurally
+  impossible for the autonomous remediation loop to self-author a criteria
+  edit or a removal. `kind="criteria-change"` is unconstrained,
+  human-authored only. `kind=None` (default) preserves pre-NG-6a behavior
+  byte-for-byte (no `**Kind:**` line at all).
+- **`rv review refresh <scope>`** (`review/corpus_freeze.refresh` +
+  `cmd_refresh`, wired into `review/verbs.py`): fail-closed re-freeze —
+  BLOCKs on an absent baseline, an undeclared criteria-hash change (no
+  human `criteria-change` deviation), or an undeclared corpus delta
+  (reuses `check_undeclared_deviation`, single-sourced with the coverage-gate
+  path). Never touches `_manuscript.md`.
+- **The bounded autonomous remediation loop** (`review/remediation.py`,
+  new): `resolve_coverage_gate` extends `classify_coverage_gate`'s
+  disposition with REMEDIATE (backstop-terminated + budget remaining + last
+  wave found something new); `run_remediation_round` executes one round
+  (frozen-protocol `sweep` tool-op only, title-based self-dedup against the
+  existing corpus, declares the growth via
+  `record_deviation(kind="within-criteria-append")`, then refreshes);
+  `run_bounded_remediation` drives resolve→remediate→re-resolve to a
+  terminal disposition. Three independent termination bounds (§4.3):
+  zero-new stops immediately, `remediation_max_rounds` (new
+  `[review_style]` config seam, default 2) caps rounds, and each round's
+  tool-op calls are single-shot (bounded by construction).
+- **Wired into `dag/verbs.py`'s `coverage-gate` `--auto`/self-advancing
+  path**: `_evaluate_autonomous_gate` now stamps `corpus_freeze`, then
+  extends the D2-checked base disposition through
+  `resolve_coverage_gate`/`run_bounded_remediation`; a `CorpusSchemaError`
+  anywhere in the path surfaces as a first-class HALT-DECLARE (never an
+  uncaught exception that crashes the runner, never a silent stale-subset
+  GO).
+- **Veto-window resolution (design §5.1)**: non-blocking batch surface for
+  within-criteria-append (declared + PRISMA-logged, the overall corpus
+  decision stays provisional/vetoable as a unit) — the design's own
+  recommendation, per the anti-fishing reasoning (a within-criteria append
+  is more-complete-execution-of-the-approved-plan, not a scope change).
+  Blocking veto stays reserved for an actual `criteria-change`. Implemented
+  as: the loop can only ever author `within-criteria-append` (invariant-
+  enforced), never a blocking-veto-worthy kind.
+- **PRISMA ledger** (`manuscript/types/lit_review.py`): `_parse_deviation_blocks`/
+  `render_prisma_ledger` now surface the optional `**Kind:**` line
+  (`N₀ → N₁ [within-criteria-append]`) when present — a no-op for
+  pre-NG-6a deviation blocks.
+- Tests: `tests/test_ng6a_refresh_remediation.py` (40 new tests) — parser
+  hardening, the `within-criteria-append` invariant (both leak-plants:
+  pre≠post rejected, removal rejected), `corpus_freeze`/criteria-hash,
+  `refresh`'s fail-closed order (3 leak-plants: absent baseline, undeclared
+  criteria change, undeclared corpus delta), `resolve_coverage_gate`'s
+  disposition composition, the remediation round's dedup + termination (zero-
+  new, round-cap, saturated-never-remediates), and two full end-to-end tests
+  driven through the real `dag tick` path (not just monkeypatched
+  internals) — one exercising the real remediate→exhaust→GO-WITH-RESIDUE
+  cycle via a fake (network-free) tool-op, one confirming a malformed
+  corpus row surfaces as HALT-DECLARE through the real gate-evaluation path.
+
+### Decisions
+- `corpus_freeze` is additive, not a replacement for #185's
+  `frozen_corpus_citekeys` — avoids touching the already-wired, already-
+  tested D2 BLOCK; the two fields are kept in lockstep by every
+  stamp/refresh call instead.
+- Remediation-round dedup is corpus-file-local (normalized title match
+  against `_corpus.md`'s own title column), not a `literature/`-note
+  lookup — freshly-swept hits aren't materialized into `literature/` notes
+  yet, so `_corpus_annotation`'s notes-index would almost always say
+  `[NEW]` regardless; the corpus file's own title column is the correct,
+  simpler dedup surface for this round-local self-dedup.
+- `run_remediation_round`/`run_bounded_remediation`'s `tool_op_fn` defaults
+  to `None` (late-bound to the module-global `run_tool_op` at CALL time,
+  not function-definition time) specifically so
+  `monkeypatch.setattr(review.remediation, "run_tool_op", fake)` works even
+  though the real `dag/verbs.py` wiring never passes `tool_op_fn` explicitly
+  — a bound-once default arg would have silently defeated this test seam.
+
+### Open / next
+- The remediation round's dedup is title-only (no DOI/arXiv cross-check
+  against `literature/` notes) — adequate for the round-local self-dedup
+  this loop needs, but a future pass could layer in `_corpus_annotation`'s
+  richer id-based check if remediation-sourced near-duplicates become a
+  real problem in practice.
+- Landing this on `main` does not affect the running crew (pinned to
+  0.2.6) until a pin bump — flagged, no action needed now.
+
 ## 2026-07-08 (PR #184 merge-clean pass — 0.3.0 AGPL release prep)
 
 ### Done
