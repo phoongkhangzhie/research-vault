@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """lint.py — leakage gate and config linter for Research Vault.
 
 When to use: ``rv lint [--strict]`` to run the project linter. Checks:

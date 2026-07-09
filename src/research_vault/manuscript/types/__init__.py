@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/types — the ManuscriptType descriptor registry (PR-M1).
 
 The type-generic manuscript-loop core (``manuscript/__init__.py``) is machinery

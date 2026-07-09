@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """gap_scan.py — SR-LR-2 + SR-GAP-ROUTE: gap-driven pass + gap-loop router.
 
 SR-LR-2: The gap-driven pass is Part-1 (SR-LR-1) invoked with a scope protocol

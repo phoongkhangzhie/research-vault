@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """init.py — `rv init` — scaffold a fresh Research Vault instance.
 
 When to use: ``rv init [<dir>]`` to scaffold a new multi-project Research Vault

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/base.py — the SourceAdapter protocol + the normalized PaperHit record.
 
 NG-1 (breadth-then-depth, §4.1). One narrow interface every source-adapter

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """code_check.py — repo-plane conventions gate: `rv code check <project>`.
 
 When to use: ``rv code check <project>`` validates the CODE TREE (not a note's

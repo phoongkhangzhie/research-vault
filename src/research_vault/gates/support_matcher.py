@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """support_matcher.py — claim→source support-matcher (SR-MS-2).
 
 SHAREABLE LOCATION (D-SV-0, PR-M3): lives in research_vault.gates — a

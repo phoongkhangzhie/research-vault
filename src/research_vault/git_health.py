@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """git_health.py — cross-repo branch health report for Research Vault.
 
 When to use: ``rv git-health [--prune]`` for a cross-repo branch health report

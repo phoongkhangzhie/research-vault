@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """walker.py — pure DAG frontier computation for Research Vault (SR-3).
 
 THE CORE GUARANTEE: compute_frontier is PURE.

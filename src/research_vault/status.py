@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """status.py — the control plane's structured READ face (`rv status`).
 
 When to use: use `rv status <project>` (or `rv status --all`) to read a project's

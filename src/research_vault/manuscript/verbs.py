@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/verbs.py — rv manuscript subcommand dispatcher (PR-M1, type-generic core).
 
 When to use: use ``rv manuscript <project> new <slug> --type <type>`` to scaffold

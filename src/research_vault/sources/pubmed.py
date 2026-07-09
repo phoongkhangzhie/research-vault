@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/pubmed.py — PubMedAdapter (NG-2, opt-in source per D4 — bio/medical RQs).
 
 NCBI E-utilities (esearch + esummary), stdlib ``urllib``/``json`` only — no

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """adapters/secret_forward.py — command-line-clean secret forwarding to remote jobs.
 
 The gap: a remote compute job that logs to W&B (or any authed service) needs the

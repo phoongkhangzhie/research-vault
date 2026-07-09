@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """orient.py — one-shot cold-switch orientation for a project (`rv orient`).
 
 When to use: use `rv orient <project>` when you're switching to or cold-orienting

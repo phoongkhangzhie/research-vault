@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """experiment_run.py — SR-MODEL-SEAM S6: Plane-B classic W&B run logging.
 
 When to use: wrap an experiment's real model-calling work so it emits a **classic

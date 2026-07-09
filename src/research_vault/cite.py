@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """cite.py — Zotero citation-manager bridge for Research Vault.
 
 When to use: ``rv cite <subcommand>`` to resolve, add, list, check, or link

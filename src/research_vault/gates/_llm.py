@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """_llm.py — shared urllib-based Anthropic Messages API call for gates/*.
 
 ``support_matcher.py`` needs a stdlib-only LLM call (same endpoint, same

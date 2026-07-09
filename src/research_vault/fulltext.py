@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """fulltext.py — read-time OA full-text enrichment CLI (tier 1, 0.3.0).
 
 ``rv research fulltext <project> <citekey> [identifiers...]`` is the tool the

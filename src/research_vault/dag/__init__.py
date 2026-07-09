@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """dag — DAG-orchestration primitives for Research Vault (SR-3).
 
 Sub-modules:

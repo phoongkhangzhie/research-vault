@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/dedup.py — cross-source identity collapse (NG-2, §4.3).
 
 Multi-source hits collapse on a normalized identity, priority order

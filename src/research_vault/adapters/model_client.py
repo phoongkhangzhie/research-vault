@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """adapters/model_client.py — SR-MODEL-SEAM: the provided model client.
 
 When to use: a harness NEVER hand-rolls ``anthropic.Anthropic()`` or calls

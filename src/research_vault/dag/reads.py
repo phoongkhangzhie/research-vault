@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """reads.py — SR-SCOPE: reads: pointer resolution for Research Vault DAG.
 
 This module is the I/O-touching, filesystem-aware RESOLUTION pass for the reads:

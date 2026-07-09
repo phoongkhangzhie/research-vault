@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """adapters/observability.py — SR-MODEL-SEAM: observability backends + emission counter.
 
 When to use: the observability layer for the provided ``ModelClient`` (see

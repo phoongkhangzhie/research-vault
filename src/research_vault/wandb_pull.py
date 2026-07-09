@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """wandb_pull.py — rv wandb pull: fetch W&B run metrics via the wandb SDK.
 
 When to use: ``rv wandb pull <run-id>`` when an experiment logged to W&B and you

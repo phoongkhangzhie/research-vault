@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """config.py — the config plane SSOT for Research Vault.
 
 When to use: import `load_config()` whenever a verb needs to resolve a path or adapter.

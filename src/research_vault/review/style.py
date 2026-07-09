@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """review/style.py — the review_tips config seam (SR-LR-1, section 5L.6).
 
 SEAM CONTRACT

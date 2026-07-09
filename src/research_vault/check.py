@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """check.py — `rv check` — preflight prerequisite check.
 
 When to use: ``rv check`` before starting any research loop. Reports what is

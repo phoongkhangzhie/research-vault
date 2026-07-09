@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/enrich.py — OA-first full-text enrichment (tier 1, design
 2026-07-08-oa-fulltext-enrichment.md).
 

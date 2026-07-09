@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """fidelity_gates.py — manuscript-loop THIN ADAPTER over the shared gates (PR-M3).
 
 The hard fidelity gate re-instantiated at PR-M3 — the claim->source

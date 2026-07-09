@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """dag/approval.py — Human-presence gate for rv dag approve / rv dag reject.
 
 The load-bearing principle: security = stdin.isatty(), full stop.  A dispatched

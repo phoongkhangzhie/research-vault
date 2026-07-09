@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """judge_seam.py — NG-4: the emit-tasks / ingest-verdicts contract for the
 cold-agent-judge fan-out (design §1.9, the PRIMARY judge-orchestration path).
 

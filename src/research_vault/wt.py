@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """wt.py — git worktree management for Research Vault.
 
 When to use: ``rv wt <subcommand>`` to create, list, or remove git worktrees

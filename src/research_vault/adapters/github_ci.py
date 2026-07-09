@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """adapters/github_ci.py — SR-CIF: tier-3 GitHub Actions CI fetch as a SignalSource.
 
 GitHubActionsSource implements the SignalSource Protocol (status.py:47) and plugs

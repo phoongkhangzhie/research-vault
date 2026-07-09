@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """bootstrap.py — `rv bootstrap` — best-effort venv + toolkit install.
 
 When to use: ``rv bootstrap`` when Tier-1 toolkit packages are missing (e.g.

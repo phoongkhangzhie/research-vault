@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/arxiv.py — ArxivAdapter (NG-2, breadth source #2).
 
 arXiv's public API (export.arxiv.org Atom feed) has no citation graph — a

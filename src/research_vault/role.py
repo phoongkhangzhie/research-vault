@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """role.py — role-registry management for Research Vault.
 
 When to use: ``rv role <subcommand>`` to list, view, or manage agent roles

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """devlog.py — DEVLOG management, freshness check, and index/search for projects.
 
 When to use: use `rv devlog <project> <subcommand>` to seed, append to, check the

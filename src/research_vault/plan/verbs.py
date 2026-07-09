@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """plan/verbs.py — rv plan subcommand dispatcher (SR-PLAN-1/SR-PLAN-2/SR-HARNESS-P2).
 
 When to use: use ``rv plan check <plan-note>`` to run the K-2 shape-lint on a

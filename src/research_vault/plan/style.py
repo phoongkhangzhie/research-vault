@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """plan/style.py — the plan_tips config seam (SR-PLAN-1, §5K.4).
 
 SEAM CONTRACT

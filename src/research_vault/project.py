@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """project.py — config-registry verbs for Research Vault.
 
 When to use: ``rv project add <name>`` registers a new project into the

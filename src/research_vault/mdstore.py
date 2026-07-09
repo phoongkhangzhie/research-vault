@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """mdstore.py — markdown document store checks for Research Vault.
 
 When to use: ``rv mdstore <subcommand>`` to check, archive, or inspect the

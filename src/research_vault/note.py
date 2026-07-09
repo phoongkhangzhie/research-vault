@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """note.py — OKF note creation and listing for a project.
 
 When to use: use `rv note <project> <type> …` to create or list OKF notes for a project.

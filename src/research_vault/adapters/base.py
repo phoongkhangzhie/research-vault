@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """adapters/base.py — Adapter Protocols + local-default implementations.
 
 When to use: import from here (or from ``research_vault.adapters``) when you

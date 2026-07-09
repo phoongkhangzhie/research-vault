@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """review/autonomy.py — NG-4/5/6: the gate-policy engine + async-veto +
 deviation log + the deterministic tool-op registry.
 

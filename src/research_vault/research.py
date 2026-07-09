@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """research.py — unified research-tooling namespace for Research Vault.
 
 When to use: ``rv research <subcommand>`` for Semantic Scholar search/find,

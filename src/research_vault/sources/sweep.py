@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/sweep.py — the parallel width-sweep orchestrator (NG-3, §4.2/§4.3).
 
 Reads the FROZEN angle matrix + sources list from ``_protocol.md`` (frozen at

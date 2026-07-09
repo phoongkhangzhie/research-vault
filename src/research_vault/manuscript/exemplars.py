@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/exemplars.py — the few-shot exemplar loader/injector (PR-M7, design §8).
 
 **The general rv writing-agent principle (design §8, generalize to §12):** voice comes

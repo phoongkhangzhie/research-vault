@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """verbs.py — `rv dag` verb implementations for Research Vault (SR-3 + SR-SCOPE + SR-RETRY).
 
 Verbs:

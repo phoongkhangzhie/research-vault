@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """task.py — project-scoped task tracker.
 
 When to use: create, view, or list task cards for a specific project. Task cards are

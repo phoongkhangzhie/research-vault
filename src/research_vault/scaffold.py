@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """scaffold.py — shared framework-materialization helpers for init + update.
 
 The single home for the "copy framework-managed files out of the installed

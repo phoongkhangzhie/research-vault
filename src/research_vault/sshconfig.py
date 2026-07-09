@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """sshconfig.py — read-only ~/.ssh/config alias detector for the compute wizard.
 
 The guided compute-onboarding wizard's *host* step auto-detects the ssh aliases

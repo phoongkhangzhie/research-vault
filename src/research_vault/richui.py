@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """richui.py — rich rendering for the onboarding surfaces (rv check / init / onboard).
 
 Additive by construction: every renderer reads the SAME result dict as the plain
