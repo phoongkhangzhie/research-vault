@@ -1,3 +1,87 @@
+## 2026-07-08 (NG-4/5/6 autonomy engine + D1-D5 verb consolidation)
+
+### Done
+- **The gate-policy engine (`review/autonomy.py`, NG-4).** `classify_disposition()`
+  maps a normalized `GateEvaluation` to exactly one of GO / GO-WITH-RESIDUE /
+  REVISE / HALT-DECLARE by failure class (canary-abort > floor-not-run >
+  fixable-BLOCK > declared-residue > clean), per design §1.2. Adapters
+  (`evaluation_from_structural_payload/_board/_framework_gate`) translate the
+  existing `build_approve_payload`/`run_review_board`/`check_framework_gate`
+  payload shapes without reimplementing them. `classify_coverage_gate()` is
+  keyed to the exact 0.2.4+ `stop_reason` contract (`saturated` /
+  `backstop:N-waves` / malformed → fail-closed), §1.6.
+- **Async-veto window (§1.7, D1+D2 shared primitive).** `open_veto_window`
+  stamps `provisional: true`; `check_declare_final_gate` mechanically blocks
+  a terminal declare-final while open/vetoed; `clear_provisional_if_elapsed`
+  is the time-based clear; `cast_veto` rolls back (`provisional: vetoed`).
+- **Deviation log (§1.5, D2).** `record_deviation()` writes a DECLARED
+  `v(k)->v(k+1)` block; `check_undeclared_deviation()` is the REPURPOSED
+  denominator-shrink BLOCK — an undeclared corpus delta blocks, a declared
+  one (citekey-for-citekey) passes. Leak-planted test proves the BLOCK fires
+  on a real undeclared membership removal.
+- **`rv dag approve --auto`.** coverage-gate / approve-framework /
+  approve-manuscript are now resolvable via the gate-policy engine, bypassing
+  `check_human_presence` entirely — the one retained human gate
+  (`approve-protocol`) is structurally excluded and always falls through to
+  the human-presence check. REVISE → exit 2, no state mutation.
+- **The DAG `tool` (deterministic-op) node-kind (D4).** `NODE_TYPES` gains
+  `"tool"`; requires a non-empty `op` (+ optional `args`); exempt from
+  spec/continues/reads/max_retries. `dag/verbs.py::_auto_execute_tool_nodes`
+  runs any ready tool node IN-PROCESS via `review.autonomy.run_tool_op` —
+  wired into the single `_recompute_awaiting_go` choke point so
+  run/tick/complete/approve all pick it up; tool→tool and tool→agent chains
+  auto-advance in one call. `OP_REGISTRY` (sweep/snowball-forward/
+  snowball-backward/coverage/relations) are thin call-throughs to the
+  existing library functions — no op reimplemented.
+- **Verb consolidation D1-D5.** Hard-removed 8 step-verbs from the curated
+  CLI (`research sweep/cited-by/references`, `review expand/coverage/
+  relations`, `manuscript expand/review`) — each now a stub printing a
+  redirect breadcrumb + exit 2 (`cli_removed_verbs.py`); the underlying
+  functions remain importable (nothing deleted). Added `rv review <p> run
+  <scope> --question ...` (D2, fuses `review new` + `dag run` in one call)
+  and `rv dag veto <run> <node> --reason ...` (D3, the async-veto CLI
+  surface). Doctrine addition (scope-add mid-task): a "Project lifecycle"
+  section in `data/doctrine/project-structure.md` (register ↔ stand down,
+  `rv project add`/`remove`'s safety model) + a pointer from
+  `data/doctrine/roles/alfred.md`.
+- Full test suite green (3117+ tests pre-existing, +64 new across
+  `test_review_autonomy.py`, `test_dag_tool_node.py`,
+  `test_dag_approve_auto.py`, `test_verb_consolidation.py`); `rv lint`
+  clean (doctrine link-integrity + leakage scan both pass — only
+  pre-existing operator-registry config warnings, unrelated).
+
+### Decisions
+- **`approve-manuscript --auto` consumes only the structural payload
+  (`build_approve_payload`) today, NOT the full 2x3 review board** —
+  wiring `run_review_board` into the autonomous path is a real integration
+  but a materially larger surface (judge orchestration, canary wiring at
+  the CLI layer); flagged as a follow-up rather than rushed. The
+  `evaluation_from_board` adapter exists and is tested, so the wiring is a
+  contained next step, not a redesign.
+- **`review expand`/`manuscript expand`/`manuscript review` are removed
+  from the CLI but the full autonomous PHASE-TRANSITION runner (the
+  actual code that fires `cmd_expand`/the board when a gate GOes) is not
+  built in this pass** — `--auto` resolves the *gate decision*; the
+  *phase-transition emission* itself still needs a human/script to call
+  the now-unexposed `cmd_expand` function directly (still importable) or
+  a follow-up PR to wire it into the gate-GO path. Named honestly rather
+  than silently implied as done.
+- Kept the deviation-log's undeclared-BLOCK integration into
+  `cmd_approve`'s coverage-gate path OUT of scope this pass (no established
+  "frozen corpus baseline" storage convention exists yet in run_state.meta)
+  — the BLOCK itself is fully built + leak-plant-tested at the module level
+  (`review.autonomy.check_undeclared_deviation`); wiring it into the live
+  gate is a small, well-scoped follow-up once the baseline-storage
+  convention is decided.
+
+### Open / next
+- Wire `run_review_board` into `approve-manuscript --auto` (NG-5 full close-out).
+- Wire the autonomous Phase-1→2 / framework→draft emission transitions
+  (today: gate decision is autonomous, phase emission is still manual).
+- Decide + implement the frozen-corpus-baseline storage convention so
+  `check_undeclared_deviation` can gate `coverage-gate --auto` live.
+- NG-6b (PRISMA deviation-ledger rendering) not built this pass.
+
 ## 2026-07-08 (PR #180 fix: canary-tell BLOCK, draft-hash HALT, cold-read removal)
 
 ### Done

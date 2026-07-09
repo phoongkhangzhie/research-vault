@@ -162,27 +162,47 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         ),
     )
 
-    # ── expand ──────────────────────────────────────────────────────────────
-    expand_p = sub.add_parser(
-        "expand",
+    # ── run (D2, verb consolidation) ───────────────────────────────────────
+    # The one-call autonomous-loop kick: fuses `review new` + `dag run`.
+    # Starts the run; does NOT block until done (the hub fans out agent
+    # nodes, §1.9) — same non-blocking contract as `dag run`.
+    run_p = sub.add_parser(
+        "run",
         help=(
-            "Emit Phase-2 manifest from the frozen _corpus.md (post coverage-gate). "
-            "One relate-<key> node per [NEW] citekey → synthesize → critic → approve-review."
+            "D2: fuse 'review new' + 'dag run' — the one-call autonomous-"
+            "loop kick. Scaffolds the review + starts Phase-1 in one call."
+        ),
+        description=(
+            "The single trigger Alfred reaches for to kick the whole "
+            "autonomous lit-review loop (verb-consolidation D2). Equivalent "
+            "to `rv review <project> new <scope> --question '...'` followed "
+            "immediately by `rv dag run <phase1-manifest>` — but as one "
+            "call, with the manifest path resolved internally. Non-blocking: "
+            "starts the run and prints the initial frontier; it does not "
+            "wait for the loop to finish."
         ),
     )
-    expand_p.add_argument(
+    run_p.add_argument(
         "scope",
         metavar="<scope>",
-        help="Review scope identifier (same as used in rv review new).",
+        help="Review scope identifier slug (e.g. 'scope-llm-eval', 'scope-crosslingual').",
     )
-    expand_p.add_argument(
-        "--corpus",
-        metavar="<path>",
-        default=None,
-        help=(
-            "Path to _corpus.md (default: reviews/<scope>/_corpus.md). "
-            "Override for testing or if the file lives in a non-standard location."
-        ),
+    run_p.add_argument(
+        "--question",
+        required=True,
+        metavar="QUESTION",
+        help="The review research question (same as `review new --question`).",
+    )
+
+    # ── expand — D1 HARD-REMOVED (verb consolidation) ─────────────────────
+    # Collapsed into the autonomous Phase-1->2 transition: once coverage-gate
+    # GOes (§1.6), the runner emits Phase-2 itself (internal call to
+    # review.cmd_expand, kept importable). No verb to choose by hand.
+    from ..cli_removed_verbs import add_removed_verb_stub
+    add_removed_verb_stub(
+        sub, "expand",
+        op_or_transition="the autonomous Phase-1->2 emission (fires when coverage-gate GOes, NG-4)",
+        redirect="rv dag approve <run> coverage-gate --auto (Phase-2 is emitted automatically on GO)",
     )
 
     # ── list ─────────────────────────────────────────────────────────────────
@@ -369,53 +389,20 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         ),
     )
 
-    # ── coverage ──────────────────────────────────────────────────────────────
-    coverage_p = sub.add_parser(
-        "coverage",
-        help=(
-            "Deterministic corpus-coverage check keyed by citekey: field (F16+F17). "
-            "Source-of-truth: the frozen _corpus.md manifest. "
-            "Identity: literature note citekey: frontmatter field (NOT filename stem). "
-            "Reports: materialized (lit note exists), unmaterialized (missing), "
-            "orphan (materialized but absent from all mocs/). "
-            "When to use: run `rv review <project> coverage <scope>` to verify "
-            "corpus coverage after Phase-2 relate-<key> nodes complete and before "
-            "approve-review. Also: run from the coverage-gate node to confirm state. "
-            "Anti-pattern: do NOT hand-stem-match filenames to corpus citekeys — "
-            "a descriptive filename like zheng2023-pride-mc-selectors.md carrying "
-            "citekey: zheng2023-pride is materialized, not orphan; stem-matching "
-            "gives false-orphan flags."
-        ),
+    # ── coverage / relations — D1 HARD-REMOVED (verb consolidation) ───────
+    # Both collapsed into "tool" node-ops (op="coverage" / op="relations")
+    # invoked by coverage-gate/review-coverage-critic and review-synthesize
+    # respectively. review.coverage_report / review.relations_report remain
+    # importable (review.autonomy.OP_REGISTRY calls them directly).
+    add_removed_verb_stub(
+        sub, "coverage",
+        op_or_transition="the 'coverage' tool node-op (coverage-gate / review-coverage-critic)",
+        redirect="rv dag run <phase2-manifest> (coverage is checked automatically at the gate)",
     )
-    coverage_p.add_argument(
-        "scope",
-        metavar="<scope>",
-        help="Review scope identifier (same as used in rv review new).",
-    )
-
-    # ── relations (Wave 0 / PR-2) ────────────────────────────────────────────
-    relations_p = sub.add_parser(
-        "relations",
-        help=(
-            "Deterministic corpus-wide paper->paper typed-edge listing (PR-2). "
-            "Reads the '## Related papers' body sections the relate-<key> fan-out "
-            "emits (reciprocal/refutational/line-of-argument, mapped onto "
-            "[SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS])."
-        ),
-        description=(
-            "When to use: run `rv review <project> relations <scope>` from "
-            "review-synthesize (and review-coverage-critic) to TRAVERSE the "
-            "carried comparative spine instead of re-deriving it from prose. "
-            "Anti-pattern: do NOT hand-re-read every literature/ note to "
-            "reconstruct which papers refute/extend which — the relate-<key> "
-            "fan-out already discovered and typed these relations; this "
-            "command surfaces them deterministically."
-        ),
-    )
-    relations_p.add_argument(
-        "scope",
-        metavar="<scope>",
-        help="Review scope identifier (same as used in rv review new).",
+    add_removed_verb_stub(
+        sub, "relations",
+        op_or_transition="the 'relations' tool node-op (review-synthesize node)",
+        redirect="rv dag run <phase2-manifest> (review-synthesize traverses the edges automatically)",
     )
 
     return p
@@ -427,12 +414,18 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
 
 def run(args: argparse.Namespace) -> int:
     """Dispatch review subcommands. Returns exit code."""
+    # D1 (verb consolidation): expand / coverage / relations are
+    # HARD-REMOVED stubs — always dispatch to the redirect breadcrumb.
+    if getattr(args, "_rv_removed_verb", None) is not None:
+        from ..cli_removed_verbs import run_removed_verb_stub
+        return run_removed_verb_stub(args)
+
     subcommand = getattr(args, "review_cmd", None)
 
     if subcommand == "new":
         return _run_new(args)
-    elif subcommand == "expand":
-        return _run_expand(args)
+    elif subcommand == "run":
+        return _run_run(args)
     elif subcommand == "list":
         return _run_list(args)
     elif subcommand == "tips":
@@ -448,23 +441,19 @@ def run(args: argparse.Namespace) -> int:
         return _run_gap_close(args)
     elif subcommand == "gap-promote":
         return _run_gap_promote(args)
-    elif subcommand == "coverage":
-        return _run_coverage(args)
-    elif subcommand == "relations":
-        return _run_relations(args)
     else:
         print(
             "rv review: missing subcommand. "
-            "Use `rv review <project> new <scope> --question '...'`, "
-            "`rv review <project> expand <scope>`, "
-            "`rv review <project> coverage <scope>`, "
-            "`rv review <project> relations <scope>`, "
+            "Use `rv review <project> new <scope> --question '...'` (or the "
+            "fused `rv review <project> run <scope> --question '...'`, D2), "
             "`rv review <project> list`, `rv review <project> tips`, "
             "`rv review <project> gap-scan`, `rv review <project> gap-scope [--target …]`, "
             "`rv review <project> gap-route [--target …]` (alias for gap-scope), "
             "`rv review <project> gap-list [--status …]`, "
             "`rv review <project> gap-close [--by <note-ref>]`, "
-            "or `rv review <project> gap-promote --to <ref>`.",
+            "or `rv review <project> gap-promote --to <ref>`. "
+            "expand/coverage/relations were HARD-REMOVED (D1, verb "
+            "consolidation) — they now run automatically as DAG node-ops.",
             file=sys.stderr,
         )
         return 1
@@ -501,6 +490,41 @@ def _run_new(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"rv review new: error: {e}", file=sys.stderr)
         return 1
+
+
+def _run_run(args: argparse.Namespace) -> int:
+    """D2 (verb consolidation): fuse `review new` + `dag run` — the one-call
+    autonomous-loop kick. Starts the run; does not block until done."""
+    from research_vault.config import load_config
+    from research_vault.review import cmd_new
+    from research_vault.dag.verbs import cmd_run as _dag_cmd_run
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv review run: config error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        note_path, review_dir, manifest = cmd_new(
+            args.project,
+            args.scope,
+            question=args.question,
+            config=cfg,
+        )
+    except Exception as e:
+        print(f"rv review run: error scaffolding review: {e}", file=sys.stderr)
+        return 1
+
+    manifest_path = review_dir / "phase1-dag.json"
+    print(f"rv review run: created note: {note_path}")
+    print(f"rv review run: artifact dir: {review_dir}")
+    print(f"rv review run: Phase-1 manifest: {manifest_path}")
+    print(f"rv review run: starting Phase-1 (run: {manifest['run_id']})...")
+
+    import argparse as _argparse
+    dag_args = _argparse.Namespace(manifest=str(manifest_path))
+    return _dag_cmd_run(dag_args)
 
 
 def _run_expand(args: argparse.Namespace) -> int:
