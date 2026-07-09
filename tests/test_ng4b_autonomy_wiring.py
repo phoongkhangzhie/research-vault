@@ -350,6 +350,69 @@ class TestSelfAdvancingRunner:
         assert "undeclared" in disposition.reason.lower()
 
 
+# ===========================================================================
+# 5. NG-6b (scoped) — the PRISMA deviation-ledger
+# ===========================================================================
+#
+# Scope note (grounded correction, surfaced per charter §7): the brief scopes
+# NG-6b as depending on NG-6a's `rv review refresh` verb (Wave C). That verb
+# does not exist on main (grepped — no `cmd_refresh` anywhere in review/) —
+# it is a genuine prerequisite gap, not yet landed despite the brief's
+# premise. What NG-6a's item 2 (this PR, prior commit) DOES ship is the
+# deviation log itself (`record_deviation`/`_deviations.md`) — enough to
+# render the deviation ledger's DELTA (denominator change + citekeys +
+# rationale) without needing the refresh verb's "materialize the remediation
+# append into the frozen corpus" concern, which is a separate problem
+# (staleness of `coverage_report`'s materialized/orphan counts, not the
+# deviation ledger's own content). This test covers exactly that scoped
+# piece — NOT the full NG-6a/NG-6b dependency chain.
+
+class TestPrismaDeviationLedger:
+    def test_no_deviations_file_renders_unchanged_ledger(self, tmp_path: Path):
+        from research_vault.manuscript.types.lit_review import render_prisma_ledger
+
+        coverage = {
+            "counts": {"corpus": 2, "materialized": 2, "unmaterialized": 0, "orphan": 0},
+            "corpus_citekeys": ["a2024", "b2024"],
+            "unmaterialized": [], "orphan": [],
+        }
+        out = render_prisma_ledger(coverage, deviations_path=tmp_path / "_deviations.md")
+        assert "Deviation" not in out
+        assert "| Corpus (frozen citekeys) | 2 |" in out
+
+    def test_deviation_block_renders_denominator_delta_and_reasons(self, tmp_path: Path):
+        from research_vault.manuscript.types.lit_review import render_prisma_ledger
+        from research_vault.review.autonomy import record_deviation
+
+        deviations_path = tmp_path / "_deviations.md"
+        record_deviation(
+            deviations_path,
+            version=2,
+            pre_criteria="include X",
+            post_criteria="include X excluding duplicates",
+            removed=["b2024"],
+            added=["c2024"],
+            rationale="b2024 was a near-duplicate preprint of a2024.",
+        )
+        coverage = {
+            "counts": {"corpus": 2, "materialized": 2, "unmaterialized": 0, "orphan": 0},
+            "corpus_citekeys": ["a2024", "c2024"],
+            "unmaterialized": [], "orphan": [],
+        }
+        out = render_prisma_ledger(coverage, deviations_path=deviations_path)
+        assert "Deviation" in out
+        assert "b2024" in out and "c2024" in out
+        assert "near-duplicate preprint" in out
+        # The reader sees the denominator changed, not just the final count.
+        assert "→" in out or "->" in out
+
+    def test_no_corpus_still_degrades_honestly_with_deviations_path(self, tmp_path: Path):
+        from research_vault.manuscript.types.lit_review import render_prisma_ledger
+
+        out = render_prisma_ledger({}, deviations_path=tmp_path / "_deviations.md")
+        assert "No frozen corpus" in out
+
+
 class TestBuildApprovePayloadPropagatesCanaryAborted:
     def test_live_judge_canary_abort_sets_top_level_flag(self, tmp_path: Path):
         from research_vault.manuscript.check_gates import build_approve_payload
