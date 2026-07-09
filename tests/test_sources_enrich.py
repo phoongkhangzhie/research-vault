@@ -80,6 +80,24 @@ class TestScreenFetch:
         reason = enrich.screen_fetch(garbage)
         assert reason is not None
 
+    def test_short_legitimate_text_mentioning_author_not_false_flagged(self) -> None:
+        """kz-argus follow-up (PR #184): the bare `"auth"` login-signal
+        substring-matched legitimate content mentioning "author"/"authors"
+        (e.g. a short acknowledgements/attribution snippet under the
+        <1000-char guard) — a false login-wall rejection. Tighten the
+        signal so real prose about authors doesn't trip it."""
+        text = (
+            "This work builds on prior author contributions and cites "
+            "related work by several authors in the field of natural "
+            "language processing and machine learning systems research. "
+            "We thank the original authors for making their code and data "
+            "publicly available, which enabled this follow-up study to "
+            "reproduce and extend their reported findings across settings."
+        )
+        assert 300 <= len(text) < 1000
+        reason = enrich.screen_fetch(text)
+        assert reason is None
+
 
 # ---------------------------------------------------------------------------
 # 2. PDF -> text (real pymupdf, no mocking of the library itself)

@@ -112,7 +112,7 @@ _ERROR_SIGNALS = (
 )
 _LOGIN_SIGNALS = (
     "sign in", "sign up", "log in", "login", "create account",
-    "auth", "register", "sso", "verify your identity",
+    "authenticate", "register", "sso", "verify your identity",
 )
 _AUTH_PATHS = ("/login", "/signin", "/signup", "/auth", "/sso", "/register")
 _PDF_BINARY_SIGNALS = ("endstream", "endobj", "/flatedecode", "%pdf-")

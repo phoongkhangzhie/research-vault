@@ -433,6 +433,10 @@ def _read_note_structured_fields(note_path: Path) -> dict[str, str]:
         "results_location", "results_hash", "results_commit",
         "manuscript_pdf", "manuscript_hash", "backed_by", "closes",
         "covers", "dag_run", "synthesized_okf",
+        # OA full-text-enrichment provenance fields (tier 1) — pointers/
+        # metadata about HOW the note was read, not substantive claim
+        # content the judge should weigh.
+        "read_basis", "full_text_provider", "oa_status", "full_text_url",
     })
 
     result: dict[str, str] = {}
