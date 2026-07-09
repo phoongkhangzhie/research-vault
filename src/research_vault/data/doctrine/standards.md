@@ -82,14 +82,16 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   is actually reached — help-vs-behaviour, not help-present.
 - **A module that emits an artifact through an external TOOLCHAIN requires an exec-guarded,
   real-toolchain end-to-end test — string assertions on generated markup are not a sufficient gate.**
-  When a module shells to LaTeX / `pdflatex` / `bibtex` / `chktex` (or any external renderer) to produce
-  an artifact, a test that only asserts substrings in the *generated source* verifies the string-builder,
-  not the artifact — the toolchain never runs, so a macro the renderer rejects (or a builder that is
-  never called) ships green. Require at least one test that, **guarded on the tool being present**
-  (`shutil.which` / skip-if-absent), runs the real toolchain end-to-end and asserts the artifact is
-  produced. SR-MS-1b shipped two green-but-empty defects — a macro-brace bug *and* the orphaned
-  `.bib` / results builders — precisely because no test ran `pdflatex`. Exec-guard so CI without the
-  toolchain skips cleanly; never let the string-only assertion be the sole gate.
+  When a module shells to an external renderer to produce an artifact, a test that only asserts
+  substrings in the *generated source* verifies the string-builder, not the artifact — the toolchain
+  never runs, so an artifact the renderer rejects (or a builder that is never called) ships green.
+  Require at least one test that, **guarded on the tool being present** (`shutil.which` /
+  skip-if-absent), runs the real toolchain end-to-end and asserts the artifact is produced. Historical
+  precedent (rv's manuscript loop no longer shells to LaTeX/`pdflatex`/`bibtex`/`chktex` at all — the
+  render target is markdown-only, see `manuscript-loop.md`): SR-MS-1b shipped two green-but-empty
+  defects — a macro-brace bug *and* the orphaned `.bib` / results builders — precisely because no test
+  ran `pdflatex`. Exec-guard so CI without the toolchain skips cleanly; never let the string-only
+  assertion be the sole gate.
 - **A packaging SR requires an isolated-install acceptance test.** Any SR that ships data files,
   doctrine, or resources inside the wheel MUST carry a test that (a) builds the wheel, (b) installs
   it into a fresh venv, (c) runs the command from OUTSIDE the repo tree, and (d) asserts real content

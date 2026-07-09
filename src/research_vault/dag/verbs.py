@@ -1577,8 +1577,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
             print(msg, file=sys.stderr)
             return 1
 
-    # Manuscript-integration PR: the assembled gate payload (hermetic .bib
-    # BLOCK, equation-fidelity SIGNAL, support-matcher BLOCK/SIGNAL behind
+    # Manuscript-integration PR: the assembled gate payload (hermetic
+    # references-build BLOCK, equation-fidelity SIGNAL, support-matcher BLOCK/SIGNAL behind
     # the judge guard — manuscript/check_gates.py::build_approve_payload)
     # gates ``approve-manuscript``. Mirrors the ``approve-framework`` wiring
     # above exactly: ``manifest_path.parent`` IS the manuscript tree root
@@ -1632,7 +1632,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 print(
                     "rv dag approve: approve-manuscript NOT RUN: manuscript_type "
                     f"{_raw_type!r} is unrecognized (unregistered or missing) — "
-                    "the hermetic .bib, equation-fidelity, and support-matcher "
+                    "the hermetic references build, equation-fidelity, and support-matcher "
                     "gates were NOT run for this manuscript. This is "
                     "NOT a pass: fix `manuscript_type:` in "
                     f"{manuscript_note_path} to a registered type (see "

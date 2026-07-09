@@ -2,11 +2,13 @@
 
 Next-gen lit-review design §6, RD-1: the manuscript renders markdown
 (``report.md`` + ``sections/*.md``); citations are ``[[citekey]]`` wikilinks
-backed by a mechanical ``## Sources`` list. The load-bearing acceptance
-condition: the hermetic-bib BLOCK and the support-matcher/cold-read fidelity
-gates keep firing — now against markdown, not just legacy ``.tex``.
+backed by a mechanical ``references.md`` list. LaTeX has been removed
+entirely (the operator's explicit call, see DEVLOG) — markdown is the ONLY
+render target and citation syntax. The load-bearing acceptance condition:
+the hermetic-references BLOCK and the support-matcher fidelity gates fire
+against markdown.
 
-sr: NG-lit-review-waveB (RD-1)
+sr: NG-lit-review-waveB (RD-1); LaTeX removal — see DEVLOG.
 """
 from __future__ import annotations
 
@@ -49,9 +51,9 @@ def test_resolve_draft_files_finds_report_md_and_sections(tmp_path: Path):
     assert names == ["report.md", "framing.md", "moves.md"]
 
 
-def test_resolve_draft_files_legacy_tex_still_scanned_mid_migration(tmp_path: Path):
-    """A manuscript already in progress under the pre-RD-1 .tex target must
-    not be silently orphaned — both extensions are scanned."""
+def test_resolve_draft_files_ignores_legacy_tex(tmp_path: Path):
+    """LaTeX has been removed entirely — a stray .tex file (e.g. left over
+    from a pre-removal checkout) is never scanned."""
     tree_root = tmp_path / "manuscripts" / "survey"
     (tree_root / "sections").mkdir(parents=True)
     (tree_root / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
@@ -59,12 +61,13 @@ def test_resolve_draft_files_legacy_tex_still_scanned_mid_migration(tmp_path: Pa
 
     files = resolve_draft_files(tree_root)
     names = [f.name for f in files]
-    assert "main.tex" in names
-    assert "framework.tex" in names
+    assert "main.tex" not in names
+    assert "framework.tex" not in names
+    assert files == []
 
 
 # ---------------------------------------------------------------------------
-# extract_cited_keys — [[wikilink]] markdown citations alongside \cite{}
+# extract_cited_keys — [[wikilink]] markdown citations
 # ---------------------------------------------------------------------------
 
 def test_extract_cited_keys_from_markdown_wikilinks(tmp_path: Path):
@@ -77,20 +80,11 @@ def test_extract_cited_keys_from_markdown_wikilinks(tmp_path: Path):
     assert keys == {"smith2023", "jones2022"}
 
 
-def test_extract_cited_keys_mixed_tex_and_markdown_files(tmp_path: Path):
-    tex = tmp_path / "old.tex"
-    tex.write_text("Earlier work \\cite{legacy2020} established this.\n", encoding="utf-8")
-    md = tmp_path / "new.md"
-    md.write_text("Newer work [[fresh2026]] extends it.\n", encoding="utf-8")
-    keys = bib.extract_cited_keys([tex, md])
-    assert keys == {"legacy2020", "fresh2026"}
-
-
 # ---------------------------------------------------------------------------
-# build_refs_bib / check_hermetic_bib against markdown draft files
+# build_references_md / check_citation_resolve against markdown draft files
 # ---------------------------------------------------------------------------
 
-def test_build_refs_bib_resolves_markdown_wikilink_citation(tmp_path: Path):
+def test_build_references_md_resolves_markdown_wikilink_citation(tmp_path: Path):
     project_notes_dir = tmp_path / "notes"
     _write_lit_note(project_notes_dir / "literature", "smith2023")
 
@@ -100,14 +94,14 @@ def test_build_refs_bib_resolves_markdown_wikilink_citation(tmp_path: Path):
         "Smith [[smith2023]] showed this.\n", encoding="utf-8",
     )
 
-    errors, bib_path = bib.build_refs_bib(
-        project_notes_dir, tree_root, tex_files=resolve_draft_files(tree_root),
+    errors, references_path = bib.build_references_md(
+        project_notes_dir, tree_root, draft_files=resolve_draft_files(tree_root),
     )
     assert errors == []
-    assert "smith2023" in bib_path.read_text(encoding="utf-8")
+    assert "smith2023" in references_path.read_text(encoding="utf-8")
 
 
-def test_check_hermetic_bib_blocks_on_dangling_markdown_wikilink(tmp_path: Path):
+def test_check_citation_resolve_blocks_on_dangling_markdown_wikilink(tmp_path: Path):
     project_notes_dir = tmp_path / "notes"
     (project_notes_dir / "literature").mkdir(parents=True)
 
@@ -117,8 +111,8 @@ def test_check_hermetic_bib_blocks_on_dangling_markdown_wikilink(tmp_path: Path)
         "Ghost work [[nosuchpaper2099]] claims this.\n", encoding="utf-8",
     )
 
-    result = bib.check_hermetic_bib(
-        project_notes_dir, tree_root, tex_files=resolve_draft_files(tree_root),
+    result = bib.check_citation_resolve(
+        project_notes_dir, tree_root, draft_files=resolve_draft_files(tree_root),
     )
     assert result["ok"] is False
     assert any("nosuchpaper2099" in e for e in result["errors"])

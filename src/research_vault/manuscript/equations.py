@@ -413,8 +413,8 @@ def check_equation_fidelity(
 
     Args:
         ledger: from ``extract_equation_ledger``.
-        draft_text: the assembled draft (e.g. the joined ``sections/*.tex``
-            or ``main.tex`` content) to check equations against.
+        draft_text: the assembled draft (e.g. the joined ``sections/*.md``
+            or ``report.md`` content) to check equations against.
         judge_fn: optional ``(ledger_entry, draft_text) -> bool`` callable —
             ``True`` means "this equation IS represented in the draft
             (re-typeset)". Any exception is treated as ``False`` (fail-

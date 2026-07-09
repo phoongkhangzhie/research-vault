@@ -10,8 +10,8 @@ structural framing this loop realizes.
   KNOWLEDGE LOOPS                          THE MANUSCRIPT LOOP
   (experiment, lit-review)                 (rebuilt, by TYPE)
   build ──►  notes/         ──transform──►  manuscripts/<slug>/     ──►  user-facing deliverable
-            (crew reasoning)  by type       (main.tex, sections/,
-                                             refs.bib, figures/)
+            (crew reasoning)  by type       (report.md, sections/,
+                                             references.md, figures/)
 ```
 
 **Trigger:** reach for `rv manuscript <project> new <slug> --type <type>` when you have
@@ -19,9 +19,9 @@ enough OKF notes (a completed or substantially-saturated `rv review` pass, or a 
 `experiments/`/`findings/` notes) and need a **submittable document** — a survey/review
 paper (`type: lit-review`, the only type shipped) or, in the future, a results paper
 (`type: experiment-paper`, designed for but not built). This is the synthesis step, distinct
-from the knowledge loops that produce the notes it consumes: don't hand-write a `.tex` and
-hand-collect citations/numbers/equations from OKF piles — the manuscript loop's per-manuscript
-folder is what the hermetic `.bib` build, the hard fidelity gates, the equation machinery, and
+from the knowledge loops that produce the notes it consumes: don't hand-write markdown sections
+and hand-collect citations/numbers/equations from OKF piles — the manuscript loop's per-manuscript
+folder is what the hermetic references build, the hard fidelity gates, the equation machinery, and
 the review-revise board all plug into.
 
 Design of record: the survey type-system design (the full type-system design, PR breakdown,
@@ -42,9 +42,9 @@ framework-selection sub-loop, design §5), a Phase-1 DAG manifest:
 ```
 manuscripts/<slug>/
 ├── _manuscript.md        # control + frontmatter: type, spine, corpus_hash, run_state
-├── main.tex
-├── sections/*.tex
-├── refs.bib               # hermetic — built from notes/literature/ frontmatter
+├── report.md
+├── sections/*.md
+├── references.md          # hermetic — built from notes/literature/ frontmatter
 └── figures/
 ```
 
@@ -137,8 +137,8 @@ same as approving the manuscript.
 
 ### Output
 
-`manuscripts/<slug>/{main.tex, sections/*.tex, refs.bib, figures/}` — a self-contained,
-hermetically-buildable folder; `refs.bib` reproducible offline from the corpus alone, no
+`manuscripts/<slug>/{report.md, sections/*.md, references.md, figures/}` — a self-contained,
+hermetically-buildable folder; `references.md` reproducible offline from the corpus alone, no
 network call reachable from the compile path.
 
 ---

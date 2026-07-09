@@ -1,25 +1,22 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""bib.py — PR-M2: hermetic ``.bib`` build + citation-resolve gate (design §6, D-SV-A).
+"""bib.py — PR-M2: hermetic reference-list build + citation-resolve gate (design §6, D-SV-A).
 
 Re-instantiates the removed ``manuscript/bib.py`` (SR-RM-FIGMS deleted it),
-adapted to the type-generic manuscript loop's D-SV-A contract:
-
-  RESOLVED (design §6): build ``refs.bib`` **deterministically from the
-  ``literature/`` note frontmatter** — hermetic, offline, NO live Zotero call
-  during compile. ``cite.py`` (the Zotero API bridge) is for **populating**
-  ``literature/`` notes, never for the build/compile path — this module does
-  not import it, and imports no network library (see ``TestHermeticNoNetwork``
-  in the test suite for the structural + behavioural proof).
+adapted to the type-generic manuscript loop's D-SV-A contract, and later
+retired its LaTeX render target entirely (the operator's explicit call —
+see DEVLOG). The manuscript loop's citation convention is now
+markdown-only: a ``[[citekey]]`` wikilink in the draft prose (RD-1),
+resolved against a markdown-native ``references.md`` ledger.
 
 The hermetic gate confirms BOTH, at build time (design §6):
-  1. Every ``\\cite{key}`` in the draft's ``.tex`` files resolves to a real
+  1. Every ``[[citekey]]`` wikilink in the draft resolves to a real
      ``literature/`` note (citekey: field, F17 filename-stem fallback) — a
-     dangling ``\\cite`` is flagged (non-empty errors), never silently
+     dangling wikilink is flagged (non-empty errors), never silently
      dropped or fabricated.
-  2. ``refs.bib`` is self-contained — every entry written to it is backed by
-     a real ``literature/`` note (no fabricated stub entries; a missing note
-     means the key is simply ABSENT from the closed bibliography, not guessed
-     at).
+  2. ``references.md`` is self-contained — every entry written to it is
+     backed by a real ``literature/`` note (no fabricated stub entries; a
+     missing note means the key is simply ABSENT from the closed reference
+     list, not guessed at).
 
 Never fabricate a bibliographic field: authors/year/venue are emitted ONLY
 when present in the note's frontmatter (the shipped literature scaffold today
@@ -30,7 +27,7 @@ hand or a future enrichment, never invented here).
 Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md (§6, §14 PR-M2).
 
 Stdlib only.
-sr: PR-M2
+sr: PR-M2; LaTeX removal — see DEVLOG.
 """
 from __future__ import annotations
 
@@ -40,16 +37,6 @@ from typing import Any
 
 from research_vault.note import _parse_frontmatter
 
-# ---------------------------------------------------------------------------
-# \cite{} extraction from .tex files (ported from the removed manuscript/bib.py,
-# SR-MS-1b — the LaTeX-comment-stripping + multi-cite handling is unchanged
-# craft, re-instantiated verbatim).
-# ---------------------------------------------------------------------------
-
-# Matches \cite{key}, \citep{key}, \citet{key}, \citealt{key}, etc.
-# Also \cite[p. 1]{key}, \cite{key1,key2} (multi-cite).
-_CITE_RE = re.compile(r"\\cite[a-z]*\*?\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
-
 # RD-1 (next-gen lit-review design §6): the markdown render target's citation
 # syntax — a `[[citekey]]` wikilink, mirroring the vault-navigable literature
 # note pointer convention elsewhere in rv. One citekey per wikilink (no
@@ -58,65 +45,25 @@ _CITE_RE = re.compile(r"\\cite[a-z]*\*?\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 # `[[smith2023,jones2022]]`).
 _WIKILINK_CITE_RE = re.compile(r"\[\[([A-Za-z0-9_.\-]+)\]\]")
 
-# Matches the citekey out of a written .bib entry line: "@type{key,".
-_BIB_ENTRY_KEY_RE = re.compile(r"^@\w+\{([^,\s]+),", re.MULTILINE)
+# Matches the citekey out of a written references.md entry line:
+# "- **citekey** — Title...".
+_REFERENCE_ENTRY_KEY_RE = re.compile(r"^-\s+\*\*([^*]+)\*\*", re.MULTILINE)
 
 
-def _strip_latex_comments(text: str) -> str:
-    """Strip LaTeX line comments (% to end of line) from text.
-
-    Handles the edge case of escaped percent signs (``\\%``) which are NOT
-    comments. Simple line-by-line stripping — no full LaTeX parser needed for
-    cite extraction.
-    """
-    lines: list[str] = []
-    for line in text.split("\n"):
-        stripped = line
-        i = 0
-        while i < len(line):
-            if line[i] == "%" and (i == 0 or line[i - 1] != "\\"):
-                stripped = line[:i]
-                break
-            i += 1
-        lines.append(stripped)
-    return "\n".join(lines)
-
-
-def extract_cited_keys(tex_files: list[Path]) -> set[str]:
-    r"""Extract all citekeys from a list of draft files — ``.tex``
-    (\\cite{}/\\citep{}/\\citet{}, legacy render target) and/or ``.md``
-    (``[[citekey]]`` wikilinks, RD-1's markdown render target). The file's
-    extension does not gate which pattern is scanned — both patterns are
-    matched in every file, so a mid-migration manuscript with mixed
-    ``.tex``/``.md`` sections is never silently under-scanned.
-
-    Handles:
-      \\cite{key}        — simple
-      \\citep{key}       — natbib-style
-      \\cite{key1,key2}  — multi-cite
-      \\cite[p. 1]{key}  — optional note
-      [[key]]            — RD-1 markdown wikilink citation
-
-    Strips LaTeX line comments (``%`` to end-of-line) before scanning so that
-    commented-out examples (e.g. ``% every \\cite{key} must resolve``) do not
-    generate false positives.
+def extract_cited_keys(draft_files: list[Path]) -> set[str]:
+    """Extract all citekeys from a list of markdown draft files
+    (``[[citekey]]`` wikilinks, RD-1's markdown render target).
 
     Returns a set of stripped citekey strings.
     """
     keys: set[str] = set()
-    for tex_path in tex_files:
-        if not tex_path.exists():
+    for draft_path in draft_files:
+        if not draft_path.exists():
             continue
         try:
-            text = tex_path.read_text(encoding="utf-8", errors="replace")
+            text = draft_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        text = _strip_latex_comments(text)
-        for m in _CITE_RE.finditer(text):
-            for k in m.group(1).split(","):
-                k = k.strip()
-                if k:
-                    keys.add(k)
         for m in _WIKILINK_CITE_RE.finditer(text):
             k = m.group(1).strip()
             if k:
@@ -160,102 +107,98 @@ def _load_literature_bib_index(literature_dir: Path) -> dict[str, dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
-# BibTeX entry generation from literature/ frontmatter (never fabricate)
+# Markdown reference-entry generation from literature/ frontmatter (never
+# fabricate)
 # ---------------------------------------------------------------------------
 
-def _escape_bib(s: str) -> str:
-    """Minimal BibTeX field escaping."""
-    return s.replace("\\", "\\\\")
-
-
-def _fields_to_bib_entry(citekey: str, fields: dict[str, Any]) -> str:
-    """Convert a ``literature/`` note's frontmatter fields to a BibTeX entry.
+def _fields_to_reference_entry(citekey: str, fields: dict[str, Any]) -> str:
+    """Convert a ``literature/`` note's frontmatter fields to a markdown
+    reference-list bullet.
 
     Grounding contract: emits a field ONLY when present in ``fields`` — never
     fabricates authors/year/venue/doi/arxiv_id that the note doesn't carry.
     ``title`` is the only field assumed present (every OKF note has one).
 
-    Entry-type heuristic (best-effort, no invented specifics):
-      - ``venue`` present -> ``@article`` (journal = venue).
-      - otherwise -> ``@misc`` (with a ``note`` pointing at the arxiv_id/doi
-        when present, so the entry is still traceable).
+    Format: ``- **citekey** — Title. Authors (Year). Venue. doi:X / arXiv:Y``
+    (each trailing segment present only when the corresponding field is set).
     """
-    title = _escape_bib(str(fields.get("title") or "").strip())
-    authors = _escape_bib(str(fields.get("authors") or "").strip())
+    title = str(fields.get("title") or "").strip()
+    authors = str(fields.get("authors") or "").strip()
     year = str(fields.get("year") or "").strip()
-    venue = _escape_bib(str(fields.get("venue") or "").strip())
+    venue = str(fields.get("venue") or "").strip()
     doi = str(fields.get("doi") or "").strip()
     arxiv_id = str(fields.get("arxiv_id") or "").strip()
 
-    entry_type = "article" if venue else "misc"
-
-    lines = [f"@{entry_type}{{{citekey},"]
-    if title:
-        lines.append(f"  title = {{{title}}},")
+    parts = [f"- **{citekey}** — {title}."]
     if authors:
-        lines.append(f"  author = {{{authors}}},")
-    if entry_type == "article" and venue:
-        lines.append(f"  journal = {{{venue}}},")
-    if year:
-        lines.append(f"  year = {{{year}}},")
+        parts.append(f" {authors}")
+        if year:
+            parts.append(f" ({year}).")
+        else:
+            parts.append(".")
+    elif year:
+        parts.append(f" ({year}).")
+    if venue:
+        parts.append(f" {venue}.")
     if doi:
-        lines.append(f"  doi = {{{doi}}},")
+        parts.append(f" doi:{doi}")
     if arxiv_id:
-        lines.append(f"  note = {{arXiv:{arxiv_id}}},")
-    lines.append("}")
-    return "\n".join(lines) + "\n"
+        parts.append(f" arXiv:{arxiv_id}")
+    return "".join(parts).rstrip() + "\n"
 
 
 # ---------------------------------------------------------------------------
-# build_refs_bib — the hermetic .bib build (design §6, part 1)
+# build_references_md — the hermetic reference-list build (design §6, part 1)
 # ---------------------------------------------------------------------------
 
 _HEADER = (
-    "% refs.bib — hermetic build from literature/ frontmatter "
-    "(rv manuscript, PR-M2).\n"
-    "% Closed bibliography: only \\cite{}-referenced keys appear.\n"
-    "% Do NOT hand-edit citekeys — the build is deterministic; re-run the\n"
-    "% manuscript bib gate to regenerate.\n"
-    "% NO live Zotero/network call is made to produce this file (D-SV-A).\n"
+    "# References\n\n"
+    "<!-- references.md — hermetic build from literature/ frontmatter "
+    "(rv manuscript, PR-M2). -->\n"
+    "<!-- Closed bibliography: only [[citekey]]-referenced keys appear. -->\n"
+    "<!-- Do NOT hand-edit citekeys — the build is deterministic; re-run the -->\n"
+    "<!-- manuscript bib gate to regenerate. -->\n"
+    "<!-- NO live Zotero/network call is made to produce this file (D-SV-A). -->\n"
 )
 
 
-def build_refs_bib(
+def build_references_md(
     project_notes_dir: Path,
     tree_root: Path,
     *,
-    tex_files: list[Path] | None = None,
+    draft_files: list[Path] | None = None,
 ) -> tuple[list[str], Path]:
-    r"""Build ``tree_root/refs.bib`` from ``literature/`` frontmatter.
+    """Build ``tree_root/references.md`` from ``literature/`` frontmatter.
 
     Hermetic (design §6, D-SV-A): reads only local files (``literature/*.md``
-    frontmatter + the manuscript's ``.tex`` files) — no network, no Zotero API
-    call is reachable from this path (see ``TestHermeticNoNetwork``).
+    frontmatter + the manuscript's markdown draft files) — no network, no
+    Zotero API call is reachable from this path (see ``TestHermeticNoNetwork``).
 
     Args:
         project_notes_dir: the project's OKF notes root (``cfg.project_notes_dir``).
         tree_root: the manuscript folder (``manuscripts/<slug>/``).
-        tex_files: explicit list of .tex files to scan for ``\\cite{}``. When
-            None, scans all ``.tex`` files under ``tree_root`` recursively
-            (mirrors the removed module's default).
+        draft_files: explicit list of markdown files to scan for
+            ``[[citekey]]`` wikilinks. When None, resolves the manuscript's
+            reader-facing draft via ``draft_files.resolve_draft_files``.
 
     Returns:
-        (errors, bib_path):
-          errors: list of hard-error strings — one per \\cite{} with no
-            backing ``literature/`` note (empty = every cite resolved).
-          bib_path: path to the written ``refs.bib`` (``tree_root / "refs.bib"``).
+        (errors, references_path):
+          errors: list of hard-error strings — one per ``[[citekey]]`` with no
+            backing ``literature/`` note (empty = every citation resolved).
+          references_path: path to the written ``references.md``
+            (``tree_root / "references.md"``).
     """
-    bib_path = tree_root / "refs.bib"
+    references_path = tree_root / "references.md"
     errors: list[str] = []
 
     literature_dir = project_notes_dir / "literature"
     lit_index = _load_literature_bib_index(literature_dir)
 
-    if tex_files is None:
+    if draft_files is None:
         from research_vault.manuscript.draft_files import resolve_draft_files
 
-        tex_files = resolve_draft_files(tree_root)
-    cited_keys = extract_cited_keys(tex_files)
+        draft_files = resolve_draft_files(tree_root)
+    cited_keys = extract_cited_keys(draft_files)
 
     matched: dict[str, dict[str, Any]] = {}
     for key in sorted(cited_keys):
@@ -263,7 +206,7 @@ def build_refs_bib(
             matched[key] = lit_index[key]
         else:
             errors.append(
-                f"refs.bib: unmatched \\cite{{{key}}} — no literature/ note "
+                f"references.md: unmatched [[{key}]] — no literature/ note "
                 f"with citekey (or filename stem) {key!r} found under "
                 f"{literature_dir}. File one via `rv note <project> literature "
                 f"--title ... --id {key}`, or check the citekey spelling."
@@ -271,32 +214,35 @@ def build_refs_bib(
 
     body_parts = [_HEADER, ""]
     for key in sorted(matched):
-        body_parts.append(_fields_to_bib_entry(key, matched[key]))
-        body_parts.append("")
+        body_parts.append(_fields_to_reference_entry(key, matched[key]))
 
-    bib_path.write_text("\n".join(body_parts).rstrip() + "\n" if matched else _HEADER, encoding="utf-8")
-    return errors, bib_path
+    references_path.write_text(
+        "\n".join(body_parts).rstrip() + "\n" if matched else _HEADER,
+        encoding="utf-8",
+    )
+    return errors, references_path
 
 
 # ---------------------------------------------------------------------------
-# check_hermetic_bib — the citation-resolve gate (design §6, part 2)
+# check_citation_resolve — the citation-resolve gate (design §6, part 2)
 # ---------------------------------------------------------------------------
 
-def check_hermetic_bib(
+def check_citation_resolve(
     project_notes_dir: Path,
     tree_root: Path,
     *,
-    tex_files: list[Path] | None = None,
+    draft_files: list[Path] | None = None,
 ) -> dict[str, Any]:
-    r"""The hermetic citation-resolve gate — BOTH predicates of D-SV-A.
+    """The hermetic citation-resolve gate — BOTH predicates of D-SV-A.
 
-    1. Every ``\\cite{}`` resolves to a real ``literature/`` note (dangling
-       cite -> BLOCK — surfaced via ``ok: False`` + non-empty ``errors``).
-    2. ``refs.bib`` is self-contained — rebuilt fresh from frontmatter only,
-       so a stale hand-edited ``.bib`` is never trusted; every emitted entry
-       traces to a real ``literature/`` note (asserted structurally: the
-       written ``.bib``'s citekeys are always a subset of ``lit_index``, by
-       construction of ``build_refs_bib``).
+    1. Every ``[[citekey]]`` wikilink resolves to a real ``literature/`` note
+       (dangling wikilink -> BLOCK — surfaced via ``ok: False`` + non-empty
+       ``errors``).
+    2. ``references.md`` is self-contained — rebuilt fresh from frontmatter
+       only, so a stale hand-edited reference list is never trusted; every
+       emitted entry traces to a real ``literature/`` note (asserted
+       structurally: the written references' citekeys are always a subset of
+       ``lit_index``, by construction of ``build_references_md``).
 
     Fail-closed: a build that produced ANY error is ``ok: False`` — never a
     silent partial pass (charter §2 — surface, never silently drop).
@@ -305,27 +251,29 @@ def check_hermetic_bib(
         {
           "ok": bool,             # True iff zero errors
           "errors": list[str],
-          "bib_path": Path,
+          "references_path": Path,
           "cited_keys": set[str],
           "resolved_keys": set[str],
         }
     """
-    errors, bib_path = build_refs_bib(project_notes_dir, tree_root, tex_files=tex_files)
+    errors, references_path = build_references_md(
+        project_notes_dir, tree_root, draft_files=draft_files,
+    )
 
     literature_dir = project_notes_dir / "literature"
     lit_index = _load_literature_bib_index(literature_dir)
 
-    if tex_files is None:
+    if draft_files is None:
         from research_vault.manuscript.draft_files import resolve_draft_files
 
-        tex_files = resolve_draft_files(tree_root)
-    cited_keys = extract_cited_keys(tex_files)
+        draft_files = resolve_draft_files(tree_root)
+    cited_keys = extract_cited_keys(draft_files)
     resolved_keys = cited_keys & set(lit_index)
 
     return {
         "ok": not errors,
         "errors": errors,
-        "bib_path": bib_path,
+        "references_path": references_path,
         "cited_keys": cited_keys,
         "resolved_keys": resolved_keys,
     }

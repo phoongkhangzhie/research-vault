@@ -462,7 +462,7 @@ class TestRunRevise:
     def test_calls_build_approve_payload_not_a_duplicate(self):
         """Call-graph proof (review-board.md's false-SSOT technique): confirm
         run_revise's AST LITERALLY calls build_approve_payload, and contains
-        NO call to check_hermetic_bib/check_support_tally/check_cold_read_tally/
+        NO call to check_citation_resolve/check_support_tally/check_cold_read_tally/
         check_equation_fidelity (a re-implementation would call one of these
         directly instead of going through the single-sourced assembler).
 
@@ -485,7 +485,7 @@ class TestRunRevise:
 
         assert "build_approve_payload" in called_names
         assert called_names.isdisjoint(
-            {"check_hermetic_bib", "check_support_tally", "check_cold_read_tally", "check_equation_fidelity"}
+            {"check_citation_resolve", "check_support_tally", "check_cold_read_tally", "check_equation_fidelity"}
         )
 
     def test_returns_gate_payload_and_honesty_flag(self, tmp_path):
@@ -494,25 +494,25 @@ class TestRunRevise:
         project_notes_dir = tmp_path / "notes"
         tree_root = project_notes_dir / "manuscripts" / "survey-x"
         (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-        (tree_root / "refs.bib").write_text("", encoding="utf-8")
+        (tree_root / "references.md").write_text("", encoding="utf-8")
         ms_type = get_type("lit-review")
 
         result = rb.run_revise(1, {"meta_review": "concern"}, tree_root, project_notes_dir, ms_type)
         assert "gate_payload" in result
 
-    def test_dangling_cite_re_fire_blocks_via_real_hermetic_bib_gate(self, tmp_path):
-        """A revise whose (mock) re-draft still has a dangling \\cite{} must
-        BLOCK — proven through the REAL check_hermetic_bib gate (single-
+    def test_dangling_wikilink_re_fire_blocks_via_real_citation_resolve_gate(self, tmp_path):
+        """A revise whose (mock) re-draft still has a dangling [[citekey]] must
+        BLOCK — proven through the REAL check_citation_resolve gate (single-
         sourced via build_approve_payload), not a stubbed result."""
         from research_vault.manuscript.types import get_type
 
         project_notes_dir = tmp_path / "notes"
         tree_root = project_notes_dir / "manuscripts" / "survey-dangling"
         (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-        (tree_root / "sections" / "intro.tex").write_text(
-            r"We note X \cite{nosuchpaper2099}.", encoding="utf-8",
+        (tree_root / "sections" / "intro.md").write_text(
+            "We note X [[nosuchpaper2099]].", encoding="utf-8",
         )
-        (tree_root / "refs.bib").write_text("", encoding="utf-8")
+        (tree_root / "references.md").write_text("", encoding="utf-8")
         ms_type = get_type("lit-review")
 
         result = rb.run_revise(1, {"meta_review": "concern"}, tree_root, project_notes_dir, ms_type)
@@ -531,7 +531,7 @@ class TestRunReviewBoard:
         project_notes_dir = tmp_path / "notes"
         tree_root = project_notes_dir / "manuscripts" / "survey-y"
         (tree_root / "sections").mkdir(parents=True, exist_ok=True)
-        (tree_root / "refs.bib").write_text("", encoding="utf-8")
+        (tree_root / "references.md").write_text("", encoding="utf-8")
         return project_notes_dir, tree_root
 
     def test_clears_at_round_one_round_two_is_a_true_noop(self, tmp_path):

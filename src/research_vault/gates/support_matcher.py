@@ -12,8 +12,8 @@ match_support() directly.
 SCOPE AND HONEST BOUNDARY
 ==========================
 This module gives a SEMANTIC guarantee, not a prose guarantee:
-  - STRUCTURAL (deterministic, sound): every \\cite{key} resolves; every .bib entry
-    carries a real external id. These guarantees are in check_gates.py.
+  - STRUCTURAL (deterministic, sound): every [[citekey]] wikilink resolves; every
+    references.md entry carries a real external id. These guarantees are in check_gates.py.
   - SEMANTIC (LLM-judged, assisted): whether a cited source actually backs the claim
     in the prose. This module is the semantic layer.
 
@@ -166,7 +166,7 @@ that rubber-stamps is worse than no judge — it manufactures false confidence.
 ────────────────────────────────────────────────────────────────────────
 INPUTS
 ────────────────────────────────────────────────────────────────────────
-THE CLAIM (one manuscript sentence, carrying the \\cite{{}} under test):
+THE CLAIM (one manuscript sentence, carrying the [[citekey]] under test):
 {CLAIM}
 
 THE CITED NOTE (the literature/ OKF note's RECORDED content — its structured
@@ -206,7 +206,7 @@ STEP 0 — DECOMPOSE THE CLAIM. Restate the claim as its single checkable
     • MODALITY   — CAUSAL ("causes/drives/leads to/because") or
                    ASSOCIATIONAL ("correlates/associated with/co-occurs")?
     • SCOPE      — the population / setting / metric the claim is about.
-  If the sentence bundles several propositions, judge the ONE the \\cite{{}}
+  If the sentence bundles several propositions, judge the ONE the [[citekey]]
   is attached to; name it explicitly.
 
 STEP 1 — DISCONFIRMING READ (mandatory, first). Scan the NOTE for the
@@ -308,7 +308,7 @@ class SupportVerdict:
       polarity:       positive | negative | neutral | mixed
       reasoning:      1–3 sentence explanation from the judge
       claim:          the input claim sentence
-      citekey:        the BibTeX citekey being checked
+      citekey:        the citekey being checked
       note_path:      absolute path string of the literature/ note
       judge_model:    the model-id used for this call (for RunState.meta logging)
       prompt_hash:    sha256 hex of the prompt sent (for audit + drift detection)
@@ -672,8 +672,8 @@ def match_support(
     and the (A) naked-cite resolver in naked_cite.py call this function.
 
     Args:
-        claim:           the manuscript sentence containing the \\cite{citekey}.
-        citekey:         the BibTeX citekey being checked.
+        claim:           the manuscript sentence containing the [[citekey]] wikilink.
+        citekey:         the citekey being checked.
         note_path:       path to the literature/ OKF note for this source.
         stance:          optional stance: field from the note (for J-2 gate; None → skip).
         plan_role:       optional plan_role: field (for J-2 gate context; None → skip).

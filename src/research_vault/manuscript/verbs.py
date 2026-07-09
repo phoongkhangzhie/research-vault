@@ -3,7 +3,7 @@
 
 When to use: use ``rv manuscript <project> new <slug> --type <type>`` to scaffold
 a per-manuscript folder (design §0/§12: NOT an OKF taxonomy — a per-manuscript
-``manuscripts/<slug>/{_manuscript.md, main.tex, sections/, refs.bib, figures/}``
+``manuscripts/<slug>/{_manuscript.md, report.md, sections/, references.md, figures/}``
 folder). ``rv manuscript <project> expand <slug>`` emits the Phase-2 draft
 manifest generically from the registered type's section table. ``rv manuscript
 <project> review <slug>`` drives the 2-round x 3-reviewer adversarial
@@ -14,8 +14,8 @@ ANTHROPIC_API_KEY, raises loudly rather than silently no-op-ing when absent.
 This is the ONLY path that creates the type-registered per-manuscript folder +
 Phase-1/2 DAG manifests.
 
-Anti-pattern: do NOT hand-write a .tex and hand-collect citations from OKF
-piles — run ``rv manuscript new`` so the per-manuscript folder carries the
+Anti-pattern: do NOT hand-write markdown sections and hand-collect citations
+from OKF piles — run ``rv manuscript new`` so the per-manuscript folder carries the
 type-generic scaffold; the hermetic ``.bib`` (PR-M2), the fidelity gates
 (PR-M3), the equation machinery (PR-M4), and the review-revise board (PR-M5)
 all plug into this same folder.
@@ -41,7 +41,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     scaffold a per-manuscript folder + (type-optional) Phase-1 manifest
     (PR-M1, design §1/§2).
 
-    Anti-pattern: do NOT hand-write a .tex and hand-type citations/numbers —
+    Anti-pattern: do NOT hand-write markdown sections and hand-type citations/numbers —
     ``rv manuscript new`` is the only path that registers the manuscript's
     TYPE, which every downstream gate (PR-M2/M3/M4/M5) keys off of.
 
@@ -71,7 +71,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         "new",
         help=(
             "Scaffold a per-manuscript folder + (type-optional) Phase-1 manifest. "
-            "manuscripts/<slug>/{_manuscript.md, main.tex, sections/, refs.bib, figures/}."
+            "manuscripts/<slug>/{_manuscript.md, report.md, sections/, references.md, figures/}."
         ),
     )
     new_p.add_argument(

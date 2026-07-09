@@ -1,24 +1,30 @@
-"""test_manuscript_m2_bib.py — PR-M2 acceptance tests: the hermetic .bib build +
-citation-resolve gate (design §6, D-SV-A).
+"""test_manuscript_m2_bib.py — PR-M2 acceptance tests: the hermetic reference-list
+build + citation-resolve gate (design §6, D-SV-A).
+
+Markdown-only (LaTeX removed entirely — the operator's explicit call, see
+DEVLOG): the manuscript loop's ONLY citation syntax is a ``[[citekey]]``
+markdown wikilink; the ONLY reference-list artifact is ``references.md``.
 
 Coverage:
-  1. extract_cited_keys — \\cite{}/\\citep{}/\\citet{} extraction from .tex,
-     multi-cite, commented-out examples ignored.
+  1. extract_cited_keys — ``[[citekey]]`` wikilink extraction from markdown
+     draft files.
   2. _load_literature_bib_index — citekey -> frontmatter-fields index, reusing
      the F17 citekey:-field-with-filename-stem-fallback convention.
-  3. _fields_to_bib_entry — deterministic BibTeX entry from note frontmatter
-     (title always; doi/arxiv_id/authors/year/venue only when present; never
-     fabricated).
-  4. build_refs_bib — end-to-end: writes refs.bib from literature/ frontmatter,
-     byte-deterministic, only cited keys included (closed bibliography).
-       4a. a \\cite{} with a real literature/ note -> written, no errors.
-       4b. a \\cite{} with NO backing note -> flagged (non-empty errors),
-           .bib still written (best-effort) but the key is absent.
+  3. _fields_to_reference_entry — deterministic markdown reference bullet from
+     note frontmatter (title always; doi/arxiv_id/authors/year/venue only
+     when present; never fabricated).
+  4. build_references_md — end-to-end: writes references.md from
+     literature/ frontmatter, byte-deterministic, only cited keys included
+     (closed bibliography).
+       4a. a ``[[citekey]]`` with a real literature/ note -> written, no errors.
+       4b. a ``[[citekey]]`` with NO backing note -> flagged (non-empty
+           errors), references.md still written (best-effort) but the key is
+           absent.
        4c. re-running the build with unchanged inputs -> byte-identical output
            (determinism / no order-flakiness).
-  5. check_hermetic_bib — the gate wrapper.
+  5. check_citation_resolve — the gate wrapper.
        5a. missing-cite -> gate reports not-ok + the missing citekey.
-       5b. self-contained build -> gate reports ok, matches build_refs_bib.
+       5b. self-contained build -> gate reports ok, matches build_references_md.
   6. Hermetic-ness proof — no network reachable from the build/gate path:
        6a. static AST scan: bib.py imports nothing from `cite.py`, `urllib`,
            `http`, `requests`, `socket`.
@@ -72,7 +78,7 @@ def _write_lit_note(
     return path
 
 
-def _write_tex(tree_root: Path, name: str, content: str) -> Path:
+def _write_md(tree_root: Path, name: str, content: str) -> Path:
     path = tree_root / name
     path.write_text(content, encoding="utf-8")
     return path
@@ -83,34 +89,29 @@ def _write_tex(tree_root: Path, name: str, content: str) -> Path:
 # ---------------------------------------------------------------------------
 
 class TestExtractCitedKeys:
-    def test_simple_cite(self, tmp_path: Path) -> None:
-        tex = _write_tex(tmp_path, "a.tex", r"Some text \cite{smith2023}.")
-        assert bib.extract_cited_keys([tex]) == {"smith2023"}
+    def test_simple_wikilink(self, tmp_path: Path) -> None:
+        md = _write_md(tmp_path, "a.md", "Some text [[smith2023]].")
+        assert bib.extract_cited_keys([md]) == {"smith2023"}
 
-    def test_natbib_variants(self, tmp_path: Path) -> None:
-        tex = _write_tex(
-            tmp_path, "a.tex",
-            r"\citep{a2020} and \citet{b2021} and \citealt{c2022}.",
+    def test_multiple_wikilinks(self, tmp_path: Path) -> None:
+        md = _write_md(
+            tmp_path, "a.md",
+            "Smith [[smith2023]] and Jones [[jones2022]] both target this problem.",
         )
-        assert bib.extract_cited_keys([tex]) == {"a2020", "b2021", "c2022"}
+        assert bib.extract_cited_keys([md]) == {"smith2023", "jones2022"}
 
-    def test_multi_cite(self, tmp_path: Path) -> None:
-        tex = _write_tex(tmp_path, "a.tex", r"\cite{a2020,b2021}")
-        assert bib.extract_cited_keys([tex]) == {"a2020", "b2021"}
-
-    def test_optional_note_arg(self, tmp_path: Path) -> None:
-        tex = _write_tex(tmp_path, "a.tex", r"\cite[p. 12]{smith2023}")
-        assert bib.extract_cited_keys([tex]) == {"smith2023"}
-
-    def test_commented_out_cite_ignored(self, tmp_path: Path) -> None:
-        tex = _write_tex(
-            tmp_path, "a.tex",
-            "Real \\cite{real2023}.\n% every \\cite{fake2023} must resolve\n",
-        )
-        assert bib.extract_cited_keys([tex]) == {"real2023"}
+    def test_duplicate_wikilinks_deduped(self, tmp_path: Path) -> None:
+        md = _write_md(tmp_path, "a.md", "[[a2020]] then later [[a2020]] again.")
+        assert bib.extract_cited_keys([md]) == {"a2020"}
 
     def test_missing_file_skipped(self, tmp_path: Path) -> None:
-        assert bib.extract_cited_keys([tmp_path / "nope.tex"]) == set()
+        assert bib.extract_cited_keys([tmp_path / "nope.md"]) == set()
+
+    def test_multiple_files(self, tmp_path: Path) -> None:
+        one = _write_md(tmp_path, "one.md", "Earlier work [[legacy2020]] established this.")
+        two = _write_md(tmp_path, "two.md", "Newer work [[fresh2026]] extends it.")
+        keys = bib.extract_cited_keys([one, two])
+        assert keys == {"legacy2020", "fresh2026"}
 
 
 # ---------------------------------------------------------------------------
@@ -136,20 +137,19 @@ class TestLoadLiteratureBibIndex:
 
 
 # ---------------------------------------------------------------------------
-# 3. _fields_to_bib_entry
+# 3. _fields_to_reference_entry
 # ---------------------------------------------------------------------------
 
-class TestFieldsToBibEntry:
+class TestFieldsToReferenceEntry:
     def test_minimal_title_only(self) -> None:
-        entry = bib._fields_to_bib_entry("smith2023", {"title": "A Paper"})
-        assert entry.startswith("@misc{smith2023,")
-        assert "title = {A Paper}" in entry
+        entry = bib._fields_to_reference_entry("smith2023", {"title": "A Paper"})
+        assert entry.startswith("- **smith2023** — A Paper.")
         # Never fabricate a year/author/doi that wasn't present.
-        assert "author" not in entry
-        assert "year" not in entry
+        assert "doi:" not in entry
+        assert "arXiv:" not in entry
 
     def test_full_fields(self) -> None:
-        entry = bib._fields_to_bib_entry(
+        entry = bib._fields_to_reference_entry(
             "smith2023",
             {
                 "title": "A Paper",
@@ -160,26 +160,27 @@ class TestFieldsToBibEntry:
                 "arxiv_id": "2005.14165",
             },
         )
-        assert "title = {A Paper}" in entry
-        assert "author = {Smith, John}" in entry
-        assert "year = {2023}" in entry
-        assert "journal = {NeurIPS}" in entry
-        assert "doi = {10.1234/example}" in entry
-        assert "@article{smith2023," in entry  # venue present -> article
+        assert entry.startswith("- **smith2023** — A Paper.")
+        assert "Smith, John" in entry
+        assert "(2023)" in entry
+        assert "NeurIPS" in entry
+        assert "doi:10.1234/example" in entry
+        assert "arXiv:2005.14165" in entry
 
     def test_arxiv_only_no_venue(self) -> None:
-        entry = bib._fields_to_bib_entry(
+        entry = bib._fields_to_reference_entry(
             "smith2023", {"title": "A Paper", "arxiv_id": "2005.14165"},
         )
-        assert entry.startswith("@misc{smith2023,")
-        assert "2005.14165" in entry
+        assert entry.startswith("- **smith2023** — A Paper.")
+        assert "arXiv:2005.14165" in entry
+        assert "doi:" not in entry
 
 
 # ---------------------------------------------------------------------------
-# 4. build_refs_bib
+# 4. build_references_md
 # ---------------------------------------------------------------------------
 
-class TestBuildRefsBib:
+class TestBuildReferencesMd:
     def _setup(self, tmp_path: Path):
         project_notes_dir = tmp_path / "notes"
         tree_root = tmp_path / "manuscripts" / "survey"
@@ -190,63 +191,69 @@ class TestBuildRefsBib:
 
     def test_cited_and_backed_key_written(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_tex(tree_root, "main.tex", r"\cite{smith2023}")
-        errors, bib_path = bib.build_refs_bib(project_notes_dir, tree_root)
+        _write_md(tree_root, "report.md", "Smith [[smith2023]] showed this.")
+        errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
         assert errors == []
-        text = bib_path.read_text(encoding="utf-8")
-        assert "@misc{smith2023," in text
+        text = references_path.read_text(encoding="utf-8")
+        assert "**smith2023**" in text
         assert "A Paper" in text
 
     def test_missing_note_flagged(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_tex(tree_root, "main.tex", r"\cite{ghost2024}")
-        errors, bib_path = bib.build_refs_bib(project_notes_dir, tree_root)
+        _write_md(tree_root, "report.md", "Ghost work [[ghost2024]] claims this.")
+        errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
         assert any("ghost2024" in e for e in errors)
-        text = bib_path.read_text(encoding="utf-8")
+        text = references_path.read_text(encoding="utf-8")
         assert "ghost2024" not in text  # never fabricate an entry for it
 
     def test_mixed_backed_and_missing(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_tex(tree_root, "main.tex", r"\cite{smith2023} \cite{ghost2024}")
-        errors, bib_path = bib.build_refs_bib(project_notes_dir, tree_root)
+        _write_md(
+            tree_root, "report.md",
+            "Smith [[smith2023]] showed this. Ghost work [[ghost2024]] claims that.",
+        )
+        errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
         assert len(errors) == 1
         assert "ghost2024" in errors[0]
-        text = bib_path.read_text(encoding="utf-8")
+        text = references_path.read_text(encoding="utf-8")
         assert "smith2023" in text
         assert "ghost2024" not in text
 
     def test_deterministic_rebuild(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_tex(tree_root, "main.tex", r"\cite{smith2023}")
-        _errors1, bib_path1 = bib.build_refs_bib(project_notes_dir, tree_root)
-        text1 = bib_path1.read_text(encoding="utf-8")
-        _errors2, bib_path2 = bib.build_refs_bib(project_notes_dir, tree_root)
-        text2 = bib_path2.read_text(encoding="utf-8")
+        _write_md(tree_root, "report.md", "Smith [[smith2023]] showed this.")
+        _errors1, path1 = bib.build_references_md(project_notes_dir, tree_root)
+        text1 = path1.read_text(encoding="utf-8")
+        _errors2, path2 = bib.build_references_md(project_notes_dir, tree_root)
+        text2 = path2.read_text(encoding="utf-8")
         assert text1 == text2
 
-    def test_no_cites_writes_empty_bib_no_errors(self, tmp_path: Path) -> None:
+    def test_no_cites_writes_empty_references_no_errors(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_tex(tree_root, "main.tex", "No citations here.")
-        errors, bib_path = bib.build_refs_bib(project_notes_dir, tree_root)
+        _write_md(tree_root, "report.md", "No citations here.")
+        errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
         assert errors == []
-        assert bib_path.exists()
+        assert references_path.exists()
 
     def test_sorted_by_citekey(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
         lit_dir = project_notes_dir / "literature"
         _write_lit_note(lit_dir, "b2020", citekey="b2020", title="B")
         _write_lit_note(lit_dir, "a2019", citekey="a2019", title="A")
-        _write_tex(tree_root, "main.tex", r"\cite{smith2023,b2020,a2019}")
-        _errors, bib_path = bib.build_refs_bib(project_notes_dir, tree_root)
-        text = bib_path.read_text(encoding="utf-8")
+        _write_md(
+            tree_root, "report.md",
+            "Smith [[smith2023]], [[b2020]], and [[a2019]].",
+        )
+        _errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
+        text = references_path.read_text(encoding="utf-8")
         assert text.index("a2019") < text.index("b2020") < text.index("smith2023")
 
 
 # ---------------------------------------------------------------------------
-# 5. check_hermetic_bib gate
+# 5. check_citation_resolve gate
 # ---------------------------------------------------------------------------
 
-class TestCheckHermeticBib:
+class TestCheckCitationResolve:
     def _setup(self, tmp_path: Path):
         project_notes_dir = tmp_path / "notes"
         tree_root = tmp_path / "manuscripts" / "survey"
@@ -257,29 +264,33 @@ class TestCheckHermeticBib:
 
     def test_missing_cite_not_ok(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_tex(tree_root, "main.tex", r"\cite{ghost2024}")
-        result = bib.check_hermetic_bib(project_notes_dir, tree_root)
+        _write_md(tree_root, "report.md", "Ghost work [[ghost2024]] claims this.")
+        result = bib.check_citation_resolve(project_notes_dir, tree_root)
         assert result["ok"] is False
         assert any("ghost2024" in e for e in result["errors"])
 
     def test_self_contained_ok(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_tex(tree_root, "main.tex", r"\cite{smith2023}")
-        result = bib.check_hermetic_bib(project_notes_dir, tree_root)
+        _write_md(tree_root, "report.md", "Smith [[smith2023]] showed this.")
+        result = bib.check_citation_resolve(project_notes_dir, tree_root)
         assert result["ok"] is True
         assert result["errors"] == []
-        assert result["bib_path"].exists()
+        assert result["references_path"].exists()
 
-    def test_every_bib_entry_has_provenance_id(self, tmp_path: Path) -> None:
+    def test_every_reference_entry_has_provenance_id(self, tmp_path: Path) -> None:
         # D-SV-A part 2: self-contained means every emitted entry is backed —
-        # confirm no entry appears in refs.bib without a resolvable citekey
-        # in the literature index (the gate's own invariant, checked structurally).
+        # confirm no entry appears in references.md without a resolvable
+        # citekey in the literature index (the gate's own invariant, checked
+        # structurally).
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_tex(tree_root, "main.tex", r"\cite{smith2023} \cite{ghost2024}")
-        result = bib.check_hermetic_bib(project_notes_dir, tree_root)
+        _write_md(
+            tree_root, "report.md",
+            "Smith [[smith2023]] showed this. Ghost work [[ghost2024]] claims that.",
+        )
+        result = bib.check_citation_resolve(project_notes_dir, tree_root)
         lit_index = bib._load_literature_bib_index(project_notes_dir / "literature")
-        text = result["bib_path"].read_text(encoding="utf-8")
-        for key in bib._BIB_ENTRY_KEY_RE.findall(text):
+        text = result["references_path"].read_text(encoding="utf-8")
+        for key in bib._REFERENCE_ENTRY_KEY_RE.findall(text):
             assert key in lit_index
 
 
@@ -316,12 +327,12 @@ class TestHermeticNoNetwork:
         tree_root.mkdir(parents=True)
         lit_dir = project_notes_dir / "literature"
         _write_lit_note(lit_dir, "smith2023", citekey="smith2023", title="A Paper")
-        _write_tex(tree_root, "main.tex", r"\cite{smith2023}")
+        _write_md(tree_root, "report.md", "Smith [[smith2023]] showed this.")
 
         def _blocked(*_a, **_kw):
-            raise AssertionError("network call attempted during hermetic .bib build")
+            raise AssertionError("network call attempted during hermetic references build")
 
         monkeypatch.setattr(socket, "socket", _blocked)
-        errors, bib_path = bib.build_refs_bib(project_notes_dir, tree_root)
+        errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
         assert errors == []
-        assert bib_path.exists()
+        assert references_path.exists()
