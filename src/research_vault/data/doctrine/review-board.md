@@ -132,16 +132,21 @@ the board until you resolve them.
 
 ## Manuscript gates are orthogonal — do not double-penalize
 
-The manuscript pipeline has three distinct LLM-judged gates: **support-matcher** (are individual
-claims grounded in a structured note?), **cold-read** (do references resolve for a stranger?), and
-the **review-board** (is the paper good enough — sound + reproducible at the floor?). These gates
-are **orthogonal by construction** and each enforces a different contract:
+The manuscript pipeline has distinct gates: **support-matcher** (are individual claims grounded in
+a structured note? the ONE LLM-judged BLOCK floor), the deterministic **reader-hygiene leak-gate**
+(RD-5 — does pipeline vocabulary/raw hashes/filesystem paths leak into reader-facing prose?), and
+the **review-board** (is the paper good enough — sound + reproducible at the floor, judged across
+8 dimensions?). These gates are **orthogonal by construction** and each enforces a different
+contract:
 
-- A raw hash or filesystem path dumped in prose is a **cold-read leak** (blocks on [DANGLING]).
-  The review-board rubric (C5) deliberately declines to credit it as reproducibility apparatus —
-  but also does **NOT** further penalize it on the REPRO dimension. The cold-read gate already
-  blocks it; the review-board's REPRO score measures the positive presence of scholarly
-  reproducibility apparatus (seeds, configs, availability statement), not the absence of leaks.
+- A raw hash or filesystem path dumped in prose is a **reader-hygiene leak** (deterministic BLOCK,
+  no judge). The review-board rubric (C5) deliberately declines to credit self-containment as
+  reproducibility apparatus — but also does **NOT** further penalize it on the REPRO dimension.
+  The leak-gate already blocks it; the review-board's REPRO score measures the positive presence
+  of scholarly reproducibility apparatus (seeds, configs, availability statement), not the absence
+  of leaks. (The former self-containment cold-read LLM judge that once shared this concern was
+  removed — SIGNAL-only, non-actionable under hands-off autonomy, redundant with this leak-gate +
+  the review-board's own coherence scoring. The operator's call, see DEVLOG.)
 - A claim that has already been blocked by the support-matcher for lacking a grounding note is
   **not re-litigated** on Soundness. The review-board Soundness score is the methodological-rigor
   layer ON TOP of that upstream guarantee: is the design valid, are comparisons fair?

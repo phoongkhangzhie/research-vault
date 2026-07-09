@@ -1,6 +1,112 @@
-## 2026-07-08 (release/0.2.7: Wave B — Presentation + single-pass + exemplar-pointers)
+## 2026-07-08 (PR #180 fix: canary-tell BLOCK, draft-hash HALT, cold-read removal)
 
 ### Done
+- **Fixed the PR #180 BLOCK — support-matcher canary citekeys leaked the
+  expected verdict.** `_support_canary_bank()` used self-labeling citekeys
+  (`canary-known-supported`/`-absent`/`-contradicts`) written straight
+  into the PUBLIC `_judge-tasks.json` — a cold judge could read the
+  expected verdict off the citekey string alone and ace all 3 canaries
+  without ever judging the claim/source pair, defeating the "is the judge
+  working" check (violates design §1.9: "canaries carry NO marker"). Fixed
+  by using realistic bibtex-style citekeys (`smith2019`/`chen2021`/
+  `patel2020`), indistinguishable from a real task's citekey — mirrors the
+  cold-read fanout path's own no-tell shape, which never had this bug.
+  Added a value-level regression test asserting the FULL serialized
+  `_judge-tasks.json` (not just dict keys) carries neither the word
+  "canary" nor any fixed-vocab verdict token in the `tasks` list —
+  confirmed RED against the pre-fix citekeys before applying the fix.
+- **Fixed Finding C — draft<->tasks binding for the support-matcher
+  fan-out (fail-closed hardening for autonomy).** `ingest` trusted
+  `_judge-tasks.json` as the citation universe without checking it still
+  matched the CURRENT draft — a citation added to the draft AFTER emit was
+  never judged, and ingest reported ok (a silent floor-skip under
+  hands-off autonomy). Fixed: `emit_support_tasks` stamps a deterministic
+  `citation_set_hash` (sha256 over the sorted (sentence, citekey, section)
+  triples) into `tasks_doc`; `ingest_support_verdicts_from_dir` recomputes
+  it from the live draft and HALTs (fail-closed, same shape as the
+  existing fanout-incomplete halt) on a mismatch. Regression test confirms
+  an unchanged draft does NOT spuriously halt.
+- **Removed the cold-read (self-containment critic) gate entirely** — an
+  operator scope addition bundled into this same PR (same touched files,
+  avoids a conflict). Rationale: it was SIGNAL-only (no teeth),
+  non-actionable under hands-off autonomy, and redundant with the 2x3
+  review board's coherence axis (the SYNTHESIS-VS-ENUMERATION adversary
+  already flags single-cite paragraphs and unanchored gaps) + RD-6's
+  term-definition rule. It was never a BLOCK floor, so removing it loses
+  no integrity. Deleted `gates/coldread.py` outright (only
+  `manuscript/fidelity_gates.py` depended on it); removed
+  `check_cold_read_tally`/`emit_coldread_tasks`/`ingest_coldread_verdicts`
+  (+ `*_to_dir`/`*_from_dir` wrappers) and `_resolve_coldread_text` from
+  `fidelity_gates.py`; the cold-agent-judge fan-out seam (`gates/judge_seam.py`)
+  is now support-matcher-ONLY; `check_gates.build_approve_payload`'s
+  cold-fanout branch and `_cold_fanout_dirs_present` detector are
+  support-matcher-only; the `judge-emit`/`judge-ingest` `--gate` flag now
+  only accepts `support-matcher` (the `both`/`cold-read` choices removed).
+  Deleted `tests/test_gates_coldread.py` and the cold-read-specific test
+  classes in `test_manuscript_fidelity_gates.py`,
+  `test_manuscript_judge_fanout.py`, and `test_pr4_gate_contract_unchanged.py`
+  — kept every support-matcher + shared-guard test. Confirmed via full-repo
+  grep: no dangling functional references remain (only intentional
+  historical "removed" notes in docstrings/doctrine). Full suite green
+  (3057 passed), leakage scan clean, `rv lint` clean (module-level checks;
+  the reported config-schema issues are pre-existing local-registry noise,
+  unrelated to this change and absent in CI's fresh-checkout run).
+
+### Decisions
+- Grounding note on an editorial claim in `RD6_STYLE_RULES`: removed the
+  phrase "a hard gate" from the term-definition instruction — grepped the
+  codebase and found no mechanical hard-BLOCK gate for undefined terms
+  (only the writer-brief instruction + the review board's SIGNAL-class
+  SYNTH/coherence scoring). Flagging this rather than parroting the
+  stronger claim; if a literal hard gate is wanted, it needs to be built,
+  not just asserted in prose.
+
+---
+
+## 2026-07-08 (release/0.2.8: NG-4 — cold-agent-judge fan-out for the fidelity gates)
+
+### Done
+- **NG-4 (design §1.9) — the fidelity judge as a cold agent-node fan-out,
+  PRIMARY judge-orchestration path.** The manuscript fidelity gates
+  (support-matcher, cold-read) can now run WITHOUT a live
+  `RV_JUDGE_MODEL`/`ANTHROPIC_API_KEY` at all: rv EMITS
+  `_judge-tasks.json` + a private `_judge-canary-key.json` (batched
+  claim/citekey/source pairs for support-matcher; the whole-draft
+  self-containment task for cold-read — both with 2-3 bidirectional
+  canary probes interleaved with NO marker), the hub fans out fresh cold
+  subagent-judges over the batches (harness-orchestrated, memoryless —
+  no draft-thesis anchoring possible, no stale-API-key class of failure),
+  and rv INGESTS `_judge-verdicts.json` by id.
+  - New shared primitives: `gates/judge_seam.py` (schema constants,
+    deterministic id assignment + unmarked canary interleave, fail-closed
+    canary check — a MISSING canary counts as failed, `CanaryAbortError`
+    — fail-closed vocab-constrained verdict filling, and the
+    §1.8 floor-gate-NOT-RUN detector).
+  - New `manuscript/fidelity_gates.py` functions: `emit_support_tasks` /
+    `ingest_support_verdicts` and `emit_coldread_tasks` /
+    `ingest_coldread_verdicts` (+ `*_to_dir`/`*_from_dir` file-based
+    convenience wrappers) — both refactored to share extraction/text-
+    resolution helpers (`_collect_support_items`, `_resolve_coldread_text`)
+    with the existing live-judge inline path, so the two judge paths
+    never see a different draft/pair set.
+  - `check_gates.build_approve_payload` gains a THIRD branch (cold-fanout,
+    keyed on `judge/<gate>/_judge-tasks.json` presence) between the live
+    inline-judge path and the existing "not configured" `not_run` bucket
+    — a fan-out that was emitted but never completed, or that fails a
+    planted canary, escalates to a hard BLOCK (HALT-DECLARE), not the
+    softer not_run a "nothing configured" manuscript gets. Existing
+    not_run behavior is UNCHANGED when no `judge/` dir exists at all
+    (regression-tested).
+  - Deliberate divergence flagged for architect review: the design
+    spec's NG-4 JSON example literal shows `"verdict": "SUPPORTED"`, but
+    the existing `gates.support_matcher._extract_support_verdict` (the
+    live code, doctrine-of-record) uses `SUPPORTS` — followed the code
+    (do not widen the fixed vocab), same "operator override / doc typo,
+    code is SSOT" precedent as D-MS-2.
+  - The live API-key judge path is UNTOUCHED (kept as the demoted
+    optional convenience path per design §1.9) — `judge_fn` stays the
+    single injection point both paths ultimately feed into
+    `build_approve_payload`.
 - **RD-5 — reader-hygiene leak-gate.** `check_reader_hygiene` (deterministic,
   fail-closed BLOCK) added to `build_approve_payload` — internal pipeline
   vocabulary (`CPk`/`Qk` handles, `sha256:` hashes, `_artifact.md` filenames,

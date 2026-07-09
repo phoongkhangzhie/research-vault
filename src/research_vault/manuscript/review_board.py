@@ -32,8 +32,11 @@ SCOPE (the operator's locked decision, carried in the PR-M5 dispatch brief):
     prompt carries ONLY the rendered draft text + the rubric + the lens.
   - **Re-fire via ``check_gates.build_approve_payload`` -- NOT duplicated.**
     ``run_revise`` calls the single-sourced assembler (hermetic-.bib,
-    equation-fidelity, support-matcher, cold-read, coverage-gate) rather than
-    re-implementing any of those checks here.
+    equation-fidelity, support-matcher, coverage-gate) rather than
+    re-implementing any of those checks here. (The former cold-read gate
+    was removed -- SIGNAL-only, non-actionable under hands-off autonomy,
+    redundant with this board's own SYNTH/GAP dims + RD-6. The operator's call,
+    see DEVLOG.)
   - **PR-M8 (this pass): the researcher's calibrated ``DEFAULT_LIT_REVIEW_RUBRIC``**
     (design §11.1, methodology doc §A.2) replaces the PR-M5 mock rubric via
     the SAME override seam (``ms_type.rubric`` / ``[manuscript_review].rubric``)
@@ -43,8 +46,8 @@ SCOPE (the operator's locked decision, carried in the PR-M5 dispatch brief):
     reframe-escalation recurrence gate (below) for the specifics.
 
 DIMENSIONED-SCORE BRACKET (NEW -- design §11.1's 8 dims; does NOT overload the
-support-matcher's 4-verdict extractor, coldread's 3-verdict extractor, or
-control.py's [PASS]/[BLOCK] extractor):
+support-matcher's 4-verdict extractor or control.py's [PASS]/[BLOCK]
+extractor):
   [SCOPE:d] [REPRO:d] [FRAME:d] [SYNTH:d] [COMPARE:d] [GAP:d] [CITE:d] [BIAS:d]
   d is an ordinal 1-5 score (``venue_scale``, default "1-5"). A score that
   cannot be parsed, or a dim entirely missing from the response, defaults to
@@ -54,9 +57,10 @@ FLOOR AXES (design §11.1): {SCOPE, REPRO} (the coverage/search-reproducibility
 axis, dims 1+2) and {CITE} (the citation-fidelity axis, dim 7). Cleared iff
 MIN-across-3-reviewers(score) >= floor_value on EVERY floor dim. FRAME (dim 3)
 is SURFACE (D-SV-C -- subjective + gameable, human owns the spine); SYNTH/GAP
-(dims 4/6) are SIGNAL (cold-read weak-flags, no autogate); COMPARE/BIAS
-(dims 5/8) are SURFACE. SURFACE/SIGNAL dims are scored + justified + shown,
-**never autogate** -- only SCOPE/REPRO/CITE bind the clear predicate.
+(dims 4/6) are SIGNAL (this board's own synthesis-vs-enumeration lens weak-flags
+these, no autogate); COMPARE/BIAS (dims 5/8) are SURFACE. SURFACE/SIGNAL dims
+are scored + justified + shown, **never autogate** -- only SCOPE/REPRO/CITE
+bind the clear predicate.
 
 Stdlib only. Hermetic in tests -- judge_fn is always injectable; no live LLM
 call is required to exercise this module.
@@ -323,7 +327,7 @@ def _evaluate_threshold(
 # see ``~/research-vault/REFERENCES.md`` for the anchors (already appended,
 # PR-M7). The gate-class table matches design §11.1 exactly:
 #   FLOOR   {SCOPE, REPRO, CITE}     -- provenance-bound, MIN-across-3, autogates.
-#   SIGNAL  {SYNTH, GAP}             -- cold-read weak-flags feed worst-findings;
+#   SIGNAL  {SYNTH, GAP}             -- weak-flags feed worst-findings;
 #                                       never autogate on their own.
 #   SURFACE {FRAME, COMPARE, BIAS}   -- human-judgment; scored + justified +
 #                                       shown, never autogate. FRAME's escalation
@@ -781,8 +785,8 @@ def run_reviewer_node(
     lens_spec = get_reviewer_lens_spec(lens_num, K)
     prompt = _build_reviewer_prompt(draft_text, rubric, lens_spec)
     # PR-M8: log judge_model + prompt_hash (audit + drift detection, the
-    # support-matcher/coldread convention -- sha256 hex[:16] of the prompt
-    # actually sent, computed BEFORE the judge call).
+    # support-matcher convention -- sha256 hex[:16] of the prompt actually
+    # sent, computed BEFORE the judge call).
     prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
     raw_response = judge_fn(prompt)
 
@@ -1168,8 +1172,8 @@ def run_review_board(
         canary_rubric:      rubric string with the ``{PDF_TEXT}`` slot for
                             canary probes (defaults to the resolved rubric).
         revise_judge_fn:    judge passed through to the gate re-fire's
-                            support-matcher/cold-read (None -> those two
-                            gates land in ``not_run``, never silently BLOCK).
+                            support-matcher gate (None -> the gate lands
+                            in ``not_run``, never silently BLOCK).
 
     Returns dict with:
         cleared:       bool

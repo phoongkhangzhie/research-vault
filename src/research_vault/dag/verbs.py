@@ -1133,8 +1133,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
             return 1
 
     # Manuscript-integration PR: the assembled gate payload (hermetic .bib
-    # BLOCK, equation-fidelity SIGNAL, support-matcher/cold-read BLOCK/SIGNAL
-    # behind the judge guard — manuscript/check_gates.py::build_approve_payload)
+    # BLOCK, equation-fidelity SIGNAL, support-matcher BLOCK/SIGNAL behind
+    # the judge guard — manuscript/check_gates.py::build_approve_payload)
     # gates ``approve-manuscript``. Mirrors the ``approve-framework`` wiring
     # above exactly: ``manifest_path.parent`` IS the manuscript tree root
     # (Phase-2 manifests are written to ``manuscripts/<slug>/phase2-dag.json``,
@@ -1187,8 +1187,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 print(
                     "rv dag approve: approve-manuscript NOT RUN: manuscript_type "
                     f"{_raw_type!r} is unrecognized (unregistered or missing) — "
-                    "the hermetic .bib, equation-fidelity, support-matcher, and "
-                    "cold-read gates were NOT run for this manuscript. This is "
+                    "the hermetic .bib, equation-fidelity, and support-matcher "
+                    "gates were NOT run for this manuscript. This is "
                     "NOT a pass: fix `manuscript_type:` in "
                     f"{manuscript_note_path} to a registered type (see "
                     "`rv manuscript <project> new --type <type>`) and re-run "

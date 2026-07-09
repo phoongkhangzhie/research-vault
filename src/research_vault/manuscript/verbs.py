@@ -140,6 +140,48 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help="List manuscript folders for the project.",
     )
 
+    # ── judge-emit (NG-4, design §1.9) ───────────────────────────────────────
+    judge_emit_p = sub.add_parser(
+        "judge-emit",
+        help=(
+            "Emit the cold-agent-judge fan-out task set(s) (design §1.9, "
+            "Phase A) — writes judge/<gate>/_judge-tasks.json + "
+            "_judge-canary-key.json. rv calls no LLM here; the hub fans "
+            "cold subagent-judges out over the written tasks."
+        ),
+    )
+    judge_emit_p.add_argument("slug", metavar="<slug>", help="Manuscript identifier.")
+    judge_emit_p.add_argument(
+        "--gate",
+        choices=("support-matcher",),
+        default="support-matcher",
+        help=(
+            "Which gate's task set to emit (support-matcher-only — the "
+            "cold-read self-containment critic was removed; see DEVLOG)."
+        ),
+    )
+
+    # ── judge-ingest (NG-4, design §1.9) ─────────────────────────────────────
+    judge_ingest_p = sub.add_parser(
+        "judge-ingest",
+        help=(
+            "Ingest the hub-fanned-out cold-judge verdicts (design §1.9, "
+            "Phase C) from judge/<gate>/_judge-verdicts.json — id-join, "
+            "canary-verify, fail-closed assembly. Diagnostic surface; "
+            "`rv dag approve` re-ingests for the actual gate decision."
+        ),
+    )
+    judge_ingest_p.add_argument("slug", metavar="<slug>", help="Manuscript identifier.")
+    judge_ingest_p.add_argument(
+        "--gate",
+        choices=("support-matcher",),
+        default="support-matcher",
+        help=(
+            "Which gate's verdicts to ingest (support-matcher-only — the "
+            "cold-read self-containment critic was removed; see DEVLOG)."
+        ),
+    )
+
     return p
 
 
@@ -159,12 +201,18 @@ def run(args: argparse.Namespace) -> int:
         return _run_review(args)
     elif subcommand == "list":
         return _run_list(args)
+    elif subcommand == "judge-emit":
+        return _run_judge_emit(args)
+    elif subcommand == "judge-ingest":
+        return _run_judge_ingest(args)
     else:
         print(
             "rv manuscript: missing subcommand. "
             "Use `rv manuscript <project> new <slug> --type <type>`, "
             "`rv manuscript <project> expand <slug>`, "
             "`rv manuscript <project> review <slug>`, "
+            "`rv manuscript <project> judge-emit <slug>`, "
+            "`rv manuscript <project> judge-ingest <slug>`, "
             "or `rv manuscript <project> list`.",
             file=sys.stderr,
         )
@@ -295,4 +343,97 @@ def _run_list(args: argparse.Namespace) -> int:
         return 0
     except Exception as e:
         print(f"rv manuscript list: error: {e}", file=sys.stderr)
+        return 1
+
+
+def _run_judge_emit(args: argparse.Namespace) -> int:
+    """Emit the NG-4 cold-agent-judge fan-out task set(s) (design §1.9)."""
+    from research_vault.config import load_config
+    from research_vault.manuscript import cmd_judge_emit
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv manuscript judge-emit: config error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        result = cmd_judge_emit(args.project, args.slug, config=cfg, gate=args.gate)
+        for gate_name, r in result.items():
+            n_tasks = len(r["tasks_doc"].get("tasks", []))
+            n_canaries = len(r["canary_key_doc"].get("canaries", {}))
+            n_batches = len(r["tasks_doc"].get("batches", []))
+            print(
+                f"rv manuscript judge-emit [{gate_name}]: wrote {n_tasks} task(s) "
+                f"({n_canaries} canary probe(s), {n_batches} batch(es)) to "
+                f"manuscripts/{args.slug}/judge/{gate_name}/_judge-tasks.json"
+            )
+            if n_tasks == 0:
+                print(
+                    f"rv manuscript judge-emit [{gate_name}]: nothing to check yet "
+                    f"(no citations found / no draft text resolved) — honest no-op."
+                )
+        print(
+            "rv manuscript judge-emit: hand the tasks file(s) to the hub for "
+            "cold subagent-judge fan-out, then run "
+            "`rv manuscript <project> judge-ingest <slug>` once "
+            "_judge-verdicts.json lands."
+        )
+        return 0
+    except FileNotFoundError as e:
+        print(f"rv manuscript judge-emit: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"rv manuscript judge-emit: error: {e}", file=sys.stderr)
+        return 1
+
+
+def _run_judge_ingest(args: argparse.Namespace) -> int:
+    """Ingest the hub-fanned-out cold-judge verdicts (design §1.9)."""
+    from research_vault.config import load_config
+    from research_vault.manuscript import cmd_judge_ingest
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv manuscript judge-ingest: config error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        result = cmd_judge_ingest(args.project, args.slug, config=cfg, gate=args.gate)
+        any_block = False
+        for gate_name, r in result.items():
+            print(f"rv manuscript judge-ingest [{gate_name}]: {r.get('honest_report', '')}")
+            if r.get("canary_aborted"):
+                print(
+                    f"rv manuscript judge-ingest [{gate_name}]: CANARY ABORT "
+                    f"(HALT-DECLARE) — {r['errors'][0] if r['errors'] else ''}",
+                    file=sys.stderr,
+                )
+                any_block = True
+            elif r.get("halt"):
+                print(
+                    f"rv manuscript judge-ingest [{gate_name}]: HALT-DECLARE — "
+                    f"{r.get('halt_reason', '')}",
+                    file=sys.stderr,
+                )
+                any_block = True
+            else:
+                for e in r.get("errors", []):
+                    print(f"  BLOCK: {e}", file=sys.stderr)
+                for w in r.get("warnings", []):
+                    print(f"  SIGNAL: {w}", file=sys.stderr)
+                if r.get("errors"):
+                    any_block = True
+        if any_block:
+            print(
+                "rv manuscript judge-ingest: this manuscript is NOT clear to "
+                "approve on this gate. Re-run `rv dag approve` for the actual "
+                "human-go decision.",
+                file=sys.stderr,
+            )
+            return 1
+        return 0
+    except Exception as e:
+        print(f"rv manuscript judge-ingest: error: {e}", file=sys.stderr)
         return 1
