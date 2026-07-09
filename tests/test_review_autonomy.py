@@ -156,13 +156,19 @@ class TestAdapters:
         assert ev.blocking == []
         assert not ev.revise_budget_exhausted
 
-    def test_board_adapter_not_cleared_exhausts_budget(self):
+    def test_board_adapter_not_cleared_routes_to_residue(self):
+        """Decision #6 (2026-07-08-autonomous-board-design.md §5.2): a bare
+        board quality shortfall (no canary abort) is NOT the same failure
+        class as an integrity BLOCK — it must populate ``residue`` (never
+        ``blocking``) so ``classify_disposition`` returns GO-WITH-RESIDUE,
+        not HALT-DECLARE. (Supersedes the pre-B5 behavior this test used to
+        pin, where a not-cleared board unconditionally HALTed.)"""
         board_result = {"cleared": False, "not_cleared": {"failing_dims": ["SCOPE (min score 2 < floor 3)"]}}
         ev = auto.evaluation_from_board(board_result)
-        assert ev.blocking == ["SCOPE (min score 2 < floor 3)"]
-        assert ev.revise_budget_exhausted is True
+        assert ev.blocking == []
+        assert ev.residue
         result = auto.classify_disposition(ev)
-        assert result.disposition == auto.HALT_DECLARE
+        assert result.disposition == auto.GO_WITH_RESIDUE
 
     def test_board_adapter_canary_aborted(self):
         ev = auto.evaluation_from_board({"cleared": False, "not_cleared": {}}, canary_aborted=True)

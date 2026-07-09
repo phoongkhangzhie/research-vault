@@ -207,17 +207,31 @@ def evaluation_from_board(
     second revise loop) — so "not cleared after N rounds" IS "revise budget
     exhausted" from the outer gate-policy engine's point of view; there is
     no further external revise to dispatch.
+
+    ★ PR-B5 (decision #6, 2026-07-08-autonomous-board-design.md §5.2): a
+    board quality shortfall (CONTENT/SELFCONT/ADVERS/FRAMEWORK axis not
+    cleared after the bounded revise rounds) is deliberately NOT the same
+    failure class as an integrity BLOCK (bib/support). "The output IS the
+    deliverable" — a not-cleared board routes to ``residue`` (never
+    ``blocking``), so ``classify_disposition`` returns GO-WITH-RESIDUE, not
+    HALT-DECLARE. The ONLY board-side failure that still HALTs is a canary
+    abort (an untrustworthy judge — priority #1, checked first below,
+    unchanged from before this PR).
     """
     cleared = bool(board_result.get("cleared", False))
-    blocking: list[str] = []
+    if canary_aborted:
+        # Untrustworthy signal — never routed to residue (charter §10: never
+        # auto-trust an untrustworthy judge's "quality shortfall").
+        return GateEvaluation(canary_aborted=True)
+    residue: str | None = None
     if not cleared:
         nc = board_result.get("not_cleared") or {}
-        blocking = list(nc.get("failing_dims", [])) or ["review-board did not clear"]
-    return GateEvaluation(
-        blocking=blocking,
-        canary_aborted=canary_aborted,
-        revise_budget_exhausted=not cleared,
-    )
+        residue = (
+            str(nc.get("persistent_weakness", "")).strip()
+            or "; ".join(nc.get("failing_dims", []))
+            or "review-board did not clear"
+        )
+    return GateEvaluation(residue=residue)
 
 
 def evaluation_from_framework_gate(ok: bool, msg: str) -> GateEvaluation:

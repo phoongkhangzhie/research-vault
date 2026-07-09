@@ -383,7 +383,58 @@ def _evaluate_autonomous_gate(
             )
         _project_notes_dir = tree_root.parent.parent
         _payload = _bap(tree_root, _project_notes_dir, _ms_type)
-        return _autonomy.classify_disposition(_autonomy.evaluation_from_structural_payload(_payload))
+        structural_result = _autonomy.classify_disposition(
+            _autonomy.evaluation_from_structural_payload(_payload)
+        )
+
+        # ★ PR-B5: fold in the holistic-quality review board (design
+        # 2026-07-08-autonomous-board-design.md §5.2) — a SEPARATE failure
+        # class from the mechanical integrity floors above. A missing
+        # board-result artifact means the board was never driven for this
+        # manuscript (an out-of-band, hub-orchestrated multi-round fanout
+        # no DAG node can synchronously block on — see
+        # ``manuscript.board.write_board_result``'s docstring) and is an
+        # honest no-op: the structural-only disposition is returned
+        # UNCHANGED (never a fabricated board verdict). When a board
+        # result IS present, the MOST SEVERE of the two dispositions wins
+        # (HALT > GO-WITH-RESIDUE > REVISE > GO) — an integrity HALT from
+        # the structural side always dominates a board GO-WITH-RESIDUE,
+        # and a board canary-abort HALT always dominates a clean
+        # structural GO.
+        from ..manuscript import board as _board
+
+        _board_result = _board.read_board_result(tree_root / "judge" / "board")
+        if _board_result is None:
+            return structural_result
+
+        _board_canary_aborted = bool(_board_result.get("halt")) and bool(
+            _board_result.get("canary_aborted")
+        )
+        board_eval_result = _autonomy.classify_disposition(
+            _autonomy.evaluation_from_board(_board_result, canary_aborted=_board_canary_aborted)
+        )
+        if _board_result.get("halt") and not _board_canary_aborted:
+            # An incomplete board fanout (missing/empty verdicts while
+            # tasks were emitted) is the same §1.2 "floor gate NOT RUN"
+            # failure class as the support-matcher's — HALT, never a
+            # fabricated GO-WITH-RESIDUE from a board that never actually
+            # finished scoring.
+            board_eval_result = _autonomy.DispositionResult(
+                _autonomy.HALT_DECLARE,
+                "approve-manuscript --auto: the review board's fan-out did "
+                "not complete (incomplete verdicts while tasks were "
+                "emitted) — cannot self-certify the holistic-quality floor.",
+                {"not_run": ["review-board"]},
+            )
+
+        _severity = {
+            _autonomy.HALT_DECLARE: 3, _autonomy.GO_WITH_RESIDUE: 2,
+            _autonomy.REVISE: 1, _autonomy.GO: 0,
+        }
+        return max(
+            (structural_result, board_eval_result),
+            key=lambda r: _severity[r.disposition],
+        )
 
     raise ValueError(f"_evaluate_autonomous_gate: {node_id!r} is not an autonomous gate id")
 
