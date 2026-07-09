@@ -212,6 +212,34 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help="List review pointer notes for the project.",
     )
 
+    # ── refresh (NG-6a) ─────────────────────────────────────────────────────
+    refresh_p = sub.add_parser(
+        "refresh",
+        help=(
+            "NG-6a: fail-closed re-freeze of the review's corpus_freeze "
+            "baseline after an in-scope append. BLOCKS on an undeclared "
+            "criteria change or an undeclared corpus delta — never "
+            "launders a silent mutation into a fresh hash."
+        ),
+        description=(
+            "Re-hash _corpus.md, re-verify the frozen _protocol.md criteria "
+            "hash is unchanged (or a human 'criteria-change' deviation "
+            "accounts for it), re-verify every corpus delta since the last "
+            "freeze is DECLARED in _deviations.md, then bump the "
+            "corpus_freeze version and re-stamp the baseline. "
+            "Anti-pattern: do NOT hand-edit _corpus.md and expect the next "
+            "coverage-gate pass to pick it up silently — an undeclared "
+            "delta trips the D2 BLOCK; run `rv review refresh` (after "
+            "declaring the delta via a deviation record) to move the "
+            "baseline forward."
+        ),
+    )
+    refresh_p.add_argument(
+        "scope",
+        metavar="<scope>",
+        help="Review scope identifier slug (the corpus_freeze baseline to re-freeze).",
+    )
+
     # ── tips ─────────────────────────────────────────────────────────────────
     tips_p = sub.add_parser(
         "tips",
@@ -429,6 +457,8 @@ def run(args: argparse.Namespace) -> int:
         return _run_run(args)
     elif subcommand == "list":
         return _run_list(args)
+    elif subcommand == "refresh":
+        return _run_refresh(args)
     elif subcommand == "tips":
         return _run_tips(args)
     elif subcommand == "gap-scan":
@@ -447,7 +477,8 @@ def run(args: argparse.Namespace) -> int:
             "rv review: missing subcommand. "
             "Use `rv review <project> new <scope> --question '...'` (or the "
             "fused `rv review <project> run <scope> --question '...'`, D2), "
-            "`rv review <project> list`, `rv review <project> tips`, "
+            "`rv review <project> list`, `rv review <project> refresh <scope>` (NG-6a), "
+            "`rv review <project> tips`, "
             "`rv review <project> gap-scan`, `rv review <project> gap-scope [--target …]`, "
             "`rv review <project> gap-route [--target …]` (alias for gap-scope), "
             "`rv review <project> gap-list [--status …]`, "
@@ -592,6 +623,43 @@ def _run_list(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"rv review list: error: {e}", file=sys.stderr)
         return 1
+
+
+def _run_refresh(args: argparse.Namespace) -> int:
+    """NG-6a: fail-closed re-freeze of the review's corpus_freeze baseline."""
+    from research_vault.config import load_config
+    from research_vault.review.corpus_freeze import RefreshBlocked, cmd_refresh
+    from research_vault.dag.store import StoreError
+    from research_vault.review import CorpusSchemaError
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv review refresh: config error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        new_freeze = cmd_refresh(args.project, args.scope, config=cfg)
+    except RefreshBlocked as e:
+        print(f"rv review refresh: {e}", file=sys.stderr)
+        return 1
+    except CorpusSchemaError as e:
+        print(f"rv review refresh: {e}", file=sys.stderr)
+        return 1
+    except StoreError as e:
+        print(f"rv review refresh: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"rv review refresh: error: {e}", file=sys.stderr)
+        return 1
+
+    print(
+        f"rv review refresh ({args.project}/{args.scope}): corpus_freeze "
+        f"v{new_freeze['version']} — {len(new_freeze['corpus_citekeys'])} "
+        f"citekey(s), corpus_hash={new_freeze['corpus_hash'][:23]}..., "
+        f"criteria_hash={new_freeze['criteria_hash'][:23]}..."
+    )
+    return 0
 
 
 def _run_tips(args: argparse.Namespace) -> int:

@@ -394,12 +394,18 @@ def _parse_deviation_blocks(deviations_path: Path) -> list[dict[str, Any]]:
         rationale_m = re.search(r"\*\*Rationale:\*\*\s*(.*)", section, re.DOTALL)
         rationale = rationale_m.group(1).strip() if rationale_m else ""
 
+        # NG-6a: the optional **Kind:** line (record_deviation(kind=...)) —
+        # "" for a pre-NG-6a / kind=None deviation (back-compat, no-op).
+        kind_m = re.search(r"^\*\*Kind:\*\*\s*(.*)$", section, re.MULTILINE)
+        kind = kind_m.group(1).strip() if kind_m else ""
+
         blocks.append({
             "version_from": int(m.group(1)),
             "version_to": int(m.group(2)),
             "removed": _citekeys("Removed citekeys"),
             "added": _citekeys("Added citekeys"),
             "rationale": rationale,
+            "kind": kind,
         })
     return blocks
 
@@ -470,8 +476,9 @@ def render_prisma_ledger(
         )
         for b in deviation_blocks:
             n_after = running + len(b["added"]) - len(b["removed"])
+            kind_suffix = f" [{b['kind']}]" if b.get("kind") else ""
             lines.append(
-                f"- **v{b['version_from']} → v{b['version_to']}**: "
+                f"- **v{b['version_from']} → v{b['version_to']}**{kind_suffix}: "
                 f"N₀={running} → N₁={n_after} "
                 f"(−{len(b['removed'])}, +{len(b['added'])})"
             )

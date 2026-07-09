@@ -643,3 +643,41 @@ def get_saturation_backstop_waves(config: Any = None) -> int:
             if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
                 return value
     return DEFAULT_SATURATION_BACKSTOP_WAVES
+
+
+# ---------------------------------------------------------------------------
+# Remediation round-cap config seam (NG-6a §4.3 bound 2)
+# ---------------------------------------------------------------------------
+
+DEFAULT_REMEDIATION_MAX_ROUNDS: int = 2
+
+
+def get_remediation_max_rounds(config: Any = None) -> int:
+    """Return the NG-6a autonomous coverage-gap remediation round cap.
+
+    One of the three independent termination bounds on the bounded
+    remediation loop (§4.3): even a pathological "one new paper per wave"
+    corpus cannot exceed this many autonomous remediation rounds before the
+    loop declares residue and surfaces for human review.
+
+    Args:
+        config: a loaded Config instance (or None for the shipped default).
+                If the config has ``[review_style] remediation_max_rounds = N``
+                (a positive int), that value overrides the default.
+
+    Returns:
+        The round cap (int, >= 1). Default 2 (conservative, per the design
+        doc). A non-int, non-positive, or missing override falls back to the
+        default — fail-closed (a missing/malformed counter reads as "the
+        conservative default", never as "unbounded").
+
+    sr: NG-6a
+    """
+    if config is not None:
+        raw = getattr(config, "_raw", {})
+        override = raw.get("review_style", {})
+        if isinstance(override, dict):
+            value = override.get("remediation_max_rounds")
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+                return value
+    return DEFAULT_REMEDIATION_MAX_ROUNDS

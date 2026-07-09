@@ -323,9 +323,24 @@ def _evaluate_autonomous_gate(
     coverage-deviation check (``classify_coverage_gate_with_deviation_check``)
     — the frozen-corpus stamp lives in ``run_state.meta``, which is why this
     function (unlike the pre-existing inline block) takes ``run_state``.
+
+    NG-6a extends the coverage-gate branch further: after
+    ``classify_coverage_gate_with_deviation_check`` resolves a base
+    disposition, ``review.remediation.resolve_coverage_gate`` may upgrade a
+    backstop GO-WITH-RESIDUE to REMEDIATE (budget + last-wave signal); a
+    REMEDIATE disposition is immediately driven to completion in-process by
+    ``review.remediation.run_bounded_remediation`` (one or more bounded
+    rounds, §4.3's three independent termination bounds) before this
+    function returns — the caller (``_recompute_awaiting_go``/
+    ``cmd_approve``) only ever sees a terminal (non-REMEDIATE) disposition.
+    A ``CorpusSchemaError`` (NG-6a §3, a malformed corpus row) raised
+    anywhere in this path is caught here and surfaced as HALT-DECLARE —
+    never an uncaught exception that would crash the runner, and never a
+    silent stale-subset GO (the exact green-but-stale hole §3 fixes).
     """
     from ..review import autonomy as _autonomy
     from ..review import check_saturation_backstop
+    from ..review import CorpusSchemaError as _CorpusSchemaError
 
     if node_id == "coverage-gate":
         snowball_node = nodes_lookup.get("review-snowball")
@@ -344,14 +359,52 @@ def _evaluate_autonomous_gate(
         review_dir = Path(saturation_ref).parent
         gaps_path = review_dir / "_coverage-gaps.md"
         corpus_path = review_dir / "_corpus.md"
+        protocol_path = review_dir / "_protocol.md"
         deviations_path = review_dir / "_deviations.md"
-        return _autonomy.classify_coverage_gate_with_deviation_check(
-            run_state.meta,
-            info,
-            corpus_path=corpus_path,
-            deviations_path=deviations_path,
-            coverage_gaps_path=gaps_path,
-        )
+        try:
+            from ..review import corpus_freeze as _corpus_freeze
+
+            # NG-6a: stamp the explicit, versioned corpus_freeze baseline
+            # (idempotent — a no-op after the first stamp). Reuses/mirrors
+            # the SAME "frozen at coverage-gate's first evaluation" timing
+            # #185's frozen_corpus_citekeys already uses (no corpus exists
+            # earlier in the shipped Phase-1 DAG); kept IN SYNC with
+            # frozen_corpus_citekeys, never a second, drifting baseline.
+            _corpus_freeze.stamp_corpus_freeze(
+                run_state.meta, corpus_path=corpus_path, protocol_path=protocol_path,
+            )
+
+            base = _autonomy.classify_coverage_gate_with_deviation_check(
+                run_state.meta,
+                info,
+                corpus_path=corpus_path,
+                deviations_path=deviations_path,
+                coverage_gaps_path=gaps_path,
+            )
+            from ..review import remediation as _remediation
+
+            disposition = _remediation.resolve_coverage_gate(
+                base, info, remediation_state=run_state.meta.get("remediation_state"),
+            )
+            if disposition.disposition == _autonomy.REMEDIATE:
+                disposition = _remediation.run_bounded_remediation(
+                    run_state.meta,
+                    disposition,
+                    info,
+                    protocol_path=protocol_path,
+                    corpus_path=corpus_path,
+                    deviations_path=deviations_path,
+                    coverage_gaps_path=gaps_path,
+                )
+            return disposition
+        except _CorpusSchemaError as e:
+            return _autonomy.DispositionResult(
+                _autonomy.HALT_DECLARE,
+                f"coverage-gate --auto: {e} — a malformed corpus row was "
+                "rejected loudly (NG-6a §3, never silently dropped); fix "
+                "the row schema and re-evaluate.",
+                {"corpus_schema_error": str(e)},
+            )
 
     if node_id == "approve-framework":
         manuscript_note_path = manifest_path.parent / "_manuscript.md"
