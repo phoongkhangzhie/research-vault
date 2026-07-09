@@ -197,11 +197,50 @@ class TestSelfAdvancingRunner:
         store = RunStore.from_config(cfg)
         return run_id, review_dir, store
 
-    def _drive_to_coverage_gate(self, run_id: str, review_dir: Path, store, cfg, *, stop_reason: str):
-        """review-scope -> approve-protocol -> review-search -> review-snowball,
-        landing coverage-gate as 'pending'/ready — the point where the
-        self-advancing runner (not a human) must take over."""
+    def _drive_to_coverage_gate(self, run_id: str, review_dir: Path, store, cfg, *, stop_reason: str, monkeypatch=None):
+        """review-scope -> approve-protocol -> review-search (tool) ->
+        review-screen (agent) -> review-snowball (tool) -> review-curate
+        (agent), landing coverage-gate as 'pending'/ready — the point where
+        the self-advancing runner (not a human) must take over.
+
+        review-loop-nodekind-drift-fix (Option C hybrid): review-search/
+        review-snowball are now TOOL nodes — they auto-execute via the
+        `sweep`/`snowball` ops on `dag tick`, never by hand-marking them
+        succeeded. This test fakes the OP_REGISTRY entries (mirrors the
+        established `test_dag_tool_node.py` seam) so no real network call
+        happens; the fakes still WRITE their declared produces: artifacts
+        (the new §4-D enforcement would otherwise BLOCK the node)."""
         from research_vault.dag.verbs import cmd_tick, cmd_approve
+        from research_vault.review import autonomy as _auto
+
+        assert monkeypatch is not None, "_drive_to_coverage_gate requires monkeypatch"
+
+        # Register BOTH fake ops BEFORE approve-protocol — cmd_approve
+        # internally recomputes the frontier (_recompute_awaiting_go), which
+        # auto-executes any newly-ready tool node IN THE SAME CALL. Patching
+        # the ops after cmd_approve would be too late and let the REAL
+        # (network-touching) op fire once, unmocked.
+        def _fake_sweep(*, out=None, **_kw):
+            if out:
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                Path(out).write_text("# fake search hits\n", encoding="utf-8")
+                return str(out)
+            return "fake sweep result"
+
+        def _fake_snowball(*, out_dir=None, **_kw):
+            out = Path(out_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "_corpus_raw.md").write_text(
+                "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
+                encoding="utf-8",
+            )
+            (out / "_saturation.md").write_text(
+                f"---\nstop_reason: {stop_reason}\n---\n\nSaturation curve.\n", encoding="utf-8",
+            )
+            return {"stop_reason": stop_reason}
+
+        monkeypatch.setitem(_auto.OP_REGISTRY, "sweep", _fake_sweep)
+        monkeypatch.setitem(_auto.OP_REGISTRY, "snowball", _fake_snowball)
 
         # review-scope "completes": writes _protocol.md with a counter-position
         # (L-2 gate requirement for approve-protocol).
@@ -218,38 +257,43 @@ class TestSelfAdvancingRunner:
 
         # ★ approve-protocol is the ONE retained human gate — it never
         # auto-resolves, proven by the assert above. A human approves it.
+        # (review-search, a TOOL node, auto-executes in this SAME call via
+        # the fake registered above.)
         rc = cmd_approve(argparse.Namespace(run_id=run_id, node_id="approve-protocol", note=None, output=[], reject=False, auto=False))
         assert rc == 0
+        rs = store.load(run_id)
+        assert rs.node_status("review-search") == "succeeded"
 
-        # review-search "completes" (protocol watch needs a fresh mtime AFTER
-        # approve-protocol — touch it again to satisfy the artifact:+fresh watch).
-        protocol_path.write_text(protocol_path.read_text(encoding="utf-8") + " \n", encoding="utf-8")
+        # review-screen (agent) "completes": accepts a seed frontier.
+        screen_path = review_dir / "_screen.md"
+        screen_path.write_text("10.1/alpha2024\n10.1/beta2024\n", encoding="utf-8")
+        _mark_succeeded(store, run_id, "review-screen")
+
+        # review-snowball (TOOL, op "snowball") auto-executes on the next tick.
         cmd_tick(argparse.Namespace(run_id=run_id))
-        _mark_succeeded(store, run_id, "review-search")
+        rs = store.load(run_id)
+        assert rs.node_status("review-snowball") == "succeeded"
 
-        # review-snowball "completes": writes _corpus.md + _saturation.md.
+        # review-curate (agent) "completes": writes the FINAL _corpus.md
+        # (+ _coverage-gaps.md on backstop-termination).
         corpus_path = review_dir / "_corpus.md"
         corpus_path.write_text(
             "| annotation | citekey | title |\n|---|---|---|\n"
             "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
             encoding="utf-8",
         )
-        saturation_path = review_dir / "_saturation.md"
-        saturation_path.write_text(
-            f"---\nstop_reason: {stop_reason}\n---\n\nSaturation curve.\n", encoding="utf-8",
-        )
         if stop_reason.startswith("backstop:"):
             (review_dir / "_coverage-gaps.md").write_text("open frontier\n", encoding="utf-8")
         cmd_tick(argparse.Namespace(run_id=run_id))
-        _mark_succeeded(store, run_id, "review-snowball")
+        _mark_succeeded(store, run_id, "review-curate")
 
-    def test_kick_walk_self_advances_and_auto_emits_phase2_on_go(self, tmp_instance: Path):
+    def test_kick_walk_self_advances_and_auto_emits_phase2_on_go(self, tmp_instance: Path, monkeypatch):
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick
 
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-go")
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated")
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
 
         # THE claim: a plain tick (no --auto anywhere) resolves coverage-gate.
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
@@ -274,13 +318,13 @@ class TestSelfAdvancingRunner:
             for nid in child_rs.node_states
         )
 
-    def test_go_with_residue_still_proceeds_annotated(self, tmp_instance: Path):
+    def test_go_with_residue_still_proceeds_annotated(self, tmp_instance: Path, monkeypatch):
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick
 
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-residue")
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="backstop:3-waves")
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="backstop:3-waves", monkeypatch=monkeypatch)
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
@@ -290,13 +334,13 @@ class TestSelfAdvancingRunner:
         # Still proceeds — Phase-2 emitted exactly as the clean-GO case.
         assert "emitted_next_phase_run_id" in rs.node_states["coverage-gate"]
 
-    def test_malformed_saturation_halts_never_emits_phase2(self, tmp_instance: Path):
+    def test_malformed_saturation_halts_never_emits_phase2(self, tmp_instance: Path, monkeypatch):
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick
 
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-halt")
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="garbage-not-a-real-reason")
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="garbage-not-a-real-reason", monkeypatch=monkeypatch)
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
@@ -307,7 +351,7 @@ class TestSelfAdvancingRunner:
         assert "emitted_next_phase_run_id" not in rs.node_states["coverage-gate"]
         assert not (review_dir / "phase2-dag.json").exists()
 
-    def test_undeclared_deviation_between_two_coverage_gate_passes_halts(self, tmp_instance: Path):
+    def test_undeclared_deviation_between_two_coverage_gate_passes_halts(self, tmp_instance: Path, monkeypatch):
         """★ leak-plant, driven through the real dag-verbs code path (not
         just the review.autonomy unit level): simulate coverage-gate's meta
         already carrying a frozen baseline from a prior pass, then an
@@ -320,7 +364,7 @@ class TestSelfAdvancingRunner:
 
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-leak")
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated")
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
 
         from research_vault.dag.verbs import cmd_tick
         cmd_tick(argparse.Namespace(run_id=run_id))

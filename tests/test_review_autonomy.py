@@ -344,7 +344,7 @@ class TestOpRegistry:
             auto.run_tool_op("not-a-real-op")
 
     def test_registered_ops_present(self):
-        for op in ("sweep", "snowball-forward", "snowball-backward", "coverage", "relations"):
+        for op in ("sweep", "snowball", "coverage", "relations"):
             assert op in auto.OP_REGISTRY
 
     def test_run_tool_op_calls_through(self, monkeypatch):
@@ -369,7 +369,10 @@ class TestOpRegistry:
         backward` shipped pointed at the nonexistent
         `research_vault.adapters.semantic_scholar` (should have been
         `research_vault.sources.semantic_scholar`) and went undetected: CI
-        stayed green because nothing ever imported the real module.
+        stayed green because nothing ever imported the real module. The two
+        removed single-paper ops are gone (collapsed into `_op_snowball`,
+        review-loop-nodekind-drift-fix), so this now covers `sweep`,
+        `snowball`, `coverage`, `relations`.
 
         This test parses each op's real source for its `from X import Y`
         statement(s) and does a genuine `importlib.import_module(X)` +

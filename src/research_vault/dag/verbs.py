@@ -251,6 +251,28 @@ _AUTONOMOUS_GATE_IDS = frozenset({"coverage-gate", "approve-framework", "approve
 _TOOL_AUTO_EXEC_MAX_PASSES = 100  # bounded loop guard — never spin forever
 
 
+def _missing_produces_artifacts(node: dict[str, Any]) -> list[str]:
+    """Return the declared ``produces:`` values (as strings) that are NOT
+    present on disk after a tool op ran.
+
+    review-loop-nodekind-drift-fix §4-D: a tool node with no ``produces:``
+    dict is exempt (nothing declared, nothing to enforce — e.g. ``coverage``/
+    ``relations`` ops that return an in-memory report, not a file). A
+    ``produces:`` value that isn't a path-shaped string (rare, defensive) is
+    skipped rather than false-flagged.
+    """
+    produces = node.get("produces")
+    if not isinstance(produces, dict) or not produces:
+        return []
+    missing: list[str] = []
+    for key, value in produces.items():
+        if not isinstance(value, str) or not value:
+            continue
+        if not Path(value).exists():
+            missing.append(f"{key}={value}")
+    return missing
+
+
 def _auto_execute_tool_nodes(
     run_state: RunState,
     manifest: dict[str, Any],
@@ -297,7 +319,21 @@ def _auto_execute_tool_nodes(
             try:
                 result = run_tool_op(op, **op_args)
                 ns["tool_result_summary"] = str(result)[:2000]
-                run_state.set_node_status(nid, "succeeded")
+                missing = _missing_produces_artifacts(item.node)
+                if missing:
+                    # review-loop-nodekind-drift-fix §4-D: a declared
+                    # produces: artifact that isn't on disk after the op
+                    # ran is a fail-closed BLOCK, never a green node with
+                    # no file (charter §2 — surface, never silently drop).
+                    msg = (
+                        f"tool node {nid!r} (op={op!r}) declared produces: "
+                        f"artifact(s) {missing!r} but none were found on "
+                        f"disk after the op ran."
+                    )
+                    ns["tool_error"] = msg[:2000]
+                    run_state.set_node_status(nid, "blocked", error=msg[:_FAILURE_SUMMARY_MAX_CHARS])
+                else:
+                    run_state.set_node_status(nid, "succeeded")
             except Exception as e:  # noqa: BLE001 — surface, never swallow (charter §2)
                 ns["tool_error"] = str(e)[:2000]
                 run_state.set_node_status(nid, "blocked", error=str(e)[:_FAILURE_SUMMARY_MAX_CHARS])
@@ -1643,7 +1679,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                         "rv dag approve: coverage-gate SIGNAL: the residue note is "
                         f"REQUIRED on backstop-termination but was not found at "
                         f"{gaps_path} — the open frontier was never declared "
-                        "(review_snowball_tips §SR-LR-1-BACKSTOP).",
+                        "(review_curate_tips §SR-LR-1-BACKSTOP).",
                         file=sys.stderr,
                     )
             elif info["exists"] and info["stop_reason"].strip().lower() != "saturated":

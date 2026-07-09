@@ -1,3 +1,70 @@
+## 2026-07-09 (review-loop node-kind drift fix — Option C hybrid)
+
+### Done
+- **Fixed the review-loop node-kind drift**: D1 (verb consolidation)
+  hard-removed `rv research sweep`/`cited-by`/`references`, but
+  `review._build_phase1_manifest` kept emitting `review-search`/
+  `review-snowball` as `type:"agent"` nodes whose specs instructed the
+  agent to shell those removed verbs — a tombstone at run time. Chosen fix:
+  **Option C (hybrid)** — split each of `review-search`/`review-snowball`
+  into a deterministic **TOOL** node (the mechanical fetch/graph-walk) +
+  a thin **AGENT** node (the judgment layer). New Phase-1 graph (7 nodes):
+  `review-scope(agent) → [HG]approve-protocol → review-search(TOOL:sweep)
+  → review-screen(AGENT) → review-snowball(TOOL:snowball) →
+  review-curate(AGENT) → [HG]coverage-gate`.
+- **`sources/sweep.py`**: added `write_search_hits` — the sweep now writes
+  `_search_hits.md` (per-cell counts, `[NEW]`/`[IN-CORPUS:*]` annotation via
+  the existing `_corpus_annotation`, `[DERIVATIVE-OF:*]`/`[BELOW-FLOOR:*]`
+  flags).
+- **New `sources/snowball.py`**: `run_snowball_to_saturation` — the
+  both-direction, multi-round saturation walk (reuses
+  `sources/derivative.py`; stops on 2-consecutive-zero independent-new OR
+  the `saturation_backstop_waves` cap) + `write_corpus_raw`/
+  `write_saturation`. **Declared caveat** (not silently dropped): the
+  mechanical stop uses the citekey half of the saturation rule only; the
+  concept-tag half moves to `review-curate` (the agent), which may flag a
+  tag-under-counting/premature-plateau residue.
+- **`review/autonomy.py`**: collapsed `_op_snowball_forward`/
+  `_op_snowball_backward` into a single `_op_snowball` (loop + writes);
+  extended `_op_sweep` to write its artifact + return the path.
+  `OP_REGISTRY` is now `{"sweep", "snowball", "coverage", "relations"}`.
+- **`dag/verbs.py`**: `_auto_execute_tool_nodes` now enforces `produces:` —
+  a declared tool-node artifact missing on disk after the op runs drives
+  the node to `blocked`, fail-closed, never a green node with no file.
+- **`review/__init__.py`**: `_build_phase1_manifest` re-emits the 7-node
+  graph; fixed the stale `review-search` label (previously named the wrong
+  retained verb).
+- **`review/style.py`**: dropped `review_search_tips`/`review_snowball_tips`
+  as node specs; added `review_screen_tips`/`review_curate_tips` (no CLI-verb
+  references) — **breaking key change** to `REVIEW_TIPS_KEYS` for adopters
+  overriding `[review_style]`.
+- **`research.py`**: scrubbed the stale module docstring/epilog still
+  advertising `cited-by`/`references` as usable verbs.
+- **`tests/test_review_loop_nodekind_integration.py`** (new, required):
+  drives the REAL DAG runner (`cmd_run`/`cmd_tick`/`cmd_approve`/
+  `cmd_complete`) over the real Phase-1 manifest, injecting only a fake
+  `SourceAdapter` (never the runner/op-registry/builder). Proves: the real
+  ops write `_search_hits.md`/`_corpus_raw.md`/`_saturation.md`; no removed
+  verb is ever shelled (subprocess spy); `produces:` enforcement blocks a
+  node whose declared artifact never landed; the backstop path terminates
+  with `_coverage-gaps.md` written.
+
+### Decisions
+- **Option C over pure tool-node (Option A) or keeping both agent (Option
+  B)**: Option A can't produce the judgment artifacts (screening,
+  saturation-plateau reading, concept-tags); Option B would require
+  re-exposing the mechanical primitives as CLI verbs, re-touching the D1
+  hard-remove. Option C keeps D1's removal intact and adds the thin
+  judgment layer only where it's irreducibly needed.
+- **Migration**: this fix lives on `main` (v0.3.0+); the crew runs the
+  pinned 0.2.6, which predates D1's hard-remove entirely — unaffected until
+  a pin bump. Safe to land ahead of a bump.
+
+### Open / next
+- Adopters with a `[review_style]` override for the old
+  `review_search_tips`/`review_snowball_tips` keys need to migrate to
+  `review_screen_tips`/`review_curate_tips` — flag in the next changelog.
+
 ## 2026-07-09 (NG-6a — `rv review refresh` + autonomous coverage-gap remediation)
 
 ### Done

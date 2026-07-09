@@ -2,11 +2,18 @@
 """review — SR-LR-1: staged, pre-registered, saturation-gated literature review loop.
 
 The review loop is the manuscript loop's sibling — it composes SR-3 (DAG) with zero
-new walker/schema mechanism.  The saturation stopping rule lives INSIDE the
-``review-snowball`` node (an internal loop, like the manuscript compile fix-loop —
-§5L.2 ruling).  The fan-out over a runtime-discovered corpus is resolved at the
-``coverage-gate`` phase boundary via a second manifest emitted by ``rv review expand``
-(§5L.4 ruling).
+new walker/schema mechanism.  The fan-out over a runtime-discovered corpus is resolved
+at the ``coverage-gate`` phase boundary via a second manifest emitted by
+``rv review expand`` (§5L.4 ruling).
+
+★ Option C hybrid (review-loop-nodekind-drift-fix, 2026-07-09): Phase-1's
+review-search/review-snowball are each split into a deterministic TOOL node (the
+mechanical fetch/graph-walk — ``review.autonomy``'s ``sweep``/``snowball`` ops) followed
+by a thin AGENT node (the judgment layer — inclusion/exclusion screening, concept-
+tagging, honest residue prose). This replaces the pre-2026-07-09 shape where
+review-search/review-snowball were themselves agent nodes whose specs instructed the
+agent to shell ``rv research sweep``/``cited-by``/``references`` — verbs D1
+(verb-consolidation) hard-removed. See the spec for the full rationale (§2-3).
 
 Provides:
   - cmd_new:    scaffold a review OKF note + reviews/<scope>/ dir + Phase-1 DAG manifest
@@ -14,9 +21,9 @@ Provides:
   - cmd_expand: emit Phase-2 manifest from a frozen _corpus.md (post coverage-gate)
 
 The ``review_tips`` config seam (§5L.6, ``review/style.py``) is the content socket:
-six keys (review_scope_tips, review_search_tips, review_snowball_tips,
-per_paper_relate_tips, review_synthesize_tips, review_critic_tips) drive each node's
-spec string.  Adopters override via ``[review_style]`` in research_vault.toml.
+six keys (review_scope_tips, review_screen_tips, review_curate_tips,
+per_paper_relate_tips, review_synthesize_tips, review_critic_tips) drive each agent
+node's spec string.  Adopters override via ``[review_style]`` in research_vault.toml.
 
 Corpus helpers (_corpus_annotation) are imported directly from
 research_vault.research — NOT scraped from stdout (§5L.11 prereq-composition rule).
@@ -42,6 +49,7 @@ from research_vault.note import (
 from research_vault.review.style import (
     get_review_tips,
     get_review_style_preamble,
+    get_saturation_backstop_waves,
 )
 
 # Corpus helpers imported directly (not scraping stdout — §5L.11)
@@ -127,8 +135,9 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
 def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
     """Read the snowball loop's ``stop_reason:`` off ``_saturation.md``.
 
-    The saturation loop is agent-executed (an INTERNAL loop inside the
-    ``review-snowball`` node — no per-round DAG nodes, §5L.2). It stamps flat
+    The saturation loop is the deterministic ``snowball`` tool op (an
+    INTERNAL loop inside the ``review-snowball`` TOOL node — no per-round DAG
+    nodes, §5L.2; review-loop-nodekind-drift-fix Option C). It stamps flat
     frontmatter at the top of ``_saturation.md`` recording which stop rule
     fired:
       - ``stop_reason: saturated``          — PRIMARY rule: 2-consecutive-zero
@@ -522,18 +531,43 @@ def _build_phase1_manifest(
     tip_override: dict[str, str] | None = None,
     config: Any = None,
 ) -> dict[str, Any]:
-    """Build the Phase-1 DAG manifest (§5L.1 shape).
+    """Build the Phase-1 DAG manifest (§5L.1 shape; Option C hybrid,
+    review-loop-nodekind-drift-fix, 2026-07-09).
 
-    Phase-1 nodes (5):
-      review-scope → [HG:approve-protocol] → review-search → review-snowball
-          → [HG:coverage-gate]
+    Phase-1 nodes (7):
+      review-scope → [HG:approve-protocol] → review-search (tool) → review-screen (agent)
+          → review-snowball (tool) → review-curate (agent) → [HG:coverage-gate]
 
     Topology:
-      - review-scope: agent; produces _protocol.md
+      - review-scope:     agent; produces _protocol.md
       - approve-protocol: human-go (Gate 1 — cheap screen before expensive search)
-      - review-search: agent; needs afterok+watch on _protocol.md (anti-fishing gate)
-      - review-snowball: agent; produces _corpus.md + _saturation.md (internal loop)
-      - coverage-gate: human-go (phase boundary — Phase-2 static fan-out authorized here)
+      - review-search:    TOOL (op "sweep"); needs afterok+watch on _protocol.md
+                          (anti-fishing gate); produces _search_hits.md
+                          (deterministic width-sweep — no LLM)
+      - review-screen:    agent (thin judgment layer); reads _search_hits.md,
+                          applies inclusion/exclusion, produces _screen.md
+                          (the accepted seed frontier)
+      - review-snowball:  TOOL (op "snowball"); needs afterok+watch on _screen.md;
+                          produces _corpus_raw.md + _saturation.md (the both-
+                          direction multi-round saturation walk — no LLM)
+      - review-curate:    agent (thin judgment layer); reads _corpus_raw.md +
+                          _saturation.md, concept-tags + applies inclusion/
+                          exclusion, produces _corpus.md (+ _coverage-gaps.md
+                          on backstop-termination)
+      - coverage-gate:    human-go (phase boundary — Phase-2 static fan-out
+                          authorized here)
+
+    Why split each of review-search/review-snowball into tool+agent: the
+    mechanical fraction (fetch/dedup/derivative-discount/rank/graph-walk/
+    saturation-curve) is large and fully deterministic — it lives in
+    ``review.autonomy``'s tool-op registry, invoked IN-PROCESS by the DAG
+    runner (D4, verb-consolidation). The irreducibly-LLM fraction (applying
+    inclusion/exclusion judgment, concept-tagging, honest residue prose) is
+    thin — it stays an agent node. An agent node cannot invoke an in-process
+    tool op (it can only shell CLI verbs, and the mechanical verbs this used
+    to shell — ``rv research sweep``/``cited-by``/``references`` — are D1
+    hard-removed), so the op runs FIRST and hands the agent a written
+    artifact to judge, never the reverse.
 
     The artifact-watch on _protocol.md makes the anti-fishing structural: search
     physically cannot fire until the protocol note is filed (§5L.3 ruling).
@@ -562,8 +596,11 @@ def _build_phase1_manifest(
 
     # Absolute path to review artifact dir (for produces: and watch: expressions)
     protocol_path = str(review_dir / "_protocol.md")
-    corpus_path = str(review_dir / "_corpus.md")
+    search_hits_path = str(review_dir / "_search_hits.md")
+    screen_path = str(review_dir / "_screen.md")
+    corpus_raw_path = str(review_dir / "_corpus_raw.md")
     saturation_path = str(review_dir / "_saturation.md")
+    corpus_path = str(review_dir / "_corpus.md")
 
     nodes: list[dict[str, Any]] = []
 
@@ -594,17 +631,22 @@ def _build_phase1_manifest(
         "needs": [_afterok("review-scope")],
     })
 
-    # 3. review-search — gated by afterok AND artifact-watch on _protocol.md
-    #    The watch makes it structural: search cannot fire without a fresh protocol.
+    # 3. review-search — TOOL node (D4 op "sweep"): the deterministic
+    #    parallel width-sweep over the frozen protocol's angle matrix.
+    #    Gated by afterok AND artifact-watch on _protocol.md — the watch
+    #    makes anti-fishing structural: search cannot fire without a fresh
+    #    protocol (§5L.3).
     nodes.append({
         "id": "review-search",
-        "type": "agent",
-        "label": "Search Semantic Scholar (protocol-gated; rv research find)",
-        "spec": _spec("review_search_tips"),
-        "reads": [
-            _rel("literature"),
-            protocol_path,
-        ],
+        "type": "tool",
+        "op": "sweep",
+        "label": "Width-sweep the frozen protocol's angle matrix (deterministic; protocol-gated)",
+        "args": {
+            "protocol": protocol_path,
+            "out": search_hits_path,
+            "project": project,
+        },
+        "produces": {"_search_hits.md": search_hits_path},
         "needs": [
             {
                 "from": "approve-protocol",
@@ -614,25 +656,83 @@ def _build_phase1_manifest(
         ],
     })
 
-    # 4. review-snowball — internal saturation loop (both directions, §5L.2)
-    #    Produces _corpus.md (frozen citekey list) + _saturation.md (plateau curve).
-    #    Both keys in produces dict so artifact-watch in coverage-gate can reference them.
+    # 4. review-screen — thin AGENT judgment layer: apply the frozen
+    #    protocol's inclusion/exclusion to _search_hits.md and accept a seed
+    #    frontier for the snowball tool op (Option C hybrid).
+    nodes.append({
+        "id": "review-screen",
+        "type": "agent",
+        "label": "Screen search hits against inclusion/exclusion; accept seed frontier",
+        "spec": _spec("review_screen_tips"),
+        "reads": [
+            _rel("literature"),
+            protocol_path,
+            search_hits_path,
+        ],
+        "produces": {"_screen.md": screen_path},
+        "needs": [
+            {
+                "from": "review-search",
+                "edge": "afterok",
+                "watch": f"artifact:{search_hits_path}+fresh",
+            }
+        ],
+    })
+
+    # 5. review-snowball — TOOL node (D4 op "snowball"): the deterministic
+    #    both-direction, multi-round saturation walk (§5L.2's mechanical
+    #    half — see review.autonomy.run_snowball_to_saturation's declared
+    #    concept-tag-half caveat). Produces _corpus_raw.md (raw candidates)
+    #    + _saturation.md (the plateau curve, stop_reason:).
     nodes.append({
         "id": "review-snowball",
+        "type": "tool",
+        "op": "snowball",
+        "label": "Both-direction multi-round snowball walk to saturation (deterministic)",
+        "args": {
+            "seed": screen_path,
+            "out_dir": str(review_dir),
+            "backstop_waves": get_saturation_backstop_waves(config=config),
+            "project": project,
+        },
+        "produces": {"_corpus_raw.md": corpus_raw_path, "_saturation.md": saturation_path},
+        "needs": [
+            {
+                "from": "review-screen",
+                "edge": "afterok",
+                "watch": f"artifact:{screen_path}+fresh",
+            }
+        ],
+    })
+
+    # 6. review-curate — thin AGENT judgment layer: concept-tag the raw
+    #    corpus, apply inclusion/exclusion, emit the FINAL _corpus.md (+
+    #    _coverage-gaps.md on backstop-termination or a tag-under-counting
+    #    concern — Option C hybrid's declared concept-tag-half caveat).
+    nodes.append({
+        "id": "review-curate",
         "type": "agent",
-        "label": "Snowball (forward cited-by + backward references; internal saturation loop)",
-        "spec": _spec("review_snowball_tips"),
+        "label": "Concept-tag + curate the raw corpus into the final _corpus.md",
+        "spec": _spec("review_curate_tips"),
         "reads": [
             _rel("literature"),
             _rel("concepts"),
             _rel("mocs"),
             protocol_path,
+            corpus_raw_path,
+            saturation_path,
         ],
-        "produces": {"_corpus.md": corpus_path, "_saturation.md": saturation_path},
-        "needs": [_afterok("review-search")],
+        "produces": {"_corpus.md": corpus_path},
+        "needs": [
+            {
+                "from": "review-snowball",
+                "edge": "afterok",
+                "watch": f"artifact:{saturation_path}+fresh",
+            }
+        ],
     })
 
-    # 5. coverage-gate — human-go Phase BOUNDARY (§5L.4)
+    # 7. coverage-gate — human-go Phase BOUNDARY (§5L.4)
     #    Operator confirms "these are the papers" before N parallel relates dispatch.
     #    On approval → rv review expand emits Phase-2.
     nodes.append({
@@ -644,7 +744,7 @@ def _build_phase1_manifest(
             "assert coverage via `rv review <project> coverage <scope>` — do not eyeball. "
             "Then run: rv review <project> expand <scope> to emit Phase-2."
         ),
-        "needs": [_afterok("review-snowball")],
+        "needs": [_afterok("review-curate")],
     })
 
     manifest: dict[str, Any] = {

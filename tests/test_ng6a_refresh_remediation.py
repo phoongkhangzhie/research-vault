@@ -598,8 +598,40 @@ class TestEndToEndThroughDagVerbs:
 
     def _drive_to_coverage_gate(
         self, run_id, review_dir, store, *, extra_corpus_citekeys=None, malformed_row=False,
+        monkeypatch=None,
     ):
+        """review-loop-nodekind-drift-fix (Option C hybrid): review-search/
+        review-snowball are TOOL nodes now — fake their OP_REGISTRY entries
+        (network-free) BEFORE approve-protocol, since cmd_approve's internal
+        frontier recompute auto-executes a newly-ready tool node in the SAME
+        call. review-screen/review-curate (the new thin agent nodes) are
+        completed by hand, same convention as every other agent node here."""
         from research_vault.dag.verbs import cmd_tick, cmd_approve, cmd_complete
+        from research_vault.review import autonomy as _auto
+
+        assert monkeypatch is not None, "_drive_to_coverage_gate requires monkeypatch"
+
+        def _fake_sweep(*, out=None, **_kw):
+            if out:
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                Path(out).write_text("# fake search hits\n", encoding="utf-8")
+                return str(out)
+            return "fake sweep result"
+
+        def _fake_snowball(*, out_dir=None, **_kw):
+            out = Path(out_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "_corpus_raw.md").write_text(
+                "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
+                encoding="utf-8",
+            )
+            (out / "_saturation.md").write_text(
+                "---\nstop_reason: backstop:3-waves\n---\n\nSaturation curve.\n", encoding="utf-8",
+            )
+            return {"stop_reason": "backstop:3-waves"}
+
+        monkeypatch.setitem(_auto.OP_REGISTRY, "sweep", _fake_sweep)
+        monkeypatch.setitem(_auto.OP_REGISTRY, "snowball", _fake_snowball)
 
         protocol_path = review_dir / "_protocol.md"
         protocol_path.write_text(
@@ -612,30 +644,29 @@ class TestEndToEndThroughDagVerbs:
         rc = cmd_approve(argparse.Namespace(
             run_id=run_id, node_id="approve-protocol", note=None, output=[], reject=False, auto=False,
         ))
-        assert rc == 0
-        protocol_path.write_text(protocol_path.read_text(encoding="utf-8") + " \n", encoding="utf-8")
-        cmd_tick(argparse.Namespace(run_id=run_id))
-        rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-search", status="succeeded"))
-        assert rc == 0
+        assert rc == 0  # review-search (tool) auto-executed in this same call
 
+        # review-screen (agent) "completes": accepts the seed frontier.
+        (review_dir / "_screen.md").write_text("10.1/alpha2024\n10.1/beta2024\n", encoding="utf-8")
+        rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-screen", status="succeeded"))
+        assert rc == 0  # review-snowball (tool) auto-executed in this same call
+
+        # review-curate (agent) "completes": writes the FINAL _corpus.md
+        # (+ _coverage-gaps.md, since the fake snowball always reports
+        # backstop:3-waves).
         citekeys = ["alpha2024", "beta2024"] + (extra_corpus_citekeys or [])
         corpus_path = review_dir / "_corpus.md"
         _corpus_note(corpus_path, citekeys)
         if malformed_row:
-            # Injected BEFORE review-snowball completes — cmd_complete's own
+            # Injected BEFORE review-curate completes — cmd_complete's own
             # internal frontier recompute is what fires coverage-gate's
             # autonomous resolution (not only a later explicit cmd_tick).
             corpus_path.write_text(
                 corpus_path.read_text(encoding="utf-8") + "| [WEIRD] | ghost2024 | malformed |\n",
                 encoding="utf-8",
             )
-        saturation_path = review_dir / "_saturation.md"
-        saturation_path.write_text(
-            "---\nstop_reason: backstop:3-waves\n---\n\nSaturation curve.\n", encoding="utf-8",
-        )
         (review_dir / "_coverage-gaps.md").write_text("open frontier\n", encoding="utf-8")
-        cmd_tick(argparse.Namespace(run_id=run_id))
-        rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-snowball", status="succeeded"))
+        rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-curate", status="succeeded"))
         assert rc == 0
 
     def test_backstop_gate_autonomously_remediates_and_go_with_residues_on_exhaustion(
@@ -668,7 +699,7 @@ class TestEndToEndThroughDagVerbs:
         # frontier recompute) — not only on a LATER explicit cmd_tick.
         monkeypatch.setattr(_remediation, "run_tool_op", fake_tool_op)
 
-        self._drive_to_coverage_gate(run_id, review_dir, store)
+        self._drive_to_coverage_gate(run_id, review_dir, store, monkeypatch=monkeypatch)
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
@@ -706,7 +737,7 @@ class TestEndToEndThroughDagVerbs:
 
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(cfg, scope="scope-malformed")
-        self._drive_to_coverage_gate(run_id, review_dir, store, malformed_row=True)
+        self._drive_to_coverage_gate(run_id, review_dir, store, malformed_row=True, monkeypatch=monkeypatch)
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0  # tick itself doesn't crash/raise
@@ -720,7 +751,7 @@ class TestEndToEndThroughDagVerbs:
 # ===========================================================================
 
 class TestRefreshCliVerb:
-    def test_cmd_refresh_end_to_end(self, tmp_instance):
+    def test_cmd_refresh_end_to_end(self, tmp_instance, monkeypatch):
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick, cmd_complete, cmd_approve
         from research_vault.review import cmd_new
@@ -739,6 +770,31 @@ class TestRefreshCliVerb:
         run_id = phase1["run_id"]
         store = RunStore.from_config(cfg)
 
+        # review-loop-nodekind-drift-fix (Option C hybrid): fake review-search/
+        # review-snowball's OP_REGISTRY entries BEFORE approve-protocol —
+        # cmd_approve's internal frontier recompute auto-executes a
+        # newly-ready tool node in the SAME call.
+        def _fake_sweep(*, out=None, **_kw):
+            if out:
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                Path(out).write_text("# fake search hits\n", encoding="utf-8")
+                return str(out)
+            return "fake sweep result"
+
+        def _fake_snowball(*, out_dir=None, **_kw):
+            out = Path(out_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "_corpus_raw.md").write_text(
+                "| [NEW] | alpha2024 | Alpha paper |\n", encoding="utf-8",
+            )
+            (out / "_saturation.md").write_text(
+                "---\nstop_reason: saturated\n---\n\n", encoding="utf-8",
+            )
+            return {"stop_reason": "saturated"}
+
+        monkeypatch.setitem(_auto.OP_REGISTRY, "sweep", _fake_sweep)
+        monkeypatch.setitem(_auto.OP_REGISTRY, "snowball", _fake_snowball)
+
         protocol_path = review_dir / "_protocol.md"
         protocol_path.write_text(
             "---\ncounter-position: a real counter-position\n---\n\nProtocol.\n",
@@ -748,17 +804,17 @@ class TestRefreshCliVerb:
         cmd_tick(argparse.Namespace(run_id=run_id))
         cmd_approve(argparse.Namespace(
             run_id=run_id, node_id="approve-protocol", note=None, output=[], reject=False, auto=False,
-        ))
-        protocol_path.write_text(protocol_path.read_text(encoding="utf-8") + " \n", encoding="utf-8")
-        cmd_tick(argparse.Namespace(run_id=run_id))
-        cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-search", status="succeeded"))
+        ))  # review-search (tool) auto-executed in this same call
 
+        # review-screen (agent) "completes": accepts the seed frontier.
+        (review_dir / "_screen.md").write_text("10.1/alpha2024\n", encoding="utf-8")
+        cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-screen", status="succeeded"))
+        # review-snowball (tool) auto-executed in this same call.
+
+        # review-curate (agent) "completes": writes the FINAL _corpus.md.
         corpus_path = review_dir / "_corpus.md"
         _corpus_note(corpus_path, ["alpha2024"])
-        saturation_path = review_dir / "_saturation.md"
-        saturation_path.write_text("---\nstop_reason: saturated\n---\n\n", encoding="utf-8")
-        cmd_tick(argparse.Namespace(run_id=run_id))
-        cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-snowball", status="succeeded"))
+        cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-curate", status="succeeded"))
         cmd_tick(argparse.Namespace(run_id=run_id))  # stamps corpus_freeze v1
 
         rs = store.load(run_id)

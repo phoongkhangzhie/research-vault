@@ -697,22 +697,105 @@ def check_undeclared_deviation(
 # no subprocess, no human, no CLI verb.
 
 
-def _op_sweep(*, protocol: str, budget: int = 65, per_cell_limit: int = 20, **_: Any) -> Any:
-    from research_vault.sources.sweep import run_sweep_from_protocol
+def _op_sweep(
+    *,
+    protocol: str,
+    out: str | None = None,
+    budget: int = 65,
+    per_cell_limit: int = 20,
+    project: str | None = None,
+    config: Any = None,
+    **_: Any,
+) -> Any:
+    """The ``sweep`` tool op (Option C hybrid, review-loop-nodekind-drift-fix
+    §4-A): run the parallel width-sweep AND write ``_search_hits.md`` — the
+    mechanical half of what ``review-search`` used to be an agent node for.
+    Returns the written path (str) when ``out`` is given, else the raw
+    ``SweepResult`` (back-compat for any caller that doesn't want the
+    artifact written, e.g. a unit test exercising the op in isolation).
+    """
+    from research_vault.sources.sweep import run_sweep_from_protocol, write_search_hits
 
-    return run_sweep_from_protocol(Path(protocol), budget=budget, per_cell_limit=per_cell_limit)
+    result = run_sweep_from_protocol(Path(protocol), budget=budget, per_cell_limit=per_cell_limit)
+    if out is None:
+        return result
+
+    notes_index = None
+    notes_title_index = None
+    if project:
+        from research_vault.config import load_config
+        from research_vault.research import _load_notes_index, _load_notes_title_index
+
+        cfg = config if config is not None else load_config()
+        literature_dir = cfg.project_notes_dir(project) / "literature"
+        notes_index = _load_notes_index(literature_dir)
+        notes_title_index = _load_notes_title_index(literature_dir)
+
+    written = write_search_hits(
+        result, Path(out), notes_index=notes_index, notes_title_index=notes_title_index,
+    )
+    return str(written)
 
 
-def _op_snowball_forward(*, paper_id: str, limit: int = 20, **_: Any) -> Any:
-    from research_vault.sources.semantic_scholar import SemanticScholarAdapter
+def _op_snowball(
+    *,
+    seed: str,
+    out_dir: str,
+    backstop_waves: int = 3,
+    project: str | None = None,
+    config: Any = None,
+    **_: Any,
+) -> Any:
+    """The ``snowball`` tool op (Option C hybrid, §4-B): run the both-
+    direction, multi-round saturation walk AND write ``_corpus_raw.md`` +
+    ``_saturation.md`` — replaces the removed single-paper, single-direction
+    ``snowball-forward``/``snowball-backward`` ops (D4 predecessor, which
+    never looped, never wrote an artifact, and had no stopping rule).
 
-    return SemanticScholarAdapter().cited_by(paper_id, limit=limit)
+    ``seed`` is the path to the review-screen agent's ``_screen.md`` —
+    parsed here for its accepted seed paper-id frontier (one id per
+    non-empty, non-comment line — the screen note's own simple contract;
+    see ``review/style.py``'s ``review_screen_tips``).
+    """
+    from research_vault.sources.snowball import (
+        run_snowball_to_saturation,
+        write_corpus_raw,
+        write_saturation,
+    )
 
+    seed_path = Path(seed)
+    seed_ids: list[str] = []
+    if seed_path.exists():
+        for line in seed_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or stripped.startswith("|"):
+                continue
+            seed_ids.append(stripped)
 
-def _op_snowball_backward(*, paper_id: str, **_: Any) -> Any:
-    from research_vault.sources.semantic_scholar import SemanticScholarAdapter
+    result = run_snowball_to_saturation(seed_ids, backstop_waves=backstop_waves)
 
-    return SemanticScholarAdapter().references(paper_id)
+    notes_index = None
+    notes_title_index = None
+    if project:
+        from research_vault.config import load_config
+        from research_vault.research import _load_notes_index, _load_notes_title_index
+
+        cfg = config if config is not None else load_config()
+        literature_dir = cfg.project_notes_dir(project) / "literature"
+        notes_index = _load_notes_index(literature_dir)
+        notes_title_index = _load_notes_title_index(literature_dir)
+
+    out_dir_path = Path(out_dir)
+    corpus_raw_path = write_corpus_raw(
+        result, out_dir_path / "_corpus_raw.md",
+        notes_index=notes_index, notes_title_index=notes_title_index,
+    )
+    saturation_path = write_saturation(result, out_dir_path / "_saturation.md")
+    return {
+        "corpus_raw": str(corpus_raw_path),
+        "saturation": str(saturation_path),
+        "stop_reason": result.stop_reason,
+    }
 
 
 def _op_coverage(*, project: str, scope: str, config: Any = None, **_: Any) -> Any:
@@ -733,8 +816,7 @@ def _op_relations(*, project: str, scope: str, config: Any = None, **_: Any) -> 
 
 OP_REGISTRY: dict[str, Callable[..., Any]] = {
     "sweep": _op_sweep,
-    "snowball-forward": _op_snowball_forward,
-    "snowball-backward": _op_snowball_backward,
+    "snowball": _op_snowball,
     "coverage": _op_coverage,
     "relations": _op_relations,
 }

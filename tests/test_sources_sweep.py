@@ -160,11 +160,35 @@ def test_compose_sweep_result_surfaces_cell_errors() -> None:
 # ---------------------------------------------------------------------------
 
 def test_sweep_module_has_no_protocol_write_path() -> None:
+    """Anti-fishing: the protocol-READING functions (parse/fetch/compose) must
+    never write anything — no mutation path lets a running sweep widen its
+    own frozen seeds mid-run.
+
+    review-loop-nodekind-drift-fix (Option C §4-A) added ``write_search_hits``,
+    which legitimately writes the sweep's OWN OUTPUT artifact
+    (``_search_hits.md``) — never the protocol. This test is scoped to the
+    protocol-facing functions specifically (AST-inspected, not a whole-module
+    substring check) so that legitimate new write stays un-flagged while the
+    protocol-mutation invariant stays enforced.
+    """
+    import ast
     import inspect
+    import textwrap
     from research_vault.sources import sweep as sweep_mod
 
-    src = inspect.getsource(sweep_mod)
-    assert "write_text" not in src
+    protocol_facing = (
+        sweep_mod.parse_angle_matrix,
+        sweep_mod.parse_sources,
+        sweep_mod.run_width_sweep,
+        sweep_mod.compose_sweep_result,
+        sweep_mod.run_sweep_from_protocol,
+    )
+    for fn in protocol_facing:
+        src = textwrap.dedent(inspect.getsource(fn))
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "write_text":
+                pytest.fail(f"{fn.__name__} must never call write_text (protocol is read-only)")
 
 
 NO_ANGLE_MATRIX_PROTOCOL = """---
