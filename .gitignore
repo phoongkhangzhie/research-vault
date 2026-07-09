@@ -50,3 +50,7 @@ doctrine/drift-watch.md
 tasks/
 .DS_Store
 **/.DS_Store
+
+# This repo's own local architecture map (adopter projects still scaffold + track
+# their own architecture.md via `rv init` — this ignore is anchored to the repo root only)
+/architecture.md

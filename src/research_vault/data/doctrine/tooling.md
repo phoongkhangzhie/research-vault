@@ -244,10 +244,12 @@ For a **CLI tool** (`rv` subcommand — deterministic + verifiable):
 The following observations appeared once and have not recurred. Recorded here as candidates;
 if the same pattern bites a second time, promote to a numbered rule in the appropriate section above.
 
-- **Map-in-the-same-change** (SR-PKG): a data-relocation or structural SR that changes where files
-  live must touch `architecture.md` in the same PR, so the map cannot merge stale. Caught downstream
-  when SR-PKG merged without updating the diagram. Acceptance criterion template: "architecture.md
-  updated to reflect new paths."
+- **Map-in-the-same-change** (SR-PKG): in an adopter project that tracks an `architecture.md` map
+  (scaffolded by `rv init`), a data-relocation or structural change that shifts where files live
+  must touch `architecture.md` in the same PR, so the map cannot merge stale. This repo's own
+  instance caught the pattern once (SR-PKG merged without updating its own diagram, back when this
+  repo still tracked one); the discipline applies to adopter projects, not to this repo's untracked
+  local copy. Acceptance criterion template: "architecture.md updated to reflect new paths."
 
 - **Third-framing before escalating a tradeoff** (SR-PLAN-FREEZE hash): when two stated requirements
   appear mutually exclusive (e.g. "tamper-detect any change" vs "all-default hash unchanged"), spend

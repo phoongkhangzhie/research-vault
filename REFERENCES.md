@@ -8,8 +8,7 @@ retrieval, support-checked, not memory). Grouped by the capability the source in
 
 ## Lit-review → LaTeX survey consolidation
 
-Informs: the OKF-lit-review → survey-paper capability. Research pass: Ada, 2026-07-07
-(`~/vault/docs/superpowers/specs/2026-07-07-lit-review-consolidation-research.md`).
+Informs: the OKF-lit-review → survey-paper capability. Research pass: Ada, 2026-07-07.
 
 **Survey methodology / what makes a survey well-received**
 
@@ -51,8 +50,7 @@ Informs: the OKF-lit-review → survey-paper capability. Research pass: Ada, 202
 
 Informs: the **survey review-revise loop** — the survey-quality rubric a critic evaluates against, the
 review→revise→converge methodology + anti-gaming guards, and the critique→rewrite transformation (reconciled
-with SR-MS-REVIEW, §5J.17). Research pass: Ada, 2026-07-07
-(`~/vault/docs/superpowers/specs/2026-07-07-survey-review-revise-methodology.md`).
+with SR-MS-REVIEW, §5J.17). Research pass: Ada, 2026-07-07.
 
 **Critical-appraisal / review-quality instruments (source of the survey-quality rubric)**
 
@@ -115,8 +113,7 @@ with SR-MS-REVIEW, §5J.17). Research pass: Ada, 2026-07-07
 
 Informs: `data/exemplars/manuscript/lit-review/` (design §8) — the in-context, real-verbatim exemplar
 excerpts embedded in the writer's section briefs (voice = few-shot real text, not a prose style
-description). Research pass, 2026-07-07
-(`~/vault/docs/superpowers/specs/2026-07-07-survey-exemplar-corpus.md`). The starting five exemplar
+description). Research pass, 2026-07-07. The starting five exemplar
 surveys (Zhao/Gao/Chang/Mehrabi + the methodology paper) are already listed above; one additional
 source was retrieved this session to cover the "scope / PRISMA-style method" move, absent from the
 five *narrative* surveys (none of which states an explicit search/inclusion protocol):
@@ -133,8 +130,7 @@ five *narrative* surveys (none of which states an explicit search/inclusion prot
 ## Paper-reading protocol — the relate-<key> node's 5-move discipline (Wave 0, PR-1..5)
 
 Informs: `review/style.py` `per_paper_relate_tips` (the relate-<key> node's reading protocol) +
-`review/relate_check.py` (the rejects-only presence check). Research pass: Ada, 2026-07-08
-(`~/vault/docs/superpowers/specs/2026-07-08-okf-sufficiency-and-paper-reading.md`). These are
+`review/relate_check.py` (the rejects-only presence check). Research pass: Ada, 2026-07-08. These are
 methodology anchors that inform the design (like the review loop's existing PRISMA-P/Wohlin
 anchors above), NOT corpus citekeys.
 

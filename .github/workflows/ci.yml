@@ -70,8 +70,10 @@ jobs:
       - name: Run leakage scanner over root public-bound files
         run: |
           # Scan public-bound root files individually.
-          # architecture.md re-introduced by the CS-project-structure convention
-          # (PR-1/PR-2) — rv dogfoods its own scaffold on itself; must be clean.
+          # architecture.md is scaffolded by `rv init` for adopter projects
+          # (CS-project-structure convention, PR-1/PR-2); if present here it must
+          # be clean, but the `[ -f ]` guard below skips it when absent (this
+          # repo's own local copy is untracked — see .gitignore).
           # REFERENCES.md and SETUP.md scanned when present (future artifacts).
           # LICENSE + pyproject.toml added (SR-SETUP: ship to PyPI — must be clean).
           for f in README.md architecture.md QUICKSTART.md REFERENCES.md SETUP.md LICENSE CITATION.cff pyproject.toml RELEASING.md; do
