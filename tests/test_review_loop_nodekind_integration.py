@@ -147,10 +147,33 @@ def _assert_removed_verbs_never_shelled(spy: "_SubprocessSpy") -> None:
             )
 
 
+_REALISTIC_SCREEN_MD_TEMPLATE = (
+    "---\n"
+    "run_id: r1\n"
+    "node_id: review-screen\n"
+    "---\n\n"
+    "# Screen\n\n"
+    "## Exclusion audit trail\n\n"
+    "- [EXCLUDE] 10.1000/notrelevant — off-topic, does not address the RQ "
+    "per protocol criterion C2.\n"
+    "- A follow-up sentence continuing the audit trail prose, no leading dash.\n\n"
+    "## Accepted seeds\n\n"
+    "```seeds\n"
+    "{seed_ids}\n"
+    "```\n"
+)
+
+
 def _drive_through_screen(run_id, review_dir, store, seed_line: str = "10.1000/fakeseed\n") -> None:
     """review-scope -> approve-protocol -> review-search(tool, real op) ->
     review-screen(agent, hand-completed) — the shared prefix of both the
-    saturating and backstop scenarios."""
+    saturating and backstop scenarios.
+
+    ``_screen.md`` is written as a REALISTIC note (YAML frontmatter + prose
+    exclusion audit trail + a fenced ```seeds``` block) — not a bare-id
+    file — so this integration test exercises the review-snowball tool
+    op's real ``_screen.md`` parsing path end-to-end (the exact shape that
+    crashed the naive whole-file scan before the fenced-block fix)."""
     from research_vault.dag.verbs import cmd_tick, cmd_approve, cmd_complete
 
     protocol_path = review_dir / "_protocol.md"
@@ -175,7 +198,10 @@ def _drive_through_screen(run_id, review_dir, store, seed_line: str = "10.1000/f
     assert rs.node_status("review-search") == "succeeded", rs.node_states.get("review-search")
 
     screen_path = review_dir / "_screen.md"
-    screen_path.write_text(seed_line, encoding="utf-8")
+    seed_ids = "\n".join(s.strip() for s in seed_line.strip().splitlines() if s.strip())
+    screen_path.write_text(
+        _REALISTIC_SCREEN_MD_TEMPLATE.format(seed_ids=seed_ids), encoding="utf-8",
+    )
     rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-screen", status="succeeded"))
     assert rc == 0  # review-snowball (tool, real op) auto-executes in this same call
 

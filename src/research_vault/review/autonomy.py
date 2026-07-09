@@ -56,6 +56,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from research_vault.note import _parse_frontmatter
+from research_vault.research import (
+    _ARXIV_NEW_RE,
+    _ARXIV_OLD_RE,
+    _ASTA_SCHEME_PREFIXES,
+    _DOI_BARE_RE,
+    _S2_SHA_RE,
+)
 from research_vault.review.gap_scan import _stamp_frontmatter_field
 
 # ---------------------------------------------------------------------------
@@ -737,6 +744,74 @@ def _op_sweep(
     return str(written)
 
 
+_SEED_FENCE_RE = re.compile(r"```seeds\s*\n(.*?)```", re.DOTALL)
+
+
+def _is_valid_paper_id(token: str) -> bool:
+    """Is ``token`` shaped like a paper identifier asta can resolve (DOI /
+    arXiv id / S2 40-hex corpus id / scheme-prefixed form)?
+
+    Reuses the SAME id shapes ``research.py``'s ``_normalize_paper_id_for_asta``
+    already recognizes (charter §6 reuse-over-create) — no second id grammar
+    to keep in sync. This is the hard backstop that keeps a stray frontmatter
+    ``---``, a prose sentence, or a table row from ever reaching asta as a
+    seed id, regardless of which extraction path found the line.
+    """
+    if not token or token.startswith("-"):
+        # Defensive: asta parses a leading '-' as a CLI flag (the exact
+        # crash this fix exists for) — never emit such a token, even if it
+        # happened to look id-shaped after the dash.
+        return False
+    if any(token.upper().startswith(p) for p in _ASTA_SCHEME_PREFIXES):
+        return True
+    return bool(
+        _S2_SHA_RE.match(token)
+        or _ARXIV_NEW_RE.match(token)
+        or _ARXIV_OLD_RE.match(token)
+        or _DOI_BARE_RE.match(token)
+    )
+
+
+def _extract_seed_ids_from_screen(text: str) -> list[str]:
+    """Extract the accepted seed paper-ids from a ``_screen.md`` note body.
+
+    ``_screen.md`` is a real OKF-shaped note: YAML frontmatter (``---``
+    delimiters), a prose PRISMA exclusion audit trail, THEN the accepted
+    ids — not a bare id-per-line file. Two paths, in priority order:
+
+      1. **Canonical**: a fenced ```seeds``` block (see
+         ``review/style.py``'s ``review_screen_tips``) — every non-empty
+         line inside it, validated against ``_is_valid_paper_id``.
+      2. **Legacy fallback**: no fenced block present (an old bare-id
+         ``_screen.md``, or a hand-edited one) — scan every line of the
+         WHOLE file, but still validate each token against
+         ``_is_valid_paper_id`` rather than accepting any non-empty,
+         non-``#``, non-``|`` line. This is what makes the fallback safe
+         against frontmatter/prose instead of just re-introducing the bug
+         for anyone who skips the fence.
+
+    Either path only ever returns id-shaped tokens — a frontmatter ``---``,
+    a prose sentence, or a table row is silently EXCLUDED (charter §2: this
+    is a narrow, unambiguous filter — not silently dropping a *malformed
+    but intended* id, which would need a wider net; a prose sentence or a
+    ``---`` was never an id contender in the first place).
+    """
+    fence_match = _SEED_FENCE_RE.search(text)
+    if fence_match:
+        lines = fence_match.group(1).splitlines()
+    else:
+        lines = text.splitlines()
+
+    seed_ids: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("|"):
+            continue
+        if _is_valid_paper_id(stripped):
+            seed_ids.append(stripped)
+    return seed_ids
+
+
 def _op_snowball(
     *,
     seed: str,
@@ -753,9 +828,10 @@ def _op_snowball(
     never looped, never wrote an artifact, and had no stopping rule).
 
     ``seed`` is the path to the review-screen agent's ``_screen.md`` —
-    parsed here for its accepted seed paper-id frontier (one id per
-    non-empty, non-comment line — the screen note's own simple contract;
-    see ``review/style.py``'s ``review_screen_tips``).
+    parsed here (via ``_extract_seed_ids_from_screen``) for its accepted
+    seed paper-id frontier, which lives in a fenced ```seeds``` block (the
+    screen note's own prose PRISMA exclusion audit trail lives freely above
+    it; see ``review/style.py``'s ``review_screen_tips``).
     """
     from research_vault.sources.snowball import (
         run_snowball_to_saturation,
@@ -766,11 +842,7 @@ def _op_snowball(
     seed_path = Path(seed)
     seed_ids: list[str] = []
     if seed_path.exists():
-        for line in seed_path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#") or stripped.startswith("|"):
-                continue
-            seed_ids.append(stripped)
+        seed_ids = _extract_seed_ids_from_screen(seed_path.read_text(encoding="utf-8"))
 
     result = run_snowball_to_saturation(seed_ids, backstop_waves=backstop_waves)
 
