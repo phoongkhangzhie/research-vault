@@ -18,7 +18,11 @@ WORK = {
     "abstract_inverted_index": {"We": [0], "propose": [1], "attention": [2]},
     "cited_by_count": 90000,
     "referenced_works": ["https://openalex.org/W111"],
+    "open_access": {"is_oa": True, "oa_status": "green", "oa_url": "https://arxiv.org/pdf/1706.03762"},
+    "primary_location": {"pdf_url": "https://example.org/1706.03762.pdf"},
 }
+
+WORK_CLOSED = {**WORK, "open_access": {"is_oa": False, "oa_status": "closed", "oa_url": None}}
 
 
 def test_search_parses_works(monkeypatch) -> None:
@@ -37,6 +41,21 @@ def test_search_parses_works(monkeypatch) -> None:
     assert hit.citation_count == 90000
     assert hit.abstract == "We propose attention"
     assert hit.source == "openalex"
+    # OA-fulltext-enrichment: open_access.oa_url is already in hit.raw — zero
+    # extra request, just stop discarding it.
+    assert hit.oa_url == "https://arxiv.org/pdf/1706.03762"
+    assert hit.oa_status == "green"
+    assert hit.oa_source == "openalex"
+
+
+def test_search_no_oa_when_closed(monkeypatch) -> None:
+    monkeypatch.setattr(oa_mod, "_fetch_json", lambda url: {"results": [WORK_CLOSED]})
+    adapter = oa_mod.OpenAlexAdapter()
+    hits = adapter.search("attention")
+
+    assert hits[0].oa_url is None
+    assert hits[0].oa_status == "closed"
+    assert hits[0].oa_source is None
 
 
 def test_cited_by_uses_cites_filter(monkeypatch) -> None:

@@ -66,6 +66,15 @@ class PaperHit:
     # needs more sources / snowball attention", never "drop it".
     below_floor: bool = field(default=False, compare=False)
 
+    # OA-fulltext-enrichment (tier 1, 0.3.0): optional, small, provenance-only
+    # OA pointers an adapter captured at search time but did not previously
+    # keep. Never the full-text body itself (that is large — 100 KB-1 MB per
+    # paper — and lives in the sources/enrich.py cache + the note, not on the
+    # hit; see sources/enrich.py FetchResult).
+    oa_url: str | None = field(default=None, compare=False)
+    oa_status: str | None = field(default=None, compare=False)
+    oa_source: str | None = field(default=None, compare=False)
+
 
 @runtime_checkable
 class SourceAdapter(Protocol):

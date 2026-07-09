@@ -35,6 +35,22 @@ def _authors_to_names(authors_raw: Any) -> list[str]:
     return out
 
 
+def _oa_pointer_from_item(item: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Extract (oa_url, oa_status) from an S2 ``openAccessPdf`` field.
+
+    OA-fulltext-enrichment: previously discarded (§1 of the design doc) —
+    ``openAccessPdf`` was never in the ``--fields`` projection at all.
+    S2's ``status`` values are uppercase (GOLD/GREEN/HYBRID/BRONZE/CLOSED);
+    normalize to the lowercase vocabulary ``oa_status`` uses elsewhere.
+    """
+    oap = item.get("openAccessPdf") or None
+    if not oap:
+        return None, None
+    url = (oap.get("url") or "").strip() or None
+    status = (oap.get("status") or "").strip().lower() or None
+    return url, status
+
+
 def _s2_item_to_hit(item: dict[str, Any]) -> PaperHit:
     ext = item.get("externalIds") or {}
     external_ids: dict[str, str] = {}
@@ -49,6 +65,8 @@ def _s2_item_to_hit(item: dict[str, Any]) -> PaperHit:
     if ext.get("PMID"):
         external_ids["pmid"] = str(ext["PMID"])
 
+    oa_url, oa_status = _oa_pointer_from_item(item)
+
     return PaperHit(
         title=item.get("title") or "",
         year=item.get("year"),
@@ -58,6 +76,9 @@ def _s2_item_to_hit(item: dict[str, Any]) -> PaperHit:
         citation_count=item.get("citationCount") or 0,
         source="semantic-scholar",
         raw=item,
+        oa_url=oa_url,
+        oa_status=oa_status,
+        oa_source="semantic-scholar" if oa_url else None,
     )
 
 
@@ -73,7 +94,7 @@ class SemanticScholarAdapter:
         query: str,
         *,
         limit: int = 20,
-        fields: str = "title,year,authors,externalIds,abstract,citationCount",
+        fields: str = "title,year,authors,externalIds,abstract,citationCount,openAccessPdf",
     ) -> list[PaperHit]:
         cmd = [
             "asta", "papers", "search", query,
@@ -91,7 +112,7 @@ class SemanticScholarAdapter:
         paper_id: str,
         *,
         limit: int = 20,
-        fields: str = "title,year,authors,externalIds,citationCount",
+        fields: str = "title,year,authors,externalIds,citationCount,openAccessPdf",
     ) -> list[PaperHit]:
         cmd = [
             "asta", "papers", "citations", paper_id,

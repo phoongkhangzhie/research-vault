@@ -25,6 +25,11 @@ S2_PAPER = {
     "abstract": "We propose a new architecture...",
 }
 
+S2_PAPER_WITH_OA = {
+    **S2_PAPER,
+    "openAccessPdf": {"url": "https://arxiv.org/pdf/1706.03762", "status": "GREEN"},
+}
+
 
 def test_search_calls_asta_papers_search(monkeypatch) -> None:
     captured = {}
@@ -92,6 +97,61 @@ def test_references_calls_asta_papers_get(monkeypatch) -> None:
     assert captured["cmd"][:3] == ["asta", "papers", "get"]
     assert len(hits) == 1
     assert hits[0].raw == S2_PAPER
+
+
+def test_search_requests_openaccesspdf_field(monkeypatch) -> None:
+    # OA-fulltext-enrichment: openAccessPdf must be in the --fields projection
+    # or the field is never even in hit.raw for downstream OA capture.
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"data": [S2_PAPER]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    adapter.search("attention", limit=10)
+
+    fields_idx = captured["cmd"].index("--fields") + 1
+    assert "openAccessPdf" in captured["cmd"][fields_idx]
+
+
+def test_search_captures_oa_pointer_from_openaccesspdf(monkeypatch) -> None:
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"data": [S2_PAPER_WITH_OA]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    hits = adapter.search("attention", limit=10)
+
+    assert hits[0].oa_url == "https://arxiv.org/pdf/1706.03762"
+    assert hits[0].oa_status == "green"
+    assert hits[0].oa_source == "semantic-scholar"
+
+
+def test_search_no_oa_pointer_when_openaccesspdf_absent(monkeypatch) -> None:
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"data": [S2_PAPER]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    hits = adapter.search("attention", limit=10)
+
+    assert hits[0].oa_url is None
+    assert hits[0].oa_status is None
+    assert hits[0].oa_source is None
 
 
 def test_search_exits_on_asta_failure(monkeypatch) -> None:

@@ -40,6 +40,26 @@ def _reconstruct_abstract(inverted_index: dict[str, list[int]] | None) -> str:
     return " ".join(positions[i] for i in sorted(positions))
 
 
+def _oa_pointer_from_work(work: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Extract (oa_url, oa_status) from an OpenAlex work's ``open_access``
+    block, falling back to ``primary_location.pdf_url`` when the OA block
+    has no url (a work can be OA-flagged without a resolved pdf_url).
+
+    OA-fulltext-enrichment: both fields already exist in the raw work JSON
+    (already in ``hit.raw``) — zero extra request, just stop discarding them.
+    """
+    oa = work.get("open_access") or {}
+    oa_status = (oa.get("oa_status") or None) if oa else None
+    oa_url = (oa.get("oa_url") or None) if oa else None
+    # Only fall back to primary_location.pdf_url when the work is actually
+    # flagged OA — a closed work's primary_location can still carry a
+    # publisher pdf_url that is NOT open access (paywalled).
+    if not oa_url and oa.get("is_oa"):
+        primary = work.get("primary_location") or {}
+        oa_url = primary.get("pdf_url") or None
+    return oa_url, oa_status
+
+
 def _work_to_hit(work: dict[str, Any]) -> PaperHit:
     external_ids: dict[str, str] = {}
     oa_id = (work.get("id") or "").rsplit("/", 1)[-1]
@@ -63,6 +83,8 @@ def _work_to_hit(work: dict[str, Any]) -> PaperHit:
         if name:
             authors.append(name)
 
+    oa_url, oa_status = _oa_pointer_from_work(work)
+
     return PaperHit(
         title=work.get("title") or work.get("display_name") or "",
         year=work.get("publication_year"),
@@ -72,6 +94,9 @@ def _work_to_hit(work: dict[str, Any]) -> PaperHit:
         citation_count=work.get("cited_by_count") or 0,
         source="openalex",
         raw=work,
+        oa_url=oa_url,
+        oa_status=oa_status,
+        oa_source="openalex" if oa_url else None,
     )
 
 

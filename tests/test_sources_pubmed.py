@@ -49,6 +49,47 @@ def test_search_esearch_then_esummary(monkeypatch) -> None:
     assert hit.source == "pubmed"
 
 
+def test_search_surfaces_pmcid(monkeypatch) -> None:
+    # OA-fulltext-enrichment: PMCID is the identifier the `pmc` provider
+    # needs (JATS full-text XML). esummary articleids can carry it.
+    esummary_with_pmc = {
+        "result": {
+            "uids": ["12345"],
+            "12345": {
+                "title": "A Biomedical Paper",
+                "pubdate": "2021 Jun",
+                "authors": [{"name": "Smith J"}],
+                "articleids": [
+                    {"idtype": "doi", "value": "10.1/xyz"},
+                    {"idtype": "pmc", "value": "PMC1234567"},
+                ],
+            },
+        }
+    }
+
+    def fake_fetch(url):
+        if "esearch" in url:
+            return ESEARCH_RESULT
+        return esummary_with_pmc
+
+    monkeypatch.setattr(pubmed_mod, "_fetch_json", fake_fetch)
+    adapter = pubmed_mod.PubMedAdapter()
+    hits = adapter.search("covid", limit=10)
+
+    assert hits[0].external_ids["pmcid"] == "PMC1234567"
+
+
+def test_search_no_pmcid_when_absent(monkeypatch) -> None:
+    monkeypatch.setattr(
+        pubmed_mod, "_fetch_json",
+        lambda url: ESEARCH_RESULT if "esearch" in url else ESUMMARY_RESULT,
+    )
+    adapter = pubmed_mod.PubMedAdapter()
+    hits = adapter.search("covid", limit=10)
+
+    assert "pmcid" not in hits[0].external_ids
+
+
 def test_search_no_results(monkeypatch) -> None:
     monkeypatch.setattr(
         pubmed_mod, "_fetch_json",
