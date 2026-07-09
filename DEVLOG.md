@@ -1,3 +1,72 @@
+## 2026-07-08 (OA-first full-text enrichment, tier 1 — completes Wave-0 reading)
+
+### Done
+- **Built the "input" half of the principled-reading operation** (Wave 0
+  this morning fixed the "instruction" half — the 5-move relate protocol —
+  and left the pipeline reading abstracts only; this closes that gap).
+  Design: `2026-07-08-oa-fulltext-enrichment.md` (Architect). Landed on top
+  of the MIT -> AGPL-3.0 relicense (prior commit) that the pymupdf core dep
+  requires.
+- **`PaperHit`** gains 3 optional, small, provenance-only OA-pointer fields
+  (`oa_url`/`oa_status`/`oa_source` — never the full body, which stays out
+  of PaperHit). Adapters stop discarding OA pointers they already receive:
+  `semantic_scholar.py` now requests `openAccessPdf` in its `--fields`
+  projection; `arxiv.py` derives the OA url trivially (every preprint is
+  OA); `openalex.py` reads `open_access.oa_url`/`primary_location.pdf_url`
+  (already in `hit.raw`); `pubmed.py` surfaces PMCID when present.
+- **`sources/enrich.py`** (new): the `FetchProvider` protocol (mirrors
+  HR's `WebProvider`, minus authentication — tier 2 is explicitly out of
+  scope, the socket accommodates it later with zero rework), the shared
+  junk/login-wall/bot-check screen (ported from HR, adapted), and 5
+  stdlib-first-ordered providers: `pmc` (EuropePMC JATS XML) -> `s2-oa` ->
+  `unpaywall` (needs `[fulltext] unpaywall_email`, a config value not a
+  credential) -> `openalex-oa` -> `arxiv-pdf` (pymupdf, last resort). A
+  file cache (`literature/.fulltext/<identity-sha>.{txt,json}`, gitignored,
+  identity-keyed via the existing `dedup.identity_key`) avoids re-fetching.
+  All-decline -> `None` -> the caller degrades to abstract, exactly today's
+  behavior — no regression.
+- **`rv research fulltext <project> <citekey> [identifiers...]`** (new,
+  `fulltext.py`): the read-time entry point the relate-<key> subagent calls.
+  Fetches + caches OA full text, and — when the literature note already
+  exists — stamps `read_basis`/`full_text_provider`/`oa_status`/
+  `full_text_url` into its frontmatter in place (regex replace-or-inject,
+  never a full reserialize).
+- **`per_paper_relate_tips`** (`review/style.py`, the coupled prose edit the
+  design doc flagged to avoid drift): the reading contract now reads full
+  text when an OA source was found, abstract otherwise — the tool says
+  which. The LEAN "never fetch or download" constraint is narrowed to
+  ARTIFACTS (repo/checkpoint/dataset); the paper's own body is now the
+  explicit exception.
+- **`gates/support_matcher.py`**: documented (+ a new regression test) that
+  the judge's contract is DELIBERATELY UNCHANGED — it still only reads
+  structured note fields (`## Result`/findings/metrics), never the raw
+  full-text body or the paper's own `## Abstract`. What changes is
+  upstream: `## Result` is now full-text-derived, so a real quotable
+  magnitude exists where the abstract-only pipeline had none — the exact
+  fix for the Moon/Kim/Zhang thinness (a claim the matcher could not
+  confirm because the note held nothing to quote).
+
+### Decisions
+- **`[fulltext] unpaywall_email` is config, not a credential** — Unpaywall's
+  API terms require a contact-info query param; absent, the provider
+  self-skips (surfaced in the run log, never silently) and the chain falls
+  through to the remaining providers.
+- **NG-9 derivative-of overlap stays on abstract-Jaccard** (design §4.3,
+  explicit non-blocker follow-up) — full-text Jaccard would be more
+  discriminating but couples dedup (sweep-time) to enrichment (read-time,
+  per-paper); not built this pass.
+- Tier 2 (authenticated paywall crawl) is explicitly OUT of scope — the
+  `FetchProvider` socket accommodates a future `AuthedCrawlProvider` with
+  zero rework to `PaperHit`, `enrich_hit`, the cache, or the note-provenance
+  schema.
+
+### Open / next
+- The downstream project e2e rerun (paused pending this work, per the
+  operator's timing decision) can now proceed on real full-text reading,
+  not re-shipped abstract thinness.
+- Held for review: fresh rv-architect for fit -> reviewer -> human hand-
+  merge -> batched 0.3.0 AGPL publish (not tagged/published by this PR).
+
 ## 2026-07-08 (relicense MIT -> AGPL-3.0, v0.3.0 — pymupdf-core for OA full-text)
 
 ### Done
