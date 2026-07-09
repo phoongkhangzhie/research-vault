@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/board.py — PR-B3: the re-lensed board orchestration —
 floor-on-ALL-4-axes, fanout-driven, bounded N=2/hardcap-3 unroll.
 

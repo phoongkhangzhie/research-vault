@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """gates/board_seam.py — PR-B1: the 4-lens cold-agent-judge emit/ingest
 fan-out contract for the autonomous review board.
 

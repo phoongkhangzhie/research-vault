@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/board_lenses.py — PR-B2: the 4 board-axis lens specs, axis
 rubrics, the uniform finding schema, and the per-axis finding caps +
 sub-budgets.

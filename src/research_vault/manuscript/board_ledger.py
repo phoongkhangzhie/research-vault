@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/board_ledger.py — PR-B4: the reconciliation ledger + the
 review -> recommend -> act -> reconcile handshake.
 
