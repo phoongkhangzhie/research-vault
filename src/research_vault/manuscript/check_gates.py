@@ -389,6 +389,28 @@ def check_coverage_gate(
 
 
 # ---------------------------------------------------------------------------
+# _cold_fanout_dirs_present — NG-4 detector (design §1.9)
+# ---------------------------------------------------------------------------
+
+def _cold_fanout_dirs_present(tree_root: Path) -> bool:
+    """True iff a cold-agent-judge fan-out task set was ever emitted for
+    this manuscript (``rv manuscript <project> judge-emit <slug>`` or
+    equivalent) — i.e. ``judge/support-matcher/_judge-tasks.json`` and/or
+    ``judge/cold-read/_judge-tasks.json`` exist under ``tree_root``.
+
+    Deliberately checks presence of the TASKS file, not the verdicts file
+    — the whole point of this detector is to distinguish "a fan-out was
+    attempted (verdicts may or may not have landed yet)" from "nothing was
+    ever configured on either judge path" (the not_run bucket below).
+    """
+    judge_dir = tree_root / "judge"
+    return (
+        (judge_dir / "support-matcher" / "_judge-tasks.json").exists()
+        or (judge_dir / "cold-read" / "_judge-tasks.json").exists()
+    )
+
+
+# ---------------------------------------------------------------------------
 # build_approve_payload — the single gate-assembly entry point
 # ---------------------------------------------------------------------------
 
@@ -468,14 +490,64 @@ def build_approve_payload(
         signals.extend(f"[cold-read] {e}" for e in coldread_result["errors"])
         if not coldread_result.get("canary_aborted"):
             signals.extend(f"[cold-read] {w}" for w in coldread_result["warnings"])
+    elif _cold_fanout_dirs_present(tree_root):
+        # NG-4 (design §1.9, PRIMARY path): no live judge_fn/env, but a
+        # hub-orchestrated cold-agent-judge fan-out was emitted for this
+        # manuscript (``judge/<gate>/_judge-tasks.json`` present) — ingest
+        # whatever verdicts landed instead of falling into the generic
+        # "not configured" not_run bucket below. A CanaryAbortError here
+        # (the fan-out judge failed its planted probe) or a halt (the
+        # fan-out never completed) is escalated to a hard BLOCK, not a
+        # soft not_run — unlike "nothing was ever attempted," a task set
+        # was emitted and something SHOULD have come back; treat that
+        # gap the same way the live path treats a canary abort: cannot
+        # self-certify -> cannot proceed (design §1.2's HALT-DECLARE
+        # policy for both "untrustworthy signal" and "floor gate NOT RUN").
+        from research_vault.gates.judge_seam import CanaryAbortError
+
+        try:
+            support_result = _fidelity_gates.ingest_support_verdicts_from_dir(
+                tree_root / "judge" / "support-matcher"
+            )
+        except CanaryAbortError as e:
+            support_result = {
+                "errors": [f"CANARY ABORT (HALT-DECLARE): {e}"],
+                "warnings": [], "canary_aborted": True, "halt": True,
+            }
+        blocking.extend(f"[support-matcher] {e}" for e in support_result["errors"])
+        if support_result.get("halt") and not support_result.get("canary_aborted"):
+            blocking.append(
+                "[support-matcher] HALT-DECLARE: judge-fanout did not "
+                "complete — see the error above; this manuscript cannot "
+                "self-certify its citation-fidelity floor."
+            )
+        if not support_result.get("canary_aborted"):
+            signals.extend(f"[support-matcher:PARTIAL] {w}" for w in support_result.get("warnings", []))
+
+        try:
+            coldread_result = _fidelity_gates.ingest_coldread_verdicts_from_dir(
+                tree_root / "judge" / "cold-read"
+            )
+        except CanaryAbortError as e:
+            coldread_result = {
+                "errors": [f"CANARY ABORT (HALT-DECLARE): {e}"],
+                "warnings": [], "canary_aborted": True, "halt": True,
+            }
+        # cold-read stays SIGNAL-class even on this path (design table) —
+        # its own halt/canary-abort messages are still loud, never a BLOCK.
+        signals.extend(f"[cold-read] {e}" for e in coldread_result["errors"])
+        if not coldread_result.get("canary_aborted"):
+            signals.extend(f"[cold-read] {w}" for w in coldread_result.get("warnings", []))
     else:
         not_run.append(
             "support-matcher + cold-read gates NOT RUN — RV_JUDGE_MODEL and/or "
-            "ANTHROPIC_API_KEY are not configured (and no judge_fn was supplied). "
-            "This is NOT a pass: the citation-fidelity FLOOR (support-matcher) and "
-            "the self-containment critic (cold-read) have NOT been checked on this "
-            "manuscript. Configure both env vars and re-run `rv dag approve` before "
-            "trusting this manuscript's citation fidelity."
+            "ANTHROPIC_API_KEY are not configured (and no judge_fn was supplied), "
+            "and no cold-agent-judge fan-out was emitted (no `judge/` directory "
+            "under this manuscript). This is NOT a pass: the citation-fidelity "
+            "FLOOR (support-matcher) and the self-containment critic (cold-read) "
+            "have NOT been checked on this manuscript. Configure both env vars, "
+            "or emit a judge-fanout task set (design §1.9), and re-run "
+            "`rv dag approve` before trusting this manuscript's citation fidelity."
         )
 
     # ── 5. The coverage gate (design §10 gate-4) — deterministic, ALWAYS

@@ -815,6 +815,122 @@ def _stamp_review_meta(note_path: Path, result: dict[str, Any]) -> None:
     note_path.write_text(text + stamp, encoding="utf-8")
 
 
+def _judge_dir(tree_root: Path, gate: str) -> Path:
+    """``manuscripts/<slug>/judge/<gate>/`` — one dir per gate (design §1.9,
+    NG-4's "one file per gate")."""
+    return tree_root / "judge" / gate
+
+
+def cmd_judge_emit(
+    project: str,
+    slug: str,
+    *,
+    config: Config | None = None,
+    gate: str = "both",
+) -> dict[str, Any]:
+    """Emit the NG-4 cold-agent-judge fan-out task set(s) (design §1.9,
+    Phase A) — ``rv manuscript <project> judge-emit <slug>``.
+
+    Writes ``manuscripts/<slug>/judge/<gate>/_judge-tasks.json`` +
+    ``_judge-canary-key.json`` for ``gate in {"support-matcher", "cold-read"}``
+    (or both, the default). rv calls NO LLM on this path — the hub is
+    responsible for fanning cold subagent-judges out over the written
+    tasks file and writing ``_judge-verdicts.json`` alongside it; run
+    ``rv manuscript <project> judge-ingest <slug>`` once that lands.
+
+    Returns ``{"support-matcher": {...}, "cold-read": {...}}`` (only the
+    requested gate(s)) — each value is the emit function's own
+    ``{"tasks_doc", "canary_key_doc"}`` return.
+
+    sr: NG-4
+    """
+    from research_vault.manuscript import fidelity_gates as _fg
+
+    cfg = config or load_config()
+    project_notes_dir = cfg.project_notes_dir(project)
+    tree_root = _manuscript_tree_root(project, slug, cfg)
+    note_path = tree_root / "_manuscript.md"
+
+    if not note_path.exists():
+        raise FileNotFoundError(
+            f"rv manuscript judge-emit: {note_path} not found. "
+            f"Run `rv manuscript {project} new {slug} --type <type>` first."
+        )
+
+    out: dict[str, Any] = {}
+    if gate in ("support-matcher", "both"):
+        out["support-matcher"] = _fg.emit_support_tasks_to_dir(
+            _judge_dir(tree_root, "support-matcher"),
+            tree_root,
+            notes_root=project_notes_dir,
+            manuscript_slug=slug,
+        )
+    if gate in ("cold-read", "both"):
+        out["cold-read"] = _fg.emit_coldread_tasks_to_dir(
+            _judge_dir(tree_root, "cold-read"),
+            tree_root,
+            manuscript_slug=slug,
+        )
+    return out
+
+
+def cmd_judge_ingest(
+    project: str,
+    slug: str,
+    *,
+    config: Config | None = None,
+    gate: str = "both",
+) -> dict[str, Any]:
+    """Ingest ``_judge-verdicts.json`` for the NG-4 fan-out (design §1.9,
+    Phase C) — ``rv manuscript <project> judge-ingest <slug>``.
+
+    Reads whatever the hub wrote to
+    ``manuscripts/<slug>/judge/<gate>/_judge-verdicts.json`` and assembles
+    the ingest result. Does NOT raise on a canary abort — that exception
+    is caught here and folded into the return dict (``canary_aborted``,
+    ``halt``) so the CLI wrapper can print it loudly rather than crash;
+    ``rv dag approve`` (via ``build_approve_payload``) is the actual gate
+    that BLOCKs on this — this verb is a diagnostic/dry-run surface.
+
+    Returns ``{"support-matcher": {...}, "cold-read": {...}}``.
+
+    sr: NG-4
+    """
+    from research_vault.manuscript import fidelity_gates as _fg
+    from research_vault.gates.judge_seam import CanaryAbortError
+
+    cfg = config or load_config()
+    tree_root = _manuscript_tree_root(project, slug, cfg)
+
+    out: dict[str, Any] = {}
+    if gate in ("support-matcher", "both"):
+        try:
+            out["support-matcher"] = _fg.ingest_support_verdicts_from_dir(
+                _judge_dir(tree_root, "support-matcher")
+            )
+        except CanaryAbortError as e:
+            out["support-matcher"] = {
+                "errors": [str(e)], "warnings": [], "canary_aborted": True,
+                "halt": True, "halt_reason": str(e), "missing_ids": [],
+                "unrecognized_ids": [], "k_block": 0, "j_warn": 0,
+                "honest_report": "CANARY ABORTED",
+            }
+    if gate in ("cold-read", "both"):
+        try:
+            out["cold-read"] = _fg.ingest_coldread_verdicts_from_dir(
+                _judge_dir(tree_root, "cold-read")
+            )
+        except CanaryAbortError as e:
+            out["cold-read"] = {
+                "errors": [str(e)], "warnings": [], "canary_aborted": True,
+                "halt": True, "halt_reason": str(e), "missing_ids": [],
+                "unrecognized_ids": [], "block_count": 0, "warn_count": 0,
+                "overall": "DANGLING", "honest_report": "CANARY ABORTED",
+                "flags": [], "flag_a_hits": [], "meta": {},
+            }
+    return out
+
+
 def cmd_list(
     project: str,
     *,

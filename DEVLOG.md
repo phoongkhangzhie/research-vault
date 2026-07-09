@@ -1,6 +1,47 @@
-## 2026-07-08 (release/0.2.7: Wave B — Presentation + single-pass + exemplar-pointers)
+## 2026-07-08 (release/0.2.8: NG-4 — cold-agent-judge fan-out for the fidelity gates)
 
 ### Done
+- **NG-4 (design §1.9) — the fidelity judge as a cold agent-node fan-out,
+  PRIMARY judge-orchestration path.** The manuscript fidelity gates
+  (support-matcher, cold-read) can now run WITHOUT a live
+  `RV_JUDGE_MODEL`/`ANTHROPIC_API_KEY` at all: rv EMITS
+  `_judge-tasks.json` + a private `_judge-canary-key.json` (batched
+  claim/citekey/source pairs for support-matcher; the whole-draft
+  self-containment task for cold-read — both with 2-3 bidirectional
+  canary probes interleaved with NO marker), the hub fans out fresh cold
+  subagent-judges over the batches (harness-orchestrated, memoryless —
+  no draft-thesis anchoring possible, no stale-API-key class of failure),
+  and rv INGESTS `_judge-verdicts.json` by id.
+  - New shared primitives: `gates/judge_seam.py` (schema constants,
+    deterministic id assignment + unmarked canary interleave, fail-closed
+    canary check — a MISSING canary counts as failed, `CanaryAbortError`
+    — fail-closed vocab-constrained verdict filling, and the
+    §1.8 floor-gate-NOT-RUN detector).
+  - New `manuscript/fidelity_gates.py` functions: `emit_support_tasks` /
+    `ingest_support_verdicts` and `emit_coldread_tasks` /
+    `ingest_coldread_verdicts` (+ `*_to_dir`/`*_from_dir` file-based
+    convenience wrappers) — both refactored to share extraction/text-
+    resolution helpers (`_collect_support_items`, `_resolve_coldread_text`)
+    with the existing live-judge inline path, so the two judge paths
+    never see a different draft/pair set.
+  - `check_gates.build_approve_payload` gains a THIRD branch (cold-fanout,
+    keyed on `judge/<gate>/_judge-tasks.json` presence) between the live
+    inline-judge path and the existing "not configured" `not_run` bucket
+    — a fan-out that was emitted but never completed, or that fails a
+    planted canary, escalates to a hard BLOCK (HALT-DECLARE), not the
+    softer not_run a "nothing configured" manuscript gets. Existing
+    not_run behavior is UNCHANGED when no `judge/` dir exists at all
+    (regression-tested).
+  - Deliberate divergence flagged for architect review: the design
+    spec's NG-4 JSON example literal shows `"verdict": "SUPPORTED"`, but
+    the existing `gates.support_matcher._extract_support_verdict` (the
+    live code, doctrine-of-record) uses `SUPPORTS` — followed the code
+    (do not widen the fixed vocab), same "operator override / doc typo,
+    code is SSOT" precedent as D-MS-2.
+  - The live API-key judge path is UNTOUCHED (kept as the demoted
+    optional convenience path per design §1.9) — `judge_fn` stays the
+    single injection point both paths ultimately feed into
+    `build_approve_payload`.
 - **RD-5 — reader-hygiene leak-gate.** `check_reader_hygiene` (deterministic,
   fail-closed BLOCK) added to `build_approve_payload` — internal pipeline
   vocabulary (`CPk`/`Qk` handles, `sha256:` hashes, `_artifact.md` filenames,

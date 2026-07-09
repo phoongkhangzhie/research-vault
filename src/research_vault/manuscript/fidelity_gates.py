@@ -84,6 +84,46 @@ def _strip_comments(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# _collect_support_items — shared (sentence, citekey, section) extraction
+# ---------------------------------------------------------------------------
+
+def _collect_support_items(tex_files: "list[Path]") -> list[tuple[str, str, str]]:
+    """Extract every (sentence, citekey, section) triple carrying a citation.
+
+    Shared by BOTH judge paths (charter §6: single source, not two
+    independently-drifting copies): the live API-judge inline loop
+    (``check_support_tally``) and the cold-fanout emit path
+    (``emit_support_tasks``, NG-4) call this identically so the two paths
+    see the EXACT same set of (claim, citekey) pairs for a given draft.
+    """
+    all_items: list[tuple[str, str, str]] = []
+    for tex in tex_files:
+        if not tex.exists():
+            continue
+        try:
+            text = tex.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        text = _strip_comments(text)
+        section_name = tex.stem
+        sentences = re.split(r"(?<=[.!?])\s+|\n{2,}", text)
+        for sent in sentences:
+            sent = sent.strip()
+            if not sent:
+                continue
+            for cm in _CITE_RE.finditer(sent):
+                for k in cm.group(1).split(","):
+                    k = k.strip()
+                    if k:
+                        all_items.append((sent, k, section_name))
+            for cm in _WIKILINK_CITE_RE.finditer(sent):
+                k = cm.group(1).strip()
+                if k:
+                    all_items.append((sent, k, section_name))
+    return all_items
+
+
+# ---------------------------------------------------------------------------
 # check_support_tally — batch support-match over a manuscript tree
 # ---------------------------------------------------------------------------
 
@@ -185,30 +225,7 @@ def check_support_tally(
             }
 
     # ── Collect every (sentence, citekey, section) triple ───────────────────
-    all_items: list[tuple[str, str, str]] = []
-    for tex in tex_files:
-        if not tex.exists():
-            continue
-        try:
-            text = tex.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        text = _strip_comments(text)
-        section_name = tex.stem
-        sentences = re.split(r"(?<=[.!?])\s+|\n{2,}", text)
-        for sent in sentences:
-            sent = sent.strip()
-            if not sent:
-                continue
-            for cm in _CITE_RE.finditer(sent):
-                for k in cm.group(1).split(","):
-                    k = k.strip()
-                    if k:
-                        all_items.append((sent, k, section_name))
-            for cm in _WIKILINK_CITE_RE.finditer(sent):
-                k = cm.group(1).strip()
-                if k:
-                    all_items.append((sent, k, section_name))
+    all_items = _collect_support_items(tex_files)
 
     verdicts: list[Any] = []
     errors: list[str] = []
@@ -280,6 +297,463 @@ def check_support_tally(
 
 
 # ---------------------------------------------------------------------------
+# NG-4 — support-matcher cold-agent-judge fan-out (design §1.9, PRIMARY path)
+#
+# emit_support_tasks / ingest_support_verdicts replace the inline
+# ``judge_fn(prompt)`` call above with the emit-tasks -> hub-fanout ->
+# ingest-verdicts contract: rv never calls an LLM itself on this path — it
+# writes ``_judge-tasks.json`` (the claim/citekey/source pairs + interleaved
+# unmarked canaries), the hub fans out fresh cold subagent-judges over it,
+# and rv ingests ``_judge-verdicts.json`` by id. Same fixed 4-verdict vocab,
+# same rejects-only semantics, same fail-closed defaulting as the inline
+# path above — see ``gates/judge_seam.py`` for the shared primitives.
+# ---------------------------------------------------------------------------
+
+_SUPPORT_VERDICT_VOCAB: frozenset[str] = frozenset(
+    {"SUPPORTS", "PARTIAL", "ABSENT", "CONTRADICTS"}
+)
+# Fail-closed default for support-matcher: "can't quote -> can't confirm"
+# (mirrors match_support's own default; see support_matcher.py's ABSENT
+# doc). Never a certifying value.
+_SUPPORT_FAIL_CLOSED_DEFAULT = "ABSENT"
+
+# NOTE on the design spec's JSON example vs. this vocab: design §1.9's NG-4
+# contract JSON literal shows ``"verdict": "SUPPORTED"`` — but the brief
+# explicitly says the vocab must MATCH THE EXISTING EXTRACTOR, and
+# ``gates.support_matcher._extract_support_verdict`` (the live code, the
+# doctrine-of-record) uses ``SUPPORTS``, not ``SUPPORTED``. Followed the
+# code (do NOT widen/rename the fixed vocab; SUPPORTED would silently fail
+# to match ``_SUPPORT_VERDICT_VOCAB`` and get fail-closed-defaulted to
+# ABSENT on every real task) — same "operator override / doc typo, code is
+# the SSOT" precedent as D-MS-2 (equations.py). Flagged for the architect
+# review — see the PR description.
+
+
+def _format_note_source_excerpt(fields: dict[str, str]) -> str:
+    """Render a literature note's structured fields as the ``source``
+    excerpt a cold judge receives — same field set + ordering as
+    ``support_matcher._build_judge_prompt``'s ``fields_block`` (reuse the
+    same per-field cap so a huge note doesn't blow the task file's size),
+    but standalone here since the fanout path never calls
+    ``_build_judge_prompt`` (there is no live judge to prompt on rv's side).
+    """
+    _PER_FIELD_CAP = 1200
+    lines: list[str] = []
+    for k, v in sorted(fields.items()):
+        if not v:
+            continue
+        val = v[:_PER_FIELD_CAP]
+        if len(v) > _PER_FIELD_CAP:
+            val += f" […truncated {len(v) - _PER_FIELD_CAP} chars…]"
+        lines.append(f"{k}: {val}")
+    return "\n".join(lines) if lines else "(no structured fields available)"
+
+
+def _support_canary_bank() -> list[tuple[dict[str, str], str]]:
+    """The interleaved support-matcher canary probes — bidirectional
+    (a rubber-stamping AND a blind judge are both catchable), mirroring
+    the coldread module's existing bidirectional-canary discipline.
+
+    Returns (task_fields_without_id, expected_verdict) pairs. ``kind`` and
+    the claim/citekey/source shape are IDENTICAL to a real task — no field
+    marks these as canaries (design §1.9: "canaries carry NO marker").
+    """
+    return [
+        (
+            {
+                "kind": "support",
+                "claim": (
+                    "The model achieves 85.3% accuracy, significantly above "
+                    "the 80.1% baseline."
+                ),
+                "citekey": "canary-known-supported",
+                "source": (
+                    "result: The accuracy on the benchmark is 85.3%, a "
+                    "statistically significant improvement over the 80.1% "
+                    "baseline (p < 0.01)."
+                ),
+            },
+            "SUPPORTS",
+        ),
+        (
+            {
+                "kind": "support",
+                "claim": (
+                    "The model was trained using reinforcement learning "
+                    "from human feedback."
+                ),
+                "citekey": "canary-known-absent",
+                "source": (
+                    "result: The accuracy on the benchmark is 85.3%, a "
+                    "statistically significant improvement over the 80.1% "
+                    "baseline (p < 0.01)."
+                ),
+            },
+            "ABSENT",
+        ),
+        (
+            {
+                "kind": "support",
+                "claim": "The model's accuracy is below the 80.1% baseline.",
+                "citekey": "canary-known-contradicts",
+                "source": (
+                    "result: The accuracy on the benchmark is 85.3%, a "
+                    "statistically significant improvement over the 80.1% "
+                    "baseline (p < 0.01)."
+                ),
+            },
+            "CONTRADICTS",
+        ),
+    ]
+
+
+def emit_support_tasks(
+    tree_root: Path,
+    *,
+    notes_root: Path | None = None,
+    manuscript_slug: str = "",
+    batch_size: int = 8,
+    rubric_override: str | None = None,
+    config: Any | None = None,
+) -> dict[str, Any]:
+    r"""Emit ``_judge-tasks.json`` + ``_judge-canary-key.json`` for the
+    support-matcher cold-agent-judge fan-out (design §1.9, Phase A).
+
+    Walks every draft file exactly as ``check_support_tally`` does (shares
+    ``_collect_support_items`` — same items, same order, never drifts from
+    the live-judge path), resolves each cited note's structured fields into
+    a ``source`` excerpt, and interleaves 3 bidirectional canary probes at
+    deterministic (not marker-revealing) positions among the real tasks.
+    Batches task ids into groups of ``batch_size`` so the hub fans out a
+    HANDFUL of cold judges, not one per claim.
+
+    rv does NOT call an LLM on this path — no judge_fn, no env var. This
+    is the whole point of NG-4: the fan-out is harness-side.
+
+    Args:
+        tree_root:        the manuscript folder (``manuscripts/<slug>/``).
+        notes_root:        the project's OKF notes root; inferred from
+                           ``tree_root`` when None (mirrors
+                           ``check_support_tally``).
+        manuscript_slug:  stamped into the tasks doc's ``manuscript`` field.
+        batch_size:       max task ids per batch (default 8 — "a handful",
+                           per the dispatch brief, not one spawn per claim).
+        rubric_override:  optional rubric override, stamped into the tasks
+                           doc's ``rubric`` field (additive beyond the
+                           design's literal JSON example — the hub needs
+                           SOME way to see an adopter-overridden rubric
+                           without hardcoding ``DEFAULT_SUPPORT_RUBRIC`` on
+                           its own side).
+        config:           optional Config for the rubric config-seam.
+
+    Returns:
+        ``{"tasks_doc": {...}, "canary_key_doc": {...}}`` — write both with
+        ``gates.judge_seam.write_json`` (the canary_key_doc goes to a
+        location the hub/judges never read, per design §1.9).
+
+    A draft with zero \\cite pairs is a correct, honest no-op: both docs
+    carry an empty ``tasks``/``canaries`` collection, never fabricated.
+
+    sr: NG-4
+    """
+    from research_vault.manuscript.draft_files import resolve_draft_files
+    from research_vault.gates import judge_seam
+    from research_vault.gates.support_matcher import (
+        _read_note_structured_fields,
+        get_support_rubric,
+    )
+
+    tex_files = resolve_draft_files(tree_root)
+    _notes_root = notes_root if notes_root is not None else tree_root.parent.parent
+
+    all_items = _collect_support_items(tex_files) if tex_files else []
+
+    real_tasks: list[dict[str, Any]] = []
+    for sentence, citekey, _section in all_items:
+        note_path = _notes_root / "literature" / f"{citekey}.md"
+        if not note_path.exists():
+            note_path = _notes_root / f"{citekey}.md"
+        fields = _read_note_structured_fields(note_path)
+        source = _format_note_source_excerpt(fields)
+        real_tasks.append({
+            "kind": "support",
+            "claim": sentence,
+            "citekey": citekey,
+            "source": source,
+        })
+
+    if not real_tasks:
+        tasks_doc = {
+            "schema": judge_seam.TASKS_SCHEMA,
+            "gate": "support-matcher",
+            "manuscript": manuscript_slug,
+            "judge_kind": "cold",
+            "created": judge_seam.now_iso(),
+            "rubric": get_support_rubric(override=rubric_override, config=config),
+            "batches": [],
+            "tasks": [],
+        }
+        canary_key_doc = {"schema": judge_seam.CANARY_KEY_SCHEMA, "canaries": {}}
+        return {"tasks_doc": tasks_doc, "canary_key_doc": canary_key_doc}
+
+    combined, canary_key = judge_seam.interleave_with_canaries(
+        real_tasks, _support_canary_bank(),
+    )
+
+    task_ids = [t["id"] for t in combined]
+    batches = [
+        {"batch_id": f"b{i // batch_size + 1:02d}", "task_ids": task_ids[i:i + batch_size]}
+        for i in range(0, len(task_ids), batch_size)
+    ]
+
+    tasks_doc = {
+        "schema": judge_seam.TASKS_SCHEMA,
+        "gate": "support-matcher",
+        "manuscript": manuscript_slug,
+        "judge_kind": "cold",
+        "created": judge_seam.now_iso(),
+        "rubric": get_support_rubric(override=rubric_override, config=config),
+        "batches": batches,
+        "tasks": combined,
+    }
+    canary_key_doc = {"schema": judge_seam.CANARY_KEY_SCHEMA, "canaries": canary_key}
+
+    return {"tasks_doc": tasks_doc, "canary_key_doc": canary_key_doc}
+
+
+def ingest_support_verdicts(
+    tasks_doc: dict[str, Any],
+    canary_key_doc: dict[str, Any] | None,
+    verdicts_doc: dict[str, Any] | None,
+) -> dict[str, Any]:
+    r"""Ingest ``_judge-verdicts.json`` for the support-matcher fan-out
+    (design §1.9, Phase C) — the id-join, canary check, and fail-closed
+    assembly. Returns the SAME shape ``check_support_tally`` returns (so
+    ``check_gates.build_approve_payload`` consumes both paths identically),
+    plus ``halt``/``halt_reason``/``missing_ids``/``unrecognized_ids``.
+
+    Guards (design §1.2/§1.8/§1.9 — undiminished vs. the live judge path):
+      - id<->id join (never prompt-text matching).
+      - Canary-verified FIRST: ``gates.judge_seam.check_canaries`` raises
+        ``CanaryAbortError`` on any missing/mismatched canary — callers
+        MUST let this propagate (or catch it and HALT-DECLARE; do not
+        swallow it and proceed).
+      - Fail-closed: a verdicts file entirely missing, or present but
+        carrying ZERO verdicts while real tasks exist, is the §1.8
+        "floor gate NOT RUN" case -> ``halt=True`` (never ``ok:True``).
+        A PARTIAL file (some ids present, some missing) is NOT a halt —
+        each missing real-task id defaults to ABSENT (BLOCK, the
+        fail-closed value) and is surfaced in ``missing_ids`` so the
+        caller can re-fan just those ids (resumable).
+      - Fixed vocab: an unrecognized verdict string also fail-closed
+        defaults to ABSENT, surfaced in ``unrecognized_ids`` — never
+        silently coerced or ignored.
+
+    A zero-task ``tasks_doc`` (the draft had no \\cite pairs) is an honest
+    no-op — no halt, zero everything.
+
+    sr: NG-4
+    """
+    from research_vault.gates import judge_seam
+
+    real_task_ids = [
+        t["id"] for t in tasks_doc.get("tasks", [])
+    ]
+    canaries = (canary_key_doc or {}).get("canaries", {})
+    real_task_ids = [tid for tid in real_task_ids if tid not in canaries]
+    task_by_id = {t["id"]: t for t in tasks_doc.get("tasks", [])}
+
+    if not task_by_id:
+        return {
+            "verdicts": [], "n_sentences": 0, "m_citations": 0,
+            "k_block": 0, "j_warn": 0,
+            "honest_report": "0 sentences, 0 citations, 0 BLOCK, 0 WARN",
+            "errors": [], "warnings": [],
+            "canary_aborted": False,
+            "halt": False, "halt_reason": "",
+            "missing_ids": [], "unrecognized_ids": [],
+        }
+
+    if judge_seam.fanout_incomplete(tasks_doc, verdicts_doc):
+        return {
+            "verdicts": [], "n_sentences": 0, "m_citations": 0,
+            "k_block": 0, "j_warn": 0,
+            "honest_report": "0 sentences, 0 citations, 0 BLOCK, 0 WARN (FAN-OUT NOT RUN)",
+            "errors": [
+                "support-matcher judge-fanout HALT: _judge-verdicts.json is "
+                "missing or empty while real tasks were emitted — the "
+                "citation-fidelity FLOOR was never checked (§1.8 floor-gate "
+                "NOT RUN). This is NOT a pass."
+            ],
+            "warnings": [],
+            "canary_aborted": False,
+            "halt": True,
+            "halt_reason": (
+                "verdicts file absent/empty for a non-empty support-matcher "
+                "task set — fan-out did not complete."
+            ),
+            "missing_ids": [t["id"] for t in tasks_doc["tasks"]],
+            "unrecognized_ids": [],
+        }
+
+    verdict_by_id: dict[str, str] = {}
+    for v in (verdicts_doc or {}).get("verdicts", []):
+        vid = v.get("id")
+        if vid:
+            verdict_by_id[vid] = str(v.get("verdict", ""))
+
+    # Canary check FIRST — an untrustworthy judge invalidates everything
+    # else; let CanaryAbortError propagate to the caller.
+    judge_seam.check_canaries(canaries, verdict_by_id)
+
+    filled, missing_ids, unrecognized_ids = judge_seam.fail_closed_fill(
+        real_task_ids, verdict_by_id, _SUPPORT_VERDICT_VOCAB, _SUPPORT_FAIL_CLOSED_DEFAULT,
+    )
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    verdict_records: list[dict[str, Any]] = []
+    k_block = 0
+    j_warn = 0
+    n_sentences = len({task_by_id[tid]["claim"] for tid in real_task_ids})
+
+    for tid in real_task_ids:
+        task = task_by_id[tid]
+        verdict = filled[tid]
+        verdict_records.append({"id": tid, "verdict": verdict, "citekey": task["citekey"]})
+        if verdict in ("ABSENT", "CONTRADICTS"):
+            k_block += 1
+            reason = (
+                "no verdict returned by the fan-out (defaulted fail-closed)"
+                if tid in missing_ids
+                else (
+                    f"unrecognized verdict string (defaulted fail-closed)"
+                    if tid in unrecognized_ids
+                    else "cold-judge verdict"
+                )
+            )
+            errors.append(
+                f"support-matcher [{verdict}] BLOCK: \\cite{{{task['citekey']}}} — "
+                f"claim: '{task['claim'][:120]}' — id: {tid} — {reason}"
+            )
+        elif verdict == "PARTIAL":
+            j_warn += 1
+            warnings.append(
+                f"support-matcher [PARTIAL] WARN: \\cite{{{task['citekey']}}} — "
+                f"claim: '{task['claim'][:120]}' — id: {tid}"
+            )
+
+    return {
+        "verdicts": verdict_records,
+        "n_sentences": n_sentences,
+        "m_citations": len(real_task_ids),
+        "k_block": k_block,
+        "j_warn": j_warn,
+        "honest_report": (
+            f"{n_sentences} sentences, {len(real_task_ids)} citations, "
+            f"{k_block} BLOCK, {j_warn} WARN"
+        ),
+        "errors": errors,
+        "warnings": warnings,
+        "canary_aborted": False,
+        "halt": False,
+        "halt_reason": "",
+        "missing_ids": missing_ids,
+        "unrecognized_ids": unrecognized_ids,
+    }
+
+
+def emit_support_tasks_to_dir(judge_dir: Path, tree_root: Path, **kwargs: Any) -> dict[str, Any]:
+    """Convenience wrapper: emit + write both artifacts under ``judge_dir``.
+
+    ``judge_dir`` is typically ``tree_root / "judge" / "support-matcher"``
+    (one directory per gate, per design §1.9's "one file per gate").
+    """
+    from research_vault.gates import judge_seam
+
+    result = emit_support_tasks(tree_root, **kwargs)
+    judge_seam.write_json(judge_dir / "_judge-tasks.json", result["tasks_doc"])
+    judge_seam.write_json(judge_dir / "_judge-canary-key.json", result["canary_key_doc"])
+    return result
+
+
+def ingest_support_verdicts_from_dir(judge_dir: Path) -> dict[str, Any]:
+    """Convenience wrapper: read all three artifacts from ``judge_dir`` and
+    ingest. Returns the ``ingest_support_verdicts`` result, OR (if
+    ``_judge-tasks.json`` itself is absent — nothing was ever emitted) an
+    honest zero-task no-op, mirroring the empty-tasks_doc case.
+    """
+    from research_vault.gates import judge_seam
+
+    tasks_doc = judge_seam.read_json_or_none(judge_dir / "_judge-tasks.json")
+    if tasks_doc is None:
+        tasks_doc = {"tasks": []}
+    canary_key_doc = judge_seam.read_json_or_none(judge_dir / "_judge-canary-key.json")
+    verdicts_doc = judge_seam.read_json_or_none(judge_dir / "_judge-verdicts.json")
+    return ingest_support_verdicts(tasks_doc, canary_key_doc, verdicts_doc)
+
+
+# ---------------------------------------------------------------------------
+# _resolve_coldread_text — shared pdftotext / draft-fallback resolution
+# ---------------------------------------------------------------------------
+
+def _resolve_coldread_text(tree_root: Path, pdf_text: str | None) -> str:
+    """Resolve the manuscript's cold-read input text.
+
+    Shared by BOTH judge paths (charter §6): the live API-judge path
+    (``check_cold_read_tally``) and the cold-fanout emit path
+    (``emit_coldread_tasks``, NG-4) must see the EXACT same text — any
+    drift between them (e.g. one resolving pdftotext output, the other a
+    stale draft-file fallback) would make the two paths judge different
+    papers.
+
+    Priority: explicit ``pdf_text`` arg > pdftotext on any PDF in
+    ``tree_root`` > main.tex/report.md + sections/*.tex fallback (bounded,
+    same truncation the removed inline code used).
+
+    Returns "" (never None) when nothing could be resolved — callers treat
+    an empty string as "nothing to check yet", never an error.
+    """
+    import shutil
+    import subprocess
+
+    resolved_pdf_text = pdf_text
+    if resolved_pdf_text is None:
+        pdf_files = list(tree_root.glob("*.pdf"))
+        if pdf_files and shutil.which("pdftotext"):
+            try:
+                r = subprocess.run(
+                    ["pdftotext", str(pdf_files[0]), "-"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if r.returncode == 0 and r.stdout.strip():
+                    resolved_pdf_text = r.stdout
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+
+        if resolved_pdf_text is None:
+            from research_vault.manuscript.draft_files import resolve_draft_files
+
+            ms_text_parts: list[str] = []
+            draft_files = resolve_draft_files(tree_root)
+            root_files = [f for f in draft_files if f.name in ("report.md", "main.tex")]
+            section_files = [f for f in draft_files if f not in root_files]
+            for f in root_files:
+                try:
+                    ms_text_parts.append(f.read_text(encoding="utf-8", errors="replace")[:4000])
+                except OSError:
+                    pass
+            for f in section_files[:6]:
+                try:
+                    ms_text_parts.append(f.read_text(encoding="utf-8", errors="replace")[:1500])
+                except OSError:
+                    pass
+            resolved_pdf_text = "\n\n".join(ms_text_parts) if ms_text_parts else ""
+
+    return resolved_pdf_text
+
+
+# ---------------------------------------------------------------------------
 # check_cold_read_tally — the self-containment gate over a manuscript tree
 # ---------------------------------------------------------------------------
 
@@ -320,41 +794,7 @@ def check_cold_read_tally(
 
     BLOCK on [DANGLING] (LLM) or any Flag-A hit; WARN on [NEEDS-CONTEXT].
     """
-    import shutil
-    import subprocess
-
-    resolved_pdf_text = pdf_text
-    if resolved_pdf_text is None:
-        pdf_files = list(tree_root.glob("*.pdf"))
-        if pdf_files and shutil.which("pdftotext"):
-            try:
-                r = subprocess.run(
-                    ["pdftotext", str(pdf_files[0]), "-"],
-                    capture_output=True, text=True, timeout=60,
-                )
-                if r.returncode == 0 and r.stdout.strip():
-                    resolved_pdf_text = r.stdout
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-
-        if resolved_pdf_text is None:
-            from research_vault.manuscript.draft_files import resolve_draft_files
-
-            ms_text_parts: list[str] = []
-            draft_files = resolve_draft_files(tree_root)
-            root_files = [f for f in draft_files if f.name in ("report.md", "main.tex")]
-            section_files = [f for f in draft_files if f not in root_files]
-            for f in root_files:
-                try:
-                    ms_text_parts.append(f.read_text(encoding="utf-8", errors="replace")[:4000])
-                except OSError:
-                    pass
-            for f in section_files[:6]:
-                try:
-                    ms_text_parts.append(f.read_text(encoding="utf-8", errors="replace")[:1500])
-                except OSError:
-                    pass
-            resolved_pdf_text = "\n\n".join(ms_text_parts) if ms_text_parts else ""
+    resolved_pdf_text = _resolve_coldread_text(tree_root, pdf_text)
 
     if not resolved_pdf_text.strip():
         return {
@@ -432,3 +872,286 @@ def check_cold_read_tally(
         "canary_aborted": False,
         "meta": result.to_meta_dict(),
     }
+
+
+# ---------------------------------------------------------------------------
+# NG-4 — cold-read cold-agent-judge fan-out (design §1.9, PRIMARY path)
+#
+# emit_coldread_tasks / ingest_coldread_verdicts — same emit-tasks ->
+# hub-fanout -> ingest-verdicts contract as the support-matcher pair above,
+# built on the SAME shared primitives (gates/judge_seam.py). Flag-A stays a
+# purely local, deterministic scan (no judge needed) — it runs at INGEST
+# time against the pdf_text recovered from the emitted task's own ``unit``
+# field, so the fanout path gets belt-and-suspenders coverage identical to
+# the live-judge path for free.
+# ---------------------------------------------------------------------------
+
+_COLDREAD_VERDICT_VOCAB: frozenset[str] = frozenset(
+    {"STANDS-ALONE", "DANGLING", "NEEDS-CONTEXT"}
+)
+# Fail-closed default for cold-read: "unresolved reference until proven
+# otherwise" — DANGLING is the BLOCK value (mirrors run_cold_read's own
+# UNPARSEABLE-response fail-closed discipline; never STANDS-ALONE-by-default).
+_COLDREAD_FAIL_CLOSED_DEFAULT = "DANGLING"
+
+# The self-containment instructions a cold subagent-judge needs — the
+# researcher's rubric with the {PDF_TEXT} slot pointed at the task's own
+# ``unit`` field instead of inlined twice (the tasks file would otherwise
+# duplicate the whole paper text once per rubric copy).
+_COLDREAD_QUESTION_PLACEHOLDER = "(see this task's own `unit` field for the text to judge)"
+
+
+def _coldread_canary_bank() -> list[tuple[dict[str, str], str]]:
+    """The bidirectional cold-read canary probes — reuses the EXACT probe
+    texts ``gates.coldread`` already ships (``_CANARY_A_TEXT``/``_CANARY_B_TEXT``,
+    calibrated + vetted there) rather than inventing new ones (charter §6).
+    """
+    from research_vault.gates.coldread import _CANARY_A_TEXT, _CANARY_B_TEXT
+
+    return [
+        ({"kind": "cold-read", "unit": _CANARY_A_TEXT}, "STANDS-ALONE"),
+        ({"kind": "cold-read", "unit": _CANARY_B_TEXT}, "DANGLING"),
+    ]
+
+
+def emit_coldread_tasks(
+    tree_root: Path,
+    *,
+    manuscript_slug: str = "",
+    pdf_text: str | None = None,
+    rubric_override: str | None = None,
+    config: Any | None = None,
+) -> dict[str, Any]:
+    """Emit ``_judge-tasks.json`` + ``_judge-canary-key.json`` for the
+    cold-read cold-agent-judge fan-out (design §1.9, Phase A).
+
+    Resolves the manuscript text via the SAME ``_resolve_coldread_text``
+    helper ``check_cold_read_tally`` uses (never drifts from the live-judge
+    path), emits ONE real cold-read task (the whole draft is judged in one
+    call, mirroring ``run_cold_read``'s own single-call design) plus the two
+    bidirectional canary probes, interleaved with no marker.
+
+    Args:
+        tree_root:        the manuscript folder.
+        manuscript_slug:  stamped into the tasks doc's ``manuscript`` field.
+        pdf_text:         optional pre-extracted text (test seam; mirrors
+                          ``check_cold_read_tally``'s own parameter).
+        rubric_override:  optional rubric override, stamped into the tasks
+                          doc's ``rubric`` field (see the support-matcher
+                          twin's docstring for the same additive rationale).
+        config:           optional Config for the rubric config-seam.
+
+    Returns:
+        ``{"tasks_doc": {...}, "canary_key_doc": {...}}``.
+
+    No text resolved (no PDF, no draft files) is a correct, honest no-op:
+    zero real tasks, zero canaries — nothing to check yet.
+
+    sr: NG-4
+    """
+    from research_vault.gates import judge_seam
+    from research_vault.gates.coldread import get_coldread_rubric
+
+    resolved_text = _resolve_coldread_text(tree_root, pdf_text)
+    rubric = get_coldread_rubric(override=rubric_override, config=config)
+    question = rubric.replace("{PDF_TEXT}", _COLDREAD_QUESTION_PLACEHOLDER)
+
+    if not resolved_text.strip():
+        tasks_doc = {
+            "schema": judge_seam.TASKS_SCHEMA,
+            "gate": "cold-read",
+            "manuscript": manuscript_slug,
+            "judge_kind": "cold",
+            "created": judge_seam.now_iso(),
+            "rubric": rubric,
+            "batches": [],
+            "tasks": [],
+        }
+        canary_key_doc = {"schema": judge_seam.CANARY_KEY_SCHEMA, "canaries": {}}
+        return {"tasks_doc": tasks_doc, "canary_key_doc": canary_key_doc}
+
+    real_tasks = [{"kind": "cold-read", "unit": resolved_text, "question": question}]
+    canary_bank = [
+        (dict(item, question=question), expected)
+        for item, expected in _coldread_canary_bank()
+    ]
+
+    combined, canary_key = judge_seam.interleave_with_canaries(real_tasks, canary_bank)
+    task_ids = [t["id"] for t in combined]
+    # Cold-read is a small, fixed task count (1 real + 2 canaries) — one
+    # batch is the natural shape (no reason to fan out 3 separate judges
+    # for a self-containment read that must see the whole draft anyway;
+    # unlike support-matcher's independent per-pair judgments).
+    batches = [{"batch_id": "b01", "task_ids": task_ids}] if task_ids else []
+
+    tasks_doc = {
+        "schema": judge_seam.TASKS_SCHEMA,
+        "gate": "cold-read",
+        "manuscript": manuscript_slug,
+        "judge_kind": "cold",
+        "created": judge_seam.now_iso(),
+        "rubric": rubric,
+        "batches": batches,
+        "tasks": combined,
+    }
+    canary_key_doc = {"schema": judge_seam.CANARY_KEY_SCHEMA, "canaries": canary_key}
+
+    return {"tasks_doc": tasks_doc, "canary_key_doc": canary_key_doc}
+
+
+def ingest_coldread_verdicts(
+    tasks_doc: dict[str, Any],
+    canary_key_doc: dict[str, Any] | None,
+    verdicts_doc: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Ingest ``_judge-verdicts.json`` for the cold-read fan-out (design
+    §1.9, Phase C). Returns the SAME shape ``check_cold_read_tally``
+    returns, plus ``halt``/``halt_reason``/``missing_ids``/``unrecognized_ids``.
+
+    Flag-A runs locally against the real task's own ``unit`` field (the
+    resolved pdf_text) — deterministic, no judge dependency, identical
+    coverage to the live-judge path's Flag-A. Merged into ``overall``
+    exactly as ``run_cold_read`` does: a Flag-A hit with an otherwise
+    STANDS-ALONE cold-judge verdict escalates to DANGLING.
+
+    Same guard discipline as ``ingest_support_verdicts`` — see that
+    function's docstring for the full canary/fail-closed/halt contract
+    (identical shape, different vocab).
+
+    sr: NG-4
+    """
+    from research_vault.gates import judge_seam
+    from research_vault.gates.coldread import flag_a_scan
+
+    canaries = (canary_key_doc or {}).get("canaries", {})
+    all_task_ids = [t["id"] for t in tasks_doc.get("tasks", [])]
+    real_task_ids = [tid for tid in all_task_ids if tid not in canaries]
+    task_by_id = {t["id"]: t for t in tasks_doc.get("tasks", [])}
+
+    if not task_by_id:
+        return {
+            "flags": [], "flag_a_hits": [], "overall": "STANDS-ALONE",
+            "block_count": 0, "warn_count": 0,
+            "honest_report": "0 passages, 0 LLM BLOCK, 0 LLM WARN, 0 Flag-A BLOCK (no text extracted)",
+            "errors": [], "warnings": [], "canary_aborted": False,
+            "halt": False, "halt_reason": "", "missing_ids": [], "unrecognized_ids": [],
+            "meta": {},
+        }
+
+    if judge_seam.fanout_incomplete(tasks_doc, verdicts_doc):
+        return {
+            "flags": [], "flag_a_hits": [], "overall": "DANGLING",
+            "block_count": 0, "warn_count": 0,
+            "honest_report": "0 passages, 0 LLM BLOCK, 0 LLM WARN, 0 Flag-A BLOCK (FAN-OUT NOT RUN)",
+            "errors": [
+                "cold-read judge-fanout HALT: _judge-verdicts.json is "
+                "missing or empty while real tasks were emitted — the "
+                "self-containment critic was never checked (§1.8 floor-gate "
+                "NOT RUN). This is NOT a pass."
+            ],
+            "warnings": [], "canary_aborted": False,
+            "halt": True,
+            "halt_reason": (
+                "verdicts file absent/empty for a non-empty cold-read task "
+                "set — fan-out did not complete."
+            ),
+            "missing_ids": list(real_task_ids), "unrecognized_ids": [],
+            "meta": {},
+        }
+
+    verdict_by_id: dict[str, str] = {}
+    for v in (verdicts_doc or {}).get("verdicts", []):
+        vid = v.get("id")
+        if vid:
+            verdict_by_id[vid] = str(v.get("verdict", ""))
+
+    judge_seam.check_canaries(canaries, verdict_by_id)
+
+    filled, missing_ids, unrecognized_ids = judge_seam.fail_closed_fill(
+        real_task_ids, verdict_by_id, _COLDREAD_VERDICT_VOCAB, _COLDREAD_FAIL_CLOSED_DEFAULT,
+    )
+
+    # Flag-A: local deterministic scan against every real task's own unit text.
+    flag_a_hits: list[str] = []
+    for tid in real_task_ids:
+        unit_text = task_by_id[tid].get("unit", "")
+        flag_a_hits.extend(flag_a_scan(unit_text))
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    block_count = 0
+    warn_count = 0
+
+    for tid in real_task_ids:
+        verdict = filled[tid]
+        if verdict == "DANGLING":
+            block_count += 1
+            reason = (
+                "no verdict returned by the fan-out (defaulted fail-closed)"
+                if tid in missing_ids
+                else (
+                    "unrecognized verdict string (defaulted fail-closed)"
+                    if tid in unrecognized_ids
+                    else "cold-judge verdict"
+                )
+            )
+            errors.append(f"cold-read [DANGLING] BLOCK: id: {tid} — {reason}")
+        elif verdict == "NEEDS-CONTEXT":
+            warn_count += 1
+            warnings.append(f"cold-read [NEEDS-CONTEXT] WARN: id: {tid}")
+
+    for hit in flag_a_hits:
+        errors.append(f"cold-read [Flag-A] BLOCK: {hit}")
+
+    if block_count > 0 or flag_a_hits:
+        overall = "DANGLING"
+    elif warn_count > 0:
+        overall = "NEEDS-CONTEXT"
+    else:
+        overall = "STANDS-ALONE"
+
+    honest_report = (
+        f"{len(real_task_ids)} passages, {block_count} LLM BLOCK, "
+        f"{warn_count} LLM WARN, {len(flag_a_hits)} Flag-A BLOCK"
+    )
+
+    return {
+        "flags": [],
+        "flag_a_hits": flag_a_hits,
+        "overall": overall,
+        "block_count": block_count,
+        "warn_count": warn_count,
+        "honest_report": honest_report,
+        "errors": errors,
+        "warnings": warnings,
+        "canary_aborted": False,
+        "halt": False,
+        "halt_reason": "",
+        "missing_ids": missing_ids,
+        "unrecognized_ids": unrecognized_ids,
+        "meta": {},
+    }
+
+
+def emit_coldread_tasks_to_dir(judge_dir: Path, tree_root: Path, **kwargs: Any) -> dict[str, Any]:
+    """Convenience wrapper: emit + write both artifacts under ``judge_dir``
+    (typically ``tree_root / "judge" / "cold-read"``)."""
+    from research_vault.gates import judge_seam
+
+    result = emit_coldread_tasks(tree_root, **kwargs)
+    judge_seam.write_json(judge_dir / "_judge-tasks.json", result["tasks_doc"])
+    judge_seam.write_json(judge_dir / "_judge-canary-key.json", result["canary_key_doc"])
+    return result
+
+
+def ingest_coldread_verdicts_from_dir(judge_dir: Path) -> dict[str, Any]:
+    """Convenience wrapper: read all three artifacts from ``judge_dir`` and
+    ingest. Mirrors ``ingest_support_verdicts_from_dir``."""
+    from research_vault.gates import judge_seam
+
+    tasks_doc = judge_seam.read_json_or_none(judge_dir / "_judge-tasks.json")
+    if tasks_doc is None:
+        tasks_doc = {"tasks": []}
+    canary_key_doc = judge_seam.read_json_or_none(judge_dir / "_judge-canary-key.json")
+    verdicts_doc = judge_seam.read_json_or_none(judge_dir / "_judge-verdicts.json")
+    return ingest_coldread_verdicts(tasks_doc, canary_key_doc, verdicts_doc)
