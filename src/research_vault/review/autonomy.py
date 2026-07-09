@@ -560,13 +560,13 @@ def _op_sweep(*, protocol: str, budget: int = 65, per_cell_limit: int = 20, **_:
 
 
 def _op_snowball_forward(*, paper_id: str, limit: int = 20, **_: Any) -> Any:
-    from research_vault.adapters.semantic_scholar import SemanticScholarAdapter
+    from research_vault.sources.semantic_scholar import SemanticScholarAdapter
 
     return SemanticScholarAdapter().cited_by(paper_id, limit=limit)
 
 
 def _op_snowball_backward(*, paper_id: str, **_: Any) -> Any:
-    from research_vault.adapters.semantic_scholar import SemanticScholarAdapter
+    from research_vault.sources.semantic_scholar import SemanticScholarAdapter
 
     return SemanticScholarAdapter().references(paper_id)
 

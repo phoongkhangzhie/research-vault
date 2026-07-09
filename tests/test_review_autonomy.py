@@ -23,7 +23,10 @@ Coverage:
 """
 from __future__ import annotations
 
+import ast
 import datetime
+import importlib
+import inspect
 import sys
 from pathlib import Path
 
@@ -349,3 +352,39 @@ class TestOpRegistry:
         result = auto.run_tool_op("coverage", project="proj", scope="scope1", config="cfg-sentinel")
         assert called["args"] == ("proj", "scope1", "cfg-sentinel")
         assert result["counts"]["corpus"] == 0
+
+    def test_every_op_import_actually_resolves(self):
+        """★ Non-monkeypatched registry import-resolution check.
+
+        `test_registered_ops_present` only checks key-presence; the calls-
+        through tests inject fakes via monkeypatch. Neither exercises the
+        REAL lazy `from <module> import <Name>` statement inside each op
+        body — which is exactly how `_op_snowball_forward`/`_op_snowball_
+        backward` shipped pointed at the nonexistent
+        `research_vault.adapters.semantic_scholar` (should have been
+        `research_vault.sources.semantic_scholar`) and went undetected: CI
+        stayed green because nothing ever imported the real module.
+
+        This test parses each op's real source for its `from X import Y`
+        statement(s) and does a genuine `importlib.import_module(X)` +
+        `getattr(mod, Y)` — no fakes, no injection. A bad module path or a
+        renamed/missing symbol fails this test loudly.
+        """
+        for op_name, fn in auto.OP_REGISTRY.items():
+            src = inspect.getsource(fn)
+            tree = ast.parse(src)
+            import_nodes = [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom)
+            ]
+            assert import_nodes, f"op {op_name!r} has no lazy import to verify"
+            for node in import_nodes:
+                assert node.module, f"op {op_name!r}: relative import has no module"
+                mod = importlib.import_module(node.module)
+                for alias in node.names:
+                    imported_name = alias.asname or alias.name
+                    assert hasattr(mod, alias.name), (
+                        f"op {op_name!r}: {node.module!r} has no attribute "
+                        f"{alias.name!r} (imported as {imported_name!r})"
+                    )
