@@ -156,10 +156,10 @@ flowchart LR
     scope[review-scope] --> HG1[["[HG] approve-protocol"]]
     HG1 --> search[review-search] --> screen[review-screen] --> snowball[review-snowball]
     snowball --> curate[review-curate]
-    curate --> HG2[["[HG] coverage-gate"]]
-    HG2 --> relate["relate-*\n(Phase-2 fan-out)"]
+    curate --> GATE2[["coverage-gate (auto-resolved)"]]
+    GATE2 --> relate["relate-*\n(Phase-2 fan-out)"]
     relate --> synthesize[review-synthesize] --> critic[review-coverage-critic]
-    critic --> HG3[["[HG] approve-review"]]
+    critic --> GATE3[["approve-review (auto-resolved)"]]
 ```
 
 ### Experiment (`rv experiment`)
@@ -199,9 +199,9 @@ canary that must not clear. OKF inputs: `literature/`, `concepts/`, `mocs/`,
 
 ```mermaid
 flowchart LR
-    scope[scope] --> fp[framework-propose] --> HG1[["[HG] approve-framework"]]
-    HG1 --> sec["section(s)\n(type-generic)"] --> assemble
-    assemble --> HG2[["[HG] approve-manuscript"]]
+    scope[scope] --> fp[framework-propose] --> GATE1[["approve-framework (auto-resolved)"]]
+    GATE1 --> sec["section(s)\n(type-generic)"] --> assemble
+    assemble --> GATE2[["approve-manuscript (auto-resolved)"]]
 ```
 
 See [doctrine/manuscript-loop.md](src/research_vault/data/doctrine/manuscript-loop.md)
@@ -211,8 +211,16 @@ limitations.
 
 All three loops use the same underlying machinery: a DAG walker over typed nodes,
 with a grounding manifest that binds each node to the artifacts it reads and
-produces. The `[HG]` nodes are the **human-go gates** — the points where Alfred
-pauses and waits for you.
+produces. `[HG]` nodes are **human-go gates** — the points where Alfred pauses and
+waits for you. Only **one** gate is ever human in the lit-review and manuscript
+loops: `approve-protocol` (Gate 1, the pre-registration checkpoint before any
+search fires). Every downstream gate (`coverage-gate`, `approve-review`,
+`approve-framework`, `approve-manuscript`) resolves **autonomously** through the
+gate-policy engine (`review/autonomy.py`) — the user receives the manuscript as
+the system's best version, with no "approve the result" gate and no
+provisional/vetoable bookkeeping. The experiment loop's four `[HG]` gates
+(pre-registration + per-main harness review + conditionals + findings) remain
+fully human — that loop's autonomy program is a separate, not-yet-built effort.
 
 ---
 

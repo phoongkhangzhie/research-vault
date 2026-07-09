@@ -129,6 +129,72 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
+# approve-review structural gate (single-human-gate design, 2026-07-09) —
+# parse review-coverage-critic's [PASS]/[BLOCK] verdict artifact
+# ---------------------------------------------------------------------------
+
+# Matches the bracketed gate token anywhere in the note (case-insensitive) —
+# the critic's own template (``review_critic_tips``'s "Honest output
+# template") always opens with ``[PASS]: ...`` or ``[BLOCK]: ...``.
+_COVERAGE_CRITIC_VERDICT_RE = re.compile(r"\[(PASS|BLOCK)\]", re.IGNORECASE)
+_COVERAGE_CRITIC_BULLET_RE = re.compile(r"^\s*-\s+(.+?)\s*$")
+
+
+def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
+    """Parse ``review-coverage-critic``'s ``[PASS]``/``[BLOCK]`` verdict note
+    into the ``{"blocking": [...], "not_run": [...]}`` structural-payload
+    shape ``review.autonomy.evaluation_from_structural_payload`` consumes —
+    the SAME adapter ``approve-framework``/``approve-manuscript`` already use
+    (charter §6 reuse-over-create; no new disposition path invented).
+
+    - Missing artifact -> ``not_run`` (a floor gate that never ran must never
+      look like a pass, §1.2 priority 2 / explore-rl #3).
+    - No recognized ``[PASS]``/``[BLOCK]`` token found -> ``not_run`` (an
+      unparseable verdict is untrustworthy, not a silent PASS — charter §2
+      whitelist-not-blacklist).
+    - ``[PASS]`` -> ``blocking: []`` (GO).
+    - ``[BLOCK]`` -> ``blocking`` is every ``- <reason>`` bullet line
+      immediately following the verdict line (the critic's own "list each"
+      template); an empty bullet list still counts as one generic blocking
+      reason (never a BLOCK verdict silently downgraded to a pass because no
+      bullets were parsed).
+    """
+    if not critic_note_path.exists():
+        return {"blocking": [], "not_run": [str(critic_note_path)]}
+
+    text = critic_note_path.read_text(encoding="utf-8")
+    m = _COVERAGE_CRITIC_VERDICT_RE.search(text)
+    if m is None:
+        return {
+            "blocking": [],
+            "not_run": [
+                f"{critic_note_path}: no recognized [PASS]/[BLOCK] verdict token found"
+            ],
+        }
+
+    verdict = m.group(1).upper()
+    if verdict == "PASS":
+        return {"blocking": [], "not_run": []}
+
+    # BLOCK: collect every "- <reason>" bullet line contiguous with the
+    # verdict line (skipping blank lines), per the critic's own template.
+    # ``lines[0]`` is the REST of the verdict line itself (e.g. ": N papers,
+    # ... k BLOCK(s).") — never bullet-shaped; scan starts on the line after.
+    lines = text[m.end():].splitlines()[1:]
+    reasons: list[str] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        bullet_m = _COVERAGE_CRITIC_BULLET_RE.match(line)
+        if bullet_m is None:
+            break
+        reasons.append(bullet_m.group(1))
+    if not reasons:
+        reasons = ["[BLOCK] verdict with no itemized reason bullets found"]
+    return {"blocking": reasons, "not_run": []}
+
+
+# ---------------------------------------------------------------------------
 # Saturation backstop (SR-LR-1-BACKSTOP) — coverage-gate surfacing
 # ---------------------------------------------------------------------------
 
@@ -541,7 +607,7 @@ def _build_phase1_manifest(
 
     Phase-1 nodes (7):
       review-scope → [HG:approve-protocol] → review-search (tool) → review-screen (agent)
-          → review-snowball (tool) → review-curate (agent) → [HG:coverage-gate]
+          → review-snowball (tool) → review-curate (agent) → coverage-gate (auto-resolved)
 
     Topology:
       - review-scope:     agent; produces _protocol.md
@@ -858,7 +924,7 @@ def _build_phase2_manifest(
 
     Phase-2 nodes:
       relate-<key1> ─┐
-      relate-<key2> ─┤ → review-synthesize → review-coverage-critic → [HG:approve-review]
+      relate-<key2> ─┤ → review-synthesize → review-coverage-critic → approve-review (auto-resolved)
       ...            ─┘
 
     Each relate-<key> is a static node over the frozen corpus approved at coverage-gate.
@@ -944,10 +1010,21 @@ def _build_phase2_manifest(
             str(review_dir / "_saturation.md"),
             protocol_path,
         ],
+        # Single-human-gate design (2026-07-09): approve-review reads this
+        # note structurally (review.check_coverage_critic_verdict) to
+        # auto-resolve Gate 3 — the critic MUST write its [PASS]/[BLOCK]
+        # verdict here, not just reply in prose.
+        "produces": {"_coverage-critic.md": str(review_dir / "_coverage-critic.md")},
         "needs": [_afterok("review-synthesize")],
     })
 
-    # approve-review — terminal human-go gate
+    # approve-review — terminal gate, resolved AUTONOMOUSLY (single-human-
+    # gate design, 2026-07-09: only approve-protocol is a human gate). The
+    # DAG node "type" stays "human-go" (the schema/runner shape is unchanged;
+    # see dag/catalog.py's grounding test) but `rv dag approve --auto` /
+    # the self-advancing runner resolve it via review.autonomy's
+    # gate-policy engine reading review-coverage-critic's verdict — never a
+    # human keypress.
     nodes.append({
         "id": "approve-review",
         "type": "human-go",
@@ -1130,7 +1207,7 @@ def cmd_expand(
 
     Run after the ``coverage-gate`` human-go approval.  Parses ``_corpus.md`` for
     ``[NEW]`` citekeys and emits one ``relate-<key>`` node per paper, joining into
-    ``review-synthesize → review-coverage-critic → [HG:approve-review]``.
+    ``review-synthesize → review-coverage-critic → approve-review (auto-resolved)``.
 
     When to use: ``rv review <project> expand <scope>`` immediately after the
     operator approves the coverage-gate.  The Phase-2 manifest is saved as

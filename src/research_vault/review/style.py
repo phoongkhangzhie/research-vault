@@ -537,7 +537,14 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "Honest output template:\n"
         "  '[PASS/BLOCK]: N papers, R rounds, plateau at round K; "
         "j orphan concepts (soft); counter-position: sought/absent; k BLOCK(s).'\n"
-        "Never write 'coverage verified' — you are a rejects-only screen."
+        "Never write 'coverage verified' — you are a rejects-only screen.\n\n"
+        "WRITE YOUR VERDICT TO `_coverage-critic.md` (single-human-gate design): "
+        "`approve-review` (Gate 3) resolves AUTONOMOUSLY from this note — there is no "
+        "human reading your prose reply. File the verdict line (the bracket convention "
+        "above) as the FIRST line of `_coverage-critic.md`, followed by one `- <reason>` "
+        "bullet per BLOCK finding (axis name + a one-line reason), exactly as shown in "
+        "the Output format above. A `[BLOCK]` with no itemized bullets is treated as a "
+        "generic, unspecific block — always itemize."
     ),
 }
 

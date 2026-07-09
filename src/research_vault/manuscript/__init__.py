@@ -18,7 +18,7 @@ two-phase scaffolder pattern, review/__init__.py):
                 manifest.
   - cmd_expand: build the Phase-2 manifest generically from the type's
                 ``section_set`` (one node per section -> assemble ->
-                [HG:approve-manuscript]).
+                approve-manuscript (auto-resolved)).
   - cmd_review: run the 2-round x 3-reviewer adversarial review-revise board
                 (design §9, ``manuscript/review_board.py``, PR-M5).
   - cmd_list:   list manuscript folders for a project (parity with cmd_list
@@ -247,7 +247,7 @@ def _build_phase2_manifest(
     """Build the Phase-2 draft manifest generically from ``ms_type.section_set``.
 
     Topology (type-generic — the section_set order IS the chain order):
-      section-1 -> section-2 -> ... -> section-N -> assemble -> [HG:approve-manuscript]
+      section-1 -> section-2 -> ... -> section-N -> assemble -> approve-manuscript (auto-resolved)
 
     Each section node reads its declared ``source_atoms`` (OKF type dirs,
     absolute paths — Fix #34 lesson: absolute so the reads:-grounding resolver
@@ -624,7 +624,7 @@ def cmd_expand(
     When to use: ``rv manuscript <project> expand <slug>`` after ``rv manuscript
     new`` (and, for a type with a real Phase-1, after its human-go gate is
     approved). Builds one node per ``ms_type.section_set`` entry, chained
-    sequentially, joined by ``assemble`` -> ``[HG:approve-manuscript]``.
+    sequentially, joined by ``assemble`` -> ``approve-manuscript (auto-resolved)``.
 
     Anti-pattern: do NOT hand-write a Phase-2 manifest — the section_set comes
     from the registered ManuscriptType; hand-writing would drift from the

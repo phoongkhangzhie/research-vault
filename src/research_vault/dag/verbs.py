@@ -240,13 +240,18 @@ def _resolve_reads_or_warn(
               f"fix the manifest's reads: field(s) before dispatching.", file=_sys.stderr)
 
 
-# NG-4b item 1: the three gates the gate-policy engine (review/autonomy.py)
-# may resolve without a human keypress. approve-protocol is DELIBERATELY
-# excluded — it is the one retained human gate (§1.1). Module-level (was
-# previously redeclared locally inside cmd_approve) so both cmd_approve's
-# explicit --auto path and the always-on autonomous resolution inside
+# NG-4b item 1 / single-human-gate design (2026-07-09): the four gates the
+# gate-policy engine (review/autonomy.py) may resolve without a human
+# keypress. approve-protocol is DELIBERATELY excluded — it is the ONE
+# retained human gate (§1.1): every downstream gate resolves autonomously
+# and FINALLY the moment it resolves (no provisional stamp, no async-veto
+# window — that machinery was removed). Module-level (was previously
+# redeclared locally inside cmd_approve) so both cmd_approve's explicit
+# --auto path and the always-on autonomous resolution inside
 # _recompute_awaiting_go share exactly ONE definition (never drift).
-_AUTONOMOUS_GATE_IDS = frozenset({"coverage-gate", "approve-framework", "approve-manuscript"})
+_AUTONOMOUS_GATE_IDS = frozenset({
+    "coverage-gate", "approve-framework", "approve-manuscript", "approve-review",
+})
 
 _TOOL_AUTO_EXEC_MAX_PASSES = 100  # bounded loop guard — never spin forever
 
@@ -351,7 +356,7 @@ def _evaluate_autonomous_gate(
     """The SINGLE-SOURCED dispatch from a DAG node id to a
     ``review.autonomy`` disposition (NG-4b: previously duplicated inline
     inside ``cmd_approve``'s ``--auto`` block AND absent entirely from the
-    always-on runner — now used by BOTH so the three autonomous gates
+    always-on runner — now used by BOTH so the four autonomous gates
     resolve identically whether triggered by an explicit ``--auto`` flag
     or by the self-advancing runner in ``_recompute_awaiting_go``).
 
@@ -523,6 +528,31 @@ def _evaluate_autonomous_gate(
         return max(
             (structural_result, board_eval_result),
             key=lambda r: _severity[r.disposition],
+        )
+
+    if node_id == "approve-review":
+        # Single-human-gate design (2026-07-09): Gate 3 (approve-review)
+        # resolves autonomously from review-coverage-critic's [BLOCK] count +
+        # counter-position verdict — SAME structural-payload adapter
+        # approve-framework already uses (no new disposition path).
+        critic_node = nodes_lookup.get("review-coverage-critic")
+        critic_ref = None
+        if critic_node is not None:
+            produces = critic_node.get("produces")
+            if isinstance(produces, dict):
+                critic_ref = produces.get("_coverage-critic.md")
+        if not critic_ref:
+            return _autonomy.DispositionResult(
+                _autonomy.HALT_DECLARE,
+                "approve-review --auto: no _coverage-critic.md producer found "
+                "upstream (review-coverage-critic node missing/malformed "
+                "produces) — cannot self-certify.",
+            )
+        from ..review import check_coverage_critic_verdict as _cccv
+
+        payload = _cccv(Path(critic_ref))
+        return _autonomy.classify_disposition(
+            _autonomy.evaluation_from_structural_payload(payload)
         )
 
     raise ValueError(f"_evaluate_autonomous_gate: {node_id!r} is not an autonomous gate id")
@@ -1709,10 +1739,10 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 )
 
     # ── NG-4 §1 / NG-4b: autonomous-gate dispatch ──────────────────────────
-    # coverage-gate / approve-framework / approve-manuscript may be resolved
-    # by the gate-policy engine (review/autonomy.py) instead of a human
-    # keypress. approve-protocol is DELIBERATELY excluded — it is the one
-    # retained human gate (§1.1) and is never eligible for --auto.
+    # coverage-gate / approve-framework / approve-manuscript / approve-review
+    # may be resolved by the gate-policy engine (review/autonomy.py) instead
+    # of a human keypress. approve-protocol is DELIBERATELY excluded — it is
+    # the one retained human gate (§1.1) and is never eligible for --auto.
     # NG-4b: dispatch through the SAME `_evaluate_autonomous_gate` the
     # self-advancing runner uses (single-sourced, no drift between the
     # explicit --auto flag and the always-on runner path).
@@ -2057,105 +2087,6 @@ def cmd_insert(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# Verb: status
-# ---------------------------------------------------------------------------
-
-def cmd_veto(args: argparse.Namespace) -> int:
-    """NG-4 §1.7 / verb-consolidation D3: the async-veto CLI surface.
-
-    Casts a veto over an OPEN provisional decision (a framework choice, D1,
-    or a scope/membership deviation, D2) — the shared machinery both
-    autonomy programs consume (``review.autonomy.cast_veto``).
-
-    The veto surface note is resolved from the node's ``produces`` field
-    (same convention every other gate wiring in this file uses) unless
-    ``--note`` overrides it. Rolls back: the note is stamped
-    ``provisional: vetoed`` (never silently reverted to clean — the audit
-    trail of the veto survives) and the node's run-state status is set to
-    'blocked' (HALT-DECLARE-shaped rollback, §1.7).
-    """
-    from ..review import autonomy as _autonomy
-
-    run_id = args.run_id
-    node_id = args.node_id
-    reason = args.reason
-    note_override = getattr(args, "note", None)
-
-    try:
-        cfg = load_config()
-    except Exception as e:
-        print(f"rv dag veto: config error: {e}", file=sys.stderr)
-        return 1
-
-    store = RunStore.from_config(cfg)
-    try:
-        run_state = store.load(run_id)
-    except StoreError as e:
-        print(f"rv dag veto: {e}", file=sys.stderr)
-        return 1
-
-    manifest_path = Path(run_state.manifest_path)
-    try:
-        manifest = load_manifest(manifest_path)
-    except ManifestError as e:
-        print(f"rv dag veto: manifest error: {e}", file=sys.stderr)
-        return 1
-
-    nodes_lookup = manifest_nodes_by_id(manifest)
-    if node_id not in nodes_lookup:
-        print(f"rv dag veto: node {node_id!r} not in manifest", file=sys.stderr)
-        return 1
-    node = nodes_lookup[node_id]
-
-    if note_override:
-        note_path = Path(note_override)
-    else:
-        produces = node.get("produces")
-        note_path = None
-        if isinstance(produces, dict):
-            for candidate_key in ("note", "_manuscript.md", "_deviations.md"):
-                if candidate_key in produces:
-                    note_path = Path(produces[candidate_key])
-                    break
-        if note_path is None:
-            print(
-                f"rv dag veto: node {node_id!r} has no resolvable decision "
-                "note (no 'produces' entry and no --note override given).",
-                file=sys.stderr,
-            )
-            return 1
-
-    if not note_path.exists():
-        print(f"rv dag veto: decision note not found: {note_path}", file=sys.stderr)
-        return 1
-
-    from ..note import _parse_frontmatter as _pfm_veto
-    _fields, _ = _pfm_veto(note_path.read_text(encoding="utf-8"))
-    provisional = str(_fields.get("provisional", "")).strip().lower()
-    if provisional != "true":
-        print(
-            f"rv dag veto: {note_path} is not currently 'provisional: true' "
-            f"(found {provisional!r}) — nothing to veto. A decision can only "
-            "be vetoed while its async-veto window is open (§1.7).",
-            file=sys.stderr,
-        )
-        return 1
-
-    window = _autonomy.VetoWindow(kind="unknown", opened_at=_fields.get("veto_window_opened_at", ""))
-    _autonomy.cast_veto(note_path, window, reason=reason)
-
-    ns = run_state.node_states.setdefault(node_id, {})
-    ns["decision_note"] = f"VETOED (async-veto, §1.7): {reason}"
-    run_state.set_node_status(node_id, "blocked")
-    store.save(run_state)
-
-    print(f"rv dag veto: {node_id!r} VETOED — {note_path} rolled back (provisional: vetoed).")
-    print(f"  reason: {reason}")
-    print(f"Node {node_id!r} → blocked")
-    return 0
-
-
 def cmd_templates(args: argparse.Namespace) -> int:
     """Print the built-in loop catalog — discovery entry for all four research loops.
 
@@ -2494,9 +2425,10 @@ def build_parser(
         help=(
             "NG-4: resolve this gate via the gate-policy engine "
             "(review/autonomy.py) instead of a human keypress. Only valid on "
-            "coverage-gate / approve-framework / approve-manuscript — the "
-            "three autonomous gates (§1.1). approve-protocol is NEVER "
-            "eligible (the one retained human gate) and ignores --auto. "
+            "coverage-gate / approve-framework / approve-manuscript / "
+            "approve-review — the four autonomous gates (§1.1). "
+            "approve-protocol is NEVER eligible (the one retained human "
+            "gate) and ignores --auto. "
             "GO/GO-WITH-RESIDUE -> approved; HALT-DECLARE -> rejected with "
             "the NOT-CLEARED reason recorded; REVISE -> exit 2, no state "
             "change (dispatch a bounded auto-revise round first, NG-5)."
@@ -2520,29 +2452,6 @@ def build_parser(
     # status
     stat_p = sub.add_parser("status", help="Print the current run status.")
     stat_p.add_argument("run_id", help="The run_id.")
-
-    # veto  (NG-4 §1.7 / D3 — the async-veto surface)
-    veto_p = sub.add_parser(
-        "veto",
-        help=(
-            "NG-4 §1.7: cast an async veto over an OPEN provisional decision "
-            "(a framework choice or a scope/membership deviation). Rolls "
-            "back + blocks the node."
-        ),
-    )
-    veto_p.add_argument("run_id", help="The run_id.")
-    veto_p.add_argument("node_id", help="The provisional node id to veto.")
-    veto_p.add_argument(
-        "--reason", required=True, metavar="TEXT",
-        help="Why this decision is being vetoed (recorded in the audit trail).",
-    )
-    veto_p.add_argument(
-        "--note", metavar="PATH", default=None,
-        help=(
-            "Override the decision-note path to stamp (default: resolved "
-            "from the node's produces field)."
-        ),
-    )
 
     # templates  (SR-HUB-DAG §A2 — discovery entry for all four research loops)
     sub.add_parser(
@@ -2578,7 +2487,6 @@ def run(args: argparse.Namespace) -> int:
         "add": cmd_add,
         "insert": cmd_insert,
         "status": cmd_status,
-        "veto": cmd_veto,
         "templates": cmd_templates,
         "brief": cmd_brief,
     }
