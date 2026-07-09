@@ -1,3 +1,61 @@
+## 2026-07-09 (docs/catalog reconciled to the shipped 7-node lit-review loop — pre-0.3.0 drift fix)
+
+### Done
+- **Doc drift fix**: PR #189 (review-loop-nodekind-drift-fix) updated the
+  lit-review builder to the 7-node Option C shape (`review-scope` ->
+  `approve-protocol` -> `review-search` (tool) -> `review-screen` (agent) ->
+  `review-snowball` (tool) -> `review-curate` (agent) -> `coverage-gate`) but
+  left every adopter-facing doc/catalog entry describing the OLD 5-node
+  shape (`review-scope -> approve-protocol -> review-search -> review-snowball
+  -> coverage-gate`, missing the `review-screen`/`review-curate` thin-agent
+  judgment layers). Reconciled against the REAL builder
+  (`review/__init__.py::_build_phase1_manifest`/`_build_phase2_manifest`),
+  not any doc's prior text:
+  - `dag/catalog.py`'s `lit-review` `LoopEntry.topology_summary` — added the
+    two missing nodes.
+  - `README.md`'s mermaid diagram + prose — 7-node Phase-1 shape.
+  - `data/templates/QUICKSTART.md` — the walkthrough's DAG diagram, node
+    count (5 -> 7), `rv dag status` listing, and the "two canonical loops"
+    section (WRONG — the framework ships THREE: experiment, lit-review,
+    manuscript; also described the stale `okf-coverage-gate` "blocks until
+    distill nodes succeed" mechanics that predates Option C).
+  - `data/examples/demo-litreview/` — the shipped, load-bearing demo fixture
+    (`lit-review-loop.json` + `README.md`) still had the OLD 5-node
+    `scope -> survey -> distill-1/2 -> okf-coverage-gate -> synthesize ->
+    synthesis-critic -> human-go-synthesis` shape (predates even the OLD
+    5-node builder shape — this demo was never updated past its original
+    SR-LR-1 authoring). Rewrote to mirror the REAL 12-node combined
+    Phase-1 (7) + Phase-2 (5: `relate-<key>` x2, `review-synthesize`,
+    `review-coverage-critic`, `approve-review`) shape, spliced into one
+    static file for a linear walkthrough (the real system splits Phase-2 into
+    a separately-emitted manifest via `rv review expand` — documented the
+    divergence explicitly rather than silently picking one).
+  - `cli.py`'s `research` verb `when_to_use` — pointed at the D1-hard-removed
+    `rv research cited-by`/`references` verbs; rewrote to point at the
+    `review-search`/`review-snowball` node-ops inside a lit-review loop.
+  - `init.py`'s `_ARCHITECTURE_TEMPLATE` — bumped "two canonical loops" to
+    three (experiment/lit-review/manuscript) and fixed the lit-review ASCII
+    diagram to the 7+5 node shape.
+- **Test updates** (not skipped/weakened): `tests/test_sr5.py`'s
+  `_make_litreview_states` + the OKF-coverage-gate produces-check tests were
+  hard-coded to the OLD demo's node ids (`scope`/`survey`/`distill-paper-1`/
+  `okf-coverage-gate`/etc.) — renamed to the new ids and re-targeted the
+  produces-check tests at `relate-smith2024` (the new Phase-2 analog of the
+  old `distill-paper-1`), including the mandatory relate-presence checklist
+  fields (`contribution_kind`/`role`/`position`/`result_reported`/
+  `paper_relations_sought` — Wave 0 Reading PR-1/2/4/5) the new node-id
+  prefix (`relate-`) now gates on at complete-time.
+
+### Decisions
+- The demo's Phase-2 fan-out is spliced into ONE static file (two hardcoded
+  example papers) rather than mirroring the real two-manifest split — kept
+  for a simple, self-contained walkthrough; the README explicitly flags this
+  as a documented simplification, not a claim that `rv review expand` is
+  unnecessary in a real run.
+- `rv lint`'s 5 "project missing required field 'code'" violations are
+  pre-existing (unrelated to this change) and were left alone per the task
+  scope.
+
 ## 2026-07-09 (review-snowball live-asta validation fixes — graceful degradation + id normalization)
 
 ### Done

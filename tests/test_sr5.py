@@ -129,7 +129,12 @@ def test_research_loop_manifest_validates():
 
 
 def test_litreview_loop_manifest_validates():
-    """lit-review-loop.json must pass the schema validator."""
+    """lit-review-loop.json must pass the schema validator.
+
+    Updated for review-loop-nodekind-drift-fix (2026-07-09): the demo now
+    mirrors the shipped 7-node Option C Phase-1 + 5-node Phase-2 shape
+    (review-scope/screen/curate + relate-*/synthesize/critic), 12 nodes total.
+    """
     assert LITREVIEW_LOOP_PATH.exists(), (
         f"lit-review-loop.json not found at {LITREVIEW_LOOP_PATH}. "
         "Build the example file first."
@@ -333,64 +338,72 @@ def test_experiments_before_run_unblocks_when_artifact_present(tmp_cfg):
 # ---------------------------------------------------------------------------
 
 def _make_litreview_states(scope_status: str = "succeeded",
-                            survey_status: str = "succeeded",
-                            distill1_status: str = "succeeded",
-                            distill2_status: str = "succeeded",
+                            approve_protocol_status: str = "succeeded",
+                            search_status: str = "succeeded",
+                            screen_status: str = "succeeded",
+                            snowball_status: str = "succeeded",
+                            curate_status: str = "succeeded",
                             gate_status: str = "pending",
+                            relate1_status: str = "succeeded",
+                            relate2_status: str = "succeeded",
                             synthesize_status: str = "pending",
                             critic_status: str = "pending",
                             final_gate_status: str = "pending") -> dict[str, dict]:
-    """Build node_states for the lit-review loop."""
+    """Build node_states for the lit-review loop (7-node Option C Phase-1 +
+    5-node Phase-2, review-loop-nodekind-drift-fix, 2026-07-09)."""
     return {
-        "scope": {"status": scope_status},
-        "survey": {"status": survey_status},
-        "distill-paper-1": {"status": distill1_status},
-        "distill-paper-2": {"status": distill2_status},
-        "okf-coverage-gate": {"status": gate_status},
-        "synthesize": {"status": synthesize_status},
-        "synthesis-critic": {"status": critic_status},
-        "human-go-synthesis": {"status": final_gate_status},
+        "review-scope": {"status": scope_status},
+        "approve-protocol": {"status": approve_protocol_status},
+        "review-search": {"status": search_status},
+        "review-screen": {"status": screen_status},
+        "review-snowball": {"status": snowball_status},
+        "review-curate": {"status": curate_status},
+        "coverage-gate": {"status": gate_status},
+        "relate-smith2024": {"status": relate1_status},
+        "relate-jones2023": {"status": relate2_status},
+        "review-synthesize": {"status": synthesize_status},
+        "review-coverage-critic": {"status": critic_status},
+        "approve-review": {"status": final_gate_status},
     }
 
 
-def test_litreview_coverage_gate_blocks_when_no_notes(tmp_cfg):
-    """Coverage gate: not approvable when distill nodes succeeded but no notes exist.
+def test_litreview_final_gate_blocks_when_no_notes(tmp_cfg):
+    """Terminal gate: appears as await-go when upstream nodes are terminal, even
+    though relate-* notes were never actually filed on disk.
 
-    The distill nodes cannot actually succeed via cmd_complete without their notes
-    (the produces check would block them), but here we directly set state to test
-    the watch-based gate on the coverage gate human-go node.
+    The relate-* nodes cannot actually succeed via cmd_complete without their
+    notes (the produces check would block them — see the two produces-check
+    tests below), but here we directly set state to test that the walker's
+    human-go readiness check is purely terminal-status based (not an artifact
+    re-check) on the terminal Gate 3 (approve-review).
     """
     cfg, tmp_path = tmp_cfg
     manifest = load_manifest(LITREVIEW_LOOP_PATH)
 
-    # All distill nodes "succeeded" (simulating direct state write) but no files
-    node_states = _make_litreview_states()
+    # All upstream nodes "succeeded" (simulating direct state write) but no files
+    node_states = _make_litreview_states(
+        gate_status="succeeded", synthesize_status="succeeded", critic_status="succeeded",
+    )
 
     edge_registered_ts: dict = {}
     frontier = compute_frontier(manifest, node_states, edge_registered_ts, global_cap=4)
 
-    # The okf-coverage-gate human-go depends on distill nodes having their afterok+watch
-    # edges satisfied. Since distill nodes succeeded but their files don't exist,
-    # the watches should fail.
-    # BUT: human-go uses _all_transitive_upstream_terminal, not edge watch checks.
-    # The gate enforces via the distill nodes' produces check at complete time.
-    # Here we verify: if distill nodes are terminal (succeeded), the human-go IS
-    # in the frontier (approvable) — the structural gate is enforced at complete time.
-    # The TEST is that the produces check prevents the distill node from succeeding
-    # without the note. The walker only checks terminal status for human-go readiness.
-
-    # So: with distill nodes succeeded, coverage gate SHOULD appear as await-go
+    # approve-review depends (transitively) on relate-smith2024/relate-jones2023
+    # having succeeded. The walker only checks terminal status for human-go
+    # readiness — the produces check is enforced at complete time (below), not
+    # re-verified here. So: with all upstream nodes succeeded, approve-review
+    # SHOULD appear as await-go.
     await_go_ids = {f.node_id for f in frontier if f.action == "await-go"}
-    assert "okf-coverage-gate" in await_go_ids, (
-        "okf-coverage-gate must appear as await-go when all distill nodes are terminal. "
+    assert "approve-review" in await_go_ids, (
+        "approve-review must appear as await-go when all upstream nodes are terminal. "
         f"Frontier await-go: {await_go_ids}"
     )
 
 
-def test_litreview_distill_produces_check_blocks_without_note(tmp_cfg):
-    """cmd_complete rejects a distill node's success when its literature note is absent.
+def test_litreview_relate_produces_check_blocks_without_note(tmp_cfg):
+    """cmd_complete rejects a relate-* node's success when its literature note is absent.
 
-    This is the structural gate: the distill node cannot be marked succeeded
+    This is the structural gate: a relate-* node cannot be marked succeeded
     via rv dag complete without the OKF note existing with correct type: frontmatter.
     """
     from research_vault.dag.verbs import cmd_complete
@@ -405,37 +418,53 @@ def test_litreview_distill_produces_check_blocks_without_note(tmp_cfg):
         created_at=time.time(),
     )
     run_state.init_nodes(manifest)
-    # Set upstream as succeeded so distill-paper-1 is the focus
-    run_state.set_node_status("scope", "succeeded")
-    run_state.set_node_status("survey", "succeeded")
+    # Set upstream as succeeded so relate-smith2024 is the focus
+    run_state.set_node_status("review-scope", "succeeded")
+    run_state.set_node_status("approve-protocol", "succeeded")
+    run_state.set_node_status("review-search", "succeeded")
+    run_state.set_node_status("review-screen", "succeeded")
+    run_state.set_node_status("review-snowball", "succeeded")
+    run_state.set_node_status("review-curate", "succeeded")
+    run_state.set_node_status("coverage-gate", "succeeded")
     store.create(run_state)
 
-    # Try to complete distill-paper-1 without creating the literature note
+    # Try to complete relate-smith2024 without creating the literature note
     import argparse
     args = argparse.Namespace(
         run_id=manifest["run_id"],
-        node_id="distill-paper-1",
+        node_id="relate-smith2024",
         status="succeeded",
     )
 
     rc = cmd_complete(args)
     assert rc != 0, (
-        "cmd_complete must FAIL when distill-paper-1's produces note does not exist. "
-        "The OKF coverage gate is enforced by the produces check at complete time."
+        "cmd_complete must FAIL when relate-smith2024's produces note does not exist. "
+        "Every in-scope paper must have a literature note before synthesis begins."
     )
 
 
-def test_litreview_distill_produces_check_passes_with_note(tmp_cfg):
-    """cmd_complete allows a distill node to succeed when its literature note is filed."""
+def test_litreview_relate_produces_check_passes_with_note(tmp_cfg):
+    """cmd_complete allows a relate-* node to succeed when its literature note is filed."""
     from research_vault.dag.verbs import cmd_complete
     cfg, tmp_path = tmp_cfg
     manifest = load_manifest(LITREVIEW_LOOP_PATH)
 
-    # Write the literature note with correct OKF frontmatter
+    # Write the literature note with correct OKF frontmatter AND the mandatory
+    # relate-presence checklist answers (Wave 0 Reading PR-1/PR-2/PR-4/PR-5 —
+    # see tests/test_relate_presence_gate.py for the canonical fixture shape).
     lit_note = cfg.notes_root / "literature" / "smith2024.md"
     lit_note.parent.mkdir(parents=True, exist_ok=True)
     lit_note.write_text(
-        "---\ntype: literature\ncitekey: smith2024\ntitle: Smith 2024\n---\n\n# Smith et al. 2024\n",
+        "---\n"
+        "type: literature\n"
+        "citekey: smith2024\n"
+        "title: Smith 2024\n"
+        "contribution_kind: theory-bound\n"
+        "role: theoretical\n"
+        "position: Establishes the baseline framing this review's question builds on.\n"
+        "result_reported: no\n"
+        "paper_relations_sought: no\n"
+        "---\n\n# Smith et al. 2024\n",
         encoding="utf-8",
     )
 
@@ -446,19 +475,24 @@ def test_litreview_distill_produces_check_passes_with_note(tmp_cfg):
         created_at=time.time(),
     )
     run_state.init_nodes(manifest)
-    run_state.set_node_status("scope", "succeeded")
-    run_state.set_node_status("survey", "succeeded")
+    run_state.set_node_status("review-scope", "succeeded")
+    run_state.set_node_status("approve-protocol", "succeeded")
+    run_state.set_node_status("review-search", "succeeded")
+    run_state.set_node_status("review-screen", "succeeded")
+    run_state.set_node_status("review-snowball", "succeeded")
+    run_state.set_node_status("review-curate", "succeeded")
+    run_state.set_node_status("coverage-gate", "succeeded")
     store.create(run_state)
 
     import argparse
     args = argparse.Namespace(
         run_id=manifest["run_id"],
-        node_id="distill-paper-1",
+        node_id="relate-smith2024",
         status="succeeded",
     )
     rc = cmd_complete(args)
     assert rc == 0, (
-        "cmd_complete must SUCCEED when distill-paper-1's produces note exists with "
+        "cmd_complete must SUCCEED when relate-smith2024's produces note exists with "
         "correct type: frontmatter."
     )
 

@@ -1,72 +1,142 @@
 {
   "run_id": "lit-review-loop-topic",
-  "name": "Lit-review loop — topic (OKF coverage gate)",
+  "name": "Lit-review loop — topic (Option C: pre-registered, saturation-gated)",
   "global_cap": 3,
   "nodes": [
     {
-      "id": "scope",
+      "id": "review-scope",
       "type": "agent",
-      "label": "Define review scope (Ada/researcher — which papers are in scope)",
+      "label": "Freeze review protocol (researcher — question + seeds + counter-position)",
       "role": "researcher",
-      "spec": "task://demo-litreview#scope",
+      "spec": "task://demo-litreview#review-scope",
+      "produces": {"_protocol.md": "reviews/topic/_protocol.md"},
       "needs": []
     },
     {
-      "id": "survey",
-      "type": "agent",
-      "label": "Survey literature (Ada/researcher — identify and collect in-scope papers)",
-      "role": "researcher",
-      "spec": "task://demo-litreview#survey",
-      "needs": [{"from": "scope", "edge": "afterok"}]
-    },
-    {
-      "id": "distill-paper-1",
-      "type": "agent",
-      "label": "Distill paper 1 (Ada/researcher — read and write OKF literature note)",
-      "role": "researcher",
-      "spec": "task://demo-litreview#distill-paper-1",
-      "produces": {"note": "literature/smith2024.md"},
-      "needs": [{"from": "survey", "edge": "afterok"}]
-    },
-    {
-      "id": "distill-paper-2",
-      "type": "agent",
-      "label": "Distill paper 2 (Ada/researcher — read and write OKF literature note)",
-      "role": "researcher",
-      "spec": "task://demo-litreview#distill-paper-2",
-      "produces": {"note": "literature/jones2023.md"},
-      "needs": [{"from": "survey", "edge": "afterok"}]
-    },
-    {
-      "id": "okf-coverage-gate",
+      "id": "approve-protocol",
       "type": "human-go",
-      "label": "OKF coverage gate — assert every in-scope paper has a literature note or is MENTION-ONLY",
+      "label": "Gate 1: Approve review protocol (counter-position required before search fires)",
+      "needs": [{"from": "review-scope", "edge": "afterok"}]
+    },
+    {
+      "id": "review-search",
+      "type": "tool",
+      "op": "sweep",
+      "label": "Width-sweep the frozen protocol's angle matrix (deterministic; protocol-gated)",
+      "args": {
+        "protocol": "reviews/topic/_protocol.md",
+        "out": "reviews/topic/_search_hits.md",
+        "project": "demo-litreview"
+      },
+      "produces": {"_search_hits.md": "reviews/topic/_search_hits.md"},
       "needs": [
-        {"from": "distill-paper-1", "edge": "afterok"},
-        {"from": "distill-paper-2", "edge": "afterok"}
+        {
+          "from": "approve-protocol",
+          "edge": "afterok",
+          "watch": "artifact:reviews/topic/_protocol.md+fresh"
+        }
       ]
     },
     {
-      "id": "synthesize",
+      "id": "review-screen",
       "type": "agent",
-      "label": "Synthesize findings (Ada/researcher — claims to concepts/, index to mocs/)",
+      "label": "Screen search hits against inclusion/exclusion; accept seed frontier",
       "role": "researcher",
-      "spec": "task://demo-litreview#synthesize",
-      "needs": [{"from": "okf-coverage-gate", "edge": "afterok"}]
+      "spec": "task://demo-litreview#review-screen",
+      "produces": {"_screen.md": "reviews/topic/_screen.md"},
+      "needs": [
+        {
+          "from": "review-search",
+          "edge": "afterok",
+          "watch": "artifact:reviews/topic/_search_hits.md+fresh"
+        }
+      ]
     },
     {
-      "id": "synthesis-critic",
+      "id": "review-snowball",
+      "type": "tool",
+      "op": "snowball",
+      "label": "Both-direction multi-round snowball walk to saturation (deterministic)",
+      "args": {
+        "seed": "reviews/topic/_screen.md",
+        "out_dir": "reviews/topic",
+        "project": "demo-litreview"
+      },
+      "produces": {
+        "_corpus_raw.md": "reviews/topic/_corpus_raw.md",
+        "_saturation.md": "reviews/topic/_saturation.md"
+      },
+      "needs": [
+        {
+          "from": "review-screen",
+          "edge": "afterok",
+          "watch": "artifact:reviews/topic/_screen.md+fresh"
+        }
+      ]
+    },
+    {
+      "id": "review-curate",
       "type": "agent",
-      "label": "Critique synthesis — flag orphan concepts/mocs (Argus/reviewer)",
+      "label": "Concept-tag + curate the raw corpus into the final _corpus.md",
+      "role": "researcher",
+      "spec": "task://demo-litreview#review-curate",
+      "produces": {"_corpus.md": "reviews/topic/_corpus.md"},
+      "needs": [
+        {
+          "from": "review-snowball",
+          "edge": "afterok",
+          "watch": "artifact:reviews/topic/_saturation.md+fresh"
+        }
+      ]
+    },
+    {
+      "id": "coverage-gate",
+      "type": "human-go",
+      "label": "Gate 2: Approve discovered corpus (_corpus.md + _saturation.md); every [NEW] citekey has a relate slot or is MENTION-ONLY. Phase-2 fan-out authorized here.",
+      "needs": [{"from": "review-curate", "edge": "afterok"}]
+    },
+    {
+      "id": "relate-smith2024",
+      "type": "agent",
+      "label": "Relate smith2024: distill into literature/ OKF note + verified edges",
+      "role": "researcher",
+      "spec": "task://demo-litreview#relate-smith2024",
+      "produces": {"note": "literature/smith2024.md"},
+      "needs": [{"from": "coverage-gate", "edge": "afterok"}]
+    },
+    {
+      "id": "relate-jones2023",
+      "type": "agent",
+      "label": "Relate jones2023: distill into literature/ OKF note + verified edges",
+      "role": "researcher",
+      "spec": "task://demo-litreview#relate-jones2023",
+      "produces": {"note": "literature/jones2023.md"},
+      "needs": [{"from": "coverage-gate", "edge": "afterok"}]
+    },
+    {
+      "id": "review-synthesize",
+      "type": "agent",
+      "label": "Synthesize corpus: update concepts/ + mocs/ (soft-coupled; orphans flagged)",
+      "role": "researcher",
+      "spec": "task://demo-litreview#review-synthesize",
+      "needs": [
+        {"from": "relate-smith2024", "edge": "afterok"},
+        {"from": "relate-jones2023", "edge": "afterok"}
+      ]
+    },
+    {
+      "id": "review-coverage-critic",
+      "type": "agent",
+      "label": "Coverage critic (rejects-only): plateau-reality + protocol-adherence + counter-position present-and-sought (L-2) -> [PASS]/[BLOCK]",
       "role": "reviewer",
       "spec": "doctrine/roles/reviewer.md",
-      "needs": [{"from": "synthesize", "edge": "afterok"}]
+      "needs": [{"from": "review-synthesize", "edge": "afterok"}]
     },
     {
-      "id": "human-go-synthesis",
+      "id": "approve-review",
       "type": "human-go",
-      "label": "Human review gate — synthesis quality and OKF links resolved",
-      "needs": [{"from": "synthesis-critic", "edge": "afterok"}]
+      "label": "Gate 3: Approve review — [BLOCK] count + counter-position verdict",
+      "needs": [{"from": "review-coverage-critic", "edge": "afterok"}]
     }
   ]
 }

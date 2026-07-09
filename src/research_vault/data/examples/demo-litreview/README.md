@@ -1,28 +1,61 @@
 # demo-litreview — Literature Review Loop Example
 
-A runnable demonstration of the Research Vault **lit-review loop** DAG.
+A runnable demonstration of the Research Vault **lit-review loop** DAG (Option C
+hybrid, review-loop-nodekind-drift-fix, 2026-07-09).
 
 ## What this demonstrates
 
-The `lit-review-loop.json` manifest encodes the OKF-coupled literature review:
+The `lit-review-loop.json` manifest mirrors the shipped two-phase loop built by
+`review/__init__.py` (`_build_phase1_manifest` + `_build_phase2_manifest`) as a
+single static illustration:
 
-1. **Scope** (researcher) — define what papers are in scope for this review
-2. **Survey** (researcher) — identify and collect in-scope papers
-3. **Distill paper 1** (researcher) — read and file an OKF literature note
-4. **Distill paper 2** (researcher) — read and file another OKF literature note
-5. **OKF coverage gate** — you verify every in-scope paper has a literature note
-6. **Synthesize** (researcher) — extract claims to concepts/, build index in mocs/
-7. **Synthesis critic** (reviewer) — Argus flags orphan concepts and missing MOC links
-8. **Human-go gate** — final review of synthesis quality
+**Phase-1 (7 nodes) — discovery, pre-registered and saturation-gated:**
 
-## The OKF coverage gate
+1. **review-scope** (researcher) — freeze the question, seed queries,
+   inclusion/exclusion, and a REQUIRED counter-position (L-2 anti-fishing gate)
+2. **approve-protocol** — Gate 1: human approves the protocol before any search fires
+3. **review-search** (tool, deterministic) — width-sweep the frozen protocol's
+   angle matrix; protocol-gated by an artifact-watch on `_protocol.md`
+4. **review-screen** (researcher) — apply inclusion/exclusion to the search hits,
+   accept a seed frontier
+5. **review-snowball** (tool, deterministic) — both-direction, multi-round
+   snowball walk to saturation
+6. **review-curate** (researcher) — concept-tag + curate the raw corpus into
+   the final `_corpus.md`
+7. **coverage-gate** — Gate 2: human approves the discovered corpus; every
+   `[NEW]` citekey has a relate slot or is recorded MENTION-ONLY. Approval
+   authorizes the Phase-2 fan-out.
 
-The `okf-coverage-gate` human-go node becomes approvable only when ALL distill nodes
-have succeeded. A distill node CANNOT succeed (via `rv dag complete`) unless its
-`produces: {note: "literature/<key>.md"}` note exists with the correct `type: literature`
-frontmatter.
+**Phase-2 (5 nodes) — per-paper distillation + synthesis:**
 
-This means: **every in-scope paper gets a literature note before synthesis begins.**
+8. **relate-smith2024** / **relate-jones2023** (researcher, parallel) — read and
+   file an OKF literature note per in-scope paper, applying the 5-move
+   principled paper-reading protocol
+9. **review-synthesize** (researcher) — extract claims to `concepts/`, build the
+   index in `mocs/`
+10. **review-coverage-critic** (reviewer, rejects-only) — flags premature
+    saturation, orphan concepts, protocol non-adherence, and a missing/ignored
+    counter-position ([PASS]/[BLOCK])
+11. **approve-review** — Gate 3: human approves the review — [BLOCK] count +
+    counter-position verdict
+
+## The two-phase fan-out
+
+`coverage-gate` (Gate 2) is the phase boundary: in the real scaffolder, Phase-2
+is a SEPARATE manifest (`phase2-dag.json`) emitted by `rv review <project>
+expand <scope>` only after the human approves the discovered corpus — this
+resolves the "a static manifest cannot fan out over a runtime-discovered set"
+constraint (§5L.4). This demo shows both phases spliced into a single static
+file (with two hardcoded example papers) purely for a linear, self-contained
+walkthrough — a real run always has this boundary as two separate DAG runs.
+
+A `relate-<key>` node CANNOT succeed (via `rv dag complete`) unless its
+`produces: {note: "literature/<key>.md"}` note exists with the correct `type:
+literature` frontmatter AND answers the mandatory reading-discipline checklist
+(`contribution_kind`, `role`, `position`, `result_reported`,
+`paper_relations_sought` — Wave 0 Reading PR-1/PR-2/PR-4/PR-5). This means:
+**every in-scope paper gets a genuinely-read literature note before synthesis
+begins.**
 
 ## Running the loop
 
@@ -30,30 +63,42 @@ This means: **every in-scope paper gets a literature note before synthesis begin
 # Start the loop
 rv dag run examples/demo-litreview/lit-review-loop.json
 
-# After scoping and surveying...
-rv dag complete lit-review-loop-topic scope
-rv dag complete lit-review-loop-topic survey
+# Scope, then approve Gate 1
+rv dag complete lit-review-loop-topic review-scope
+rv dag approve lit-review-loop-topic approve-protocol
 
-# Distill each paper (must create literature/<key>.md first)
+# Search (deterministic tool) -> screen -> snowball (deterministic tool) -> curate
+rv dag complete lit-review-loop-topic review-search
+rv dag complete lit-review-loop-topic review-screen
+rv dag complete lit-review-loop-topic review-snowball
+rv dag complete lit-review-loop-topic review-curate
+
+# Approve Gate 2 (authorizes the Phase-2 fan-out)
+rv dag approve lit-review-loop-topic coverage-gate
+
+# Relate each in-scope paper (must create literature/<key>.md first, with the
+# full reading-discipline checklist answered)
 rv note demo-litreview new literature "Smith et al. 2024" --id smith2024
-rv dag complete lit-review-loop-topic distill-paper-1
+rv dag complete lit-review-loop-topic relate-smith2024
 
 rv note demo-litreview new literature "Jones 2023" --id jones2023
-rv dag complete lit-review-loop-topic distill-paper-2
+rv dag complete lit-review-loop-topic relate-jones2023
 
-# Tick and approve the coverage gate
-rv dag tick lit-review-loop-topic
-rv dag approve lit-review-loop-topic okf-coverage-gate
+rv dag complete lit-review-loop-topic review-synthesize
+rv dag complete lit-review-loop-topic review-coverage-critic
+
+# Approve Gate 3 — final review
+rv dag approve lit-review-loop-topic approve-review
 ```
 
 ## OKF note types used
 
 | Node | Produces | Directory |
 |------|----------|-----------|
-| distill-paper-1 | literature note | `notes/literature/` |
-| distill-paper-2 | literature note | `notes/literature/` |
-| synthesize | concepts (soft) | `notes/concepts/` |
-| synthesize | MOC links (soft) | `notes/mocs/` |
+| relate-smith2024 | literature note | `notes/literature/` |
+| relate-jones2023 | literature note | `notes/literature/` |
+| review-synthesize | concepts (soft) | `notes/concepts/` |
+| review-synthesize | MOC links (soft) | `notes/mocs/` |
 
 ## Cross-project corroboration (SR-XPB) — extending the synthesis stage
 
@@ -69,7 +114,7 @@ corroborate findings against declared peer projects.  See
    rv project edges   # verify the edge is declared
    ```
 
-2. **Corroborate** (after synthesis node completes):
+2. **Corroborate** (after the review-synthesize node completes):
    ```bash
    rv research corroborate "<claim-from-synthesis>" \
      --from <your-project> \

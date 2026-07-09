@@ -221,7 +221,8 @@ Output:
 ```
 Created: notes/my-research/reviews/scope-xling-transfer.md
 Scaffolded: reviews/scope-xling-transfer/phase1-dag.json
-Phase-1 DAG: review-scope → [HG:approve-protocol] → review-search → review-snowball → [HG:coverage-gate]
+Phase-1 DAG: review-scope → [HG:approve-protocol] → review-search → review-screen →
+  review-snowball → review-curate → [HG:coverage-gate]
 ```
 
 Now starting the loop:
@@ -232,7 +233,7 @@ rv dag run reviews/scope-xling-transfer/phase1-dag.json
 
 ```
 Run 'review-scope-xling-transfer-phase1' started.
-  nodes: 5
+  nodes: 7
 
 Initial frontier:
   → DISPATCH  [review-scope] Define review scope and pre-registration protocol (researcher)
@@ -251,8 +252,10 @@ rv dag status review-scope-xling-transfer-phase1
 Nodes:
   ○ review-scope         (pending)   ← frontier
   ○ approve-protocol     (pending, human-go)
-  ○ review-search        (pending)
-  ○ review-snowball      (pending)
+  ○ review-search        (pending, tool)
+  ○ review-screen        (pending)
+  ○ review-snowball      (pending, tool)
+  ○ review-curate        (pending)
   ○ coverage-gate        (pending, human-go)
 ```
 
@@ -298,9 +301,11 @@ right, approve the gate:
 rv dag approve review-scope-xling-transfer-phase1 approve-protocol
 ```
 
-Once you approve, I'll dispatch the researcher for `review-search`, then `review-snowball`
-(the saturation loop), and surface `coverage-gate` for your final review before synthesis
-begins.
+Once you approve, `review-search` (a deterministic width-sweep tool node) fires, then
+the researcher screens the hits (`review-screen`), then `review-snowball` (the
+deterministic saturation walk) runs, the researcher curates the raw corpus
+(`review-curate`), and I'll surface `coverage-gate` for your final review before
+Phase-2 synthesis begins.
 
 ---
 
@@ -321,21 +326,38 @@ No run executes until the human has approved both the plan and the harness.
 - Irreversible steps (search, run) are gated behind explicit human approval.
 - The crew cannot self-approve: human-go gates are the operator's decision, not Alfred's.
 
-## The two canonical loops
+## The three canonical loops
 
-Research Vault ships two research-loop shapes, discoverable via `rv dag templates`:
+Research Vault ships three research-loop shapes, discoverable via `rv dag templates`:
 
-### Research loop — pre-registration enforced
+### Experiment loop — pre-registration enforced
 
-The research loop enforces pre-registration: the `run` node cannot fire until
-the pre-registration note is filed. This turns a discipline into a structural
-constraint. Start one with `rv experiment <project> new <id> --question '...'`.
+The experiment loop enforces pre-registration: the `run` node cannot fire until
+the pre-registration plan has been critiqued and frozen, and each main's harness
+is reviewed independently before its own `human-go-harness-<main>` gate. Start
+one with `rv experiment <project> new <id> --question '...'`.
 
-### Lit-review loop — OKF coverage gate
+### Lit-review loop — pre-registered, saturation-gated
 
-Every in-scope paper must have a `literature/<key>.md` note before synthesis begins.
-The `okf-coverage-gate` human-go node blocks until all distill nodes succeed.
-Start one with `rv review <project> new <scope> --question '...'`.
+The protocol (question, seed queries, inclusion/exclusion, and a required
+counter-position) must be approved at `approve-protocol` before any search fires
+(the L-2 anti-fishing gate). A deterministic width-sweep (`review-search`) is
+screened by a thin agent judgment layer (`review-screen`); a deterministic
+both-direction snowball walk (`review-snowball`) then runs to saturation and is
+concept-tagged and curated (`review-curate`) into the final corpus. The
+`coverage-gate` human-go node is the Phase-2 boundary: every in-scope paper must
+have a relate slot or be recorded MENTION-ONLY before `rv review <project>
+expand <scope>` fans out the per-paper `relate-*` nodes. Start one with
+`rv review <project> new <scope> --question '...'`.
+
+### Manuscript loop — type-generic, gated on structural + semantic fidelity
+
+Transforms the OKF pillar (`notes/`) into a submittable document. Each
+manuscript type may declare its own Phase-1 (e.g. the `lit-review` type's
+framework-selection sub-loop, gated on `approve-framework`); every type shares
+a Phase-2 terminal `approve-manuscript` gate covering structural gates, fidelity
+gates, and the review-revise board. Start one with `rv manuscript <project> new
+<slug> --type <type>`.
 
 ## Adding a real project
 
