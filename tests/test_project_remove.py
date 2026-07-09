@@ -88,6 +88,12 @@ def demo_project(rv_instance: Path) -> Path:
     assert rc == 0
     _git(src, "remote", "add", "origin", str(bare))
     _git(src, "push", "-q", "-u", "origin", "main")
+    # `cmd_new` does not itself invoke `rv build agents-dir` — fabricate the
+    # per-project crew-memory dir the same way a real build pass would, so
+    # the .agents/<slug>/ artifact (V2 in the design's inventory) is real.
+    agents_dir = rv_instance / ".agents" / "demo"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / "engineer.md").write_text("# engineer hat\n", encoding="utf-8")
     reset_config_cache()
     load_config(reload=True)
     return rv_instance

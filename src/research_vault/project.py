@@ -649,6 +649,18 @@ def cmd_new(
         return 1
 
 
+def _archive_root() -> Path:
+    """Return the root directory for local-only archives (crew memory, etc.).
+
+    Override via ``RV_ARCHIVE_ROOT`` (test isolation; takes priority).
+    Default: ``~/vault-archive/`` (Decision D2, 2026-07-08-rv-project-remove.md §7).
+    """
+    env = os.environ.get("RV_ARCHIVE_ROOT")
+    if env:
+        return Path(env)
+    return Path.home() / "vault-archive"
+
+
 def _rollback_registry(config_path: Path, name: str) -> None:
     """Un-append the [projects.<name>] section from the config file.
 
@@ -897,6 +909,485 @@ def cmd_edges(
     return 0
 
 
+# ---------------------------------------------------------------------------
+# project remove — clean local teardown (the reversal of `new`/`add`)
+# ---------------------------------------------------------------------------
+#
+# Design: docs/superpowers/specs/2026-07-08-rv-project-remove.md (Wren, Architect).
+# Grounded reversal of every artifact `cmd_new`/`cmd_add` stand up (R1-R9 in the
+# design's inventory).  rv owns the RV-SIDE teardown authoritatively and emits a
+# structured ``VAULT-TEARDOWN`` handoff for the thin `vault project remove` to
+# consume (projects.json un-insert via held human-go PR, hub-clone removal,
+# deploy suppression) — rv never writes projects.json or touches a hub clone.
+#
+# THE load-bearing guard (§3.3 of the design): because GitHub preserves all
+# pushed work, local removal is reversible (re-clone) EXCEPT for anything not
+# yet pushed.  So before clearing worktrees or purging the local repo, we
+# enumerate uncommitted/untracked files, unpushed commits, un-pushed branches,
+# and stash entries — REFUSE (fail-closed) if any are found, printing the exact
+# at-risk manifest.  ``--force`` downgrades a REFUSE into a typed confirmation
+# (the operator sees the manifest and types the slug) — never a silent bypass.
+
+_LIVE_DAG_STATUSES = frozenset({"dispatched", "running", "awaiting-go"})
+
+
+def _git_out(args: list[str], *, cwd: Path) -> tuple[int, str]:
+    """Run a git command in *cwd*; return (returncode, stdout stripped)."""
+    r = subprocess.run(
+        ["git", "-C", str(cwd)] + args, capture_output=True, text=True,
+    )
+    return r.returncode, r.stdout.strip()
+
+
+def _repo_uncommitted_issues(repo: Path) -> list[str]:
+    """Return at-risk-work issue lines for uncommitted/untracked content in *repo*."""
+    if not repo.exists() or not (repo / ".git").exists():
+        return []
+    rc, out = _git_out(["status", "--porcelain"], cwd=repo)
+    if rc != 0 or not out:
+        return []
+    n = len(out.splitlines())
+    return [f"{repo}: {n} uncommitted/untracked file(s) not on GitHub"]
+
+
+def _repo_branch_and_stash_issues(repo: Path) -> list[str]:
+    """Return at-risk-work issue lines for stashes and un-pushed/ahead branches.
+
+    Run ONCE at the repo root — a git worktree shares the same object DB and
+    ref namespace, so branch/stash state is visible (and identical) from any
+    worktree of the same repo.  Calling this per-worktree would double-report.
+    """
+    issues: list[str] = []
+    if not repo.exists() or not (repo / ".git").exists():
+        return issues
+
+    rc, out = _git_out(["stash", "list"], cwd=repo)
+    if rc == 0 and out:
+        n = len(out.splitlines())
+        issues.append(f"{repo}: {n} stash entrie(s) — stashes are never on GitHub")
+
+    rc, out = _git_out(
+        ["for-each-ref", "--format=%(refname:short)|%(upstream:short)|%(upstream:track)", "refs/heads"],
+        cwd=repo,
+    )
+    if rc == 0:
+        for line in out.splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("|")
+            branch = parts[0] if len(parts) > 0 else ""
+            upstream = parts[1] if len(parts) > 1 else ""
+            track = parts[2] if len(parts) > 2 else ""
+            if not upstream:
+                issues.append(
+                    f"{repo}: branch {branch!r} has no upstream — exists only locally, push or lose it"
+                )
+            elif "ahead" in track:
+                issues.append(
+                    f"{repo}: branch {branch!r} has commits not on GitHub {track} — push before removing"
+                )
+    return issues
+
+
+def _open_prs_warning(repo: Path) -> str | None:
+    """Return an informational (non-blocking) note about open PRs, or None.
+
+    Read-only ``gh pr list`` probe.  This is a WARN, never a REFUSE — the PR
+    branch itself is already on GitHub.  Absence of ``gh`` (or auth) degrades
+    silently: this is awareness-only, not a safety gate.
+    """
+    try:
+        r = subprocess.run(
+            ["gh", "pr", "list", "--state", "open", "--json", "number,headRefName"],
+            cwd=str(repo), capture_output=True, text=True, timeout=10,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        prs = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not prs:
+        return None
+    return f"{len(prs)} open PR(s) on the GitHub remote (already pushed — not at risk)."
+
+
+def _worktree_paths(repo: Path, cfg: Config) -> list[Path]:
+    """Enumerate this repo's worktrees (reuses wt._wt_home_for's location convention)."""
+    from . import wt as wt_mod
+    wt_home = wt_mod._wt_home_for(repo, cfg)
+    if not wt_home.exists():
+        return []
+    return sorted(p for p in wt_home.iterdir() if p.is_dir())
+
+
+def _project_dag_runs(cfg: Config, slug: str) -> list[tuple[str, "Any"]]:
+    """Return [(run_id, RunState)] for DAG runs whose manifest lives under this
+    project's repo root or notes dir.  Matching is by path prefix — the
+    manifest_path a review/experiment/manuscript loop node writes always
+    resolves under the project's own tree."""
+    from .dag.store import RunStore
+
+    repo_root = str(cfg.project_repo_root(slug))
+    notes_dir = str(cfg.project_notes_dir(slug))
+    store = RunStore.from_config(cfg)
+    matches = []
+    for run_id in store.list_runs():
+        try:
+            rs = store.load(run_id)
+        except Exception:
+            continue
+        mp = str(Path(rs.manifest_path))
+        if mp.startswith(repo_root) or mp.startswith(notes_dir):
+            matches.append((run_id, rs))
+    return matches
+
+
+def _dag_run_is_live(run_state: "Any") -> bool:
+    return any(
+        ns.get("status") in _LIVE_DAG_STATUSES
+        for ns in run_state.node_states.values()
+    )
+
+
+def _typed_confirm(slug: str, prompt: str, input_fn) -> bool:
+    """Show *prompt* (the at-risk manifest) and require the operator to type
+    the project slug to proceed.  Any other input (including EOF from a
+    non-interactive context) is treated as a decline — fail-closed."""
+    print(prompt)
+    try:
+        answer = input_fn(f"Type {slug!r} to proceed anyway: ")
+    except EOFError:
+        answer = ""
+    return answer.strip() == slug
+
+
+def _yes_no_confirm(prompt: str, input_fn) -> bool:
+    try:
+        answer = input_fn(prompt)
+    except EOFError:
+        answer = ""
+    return answer.strip().lower() in ("y", "yes")
+
+
+def _build_removal_plan(cfg: Config, slug: str) -> dict[str, Any]:
+    """Resolve every artifact `cmd_remove` will touch, BEFORE any mutation.
+
+    Returns a plan dict consumed by both --dry-run printing and the real
+    execution path, so the two never drift.
+    """
+    proj = cfg.project(slug)  # raises KeyError if unknown
+    repo = cfg.project_repo_root(slug)
+    notes_dir = cfg.project_notes_dir(slug)
+    control_file = cfg.project_control_file(slug)
+    tasks_dir = cfg.project_tasks_dir(slug)
+    agents_dir_slug = cfg.agents_dir / slug
+    worktrees = _worktree_paths(repo, cfg)
+
+    from .project_edges import peers_of
+    peers = sorted(peers_of(cfg, slug))
+
+    dag_runs = _project_dag_runs(cfg, slug)
+    live_runs = [rid for rid, rs in dag_runs if _dag_run_is_live(rs)]
+    terminal_runs = [(rid, rs) for rid, rs in dag_runs if not _dag_run_is_live(rs)]
+
+    from . import task as task_mod
+    tasks = task_mod.cmd_list(slug, config=cfg) if tasks_dir.exists() else []
+    in_flight_tasks = [
+        c["path"].stem for c in tasks if c["fields"].get("status") == "in_progress"
+    ]
+
+    from .control import _detect_github_repo
+    github_repo = _detect_github_repo(None, cwd=repo) if repo.exists() else None
+
+    guard_issues = list(_repo_uncommitted_issues(repo))
+    guard_issues += _repo_branch_and_stash_issues(repo)
+    for wt_path in worktrees:
+        guard_issues += _repo_uncommitted_issues(wt_path)
+
+    return {
+        "slug": slug,
+        "proj": proj,
+        "repo": repo,
+        "notes_dir": notes_dir,
+        "control_file": control_file,
+        "tasks_dir": tasks_dir,
+        "agents_dir_slug": agents_dir_slug,
+        "worktrees": worktrees,
+        "peers": peers,
+        "dag_runs": dag_runs,
+        "live_runs": live_runs,
+        "terminal_runs": terminal_runs,
+        "tasks": tasks,
+        "in_flight_tasks": in_flight_tasks,
+        "github_repo": github_repo,
+        "guard_issues": guard_issues,
+        "open_pr_warning": _open_prs_warning(repo) if repo.exists() and github_repo else None,
+    }
+
+
+def _print_removal_plan(plan: dict[str, Any], *, purge_repo: bool, purge_agents: bool) -> None:
+    slug = plan["slug"]
+    print(f"rv project remove {slug} — plan:")
+    print(f"  [default] deregister [projects.{slug}] from research_vault.toml")
+    print(f"  [default] archive control/{slug}.md -> control/_archive/")
+    if plan["peers"]:
+        print(f"  [default] prune edges: {slug} <-> {', '.join(plan['peers'])}")
+    else:
+        print(f"  [default] prune edges: (none declared)")
+    if plan["worktrees"]:
+        names = ", ".join(p.name for p in plan["worktrees"])
+        print(f"  [default, guarded] clear worktrees: {names}")
+    else:
+        print(f"  [default] clear worktrees: (none)")
+    if plan["tasks"]:
+        print(f"  [default] archive {len(plan['tasks'])} task card(s)")
+        if plan["in_flight_tasks"]:
+            print(f"    FLAG: in-flight (status=in_progress): {', '.join(plan['in_flight_tasks'])}")
+    if plan["dag_runs"]:
+        print(f"  [default, guarded] archive DAG run(s): {', '.join(rid for rid, _ in plan['terminal_runs'])}")
+        if plan["live_runs"]:
+            print(f"    REFUSE (live/provisional): {', '.join(plan['live_runs'])}")
+    print(f"  [default] suppress deploy/mirror (falls out of deregister)")
+    print(f"  repo: {plan['repo']}  {'PURGE (--purge-repo)' if purge_repo else 'left intact'}")
+    print(
+        f"  .agents/{slug}/: "
+        f"{'archive to ' + str(_archive_root()) + ' (--purge-agents)' if purge_agents else 'left intact'}"
+    )
+    print(f"  github: {plan['github_repo'] or '(no remote detected)'} — PRESERVED, never deleted")
+    if plan["guard_issues"]:
+        print("\n  UNPUSHED-WORK GUARD — at risk (blocks worktree-clean / --purge-repo):")
+        for issue in plan["guard_issues"]:
+            print(f"    - {issue}")
+    if plan["open_pr_warning"]:
+        print(f"  NOTE: {plan['open_pr_warning']}")
+
+
+def _print_vault_teardown_handoff(plan: dict[str, Any]) -> None:
+    slug = plan["slug"]
+    github_repo = plan["github_repo"] or "(no remote detected)"
+    print(f"\n⟦VAULT-TEARDOWN {slug}⟧")
+    print(f"  projects.json:  un-insert {slug!r}  -> held human-go PR (protected SSOT)")
+    print(f"  agents-dir:     {plan['agents_dir_slug']}  -> archive (has crew memory)")
+    print(f"  hub-clone:      <hub clone path>  -> remove IF clone_sync classifies IN_SYNC; else FLAG")
+    print(f"  deploy/mirror:  suppressed by deregister; external mirror teardown = manual")
+    print(f"  github-repo:    {github_repo}  -> PRESERVED, untouched (opt --archive-github = gh repo archive; never deleted)")
+
+
+def _archive_control_file(cfg: Config, slug: str) -> None:
+    control_file = cfg.project_control_file(slug)
+    if not control_file.exists():
+        return
+    archive_dir = cfg.control_dir / "_archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    dest = archive_dir / f"{slug}.md"
+    if dest.exists():
+        import datetime
+        dest = archive_dir / f"{slug}-{datetime.date.today().isoformat()}.md"
+    shutil.move(str(control_file), str(dest))
+    print(f"  archived: control/{slug}.md -> {dest}")
+    sidecar = control_file.parent / (control_file.stem + ".archive.md")
+    if sidecar.exists():
+        shutil.move(str(sidecar), str(archive_dir / sidecar.name))
+
+
+def _archive_tasks(cfg: Config, slug: str, tasks: list[dict[str, Any]]) -> None:
+    if not tasks:
+        return
+    archive_dir = cfg.tasks_dir / "_archive" / slug
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    for card in tasks:
+        src_path: Path = card["path"]
+        if not src_path.exists():
+            continue
+        shutil.move(str(src_path), str(archive_dir / src_path.name))
+    print(f"  archived: {len(tasks)} task card(s) -> {archive_dir}")
+
+
+def _archive_dag_runs(cfg: Config, terminal_runs: list[tuple[str, "Any"]]) -> None:
+    if not terminal_runs:
+        return
+    from .dag.store import RunStore
+    store = RunStore.from_config(cfg)
+    archive_dir = cfg.state_dir / "dag" / "_archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    for run_id, _rs in terminal_runs:
+        src_path = cfg.state_dir / "dag" / f"{run_id}.json"
+        if src_path.exists():
+            shutil.move(str(src_path), str(archive_dir / src_path.name))
+    print(f"  archived: {len(terminal_runs)} DAG run(s) -> {archive_dir}")
+
+
+def cmd_remove(
+    slug: str,
+    *,
+    dry_run: bool = False,
+    purge_repo: bool = False,
+    purge_agents: bool = False,
+    archive_github: bool = False,
+    force: bool = False,
+    config_path: Path | None = None,
+    input_fn: Any = input,
+) -> int:
+    """Clean LOCAL teardown for a registered project — the reversal of `new`/`add`.
+
+    Default (no flags) is NON-destructive: deregisters, prunes edges, archives
+    the control file, clears worktrees (guarded), archives tasks/DAG runs
+    (guarded).  Repo, `.agents/<slug>/`, and the GitHub remote are left intact.
+
+    --dry-run prints the full plan and mutates nothing.
+    --purge-repo removes the local checkout (guard-gated; GitHub preserved).
+    --purge-agents archives (never deletes) `.agents/<slug>/`.
+    --archive-github runs the non-destructive `gh repo archive` (opt-in).
+    --force downgrades a guard REFUSE into a typed confirmation.
+
+    Returns 0 on a fully-completed run (including --dry-run); 1 if anything
+    was blocked/refused (partial teardown) or the project is unknown.
+    """
+    if config_path is None:
+        config_path = _find_config_path()
+    if config_path is None:
+        print("rv project remove: no research_vault.toml found.", file=sys.stderr)
+        return 1
+
+    try:
+        cfg = load_config(reload=True)
+    except Exception as e:
+        print(f"rv project remove: config error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        plan = _build_removal_plan(cfg, slug)
+    except KeyError as e:
+        print(f"rv project remove: {e}", file=sys.stderr)
+        return 1
+
+    if dry_run:
+        _print_removal_plan(plan, purge_repo=purge_repo, purge_agents=purge_agents)
+        _print_vault_teardown_handoff(plan)
+        return 0
+
+    _print_removal_plan(plan, purge_repo=purge_repo, purge_agents=purge_agents)
+    print()
+
+    blocked = False
+
+    # ── Guard resolution: default worktree-clean + --purge-repo are gated ──
+    guard_clean = not plan["guard_issues"]
+    proceed_destructive = guard_clean
+    if not guard_clean:
+        manifest = "UNPUSHED-WORK GUARD tripped — at risk:\n" + "\n".join(
+            f"  - {i}" for i in plan["guard_issues"]
+        )
+        if force:
+            proceed_destructive = _typed_confirm(slug, manifest, input_fn)
+            if not proceed_destructive:
+                print(f"rv project remove: declined — worktrees/repo left untouched.")
+                blocked = True
+        else:
+            print(f"rv project remove: REFUSE — {manifest}")
+            print("  Push/commit the above, or pass --force to confirm anyway.")
+            blocked = True
+
+    # ── Worktree clearing (default, guarded) ────────────────────────────────
+    if plan["worktrees"]:
+        if proceed_destructive:
+            from . import wt as wt_mod
+            wt_mod.cmd_clean(cfg, project=slug)
+        else:
+            blocked = True
+
+    # ── Repo purge (flag-gated, guarded, single confirm) ────────────────────
+    if purge_repo:
+        if not proceed_destructive:
+            print(f"rv project remove: --purge-repo REFUSED (unpushed-work guard tripped).")
+            blocked = True
+        else:
+            confirmed = force or _yes_no_confirm(
+                f"Delete local {slug!r} checkout at {plan['repo']}? "
+                "(GitHub preserved; re-clonable) [y/N] ",
+                input_fn,
+            )
+            if confirmed:
+                shutil.rmtree(plan["repo"], ignore_errors=True)
+                print(f"  purged: local checkout {plan['repo']} (re-clone from GitHub to restore)")
+            else:
+                print(f"rv project remove: --purge-repo declined; repo left intact.")
+                blocked = True
+
+    # ── Deregister (safe, always) ────────────────────────────────────────────
+    _rollback_registry(config_path, slug)
+    print(f"  deregistered: [projects.{slug}]")
+    reset_config_cache()
+
+    # ── Prune edges (safe, always) ───────────────────────────────────────────
+    from .project_edges import remove_edge
+    for peer in plan["peers"]:
+        remove_edge(cfg, slug, peer)
+
+    # ── Archive control file (safe, always) ─────────────────────────────────
+    _archive_control_file(cfg, slug)
+
+    # ── Archive tasks (safe, always; flags in-flight) ────────────────────────
+    _archive_tasks(cfg, slug, plan["tasks"])
+
+    # ── Archive DAG runs (safe for terminal; REFUSE for live) ───────────────
+    if plan["live_runs"]:
+        print(f"  REFUSE: live/provisional DAG run(s) not archived: {', '.join(plan['live_runs'])}")
+        print("    (don't tear down a running experiment — charter §5)")
+        blocked = True
+    _archive_dag_runs(cfg, plan["terminal_runs"])
+
+    # ── Purge agents (flag-gated, always archive-not-delete) ────────────────
+    if purge_agents:
+        agents_src = plan["agents_dir_slug"]
+        if agents_src.exists():
+            confirmed = force or _typed_confirm(
+                slug,
+                f"Archive .agents/{slug}/ (crew memory, no remote copy) to {_archive_root()}?",
+                input_fn,
+            )
+            if confirmed:
+                import datetime
+                dest = _archive_root() / f"{slug}-{datetime.date.today().isoformat()}"
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(agents_src), str(dest))
+                print(f"  archived: .agents/{slug}/ -> {dest}")
+            else:
+                print(f"rv project remove: --purge-agents declined; .agents/{slug}/ left intact.")
+                blocked = True
+
+    # ── Archive-github (opt-in, non-destructive) ─────────────────────────────
+    if archive_github:
+        github_repo = plan["github_repo"]
+        if not github_repo:
+            print("rv project remove: --archive-github requested but no GitHub remote detected.")
+        else:
+            try:
+                r = subprocess.run(
+                    ["gh", "repo", "archive", github_repo, "--yes"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if r.returncode == 0:
+                    print(f"  archived on GitHub: {github_repo} (non-destructive, un-archivable)")
+                else:
+                    print(
+                        f"rv project remove: gh repo archive failed ({r.stderr.strip()}). "
+                        f"Manual step: gh repo archive {github_repo}"
+                    )
+            except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+                print(
+                    f"rv project remove: gh unavailable. "
+                    f"Manual step: gh repo archive {github_repo}"
+                )
+
+    _print_vault_teardown_handoff(plan)
+
+    return 1 if blocked else 0
+
+
 def _print_next_steps(name: str, source_path: Path, gd_installed: bool) -> None:
     """Print the discovery/next-steps surface after a successful `project new`.
 
@@ -1072,6 +1563,38 @@ def build_parser(
         help="Overwrite an existing source dir and registry entry (destructive).",
     )
 
+    # remove — clean local teardown (the reversal of `new`/`add`)
+    rm_p = sub.add_parser(
+        "remove",
+        help=(
+            "Clean LOCAL teardown for a registered project (deregister + prune "
+            "edges + archive control/tasks/DAG-runs + clear worktrees). "
+            "Default is NON-destructive: repo, .agents/<slug>/, and GitHub are "
+            "left intact. Emits a VAULT-TEARDOWN handoff for the vault side."
+        ),
+    )
+    rm_p.add_argument("slug", help="Project slug to tear down.")
+    rm_p.add_argument(
+        "--dry-run", action="store_true", default=False,
+        help="Print the full plan; mutate nothing.",
+    )
+    rm_p.add_argument(
+        "--purge-repo", action="store_true", default=False,
+        help="Remove the local repo checkout (guard-gated; GitHub preserved — re-clonable).",
+    )
+    rm_p.add_argument(
+        "--purge-agents", action="store_true", default=False,
+        help="Archive (never delete) .agents/<slug>/ crew memory — the one no-remote-copy artifact.",
+    )
+    rm_p.add_argument(
+        "--archive-github", action="store_true", default=False,
+        help="Run the non-destructive `gh repo archive` on the GitHub remote (off by default).",
+    )
+    rm_p.add_argument(
+        "--force", action="store_true", default=False,
+        help="Downgrade an unpushed-work guard REFUSE into a typed confirmation (never a silent bypass).",
+    )
+
     return p
 
 
@@ -1127,6 +1650,16 @@ def run(args: argparse.Namespace) -> int:
             roster=DEFAULT_ROSTER,
             zotero=args.zotero,
             git_discipline=args.git_discipline,
+            force=args.force,
+        )
+
+    elif args.project_cmd == "remove":
+        return cmd_remove(
+            slug=args.slug,
+            dry_run=args.dry_run,
+            purge_repo=args.purge_repo,
+            purge_agents=args.purge_agents,
+            archive_github=args.archive_github,
             force=args.force,
         )
 
