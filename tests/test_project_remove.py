@@ -107,6 +107,47 @@ def _cfg(rv_instance: Path):
     return load_config(reload=True)
 
 
+@pytest.fixture
+def cs_demo_project(rv_instance: Path) -> Path:
+    """A CS-convention project: `source_dir = <repo>/notes` (structural
+    marker per `config.resolve_repo_root` — `source_dir`'s basename is
+    exactly "notes"), root-level artifacts live at `<repo>` = `source_dir.parent`.
+
+    `cmd_new` only stands up the flat convention (`git init` directly at
+    `source_dir`), so this fixture hand-builds the CS layout and registers
+    it via `cmd_add` directly — mirroring how a real adopter's existing
+    CS-shaped repo gets added to the vault.
+    """
+    repo_root = rv_instance / "projects" / "cs-demo"
+    notes_dir = repo_root / "notes"
+    bare = rv_instance / "bare-cs-demo.git"
+    subprocess.run(
+        ["git", "init", "-q", "--bare", "--initial-branch=main", str(bare)],
+        check=True, capture_output=True,
+    )
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    _git(repo_root, "init", "-q", "--initial-branch=main")
+    subprocess.run(
+        ["git", "-C", str(repo_root), "config", "user.email", "rv-test@example.invalid"],
+        capture_output=True, text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "config", "user.name", "rv test"],
+        capture_output=True, text=True,
+    )
+    (repo_root / "pointers.md").write_text("# pointers\n", encoding="utf-8")
+    (notes_dir / ".gitkeep").write_text("", encoding="utf-8")
+    _git(repo_root, "add", "-A")
+    _git(repo_root, "commit", "-q", "-m", "init")
+    _git(repo_root, "remote", "add", "origin", str(bare))
+    _git(repo_root, "push", "-q", "-u", "origin", "main")
+
+    cmd_add("cs-demo", "csd", str(notes_dir), DEFAULT_ROSTER)
+    reset_config_cache()
+    load_config(reload=True)
+    return rv_instance
+
+
 # ---------------------------------------------------------------------------
 # 1. Default (no flags) — non-destructive stand-down, clean repo
 # ---------------------------------------------------------------------------
@@ -388,6 +429,104 @@ class TestVaultTeardownHandoff:
         assert "deploy" in out or "mirror" in out
         assert "github-repo" in out
         assert "PRESERVED" in out
+
+
+# ---------------------------------------------------------------------------
+# 10. CS-convention layout (`source_dir = <repo>/notes`) — guard/action
+#     path-helper parity.  `wt.cmd_add`/`wt.cmd_clean` create/clear worktrees
+#     off `wt._resolve_repo` (= `source_dir`), so the removal-plan's guard
+#     enumeration MUST use the same path — not `cfg.project_repo_root` (which
+#     differs on this layout: `source_dir.parent`).  Regression for the
+#     silent-data-loss BLOCK where `--purge-repo` rmtree'd a repo whose
+#     nested worktree (with uncommitted work) the guard never saw.
+#
+#     NOTE on the message-content assertions below: `capsys.readouterr()` is
+#     called immediately after `wt.cmd_add` (which itself prints "Created
+#     worktree: <full wt_path>") so that buffer is drained BEFORE invoking
+#     `cmd_remove` — otherwise an assertion like `str(wt_path) in out` would
+#     pass vacuously off the worktree-creation echo, never actually proving
+#     the *guard* named the dirty worktree.
+# ---------------------------------------------------------------------------
+
+class TestCsLayoutWorktreeGuard:
+    def test_build_removal_plan_sees_the_real_cs_worktree(self, cs_demo_project: Path) -> None:
+        """Definitive proof `_build_removal_plan` enumerates worktrees off
+        the SAME path `wt.cmd_add`/`wt.cmd_clean` operate on. Immune to the
+        coincidental top-level self-trip (a bare `notes-wt/` dir shows up as
+        untracked in the repo-root scan regardless of its contents) that
+        would otherwise mask this specific defect."""
+        cfg = _cfg(cs_demo_project)
+        from research_vault import wt as wt_mod
+        from research_vault.project import _build_removal_plan
+        wt_path = Path(wt_mod.cmd_add("dirty-task", cfg, project="cs-demo"))
+        (wt_path / "scratch.txt").write_text("uncommitted\n")
+
+        plan = _build_removal_plan(cfg, "cs-demo")
+
+        assert plan["worktrees"] == [wt_path], (
+            f"plan must enumerate the real worktree {wt_path}, got {plan['worktrees']}"
+        )
+        assert any(str(wt_path) in issue for issue in plan["guard_issues"]), (
+            "guard_issues must name the specific dirty worktree, not just the "
+            f"repo root; got {plan['guard_issues']}"
+        )
+
+    def test_uncommitted_worktree_refuses_default_clean(
+        self, cs_demo_project: Path, capsys
+    ) -> None:
+        cfg = _cfg(cs_demo_project)
+        from research_vault import wt as wt_mod
+        wt_path = Path(wt_mod.cmd_add("dirty-task", cfg, project="cs-demo"))
+        # Sanity: this worktree lives under source_dir-wt (notes-wt), NOT
+        # repo_root-wt — proves the fixture actually exercises the CS shape.
+        assert wt_path.parent.name == "notes-wt", wt_path
+        (wt_path / "scratch.txt").write_text("uncommitted\n")
+        capsys.readouterr()  # drain the "Created worktree: <wt_path>" echo
+
+        rc = cmd_remove("cs-demo")
+
+        assert wt_path.exists(), "dirty CS-layout worktree must NOT be cleared"
+        out = capsys.readouterr().out
+        # Must name the specific dirty worktree — not merely the coincidental
+        # top-level "notes-wt/ is an untracked dir" self-trip (which fires
+        # regardless of whether the worktree's own contents are dirty).
+        assert str(wt_path) in out, out
+        assert rc != 0
+
+    def test_purge_repo_refuses_on_cs_layout_nested_worktree_with_unpushed_work(
+        self, cs_demo_project: Path, capsys
+    ) -> None:
+        """The exact silent-data-loss repro: drive --purge-repo to the point
+        of rmtree with a dirty nested (notes-wt) worktree present. Must
+        REFUSE and the file must survive."""
+        repo_root = cs_demo_project / "projects" / "cs-demo"
+        cfg = _cfg(cs_demo_project)
+        from research_vault import wt as wt_mod
+        wt_path = Path(wt_mod.cmd_add("dirty-task", cfg, project="cs-demo"))
+        marker = wt_path / "unpushed-work.txt"
+        marker.write_text("do not lose me\n")
+        capsys.readouterr()  # drain the "Created worktree: <wt_path>" echo
+
+        rc = cmd_remove("cs-demo", purge_repo=True, input_fn=lambda _p: "y")
+
+        out = capsys.readouterr().out
+        assert str(wt_path) in out, out
+        assert rc != 0
+        assert repo_root.exists(), "repo must survive — guard must have refused before rmtree"
+        assert marker.exists(), "uncommitted work in the nested worktree must survive"
+
+    def test_default_worktree_clean_actually_clears_cs_layout_worktree(
+        self, cs_demo_project: Path
+    ) -> None:
+        cfg = _cfg(cs_demo_project)
+        from research_vault import wt as wt_mod
+        wt_path = Path(wt_mod.cmd_add("clean-task", cfg, project="cs-demo"))
+        assert wt_path.exists()
+
+        rc = cmd_remove("cs-demo")
+
+        assert not wt_path.exists(), "clean CS-layout worktree must be cleared by default"
+        assert rc == 0
 
 
 # ---------------------------------------------------------------------------

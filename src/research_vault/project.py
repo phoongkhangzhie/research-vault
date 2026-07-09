@@ -939,14 +939,37 @@ def _git_out(args: list[str], *, cwd: Path) -> tuple[int, str]:
     return r.returncode, r.stdout.strip()
 
 
-def _repo_uncommitted_issues(repo: Path) -> list[str]:
-    """Return at-risk-work issue lines for uncommitted/untracked content in *repo*."""
+def _repo_uncommitted_issues(repo: Path, *, exclude: Path | None = None) -> list[str]:
+    """Return at-risk-work issue lines for uncommitted/untracked content in *repo*.
+
+    ``exclude``: a path whose entry should be dropped from the scan — used
+    for the worktree home directory. On the CS convention (`source_dir =
+    <repo>/notes`), the worktree home (`<repo>/notes-wt`) is NESTED inside
+    `repo`, so it would otherwise self-trip this guard merely by existing
+    (git reports it as a bare untracked dir: `?? notes-wt/`) even when every
+    worktree inside it is perfectly clean. Its contents are scanned
+    separately, per-worktree, by the caller — never silently unscanned.
+    """
     if not repo.exists() or not (repo / ".git").exists():
         return []
     rc, out = _git_out(["status", "--porcelain"], cwd=repo)
     if rc != 0 or not out:
         return []
-    n = len(out.splitlines())
+    lines = out.splitlines()
+    if exclude is not None:
+        try:
+            rel = str(exclude.resolve().relative_to(repo.resolve()))
+        except ValueError:
+            rel = None
+        if rel is not None:
+            lines = [
+                ln for ln in lines
+                if ln[3:].strip().rstrip("/") != rel
+                and not ln[3:].strip().startswith(rel + "/")
+            ]
+    if not lines:
+        return []
+    n = len(lines)
     return [f"{repo}: {n} uncommitted/untracked file(s) not on GitHub"]
 
 
@@ -1014,10 +1037,19 @@ def _open_prs_warning(repo: Path) -> str | None:
     return f"{len(prs)} open PR(s) on the GitHub remote (already pushed — not at risk)."
 
 
-def _worktree_paths(repo: Path, cfg: Config) -> list[Path]:
-    """Enumerate this repo's worktrees (reuses wt._wt_home_for's location convention)."""
-    from . import wt as wt_mod
-    wt_home = wt_mod._wt_home_for(repo, cfg)
+def _worktree_paths(wt_home: Path) -> list[Path]:
+    """Enumerate worktrees living under *wt_home*.
+
+    ``wt_home`` MUST be resolved the same way `wt.cmd_add`/`wt.cmd_clean` do
+    (`wt._wt_home_for(wt._resolve_repo(cfg, slug), cfg)`) — NOT off
+    `cfg.project_repo_root(slug)`, which differs from `wt._resolve_repo` on
+    the CS convention (`source_dir = <repo>/notes`): `project_repo_root`
+    resolves to `<repo>` while `wt._resolve_repo` resolves to `source_dir`
+    itself, so worktrees actually live at `<repo>/notes-wt`, not `<repo>-wt`.
+    Using the wrong helper here made the guard see zero worktrees (and
+    `--purge-repo` `rmtree` a repo with live uncommitted work still inside
+    it) — see the CS-layout regression tests in test_project_remove.py.
+    """
     if not wt_home.exists():
         return []
     return sorted(p for p in wt_home.iterdir() if p.is_dir())
@@ -1084,7 +1116,15 @@ def _build_removal_plan(cfg: Config, slug: str) -> dict[str, Any]:
     control_file = cfg.project_control_file(slug)
     tasks_dir = cfg.project_tasks_dir(slug)
     agents_dir_slug = cfg.agents_dir / slug
-    worktrees = _worktree_paths(repo, cfg)
+
+    # Worktree home MUST be resolved the same way `wt.cmd_add`/`wt.cmd_clean`
+    # do — off `wt._resolve_repo` (= source_dir), not `cfg.project_repo_root`.
+    # See `_worktree_paths` docstring for why the two diverge on the CS
+    # convention (`source_dir = <repo>/notes`).
+    from . import wt as wt_mod
+    wt_repo = wt_mod._resolve_repo(cfg, slug)
+    wt_home = wt_mod._wt_home_for(wt_repo, cfg)
+    worktrees = _worktree_paths(wt_home)
 
     from .project_edges import peers_of
     peers = sorted(peers_of(cfg, slug))
@@ -1102,7 +1142,7 @@ def _build_removal_plan(cfg: Config, slug: str) -> dict[str, Any]:
     from .control import _detect_github_repo
     github_repo = _detect_github_repo(None, cwd=repo) if repo.exists() else None
 
-    guard_issues = list(_repo_uncommitted_issues(repo))
+    guard_issues = list(_repo_uncommitted_issues(repo, exclude=wt_home))
     guard_issues += _repo_branch_and_stash_issues(repo)
     for wt_path in worktrees:
         guard_issues += _repo_uncommitted_issues(wt_path)
