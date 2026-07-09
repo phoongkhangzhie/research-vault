@@ -136,6 +136,13 @@ class TestCmdAddPersistsIdentifiers:
         assert rc == 0
         out = capsys.readouterr().out
         assert "does not exist yet" in out
+        # The recovery pointer must be actionable and factually correct: nothing
+        # was persisted (the note didn't exist to write into), so the correct
+        # recovery is to re-run `rv research add` (re-resolves + stamps) after
+        # filing the note — NOT `rv research fulltext`, which would just read
+        # the (empty) note and silently degrade to abstract-only.
+        assert "rv research add" in out
+        assert "rv research fulltext" not in out
 
     def test_s2_enrichment_failure_degrades_gracefully(
         self, tmp_path: Path, monkeypatch,

@@ -891,9 +891,10 @@ def cmd_add(args: argparse.Namespace) -> int:
         print(f"Stamped identifiers ({', '.join(sorted(external_ids))}) into {note_path}")
     elif not note_path.is_file():
         print(
-            f"Note {note_path} does not exist yet — file it with `rv note new "
-            f"{project} literature {citekey}` and re-run `rv research fulltext "
-            f"{project} {citekey}` to pull persisted identifiers (no re-resolution).",
+            f"Note {note_path} does not exist yet — nothing was persisted. "
+            f"File it with `rv note new {project} literature {citekey}` and "
+            f"re-run `rv research add {args.ident}` to re-resolve and stamp "
+            "the identifiers.",
         )
     return 0
 
