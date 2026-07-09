@@ -61,6 +61,20 @@ def _oa_pointer_from_work(work: dict[str, Any]) -> tuple[str | None, str | None]
     return oa_url, oa_status
 
 
+def _venue_from_work(work: dict[str, Any]) -> str | None:
+    """journal/conference display name — modern ``primary_location.source``
+    first, falling back to the deprecated top-level ``host_venue`` (older
+    OpenAlex API responses / cached payloads still carry this shape)."""
+    primary = work.get("primary_location") or {}
+    source = primary.get("source") or {}
+    name = (source.get("display_name") or "").strip()
+    if name:
+        return name
+    host = work.get("host_venue") or {}
+    name = (host.get("display_name") or "").strip()
+    return name or None
+
+
 def _work_to_hit(work: dict[str, Any]) -> PaperHit:
     external_ids: dict[str, str] = {}
     oa_id = (work.get("id") or "").rsplit("/", 1)[-1]
@@ -98,6 +112,7 @@ def _work_to_hit(work: dict[str, Any]) -> PaperHit:
         oa_url=oa_url,
         oa_status=oa_status,
         oa_source="openalex" if oa_url else None,
+        venue=_venue_from_work(work),
     )
 
 

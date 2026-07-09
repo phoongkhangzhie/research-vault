@@ -94,6 +94,14 @@ class PaperHit:
     oa_status: str | None = field(default=None, compare=False)
     oa_source: str | None = field(default=None, compare=False)
 
+    # review-screen evidence enrichment (0.3.x, a downstream project's
+    # validation-run finding 2026-07-09): the journal/conference/preprint-
+    # server name, when the
+    # adapter's payload carries one. None (never "") when an adapter has no
+    # such concept (e.g. arXiv preprints with no ``journal_ref``) — carry
+    # what's there, never fabricate a venue.
+    venue: str | None = field(default=None, compare=False)
+
 
 @runtime_checkable
 class SourceAdapter(Protocol):

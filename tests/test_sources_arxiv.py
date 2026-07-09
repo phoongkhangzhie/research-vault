@@ -48,6 +48,27 @@ def test_search_parses_atom_entries(monkeypatch) -> None:
     assert hit.oa_source == "arxiv"
 
 
+ATOM_FEED_WITH_JOURNAL_REF = ATOM_FEED.replace(
+    "<arxiv:doi>10.48550/arXiv.1706.03762</arxiv:doi>",
+    "<arxiv:doi>10.48550/arXiv.1706.03762</arxiv:doi>\n"
+    "    <arxiv:journal_ref>NeurIPS 2017</arxiv:journal_ref>",
+)
+
+
+def test_search_carries_venue_from_journal_ref(monkeypatch) -> None:
+    monkeypatch.setattr(arxiv_mod, "_fetch_atom", lambda query, *, limit: ATOM_FEED_WITH_JOURNAL_REF)
+    adapter = arxiv_mod.ArxivAdapter()
+    hits = adapter.search("attention", limit=5)
+    assert hits[0].venue == "NeurIPS 2017"
+
+
+def test_search_venue_absent_is_none(monkeypatch) -> None:
+    monkeypatch.setattr(arxiv_mod, "_fetch_atom", lambda query, *, limit: ATOM_FEED)
+    adapter = arxiv_mod.ArxivAdapter()
+    hits = adapter.search("attention", limit=5)
+    assert hits[0].venue is None
+
+
 def test_cited_by_not_supported() -> None:
     adapter = arxiv_mod.ArxivAdapter()
     with pytest.raises(NotSupported):

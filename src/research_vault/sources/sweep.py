@@ -304,6 +304,28 @@ def _annotate_hit(
     return _corpus_annotation(paper, notes_index=notes_index, notes_title_index=notes_title_index)
 
 
+def _evidence_snippet(hit: PaperHit, *, max_chars: int = 280) -> str:
+    """Abstract text (or, when absent, an S2 ``tldr``) for a kept row —
+    review-screen evidence enrichment (a downstream project's validation-run
+    finding, 2026-07-09): the screen node was judging the seed-axis call on TITLES
+    ALONE because the abstract never made it into ``_search_hits.md``, even
+    though every adapter that has one already puts it on ``hit.abstract``.
+
+    Falls back to ``hit.raw["tldr"]["text"]`` (S2-only shape) when the
+    abstract is empty — never fabricates evidence when neither is present
+    (an honestly-blank cell, not a placeholder string)."""
+    text = (hit.abstract or "").strip()
+    if not text and isinstance(hit.raw, dict):
+        tldr = hit.raw.get("tldr")
+        if isinstance(tldr, dict):
+            text = (tldr.get("text") or "").strip()
+    text = re.sub(r"\s+", " ", text)
+    text = text.replace("|", "/")
+    if len(text) > max_chars:
+        text = text[: max_chars - 1].rstrip() + "…"
+    return text
+
+
 def write_search_hits(
     result: SweepResult,
     out_path: Path,
@@ -316,11 +338,15 @@ def write_search_hits(
     Per-``(angle,source)`` cell counts (including degraded/errored cells),
     the ranked deduped kept set with ``[NEW]``/``[IN-CORPUS:<citekey>]``
     annotation (mechanical, against the real corpus index — never
-    reinvented) and ``[DERIVATIVE-OF:*]``/``[BELOW-FLOOR:*]`` flags.
+    reinvented), an abstract/tldr evidence snippet + venue/year (when the
+    adapter carried one), and ``[DERIVATIVE-OF:*]``/``[BELOW-FLOOR:*]``
+    flags.
 
     This is the artifact the ``review-screen`` agent node reads to apply the
     frozen protocol's inclusion/exclusion criteria and accept a seed
-    frontier — the tool op writes the mechanical record, the agent judges it.
+    frontier — the tool op writes the mechanical record, the agent judges
+    it. The evidence columns exist so that judgment is made on real
+    evidence (abstract, venue, year), not on titles alone.
     """
     lines: list[str] = ["# Search hits\n"]
 
@@ -341,9 +367,27 @@ def write_search_hits(
             lines.append(f"- {e}")
         lines.append("")
 
+    # BELOW-FLOOR discrimination fix: a live run showed the flag firing on
+    # ~100% of kept rows (zero signal — every row looked "boundary"). It's
+    # only informative when it DIFFERENTIATES within the kept set: suppress
+    # it entirely (never per-row-silently — always with a loud, explicit
+    # note) when every row shares the same below_floor=True value across
+    # more than one kept hit — that is exactly the non-discriminating case.
+    total_kept = len(result.kept)
+    below_count = sum(1 for d in result.kept if d.hit.below_floor)
+    below_floor_suppressed = total_kept > 1 and below_count == total_kept
+
     lines.append("## Kept (ranked, deduped, budget-selected)\n")
-    lines.append("| Annotation | Paper-id | Title | Flags |")
-    lines.append("|---|---|---|---|")
+    if below_floor_suppressed:
+        lines.append(
+            f"> Note: `[BELOW-FLOOR]` suppressed below — {below_count}/{total_kept} "
+            "kept hits are below the source-independence floor this run, so "
+            "the per-row flag is non-discriminating (zero signal). Treat "
+            "the whole kept set as boundary-sourced; the snowball walk "
+            "should chase all of it.\n"
+        )
+    lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags |")
+    lines.append("|---|---|---|---|---|---|---|")
     for d in result.kept:
         hit = d.hit
         annotation = _annotate_hit(hit, notes_index=notes_index, notes_title_index=notes_title_index)
@@ -351,10 +395,15 @@ def write_search_hits(
         flags: list[str] = []
         if hit.derivative_of is not None:
             flags.append(f"[DERIVATIVE-OF:{hit.derivative_of}]")
-        if hit.below_floor:
+        if hit.below_floor and not below_floor_suppressed:
             flags.append("[BELOW-FLOOR: needs more sources]")
         title = (hit.title or "").replace("|", "/")
-        lines.append(f"| {annotation} | {pid} | {title} | {' '.join(flags)} |")
+        venue = (hit.venue or "").replace("|", "/")
+        year = str(hit.year) if hit.year is not None else ""
+        evidence = _evidence_snippet(hit)
+        lines.append(
+            f"| {annotation} | {pid} | {title} | {venue} | {year} | {evidence} | {' '.join(flags)} |"
+        )
     lines.append("")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,3 +1,52 @@
+## 2026-07-09 (review-search evidence enrichment — `_search_hits.md` no longer judges papers blind on titles)
+
+### Done
+- **The highest-value friction from a downstream project's validation run**:
+  `write_search_hits` (`sources/sweep.py`) carried only `[NEW]`/`[IN-CORPUS]`
+  + id + title per kept row, so the `review-screen` agent node — the thin
+  judgment layer that makes the seed-axis call (in-domain? seeded-model or
+  default?) — was judging on TITLES ALONE, even though the adapters already
+  fetch richer fields.
+  - **Abstract/TL;DR evidence**: `_evidence_snippet()` renders `hit.abstract`
+    (truncated to 280 chars, whitespace-collapsed), falling back to an S2
+    `tldr.text` (added `venue,tldr` to `SemanticScholarAdapter.search`'s
+    `--fields` projection) when the abstract is empty. Never fabricates —
+    an honestly-blank cell when neither is present.
+  - **Venue + Year columns**: added a normalized `PaperHit.venue` field
+    (`compare=False`, like `oa_url`). Populated per-adapter from what's
+    genuinely there: S2's `venue` field (now requested), OpenAlex's
+    `primary_location.source.display_name` (falling back to the deprecated
+    `host_venue.display_name`), PubMed's `fulljournalname`/`source`, and
+    arXiv's `arxiv:journal_ref` (present only for the minority of preprints
+    later published somewhere — blank for the rest, which is the honest
+    common case for a preprint server). `year` was already normalized on
+    `PaperHit` — just wired into the render.
+  - **`[BELOW-FLOOR]` discrimination fix**: the flag was firing on ~100% of
+    kept rows in the live run (zero signal — every row looked "boundary").
+    `write_search_hits` now suppresses the per-row flag when it's
+    non-discriminating (every one of >1 kept rows shares `below_floor=True`)
+    and surfaces the suppression itself with an explicit `> Note:` line
+    (never silently drops the signal, charter §2) instead of rendering a
+    universally-true flag that conveys nothing.
+  - `review_screen_tips` (`review/style.py`) updated to point the agent at
+    the new evidence columns and the suppression-note convention.
+- **Leakage-scan catch**: an early draft of the docstrings referenced the
+  downstream project's codename directly — caught by
+  `test_no_crew_domain_in_scanned_files` (whole-word codename match),
+  rephrased to "a downstream project's validation-run finding."
+
+### Decisions
+- Kept the fix scoped to `sources/sweep.py` + the four source adapters +
+  `review/style.py`'s `review_screen_tips` entry only, per the dispatching
+  brief's coordination note (a concurrent PR touches `review_critic_tips` in
+  the same file).
+- Chose render-layer suppression for `[BELOW-FLOOR]` (a population check
+  inside `write_search_hits`) over changing the floor/ranking semantics in
+  `ranker.py`/`dedup.py` — the deeper root cause (cross-source dedup not
+  merging identities that differ in which external id each adapter
+  populated) is a separate NG-2 dedup investigation, out of this task's
+  scope.
+
 ## 2026-07-09 (docs/catalog reconciled to the shipped 7-node lit-review loop — pre-0.3.0 drift fix)
 
 ### Done

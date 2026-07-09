@@ -56,6 +56,11 @@ def _parse_atom_entry(entry: ET.Element) -> PaperHit:
     arxiv_id = m.group(1) if m else ""
 
     doi = entry.findtext(f"{_ARXIV_NS}doi") or ""
+    # journal_ref: the author-supplied "published as" pointer — present only
+    # for the (minority of) preprints later published somewhere with a
+    # formal venue; absent for the rest, which is the honest common case for
+    # a preprint server (never fabricate one).
+    venue = (entry.findtext(f"{_ARXIV_NS}journal_ref") or "").strip() or None
 
     external_ids: dict[str, str] = {}
     if arxiv_id:
@@ -79,6 +84,7 @@ def _parse_atom_entry(entry: ET.Element) -> PaperHit:
         oa_url=oa_url,
         oa_status="green" if oa_url else None,
         oa_source="arxiv" if oa_url else None,
+        venue=venue,
     )
 
 
