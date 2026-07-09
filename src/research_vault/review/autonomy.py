@@ -844,7 +844,15 @@ def _op_snowball(
     if seed_path.exists():
         seed_ids = _extract_seed_ids_from_screen(seed_path.read_text(encoding="utf-8"))
 
-    result = run_snowball_to_saturation(seed_ids, backstop_waves=backstop_waves)
+    # Resumable / log-as-you-go (2026-07-09): a long snowball walk that gets
+    # dropped mid-flight resumes from its last completed round instead of
+    # restarting from scratch — the checkpoint lives alongside the other
+    # review-dir artifacts and is removed automatically on clean completion.
+    out_dir_path = Path(out_dir)
+    checkpoint_path = out_dir_path / "_snowball_checkpoint.json"
+    result = run_snowball_to_saturation(
+        seed_ids, backstop_waves=backstop_waves, checkpoint_path=checkpoint_path,
+    )
 
     notes_index = None
     notes_title_index = None
@@ -857,7 +865,6 @@ def _op_snowball(
         notes_index = _load_notes_index(literature_dir)
         notes_title_index = _load_notes_title_index(literature_dir)
 
-    out_dir_path = Path(out_dir)
     corpus_raw_path = write_corpus_raw(
         result, out_dir_path / "_corpus_raw.md",
         notes_index=notes_index, notes_title_index=notes_title_index,

@@ -23,18 +23,70 @@ enforced — never a silent regression of the saturation discipline.
 Stdlib only (+ intra-package imports); network access is entirely through
 the injected ``adapter`` (a ``SourceAdapter``), so this module is hermetic
 in tests via a fake adapter — no live network call required.
+
+★ Resumable / log-as-you-go (2026-07-09 — the operator's ask: log as you go
+so a walk is resumable and not lost if the process gets dropped): a walk
+over 20+ seeds x several rounds is many minutes of wall clock and hundreds
+of API calls; a kill at minute 40 of 45 used to lose the entire walk (all
+state lived only in memory, artifacts written only at the very end). When
+``checkpoint_path`` is passed, ROUND-GRANULARITY state (visited-set,
+frontier, accumulated hits, round records, consecutive-zero counter) is
+persisted to that path after every completed round; a re-invocation with
+the SAME path + same seeds/backstop detects the checkpoint and RESUMES
+from the next round — the already-visited papers are never re-fetched
+(the round loop simply starts later; see ``_load_checkpoint``). On clean
+completion (any ``stop_reason``) the checkpoint file is removed. Omitting
+``checkpoint_path`` (or a fresh run with no prior checkpoint on disk)
+behaves exactly as before this feature — fully backward compatible.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+import os
+import sys
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .base import AdapterFetchError, NotSupported, PaperHit, SourceAdapter
 from .dedup import DedupedHit, dedup_hits, identity_key
 from .derivative import count_independent, mark_derivatives
 
 DEFAULT_BACKSTOP_WAVES = 3
+
+# Bump if the on-disk checkpoint shape ever changes incompatibly — a
+# mismatched version is treated exactly like "no checkpoint" (start fresh),
+# never a crash on an old/foreign file (charter §5: reversible, never trust
+# a stale/foreign artifact blindly).
+_CHECKPOINT_VERSION = 1
+
+
+def _default_progress(msg: str) -> None:
+    """Default progress sink — stderr (keeps stdout clean for any caller
+    that parses this process's stdout; mirrors the CLI's own
+    ``print(..., file=sys.stderr)`` convention elsewhere in this codebase)."""
+    print(msg, file=sys.stderr, flush=True)
+
+
+def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+    """Write JSON atomically (tmp file + ``os.replace``) — a kill mid-write
+    must never leave a half-written, corrupt checkpoint on disk."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _load_checkpoint(path: Path) -> dict[str, Any] | None:
+    """Best-effort checkpoint load. A missing, unreadable, or corrupt file
+    is treated as "no checkpoint" — never a hard crash (the walk always has
+    a safe fresh-start fallback)."""
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 @dataclass
@@ -84,6 +136,8 @@ def run_snowball_to_saturation(
     backstop_waves: int = DEFAULT_BACKSTOP_WAVES,
     derivative_threshold: float = 0.6,
     per_round_limit: int = 20,
+    checkpoint_path: Path | str | None = None,
+    progress_cb: Callable[[str], None] | None = None,
 ) -> SnowballResult:
     """Both-direction, multi-round snowball walk to saturation (or the
     guaranteed-termination backstop).
@@ -99,6 +153,19 @@ def run_snowball_to_saturation(
         backstop_waves: the guaranteed-termination cap (SR-LR-1-BACKSTOP).
         derivative_threshold: passed through to ``mark_derivatives``.
         per_round_limit: per-(paper,direction) fetch limit each round.
+        checkpoint_path: when given, round-granularity walk state is
+            persisted here after every completed round, and a PRIOR
+            checkpoint at this same path (matching ``seed_ids`` +
+            ``backstop_waves``) is loaded and RESUMED from — the walk
+            continues from the next round rather than re-fetching anything
+            already visited. Removed on any clean completion. A mismatched
+            or corrupt checkpoint is treated as absent (fresh start) —
+            never a crash. ``None`` (the default) disables checkpointing
+            entirely — unchanged, backward-compatible in-memory-only walk.
+        progress_cb: called with one human-readable line after each
+            completed round (``"round N/backstop: frontier=.. new=..
+            unresolvable=.. corpus=.."``) — liveness for an operator
+            watching a long walk. Defaults to printing to stderr.
 
     Returns:
         A ``SnowballResult`` whose ``stop_reason`` is exactly ``"saturated"``
@@ -138,20 +205,55 @@ def run_snowball_to_saturation(
     # `_annotate_hit`'s existing lazy import below.
     from research_vault.research import _normalize_paper_id_for_asta
 
-    seed_ids = [s for s in seed_ids if s]
-    seen_identities: set[str] = set()
-    visited_pids: set[str] = set(seed_ids)
-    all_hits: list[PaperHit] = []
-    errors: list[str] = []
-    rounds: list[SnowballRoundRecord] = []
-    unresolvable_ids: list[str] = []
-    _unresolvable_seen: set[str] = set()
+    progress = progress_cb or _default_progress
+    ckpt_file = Path(checkpoint_path) if checkpoint_path else None
 
-    frontier = list(seed_ids)
-    consecutive_zero = 0
+    seed_ids = [s for s in seed_ids if s]
+
+    start_round = 1
+    loaded = _load_checkpoint(ckpt_file) if ckpt_file is not None else None
+    if loaded is not None and (
+        loaded.get("version") != _CHECKPOINT_VERSION
+        or set(loaded.get("seed_ids", [])) != set(seed_ids)
+        or loaded.get("backstop_waves") != backstop_waves
+    ):
+        progress(
+            "snowball: checkpoint present but does not match this walk's "
+            "seed_ids/backstop_waves — ignoring it, starting fresh"
+        )
+        loaded = None
+
+    if loaded is not None:
+        seen_identities = set(loaded["seen_identities"])
+        visited_pids = set(loaded["visited_pids"])
+        all_hits = [PaperHit(**h) for h in loaded["all_hits"]]
+        errors = list(loaded["errors"])
+        rounds = [SnowballRoundRecord(**r) for r in loaded["rounds"]]
+        unresolvable_ids = list(loaded["unresolvable_ids"])
+        _unresolvable_seen = set(loaded["unresolvable_seen"])
+        frontier = list(loaded["frontier"])
+        consecutive_zero = loaded["consecutive_zero"]
+        start_round = loaded["completed_round"] + 1
+        progress(
+            f"snowball: resuming from checkpoint after round "
+            f"{loaded['completed_round']}/{backstop_waves} "
+            f"(cumulative so far: {len(all_hits)} hits)"
+        )
+    else:
+        seen_identities = set()
+        visited_pids = set(seed_ids)
+        all_hits = []
+        errors = []
+        rounds = []
+        unresolvable_ids = []
+        _unresolvable_seen = set()
+        frontier = list(seed_ids)
+        consecutive_zero = 0
+
     stop_reason = ""
 
-    for round_num in range(1, backstop_waves + 1):
+    for round_num in range(start_round, backstop_waves + 1):
+        round_frontier_size = len(frontier)
         round_hits: list[PaperHit] = []
         directions_by_identity: dict[str, set[str]] = {}
 
@@ -232,11 +334,40 @@ def run_snowball_to_saturation(
         else:
             consecutive_zero = 0
 
+        progress(
+            f"round {round_num}/{backstop_waves}: frontier={round_frontier_size}, "
+            f"new={independent_new}, unresolvable={len(unresolvable_ids)}, "
+            f"corpus={cumulative_independent}"
+        )
+
         if consecutive_zero >= 2:
             stop_reason = "saturated"
             break
 
         frontier = new_frontier_ids
+
+        # Log-as-you-go (round-granularity checkpoint): persist everything
+        # needed to resume from the NEXT round without re-fetching anything
+        # already visited. Written after the round is fully processed (never
+        # mid-round) — a kill anywhere in round N+1's fetch loop resumes
+        # cleanly at round N+1, re-doing at most the in-flight round.
+        if ckpt_file is not None:
+            _atomic_write_json(ckpt_file, {
+                "version": _CHECKPOINT_VERSION,
+                "seed_ids": seed_ids,
+                "backstop_waves": backstop_waves,
+                "completed_round": round_num,
+                "frontier": frontier,
+                "consecutive_zero": consecutive_zero,
+                "visited_pids": sorted(visited_pids),
+                "seen_identities": sorted(seen_identities),
+                "unresolvable_seen": sorted(_unresolvable_seen),
+                "unresolvable_ids": unresolvable_ids,
+                "errors": errors,
+                "rounds": [asdict(r) for r in rounds],
+                "all_hits": [asdict(h) for h in all_hits],
+            })
+
         if not frontier:
             # Nothing left to crawl from — the NEXT round would fetch zero
             # from an empty frontier anyway; let the consecutive-zero count
@@ -259,6 +390,16 @@ def run_snowball_to_saturation(
     # instead of silently GO-ing on a corpus that never actually ran.
     if seed_ids and not all_hits and set(seed_ids) <= _unresolvable_seen:
         stop_reason = "no-seeds-resolved"
+
+    # Clean completion (any stop_reason) — the checkpoint's job is done;
+    # remove it so a future re-run of this same seed set starts fresh
+    # rather than "resuming" a walk that already finished.
+    if ckpt_file is not None:
+        try:
+            ckpt_file.unlink(missing_ok=True)
+            ckpt_file.with_suffix(ckpt_file.suffix + ".tmp").unlink(missing_ok=True)
+        except OSError:
+            pass
 
     deduped_final = dedup_hits(all_hits)
     return SnowballResult(

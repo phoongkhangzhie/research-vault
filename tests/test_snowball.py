@@ -8,11 +8,18 @@ Coverage:
   4. derivative discount: a near-duplicate restatement doesn't count as independent-new
   5. an adapter raising NotSupported degrades gracefully (no crash)
   6. write_corpus_raw / write_saturation render the expected artifacts
+  7. resumable checkpoint: a mid-walk kill leaves a checkpoint + partial
+     corpus on disk; re-invoking RESUMES (no re-fetch of visited ids) and
+     reaches the same terminal corpus as an uninterrupted run
+  8. round-by-round progress logging
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -301,6 +308,133 @@ def test_real_semantic_scholar_adapter_404_degrades_walk_continues(monkeypatch):
     assert "9999.99999" in result.unresolvable_ids
     assert any("citations failed" in e or "get failed" in e for e in result.errors)
     assert any(d.hit.title == "A Good Citing Paper" for d in result.kept)
+
+
+# ---------------------------------------------------------------------------
+# Resumable checkpoint (log-as-you-go, "gets dropped mid-flight" fix)
+# ---------------------------------------------------------------------------
+
+class _KillSwitchAdapter(_ScriptedAdapter):
+    """Like ``_ScriptedAdapter``, but raises ``KeyboardInterrupt`` (a
+    ``BaseException`` — exactly what a real process kill/Ctrl-C looks like,
+    and NOT caught by the walk's per-(pid,direction) ``except Exception``)
+    on the Nth ``cited_by`` call. Simulates "the process died mid-round"."""
+
+    def __init__(self, script, *, kill_at_call: int):
+        super().__init__(script)
+        self.kill_at_call = kill_at_call
+
+    def cited_by(self, paper_id, *, limit=20):
+        self._cited_by_calls += 1
+        self.calls.append(("cited_by", paper_id))
+        if self._cited_by_calls == self.kill_at_call:
+            raise KeyboardInterrupt("simulated process kill")
+        fwd, _ = self.script.get(self._cited_by_calls, ([], []))
+        return fwd
+
+
+def test_resume_after_kill_mid_walk(tmp_path):
+    """Round 1 completes and is checkpointed; the kill fires at the START of
+    round 2 (its first ``cited_by`` call). Re-invoking with the SAME
+    checkpoint path must resume from round 2 — never re-fetching the round-1
+    seed — and reach the same terminal corpus an uninterrupted 3-round walk
+    would."""
+    seed = "10.1/seed"
+    ckpt = tmp_path / "_snowball_checkpoint.json"
+
+    kill_adapter = _KillSwitchAdapter(
+        {1: ([_hit("New Paper 1", doi="10.1/new1")], [])}, kill_at_call=2,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        run_snowball_to_saturation(
+            [seed], adapter=kill_adapter, backstop_waves=3, checkpoint_path=ckpt,
+        )
+
+    # 1. Checkpoint + partial corpus survive the kill.
+    assert ckpt.exists()
+    data = json.loads(ckpt.read_text(encoding="utf-8"))
+    assert data["completed_round"] == 1
+    assert [h["title"] for h in data["all_hits"]] == ["New Paper 1"]
+    assert data["frontier"]  # round 1's new paper feeds round 2's frontier
+
+    # Round 1's seed was fetched exactly once before the kill fired.
+    assert kill_adapter.calls.count(("cited_by", seed)) == 1
+
+    # 2. Resume: a BRAND NEW adapter instance. If the walk re-fetched round 1
+    # (the seed), this adapter's own call log would show it — it never does.
+    resume_adapter = _ScriptedAdapter({1: ([], []), 2: ([], [])})
+    result = run_snowball_to_saturation(
+        [seed], adapter=resume_adapter, backstop_waves=3, checkpoint_path=ckpt,
+    )
+
+    fetched_ids = [pid for _, pid in resume_adapter.calls]
+    assert seed not in fetched_ids  # no re-fetch of the visited round-1 seed
+    assert result.stop_reason == "saturated"
+    assert [d.hit.title for d in result.kept] == ["New Paper 1"]
+    assert not ckpt.exists()  # cleaned up on clean completion
+
+    # 3. Same terminal corpus as an uninterrupted run over the identical script.
+    baseline_adapter = _ScriptedAdapter({
+        1: ([_hit("New Paper 1", doi="10.1/new1")], []),
+        2: ([], []),
+        3: ([], []),
+    })
+    baseline = run_snowball_to_saturation(
+        [seed], adapter=baseline_adapter, backstop_waves=3,
+    )
+    assert {d.hit.title for d in baseline.kept} == {d.hit.title for d in result.kept}
+    assert baseline.stop_reason == result.stop_reason
+
+
+def test_fresh_run_with_checkpoint_path_but_no_prior_checkpoint(tmp_path):
+    """No checkpoint file present -> behaves exactly like today's uncheckpointed
+    run, and cleans up (no leftover checkpoint) on completion."""
+    ckpt = tmp_path / "_snowball_checkpoint.json"
+    adapter = _ScriptedAdapter({
+        1: ([_hit("New Paper 1", doi="10.1/new1")], []),
+        2: ([], []),
+        3: ([], []),
+    })
+    result = run_snowball_to_saturation(
+        ["10.1/seed"], adapter=adapter, backstop_waves=3, checkpoint_path=ckpt,
+    )
+    assert result.stop_reason == "saturated"
+    assert not ckpt.exists()
+
+
+def test_no_checkpoint_path_behaves_as_today():
+    """Backward compat: omitting checkpoint_path entirely is unchanged."""
+    adapter = _ScriptedAdapter({
+        1: ([_hit("New Paper 1", doi="10.1/new1")], []),
+        2: ([], []),
+        3: ([], []),
+    })
+    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    assert result.stop_reason == "saturated"
+
+
+def test_progress_log_emits_round_lines(capsys):
+    adapter = _ScriptedAdapter({
+        1: ([_hit("New Paper 1", doi="10.1/new1")], []),
+        2: ([], []),
+        3: ([], []),
+    })
+    run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    captured = capsys.readouterr()
+    assert "round 1/3" in captured.err
+    assert "round 2/3" in captured.err
+    assert "round 3/3" in captured.err
+
+
+def test_progress_log_custom_callback():
+    """A caller (e.g. the ``snowball`` tool op) can supply its own sink
+    instead of stderr — e.g. to route into a review-node log file."""
+    lines: list[str] = []
+    adapter = _ScriptedAdapter({1: ([], []), 2: ([], []), 3: ([], [])})
+    run_snowball_to_saturation(
+        ["10.1/seed"], adapter=adapter, backstop_waves=3, progress_cb=lines.append,
+    )
+    assert any("round 1/3" in line for line in lines)
 
 
 def test_write_corpus_raw_and_saturation(tmp_path):
