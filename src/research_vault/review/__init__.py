@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review — SR-LR-1: staged, pre-registered, saturation-gated literature review loop.
+"""review — staged, pre-registered, saturation-gated literature review loop.
 
-The review loop is the manuscript loop's sibling — it composes SR-3 (DAG) with zero
+The review loop is the manuscript loop's sibling — it composes the DAG engine with zero
 new walker/schema mechanism.  The fan-out over a runtime-discovered corpus is resolved
 at the ``coverage-gate`` phase boundary via a second manifest emitted by
 ``rv review expand``.
@@ -29,7 +29,6 @@ Corpus helpers (_corpus_annotation) are imported directly from
 research_vault.research — NOT scraped from stdout (a prereq-composition rule).
 
 Stdlib only.
-sr: SR-LR-1
 """
 from __future__ import annotations
 
@@ -99,8 +98,6 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
     Returns:
         (ok, message) — ok is False when the file is missing, or the
         ``counter-position`` field is absent/empty/whitespace-only.
-
-    sr: SR-LR-1 (task #33)
     """
     if not protocol_path.exists():
         return False, (
@@ -319,7 +316,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Saturation backstop (SR-LR-1-BACKSTOP) — coverage-gate surfacing
+# Saturation backstop — coverage-gate surfacing
 # ---------------------------------------------------------------------------
 
 def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
@@ -332,7 +329,7 @@ def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
     fired:
       - ``stop_reason: saturated``          — PRIMARY rule: 2-consecutive-zero
         rounds (genuine saturation plateau).
-      - ``stop_reason: backstop:<N>-waves`` — BACKSTOP rule (SR-LR-1-BACKSTOP):
+      - ``stop_reason: backstop:<N>-waves`` — BACKSTOP rule:
         the wave cap (``saturation_backstop_waves``, default 3) fired WITHOUT
         the primary rule converging first. The corpus is bounded, NOT
         saturated.
@@ -368,8 +365,6 @@ def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
     OPEN: agent-stamped free prose has no fixed vocabulary, so every
     non-``backstop:``-prefixed spelling of a non-saturated outcome would sail
     through silently and look identical to genuine saturation at the gate.
-
-    sr: SR-LR-1-BACKSTOP
     """
     if not saturation_path.exists():
         return {"exists": False, "stop_reason": "", "is_backstop": False, "wave_count": None}
@@ -491,8 +486,6 @@ def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
     annotation that is neither ``[NEW]`` nor ``[IN-CORPUS:*]`` — see
     ``CorpusSchemaError``. Non-table prose and header/separator
     rows (column-0 is NOT bracket-shaped) are still a correct, silent skip.
-
-    sr: SR-LR-1
     """
     if not corpus_path.exists():
         return []
@@ -619,8 +612,6 @@ def coverage_report(
 
     surface, never green-and-empty: returns structured data always;
     empty corpus → empty lists, not None.
-
-    sr: SR-LR-1
     """
     cfg = config or load_config()
     project_notes_dir = cfg.project_notes_dir(project)
@@ -829,8 +820,6 @@ def _build_phase1_manifest(
     physically cannot fire until the protocol note is filed.
 
     Zero new walker/schema mechanism — all edges are standard afterok/artifact-watch.
-
-    sr: SR-LR-1
     """
     tips = get_review_tips(config=config)
     preamble = get_review_style_preamble(config=config)
@@ -1030,8 +1019,6 @@ def _count_corpus_data_rows(text: str) -> int:
     (``| --- | --- | --- |``) are excluded by this definition.
 
     Used by cmd_expand to detect a rows-present-but-none-parseable mismatch.
-
-    sr: SR-LR-1
     """
     count = 0
     for line in text.splitlines():
@@ -1060,8 +1047,6 @@ def _parse_new_citekeys(corpus_path: Path) -> list[str]:
     extra whitespace and table-pipe variants) are returned as citekeys for the
     Phase-2 fan-out.  ``[IN-CORPUS:*]`` rows are deliberately excluded — do NOT
     widen this to include them.
-
-    sr: SR-LR-1
     """
     text = corpus_path.read_text(encoding="utf-8")
     return _parse_new_citekeys_from_text(text)
@@ -1074,8 +1059,6 @@ def _parse_new_citekeys_from_text(text: str) -> list[str]:
     leading/trailing spaces around the pipe delimiters, and varying column count.
 
     Strict: only ``[NEW]`` (or case variant) passes — ``[IN-CORPUS:*]`` is excluded.
-
-    sr: SR-LR-1
     """
     citekeys: list[str] = []
     for line in text.splitlines():
@@ -1119,8 +1102,6 @@ def _build_phase2_manifest(
     The coverage-critic is a REJECTS-ONLY agent: [PASS]/[BLOCK] convention.
     It enforces L-2 (counter-position): [BLOCK] on missing/empty counter-position
     OR corpus that ignored the declared opposing sub-literature.
-
-    sr: SR-LR-1
     """
     tips = get_review_tips(config=config)
     preamble = get_review_style_preamble(config=config)
@@ -1269,8 +1250,6 @@ def cmd_new(
           note_path:  path to the OKF review note (reviews/<scope>.md)
           review_dir: path to the review artifact directory (reviews/<scope>/)
           manifest:   the Phase-1 DAG manifest dict (also saved as phase1-dag.json)
-
-    sr: SR-LR-1
     """
     cfg = config or load_config()
     project_notes_dir = cfg.project_notes_dir(project)
@@ -1303,7 +1282,7 @@ def cmd_new(
 
     body = (
         "\n"
-        "<!-- Literature review pointer note (SR-LR-1) -->\n"
+        "<!-- Literature review pointer note -->\n"
         "<!-- Use `rv review new <project> <scope> --question '...'` for creation. -->\n"
         "<!-- The review artifacts live in reviews/<scope>/: -->\n"
         "<!--   _protocol.md  — frozen search protocol (pre-registration) -->\n"
@@ -1355,8 +1334,6 @@ def cmd_list(
     Returns:
         List of dicts with keys: scope, question, review_dir, dag_run, path.
         Empty list when no review notes exist.
-
-    sr: SR-LR-1
     """
     cfg = config or load_config()
     note_dir = _review_note_dir(project, cfg)
@@ -1411,8 +1388,6 @@ def cmd_expand(
 
     Returns:
         The Phase-2 manifest dict (also saved as phase2-dag.json).
-
-    sr: SR-LR-1
     """
     cfg = config or load_config()
     project_notes_dir = cfg.project_notes_dir(project)
