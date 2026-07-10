@@ -470,7 +470,68 @@ def _evaluate_autonomous_gate(
         manuscript_note_path = manifest_path.parent / "_manuscript.md"
         from ..manuscript.types.lit_review import check_framework_gate as _cfg_check
         _ok, _msg = _cfg_check(manuscript_note_path)
-        return _autonomy.classify_disposition(_autonomy.evaluation_from_framework_gate(_ok, _msg))
+        structural_result = _autonomy.classify_disposition(
+            _autonomy.evaluation_from_framework_gate(_ok, _msg)
+        )
+
+        # framework-gate-autonomy design (option A, 2026-07-09): fold in the
+        # framework-critic disposition, most-severe-wins — exactly the
+        # pattern approve-manuscript already folds structural+board. Only
+        # applies to a MACHINE-synthesized spine (`framework_origin:
+        # machine`, stamped by `framework-synthesize`); a human-authored
+        # spine (hand-edited `_manuscript.md`, the pre-ensemble path —
+        # `check_framework_gate` alone still governs it, unchanged) never
+        # required a critic and still doesn't.
+        _framework_origin = ""
+        if manuscript_note_path.exists():
+            from ..note import _parse_frontmatter as _pfm_fw
+            _fw_text = manuscript_note_path.read_text(encoding="utf-8")
+            _fw_fields, _ = _pfm_fw(_fw_text)
+            _framework_origin = str(_fw_fields.get("framework_origin", "")).strip()
+
+        if _framework_origin != "machine":
+            return structural_result
+
+        critic_node = nodes_lookup.get("framework-critic")
+        critic_ref = None
+        expected_canary_id = None
+        if critic_node is not None:
+            produces = critic_node.get("produces")
+            if isinstance(produces, dict):
+                critic_ref = produces.get("_framework-critique.md")
+            expected_canary_id = critic_node.get("canary_id")
+
+        if not critic_ref:
+            # A machine-synthesized spine with no framework-critic producer
+            # upstream is the §1.2 priority-2 "floor gate NOT RUN" failure
+            # class — fail-closed HALT, never a silent GO on an un-critiqued
+            # auto-synthesized spine.
+            return _autonomy.DispositionResult(
+                _autonomy.HALT_DECLARE,
+                "approve-framework --auto: _manuscript.md is framework_origin: "
+                "machine but no framework-critic producer was found upstream "
+                "(framework-critic node missing/malformed produces) — cannot "
+                "self-certify a synthesized spine with no critic run.",
+                {"not_run": ["framework-critic"]},
+            )
+
+        from ..manuscript.types.lit_review import (
+            check_framework_critique_verdict as _cfcv,
+        )
+
+        critic_payload = _cfcv(Path(critic_ref), expected_canary_id=expected_canary_id)
+        critic_result = _autonomy.classify_disposition(
+            _autonomy.evaluation_from_framework_critic(critic_payload)
+        )
+
+        _severity = {
+            _autonomy.HALT_DECLARE: 3, _autonomy.GO_WITH_RESIDUE: 2,
+            _autonomy.REVISE: 1, _autonomy.GO: 0,
+        }
+        return max(
+            (structural_result, critic_result),
+            key=lambda r: _severity[r.disposition],
+        )
 
     if node_id == "approve-manuscript":
         tree_root = manifest_path.parent
@@ -718,8 +779,52 @@ def _emit_next_phase(
                     child_manifest = json.loads(phase1_path.read_text(encoding="utf-8"))
                     child_manifest_path = phase1_path
                 else:
-                    child_manifest = _manuscript.cmd_expand(project, scope_id, config=cfg)
-                    child_manifest_path = tree_root / "phase2-dag.json"
+                    # F2 FIX (framework-gate-autonomy design delta): a
+                    # partial/interrupted scaffold (the note exists, but no
+                    # Phase-1 manifest was ever written) must RE-ENTER the
+                    # framework pipeline — never bypass straight to Phase-2
+                    # drafting with no committed, critic-cleared spine. The
+                    # pre-fix behavior called `cmd_expand` directly here,
+                    # which jumps to Phase-2 unconditionally, skipping the
+                    # framework-lens-ensemble/synthesize/critic gate entirely.
+                    from ..note import _parse_frontmatter as _pfm_partial
+                    from ..manuscript.types import get_type as _get_ms_type_partial
+                    from ..manuscript import _build_phase1_manifest as _build_p1
+
+                    _note_text = manuscript_note_path.read_text(encoding="utf-8")
+                    _fields_partial, _ = _pfm_partial(_note_text)
+                    _ms_type_key_partial = str(_fields_partial.get("manuscript_type", "")).strip()
+                    _ms_type_partial = _get_ms_type_partial(_ms_type_key_partial)
+                    if _ms_type_partial is None:
+                        raise ValueError(
+                            f"partial-adopt at {tree_root}: unrecognized/missing "
+                            f"manuscript_type {_ms_type_key_partial!r} in "
+                            f"{manuscript_note_path} — cannot re-enter Phase-1."
+                        )
+
+                    _phase1_manifest = _build_p1(
+                        project=project,
+                        slug=scope_id,
+                        ms_type=_ms_type_partial,
+                        project_notes_dir=cfg.project_notes_dir(project),
+                        tree_root=tree_root,
+                        config=cfg,
+                    )
+                    if _phase1_manifest is not None:
+                        # The type has a real Phase-1 (e.g. lit-review's
+                        # framework ensemble) — re-enter it, never Phase-2.
+                        phase1_path.write_text(
+                            json.dumps(_phase1_manifest, indent=2, ensure_ascii=False) + "\n",
+                            encoding="utf-8",
+                        )
+                        child_manifest = _phase1_manifest
+                        child_manifest_path = phase1_path
+                    else:
+                        # A pass-through type (no Phase-1 at all, design §1) —
+                        # the only correct case where going straight to
+                        # Phase-2 is honest, not a bypass.
+                        child_manifest = _manuscript.cmd_expand(project, scope_id, config=cfg)
+                        child_manifest_path = tree_root / "phase2-dag.json"
             else:
                 _note_path, tree_root, phase1_manifest = _manuscript.cmd_new(
                     project,

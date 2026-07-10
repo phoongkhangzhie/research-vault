@@ -244,7 +244,12 @@ def test_phase1_builder_node_order(tmp_path):
         project_notes_dir=project_notes_dir, tree_root=tree_root,
     )
     ids = [n["id"] for n in manifest["nodes"]]
-    assert ids == ["scope", "framework-propose", "approve-framework"]
+    # framework-gate-autonomy design (option A, 2026-07-09): scope fans out
+    # to N cold lens candidates, then synthesize -> critic -> approve.
+    assert ids[0] == "scope"
+    assert ids[-3:] == ["framework-synthesize", "framework-critic", "approve-framework"]
+    lens_ids = ids[1:-3]
+    assert lens_ids and all(nid.startswith("framework-lens-") for nid in lens_ids)
 
 
 def test_phase1_builder_approve_framework_is_human_go(tmp_path):
@@ -259,7 +264,7 @@ def test_phase1_builder_approve_framework_is_human_go(tmp_path):
     )
     hg = next(n for n in manifest["nodes"] if n["id"] == "approve-framework")
     assert hg["type"] == "human-go"
-    assert hg["needs"] == [{"from": "framework-propose", "edge": "afterok"}]
+    assert hg["needs"] == [{"from": "framework-critic", "edge": "afterok"}]
 
 
 def test_phase1_builder_validates(tmp_path):
@@ -285,9 +290,16 @@ def test_framework_propose_spec_mentions_all_shapes(tmp_path):
         project="demo", slug="survey-w",
         project_notes_dir=project_notes_dir, tree_root=tree_root,
     )
-    node = next(n for n in manifest["nodes"] if n["id"] == "framework-propose")
+    # framework-gate-autonomy design: the single framework-propose menu node
+    # is replaced by N lens nodes, each expressing its candidate through a
+    # FRAMEWORK_SHAPES archetype (its natural_shape, named explicitly, plus
+    # the full "other shapes" menu as the override drawing-board) — across
+    # all lens nodes' specs combined, every registered shape key appears.
+    lens_nodes = [n for n in manifest["nodes"] if n["id"].startswith("framework-lens-")]
+    assert lens_nodes
+    combined_spec = "\n".join(n["spec"] for n in lens_nodes)
     for shape in FRAMEWORK_SHAPES:
-        assert shape["key"] in node["spec"]
+        assert shape["key"] in combined_spec
 
 
 # ---------------------------------------------------------------------------
@@ -598,7 +610,8 @@ def test_e2e_new_and_expand_full_manifest(cfg):
     assert phase1 is not None
     assert (tree_root / "phase1-dag.json").exists()
     p1_ids = [n["id"] for n in phase1["nodes"]]
-    assert p1_ids == ["scope", "framework-propose", "approve-framework"]
+    assert p1_ids[0] == "scope"
+    assert p1_ids[-3:] == ["framework-synthesize", "framework-critic", "approve-framework"]
 
     # NG-7: lit-review's Phase-2 is the single-pass phase2_builder — the
     # 8-row section-set (RD-2/RD-4) is consolidated SOURCE DATA feeding the
