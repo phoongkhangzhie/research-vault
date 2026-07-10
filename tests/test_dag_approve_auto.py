@@ -1,8 +1,8 @@
 """test_dag_approve_auto.py — NG-4 §1: `rv dag approve --auto` end-to-end.
 
-Coverage: the three autonomous gates (coverage-gate / approve-framework /
-approve-manuscript) resolved by the gate-policy engine, real DAG path
-(cmd_approve), not just the unit-level classify_disposition tests in
+Coverage: the four autonomous gates (coverage-gate / approve-framework /
+approve-manuscript / approve-review) resolved by the gate-policy engine, real
+DAG path (cmd_approve), not just the unit-level classify_disposition tests in
 test_review_autonomy.py.
 
   1. coverage-gate --auto: saturated -> auto-approved, no human-presence
@@ -13,6 +13,16 @@ test_review_autonomy.py.
      REMAINS awaiting-go (no state mutation on REVISE).
   4. approve-protocol NEVER autonomizes even with --auto (falls through to
      the human-presence check, which fails closed with no token).
+  5. approve-review --auto (single-human-gate design, 2026-07-09): a
+     coverage-critic ``verdict: PASS`` frontmatter field -> auto-approved;
+     ``verdict: BLOCK`` -> REVISE with the blocking reasons surfaced; a
+     missing critic artifact -> HALT-DECLARE (never a silent GO).
+  6. Structured-verdict fix (PR #201 review delta, 2026-07-09):
+     ``check_coverage_critic_verdict`` reads ONLY the ``verdict:``
+     frontmatter field — prose ``[PASS]``/``[BLOCK]`` bracket tokens
+     anywhere in the body are never consulted. This replaces three
+     iterations of prose-scanning heuristics (first-match -> line-anchor ->
+     ambiguity-check) that each closed one evasion and left another open.
 """
 from __future__ import annotations
 
@@ -215,3 +225,359 @@ class TestApproveProtocolNeverAutonomizes:
         assert rc == 1
         rs = store.load("auto-run-5")
         assert rs.node_status("approve-protocol") == "awaiting-go"
+
+
+class TestApproveReviewGateAuto:
+    """Single-human-gate design (2026-07-09): approve-review is the 4th
+    autonomous gate — resolved from review-coverage-critic's STRUCTURED
+    ``verdict:`` frontmatter field on `_coverage-critic.md`, same shape as
+    approve-framework's structural-payload wiring
+    (evaluation_from_structural_payload -> classify_disposition). No new
+    disposition path invented.
+    """
+
+    def _critic_note(self, path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _review_manifest(self, run_id: str, critic_path: Path) -> dict:
+        return {
+            "run_id": run_id, "name": "review-phase2", "global_cap": 1,
+            "nodes": [
+                {
+                    "id": "review-coverage-critic", "type": "agent",
+                    "spec": "task://demo#critic",
+                    "produces": {"_coverage-critic.md": str(critic_path)},
+                    "needs": [],
+                },
+                {
+                    "id": "approve-review", "type": "human-go",
+                    "needs": [{"from": "review-coverage-critic", "edge": "afterok"}],
+                },
+            ],
+        }
+
+    def test_pass_verdict_auto_approves(self, run_env: Path):
+        from research_vault.dag.verbs import cmd_approve
+
+        critic_path = run_env / "reviews" / "scope-e" / "_coverage-critic.md"
+        self._critic_note(
+            critic_path,
+            "---\nverdict: PASS\n---\n\n"
+            "12 papers, 4 rounds, plateau at round 3; 0 orphan concepts "
+            "(soft); counter-position: sought; 0 BLOCK(s).\n",
+        )
+        manifest = self._review_manifest("auto-run-6", critic_path)
+        store = _make_awaiting_run(run_env, "auto-run-6", manifest, "approve-review")
+
+        args = argparse.Namespace(run_id="auto-run-6", node_id="approve-review", auto=True)
+        rc = cmd_approve(args)
+        assert rc == 0
+        rs = store.load("auto-run-6")
+        assert rs.node_status("approve-review") == "succeeded"
+        assert rs.node_states["approve-review"]["approved_by"] == "review.autonomy"
+
+    def test_block_verdict_revises_without_state_change(self, run_env: Path, capsys):
+        from research_vault.dag.verbs import cmd_approve
+
+        critic_path = run_env / "reviews" / "scope-f" / "_coverage-critic.md"
+        self._critic_note(
+            critic_path,
+            "---\nverdict: BLOCK\n---\n\n"
+            "5 papers, 2 rounds, plateau at round 2; 0 orphan concepts "
+            "(soft); counter-position: absent; 1 BLOCK(s).\n"
+            "  - COUNTER-POSITION ABSENT (axis 4 — hard block)\n",
+        )
+        manifest = self._review_manifest("auto-run-7", critic_path)
+        store = _make_awaiting_run(run_env, "auto-run-7", manifest, "approve-review")
+
+        args = argparse.Namespace(run_id="auto-run-7", node_id="approve-review", auto=True)
+        rc = cmd_approve(args)
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert "REVISE" in captured.err
+        assert "COUNTER-POSITION ABSENT" in captured.err
+        rs = store.load("auto-run-7")
+        # No state mutation on REVISE — the node stays awaiting-go.
+        assert rs.node_status("approve-review") == "awaiting-go"
+
+    def test_missing_critic_artifact_halts(self, run_env: Path, capsys):
+        from research_vault.dag.verbs import cmd_approve
+
+        critic_path = run_env / "reviews" / "scope-g" / "_coverage-critic.md"
+        # Never written.
+        manifest = self._review_manifest("auto-run-8", critic_path)
+        store = _make_awaiting_run(run_env, "auto-run-8", manifest, "approve-review")
+
+        args = argparse.Namespace(run_id="auto-run-8", node_id="approve-review", auto=True)
+        rc = cmd_approve(args)
+        captured = capsys.readouterr()
+        assert rc == 0
+        rs = store.load("auto-run-8")
+        assert rs.node_status("approve-review") == "blocked"
+        assert "HALT-DECLARE" in rs.node_states["approve-review"].get("decision_note", "")
+        assert "HALT-DECLARE" in captured.err
+
+    def test_no_provisional_bookkeeping_anywhere(self, run_env: Path):
+        """The auto-resolved decision is final immediately — no provisional
+        stamp is ever written to the critic note or anywhere else."""
+        from research_vault.dag.verbs import cmd_approve
+
+        critic_path = run_env / "reviews" / "scope-h" / "_coverage-critic.md"
+        self._critic_note(
+            critic_path, "---\nverdict: PASS\n---\n\n3 papers, 1 round; 0 BLOCK(s).\n"
+        )
+        manifest = self._review_manifest("auto-run-9", critic_path)
+        _make_awaiting_run(run_env, "auto-run-9", manifest, "approve-review")
+
+        args = argparse.Namespace(run_id="auto-run-9", node_id="approve-review", auto=True)
+        cmd_approve(args)
+        assert "provisional" not in critic_path.read_text().lower()
+
+
+class TestCoverageCriticStructuredVerdict:
+    """PR #201 review delta (2026-07-09): ``check_coverage_critic_verdict``
+    reads ONLY the structured ``verdict:`` frontmatter field — prose is
+    NEVER scanned for ``[PASS]``/``[BLOCK]`` tokens. This replaces three
+    successive prose-scanning heuristics (first-match anywhere -> line-start
+    anchoring -> single-token ambiguity check) that each closed one evasion
+    and left another open. A fixed 2-value vocab has no such evasion
+    surface — this is a design change (stop parsing prose), not a further
+    tightened heuristic.
+    """
+
+    def test_wellformed_pass_go(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "---\nverdict: PASS\n---\n\n"
+            "12 papers, 4 rounds, plateau at round 3; 0 BLOCK(s).\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result == {"blocking": [], "not_run": []}
+
+    def test_wellformed_block_surfaces_reasons(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "---\nverdict: BLOCK\n---\n\n"
+            "5 papers, 2 rounds; 1 BLOCK(s).\n"
+            "  - COUNTER-POSITION ABSENT (axis 4 — hard block)\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result["not_run"] == []
+        assert result["blocking"] == ["COUNTER-POSITION ABSENT (axis 4 — hard block)"]
+
+    def test_verdict_case_normalized(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text("---\nverdict: pass\n---\n\nlowercase ok.\n", encoding="utf-8")
+        result = check_coverage_critic_verdict(note)
+        assert result == {"blocking": [], "not_run": []}
+
+    def test_duplicate_verdict_keys_fail_closed(self, tmp_path: Path):
+        """Contradictory duplicate ``verdict:`` keys must fail-closed, NOT
+        resolve last-wins to GO. `_parse_frontmatter` is last-wins on repeated
+        scalar keys, so `verdict: BLOCK` then `verdict: PASS` would silently
+        GO without this guard — a residual silent-GO on the humanless gate."""
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "---\nverdict: BLOCK\nverdict: PASS\n---\n\nprotocol drift.\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"], "duplicate verdict keys must fail-closed (not GO)"
+        # and the reverse order (PASS then BLOCK) also fails closed, not a pass
+        note.write_text(
+            "---\nverdict: PASS\nverdict: BLOCK\n---\n\nx.\n", encoding="utf-8"
+        )
+        assert check_coverage_critic_verdict(note)["not_run"]
+
+    def test_prose_only_bracket_tokens_no_verdict_field_fails_closed(self, tmp_path: Path):
+        """THE anti-evasion test: a note with [PASS]/[BLOCK] ONLY in body
+        prose and NO `verdict:` frontmatter field must fail closed — proves
+        prose is completely ignored, not merely anchored/disambiguated."""
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "[PASS]: 12 papers, 4 rounds, plateau at round 3; 0 BLOCK(s).\n"
+            "Everything looks great, clearly a [PASS].\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"] != []
+        assert "verdict" in result["not_run"][0].lower()
+
+    def test_missing_verdict_field_with_frontmatter_present_fails_closed(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "---\nother_field: something\n---\n\n[BLOCK]: prose only.\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"] != []
+
+    def test_empty_verdict_field_fails_closed(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text("---\nverdict: \n---\n\nno value given.\n", encoding="utf-8")
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"] != []
+
+    def test_non_vocab_verdict_value_fails_closed(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text("---\nverdict: MAYBE\n---\n\nambiguous.\n", encoding="utf-8")
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"] != []
+
+    def test_malformed_frontmatter_fails_closed(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        # No closing `---` — malformed frontmatter, no field can be trusted.
+        note.write_text("---\nverdict: PASS\n\nno closing delimiter.\n", encoding="utf-8")
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"] != []
+
+    def test_block_with_no_bullets_gets_generic_reason(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text("---\nverdict: BLOCK\n---\n\nno bullets here.\n", encoding="utf-8")
+        result = check_coverage_critic_verdict(note)
+        assert result["not_run"] == []
+        assert len(result["blocking"]) == 1
+        assert "no itemized reason bullets" in result["blocking"][0].lower()
+
+    def test_missing_artifact_still_not_run(self, tmp_path: Path):
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_never-written.md"
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"] == [str(note)]
+
+
+class TestApproveReviewGateAntiFishing:
+    """End-to-end (cmd_approve --auto) proof that a note carrying ONLY
+    prose ``[PASS]``/``[BLOCK]`` bracket tokens — and NO structured
+    ``verdict:`` frontmatter field — resolves HALT-DECLARE (rc == 0,
+    node -> blocked), never a silent GO. The single-human-gate design has
+    no backstop, so a silent GO here would ship an unreviewed corpus
+    (PR #201 review delta — structured-verdict fix, 2026-07-09). This
+    supersedes the prior anchoring/ambiguity-heuristic tests: prose is now
+    unconditionally ignored, not merely disambiguated."""
+
+    def _critic_note(self, path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _review_manifest(self, run_id: str, critic_path: Path) -> dict:
+        return {
+            "run_id": run_id, "name": "review-phase2", "global_cap": 1,
+            "nodes": [
+                {
+                    "id": "review-coverage-critic", "type": "agent",
+                    "spec": "task://demo#critic",
+                    "produces": {"_coverage-critic.md": str(critic_path)},
+                    "needs": [],
+                },
+                {
+                    "id": "approve-review", "type": "human-go",
+                    "needs": [{"from": "review-coverage-critic", "edge": "afterok"}],
+                },
+            ],
+        }
+
+    def test_prose_only_pass_token_resolves_halt_not_go(self, run_env: Path, capsys):
+        """The exact evasion shape that shipped green three times: a note
+        opening a line with ``[PASS]`` and NO ``verdict:`` field. Under the
+        structured-field fix this is fail-closed HALT, never an auto-GO."""
+        from research_vault.dag.verbs import cmd_approve
+
+        critic_path = run_env / "reviews" / "scope-i" / "_coverage-critic.md"
+        self._critic_note(
+            critic_path,
+            "[PASS]: 12 papers, 4 rounds, plateau at round 3; 0 BLOCK(s).\n"
+            "Everything looks great, clearly a [PASS].\n",
+        )
+        manifest = self._review_manifest("auto-run-10", critic_path)
+        store = _make_awaiting_run(run_env, "auto-run-10", manifest, "approve-review")
+
+        args = argparse.Namespace(run_id="auto-run-10", node_id="approve-review", auto=True)
+        rc = cmd_approve(args)
+        captured = capsys.readouterr()
+        assert rc == 0
+        assert "HALT-DECLARE" in captured.err
+        rs = store.load("auto-run-10")
+        assert rs.node_status("approve-review") == "blocked"
+        assert "HALT-DECLARE" in rs.node_states["approve-review"].get("decision_note", "")
+
+    def test_prose_only_block_token_resolves_halt_not_go(self, run_env: Path, capsys):
+        """A note carrying only prose [BLOCK] (no verdict: field) must also
+        fail closed — the gate never infers a verdict from prose, in
+        either direction."""
+        from research_vault.dag.verbs import cmd_approve
+
+        critic_path = run_env / "reviews" / "scope-j" / "_coverage-critic.md"
+        self._critic_note(
+            critic_path,
+            "Output legend: [PASS] = clean, [BLOCK] = holes.\n"
+            "\n"
+            "[BLOCK]: 3 papers, 1 round; PROTOCOL-DRIFT detected.\n"
+            "  - PROTOCOL-DRIFT\n",
+        )
+        manifest = self._review_manifest("auto-run-11", critic_path)
+        store = _make_awaiting_run(run_env, "auto-run-11", manifest, "approve-review")
+
+        args = argparse.Namespace(run_id="auto-run-11", node_id="approve-review", auto=True)
+        rc = cmd_approve(args)
+        captured = capsys.readouterr()
+        assert rc == 0
+        assert "HALT-DECLARE" in captured.err
+        rs = store.load("auto-run-11")
+        assert rs.node_status("approve-review") == "blocked"
+
+    def test_structured_block_verdict_resolves_revise_not_go(self, run_env: Path, capsys):
+        """Positive control: a WELL-FORMED verdict: BLOCK still correctly
+        resolves REVISE with reasons surfaced (the fix must not also break
+        the legitimate BLOCK path)."""
+        from research_vault.dag.verbs import cmd_approve
+
+        critic_path = run_env / "reviews" / "scope-k" / "_coverage-critic.md"
+        self._critic_note(
+            critic_path,
+            "---\nverdict: BLOCK\n---\n\n"
+            "3 papers, 1 round; PROTOCOL-DRIFT detected.\n"
+            "  - PROTOCOL-DRIFT\n",
+        )
+        manifest = self._review_manifest("auto-run-12", critic_path)
+        store = _make_awaiting_run(run_env, "auto-run-12", manifest, "approve-review")
+
+        args = argparse.Namespace(run_id="auto-run-12", node_id="approve-review", auto=True)
+        rc = cmd_approve(args)
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert "REVISE" in captured.err
+        assert "PROTOCOL-DRIFT" in captured.err
+        rs = store.load("auto-run-12")
+        assert rs.node_status("approve-review") == "awaiting-go"

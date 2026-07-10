@@ -38,7 +38,17 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 class LoopGate:
-    """One human-go gate in a loop manifest.
+    """One ``"human-go"``-typed gate node in a loop manifest.
+
+    ★ Single-human-gate design (2026-07-09): a node's DAG ``type`` stays
+    ``"human-go"`` (the schema/runner shape is unchanged — see
+    ``TestCatalogGrounding``) even when ``review.autonomy``'s gate-policy
+    engine resolves it WITHOUT a human keypress (``coverage-gate``,
+    ``approve-framework``, ``approve-manuscript``, ``approve-review`` — see
+    ``dag/verbs.py``'s ``_AUTONOMOUS_GATE_IDS``). ``autonomous`` is this
+    catalog's ANNOTATION of that runtime fact — it does not change the node's
+    schema type, only how this catalog is rendered/labeled
+    (``rv dag templates``).
 
     Attributes
     ----------
@@ -50,25 +60,32 @@ class LoopGate:
         If this gate triggers a freeze/verify action, the exact ``rv`` command
         pattern to run after approval (e.g. ``"rv plan freeze <run_id> <plan-note>"``).
         None when no freeze is associated.
+    autonomous : bool
+        True iff this gate is resolved by ``review.autonomy``'s gate-policy
+        engine (no human keypress) — mirrors ``dag/verbs.py``'s
+        ``_AUTONOMOUS_GATE_IDS``. False (default) for a genuine human-go gate.
     """
 
-    __slots__ = ("node_id", "label", "freeze_action")
+    __slots__ = ("node_id", "label", "freeze_action", "autonomous")
 
     def __init__(
         self,
         node_id: str,
         label: str,
         freeze_action: str | None = None,
+        autonomous: bool = False,
     ) -> None:
         self.node_id = node_id
         self.label = label
         self.freeze_action = freeze_action
+        self.autonomous = autonomous
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "node_id": self.node_id,
             "label": self.label,
             "freeze_action": self.freeze_action,
+            "autonomous": self.autonomous,
         }
 
 
@@ -214,17 +231,20 @@ LOOP_CATALOG: list[LoopEntry] = [
                     "(run `rv review <project> expand <scope>` after approval)"
                 ),
                 freeze_action=None,
+                autonomous=True,
             ),
             LoopGate(
                 node_id="approve-review",
                 label="Gate 3: Approve review — [BLOCK] count + counter-position verdict",
                 freeze_action=None,
+                autonomous=True,
             ),
         ],
         topology_summary=(
             "review-scope → [HG:approve-protocol] → review-search → review-screen → "
-            "review-snowball → review-curate → [HG:coverage-gate] → (Phase-2) relate-* → "
-            "review-synthesize → review-coverage-critic → [HG:approve-review]"
+            "review-snowball → review-curate → coverage-gate (auto-resolved) → "
+            "(Phase-2) relate-* → review-synthesize → review-coverage-critic → "
+            "approve-review (auto-resolved)"
         ),
     ),
 
@@ -250,6 +270,7 @@ LOOP_CATALOG: list[LoopEntry] = [
                     "D5; type-specific, only for types with a framework Phase-1)"
                 ),
                 freeze_action=None,
+                autonomous=True,
             ),
             LoopGate(
                 node_id="approve-manuscript",
@@ -259,13 +280,14 @@ LOOP_CATALOG: list[LoopEntry] = [
                     "ahead of this gate as they land)"
                 ),
                 freeze_action=None,
+                autonomous=True,
             ),
         ],
         topology_summary=(
             "new --type <type> → (type Phase-1: lit-review = scope → "
-            "framework-propose → [HG:approve-framework], design §5) → "
+            "framework-propose → approve-framework (auto-resolved), design §5) → "
             "expand → section(s) (type-generic, from ManuscriptType.section_set) → "
-            "assemble → [HG:approve-manuscript]"
+            "assemble → approve-manuscript (auto-resolved)"
         ),
     ),
 

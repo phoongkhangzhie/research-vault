@@ -47,6 +47,86 @@
   populated) is a separate NG-2 dedup investigation, out of this task's
   scope.
 
+## 2026-07-09 (single-human-gate design: approve-review autonomous, async-veto removed)
+
+### Done
+- **Design intent**: only `approve-protocol` (Gate 1, the plan/scope gate
+  before search) is a human gate. Everything downstream is autonomous through
+  to a generated manuscript — no user-facing "approve the result" gate, no
+  provisional/confirmed bookkeeping.
+- **`approve-review` (Gate 3) is now autonomous**: added to
+  `dag/verbs.py::_AUTONOMOUS_GATE_IDS` alongside coverage-gate/
+  approve-framework/approve-manuscript. Wired through
+  `_evaluate_autonomous_gate` via a new `review.check_coverage_critic_verdict`
+  structural-payload adapter — reads `review-coverage-critic`'s
+  `[PASS]`/`[BLOCK]` verdict note (`_coverage-critic.md`, a new `produces`
+  artifact on that node) into the SAME `evaluation_from_structural_payload` ->
+  `classify_disposition` path `approve-framework` already uses. No new
+  disposition path invented. `review_critic_tips` (style.py) now instructs the
+  critic to WRITE its verdict to `_coverage-critic.md` (previously prose-only,
+  read by a human).
+- **Removed the async-veto/provisional machinery entirely**
+  (`review/autonomy.py`): `VetoWindow`, `open_veto_window`, `cast_veto`,
+  `clear_provisional_if_elapsed`, `check_declare_final_gate`,
+  `DEFAULT_VETO_WINDOW_HOURS`, and the `rv dag veto` CLI verb (`dag/verbs.py`).
+  An auto-resolved decision is final the moment it resolves — no
+  `provisional: true/vetoed` stamp anywhere, incl. `record_deviation`'s
+  `_deviations.md` header (previously stamped `provisional: true` on file
+  creation; now a plain header with no bookkeeping field).
+- **Mapped the veto-vs-deviation-check boundary before cutting** (per the
+  explicit critical-boundary instruction): grepped every caller of the veto
+  primitives — `open_veto_window`/`clear_provisional_if_elapsed`/
+  `check_declare_final_gate` had **zero callers outside their own tests**
+  (never wired into any live gate path); only `cast_veto` was reachable, via
+  `cmd_veto` alone. `record_deviation`'s ONLY coupling to "provisional" was a
+  static, never-read literal string in its own file-creation header — no
+  shared state, no shared code path with `check_undeclared_deviation`/
+  `classify_coverage_gate_with_deviation_check` (NG-6a's frozen-corpus BLOCK).
+  **Not entangled** — a clean, structural cut; NG-6a's deviation-check is
+  fully intact and its existing tests stay green unmodified.
+- **Docs updated to depict one human gate**: README.md's three loop mermaid
+  diagrams, `data/templates/QUICKSTART.md`'s loop diagram + prose, and
+  `dag/catalog.py`'s `topology_summary` strings now show `coverage-gate` /
+  `approve-review` / `approve-framework` / `approve-manuscript` as
+  "(auto-resolved)", not `[HG]`. `LoopGate` gained an `autonomous: bool` field
+  (default `False`) purely as a catalog annotation — the underlying DAG node
+  `type` stays `"human-go"` (schema/runner shape unchanged;
+  `TestCatalogGrounding` keys on node type, unaffected). Also swept the
+  `[HG:coverage-gate]`/`[HG:approve-review]`/`[HG:approve-framework]`/
+  `[HG:approve-manuscript]` bracket mentions out of `cli.py`'s `when_to_use`
+  help text and a few module docstrings (`manuscript/__init__.py`,
+  `manuscript/types/lit_review.py`, `review/__init__.py`, `review/verbs.py`).
+- **Tests**: TDD throughout — wrote failing tests first, confirmed RED for
+  the right reason, then implemented. `tests/test_dag_approve_auto.py` gained
+  `TestApproveReviewGateAuto` (PASS auto-approves, BLOCK REVISEs with reasons
+  surfaced, missing artifact HALT-DECLAREs, no provisional stamp ever
+  written). `tests/test_review_autonomy.py`'s `TestAsyncVeto` class removed
+  (with a clear removal note, not a skip) and replaced with
+  `TestVetoMachineryRemoved` (asserts the veto symbols are gone from the
+  module + `record_deviation` never stamps `provisional`).
+  `tests/test_verb_consolidation.py`'s `TestD3DagVeto` removed likewise. The
+  NG-6a deviation-check acceptance tests (leak-planted, `TestDeviationLog`)
+  ran unmodified and stayed green throughout.
+- Full local suite (3407 passed, 3 pre-existing skips) + `rv lint` (clean
+  except the 5 pre-existing "missing required field 'code'" config-schema
+  violations, unrelated).
+
+### Decisions
+- Kept the demo fixture (`data/examples/demo-litreview/`) DAG manifest's node
+  `type` unchanged (`"human-go"`) — only its README prose for `approve-review`
+  was updated to note autonomy; the manifest itself is a static, spliced
+  two-phase demo and doesn't execute `--auto` in this repo.
+
+### Open / next
+- Friction: `data/examples/demo-litreview/README.md` and
+  `data/templates/QUICKSTART.md`'s scripted walkthrough narrative still
+  describe `coverage-gate` as a node the human must review before Phase-2 —
+  that drift PRE-DATES this change (coverage-gate has been autonomous since
+  an earlier PR) and is out of this PR's named scope (gate/loop depiction
+  only, per the coordination note). Worth a follow-up doc pass reconciling
+  the full narrative walkthroughs, not just the diagram/topology lines, to
+  the single-human-gate reality.
+
 ## 2026-07-09 (docs/catalog reconciled to the shipped 7-node lit-review loop — pre-0.3.0 drift fix)
 
 ### Done

@@ -12,9 +12,10 @@ Coverage:
      `review new` + `dag run` in one call; end-to-end (real cmd_new +
      real cmd_run against a tmp instance) — the Phase-1 run actually
      starts and the initial frontier is printed.
-  3. D3 — `rv dag veto <run> <node> --reason ...` casts a veto over an
-     OPEN provisional decision note: rolls back (provisional: vetoed) +
-     blocks the node. Refuses when the note is not provisional.
+  3. D3 (`rv dag veto`) was REMOVED (single-human-gate design, 2026-07-09):
+     only approve-protocol is a human gate now; every downstream gate
+     auto-resolves and is final immediately, so there is no async-veto
+     window left to cast a veto over. See DEVLOG.md.
 """
 from __future__ import annotations
 
@@ -160,91 +161,10 @@ class TestD2ReviewRun:
 
 
 # ---------------------------------------------------------------------------
-# 3. D3 — `rv dag veto`
+# 3. D3 — `rv dag veto` REMOVED (single-human-gate design, 2026-07-09).
+# The async-veto/provisional machinery it exercised (VetoWindow et al.,
+# review/autonomy.py) is gone: only approve-protocol is a human gate;
+# every downstream gate auto-resolves and is final immediately — no
+# provisional stamp, no veto window, nothing to cast a veto over. See
+# DEVLOG.md and tests/test_review_autonomy.py::TestVetoMachineryRemoved.
 # ---------------------------------------------------------------------------
-
-class TestD3DagVeto:
-    def _manifest(self, run_id: str, note_path: Path) -> dict:
-        return {
-            "run_id": run_id, "name": "veto-test", "global_cap": 4,
-            "nodes": [
-                {
-                    "id": "framework-propose", "type": "agent", "spec": "task://demo#fw",
-                    "produces": {"note": str(note_path)}, "needs": [],
-                },
-            ],
-        }
-
-    def _setup(self, tmp_path: Path, run_id: str, provisional: str = "true"):
-        from research_vault.dag.store import RunState, RunStore
-
-        note = tmp_path / "_manuscript.md"
-        note.write_text(f"---\nprovisional: {provisional}\n---\n\nbody\n", encoding="utf-8")
-        manifest = self._manifest(run_id, note)
-        manifest_path = tmp_path / f"{run_id}.json"
-        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-        store = RunStore(tmp_path / "state")
-        rs = RunState(run_id=run_id, manifest_path=str(manifest_path))
-        rs.init_nodes(manifest)
-        rs.set_node_status("framework-propose", "succeeded")
-        store.create(rs)
-        return store, note
-
-    def test_veto_rolls_back_provisional_decision(self, tmp_path: Path, monkeypatch, capsys):
-        cfg_file = tmp_path / "research_vault.toml"
-        cfg_file.write_text(
-            f'instance_root = "{tmp_path}"\nnotes_root = "{tmp_path / "notes"}"\n'
-            f'state_dir = "{tmp_path / "state"}"\nagents_dir = "{tmp_path / ".agents"}"\n'
-            f'tasks_dir = "{tmp_path / "tasks"}"\ncontrol_dir = "{tmp_path / "control"}"\n'
-            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n',
-            encoding="utf-8",
-        )
-        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(cfg_file))
-        from research_vault.config import reset_config_cache
-        reset_config_cache()
-
-        (tmp_path / "notes").mkdir(); (tmp_path / "state").mkdir()
-        store, note = self._setup(tmp_path, "veto-run-1")
-
-        from research_vault.dag.verbs import cmd_veto
-        args = argparse.Namespace(
-            run_id="veto-run-1", node_id="framework-propose",
-            reason="spine choice not justified", note=None,
-        )
-        rc = cmd_veto(args)
-        assert rc == 0
-        assert "provisional: vetoed" in note.read_text()
-
-        rs = store.load("veto-run-1")
-        assert rs.node_status("framework-propose") == "blocked"
-        assert "VETOED" in rs.node_states["framework-propose"]["decision_note"]
-
-        reset_config_cache()
-
-    def test_veto_refuses_when_not_provisional(self, tmp_path: Path, monkeypatch, capsys):
-        cfg_file = tmp_path / "research_vault.toml"
-        cfg_file.write_text(
-            f'instance_root = "{tmp_path}"\nnotes_root = "{tmp_path / "notes"}"\n'
-            f'state_dir = "{tmp_path / "state"}"\nagents_dir = "{tmp_path / ".agents"}"\n'
-            f'tasks_dir = "{tmp_path / "tasks"}"\ncontrol_dir = "{tmp_path / "control"}"\n'
-            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n',
-            encoding="utf-8",
-        )
-        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", str(cfg_file))
-        from research_vault.config import reset_config_cache
-        reset_config_cache()
-
-        (tmp_path / "notes").mkdir(); (tmp_path / "state").mkdir()
-        store, note = self._setup(tmp_path, "veto-run-2", provisional="false")
-
-        from research_vault.dag.verbs import cmd_veto
-        args = argparse.Namespace(
-            run_id="veto-run-2", node_id="framework-propose",
-            reason="too late", note=None,
-        )
-        rc = cmd_veto(args)
-        assert rc == 1
-        rs = store.load("veto-run-2")
-        assert rs.node_status("framework-propose") == "succeeded"  # unchanged
-
-        reset_config_cache()

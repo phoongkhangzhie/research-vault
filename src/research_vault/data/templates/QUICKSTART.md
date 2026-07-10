@@ -222,7 +222,7 @@ Output:
 Created: notes/my-research/reviews/scope-xling-transfer.md
 Scaffolded: reviews/scope-xling-transfer/phase1-dag.json
 Phase-1 DAG: review-scope → [HG:approve-protocol] → review-search → review-screen →
-  review-snowball → review-curate → [HG:coverage-gate]
+  review-snowball → review-curate → coverage-gate (auto-resolved)
 ```
 
 Now starting the loop:
@@ -345,10 +345,15 @@ counter-position) must be approved at `approve-protocol` before any search fires
 screened by a thin agent judgment layer (`review-screen`); a deterministic
 both-direction snowball walk (`review-snowball`) then runs to saturation and is
 concept-tagged and curated (`review-curate`) into the final corpus. The
-`coverage-gate` human-go node is the Phase-2 boundary: every in-scope paper must
-have a relate slot or be recorded MENTION-ONLY before `rv review <project>
-expand <scope>` fans out the per-paper `relate-*` nodes. Start one with
-`rv review <project> new <scope> --question '...'`.
+`coverage-gate` node is the Phase-2 boundary: every in-scope paper must have a
+relate slot or be recorded MENTION-ONLY before `rv review <project>
+expand <scope>` fans out the per-paper `relate-*` nodes. Single-human-gate
+design: only `approve-protocol` is a human gate — `coverage-gate` and the
+terminal `approve-review` (Gate 3, after the Phase-2 coverage-critic) both
+resolve AUTONOMOUSLY through the gate-policy engine (`review/autonomy.py`);
+the user receives the reviewed corpus as the system's best version, with no
+"approve the result" gate. Start one with `rv review <project> new <scope>
+--question '...'`.
 
 ### Manuscript loop — type-generic, gated on structural + semantic fidelity
 
@@ -356,8 +361,10 @@ Transforms the OKF pillar (`notes/`) into a submittable document. Each
 manuscript type may declare its own Phase-1 (e.g. the `lit-review` type's
 framework-selection sub-loop, gated on `approve-framework`); every type shares
 a Phase-2 terminal `approve-manuscript` gate covering structural gates, fidelity
-gates, and the review-revise board. Start one with `rv manuscript <project> new
-<slug> --type <type>`.
+gates, and the review-revise board. Both `approve-framework` and
+`approve-manuscript` resolve autonomously (single-human-gate design) — neither
+is a human keypress. Start one with `rv manuscript <project> new <slug> --type
+<type>`.
 
 ## Adding a real project
 

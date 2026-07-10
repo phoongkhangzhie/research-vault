@@ -1,5 +1,5 @@
 """test_review_autonomy.py — NG-4/5/6 acceptance tests: the gate-policy
-engine, the async-veto window, and the deviation log's repurposed BLOCK.
+engine and the deviation log's repurposed BLOCK.
 
 Coverage:
   1. classify_disposition — each of the four failure classes -> the correct
@@ -10,16 +10,23 @@ Coverage:
   3. Adapters (evaluation_from_structural_payload / evaluation_from_board /
      evaluation_from_framework_gate) correctly translate real gate payload
      shapes.
-  4. The async-veto window (§1.7) — provisional stamp, elapse -> clear,
-     veto -> HALT-DECLARE-shaped rollback, declare-final gate BLOCKs while
-     open/vetoed.
-  5. The deviation log (§1.5, D2) — record_deviation writes a declared
+  4. The deviation log (§1.5, D2) — record_deviation writes a declared
      block; check_undeclared_deviation's REPURPOSED BLOCK — ★ leak-planted:
      an undeclared membership removal MUST trip the BLOCK; a declared one
-     MUST pass.
-  6. The tool-op registry — unregistered op raises loudly (never a silent
+     MUST pass. This is a SEPARATE, fail-closed safety (a silent corpus/
+     criteria mutation) — it stays fully intact; it is NOT the removed
+     async-veto/provisional machinery (single-human-gate design, 2026-07-09:
+     an auto-resolved decision is final immediately, no veto window).
+  5. The tool-op registry — unregistered op raises loudly (never a silent
      no-op); registered ops call through to the real library function
      (injected fake, hermetic).
+
+NOTE (2026-07-09): the async-veto window (§1.7 — VetoWindow/open_veto_window/
+cast_veto/clear_provisional_if_elapsed/check_declare_final_gate) and its
+`rv dag veto` CLI surface were REMOVED. The design intent is a single human
+gate (approve-protocol only); every downstream gate resolves autonomously and
+FINALLY the moment it resolves — no provisional stamp, no veto window, no
+user-facing provisional/confirmed bookkeeping. See DEVLOG.md.
 """
 from __future__ import annotations
 
@@ -188,76 +195,39 @@ class TestAdapters:
 
 
 # ---------------------------------------------------------------------------
-# 4. Async-veto window (§1.7)
+# 4. The async-veto window (§1.7) is REMOVED (single-human-gate design,
+#    2026-07-09). No provisional/vetoed frontmatter stamp is ever written by
+#    this module — asserted directly below (no attribute survives to test
+#    against, and no note produced by this module ever carries the field).
 # ---------------------------------------------------------------------------
 
-class TestAsyncVeto:
-    def _note(self, tmp_path: Path) -> Path:
-        p = tmp_path / "_manuscript.md"
-        p.write_text("---\ntitle: t\n---\n\nbody\n")
-        return p
+class TestVetoMachineryRemoved:
+    def test_no_veto_symbols_remain_on_the_module(self):
+        for name in (
+            "VetoWindow",
+            "open_veto_window",
+            "cast_veto",
+            "clear_provisional_if_elapsed",
+            "check_declare_final_gate",
+            "DEFAULT_VETO_WINDOW_HOURS",
+        ):
+            assert not hasattr(auto, name), (
+                f"review.autonomy.{name} must be REMOVED (single-human-gate "
+                "design, 2026-07-09) — an auto-resolved decision is final "
+                "immediately, no async-veto window."
+            )
 
-    def test_open_window_stamps_provisional_true(self, tmp_path):
-        note = self._note(tmp_path)
-        window = auto.open_veto_window(note, kind="framework", decision_summary="chose spine X")
-        assert "provisional: true" in note.read_text()
-        assert window.kind == "framework"
-        assert not window.vetoed
-
-    def test_declare_final_blocked_while_provisional(self, tmp_path):
-        note = self._note(tmp_path)
-        auto.open_veto_window(note, kind="framework", decision_summary="chose spine X")
-        ok, msg = auto.check_declare_final_gate(note)
-        assert ok is False
-        assert "provisional" in msg.lower()
-
-    def test_window_elapses_clears_provisional_allows_declare_final(self, tmp_path):
-        note = self._note(tmp_path)
-        opened = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
-        window = auto.open_veto_window(
-            note, kind="framework", decision_summary="x", window_hours=1, now=opened,
+    def test_record_deviation_never_stamps_provisional(self, tmp_path):
+        """record_deviation's _deviations.md header must NOT carry a
+        'provisional' field — that bookkeeping was purged along with the
+        veto window (it must never surface anywhere, incl. a fresh log)."""
+        deviations = tmp_path / "_deviations.md"
+        auto.record_deviation(
+            deviations, version=2, pre_criteria="p1", post_criteria="p2",
+            removed=[], added=["x"], rationale="test",
         )
-        later = opened + datetime.timedelta(hours=2)
-        assert window.has_elapsed(now=later)
-        cleared = auto.clear_provisional_if_elapsed(note, window, now=later)
-        assert cleared is True
-        assert "provisional: false" in note.read_text()
-        ok, msg = auto.check_declare_final_gate(note)
-        assert ok is True
-
-    def test_window_not_yet_elapsed_stays_blocked(self, tmp_path):
-        note = self._note(tmp_path)
-        opened = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
-        window = auto.open_veto_window(
-            note, kind="framework", decision_summary="x", window_hours=72, now=opened,
-        )
-        soon = opened + datetime.timedelta(hours=1)
-        assert not window.has_elapsed(now=soon)
-        cleared = auto.clear_provisional_if_elapsed(note, window, now=soon)
-        assert cleared is False
-        ok, _ = auto.check_declare_final_gate(note)
-        assert ok is False
-
-    def test_cast_veto_rolls_back_and_blocks_declare_final_permanently(self, tmp_path):
-        note = self._note(tmp_path)
-        window = auto.open_veto_window(note, kind="deviation", decision_summary="dropped 2 papers")
-        auto.cast_veto(note, window, reason="corpus removal not justified")
-        assert window.vetoed is True
-        assert "provisional: vetoed" in note.read_text()
-        ok, msg = auto.check_declare_final_gate(note)
-        assert ok is False
-        assert "vetoed" in msg.lower()
-        # Even after the original window would have elapsed, a vetoed
-        # decision never auto-clears.
-        later = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(days=10)
-        assert auto.clear_provisional_if_elapsed(note, window, now=later) is False
-
-    def test_veto_window_round_trips_dict(self):
-        w = auto.VetoWindow(kind="framework", opened_at="2026-01-01T00:00:00+00:00", decision_summary="s")
-        d = w.to_dict()
-        w2 = auto.VetoWindow.from_dict(d)
-        assert w2.kind == w.kind
-        assert w2.opened_at == w.opened_at
+        text = deviations.read_text()
+        assert "provisional" not in text.lower()
 
 
 # ---------------------------------------------------------------------------

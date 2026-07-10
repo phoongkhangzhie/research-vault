@@ -129,6 +129,123 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
+# approve-review structural gate (single-human-gate design, 2026-07-09) —
+# read review-coverage-critic's STRUCTURED ``verdict:`` frontmatter field
+# ---------------------------------------------------------------------------
+
+# The ONLY two values the gate ever trusts. A fixed vocab, not a heuristic —
+# no prose-scanning regex, no anchoring/ambiguity patching. This whitelist
+# (charter §2) is what closes the whole prose-evasion class the prior
+# ``_COVERAGE_CRITIC_VERDICT_RE``/``_COVERAGE_CRITIC_VERDICT_LINE_RE``
+# implementation kept getting evaded on (first-match -> line-anchor -> a
+# residual opening-line evasion) — the operator's directive: stop parsing
+# prose, enforce a structured field, exactly like the support-matcher's
+# ``[SUPPORTS]/[PARTIAL]/[ABSENT]/[CONTRADICTS]`` fixed-vocab field.
+_COVERAGE_CRITIC_VERDICT_VOCAB = frozenset({"PASS", "BLOCK"})
+# Best-effort body bullet extraction for the BLOCK reasons — informational
+# only (the audit trail / REVISE reasons a human reads later). It never
+# affects the fail-closed decision above, which comes SOLELY from the
+# frontmatter ``verdict:`` field.
+_COVERAGE_CRITIC_BULLET_RE = re.compile(r"^\s*-\s+(.+?)\s*$")
+
+
+def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
+    """Read ``review-coverage-critic``'s STRUCTURED ``verdict:`` frontmatter
+    field from ``_coverage-critic.md`` into the ``{"blocking": [...],
+    "not_run": [...]}`` structural-payload shape
+    ``review.autonomy.evaluation_from_structural_payload`` consumes — the
+    SAME adapter ``approve-framework``/``approve-manuscript`` already use
+    (charter §6 reuse-over-create; no new disposition path invented).
+
+    This function reads ONLY the frontmatter field — it never scans the
+    body prose for bracket tokens. Prose (including a stray ``[PASS]``/
+    ``[BLOCK]`` mention anywhere in the body) is NEVER consulted for the
+    gate decision. This is a deliberate design change, not a tightened
+    heuristic: three successive prose-scanning iterations on this exact
+    gate (first-match anywhere -> line-start anchoring -> single-token
+    ambiguity check) each closed one evasion and left another open, because
+    free prose has no fixed vocabulary to anchor against. A structured
+    field with a fixed 2-value vocab has no such evasion surface.
+
+    - Missing artifact -> ``not_run`` (a floor gate that never ran must
+      never look like a pass, §1.2 priority 2 / explore-rl #3).
+    - ``verdict`` field absent, empty, or any value other than exactly
+      ``PASS``/``BLOCK`` (case-normalized) -> ``not_run`` (fail-closed;
+      HALT-DECLARE upstream, never a silent GO). This is the anti-evasion
+      case: a note with ``[PASS]``/``[BLOCK]`` ONLY in prose and no
+      ``verdict:`` field parses as fail-closed, not as a pass.
+    - ``verdict: PASS`` -> ``blocking: []`` (GO).
+    - ``verdict: BLOCK`` -> ``blocking`` is every ``- <reason>`` bullet line
+      found in the body (best-effort, informational — the critic's own
+      "list each" template); an empty bullet list still counts as one
+      generic blocking reason (never a BLOCK verdict silently downgraded to
+      a pass because no bullets were parsed).
+
+    sr: PR #201 review delta (structured-verdict fix, replaces prose
+    scanning entirely) — 2026-07-09
+    """
+    if not critic_note_path.exists():
+        return {"blocking": [], "not_run": [str(critic_note_path)]}
+
+    text = critic_note_path.read_text(encoding="utf-8")
+    fields, body = _parse_frontmatter(text)
+
+    # Fail-closed on DUPLICATE ``verdict:`` keys. ``_parse_frontmatter`` is
+    # last-wins on repeated scalar keys, so a note with ``verdict: BLOCK``
+    # followed by ``verdict: PASS`` would silently resolve GO. Count the
+    # verdict-key lines in the raw frontmatter block; >1 is contradictory /
+    # ambiguous → fail-closed (never a silent GO on a humanless gate).
+    if text.startswith("---"):
+        _fm_end = text.find("\n---", 3)
+        _fm_block = text[3:_fm_end] if _fm_end != -1 else ""
+        _verdict_keys = [
+            ln for ln in _fm_block.splitlines()
+            if ln.split(":", 1)[0].strip().lower() == "verdict"
+        ]
+        if len(_verdict_keys) > 1:
+            return {
+                "blocking": [],
+                "not_run": [
+                    f"{critic_note_path}: {len(_verdict_keys)} 'verdict:' "
+                    f"frontmatter keys — contradictory/ambiguous, fail-closed. "
+                    f"Write exactly one 'verdict: PASS' or 'verdict: BLOCK'."
+                ],
+            }
+
+    verdict_raw = fields.get("verdict", "")
+    if isinstance(verdict_raw, list):
+        verdict_raw = " ".join(str(item) for item in verdict_raw)
+    verdict = str(verdict_raw).strip().upper()
+
+    if verdict not in _COVERAGE_CRITIC_VERDICT_VOCAB:
+        return {
+            "blocking": [],
+            "not_run": [
+                f"{critic_note_path}: no valid 'verdict:' frontmatter field "
+                f"— expected exactly 'PASS' or 'BLOCK', got "
+                f"{verdict_raw!r}. Prose bracket tokens ([PASS]/[BLOCK]) "
+                f"anywhere in the body are NEVER read as the verdict — "
+                f"only the structured frontmatter field is trusted."
+            ],
+        }
+
+    if verdict == "PASS":
+        return {"blocking": [], "not_run": []}
+
+    # BLOCK: collect every "- <reason>" bullet line found anywhere in the
+    # body (below the frontmatter), per the critic's own template. This is
+    # informational only — the fail-closed decision above already stands.
+    reasons: list[str] = []
+    for line in body.splitlines():
+        bullet_m = _COVERAGE_CRITIC_BULLET_RE.match(line)
+        if bullet_m is not None:
+            reasons.append(bullet_m.group(1))
+    if not reasons:
+        reasons = ["[BLOCK] verdict with no itemized reason bullets found"]
+    return {"blocking": reasons, "not_run": []}
+
+
+# ---------------------------------------------------------------------------
 # Saturation backstop (SR-LR-1-BACKSTOP) — coverage-gate surfacing
 # ---------------------------------------------------------------------------
 
@@ -541,7 +658,7 @@ def _build_phase1_manifest(
 
     Phase-1 nodes (7):
       review-scope → [HG:approve-protocol] → review-search (tool) → review-screen (agent)
-          → review-snowball (tool) → review-curate (agent) → [HG:coverage-gate]
+          → review-snowball (tool) → review-curate (agent) → coverage-gate (auto-resolved)
 
     Topology:
       - review-scope:     agent; produces _protocol.md
@@ -858,7 +975,7 @@ def _build_phase2_manifest(
 
     Phase-2 nodes:
       relate-<key1> ─┐
-      relate-<key2> ─┤ → review-synthesize → review-coverage-critic → [HG:approve-review]
+      relate-<key2> ─┤ → review-synthesize → review-coverage-critic → approve-review (auto-resolved)
       ...            ─┘
 
     Each relate-<key> is a static node over the frozen corpus approved at coverage-gate.
@@ -944,10 +1061,21 @@ def _build_phase2_manifest(
             str(review_dir / "_saturation.md"),
             protocol_path,
         ],
+        # Single-human-gate design (2026-07-09): approve-review reads this
+        # note structurally (review.check_coverage_critic_verdict) to
+        # auto-resolve Gate 3 — the critic MUST write its [PASS]/[BLOCK]
+        # verdict here, not just reply in prose.
+        "produces": {"_coverage-critic.md": str(review_dir / "_coverage-critic.md")},
         "needs": [_afterok("review-synthesize")],
     })
 
-    # approve-review — terminal human-go gate
+    # approve-review — terminal gate, resolved AUTONOMOUSLY (single-human-
+    # gate design, 2026-07-09: only approve-protocol is a human gate). The
+    # DAG node "type" stays "human-go" (the schema/runner shape is unchanged;
+    # see dag/catalog.py's grounding test) but `rv dag approve --auto` /
+    # the self-advancing runner resolve it via review.autonomy's
+    # gate-policy engine reading review-coverage-critic's verdict — never a
+    # human keypress.
     nodes.append({
         "id": "approve-review",
         "type": "human-go",
@@ -1130,7 +1258,7 @@ def cmd_expand(
 
     Run after the ``coverage-gate`` human-go approval.  Parses ``_corpus.md`` for
     ``[NEW]`` citekeys and emits one ``relate-<key>`` node per paper, joining into
-    ``review-synthesize → review-coverage-critic → [HG:approve-review]``.
+    ``review-synthesize → review-coverage-critic → approve-review (auto-resolved)``.
 
     When to use: ``rv review <project> expand <scope>`` immediately after the
     operator approves the coverage-gate.  The Phase-2 manifest is saved as

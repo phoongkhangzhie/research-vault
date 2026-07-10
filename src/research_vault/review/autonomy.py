@@ -1,14 +1,25 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/autonomy.py — NG-4/5/6: the gate-policy engine + async-veto +
-deviation log + the deterministic tool-op registry.
+"""review/autonomy.py — NG-4/5/6: the gate-policy engine + deviation log +
+the deterministic tool-op registry.
 
 Design of record: docs/superpowers/specs/2026-07-08-next-gen-lit-review-loop-design.md
 (§1 the autonomy program) and 2026-07-08-rv-verb-consolidation.md (§3/§6 D4:
 the ``tool`` node-kind + op registry).
 
-This module is the single-sourced home (mirrors ``check_gates.build_approve_payload``'s
-assembler pattern, charter §6 reuse-over-create) for THREE things that were
-previously a human keypress at ``rv dag approve``:
+★ SINGLE-HUMAN-GATE DESIGN (2026-07-09): only ``approve-protocol`` (Gate 1,
+the plan/scope gate before search) is a human gate. Every downstream gate —
+``coverage-gate``, ``approve-framework``, ``approve-manuscript``,
+``approve-review`` — resolves AUTONOMOUSLY through the gate-policy engine
+below, and an auto-resolved decision is FINAL THE MOMENT IT RESOLVES: no
+``provisional`` stamp, no async-veto window, no user-facing
+provisional/confirmed bookkeeping. The §1.7 async-veto window
+(``VetoWindow``/``open_veto_window``/``cast_veto``/
+``clear_provisional_if_elapsed``/``check_declare_final_gate``) and the
+``rv dag veto`` CLI surface it backed were REMOVED for this reason — see
+DEVLOG.md. This module is the single-sourced home (mirrors
+``check_gates.build_approve_payload``'s assembler pattern, charter §6
+reuse-over-create) for TWO things that were previously a human keypress at
+``rv dag approve``:
 
   1. **The gate-policy engine** (§1.2) — ``classify_disposition`` maps any
      mechanical-gate outcome to exactly ONE of GO / GO-WITH-RESIDUE / REVISE /
@@ -18,22 +29,18 @@ previously a human keypress at ``rv dag approve``:
      ``check_saturation_backstop``) into the normalized ``GateEvaluation``
      input, so no existing gate is reimplemented — only consumed.
 
-  2. **The async-veto window** (§1.7) — shared machinery for D1 (the
-     framework choice) and D2 (any scope/membership deviation). An
-     already-proceeding decision is stamped ``provisional: true`` on its
-     note; ``check_declare_final_gate`` mechanically BLOCKs the terminal
-     "declare final" step while the window is open or vetoed.
-
-  3. **The deviation log** (§1.5, D2) — ``record_deviation`` writes the
+  2. **The deviation log** (§1.5, D2) — ``record_deviation`` writes the
      DECLARED v(k)->v(k+1) transparency block; ``check_undeclared_deviation``
      is the REPURPOSED denominator-shrink BLOCK: a corpus delta from the
      frozen baseline is a BLOCK unless every citekey delta is declared,
      citekey-for-citekey, in ``_deviations.md``. This is the mechanical
      teeth that keeps D2 (all scope revisions auto) out of fishing
      territory — see the leak-planted acceptance test in
-     ``tests/test_review_autonomy.py``.
+     ``tests/test_review_autonomy.py``. This BLOCK is a SEPARATE, fail-closed
+     safety net (stops a silent corpus/criteria mutation) — it is NOT the
+     removed async-veto/provisional machinery and stays fully intact.
 
-  4. **The deterministic tool-op registry** (verb-consolidation D4) — the
+  3. **The deterministic tool-op registry** (verb-consolidation D4) — the
      ``OP_REGISTRY``/``run_tool_op`` seam a DAG ``"type": "tool"`` node
      invokes IN-PROCESS (no subprocess, no human, no CLI verb) when the
      runner executes it (``dag/verbs.py``'s ``_auto_execute_tool_nodes``).
@@ -42,10 +49,10 @@ previously a human keypress at ``rv dag approve``:
      ``SemanticScholarAdapter``, ``coverage_report``, ``relations_report``).
 
 Stdlib only (+ intra-package imports). Hermetic in tests — no live LLM/network
-call is required to exercise the disposition/veto/deviation logic; the op
+call is required to exercise the disposition/deviation logic; the op
 registry's network-touching ops are exercised via injected fakes in tests.
 
-sr: NG-4, NG-5, NG-6a, NG-6b (deviation log + PRISMA-adjacent), D4 (verb consolidation)
+sr: NG-4, NG-5, NG-6a, NG-6b (deviation-adjacent), D4 (verb consolidation)
 """
 from __future__ import annotations
 
@@ -55,7 +62,6 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
-from research_vault.note import _parse_frontmatter
 from research_vault.research import (
     _ARXIV_NEW_RE,
     _ARXIV_OLD_RE,
@@ -63,7 +69,6 @@ from research_vault.research import (
     _DOI_BARE_RE,
     _S2_SHA_RE,
 )
-from research_vault.review.gap_scan import _stamp_frontmatter_field
 
 # ---------------------------------------------------------------------------
 # 1. Dispositions — the gate-policy engine (§1.2)
@@ -393,147 +398,7 @@ def _parse_corpus_citekeys_helper(corpus_path: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 2. The async-veto window (§1.7) — shared machinery for D1 + D2
-# ---------------------------------------------------------------------------
-
-DEFAULT_VETO_WINDOW_HOURS = 72
-
-
-@dataclasses.dataclass
-class VetoWindow:
-    """A provisional decision open to an async human veto (§1.7). The
-    persisted record (round-trips through ``to_dict``/``from_dict``) is
-    what the caller stores in the decision surface (``_framework-decision.md``
-    / a ``_deviations.md`` block / a JSON sidecar) — this dataclass itself
-    holds no file handle.
-    """
-
-    kind: str  # "framework" | "deviation"
-    opened_at: str  # iso8601
-    window_hours: int = DEFAULT_VETO_WINDOW_HOURS
-    decision_summary: str = ""
-    vetoed: bool = False
-    veto_reason: str | None = None
-
-    @property
-    def elapses_at(self) -> datetime.datetime:
-        opened = datetime.datetime.fromisoformat(self.opened_at)
-        return opened + datetime.timedelta(hours=self.window_hours)
-
-    def has_elapsed(self, *, now: datetime.datetime | None = None) -> bool:
-        now = now or datetime.datetime.now(tz=datetime.timezone.utc)
-        return now >= self.elapses_at
-
-    def to_dict(self) -> dict[str, Any]:
-        return dataclasses.asdict(self)
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "VetoWindow":
-        return cls(
-            kind=d["kind"],
-            opened_at=d["opened_at"],
-            window_hours=int(d.get("window_hours", DEFAULT_VETO_WINDOW_HOURS)),
-            decision_summary=d.get("decision_summary", ""),
-            vetoed=bool(d.get("vetoed", False)),
-            veto_reason=d.get("veto_reason"),
-        )
-
-
-def open_veto_window(
-    note_path: Path,
-    *,
-    kind: str,
-    decision_summary: str,
-    window_hours: int = DEFAULT_VETO_WINDOW_HOURS,
-    now: datetime.datetime | None = None,
-) -> VetoWindow:
-    """Open an async-veto window over an already-proceeding decision.
-
-    Stamps ``provisional: true`` on ``note_path``'s frontmatter (never a
-    silent edit — the terminal declare-final gate below mechanically enforces
-    it) and returns the ``VetoWindow`` record the caller persists into the
-    decision surface (``_framework-decision.md`` / a ``_deviations.md`` block).
-    """
-    now = now or datetime.datetime.now(tz=datetime.timezone.utc)
-    window = VetoWindow(
-        kind=kind,
-        opened_at=now.isoformat(),
-        window_hours=window_hours,
-        decision_summary=decision_summary,
-    )
-    if note_path.exists():
-        text = note_path.read_text(encoding="utf-8")
-        note_path.write_text(_stamp_frontmatter_field(text, "provisional", "true"), encoding="utf-8")
-    return window
-
-
-def cast_veto(note_path: Path, window: VetoWindow, *, reason: str) -> VetoWindow:
-    """A human veto over an OPEN window: the decision is rolled back and the
-    run HALT-DECLAREs. Stamps ``provisional: vetoed`` (never silently
-    reverted to a clean state — the audit trail of the veto survives).
-    Returns the updated (mutated in place AND returned) window record.
-    """
-    window.vetoed = True
-    window.veto_reason = reason
-    if note_path.exists():
-        text = note_path.read_text(encoding="utf-8")
-        note_path.write_text(_stamp_frontmatter_field(text, "provisional", "vetoed"), encoding="utf-8")
-    return window
-
-
-def clear_provisional_if_elapsed(
-    note_path: Path,
-    window: VetoWindow,
-    *,
-    now: datetime.datetime | None = None,
-) -> bool:
-    """The mechanical enforcement half of §1.7: a note stays
-    ``provisional: true`` until its veto window elapses UNVETOED.
-
-    Returns True iff ``provisional`` was cleared to ``false`` (declare-final
-    may now proceed). Returns False (no-op) if vetoed or the window has not
-    yet elapsed.
-    """
-    if window.vetoed:
-        return False
-    if not window.has_elapsed(now=now):
-        return False
-    if note_path.exists():
-        text = note_path.read_text(encoding="utf-8")
-        note_path.write_text(_stamp_frontmatter_field(text, "provisional", "false"), encoding="utf-8")
-    return True
-
-
-def check_declare_final_gate(note_path: Path) -> tuple[bool, str]:
-    """BLOCKs the terminal "declare final" step while ``note_path`` is still
-    ``provisional: true`` (open veto window) or ``provisional: vetoed``.
-
-    Mirrors ``review.check_protocol_gate``'s structural-gate shape
-    (``(ok, msg)``) — reused by ``rv dag approve``/``rv dag veto`` wiring.
-    """
-    if not note_path.exists():
-        return False, f"declare-final BLOCKED — {note_path} not found."
-    text = note_path.read_text(encoding="utf-8")
-    fields, _ = _parse_frontmatter(text)
-    provisional = str(fields.get("provisional", "")).strip().lower()
-    if provisional == "true":
-        return False, (
-            f"declare-final BLOCKED — {note_path} is still 'provisional: "
-            "true' (an open async-veto window has not elapsed). §1.7: a "
-            "framework choice or scope deviation cannot be declared final "
-            "while its veto window is open."
-        )
-    if provisional == "vetoed":
-        return False, (
-            f"declare-final BLOCKED — {note_path} carries 'provisional: "
-            "vetoed'. The decision was rolled back; re-run the gate before "
-            "declaring final again."
-        )
-    return True, "OK"
-
-
-# ---------------------------------------------------------------------------
-# 3. The deviation log (§1.5, D2) — the transparency contract + repurposed BLOCK
+# 2. The deviation log (§1.5, D2) — the transparency contract + repurposed BLOCK
 # ---------------------------------------------------------------------------
 
 # NG-6a §5 layer 2: the two recognized `kind` values. `within-criteria-append`
@@ -613,11 +478,11 @@ def record_deviation(
     else:
         deviations_path.parent.mkdir(parents=True, exist_ok=True)
         text = (
-            "---\nprovisional: true\n---\n\n"
             "# Deviation log\n\n"
             "Every scope/membership revision under D2's transparency "
             "contract (§1.5): DECLARED, PRISMA-integrated, reproducible, "
-            "async-vetoable.\n"
+            "and final the moment it is recorded here (single-human-gate "
+            "design, 2026-07-09 — no async-veto window).\n"
         )
     deviations_path.write_text(text + block, encoding="utf-8")
     return block
@@ -692,7 +557,7 @@ def check_undeclared_deviation(
 
 
 # ---------------------------------------------------------------------------
-# 4. The deterministic tool-op registry (verb-consolidation D4)
+# 3. The deterministic tool-op registry (verb-consolidation D4)
 # ---------------------------------------------------------------------------
 #
 # Every entry is a thin call-through — NO op is reimplemented here. This is

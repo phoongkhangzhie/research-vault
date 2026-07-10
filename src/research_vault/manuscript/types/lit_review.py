@@ -5,7 +5,7 @@ Fills the PR-M1 stub with the survey's real machinery (design §3-§5):
   - the real 9-row section-set (§3), abstract drafted LAST (assembly class
     "S (last)" — it must be a subset of the body, so it needs the body first).
   - the framework-selection Phase-1 (§5): scope -> framework-propose ->
-    [HG:approve-framework], the 4 candidate shapes PROPOSED never forced, a
+    approve-framework (auto-resolved), the 4 candidate shapes PROPOSED never forced, a
     corpus-hash stamp (injected, never agent-computed), and the
     ``check_framework_gate`` structural BLOCK on an empty spine.
   - the OKF -> survey ``source_transform`` (§4): a deterministic PRISMA-ledger

@@ -16,7 +16,7 @@ Subcommands (SR-LR-1):
   rv review <project> new <scope> --question "..."
       Create a review OKF note + reviews/<scope>/ artifact dir + Phase-1 DAG manifest.
       Phase-1 shape: review-scope → [HG:approve-protocol] → review-search
-          → review-snowball → [HG:coverage-gate].
+          → review-snowball → coverage-gate (auto-resolved).
       ``review-scope`` MUST file a ``_protocol.md`` with a non-empty ``counter-position``
       field (L-2 gate, §5L.3) — ``review-search`` is gated on the protocol artifact.
       ``review-snowball`` runs an internal saturation loop (both forward + backward
@@ -26,7 +26,7 @@ Subcommands (SR-LR-1):
       Emit Phase-2 manifest from the frozen ``_corpus.md`` after coverage-gate approval.
       One ``relate-<key>`` node per ``[NEW]`` citekey → ``review-synthesize``
       → ``review-coverage-critic`` (L-2: [BLOCK] on missing counter-position)
-      → ``[HG:approve-review]``.
+      → ``approve-review` (auto-resolved)`.
       Saves ``reviews/<scope>/phase2-dag.json``.
 
   rv review <project> list
@@ -145,7 +145,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help=(
             "Create a review OKF note + reviews/<scope>/ dir + Phase-1 DAG manifest. "
             "Scaffolds the §5L.1 DAG: review-scope → [HG:approve-protocol] → "
-            "review-search → review-snowball → [HG:coverage-gate]."
+            "review-search → review-snowball → coverage-gate (auto-resolved)."
         ),
     )
     new_p.add_argument(
