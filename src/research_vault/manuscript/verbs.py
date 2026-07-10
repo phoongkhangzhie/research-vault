@@ -7,9 +7,10 @@ a per-manuscript folder (design §0/§12: NOT an OKF taxonomy — a per-manuscri
 folder). ``rv manuscript <project> expand <slug>`` emits the Phase-2 draft
 manifest generically from the registered type's section table. ``rv manuscript
 <project> review <slug>`` drives the 2-round x 3-reviewer adversarial
-review-revise board (design §9, PR-M5) — requires RV_JUDGE_MODEL +
-ANTHROPIC_API_KEY, raises loudly rather than silently no-op-ing when absent.
-``rv manuscript <project> list`` enumerates all manuscripts for a project.
+review-revise board (design §9, PR-M5). PR-F: the in-process API judge default
+was deleted — the production cold-judge review runs via the 6-lens board's
+emit/ingest fan-out; this OLD board raises loudly on a None judge_fn (test-only
+seam). ``rv manuscript <project> list`` enumerates all manuscripts for a project.
 
 This is the ONLY path that creates the type-registered per-manuscript folder +
 Phase-1/2 DAG manifests.

@@ -114,7 +114,7 @@ class CanaryAbortError(RuntimeError):
 # PR-F: the direct-API judge default was DELETED — this module NEVER
 # constructs an in-process judge; ``run_review_board`` requires an injected
 # ``judge_fn`` and raises loudly when it is None (production review runs via
-# the 6-lens board's emit/ingest cold fanout). No ``RV_JUDGE_MODEL`` read.
+# the 6-lens board's emit/ingest cold fanout). No judge-model env var is read.
 
 # All 8 review dimensions, in the design §11.1 table's order.
 _ALL_DIMS: tuple[str, ...] = (

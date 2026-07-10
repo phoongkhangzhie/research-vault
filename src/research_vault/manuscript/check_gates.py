@@ -652,7 +652,17 @@ def compute_coverage_diff(coverage_map_path: Path, reader_body: str) -> dict[str
     nothing committed to drop). ``missing`` is the load-bearing field handed
     to the WIDTH judge as ``coverage_diff``.
 
-    sr: PR-E
+    ★ PR-F SOURCE-ROUTING (fit-check): ``reader_body`` MUST be the
+    ``[[citekey]]`` SOURCE body — the assembled ``report.md`` + ``sections/*.md``
+    from ``draft_files.resolve_draft_files`` (or ``_read_draft_text``). It must
+    NEVER be PR-D's ``[N]``-numbered render (``report.rendered.md``): that
+    render has already converted every ``[[citekey]]`` to ``[N]``, so
+    ``WIKILINK_CITE_RE`` finds ZERO citekeys in it — the diff would then flag
+    EVERY used paper as "missing" and false-critical the entire corpus. The
+    board driver assembles ``reader_body`` from the source draft; a regression
+    test (``test_coverage_diff_source_routing``) pins this contract.
+
+    sr: PR-E; source-routing guardrail PR-F
     """
     from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE
 
