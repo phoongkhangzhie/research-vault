@@ -39,7 +39,7 @@
   topology description were the actual gaps this PR closes.
 
 ### Open / next
-- Merge class: `human-go` (Architect + Khang review before merge) —
+- Merge class: `human-go` (Architect + operator review before merge) —
   a cross-loop phase-transition auto-emission is exactly the kind of
   precedent-setting DAG-runner change that warrants a second pair of eyes
   before landing, even with CI green + full-suite passing (3476 passed,
