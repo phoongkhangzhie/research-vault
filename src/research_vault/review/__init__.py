@@ -4,29 +4,29 @@
 The review loop is the manuscript loop's sibling — it composes SR-3 (DAG) with zero
 new walker/schema mechanism.  The fan-out over a runtime-discovered corpus is resolved
 at the ``coverage-gate`` phase boundary via a second manifest emitted by
-``rv review expand`` (§5L.4 ruling).
+``rv review expand``.
 
-★ Option C hybrid (review-loop-nodekind-drift-fix, 2026-07-09): Phase-1's
-review-search/review-snowball are each split into a deterministic TOOL node (the
-mechanical fetch/graph-walk — ``review.autonomy``'s ``sweep``/``snowball`` ops) followed
-by a thin AGENT node (the judgment layer — inclusion/exclusion screening, concept-
-tagging, honest residue prose). This replaces the pre-2026-07-09 shape where
-review-search/review-snowball were themselves agent nodes whose specs instructed the
-agent to shell ``rv research sweep``/``cited-by``/``references`` — verbs D1
-(verb-consolidation) hard-removed. See the spec for the full rationale (§2-3).
+★ Phase-1's review-search/review-snowball are each split into a deterministic TOOL
+node (the mechanical fetch/graph-walk — ``review.autonomy``'s ``sweep``/``snowball``
+ops) followed by a thin AGENT node (the judgment layer — inclusion/exclusion
+screening, concept-tagging, honest residue prose). This replaces an earlier shape
+where review-search/review-snowball were themselves agent nodes whose specs
+instructed the agent to shell ``rv research sweep``/``cited-by``/``references`` —
+those verbs have since been hard-removed as part of consolidating them behind the
+tool-node ops.
 
 Provides:
   - cmd_new:    scaffold a review OKF note + reviews/<scope>/ dir + Phase-1 DAG manifest
   - cmd_list:   list review notes for a project
   - cmd_expand: emit Phase-2 manifest from a frozen _corpus.md (post coverage-gate)
 
-The ``review_tips`` config seam (§5L.6, ``review/style.py``) is the content socket:
+The ``review_tips`` config seam (``review/style.py``) is the content socket:
 six keys (review_scope_tips, review_screen_tips, review_curate_tips,
 per_paper_relate_tips, review_synthesize_tips, review_critic_tips) drive each agent
 node's spec string.  Adopters override via ``[review_style]`` in research_vault.toml.
 
 Corpus helpers (_corpus_annotation) are imported directly from
-research_vault.research — NOT scraped from stdout (§5L.11 prereq-composition rule).
+research_vault.research — NOT scraped from stdout (a prereq-composition rule).
 
 Stdlib only.
 sr: SR-LR-1
@@ -52,7 +52,7 @@ from research_vault.review.style import (
     get_saturation_backstop_waves,
 )
 
-# Corpus helpers imported directly (not scraping stdout — §5L.11)
+# Corpus helpers imported directly (not scraping stdout)
 from research_vault.research import (
     _corpus_annotation,  # noqa: F401
 )
@@ -87,7 +87,7 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
     This is the native rv enforcement of the L-2 gate that was previously
     ``review_scope_tips``/``review_critic_tips`` prose only (agent-instructed,
     never mechanically checked). Wired into ``rv dag approve`` at the
-    ``approve-protocol`` node (§5L.3) so the gate refuses structurally,
+    ``approve-protocol`` node so the gate refuses structurally,
     not just by prompt convention.
 
     Uses ``note._parse_frontmatter`` (the canonical parser) — no re-rolled
@@ -118,7 +118,7 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
         return False, (
             f"rv dag approve: L-2 gate BLOCKED — {protocol_path} has an "
             f"empty or missing 'counter-position' frontmatter field.\n"
-            f"The anti-fishing gate (§5L.3) requires the protocol to name a "
+            f"The anti-fishing gate requires the protocol to name a "
             f"falsifying/opposing sub-literature BEFORE search executes.\n"
             f"Fix: edit {protocol_path.name} to add a non-empty "
             f"'counter-position: <...>' field, then re-run "
@@ -254,7 +254,7 @@ def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
 
     The saturation loop is the deterministic ``snowball`` tool op (an
     INTERNAL loop inside the ``review-snowball`` TOOL node — no per-round DAG
-    nodes, §5L.2; review-loop-nodekind-drift-fix Option C). It stamps flat
+    nodes). It stamps flat
     frontmatter at the top of ``_saturation.md`` recording which stop rule
     fired:
       - ``stop_reason: saturated``          — PRIMARY rule: 2-consecutive-zero
@@ -394,11 +394,11 @@ class CorpusSchemaError(ValueError):
     (column 0 looks like ``[...]``) that is NEITHER ``[NEW]`` nor
     ``[IN-CORPUS:*]`` — a malformed hand-written or remediation-appended row.
 
-    NG-6a §3 (the green-but-stale fix, explore-rl #2): the pre-NG-6a parser
-    silently ``continue``d past such a row, so a malformed remediation
-    append vanished from the corpus set and ``coverage_report``/the
-    coverage-gate audited a stale subset while reporting green. This is a
-    loud reject instead (charter §2 — surface, never silently drop).
+    The green-but-stale fix (explore-rl #2): the prior parser silently
+    ``continue``d past such a row, so a malformed remediation append
+    vanished from the corpus set and ``coverage_report``/the coverage-gate
+    audited a stale subset while reporting green. This is a loud reject
+    instead (charter §2 — surface, never silently drop).
 
     Narrow structural signal, not "any unrecognized row": a bullet/prose
     line or a header/separator row (whose column-0 is NOT bracket-shaped)
@@ -416,10 +416,10 @@ def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
 
     Raises ``CorpusSchemaError`` (loud reject) on a bracket-shaped column-0
     annotation that is neither ``[NEW]`` nor ``[IN-CORPUS:*]`` — see
-    ``CorpusSchemaError`` (NG-6a §3). Non-table prose and header/separator
+    ``CorpusSchemaError``. Non-table prose and header/separator
     rows (column-0 is NOT bracket-shaped) are still a correct, silent skip.
 
-    sr: SR-LR-1, NG-6a
+    sr: SR-LR-1
     """
     if not corpus_path.exists():
         return []
@@ -441,7 +441,7 @@ def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
             continue
         if re.match(r"^\[.*\]$", annotation):
             # Bracket-shaped but not a recognized tag — a schema violation.
-            # Loud reject, never a silent skip (NG-6a §3).
+            # Loud reject, never a silent skip.
             raise CorpusSchemaError(
                 f"{corpus_path}:{lineno}: malformed corpus row annotation "
                 f"{annotation!r} — expected '[NEW]' or '[IN-CORPUS:<citekey>]'. "
@@ -715,8 +715,7 @@ def _build_phase1_manifest(
     tip_override: dict[str, str] | None = None,
     config: Any = None,
 ) -> dict[str, Any]:
-    """Build the Phase-1 DAG manifest (§5L.1 shape; Option C hybrid,
-    review-loop-nodekind-drift-fix, 2026-07-09).
+    """Build the Phase-1 DAG manifest.
 
     Phase-1 nodes (7):
       review-scope → [HG:approve-protocol] → review-search (tool) → review-screen (agent)
@@ -738,7 +737,7 @@ def _build_phase1_manifest(
                           _saturation.md, concept-tags + applies inclusion/
                           exclusion, produces _corpus.md (+ _coverage-gaps.md
                           on backstop-termination)
-      - coverage-gate:    human-go (phase boundary — Phase-2 static fan-out
+      - coverage-gate:    auto-resolved (phase boundary — Phase-2 static fan-out
                           authorized here)
 
     Why split each of review-search/review-snowball into tool+agent: the
@@ -754,7 +753,7 @@ def _build_phase1_manifest(
     artifact to judge, never the reverse.
 
     The artifact-watch on _protocol.md makes the anti-fishing structural: search
-    physically cannot fire until the protocol note is filed (§5L.3 ruling).
+    physically cannot fire until the protocol note is filed.
 
     Zero new walker/schema mechanism — all edges are standard afterok/artifact-watch.
 
@@ -819,7 +818,7 @@ def _build_phase1_manifest(
     #    parallel width-sweep over the frozen protocol's angle matrix.
     #    Gated by afterok AND artifact-watch on _protocol.md — the watch
     #    makes anti-fishing structural: search cannot fire without a fresh
-    #    protocol (§5L.3).
+    #    protocol.
     nodes.append({
         "id": "review-search",
         "type": "tool",
@@ -842,7 +841,7 @@ def _build_phase1_manifest(
 
     # 4. review-screen — thin AGENT judgment layer: apply the frozen
     #    protocol's inclusion/exclusion to _search_hits.md and accept a seed
-    #    frontier for the snowball tool op (Option C hybrid).
+    #    frontier for the snowball tool op.
     nodes.append({
         "id": "review-screen",
         "type": "agent",
@@ -864,9 +863,9 @@ def _build_phase1_manifest(
     })
 
     # 5. review-snowball — TOOL node (D4 op "snowball"): the deterministic
-    #    both-direction, multi-round saturation walk (§5L.2's mechanical
-    #    half — see review.autonomy.run_snowball_to_saturation's declared
-    #    concept-tag-half caveat). Produces _corpus_raw.md (raw candidates)
+    #    both-direction, multi-round saturation walk's mechanical half — see
+    #    review.autonomy.run_snowball_to_saturation's declared
+    #    concept-tag-half caveat. Produces _corpus_raw.md (raw candidates)
     #    + _saturation.md (the plateau curve, stop_reason:).
     nodes.append({
         "id": "review-snowball",
@@ -892,7 +891,7 @@ def _build_phase1_manifest(
     # 6. review-curate — thin AGENT judgment layer: concept-tag the raw
     #    corpus, apply inclusion/exclusion, emit the FINAL _corpus.md (+
     #    _coverage-gaps.md on backstop-termination or a tag-under-counting
-    #    concern — Option C hybrid's declared concept-tag-half caveat).
+    #    concern — the declared concept-tag-half caveat).
     nodes.append({
         "id": "review-curate",
         "type": "agent",
@@ -916,7 +915,8 @@ def _build_phase1_manifest(
         ],
     })
 
-    # 7. coverage-gate — human-go Phase BOUNDARY (§5L.4)
+    # 7. coverage-gate — human-go Phase BOUNDARY (auto-resolved in practice —
+    #    see _AUTONOMOUS_GATE_IDS in dag/verbs.py)
     #    Operator confirms "these are the papers" before N parallel relates dispatch.
     #    On approval → rv review expand emits Phase-2.
     nodes.append({
@@ -1033,7 +1033,7 @@ def _build_phase2_manifest(
     tip_override: dict[str, str] | None = None,
     config: Any = None,
 ) -> dict[str, Any]:
-    """Build the Phase-2 DAG manifest (§5L.4 two-phase fan-out ruling).
+    """Build the Phase-2 DAG manifest (two-phase fan-out).
 
     Phase-2 nodes:
       relate-<key1> ─┐
@@ -1043,7 +1043,7 @@ def _build_phase2_manifest(
     Each relate-<key> is a static node over the frozen corpus approved at coverage-gate.
     The parallelism cut is (a) two-phase parallel fan-out (D-LR-3 recommended option).
 
-    The coverage-critic (§5L.5) is a REJECTS-ONLY agent: [PASS]/[BLOCK] convention.
+    The coverage-critic is a REJECTS-ONLY agent: [PASS]/[BLOCK] convention.
     It enforces L-2 (counter-position): [BLOCK] on missing/empty counter-position
     OR corpus that ignored the declared opposing sub-literature.
 
@@ -1105,7 +1105,7 @@ def _build_phase2_manifest(
         "needs": synthesize_needs,
     })
 
-    # review-coverage-critic — rejects-only, reviewer role (§5L.5)
+    # review-coverage-critic — rejects-only, reviewer role
     # Judges: saturation-real vs premature, orphan concepts, protocol-adherence,
     # AND L-2 counter-position PRESENT and SOUGHT (hard [BLOCK] if absent or ignored).
     nodes.append({
