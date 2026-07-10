@@ -6,7 +6,7 @@ instance in the given directory (or the current directory). Creates the instance
 root with config, control files, task dirs, doctrine, and the notes root (OKF
 type dirs).  Real projects are separate repos registered via ``rv project add``.
 
-SR-CCB additions:
+Claude Code (CC) binding additions:
   ``rv init`` also scaffolds the Claude Code binding so a bare
   ``rv init && claude`` boots Alfred + the full crew:
     1. Writes ``CLAUDE.md`` at the instance root (the hub-bootstrap: tells a
@@ -16,7 +16,7 @@ SR-CCB additions:
     3. Auto-runs ``build-agents --target claude-code`` to populate
        ``.claude/agents/<role>.md`` with CC-format subagent files for the
        DEFAULT_ROSTER (4 roles) + architect = 5 files (charter + role doctrine,
-       vault-level — no per-project lens; SR-LENS-RM).
+       vault-level — no per-project lens).
 
 Multi-repo topology note:
   A REAL project is a separate git repo at an external source_dir, registered
@@ -25,7 +25,7 @@ Multi-repo topology note:
   subdirs (that would re-introduce the monorepo pattern; use ``rv project add`` +
   the deferred ``rv project new`` capstone for real projects).
 
-Framework materialization (SR-RV-UPDATE):
+Framework materialization:
   Framework-managed files (CLAUDE.md, QUICKSTART.md, doctrine/**) are copied
   from package data via ``scaffold.py`` — the SAME helpers ``rv update`` uses,
   so a file added to one path can never be silently missing from the other.
@@ -33,7 +33,7 @@ Framework materialization (SR-RV-UPDATE):
   ``.rv-manifest.json`` drift-detection sidecar, so ``rv update`` can later
   refresh the framework in place.
 
-Package data layout (SR-PKG):
+Package data layout:
   All files copied by ``rv init`` live under ``src/research_vault/data/`` inside
   the wheel.  They are loaded via ``importlib.resources`` + ``as_file()`` so the
   copy works from a regular wheel install AND from a zipped wheel (zipimport-safe).
@@ -431,7 +431,7 @@ def cmd_init_in_dir(target_dir: str, *, verbose: bool = False) -> int:
     vprint(f"  created: QUICKSTART.md")
     vprint(f"  created: doctrine/ ({doctrine_files} files)")
 
-    # ── SR-CCB: Create .claude/agents/ dir (CC session-start requirement) ────
+    # ── Create .claude/agents/ dir (CC session-start requirement) ────
     # CC's file watcher registers .claude/agents/ only if it exists when the
     # session opens.  Create it now (even before populating) so a bare
     # `rv init && claude` works without a manual restart.
@@ -439,7 +439,7 @@ def cmd_init_in_dir(target_dir: str, *, verbose: bool = False) -> int:
     dot_claude_agents.mkdir(parents=True, exist_ok=True)
     vprint(f"  created: .claude/agents/")
 
-    # ── SR-CCB: Auto-run build-agents --target claude-code ───────────────────
+    # ── Auto-run build-agents --target claude-code ───────────────────
     # Populate .claude/agents/<role>.md with CC-format subagent files so the
     # crew is discoverable immediately (zero extra commands for the adopter).
     #
@@ -505,7 +505,7 @@ def cmd_init_in_dir(target_dir: str, *, verbose: bool = False) -> int:
             file=sys.stderr,
         )
 
-    # ── SR-RV-UPDATE: version stamp — [meta] block + .rv-manifest.json ────────
+    # ── Version stamp — [meta] block + .rv-manifest.json ────────
     # Written at init AND update so `rv update` can compare the vault's shipped
     # version against the installed package and refresh in place.
     now_iso = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()

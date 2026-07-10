@@ -195,7 +195,6 @@ def test_help_check_catches_broken_snippet(tmp_instance):
                 "When you need a note. "
                 "Use `rv note <project> new <type> --wrong-flag <value>` to create one."
             ),
-            "sr": "SR-1",
         }
     }
     violations = _check_example_snippets(broken_registry)

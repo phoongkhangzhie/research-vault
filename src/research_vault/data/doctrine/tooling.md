@@ -244,25 +244,25 @@ For a **CLI tool** (`rv` subcommand — deterministic + verifiable):
 The following observations appeared once and have not recurred. Recorded here as candidates;
 if the same pattern bites a second time, promote to a numbered rule in the appropriate section above.
 
-- **Map-in-the-same-change** (SR-PKG): in an adopter project that tracks an `architecture.md` map
+- **Map-in-the-same-change**: in an adopter project that tracks an `architecture.md` map
   (scaffolded by `rv init`), a data-relocation or structural change that shifts where files live
   must touch `architecture.md` in the same PR, so the map cannot merge stale. This repo's own
-  instance caught the pattern once (SR-PKG merged without updating its own diagram, back when this
+  instance caught the pattern once (a packaging change merged without updating its own diagram, back when this
   repo still tracked one); the discipline applies to adopter projects, not to this repo's untracked
   local copy. Acceptance criterion template: "architecture.md updated to reflect new paths."
 
-- **Third-framing before escalating a tradeoff** (SR-PLAN-FREEZE hash): when two stated requirements
+- **Third-framing before escalating a tradeoff** (the plan-freeze hash design): when two stated requirements
   appear mutually exclusive (e.g. "tamper-detect any change" vs "all-default hash unchanged"), spend
   one design cycle checking for a third framing that satisfies both before escalating the tradeoff to
   the operator. In the freeze-hash case, hashing present-entries-only rather than fixed slots resolved
   the apparent conflict without any operator decision.
 
-- **Find-the-load-bearing-invariant** (SR-GAP-CLOSE): before designing a lifecycle or feature over an
+- **Find-the-load-bearing-invariant** (the gap-close design): before designing a lifecycle or feature over an
   existing store, identify the ONE merged invariant the whole design depends on. Finding it first
   collapses multiple downstream design questions simultaneously. The idempotent-preserve guard in
-  SR-GAP-CLOSE resolved three separate design questions at once once it was named.
+  the gap-close design resolved three separate design questions at once once it was named.
 
-- **Reconcile diagram-vs-prose before implementation** (SR-GAP-CLOSE): when a design carries BOTH a
+- **Reconcile diagram-vs-prose before implementation** (the gap-close design): when a design carries BOTH a
   state diagram and prose transition rules, reconcile them explicitly so an implementation cannot be
   faithful to one while diverging from the other. The Signal-2 scope ambiguity arose from
   diagram/prose inconsistency that was only caught during implementation, not at design time.

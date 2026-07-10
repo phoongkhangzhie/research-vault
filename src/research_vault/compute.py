@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """compute.py — `rv compute` — compute manifest: declare + discover "how to run here".
 
-DECLARE → DISCOVER ordering (SR-CO):
+DECLARE → DISCOVER ordering:
   1. ``rv compute init``   — DECLARE: scaffold compute_manifest.json with local
                              backend + optional remote cluster FILL block + W&B block.
                              Run FIRST, before rv doctor. No doctor-cache dependency.
   2. ``rv doctor``         — DISCOVER: probe each declared backend (local fully probed;
-                             remote probe = SR-CO-REMOTE fast-follow).
+                             remote probe is a fast-follow).
   3. ``rv compute show``   — VERIFY: print the merged declared-where + discovered-what.
 
 Other verbs:
@@ -24,13 +24,13 @@ Credentials NEVER go in the manifest (ssh auth → ~/.ssh/config; W&B API key �
 
 Backend archetypes supported in the manifest:
   local         — subprocess (zero-infra default; LocalSubprocess adapter)
-  ssh           — remote host, setsid/nohup background-run (RemoteBackend, SR-7)
-  ssh+slurm     — sbatch/sacct (RemoteBackend, SR-7)
-  ssh+pbs       — qsub/qstat (RemoteBackend, SR-7)
-  generic       — adopter-declared submit + jobid_parse + status + state_map (SR-7)
+  ssh           — remote host, setsid/nohup background-run (RemoteBackend)
+  ssh+slurm     — sbatch/sacct (RemoteBackend)
+  ssh+pbs       — qsub/qstat (RemoteBackend)
+  generic       — adopter-declared submit + jobid_parse + status + state_map
   container modifier — orthogonal ``container`` field on any profile (not a 5th row)
 
-SR-7 extended the profile schema with per-profile execution fields:
+The profile schema extends with per-profile execution fields:
   jobid_parse   — regex to extract job id from submit stdout
   status_cmd    — command to query job state (with {jobid} placeholder)
   status_parse  — regex to extract raw state from status_cmd stdout
@@ -43,7 +43,7 @@ SR-7 extended the profile schema with per-profile execution fields:
                   Applies to ssh+slurm and ssh+pbs archetypes only; ignored for
                   ssh / generic (falls back to sh -c so env/cwd still land).
 Built-in defaults for slurm/pbs/ssh archetypes mean adopters need not declare
-these fields unless overriding the defaults. SR-6 manifests without these fields
+these fields unless overriding the defaults. Compute manifests without these fields
 remain valid — defaults are applied at runtime by RemoteBackend.
 
 Stdlib only.
@@ -150,7 +150,7 @@ def _scaffold_manifest(*, has_scheduler: str | None = None) -> dict[str, Any]:
     fills host + submit convention). When none is detected, the cluster profile
     is still included (inactive) — the user edits it when they have a cluster.
 
-    SR-EP-ROLE: each profile now carries an optional ``when_to_use`` (role +
+    Each profile now carries an optional ``when_to_use`` (role +
     inline anti-pattern, mirroring the verb registry) and an optional
     ``host_group`` annotation (shared underlying cluster/filesystem). The local
     backend gets a seeded self-evident value; remote profiles get FILL strings.
@@ -470,7 +470,7 @@ def cmd_show(cfg: Config) -> int:
         _render_profile(name, profiles[name])
     lines.append("")
 
-    # --- Soft WARN: ambiguity condition (SR-EP-ROLE §ROLE.4) ---
+    # --- Soft WARN: ambiguity condition (§ROLE.4) ---
     # Fire when ≥2 active profiles share a host_group (or ≥2 active non-local remote
     # profiles absent a host_group) AND any of them lacks a when_to_use.
     _active_profiles = {n: profiles[n] for n in active if n in profiles}
@@ -740,7 +740,7 @@ def build_parser(
     if parent is not None:
         p = parent.add_parser(
             "compute",
-            help="Compute manifest: declare + discover 'how to run here' (SR-6, SR-CO).",
+            help="Compute manifest: declare + discover 'how to run here'.",
             description=desc,
         )
     else:
@@ -748,7 +748,7 @@ def build_parser(
 
     sub = p.add_subparsers(dest="compute_cmd", required=True)
 
-    # init (SR-CO)
+    # init
     init_p = sub.add_parser(
         "init",
         help=(

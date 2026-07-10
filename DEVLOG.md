@@ -60,6 +60,48 @@
 - Reused `sweep.py`'s `_evidence_snippet` directly in `snowball.py` rather
   than duplicating the abstract/tldr-fallback + truncation logic — same
   evidence shape, one implementation.
+## 2026-07-09 (cli/top-level/docs stream: internal requirement-ID scrub)
+
+### Done
+- Removed the `sr:` metadata field entirely from `cli.py`'s `_VERB_REGISTRY`
+  (37 entries) and from `_load_instance_verbs()`. The field leaked internal
+  story-requirement IDs into `rv help`'s unimplemented-verb status tag
+  (`[SR-X]`) and the "not yet implemented (ships at ...)" messages — neither
+  is grounded to anything an adopter can resolve.
+- Replaced the unimplemented-verb status with a plain `[planned]` marker
+  driven off `module` presence; replaced the "ships at {sr}" message with a
+  plain "not yet implemented." message.
+- The `sr` field also doubled as the load-bearing signal for instance-verb
+  tagging (`"sr": "instance"`, checked by the `[instance]` help-render tag
+  and the ungrouped-verbs listing) — this is now driven directly off
+  membership in the `instance_verbs` dict, no field needed.
+- Updated/removed the tests that asserted the `sr` field
+  (`test_sr_lr_1.py`, `test_sr_lr_2.py`, `test_research_references.py`,
+  `test_sr_gap_close.py`, `test_sr_gap_route.py`, `test_sr_wb.py`,
+  `test_sr6.py`, `test_sr_co.py`, `test_sr_plan1.py`, `test_sr_plan2.py`,
+  `test_sr_plan2_remainder.py`, `test_sr_hub_dag_rails.py`,
+  `test_manuscript_m1.py`, `test_pkg_toolkit.py`, `test_plugin_seam.py`,
+  `test_cli.py`) — each now asserts on `module`/`when_to_use` presence or a
+  when_to_use substring instead.
+- Prose-scrubbed internal `SR-*` requirement-ID references (comments,
+  docstrings, help text) across `cli.py`, all top-level
+  `src/research_vault/*.py` modules, and `data/doctrine/**` +
+  `data/examples/**` — these point at internal design docs that don't ship
+  and mean nothing to an adopter reading the source or the doctrine.
+  `SR-LR-1`/`SR-LR-2` tokens are explicitly left untouched (owned by a
+  separate migration stream). `lint.py`'s own `SR-tag` detection code
+  (the regex + its describing comments/docstrings/print messages — rule 9,
+  the very rule this scrub satisfies) is left untouched as functional.
+
+### Decisions
+- Treated `lint.py`'s `_SR_TAG_PAT` regex and the surrounding prose that
+  describes what it catches (`SR-tags`, illustrative examples like
+  `SR-XPB`/`SR-CO-REMOTE`) as functional documentation of the tool's own
+  detection target, not leaked internal jargon — scrubbing it would corrupt
+  the description of the exact rule this whole cleanup satisfies.
+
+### Open / next
+- CI pending on the PR for this stream.
 
 ## 2026-07-09 (DX: frontier print no longer floods the terminal with the full spec body)
 

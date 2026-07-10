@@ -1,5 +1,5 @@
 {
-  "_comment": "SR-XPB: corroborate → judge → assert DAG fragment. Splice into a lit-review loop after synthesis. Zero new walker/dispatch mechanism — reuses the existing agent node + rv dag brief dispatch.",
+  "_comment": "corroborate → judge → assert DAG fragment. Splice into a lit-review loop after synthesis. Zero new walker/dispatch mechanism — reuses the existing agent node + rv dag brief dispatch.",
   "_usage": "Add these nodes after your synthesis node. Update spec: pointers to your task file and reads: paths to your project artifacts.",
   "_framing": [
     "D4: rank narrows, judge confirms, human reviews — NEVER assert from rank alone.",

@@ -787,9 +787,10 @@ class TestWandbVerbRegistry:
         entry = _VERB_REGISTRY["wandb"]
         assert entry.get("when_to_use", "").strip() != ""
 
-    def test_wandb_sr_is_sr_wb(self):
+    def test_wandb_is_registered(self):
         from research_vault.cli import _VERB_REGISTRY
-        assert _VERB_REGISTRY["wandb"].get("sr") == "SR-WB"
+        assert "wandb" in _VERB_REGISTRY
+        assert _VERB_REGISTRY["wandb"].get("module")
 
     def test_help_check_passes_with_wandb_verb(self):
         """rv help --check should still return zero violations after adding wandb."""

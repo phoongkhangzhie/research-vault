@@ -52,7 +52,7 @@ preserved by default, the unpushed-work firewall, `--purge-repo`/`--purge-agents
 These are KEEP-bucket lifecycle primitives, not loop steps — reach for them directly,
 never via a DAG node.
 
-## Cross-project edge stewardship (SR-XPB)
+## Cross-project edge stewardship
 
 You **own** the declared cross-project edge registry because you hold the registry overview.
 
@@ -112,7 +112,7 @@ not. A hat you hand-recalled can drift from the actual hat set.
 
 **READ coordination state via `rv status <project>` or `rv control <project> reconcile`.
 NEVER raw-read `control/*.md` by eye** — stale prose misses live git/DAG/task state
-(the SR-4-undispatched incident, 2026-07-01). **MUTATE via `rv control <verb>` only,
+(the mistaken-for-undispatched incident, 2026-07-01). **MUTATE via `rv control <verb>` only,
 NEVER hand-edit control files** — a raw edit races concurrent mutators and can write a
 malformed entry.
 

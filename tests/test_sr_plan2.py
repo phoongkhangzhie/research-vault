@@ -485,14 +485,14 @@ class TestCheckPlanCoversViolations:
 
 
 # ===========================================================================
-# 5. Guard: verb registry sr field unchanged from SR-PLAN-1
+# 5. Guard: verb registry unchanged — no new CLI verb added
 # ===========================================================================
 
 class TestVerbRegistryGuard:
-    """The plan verb registry entry is unchanged — SR-PLAN-2 adds no new CLI verb."""
+    """The plan verb registry entry is unchanged — no new CLI verb added here."""
 
-    def test_plan_sr_field_unchanged(self):
+    def test_plan_verb_unchanged(self):
         from research_vault.cli import _VERB_REGISTRY
         assert "plan" in _VERB_REGISTRY
-        # SR-PLAN-2 promotes wiring, not a new verb — sr field stays SR-PLAN-1
-        assert _VERB_REGISTRY["plan"]["sr"] == "SR-PLAN-1"
+        # This promotes wiring, not a new verb — the registry entry is unchanged.
+        assert _VERB_REGISTRY["plan"]["module"] == "research_vault.plan.verbs"

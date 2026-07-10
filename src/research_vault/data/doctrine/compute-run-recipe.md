@@ -5,7 +5,7 @@
 ## Model seam — the provided `ModelClient` (litellm under the hood)
 
 Research Vault harnesses call models through the **provided `ModelClient` seam**
-(SR-MODEL-SEAM), reached from the `AdapterSet`. The seam wraps `litellm` (the unified
+, reached from the `AdapterSet`. The seam wraps `litellm` (the unified
 provider interface — swap `model=` without changing harness logic) AND makes observability
 **automatic and unforgettable**: every call is traced (Plane A) and aggregated (Plane B)
 with zero per-call logging code in the harness.

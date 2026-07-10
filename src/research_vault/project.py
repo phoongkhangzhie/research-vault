@@ -15,7 +15,7 @@ Design constraints honored here:
   - IDEMPOTENT: a duplicate name OR code raises a clear error; never silently
     clobbers an existing entry.
   - CANONICAL form: field order is fixed (code, source_dir, roster).
-  - SR-1 FORWARD-FLAG: roster and code are written from day one so SR-4
+  - FORWARD-FLAG: roster and code are written from day one so downstream
     reads existing fields with no registry re-migration.
   - REGISTER-FIRST: project.new registers before scaffolding so that all
     downstream primitives can resolve paths via cfg.project(slug).
@@ -133,7 +133,7 @@ def _render_project_section(
 
     Field order is fixed: code, source_dir, roster, then any extra keys.
     The section header is ``[projects.<name>]``.
-    This is the EMIT CANONICAL FORM requirement — SR-4 can rely on this order.
+    This is the EMIT CANONICAL FORM requirement — downstream readers can rely on this order.
 
     extra: optional dict of additional string key→value pairs appended after
     the canonical fields. Values are rendered as TOML basic strings.
@@ -329,7 +329,7 @@ def _render_pointers_skeleton(slug: str, source_dir: str) -> str:
 
     pointers.md is a LIGHTWEIGHT, READ-FRESH file — not a baked hat lens.
     It accrues pointers as the project develops; a brand-new project can
-    have an empty skeleton and nothing blocks on it (SR-LENS-RM D-LR-1).
+    have an empty skeleton and nothing blocks on it (design D-LR-1).
 
     Blessed MUST-contain shape (the multi-project context-switch convention,
     de-facto per rv's own pointers.md — see doctrine/coordination.md):
@@ -396,10 +396,10 @@ def cmd_new(
       2. git init --initial-branch=main <source_dir>.
       3. project.cmd_add (register) + reload config cache.
       4. OKF dirs via note.scaffold_okf_dirs.
-      5. control.cmd_init (SR-CP write-face).
+      5. control.cmd_init (the coordination write-face).
       6. devlog.cmd_init.
       7. architecture.md (project-shaped template).
-      7b. pointers.md (lightweight read-fresh pointer skeleton — SR-LENS-RM).
+      7b. pointers.md (lightweight read-fresh pointer skeleton).
       8. library.json (empty corpus or Zotero-synced if --zotero).
       9. [optional --zotero] cite.create_collection + sync_library.
      10. [optional --git-discipline] git_discipline._install_repo; else print offer.
@@ -572,7 +572,7 @@ def cmd_new(
         print(f"  created: architecture.md")
 
         # ── STEP 7b: pointers.md (read-fresh project-context pointer skeleton) ──
-        # SR-LENS-RM: replaces the CONTRACT lens skeleton.  No fill-gate; no
+        # Replaces the CONTRACT lens skeleton.  No fill-gate; no
         # authoring burden before first crew dispatch; accrues as scope emerges.
         pointers_path = source_path / "pointers.md"
         pointers_path.write_text(
@@ -705,7 +705,7 @@ def _append_project_key(config_path: Path, name: str, key: str, value: str) -> N
 
 
 # ---------------------------------------------------------------------------
-# project relate / edges — hub-owned cross-project edge management (SR-XPB)
+# project relate / edges — hub-owned cross-project edge management
 # ---------------------------------------------------------------------------
 
 def cmd_relate(
@@ -1548,10 +1548,10 @@ def build_parser(
     )
     # --roster is intentionally absent: every project always gets DEFAULT_ROSTER.
 
-    # list — real implementation (SR-XP)
+    # list — real implementation
     sub.add_parser("list", help="List all registered projects (slug, code, roster, source).")
 
-    # relate — declare or prune a cross-project edge (SR-XPB)
+    # relate — declare or prune a cross-project edge
     relate_p = sub.add_parser(
         "relate",
         help=(
@@ -1593,7 +1593,7 @@ def build_parser(
         help="Number of candidate pairs to surface with --suggest (default 5).",
     )
 
-    # edges — list declared cross-project edges (SR-XPB)
+    # edges — list declared cross-project edges
     edges_p = sub.add_parser(
         "edges",
         help="List all declared cross-project edges, or those involving a specific project.",
@@ -1603,7 +1603,7 @@ def build_parser(
         help="Filter to edges involving this project slug.",
     )
 
-    # new — stand-up-a-whole-project capstone (SR-NEW)
+    # new — stand-up-a-whole-project capstone
     new_p = sub.add_parser(
         "new",
         help=(

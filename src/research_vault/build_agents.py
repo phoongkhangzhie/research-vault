@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Hat composition — charter + role (SR-LENS-RM)
+# Hat composition — charter + role
 # ---------------------------------------------------------------------------
 
 # Map from functional role name → role-doc filename under doctrine/roles/.

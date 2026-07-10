@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""project_edges.py — hub-owned cross-project edge store for Research Vault (SR-XPB).
+"""project_edges.py — hub-owned cross-project edge store for Research Vault.
 
 When to use:
   - ``add_edge(cfg, a, b, kind)`` — declare a cross-project edge (hub coordination act).
@@ -7,7 +7,7 @@ When to use:
   - ``peers_of(cfg, slug)`` — return the set of declared peer slugs for a project.
   - ``load_edges(cfg)`` — return all declared edges as structured records.
 
-Design (SR-XPB D1–D5):
+Design (D1–D5):
   D1: Sidecar JSON edge store at ``state_dir/project_edges.json``.
   D2: Undirected (pair normalised to sorted order); ``kind`` + rationale REQUIRED on declare.
   D3: ``corroborate`` requires ``from_slug``, ``against`` ⊆ peers (enforced in cross_project.py).

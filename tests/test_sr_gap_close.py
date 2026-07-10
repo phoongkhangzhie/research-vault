@@ -1080,13 +1080,13 @@ def test_cli_gap_list_status_reopened(tmp_instance):
 # 8. Discovery / verb registry
 # ---------------------------------------------------------------------------
 
-def test_verb_registry_includes_sr_gap_close():
-    """8a. 'review' in cli._VERB_REGISTRY sr field includes 'SR-GAP-CLOSE'."""
+def test_verb_registry_includes_gap_close_anti_pattern():
+    """8a. 'review' in cli._VERB_REGISTRY when_to_use documents gap-close."""
     from research_vault.cli import _VERB_REGISTRY
     review_entry = _VERB_REGISTRY.get("review", {})
-    sr_field = review_entry.get("sr", "")
-    assert "SR-GAP-CLOSE" in sr_field, (
-        f"Expected 'SR-GAP-CLOSE' in review verb sr field, got: {sr_field!r}"
+    when = review_entry.get("when_to_use", "")
+    assert "gap-close" in when, (
+        f"Expected 'gap-close' in review verb when_to_use, got: {when!r}"
     )
 
 

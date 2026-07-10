@@ -73,7 +73,7 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   broken" (above): a verb's `when_to_use`, its `--help` text, and any behaviour-claiming docstring are
   a promise to the adopter. A help string that claims a behaviour the code does not perform is a
   **grounding violation** (charter §1 — never fabricate; a false help fabricates capability aimed at the
-  person deciding whether to trust the tool), not cosmetic. The motivating case: SR-MS-1b's
+  person deciding whether to trust the tool), not cosmetic. The motivating case:
   a verb's help + docstrings claimed behaviour while the builders were **orphaned** (defined,
   never called). Both #27 gates caught it — but `rv help --check` passed green, because it verifies a
   `when_to_use` is *present*, not that it is *true* (`_check_verb_docstrings`, cli.py). **Prove-it
@@ -88,16 +88,16 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   Require at least one test that, **guarded on the tool being present** (`shutil.which` /
   skip-if-absent), runs the real toolchain end-to-end and asserts the artifact is produced. Historical
   precedent (rv's manuscript loop no longer shells to LaTeX/`pdflatex`/`bibtex`/`chktex` at all — the
-  render target is markdown-only, see `manuscript-loop.md`): SR-MS-1b shipped two green-but-empty
+  render target is markdown-only, see `manuscript-loop.md`): a past change shipped two green-but-empty
   defects — a macro-brace bug *and* the orphaned `.bib` / results builders — precisely because no test
   ran `pdflatex`. Exec-guard so CI without the toolchain skips cleanly; never let the string-only
   assertion be the sole gate.
-- **A packaging SR requires an isolated-install acceptance test.** Any SR that ships data files,
+- **A packaging change requires an isolated-install acceptance test.** Any change that ships data files,
   doctrine, or resources inside the wheel MUST carry a test that (a) builds the wheel, (b) installs
   it into a fresh venv, (c) runs the command from OUTSIDE the repo tree, and (d) asserts real content
   is returned — not a skeleton or placeholder. This test must provably FAIL on the unfixed code. An
   editable / in-repo test silently passes on broken loaders: `__file__`-relative paths resolve in
-  dev but not in a wheel, so the loader is dead while CI stays green. The SR-PKG silent-skeleton bug
+  dev but not in a wheel, so the loader is dead while CI stays green. A silent-skeleton bug
   (doctrines shipped as empty skeletons while in-repo tests stayed green) arose exactly here. Companion
   rule: use `importlib.resources.files(pkg) / "data" / ...` with an `as_file()` context — never
   `__file__` or repo-root paths — and remove any skeleton-dir fallback that would mask a load miss
@@ -113,7 +113,7 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   - **Verbatim field names.** When binding a producer's structured contract, read the producer's
     serializer field names VERBATIM. A structured contract is only as good as both sides agreeing on the
     exact keys. Verification move: grep the producer's serializer field names against the consumer's
-    reads before shipping. (SR-LR-2: the absent-row detector re-grepped the prose render and silently
+    reads before shipping. (A past defect: the absent-row detector re-grepped the prose render and silently
     returned `[]` on all real inputs because it named fields that existed in the prose format, not in the
     upstream dataclass contract.)
 - **When mutation-testing Python, run each mutation in its own process invocation — or bust `__pycache__`
@@ -122,7 +122,7 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   effectively does not execute, and the mutant spuriously "survives" (false pass). Run each mutation as
   a subprocess, OR delete `__pycache__` between mutations. Confirmed empirically on PR #80 (reviewer
   gate caught it during acceptance tests).
-- **An extracted helper is only done when the pre-existing caller uses it.** An SR whose deliverable
+- **An extracted helper is only done when the pre-existing caller uses it.** A change whose deliverable
   is "extract Phase-X as a reusable function" is incomplete if the pre-existing path still contains a
   parallel copy of the same logic. An extracted-but-uncalled copy is a silent charter-§6 regression CI
   stays green through — both copies are currently correct, so no test fails — but the duplication is
@@ -130,14 +130,14 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   probe: confirm the pre-existing caller now CALLS the new helper; an independent copy is a failed
   extraction regardless of how clean the new function is.
 - **A cross-boundary read primitive must ship with its decision-criterion and provenance discipline in
-  the same SR.** A capability that lets a component reach across a project or trust boundary — reading
+  the same change.** A capability that lets a component reach across a project or trust boundary — reading
   another project's notes, consuming a foreign dataset, pulling a cross-repo artifact — is an
   *attractive nuisance* if it ships without two things: (1) the decision-criterion (under what
   conditions is the reach correct and authorized?), and (2) the provenance discipline (how is the
   cross-boundary dependency surfaced and traced so it cannot silently drift?). A read capability with
   no decision is not a neutral primitive — it is an ungated coupling that accrues hidden dependencies.
-  Grounded in SR-XP: the cross-project read shipped in the same increment as the primitive, with no
-  stated decision gate and no provenance seam; consumers appeared immediately in the subsequent SR.
+  Grounded in a past incident: the cross-project read shipped in the same increment as the primitive, with no
+  stated decision gate and no provenance seam; consumers appeared immediately in the subsequent change.
 
 ## SR acceptance gates
 
@@ -154,14 +154,14 @@ The gate has two steps:
 
 1. **Grep the shipped surfaces** — `git grep -rn "<removed_name>" src/ data/ *.md control/` after
    the deletion.  Every hit must be intentional (e.g., a DEVLOG entry, a historical note, or an
-   explicit "was removed in SR-X" sentence).  A hit in an active docstring or a shipped doc that
+   explicit "was removed on <date>" sentence).  A hit in an active docstring or a shipped doc that
    describes the removed thing as current is a **blocker**.
 2. **Doctrine link-integrity (rule 8)** — `rv lint` must report "Doctrine link-integrity (rule 8): OK"
    (zero dangling cross-references).
 
 Rule 8 (`rv lint`) is *necessary but not sufficient*: it catches broken hyperlinks, not prose
-mentions.  The full residual-reference grep is the acceptance gate.  (Grounded in SR-RM-FIGMS:
-after rule 8 passed, six prose mentions of the removed role survived in shipped surfaces.)
+mentions.  The full residual-reference grep is the acceptance gate.  (Grounded in a past figure +
+manuscript loop removal: after rule 8 passed, six prose mentions of the removed role survived in shipped surfaces.)
 
 ## How it's enforced
 

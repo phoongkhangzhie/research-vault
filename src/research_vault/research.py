@@ -692,7 +692,7 @@ def cmd_references(args: argparse.Namespace) -> int:
 def cmd_corroborate(args: argparse.Namespace) -> int:
     """corroborate: search DECLARED peer projects' OKF notes for evidence matching a claim.
 
-    SR-XPB: corroboration is gated to hub-declared cross-project edges.  The search
+    Corroboration is gated to hub-declared cross-project edges.  The search
     universe is ``peers_of(from_slug)`` — NOT all registered projects.
 
     ``--from`` is REQUIRED.  If the originating project has no declared peers, a
@@ -711,7 +711,7 @@ def cmd_corroborate(args: argparse.Namespace) -> int:
     from_slug = getattr(args, "from_project", None)
     if not from_slug:
         print(
-            "rv research corroborate: --from <project> is REQUIRED (SR-XPB D3).\n"
+            "rv research corroborate: --from <project> is REQUIRED (D3).\n"
             "  Example: rv research corroborate \"<claim>\" --from <your-project>",
             file=sys.stderr,
         )
@@ -1068,12 +1068,12 @@ def build_parser(
     add_p.add_argument("--force", action="store_true", help="Bypass dedup gate (logs loudly).")
     add_p.add_argument("--dry-run", action="store_true", help="Preview without writing.")
 
-    # corroborate — declared-peer search + ranker (SR-XPB: gated to declared edges)
+    # corroborate — declared-peer search + ranker (gated to declared edges)
     corr_p = sub.add_parser(
         "corroborate",
         help=(
             "Search DECLARED peer projects' OKF notes for evidence matching a claim "
-            "(SR-XPB: gated to hub-declared cross-project edges). "
+            "(gated to hub-declared cross-project edges). "
             "--from is REQUIRED. "
             "Anti-pattern: do NOT search undeclared projects — "
             "use rv project relate <from> <peer> --kind <why> first."

@@ -507,15 +507,15 @@ def test_github_actions_source_constructor():
 # Test 14: SignalSource docstring updated — SR-9 → SR-CIF
 # ---------------------------------------------------------------------------
 
-def test_signal_source_docstring_names_sr_cif_not_sr9():
-    """The SignalSource docstring must reference SR-CIF, not SR-9 (which is CUT)."""
+def test_signal_source_docstring_names_tier3_contributor():
+    """The SignalSource docstring must describe the PR/CI source as a tier-3 contributor."""
     from research_vault.status import SignalSource
     doc = SignalSource.__doc__ or ""
     assert "SR-9" not in doc, (
-        "SignalSource docstring still references the cut SR-9 — update to SR-CIF"
+        "SignalSource docstring still references the cut SR-9 internal ID"
     )
-    assert "SR-CIF" in doc, (
-        "SignalSource docstring must reference SR-CIF (the actual contributor)"
+    assert "tier-3" in doc, (
+        "SignalSource docstring must describe the PR/CI source as tier-3"
     )
 
 

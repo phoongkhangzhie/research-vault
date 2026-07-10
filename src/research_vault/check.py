@@ -78,7 +78,7 @@ _TIER1_PACKAGES: list[tuple[str, str, str, str]] = [
     ("langdetect",      "langdetect",    "multilingual", "language detection"),
     # Integrations (pip-installable)
     ("wandb",           "wandb",         "integrations", "W&B experiment tracking"),
-    ("weave",           "weave",         "integrations", "W&B Weave Plane-A traces (SR-MODEL-SEAM)"),
+    ("weave",           "weave",         "integrations", "W&B Weave Plane-A traces"),
     ("pyzotero",        "pyzotero",      "integrations", "Zotero citation management"),
     ("keyring",         "keyring",       "integrations", "secret-store adapter (API key resolution)"),
     # Utilities / harness
@@ -175,7 +175,7 @@ def _fmt_tier_section(
 
 
 # ---------------------------------------------------------------------------
-# Required checks (carried over from SR-5)
+# Required checks
 # ---------------------------------------------------------------------------
 
 def _check_claude_cli() -> tuple[bool, str]:
@@ -238,7 +238,7 @@ def _check_asta() -> tuple[bool, str, bool]:
 def _check_wandb() -> tuple[bool, str, bool]:
     """Return (ok, message, required) for the W&B SDK + key check.
 
-    W&B is a documented prerequisite for `rv wandb pull` (SR-WB) — not an optional
+    W&B is a documented prerequisite for `rv wandb pull` — not an optional
     enhancement. Check two things: SDK importable AND WANDB_API_KEY is set.
     If either fails, the W&B feature set is unavailable.
     Not blocking `all_required_ok` (W&B features degrade gracefully for non-W&B workflows).
@@ -267,7 +267,7 @@ def _check_wandb() -> tuple[bool, str, bool]:
 
 
 def _check_observability(cfg: Any = None) -> tuple[bool, str, bool]:
-    """Return (ok, message, required) for the SR-MODEL-SEAM observability wiring.
+    """Return (ok, message, required) for the observability wiring.
 
     Reuses the backend's own ``probe()`` (the SSOT) — backend selection + key
     resolution + import wiring, WITHOUT any network call. Reports which backend is
@@ -334,7 +334,7 @@ def _compute_manifest_present(cfg: Any = None) -> bool:
 def _framework_staleness_nudge(cfg: Any = None) -> str:
     """Return an INFO nudge line if the installed package is newer than the vault.
 
-    SR-RV-UPDATE Slice 5: compares ``[meta].framework_version`` in the vault's
+    Compares ``[meta].framework_version`` in the vault's
     research_vault.toml against the installed package version. Returns an empty
     string when up to date, absent, or unresolvable — this is a non-failing
     nudge (same pattern as the compute-manifest nudge), NEVER a FAIL.
@@ -438,7 +438,7 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
     feature key is FEATURE-REQUIRED and shows "locked", never FAIL.
 
     cfg: optional Config object (accepted for backward compat).
-    require_observability: SR-MODEL-SEAM — when True, the observability wiring
+    require_observability: when True, the observability wiring
          check is promoted into ``all_required_ok`` (the experiment-preflight gate).
 
     Returns (contract stable — tests assert on the dict, not rendered output):
@@ -534,7 +534,7 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
                 lines.append(f"         run: {feat['handoff_cmd']}")
             if feat["note"]:
                 lines.append(f"         note: {feat['note']}")
-    # SR-MODEL-SEAM: observability wiring line (INFO unless --require-observability).
+    # Observability wiring line (INFO unless --require-observability).
     status = "OK" if obs_ok else ("FAIL" if require_observability else "INFO")
     lines.append(f"  [{status}] observability: {obs_msg}")
 
@@ -574,7 +574,7 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
             "  (best-effort venv install; Tier-1 hard-required, Tier-2 attempted + tolerated)"
         )
 
-    # Nudge: framework staleness (SR-RV-UPDATE Slice 5) — INFO, never a FAIL.
+    # Nudge: framework staleness — INFO, never a FAIL.
     stale_msg = _framework_staleness_nudge(cfg)
     if stale_msg:
         lines.append("")
@@ -662,7 +662,7 @@ def build_parser(
         action="store_true",
         default=False,
         help=(
-            "SR-MODEL-SEAM: promote the observability wiring check into the required "
+            "Promote the observability wiring check into the required "
             "gate — exit 1 if the configured backend would produce ZERO records "
             "(missing dep/key). Use in an experiment preflight so a run cannot start "
             "silently un-observed. Use `rv observability probe` for a standalone check."
