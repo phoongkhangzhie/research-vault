@@ -6,8 +6,8 @@ Coverage:
   3. Schema teeth — continues.reason non-empty required (ManifestError)
   4. Schema teeth — valid continues passes validation
   5. Boundary-smell WARN — continues crossing produces/human-go boundary → non-fatal WARN string
-  6. Frontier mode line — FRESH — spec:<ptr> for fresh agent
-  7. Frontier mode line — CONTINUES <node> — <reason> — spec:<ptr> for continues agent
+  6. Frontier mode line — FRESH + brief hint for fresh agent (never the full spec body)
+  7. Frontier mode line — CONTINUES <node> — <reason> + brief hint for continues agent
   8. human-go nodes are EXEMPT from spec requirement
   9. manifest_warns — non-fatal (valid manifest still validates after warns)
 
@@ -366,21 +366,26 @@ class TestBoundarySmellWarn:
 # ===========================================================================
 
 class TestFrontierModeLine:
-    def test_fresh_agent_prints_fresh_spec(self, capsys):
-        """A fresh agent node (no continues) prints 'FRESH — spec:<ptr>' in the DISPATCH line."""
-        node = _agent("a", spec="task://research#lit-search")
+    def test_fresh_agent_prints_fresh_mode_and_brief_hint(self, capsys):
+        """A fresh agent node (no continues) prints 'FRESH' + a `rv dag brief` hint —
+        never the full spec body (DX regression: specs are often multi-KB prose)."""
+        long_spec = "task://research#lit-search\n" + ("filler prose line\n" * 50)
+        node = _agent("a", spec=long_spec)
         frontier = [FrontierNode(node_id="a", action="dispatch", node=node)]
         _print_frontier(frontier, run_id="test-run")
         out = capsys.readouterr().out
         assert "DISPATCH" in out
         assert "FRESH" in out
-        assert "task://research#lit-search" in out
+        assert "rv dag brief test-run a" in out
+        assert "filler prose line" not in out
 
-    def test_continues_agent_prints_continues_mode(self, capsys):
-        """A continues agent prints 'CONTINUES <node> — <reason> — spec:<ptr>'."""
+    def test_continues_agent_prints_continues_mode_and_brief_hint(self, capsys):
+        """A continues agent prints 'CONTINUES <node> — <reason>' + a brief hint —
+        never the full spec body."""
+        long_spec = "task://research#refine\n" + ("filler prose line\n" * 50)
         node = _agent(
             "b",
-            spec="task://research#refine",
+            spec=long_spec,
             continues={"node": "a", "reason": "tight iteration on ranking"},
         )
         frontier = [FrontierNode(node_id="b", action="dispatch", node=node)]
@@ -390,7 +395,8 @@ class TestFrontierModeLine:
         assert "CONTINUES" in out
         assert "a" in out
         assert "tight iteration on ranking" in out
-        assert "task://research#refine" in out
+        assert "rv dag brief test-run b" in out
+        assert "filler prose line" not in out
 
     def test_await_go_unaffected(self, capsys):
         """human-go AWAIT-GO items are unaffected by mode changes."""

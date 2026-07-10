@@ -1,3 +1,37 @@
+## 2026-07-09 (DX: frontier print no longer floods the terminal with the full spec body)
+
+### Done
+- **Fixed a regression against `_print_frontier`'s own documented contract.**
+  The docstring said the DISPATCH mode line carries a "spec pointer"
+  (`FRESH — spec:<ptr>`), but the code interpolated `item.node.get("spec",
+  "")` verbatim — and for real (non-demo) manifests, `spec:` is the FULL
+  multi-KB agent brief prose (preamble + tip text), not a short pointer. Every
+  DAG-moving verb (`run`/`tick`/`complete`/`approve`) re-printed that whole
+  body to the terminal on every call, burying the actually useful "where am I
+  / what's next" signal.
+- The frontier print is now a compact "you are here" map: `FRESH` /
+  `CONTINUES <node> — <reason>`, a bounded `reads: N pointer(s)` count (not
+  the resolved list), and a `brief: rv dag brief <run> <node>` hint pointing
+  at the one place that DOES emit the full spec verbatim — `rv dag brief`,
+  the actual dispatch path (unchanged by this fix).
+- Updated `test_dag_disp.py`/`test_dag_scope.py` to the new compact contract
+  (planting a long synthetic spec body and asserting it does NOT appear in
+  the frontier output, alongside the compact fields that do); `rv dag
+  brief`'s own tests (`test_dag_brief.py`) are untouched — they still assert
+  the full spec is verbatim in the brief.
+- Updated the `coordination.md` doctrine and the shipped `QUICKSTART.md`
+  worked example to match the new frontier-print contract.
+
+### Decisions
+- Dropped the spec body from the frontier print UNCONDITIONALLY rather than
+  trying to derive a "short pointer" heuristically from `spec:` — for the
+  demo-example manifests `spec:` already happens to be a short `task://...`
+  pointer, but real (review/manuscript-loop) manifests embed full prose
+  there directly, so there's no reliable way to tell "pointer" from "body" at
+  print time. A uniform drop-and-hint is simpler and consistent across
+  every caller (`run`/`tick`/`complete`/`approve` all funnel through the one
+  `_print_frontier` function).
+
 ## 2026-07-09 (review-only default, manuscript opt-in via frozen deliverable field)
 
 ### Done

@@ -124,13 +124,19 @@ def _print_frontier(
 ) -> None:
     """Print frontier items and actionable commands.
 
-    SR-DISP: DISPATCH lines carry the spec pointer and dispatch mode:
-      FRESH — spec:<ptr>             (no continues field — default fresh dispatch)
-      CONTINUES <node> — <reason> — spec:<ptr>   (explicit resume exception)
+    This is a "you are here" map of the DAG — NOT the dispatch payload. The
+    full node spec (the agent's brief) is emitted ONLY by `rv dag brief` (see
+    dag/brief.py). Printing the full spec body here (a fix'd regression: node
+    specs are often multi-KB prose, not short pointers) floods the terminal
+    and buries the actually-useful "where am I / what's next" information.
 
-    SR-SCOPE: when reads: is present on the node, appends the bounded grounding scope:
-      FRESH — spec:<ptr> — reads: <p1>, <p2>, …
-      CONTINUES <node> — <reason> — spec:<ptr> — reads: <p1>, <p2>, …
+    SR-DISP: DISPATCH lines carry the dispatch mode + a brief hint:
+      FRESH  (brief: rv dag brief <run> <node>)
+      CONTINUES <node> — <reason>  (brief: rv dag brief <run> <node>)
+
+    SR-SCOPE: when reads: is present on the node, appends a bounded COUNT
+    (not the full list — the full resolved reads: paths are in the brief):
+      FRESH — reads: 3 pointer(s)  (brief: rv dag brief <run> <node>)
     When reads: is absent the suffix is omitted (non-breaking additive suffix).
 
     SR-RETRY: for a dispatch node with attempts > 0, renders the diagnose-first block
@@ -154,29 +160,25 @@ def _print_frontier(
             # SR-RETRY: retry indicator in the header line
             if attempts > 0:
                 print(f"      attempt {attempts + 1}/{max_retries + 1}")
-            # SR-DISP: print mode line (spec pointer + fresh/continues mode)
-            spec = item.node.get("spec", "")
+            # SR-DISP: print mode line (dispatch mode ONLY — never the full spec
+            # body; the spec is often multi-KB prose, not a short pointer, so
+            # embedding it here floods the terminal — the full-fidelity brief
+            # lives at `rv dag brief`, printed as a hint below instead).
             continues = item.node.get("continues")
             if continues and isinstance(continues, dict):
                 cont_node = continues.get("node", "")
                 cont_reason = continues.get("reason", "")
-                mode_line = f"      CONTINUES {cont_node} — {cont_reason} — spec:{spec}"
+                mode_line = f"      CONTINUES {cont_node} — {cont_reason}"
             else:
-                mode_line = f"      FRESH — spec:{spec}"
-            # SR-SCOPE: append reads: suffix if present
+                mode_line = "      FRESH"
+            # SR-SCOPE: append a bounded reads: COUNT if present (not the full
+            # list — the resolved paths are in the brief, not the frontier map).
             reads = item.node.get("reads")
             if reads and isinstance(reads, list):
-                refs = []
-                for r in reads:
-                    if isinstance(r, str):
-                        refs.append(r)
-                    elif isinstance(r, dict):
-                        ref = r.get("ref", "")
-                        if ref:
-                            refs.append(ref)
-                if refs:
-                    mode_line += f" — reads: {', '.join(refs)}"
+                n_reads = len(reads)
+                mode_line += f" — reads: {n_reads} pointer(s)"
             print(mode_line)
+            print(f"      brief: rv dag brief {run_id} {item.node_id}")
             # SR-RETRY: render diagnose-first block only on retry dispatches (attempts > 0)
             if attempts > 0:
                 failure_summary = last_failure or "(no summary captured)"

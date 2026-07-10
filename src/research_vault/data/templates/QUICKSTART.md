@@ -237,7 +237,8 @@ Run 'review-scope-xling-transfer-phase1' started.
 
 Initial frontier:
   → DISPATCH  [review-scope] Define review scope and pre-registration protocol (researcher)
-      FRESH — spec:reviews/scope-xling-transfer/_protocol.md
+      FRESH
+      brief: rv dag brief review-scope-xling-transfer-phase1 review-scope
 ```
 
 ---
