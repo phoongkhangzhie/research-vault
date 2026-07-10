@@ -51,6 +51,53 @@
   ships in this repo — confirmed by grep; no further action needed here,
   just noting it for anyone tempted to re-add a `§`-style pointer to it.
 
+## 2026-07-09 (test-only: emission-review teeth gaps on approve-review -> manuscript auto-chain)
+
+### Done
+- Closed three test-teeth gaps the operator's #205 emission review flagged
+  in the `approve-review -> manuscript` auto-chain (merged, correct logic —
+  this PR adds NO source change, only tests):
+  - **F1** — the `child_runs` idempotency guard inside `_emit_next_phase`
+    was, until now, protected only by `_recompute_awaiting_go`'s external
+    status gate (`if current != "pending": continue`); the in-function
+    guard itself had no independent test. New test calls `_emit_next_phase`
+    directly a second time with `child_runs[node_id]` already recorded
+    (bypassing the status gate entirely), asserting a pure no-op.
+  - **F3** — a REVISE disposition at `approve-review` (critic verdict
+    `BLOCK`, deterministic fixable, budget never exhausted on this
+    structural-payload adapter) must leave the node `awaiting-go` and emit
+    nothing — no `emitted_next_phase_run_id`, no `child_runs` entry, no
+    `manuscripts/<scope>/` folder. Previously only the GO and HALT-DECLARE
+    arms of this same gate had coverage.
+  - **F4** — the full-adopt-existing-scaffold branch (both
+    `_manuscript.md` AND `phase1-dag.json` already present at GO time) must
+    adopt the pre-existing manifest verbatim (same run_id, byte-identical
+    files, no re-scaffold) rather than rebuilding it. The PARTIAL-adopt case
+    (note only, no manifest) was already covered by #207's
+    `TestF2PartialAdoptReentersFrameworkPipeline`.
+- All three tests confirmed to have real teeth: each was verified to go RED
+  against a locally-injected bug (child_runs early-return removed / REVISE
+  arm made to also emit / full-adopt branch forced to always rebuild), then
+  the source was restored byte-identical (verified via diff) before running
+  the final green suite — no source change ships in this PR.
+- Full suite: 3526 passed, 3 skipped, 0 failed. `rv lint` clean (isolated
+  HOME/XDG — the operator's real global registry independently fails a
+  pre-existing, unrelated schema check, confirmed by re-running lint against
+  a scratch config).
+
+### Decisions
+- F4's test could not simply call the shared `_drive_phase2_to_approve_review`
+  helper and pre-stage the scaffold afterward: marking `review-coverage-critic`
+  succeeded already triggers `cmd_complete` -> `_recompute_awaiting_go` ->
+  `_emit_next_phase` in the SAME call (no separate tick needed) — so the
+  scaffold has to be staged BEFORE that specific completion, not after. The
+  F4 test inlines the Phase-2 drive up to (not including) that final
+  completion call.
+
+### Open / next
+- PR ready for CI + human-go merge (test-only change, no code review gate
+  needed beyond CI green, per the operator's classification).
+
 ## 2026-07-09 (README loop diagrams: LR->TD + re-grounded to the current topology)
 
 ### Done
