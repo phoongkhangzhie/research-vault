@@ -138,6 +138,67 @@ _YES_NO: frozenset[str] = frozenset({"yes", "no"})
 _MIN_SUBSTANCE_CHARS = 15
 
 # ---------------------------------------------------------------------------
+# Misdiagnosis fixes (pre-publish adopter-facing fix): two flat-frontmatter
+# authoring mistakes an LLM-authored note commonly hits produce a MISLEADING
+# presence-check message rather than a correct one. Fail-closed is unchanged
+# (both cases still reject) — only the DIAGNOSTIC improves.
+# ---------------------------------------------------------------------------
+
+# A bare YAML block-scalar marker (optionally with chomping indicator).
+# `note._parse_frontmatter` reads only the marker line for a flat field —
+# the indented body lines below it never fold in (no `key:` shape), so the
+# field parses to this degenerate ~1-char value.
+_BLOCK_SCALAR_MARKERS: frozenset[str] = frozenset({">", "|", ">-", ">+", "|-", "|+"})
+
+
+def _run_together_hint(fields: dict, missing_key: str) -> str | None:
+    """Detect the "two fields glued onto one physical line" authoring
+    mistake: the flat-frontmatter parser reads one field per line, so when
+    an agent forgets the newline between two fields (e.g. `position: "...
+    narrative." contribution_kind: benchmark`), the second field's
+    `key: value` is absorbed into the first field's parsed VALUE — the
+    second field then reads as MISSING even though it was written, just
+    mis-attached to the wrong field.
+
+    Scans every OTHER parsed field's string value for `<missing_key>:`
+    appearing inside it. Returns a hint string naming BOTH fields if found,
+    else None (falls through to the normal "missing" message).
+    """
+    pattern = re.compile(rf"(?:^|\s){re.escape(missing_key)}:(?:\s|$)")
+    for other_key, other_val in fields.items():
+        if other_key == missing_key or not isinstance(other_val, str):
+            continue
+        if pattern.search(other_val):
+            return (
+                f"field '{missing_key}' looks run-together with '{other_key}' "
+                "on one physical line (no newline between them) — the flat-"
+                "frontmatter parser glued the second field's key+value into "
+                f"the first field's value. Put each field on its own line "
+                f"(e.g. '{other_key}: ...' on one line, then "
+                f"'{missing_key}: ...' on the next)."
+            )
+    return None
+
+
+def _block_scalar_hint(field_key: str, raw_val: str) -> str | None:
+    """Detect a YAML block-scalar marker (`>`/`|`) on a flat field. Flat
+    frontmatter requires a single-line quoted scalar; a block scalar's real
+    content lives on indented lines the flat parser never folds in, so the
+    field parses to a degenerate ~1-char value (just the marker) — reported
+    as "too thin" otherwise, which is misleading: the content may be rich,
+    just formatted as a block scalar this note format doesn't support.
+    """
+    stripped = raw_val.strip()
+    if stripped in _BLOCK_SCALAR_MARKERS:
+        return (
+            f"field '{field_key}' looks like a YAML block scalar (`{stripped}`) "
+            "— flat frontmatter requires a single-line quoted value; a block "
+            "scalar's indented body is not read here. Put the content on one "
+            f"line, e.g. '{field_key}: \"...\"'."
+        )
+    return None
+
+# ---------------------------------------------------------------------------
 # Body-section parsing
 # ---------------------------------------------------------------------------
 
@@ -308,49 +369,69 @@ def check_relate_presence(note_path: Path) -> RelatePresenceResult:
     contribution_kind = _get_scalar(fields, "contribution_kind").lower()
     if not contribution_kind:
         findings.append(
-            "missing 'contribution_kind' (Move 1 — orient/classify the "
-            f"contribution kind; one of {sorted(CONTRIBUTION_KINDS)})"
+            _run_together_hint(fields, "contribution_kind")
+            or (
+                "missing 'contribution_kind' (Move 1 — orient/classify the "
+                f"contribution kind; one of {sorted(CONTRIBUTION_KINDS)})"
+            )
         )
     elif contribution_kind not in CONTRIBUTION_KINDS:
         findings.append(
-            f"'contribution_kind' has unrecognized value {contribution_kind!r} "
-            f"(must be one of {sorted(CONTRIBUTION_KINDS)})"
+            _block_scalar_hint("contribution_kind", contribution_kind)
+            or (
+                f"'contribution_kind' has unrecognized value {contribution_kind!r} "
+                f"(must be one of {sorted(CONTRIBUTION_KINDS)})"
+            )
         )
 
     # ── PR-4: role + position (split of the old overloaded 'stance') ──────
     role = _get_scalar(fields, "role").lower()
     if not role:
         findings.append(
-            f"missing 'role' (PR-4 — categorical tag; one of {sorted(ROLE_TYPES)})"
+            _run_together_hint(fields, "role")
+            or f"missing 'role' (PR-4 — categorical tag; one of {sorted(ROLE_TYPES)})"
         )
     elif role not in ROLE_TYPES:
         findings.append(
-            f"'role' has unrecognized value {role!r} (must be one of {sorted(ROLE_TYPES)})"
+            _block_scalar_hint("role", role)
+            or f"'role' has unrecognized value {role!r} (must be one of {sorted(ROLE_TYPES)})"
         )
 
     position = _get_scalar(fields, "position")
     if not position:
         findings.append(
-            "missing 'position' (PR-4 — free-form narrative; how this paper "
-            "relates to the review question, in the subagent's own words)"
+            _run_together_hint(fields, "position")
+            or (
+                "missing 'position' (PR-4 — free-form narrative; how this paper "
+                "relates to the review question, in the subagent's own words)"
+            )
         )
     elif len(position) < _MIN_SUBSTANCE_CHARS:
         findings.append(
-            f"'position' is too thin ({len(position)} chars) to be a real "
-            "narrative — a placeholder, not a considered answer"
+            _block_scalar_hint("position", position)
+            or (
+                f"'position' is too thin ({len(position)} chars) to be a real "
+                "narrative — a placeholder, not a considered answer"
+            )
         )
 
     # ── Move 3 / PR-5: result-with-magnitude, mandatory whitelist answer ──
     result_reported = _get_scalar(fields, "result_reported").lower()
     if not result_reported:
         findings.append(
-            "missing 'result_reported' (Move 3 / PR-5 — mandatory: 'yes' if "
-            "the paper reports a quantitative result, else 'no')"
+            _run_together_hint(fields, "result_reported")
+            or (
+                "missing 'result_reported' (Move 3 / PR-5 — mandatory: 'yes' if "
+                "the paper reports a quantitative result, else 'no')"
+            )
         )
     elif result_reported not in _YES_NO:
         findings.append(
-            f"'result_reported' has unrecognized value {result_reported!r} "
-            "(must be exactly 'yes' or 'no' — fail-closed on any other spelling)"
+            _block_scalar_hint("result_reported", result_reported)
+            or (
+                f"'result_reported' has unrecognized value {result_reported!r} "
+                "(must be exactly 'yes' or 'no' — fail-closed on any other spelling)"
+            )
         )
     elif result_reported == "yes":
         result_section = _find_section_body(body, _RESULT_HEADING_RE)
@@ -370,14 +451,20 @@ def check_relate_presence(note_path: Path) -> RelatePresenceResult:
     relations_sought = _get_scalar(fields, "paper_relations_sought").lower()
     if not relations_sought:
         findings.append(
-            "missing 'paper_relations_sought' (Move 4 / PR-2 — mandatory: "
-            "'yes' if this paper bears on any corpus paper, else 'no' after "
-            "having checked)"
+            _run_together_hint(fields, "paper_relations_sought")
+            or (
+                "missing 'paper_relations_sought' (Move 4 / PR-2 — mandatory: "
+                "'yes' if this paper bears on any corpus paper, else 'no' after "
+                "having checked)"
+            )
         )
     elif relations_sought not in _YES_NO:
         findings.append(
-            f"'paper_relations_sought' has unrecognized value {relations_sought!r} "
-            "(must be exactly 'yes' or 'no' — fail-closed on any other spelling)"
+            _block_scalar_hint("paper_relations_sought", relations_sought)
+            or (
+                f"'paper_relations_sought' has unrecognized value {relations_sought!r} "
+                "(must be exactly 'yes' or 'no' — fail-closed on any other spelling)"
+            )
         )
     else:
         parsed = parse_paper_relations(body)

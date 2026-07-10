@@ -585,3 +585,154 @@ class TestStructuralEdgeCases:
         # All 5 mandatory checklist items should be flagged (contribution_kind,
         # role, position, result_reported, paper_relations_sought).
         assert len(result.findings) >= 5
+
+
+# ===========================================================================
+# Misdiagnosis fixes — run-together fields and YAML block scalars
+# ===========================================================================
+# The flat-frontmatter parser (note._parse_frontmatter) reads ONE field per
+# physical line. Two failure modes an LLM-authored note commonly hits produce
+# a MISLEADING diagnostic rather than a correct one:
+#   (a) two fields glued onto ONE physical line (no newline between them) —
+#       the second field's "key: value" gets absorbed into the first field's
+#       parsed VALUE, so the second field then reads as MISSING even though
+#       it was written, just mis-attached.
+#   (b) a YAML block-scalar marker (`>`/`|`) on a flat field, with the real
+#       content on indented lines below — the flat parser only reads the
+#       marker line, so the field parses to a degenerate ~1-char value and
+#       is reported as "too thin" even though real content exists.
+# Both must be DETECTED and hinted, not silently misdiagnosed — the check
+# stays fail-closed (still rejects either case), only the diagnostic improves.
+
+def _write_raw(path: Path, raw: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(raw, encoding="utf-8")
+    return path
+
+
+class TestRunTogetherFieldMisdiagnosis:
+    def test_run_together_position_and_contribution_kind_hints_not_missing(self, tmp_path):
+        """position + contribution_kind glued onto one physical line: the
+        parser absorbs 'contribution_kind: benchmark' into position's value.
+        The finding must be a run-together HINT naming both fields, never
+        the misleading 'missing contribution_kind'."""
+        raw = (
+            "---\n"
+            "type: literature\n"
+            "citekey: xiong2023-stepwise\n"
+            "title: Test Paper\n"
+            'position: "This is the counter-position to the safe-exploration '
+            'rebuttals." contribution_kind: benchmark\n'
+            "role: theoretical\n"
+            "result_reported: yes\n"
+            "paper_relations_sought: yes\n"
+            "---\n"
+        ) + _RESULT_BODY + _RELATED_BODY
+        note = _write_raw(tmp_path / "literature" / "a.md", raw)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert not any(
+            f.startswith("missing 'contribution_kind'") for f in result.findings
+        ), result.findings
+        assert any(
+            "run-together" in f.lower()
+            and "contribution_kind" in f
+            and "position" in f
+            for f in result.findings
+        ), result.findings
+
+    def test_run_together_result_reported_glued_into_role(self, tmp_path):
+        raw = (
+            "---\n"
+            "type: literature\n"
+            "citekey: a\n"
+            "title: T\n"
+            "contribution_kind: benchmark\n"
+            "role: theoretical result_reported: yes\n"
+            'position: "A real narrative sentence, long enough."\n'
+            "paper_relations_sought: yes\n"
+            "---\n"
+        ) + _RESULT_BODY + _RELATED_BODY
+        note = _write_raw(tmp_path / "literature" / "a.md", raw)
+        result = check_relate_presence(note)
+        assert not any(
+            f.startswith("missing 'result_reported'") for f in result.findings
+        ), result.findings
+        assert any(
+            "run-together" in f.lower() and "result_reported" in f
+            for f in result.findings
+        ), result.findings
+
+    def test_no_false_positive_when_fields_are_on_separate_lines(self, tmp_path):
+        """The complete, correctly-formatted note must NOT trigger a
+        run-together hint — the detector only fires on genuine glue."""
+        note = _write_note(
+            tmp_path / "literature" / "clean.md",
+            _COMPLETE_FIELDS,
+            body=_RESULT_BODY + _RELATED_BODY,
+        )
+        result = check_relate_presence(note)
+        assert result.ok, result.findings
+
+
+class TestBlockScalarFieldMisdiagnosis:
+    def test_block_scalar_position_hints_not_too_thin(self, tmp_path):
+        """position: > with indented body lines parses to a degenerate
+        1-char value ('>') under the flat parser. The finding must be a
+        block-scalar HINT, never the misleading 'too thin (1 char)'."""
+        raw = (
+            "---\n"
+            "type: literature\n"
+            "citekey: a\n"
+            "title: T\n"
+            "contribution_kind: benchmark\n"
+            "role: theoretical\n"
+            "position: >\n"
+            "  This is the counter-position to the safe-exploration rebuttals,\n"
+            "  spanning multiple indented lines as a YAML block scalar.\n"
+            "result_reported: yes\n"
+            "paper_relations_sought: yes\n"
+            "---\n"
+        ) + _RESULT_BODY + _RELATED_BODY
+        note = _write_raw(tmp_path / "literature" / "a.md", raw)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert not any("too thin" in f for f in result.findings), result.findings
+        assert any(
+            "block scalar" in f.lower() and "position" in f for f in result.findings
+        ), result.findings
+
+    def test_block_scalar_pipe_style_also_hinted(self, tmp_path):
+        raw = (
+            "---\n"
+            "type: literature\n"
+            "citekey: a\n"
+            "title: T\n"
+            "contribution_kind: benchmark\n"
+            "role: theoretical\n"
+            "position: |\n"
+            "  Line one of the narrative.\n"
+            "  Line two of the narrative.\n"
+            "result_reported: yes\n"
+            "paper_relations_sought: yes\n"
+            "---\n"
+        ) + _RESULT_BODY + _RELATED_BODY
+        note = _write_raw(tmp_path / "literature" / "a.md", raw)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any(
+            "block scalar" in f.lower() and "position" in f for f in result.findings
+        ), result.findings
+
+    def test_correct_short_position_still_reported_as_too_thin(self, tmp_path):
+        """A genuinely thin (but not block-scalar) value must keep the
+        original 'too thin' diagnostic — the hint is scoped to the two
+        specific misdiagnosis shapes, not a blanket replacement."""
+        fields = dict(_COMPLETE_FIELDS)
+        fields["position"] = "n/a"
+        note = _write_note(
+            tmp_path / "literature" / "a.md", fields, body=_RESULT_BODY + _RELATED_BODY
+        )
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any("too thin" in f for f in result.findings), result.findings

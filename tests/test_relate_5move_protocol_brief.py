@@ -50,9 +50,15 @@ class TestFiveMoveProtocolBrief:
         tip = get_review_tips()["per_paper_relate_tips"].lower()
         assert "bare tag" in tip or "over-rigid" in tip
 
-    def test_move4_names_the_relations_consume_verb(self):
+    def test_move4_names_how_the_edges_are_traversed_downstream(self):
+        """Pre-publish fix: `rv review <project> relations <scope>` was
+        HARD-REMOVED (D1, verb consolidation) — the brief must not instruct
+        anything to run it. It must instead point at reading the typed
+        edges directly from each note's '## Related papers' section."""
         tip = get_review_tips()["per_paper_relate_tips"]
-        assert "rv review" in tip and "relations" in tip
+        assert "rv review" not in tip
+        assert "## Related papers" in tip
+        assert "review-synthesize" in tip
 
     def test_pr4_role_position_split_named(self):
         tip = get_review_tips()["per_paper_relate_tips"]
@@ -76,9 +82,16 @@ class TestSynthesizeTraversalBrief:
         tip = get_review_tips()["review_synthesize_tips"].lower()
         assert "traverse" in tip
 
-    def test_names_the_relations_verb(self):
+    def test_reads_edges_directly_not_via_removed_verb(self):
+        """Pre-publish fix: `rv review <project> relations <scope>` was
+        HARD-REMOVED (D1, verb consolidation) — the brief must not instruct
+        the agent to run it. It must instead point at reading the typed
+        edges directly from each note's '## Related papers' section
+        (already in this node's `reads:`)."""
         tip = get_review_tips()["review_synthesize_tips"]
-        assert "rv review" in tip and "relations" in tip
+        assert "rv review" not in tip
+        assert "## Related papers" in tip
+        assert "literature/<key>.md" in tip
 
     def test_moc_entry_uses_role_not_stance(self):
         tip = get_review_tips()["review_synthesize_tips"]
