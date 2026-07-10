@@ -95,6 +95,29 @@
   every caller (`run`/`tick`/`complete`/`approve` all funnel through the one
   `_print_frontier` function).
 
+## 2026-07-09 (SR-* scrub, stream 3: manuscript/ + sources/)
+
+### Done
+- Removed rv's internal Structured-Requirement design-doc traceability
+  numbering (SR-3, SR-RM-FIGMS, SR-175, SR-PKG, SR-MS-REVIEW-a/-b) from
+  prose docstrings/comments across `manuscript/__init__.py`, `bib.py`,
+  `exemplars.py`, `review_board.py`, `sources/snowball.py`, and
+  `tests/test_snowball.py` — these numbers point at internal design docs
+  that don't ship and mean nothing to an adopter reading the source.
+- Left `SR-LR-1-BACKSTOP` untouched in `sources/snowball.py` (×2) — a
+  functional token owned by a different stream migrating it globally to
+  `lit-review-v1-backstop`.
+- One of four disjoint fan-out streams scrubbing this design-doc numbering
+  repo-wide; this stream's file set was `manuscript/**` + `sources/**`.
+
+### Decisions
+- Confirmed prose-only diff (no node id / gate id / config key / function
+  name touched) before pushing; ran the full suite (3552 passed) and the
+  staged leakage scan clean.
+
+### Open / next
+- PR #213 open against `origin/main`, awaiting CI + review.
+
 ## 2026-07-09 (review-only default, manuscript opt-in via frozen deliverable field)
 
 ### Done
