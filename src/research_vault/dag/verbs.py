@@ -533,11 +533,37 @@ def _evaluate_autonomous_gate(
             )
 
     if node_id == "approve-framework":
-        manuscript_note_path = manifest_path.parent / "_manuscript.md"
+        tree_root = manifest_path.parent
+        manuscript_note_path = tree_root / "_manuscript.md"
         from ..manuscript.types.lit_review import check_framework_gate as _cfg_check
         _ok, _msg = _cfg_check(manuscript_note_path)
         structural_result = _autonomy.classify_disposition(
             _autonomy.evaluation_from_framework_gate(_ok, _msg)
+        )
+
+        _severity = {
+            _autonomy.HALT_DECLARE: 3, _autonomy.GO_WITH_RESIDUE: 2,
+            _autonomy.REVISE: 1, _autonomy.GO: 0,
+        }
+
+        # PR-A: the full-corpus coverage-allocation contract, folded
+        # most-severe-wins (no second disposition grammar — the SAME
+        # structural-payload adapter the framework-critic uses). This applies
+        # to ANY spine (machine OR human): the corpus must be fully allocated
+        # to the committed framework regardless of how the spine was authored.
+        # `_coverage-map.md` lives beside `_manuscript.md`; the frozen corpus
+        # lives at `reviews/<slug>/_corpus.md` (slug == tree_root.name), under
+        # project_notes_dir = tree_root.parent.parent (manuscripts/<slug>/..).
+        from ..manuscript.check_gates import check_coverage_allocation_gate as _ccag
+        _slug = tree_root.name
+        _project_notes_dir = tree_root.parent.parent
+        _corpus_path = _project_notes_dir / "reviews" / _slug / "_corpus.md"
+        _coverage_map_path = tree_root / "_coverage-map.md"
+        _cov_res = _ccag(_corpus_path, _coverage_map_path)
+        coverage_alloc_result = _autonomy.classify_disposition(
+            _autonomy.evaluation_from_structural_payload(
+                {"blocking": _cov_res["errors"]}
+            )
         )
 
         # framework-gate-autonomy design (option A, 2026-07-09): fold in the
@@ -547,7 +573,8 @@ def _evaluate_autonomous_gate(
         # machine`, stamped by `framework-synthesize`); a human-authored
         # spine (hand-edited `_manuscript.md`, the pre-ensemble path —
         # `check_framework_gate` alone still governs it, unchanged) never
-        # required a critic and still doesn't.
+        # required a critic and still doesn't. The coverage-allocation gate,
+        # by contrast, folds in for BOTH origins (above).
         _framework_origin = ""
         if manuscript_note_path.exists():
             from ..note import _parse_frontmatter as _pfm_fw
@@ -556,7 +583,10 @@ def _evaluate_autonomous_gate(
             _framework_origin = str(_fw_fields.get("framework_origin", "")).strip()
 
         if _framework_origin != "machine":
-            return structural_result
+            return max(
+                (structural_result, coverage_alloc_result),
+                key=lambda r: _severity[r.disposition],
+            )
 
         critic_node = nodes_lookup.get("framework-critic")
         critic_ref = None
@@ -590,12 +620,8 @@ def _evaluate_autonomous_gate(
             _autonomy.evaluation_from_framework_critic(critic_payload)
         )
 
-        _severity = {
-            _autonomy.HALT_DECLARE: 3, _autonomy.GO_WITH_RESIDUE: 2,
-            _autonomy.REVISE: 1, _autonomy.GO: 0,
-        }
         return max(
-            (structural_result, critic_result),
+            (structural_result, critic_result, coverage_alloc_result),
             key=lambda r: _severity[r.disposition],
         )
 
@@ -1619,9 +1645,20 @@ def cmd_complete(args: argparse.Namespace) -> int:
                 else:
                     branches = [str(b).strip() for b in _branches_raw if str(b).strip()]
 
-            from ..manuscript.types.lit_review import check_outline_gate
+            from ..manuscript.types.lit_review import (
+                check_outline_gate,
+                read_coverage_used_citekeys,
+            )
 
-            outline_issues = check_outline_gate(outline_path, branches)
+            # PR-A coverage-safety: the outline must anchor every `used` paper
+            # allocated in `_coverage-map.md` (beside `_manuscript.md`) — a
+            # `used` paper unanchored at the outline is about to be dropped in
+            # the draft. Absent/empty map -> [] (the allocation gate owns that
+            # BLOCK, not this pre-pass).
+            used_citekeys = read_coverage_used_citekeys(
+                manifest_path.parent / "_coverage-map.md"
+            )
+            outline_issues = check_outline_gate(outline_path, branches, used_citekeys)
             if outline_issues:
                 print(
                     f"rv dag complete: outline gate FAILED for node {node_id!r}:",
