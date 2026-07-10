@@ -30,7 +30,12 @@ from .derivative import count_independent, mark_derivatives
 from .ranker import UtilityScore, rank_and_select, score_hit
 from .registry import DEFAULT_SOURCES, get_adapter
 
-DEFAULT_FETCH_BUDGET = 65  # HR's validated "diminishing returns beyond ~80" range (D4)
+DEFAULT_FETCH_BUDGET = 100  # PR-2 D-1: HR's diminishing-returns cap (~100 planned
+# searches); raised from 65 now that the facet-matrix generator (see
+# `parse_angle_matrix`/`group_facet_stances` below) derives ~40-100 queries
+# per protocol instead of the old fixed 5-angle set — the old 65 cap would
+# silently truncate a properly-broad matrix before it ever reached the width
+# sweep.
 
 # Retry-with-backoff on a transient adapter/cell failure (pre-publish
 # hardening batch, a downstream project's live-e2e-run finding 2026-07-09: all 5 arXiv cells timed
@@ -60,18 +65,43 @@ def parse_angle_matrix(protocol_text: str) -> dict[str, str]:
     """Parse the ``seed_queries:`` angle matrix out of a ``_protocol.md``
     frontmatter block.
 
-    Expected shape::
+    Two shapes, mixable in the SAME protocol (a to-be-migrated protocol is
+    never forced to rewrite every angle in one pass):
+
+    **Legacy scalar** (pre-PR-2, one query per angle)::
 
         seed_queries:
           by-method:     "<query>"
           by-outcome:    "<query>"
-          by-paradigm:   "<query>"
-          by-population: "<query>"
 
-    Returns ``{}`` if ``seed_queries:`` is absent or not in this nested-
-    mapping shape (e.g. the legacy flat-list form) — callers must treat an
-    empty return as "no angle matrix; fall back to legacy handling", never
-    crash.
+    Returned unchanged: ``{"by-method": "<query>", "by-outcome": "<query>"}``.
+
+    **Nested stance-tagged facet** (PR-2, D-3 — the facet-matrix generator's
+    output; the researcher's Step-C counter-position facets as a first-class class)::
+
+        seed_queries:
+          by-temporal:
+            thesis:
+              - "<drift query 1>"
+              - "<drift query 2>"
+            counter:
+              - "<stability query 1>"
+
+    is FLATTENED into distinct keys — one per enumerated query —
+    ``"by-temporal.thesis.0"``, ``"by-temporal.thesis.1"``,
+    ``"by-temporal.counter.0"``. This is the reuse move (charter §6):
+    ``run_width_sweep``'s ``(angle-key x source)`` cross-product and
+    ``corpus_freeze.canonicalize_criteria``'s sorted-key hash canon both
+    consume the plain ``dict[str, str]`` return unchanged — no second parse,
+    no restructuring of the concurrency/hashing machinery, just more/richer
+    flat keys. Use ``group_facet_stances()`` when the FACET STRUCTURE
+    (thesis/counter grouping, not just the flat query list) is needed — e.g.
+    the D-7 empty-counter-pole gate, or the D-6 cold counter-facet guard.
+
+    Returns ``{}`` if ``seed_queries:`` is absent or the legacy FLAT-LIST
+    shape (a bare list under ``seed_queries:``, no per-angle keys at all) —
+    callers must treat an empty return as "no angle matrix; fall back to
+    legacy handling", never crash.
     """
     if not protocol_text.startswith("---"):
         return {}
@@ -83,24 +113,212 @@ def parse_angle_matrix(protocol_text: str) -> dict[str, str]:
     lines = fm_block.splitlines()
     out: dict[str, str] = {}
     in_block = False
+    current_angle: str | None = None
+    current_stance: str | None = None
+    angle_indent: int | None = None
+
     for line in lines:
-        if line.strip() == "" :
+        if line.strip() == "":
             continue
-        if not line.startswith((" ", "\t")):
-            # top-level key line
-            in_block = line.strip().rstrip(":") == "seed_queries" and line.rstrip().endswith(":")
+        indent = len(line) - len(line.lstrip(" "))
+        stripped = line.strip()
+
+        if indent == 0:
+            # top-level key line — (re)entering or leaving the seed_queries block
+            in_block = stripped.rstrip(":") == "seed_queries" and stripped.endswith(":")
+            current_angle = None
+            current_stance = None
+            angle_indent = None
             continue
         if not in_block:
             continue
-        stripped = line.strip()
+
+        if stripped.startswith("- "):
+            item = stripped[2:].strip()
+            if item.startswith(("'", '"')) and item.endswith(item[0]) and len(item) >= 2:
+                item = item[1:-1]
+            if current_angle is not None and current_stance is not None:
+                prefix = f"{current_angle}.{current_stance}."
+                idx = sum(1 for k in out if k.startswith(prefix))
+                out[f"{prefix}{idx}"] = item
+            continue
+
         m = _KV_RE.match(stripped)
         if not m:
             continue
         key, val = m.group(1), m.group(2).strip()
         if val.startswith(("'", '"')) and val.endswith(val[0]) and len(val) >= 2:
             val = val[1:-1]
-        out[key] = val
+
+        if angle_indent is None or indent <= angle_indent:
+            # angle-level key: first indented line establishes the depth;
+            # any sibling line back at that SAME depth is a new angle.
+            angle_indent = indent
+            current_angle = key
+            current_stance = None
+            if val:
+                # legacy scalar leaf — no nested thesis/counter children.
+                out[key] = val
+                current_angle = None
+            continue
+
+        if key in ("thesis", "counter"):
+            current_stance = key
+            if val:
+                # rare inline-scalar-under-stance form — treat as sole item.
+                prefix = f"{current_angle}.{key}."
+                idx = sum(1 for k in out if k.startswith(prefix))
+                out[f"{prefix}{idx}"] = val
+            continue
+
     return out
+
+
+_FACET_KEY_RE = re.compile(r"^(?P<angle>[\w-]+)\.(?P<stance>thesis|counter)\.(?P<idx>\d+)$")
+
+
+def group_facet_stances(angle_matrix: dict[str, str]) -> dict[str, dict[str, list[str]]]:
+    """Group a flattened ``parse_angle_matrix`` result back into stance-tagged
+    facets: ``{angle: {"thesis": [...], "counter": [...]}}``, ordered by the
+    flattened index (so query order is preserved, not re-sorted).
+
+    Legacy scalar keys (no ``.thesis.``/``.counter.`` suffix) never declared
+    a counter-pole — they are simply ABSENT from the returned mapping, never
+    surfaced as an empty facet (which would wrongly make them eligible for
+    the D-7 empty-counter-pole gate below).
+    """
+    buckets: dict[str, dict[str, dict[int, str]]] = {}
+    for key, val in angle_matrix.items():
+        m = _FACET_KEY_RE.match(key)
+        if not m:
+            continue
+        angle = m.group("angle")
+        stance = m.group("stance")
+        idx = int(m.group("idx"))
+        buckets.setdefault(angle, {"thesis": {}, "counter": {}})[stance][idx] = val
+
+    return {
+        angle: {
+            "thesis": [stances["thesis"][i] for i in sorted(stances["thesis"])],
+            "counter": [stances["counter"][i] for i in sorted(stances["counter"])],
+        }
+        for angle, stances in buckets.items()
+    }
+
+
+def seed_queries_declared_but_unparsed(protocol_text: str) -> bool:
+    """True iff the protocol declares a ``seed_queries:`` key at all, but
+    ``parse_angle_matrix`` yields ZERO usable queries (architect fit-check
+    finding on PR-2, judge-independent fail-open): a malformed/mis-indented
+    nested block, or an otherwise-garbage ``seed_queries:`` value, can
+    silently collapse to ``{}`` — and an empty facet-iteration loop at
+    ``approve-protocol`` then looks IDENTICAL to "this protocol has no
+    counter-facets to check", clearing BOTH the D-7 existence gate and the
+    D-6 strength guard for a protocol that never actually froze anything
+    usable.
+
+    A protocol that never declares ``seed_queries:`` at all is a DIFFERENT,
+    already-handled case (``run_sweep_from_protocol`` raises ``ValueError``
+    on a wholly-absent angle matrix) — this check is scoped to "declared but
+    empty", not "absent".
+    """
+    if not protocol_text.startswith("---"):
+        return False
+    end = protocol_text.find("\n---", 3)
+    if end == -1:
+        return False
+    fm_block = protocol_text[3:end]
+
+    declared = False
+    for line in fm_block.splitlines():
+        stripped = line.strip()
+        if stripped == "":
+            continue
+        if not line.startswith((" ", "\t")) and stripped.rstrip(":") == "seed_queries" and stripped.endswith(":"):
+            declared = True
+            break
+
+    if not declared:
+        return False
+    return len(parse_angle_matrix(protocol_text)) == 0
+
+
+# ---------------------------------------------------------------------------
+# Query-time near-dup filter (D-4) + post-dedup distinct-query count/band
+# (D-1, friction iii): a semantic (asta/S2) backend collapses near-literal
+# combinatorial restatements to one NL query, so the 40-100 breadth
+# assertion (§3D) must hold on the POST-dedup distinct count, never the raw
+# enumerated-cell count — the pairwise C(facets,2) combinatorics can
+# overstate distinct coverage on paper.
+# ---------------------------------------------------------------------------
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def dedupe_near_duplicate_queries(queries: list[str], *, threshold: float = 0.9) -> list[str]:
+    """Drop a query that is a near-literal restatement of one already kept,
+    via a cheap token-Jaccard similarity (stdlib only — no embedding call at
+    query-generation time). This is the literal-restatement floor, NOT the
+    semantic layer — result-pool dedup (``angles_by_identity`` /
+    ``dedup_hits`` in ``compose_sweep_result``) already handles the same
+    paper surfaced by two DIFFERENT-worded queries; this only avoids firing
+    two near-identical queries in the first place and wasting fetch budget.
+
+    Order-preserving: the first-seen phrasing of a near-dup cluster wins.
+    """
+    kept: list[str] = []
+    kept_tokensets: list[set[str]] = []
+    for q in queries:
+        tokens = set(_TOKEN_RE.findall(q.lower()))
+        is_dup = False
+        for existing in kept_tokensets:
+            if not tokens or not existing:
+                continue
+            jaccard = len(tokens & existing) / len(tokens | existing)
+            if jaccard >= threshold:
+                is_dup = True
+                break
+        if not is_dup:
+            kept.append(q)
+            kept_tokensets.append(tokens)
+    return kept
+
+
+def count_distinct_queries(angle_matrix: dict[str, str], *, near_dup_threshold: float = 0.9) -> int:
+    """The post-dedup distinct query count the 40-100 band assertion (D-1)
+    must be checked against — never the raw ``len(angle_matrix)``."""
+    return len(dedupe_near_duplicate_queries(list(angle_matrix.values()), threshold=near_dup_threshold))
+
+
+MATRIX_BAND_LO = 40
+MATRIX_BAND_HI = 100
+
+
+def validate_matrix_band(
+    angle_matrix: dict[str, str],
+    *,
+    lo: int = MATRIX_BAND_LO,
+    hi: int = MATRIX_BAND_HI,
+    near_dup_threshold: float = 0.9,
+) -> tuple[bool, str]:
+    """Non-blocking band check (SIGNAL at `approve-protocol`, never a hard
+    BLOCK — D-1 recommends the derived ~40-100 count as a target the
+    generator should land near, not an exact requirement every RQ must hit).
+
+    Returns ``(in_band, message)``.
+    """
+    n = count_distinct_queries(angle_matrix, near_dup_threshold=near_dup_threshold)
+    if n < lo:
+        return False, (
+            f"query matrix has only {n} distinct queries post-dedup "
+            f"(target band: {lo}-{hi}) — likely too narrow for HR-scale breadth"
+        )
+    if n > hi:
+        return False, (
+            f"query matrix has {n} distinct queries post-dedup "
+            f"(target band: {lo}-{hi}) — likely over the diminishing-returns cap"
+        )
+    return True, f"{n} distinct queries post-dedup (in the {lo}-{hi} target band)"
 
 
 def parse_sources(protocol_text: str) -> list[str]:
@@ -179,8 +397,18 @@ def run_width_sweep(
     per_cell_limit: int = 20,
     max_workers: int = 8,
     sleep_fn: Callable[[float], None] = time.sleep,
+    dedupe_queries: bool = True,
+    near_dup_threshold: float = 0.9,
 ) -> list[SweepCell]:
     """Fetch the cross-product ``(angle × source)`` concurrently.
+
+    ``dedupe_queries`` (D-4, default on): before building the cross-product,
+    collapse any query that is a near-literal restatement of one already
+    kept (``dedupe_near_duplicate_queries``) — the facet-matrix generator's
+    pairwise combinatorics deliberately overlap, and firing two near-
+    identical queries just burns fetch budget for the same hits. This is the
+    query-TIME half of D-4; the result-POOL half (overlap raises confidence
+    via ``angles_by_identity``) is unchanged, in ``compose_sweep_result``.
 
     Returns one ``SweepCell`` per (angle, source) pair, in the original
     angle-then-source enumeration order (order-preserving, so dedup's
@@ -192,9 +420,26 @@ def run_width_sweep(
     real ``time.sleep`` in a hermetic test).
     """
     cells: list[SweepCell] = []
+    items = list(angle_matrix.items())
+    if dedupe_queries:
+        kept_items: list[tuple[str, str]] = []
+        kept_tokensets: list[set[str]] = []
+        for angle, query in items:
+            tokens = set(_TOKEN_RE.findall(query.lower()))
+            is_dup = False
+            for existing in kept_tokensets:
+                if tokens and existing:
+                    jaccard = len(tokens & existing) / len(tokens | existing)
+                    if jaccard >= near_dup_threshold:
+                        is_dup = True
+                        break
+            if not is_dup:
+                kept_items.append((angle, query))
+                kept_tokensets.append(tokens)
+        items = kept_items
     jobs = [
         (angle, query, source)
-        for angle, query in angle_matrix.items()
+        for angle, query in items
         for source in sources
     ]
     with ThreadPoolExecutor(max_workers=max_workers) as pool:

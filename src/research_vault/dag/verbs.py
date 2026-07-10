@@ -1907,11 +1907,44 @@ def cmd_approve(args: argparse.Namespace) -> int:
             if isinstance(produces, dict):
                 protocol_ref = produces.get("_protocol.md")
         if protocol_ref:
-            from ..review import check_protocol_gate
+            from ..review import check_protocol_gate, check_counter_facet_gate
             ok, msg = check_protocol_gate(Path(protocol_ref))
             if not ok:
                 print(msg, file=sys.stderr)
                 return 1
+
+            # PR-2 D-7: a declared thesis facet with no frozen counter-side
+            # query is a protocol defect — hard BLOCK, same convention as
+            # the check_protocol_gate empty-counter-position field above.
+            ok, msg = check_counter_facet_gate(Path(protocol_ref))
+            if not ok:
+                print(msg, file=sys.stderr)
+                return 1
+
+            # PR-2 D-6: cold, rejects-only, canary-verified counter-facet
+            # STRENGTH guard — existence (D-7) != strength; a thesis-biased
+            # generator can satisfy D-7 with a straw-man. Judge-gated: an
+            # absent judge is a loud SIGNAL (never a silent skip); a canary
+            # abort or a real straw-man verdict is a hard BLOCK.
+            from ..review.counter_facet_guard import check_counter_facet_strength
+            guard_result = check_counter_facet_strength(Path(protocol_ref).read_text(encoding="utf-8"))
+            for nr in guard_result["not_run"]:
+                print(f"rv dag approve: approve-protocol SIGNAL: {nr}", file=sys.stderr)
+            if not guard_result["ok"]:
+                for b in guard_result["blocking"]:
+                    print(f"rv dag approve: approve-protocol BLOCKED: {b}", file=sys.stderr)
+                return 1
+
+            # PR-2 D-1: the derived 40-100 distinct-query band is a SIGNAL,
+            # never a BLOCK (the generator's derived count is a target, not
+            # an exact requirement) — always printed so the human sees it at
+            # the gate (charter §2: surface, never silently drop).
+            from ..sources.sweep import parse_angle_matrix, validate_matrix_band
+            angle_matrix = parse_angle_matrix(Path(protocol_ref).read_text(encoding="utf-8"))
+            if angle_matrix:
+                in_band, band_msg = validate_matrix_band(angle_matrix)
+                if not in_band:
+                    print(f"rv dag approve: approve-protocol SIGNAL: {band_msg}", file=sys.stderr)
 
     # PR-M6: the lit-review manuscript type's framework-selection Phase-1 gate
     # (design §5, D5) — mirrors the L-2 gate above. ``approve-framework`` may

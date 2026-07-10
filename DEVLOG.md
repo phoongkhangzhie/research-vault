@@ -51,6 +51,59 @@ gate is untouched and still green (22/22).
 - Design fork flagged for architect fit-check: `report.rendered.md` as a
   new file (vs. rendering `report.md` in place) — see the PR body.
 - Returns to the architect for fit-check before merge.
+## 2026-07-10 (PR-2 — Q breadth: facet-matrix query generator + nested schema)
+
+### Done
+rv's width-sweep froze ~5 scalar angle queries where HR runs 40-100, and the
+`by-temporal` angle was one-sided (drift-only; the empty stability pole is
+what blocked the downstream project's coverage-critic). Replaced the flat scalar angle matrix
+with a nested, stance-tagged facet schema so breadth AND both poles of a
+contested claim are principled and frozen, per the researcher's
+facet-analysis grounding (Cochrane ch.4 building-block method; PICO/SPIDER
+framing; PRISMA-S recording) and the search-breadth design's Component 1/2:
+
+- **Schema** — `sources/sweep.py::parse_angle_matrix` now accepts a nested
+  `angle -> {thesis: [...], counter: [...]}` shape (D-3) alongside the
+  legacy scalar form (mixable in one protocol). Nested facets FLATTEN into
+  distinct keys (`by-temporal.thesis.0`, `.counter.0`, ...) so
+  `run_width_sweep`'s cross-product and `corpus_freeze.canonicalize_criteria`'s
+  hash canon consume the wider matrix with ZERO changes — same
+  concurrency/hashing machinery, more/richer keys. New
+  `group_facet_stances()` reconstructs the stance grouping for the gates
+  below.
+- **D-7 structural BLOCK** — `review.check_counter_facet_gate` (wired into
+  `dag/verbs.py`'s `approve-protocol`): a facet with a `thesis` query list
+  and NO `counter` list is a protocol defect, hard BLOCK before any search
+  executes — mirrors the existing empty-`counter-position`-field gate.
+- **D-6 cold counter-facet strength guard** — new
+  `review/counter_facet_guard.py::check_counter_facet_strength`: existence
+  (D-7) != strength; a thesis-biased generator can satisfy D-7 with a
+  straw-man. Cold (judge sees ONLY the counter queries, never the thesis),
+  rejects-only (a STRONG verdict never certifies; only non-STRONG blocks),
+  fail-closed (no judge configured -> loud SIGNAL, never a silent pass),
+  canary-verified with two SUBSTANCE-ONLY-distinguishable probes (same
+  general domain, differentiated only by a named mechanism vs. a bare
+  negation — never title-obvious).
+- **Dedup + budget (D-1, D-4)** — `dedupe_near_duplicate_queries` (query-
+  time near-dup filter, token-Jaccard) applied inside `run_width_sweep`;
+  `count_distinct_queries`/`validate_matrix_band` assert the 40-100 breadth
+  band on the POST-dedup distinct count (printed as a SIGNAL at
+  `approve-protocol`, never a BLOCK); `DEFAULT_FETCH_BUDGET` raised 65 -> 100
+  (HR's diminishing-returns cap).
+- **Method frictions folded into `review_scope_tips`**: multi-frame union
+  (retain both frames' crux facets, never pick one under "default to
+  PICO"), pinned decoding for Step-C counter-facet extraction, and the
+  40-100 band assertion on the post-dedup count (not the raw combinatorial
+  cell count).
+
+Tests: `tests/test_facet_matrix_breadth.py` (31 cases) — parser/schema,
+multi-frame union, near-dup dedup + band, stable-hash-under-repeated-calls
++ hash-changes-only-on-amendment, D-7 wiring (real `cmd_approve` path,
+mutation-tested), D-6 guard (canary pass/fail, straw-man rejection, real
+refuting-facet acceptance, no-judge-configured not_run).
+
+PR: engineer session, branch `feat/pr2-facet-breadth`. Returns to the
+architect for fit-check before merge (per dispatch).
 
 ## 2026-07-10 (PR-4/K — canonical BibTeX citekeys at the source + migration)
 
