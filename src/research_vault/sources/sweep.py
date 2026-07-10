@@ -403,7 +403,7 @@ def _annotate_hit(
     return _corpus_annotation(paper, notes_index=notes_index, notes_title_index=notes_title_index)
 
 
-def _evidence_snippet(hit: PaperHit, *, max_chars: int = 280) -> str:
+def _evidence_snippet(hit: PaperHit, *, max_chars: int = 800) -> str:
     """Abstract text (or, when absent, an S2 ``tldr``) for a kept row —
     review-screen evidence enrichment (a downstream project's validation-run
     finding, 2026-07-09): the screen node was judging the seed-axis call on TITLES
@@ -412,7 +412,15 @@ def _evidence_snippet(hit: PaperHit, *, max_chars: int = 280) -> str:
 
     Falls back to ``hit.raw["tldr"]["text"]`` (S2-only shape) when the
     abstract is empty — never fabricates evidence when neither is present
-    (an honestly-blank cell, not a placeholder string)."""
+    (an honestly-blank cell, not a placeholder string).
+
+    Default cap raised 280 -> 800 (pre-publish hardening, v0.3.0): a live
+    curation run found 280 chars too short to verify the "measured human
+    baseline" inclusion axis, which often sits deeper in the abstract — this
+    is a display-cap change only (the full abstract is already fetched onto
+    ``hit.abstract``; nothing here re-fetches). Feeds both the sweep writer
+    (``write_search_hits``) and the snowball raw-pool writer
+    (``write_corpus_raw``, via #215's reuse of this helper)."""
     text = (hit.abstract or "").strip()
     if not text and isinstance(hit.raw, dict):
         tldr = hit.raw.get("tldr")

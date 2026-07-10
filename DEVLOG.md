@@ -1,3 +1,27 @@
+## 2026-07-09 (evidence-snippet display cap raised 280 -> 800 chars)
+
+### Done
+- Raised `_evidence_snippet`'s default `max_chars` from 280 to 800. A live
+  downstream validation run found 280 chars too short to verify the
+  "measured human baseline" inclusion axis during sweep/snowball candidate
+  screening — that signal often sits deeper in the abstract than the first
+  280 characters, forcing the axis to defer to the Phase-2 relate fan-out.
+- Display-cap change only: the full abstract is already fetched onto
+  `hit.abstract` (the S2 adapter's `--fields` projection already includes
+  it) — nothing here re-fetches. Both call sites (`write_search_hits` in
+  sweep.py and `write_corpus_raw` in snowball.py, via #215's reuse of the
+  same helper) use the function default with no override, so the bump
+  propagates to both writers.
+- Test: asserts a >800-char abstract truncates to exactly 800 chars with the
+  ellipsis marker, and a <=800-char abstract is written whole. Confirmed RED
+  against the 280 default before the fix.
+
+### Decisions
+- Kept the cap as a single shared default on `_evidence_snippet` rather than
+  parameterizing per call site — both the sweep and snowball writers want
+  the same screening-substance tradeoff (charter §6: one implementation, no
+  duplication).
+
 ## 2026-07-09 (substance-screening gap fix — snowball raw pool now carries abstract/venue/year)
 
 ### Done
