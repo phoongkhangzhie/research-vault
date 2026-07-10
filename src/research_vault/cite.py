@@ -328,7 +328,39 @@ def _all_citekeys(key: str, uid: int) -> set[str]:
     return keys
 
 
-def _make_citekey(family: str | None, title: str, year: str, existing: set[str]) -> str:
+# ---------------------------------------------------------------------------
+# PR-4/K — the ONE canonical citekey convention (K-D1: authorYearWord).
+# ---------------------------------------------------------------------------
+# Four incompatible schemes were reaching the corpus (arXiv-id / S2-id /
+# OpenAlex-id / slug) because each ingestion path minted its own key. This is
+# the single source of truth: ``familyShorttitleYear`` (+ an a/b/c
+# disambiguation suffix on collision) — exactly what Zotero's Better BibTeX
+# plugin produces, so a note filed by hand via Zotero and one computed here
+# land on the same key.
+#
+# ``make_citekey`` is Zotero-free and pure: it takes an explicit ``existing``
+# set rather than resolving one itself. ``cmd_add`` (below) passes the
+# Zotero-backed set (``_all_citekeys``); the review loop / migration verb
+# (``research.py``) passes a ``literature/*.md`` frontmatter scan instead
+# (reusing ``research._load_notes_index``'s scan pattern) — same pure
+# function, two different existing-key universes.
+CITEKEY_RE = re.compile(r"^[a-z]+[A-Za-z]*\d{4}[a-z]?$")
+
+# Visible fail-closed sentinel for a citekey that could not be computed
+# (title/year metadata unresolved) — NEVER a guessed key (charter §1/§2).
+# Mirrors the REPRO_SENTINEL convention (note.py): a loud, greppable hole,
+# never a blank field or an invented value.
+CITEKEY_SENTINEL = "CITEKEY-UNRESOLVED"
+
+
+def make_citekey(family: str | None, title: str, year: str, existing: set[str]) -> str:
+    """Compute the canonical ``familyShorttitleYear`` citekey (K-D1).
+
+    Pure + Zotero-free: ``existing`` is an explicit set of already-used keys
+    (from whatever universe the caller cares about — a Zotero library, a
+    project's filed literature notes, or both unioned). On collision,
+    appends the first free ``a``/``b``/``c``/... disambiguation suffix.
+    """
     base = re.sub(r"[^a-z0-9]", "", (family or "anon").lower()) + _shorttitle(title) + (year or "")
     if base not in existing:
         return base
@@ -336,6 +368,12 @@ def _make_citekey(family: str | None, title: str, year: str, existing: set[str])
     while base + chr(i) in existing:
         i += 1
     return base + chr(i)
+
+
+# Backward-compat alias — existing internal call sites (cmd_add below) and
+# review/remediation.py's ``from ..cite import _make_citekey`` keep working
+# unchanged. New code should import ``make_citekey`` (the public name).
+_make_citekey = make_citekey
 
 
 # ---------------------------------------------------------------------------

@@ -118,3 +118,60 @@ def test_cli_note_check_clean(tmp_instance, capsys):
     note_mod.cmd_new("demo-research", "experiments", "Experiment", config=cfg)
     result = main(["note", "demo-research", "check"])
     assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# PR-4/K: citekey scaffold field + conformance lint (K-2/K-4)
+# ---------------------------------------------------------------------------
+
+def test_literature_template_carries_citekey_placeholder(cfg):
+    """A freshly-scaffolded literature note carries a blank `citekey:` field."""
+    path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    content = path.read_text()
+    assert "citekey:" in content
+
+
+def test_check_warns_absent_citekey_never_blocks(cfg):
+    """A literature note with no citekey WARNs but does not flip the exit code."""
+    note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    violations = note_mod.cmd_check("demo-research", config=cfg)
+    assert any(v.startswith("[citekey-lint] WARN:") and "missing" in v for v in violations)
+
+    from research_vault.cli import main
+    result = main(["note", "demo-research", "check"])
+    assert result == 0  # WARN-class, never blocks (DECIDED K-D2)
+
+
+def test_check_warns_non_conformant_citekey(cfg):
+    """A citekey that doesn't match familyShorttitleYear WARNs."""
+    path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    content = path.read_text().replace("citekey: ", "citekey: 2005.14165", 1)
+    path.write_text(content)
+
+    violations = note_mod.cmd_check("demo-research", config=cfg)
+    assert any(
+        v.startswith("[citekey-lint] WARN:") and "does not conform" in v
+        for v in violations
+    )
+
+
+def test_check_conformant_citekey_no_warning(cfg):
+    """A properly-conformant citekey produces zero citekey-lint violations."""
+    path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    content = path.read_text().replace("citekey: ", "citekey: smithStudyFooBar2023", 1)
+    path.write_text(content)
+
+    violations = note_mod.cmd_check("demo-research", config=cfg)
+    assert not any(v.startswith("[citekey-lint]") for v in violations)
+
+
+def test_check_sentinel_citekey_still_warns(cfg):
+    """The CITEKEY_SENTINEL never accidentally passes conformance."""
+    from research_vault.cite import CITEKEY_SENTINEL
+
+    path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    content = path.read_text().replace("citekey: ", f"citekey: {CITEKEY_SENTINEL}", 1)
+    path.write_text(content)
+
+    violations = note_mod.cmd_check("demo-research", config=cfg)
+    assert any(v.startswith("[citekey-lint] WARN:") for v in violations)
