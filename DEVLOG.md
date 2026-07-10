@@ -1,3 +1,70 @@
+## 2026-07-10 (PR-3 — critic-BLOCK -> bounded backtrack + incremental-relate)
+
+### Done
+The critic-BLOCK -> backtrack-to-search path was un-wired: a downstream
+project's stability-pole coverage-critic BLOCK (an empty counter-facet on
+a nested `by-temporal` angle) was only fixed by a hand-directed round-3 —
+`approve-review`'s REVISE disposition just sat at "awaiting-go" for a human
+to re-run the search. Wired it, and made the downstream relate incremental
+without relating new papers in isolation:
+
+- **Structured `remediation_target`** — `review.check_coverage_critic_verdict`
+  now surfaces `remediation_target_expected`/`remediation_target`
+  (`{node, pole, directive}`), read from three flat frontmatter fields
+  (`remediation_target_node/pole/directive`) the critic stamps ONLY when
+  every itemized BLOCK reason is the new, narrower
+  `COUNTER-POSITION THIN-POLE <facet>` class — deliberately distinct from
+  the pre-existing protocol-level `COUNTER-POSITION ABSENT`/`NOT SOUGHT`
+  hard blocks (no single facet to name there) and from any axis-1/3
+  finding (`DIRECTION-STARVED`/`TAG-UNDER-COUNTING`/`PROTOCOL-DRIFT`,
+  untouched, still route REVISE/HALT exactly as before). A malformed/
+  incomplete target on an otherwise-eligible BLOCK fails closed to
+  HALT-DECLARE — never guessed.
+- **`resolve_coverage_critic` + `run_directed_remediation_round` +
+  `run_bounded_critic_backtrack`** (`review/remediation.py`, sibling to the
+  existing saturation-remediation loop) — a NEW `CRITIC_BACKTRACK`
+  disposition drives a bounded, pole-directed round: re-sweeps the named
+  facet's FROZEN counter queries (via `sources.sweep.run_sweep_from_
+  protocol`'s new `angle_keys`/`sources_override` filters — selects
+  existing frozen keys only, never authors a new one) against every
+  registered source at a relaxed per-cell limit, then re-seeds a snowball
+  citation-chase from the harder sweep's own hits (`autonomy._op_snowball`'s
+  new `seed_ids` bypass, reusing the op unchanged). Bounded by a SEPARATE
+  `critic_backtrack_max_rounds` config seam (a critic backtrack re-pays the
+  relate delta; a saturation round only re-sweeps — different cost, never
+  shared budget). Axis 4 is a hard structural gate: exhausted budget or a
+  zero-new wave HALT-DECLAREs (never GO-WITH-RESIDUE like the saturation
+  loop can) — closing it for good needs a criteria change, a human
+  decision. Wired into `dag/verbs.py`'s `approve-review` autonomous-gate
+  dispatch (both the self-advancing runner and `cmd_approve --auto` share
+  the one dispatch function, so both get this for free).
+- **Incremental relate** (`review/incremental_relate.py`, new) —
+  concept-graph-blocked candidate generation for newly-appended papers:
+  a new paper's candidates are drawn ONLY from existing papers sharing >=1
+  concept (the post-#221 `## Concept edges` graph as the join key) —
+  sub-quadratic by construction (`new x concept-neighborhood`, never
+  `new x corpus`). Bidirectional edge write (`append_bidirectional_edge`)
+  appends the SAME relation to both notes — a paper->paper edge is a fact
+  about both. A newcomer with ZERO concept-graph candidates is an ISLAND:
+  recorded, never silently dropped, and escalated to a wider relate ONLY
+  for that one paper if `escalate_relate_fn` is given.
+
+Tests: `tests/test_pr3_critic_backtrack.py` (22 cases, incl. a replay proof
+that the pole-directed backtrack finds a Huang/Lee-style stability-evidence
+pair without a human directing it), `tests/test_pr3_incremental_relate.py`
+(11 cases, incl. a 200-paper/20-concept sub-quadratic instrumentation proof
+and the island-escalation scoping test), `tests/test_pr3_sweep_angle_keys_
+and_snowball_seed_ids.py` (7 cases). Two pre-existing `_coverage-critic.md`-
+shaped exact-dict-equality tests in `test_dag_approve_auto.py` updated for
+the additive `remediation_target*` keys.
+
+### Open / next
+- Incremental-relate is a standalone, tested module — not yet wired into
+  the review DAG's own node topology (the relation JUDGMENT is an agent
+  step; this PR ships the mechanical candidate-generation + bidirectional-
+  write machinery only, injectable `relate_fn`/`escalate_relate_fn`).
+- Returns to the architect for fit-check before merge.
+
 ## 2026-07-10 (PR-D — [N] numbered render + hermetic ## Sources + references.bib)
 
 ### Done

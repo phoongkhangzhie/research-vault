@@ -302,6 +302,34 @@ _COVERAGE_CRITIC_VERDICT_VOCAB = frozenset({"PASS", "BLOCK"})
 # frontmatter ``verdict:`` field.
 _COVERAGE_CRITIC_BULLET_RE = re.compile(r"^\s*-\s+(.+?)\s*$")
 
+# PR-3 D-5a: a BLOCK reason bullet is classified as backtrack-eligible iff
+# it starts with this literal prefix (case-insensitive) — deliberately
+# NARROWER than the whole axis-4 "COUNTER-POSITION" umbrella. The
+# pre-existing hard-block bullets (``COUNTER-POSITION ABSENT`` — the
+# protocol never declared a counter-position at all — and
+# ``COUNTER-POSITION NOT SOUGHT`` — the whole declared counter-position was
+# never actively sought) are PROTOCOL-LEVEL findings with no single named
+# facet to backtrack on; they stay REVISE exactly as before this PR. Only
+# the NEW, facet-scoped finding (``review_critic_tips``'s "a SPECIFIC
+# facet's counter-pole is thin/empty") names an actual pole to re-sweep, so
+# ONLY that prefix is eligible here. Any OTHER reason (the two bullets
+# above, or ``DIRECTION-STARVED``/``TAG-UNDER-COUNTING``/``PROTOCOL-DRIFT``,
+# axes 1/3) is NOT this class — a mixed BLOCK (any ineligible reason
+# present) is never eligible for the autonomous pole-directed backtrack;
+# see ``review.remediation.resolve_coverage_critic``.
+_COUNTER_POSITION_BULLET_PREFIX = "counter-position thin-pole"
+
+# The three flat frontmatter fields naming the exact backtrack target — see
+# ``review_critic_tips``'s structured-``remediation_target`` instruction.
+# Flat scalars (not a nested mapping): `note._parse_frontmatter` only
+# supports flat key:value + mapping-lists, not a bare nested dict under one
+# key (engineer memory: "Parser extension STOP decision") — reusing the
+# canonical parser as-is (charter §6) rather than hand-rolling a second,
+# richer frontmatter grammar for this one field.
+_REMEDIATION_TARGET_FIELDS: tuple[str, ...] = (
+    "remediation_target_node", "remediation_target_pole", "remediation_target_directive",
+)
+
 
 def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
     """Read ``review-coverage-critic``'s STRUCTURED ``verdict:`` frontmatter
@@ -335,11 +363,26 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
       generic blocking reason (never a BLOCK verdict silently downgraded to
       a pass because no bullets were parsed).
 
+    Also returns two PR-3 (D-5a) keys, both consumed by
+    ``review.remediation.resolve_coverage_critic`` (an older caller reading
+    only ``blocking``/``not_run`` is unaffected — additive fields):
+      - ``remediation_target_expected`` (bool): True iff ``verdict == BLOCK``
+        and EVERY itemized reason bullet is a counter-position/thin-pole
+        reason (a mixed BLOCK — any axis-1/3 reason present — is False).
+      - ``remediation_target`` (``{"node", "pole", "directive"}`` or
+        ``None``): the three ``remediation_target_*`` flat frontmatter
+        fields, only populated when ``remediation_target_expected`` is True
+        AND all three are non-empty; ``None`` otherwise (including the
+        "expected but incomplete" fail-closed case — never guessed).
+
     sr: PR #201 review delta (structured-verdict fix, replaces prose
-    scanning entirely) — 2026-07-09
+    scanning entirely) — 2026-07-09; PR-3 D-5a (remediation_target) — 2026-07-10
     """
     if not critic_note_path.exists():
-        return {"blocking": [], "not_run": [str(critic_note_path)]}
+        return {
+            "blocking": [], "not_run": [str(critic_note_path)],
+            "remediation_target": None, "remediation_target_expected": False,
+        }
 
     text = critic_note_path.read_text(encoding="utf-8")
     fields, body = _parse_frontmatter(text)
@@ -364,6 +407,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
                     f"frontmatter keys — contradictory/ambiguous, fail-closed. "
                     f"Write exactly one 'verdict: PASS' or 'verdict: BLOCK'."
                 ],
+                "remediation_target": None, "remediation_target_expected": False,
             }
 
     verdict_raw = fields.get("verdict", "")
@@ -381,10 +425,14 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
                 f"anywhere in the body are NEVER read as the verdict — "
                 f"only the structured frontmatter field is trusted."
             ],
+            "remediation_target": None, "remediation_target_expected": False,
         }
 
     if verdict == "PASS":
-        return {"blocking": [], "not_run": []}
+        return {
+            "blocking": [], "not_run": [],
+            "remediation_target": None, "remediation_target_expected": False,
+        }
 
     # BLOCK: collect every "- <reason>" bullet line found anywhere in the
     # body (below the frontmatter), per the critic's own template. This is
@@ -396,7 +444,45 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
             reasons.append(bullet_m.group(1))
     if not reasons:
         reasons = ["[BLOCK] verdict with no itemized reason bullets found"]
-    return {"blocking": reasons, "not_run": []}
+
+    # PR-3 D-5a: classify — is this a PURE counter-position/thin-pole BLOCK
+    # (every itemized reason starts with the "counter-position" prefix)? A
+    # mixed BLOCK (any axis-1/3 reason present) is NEVER eligible for the
+    # autonomous pole-directed backtrack, however the reasons are itemized —
+    # `remediation_target` is read below regardless, but
+    # `remediation_target_expected` gates whether it is ever HONORED
+    # downstream (`review.remediation.resolve_coverage_critic`).
+    remediation_target_expected = bool(reasons) and all(
+        r.strip().lower().startswith(_COUNTER_POSITION_BULLET_PREFIX) for r in reasons
+    )
+
+    remediation_target: dict[str, str] | None = None
+    if remediation_target_expected:
+        target_vals: dict[str, str] = {}
+        for key in _REMEDIATION_TARGET_FIELDS:
+            raw = fields.get(key, "")
+            if isinstance(raw, list):
+                raw = " ".join(str(item) for item in raw)
+            target_vals[key] = str(raw).strip()
+        if all(target_vals.values()):
+            remediation_target = {
+                "node": target_vals["remediation_target_node"],
+                "pole": target_vals["remediation_target_pole"],
+                "directive": target_vals["remediation_target_directive"],
+            }
+        # else: left None — a pure counter-position BLOCK with a missing/
+        # incomplete remediation_target is surfaced (not silently
+        # defaulted) via `remediation_target_expected=True,
+        # remediation_target=None`; `resolve_coverage_critic` fail-closes
+        # (HALT-DECLARE) on exactly this combination — never guesses the
+        # pole.
+
+    return {
+        "blocking": reasons,
+        "not_run": [],
+        "remediation_target": remediation_target,
+        "remediation_target_expected": remediation_target_expected,
+    }
 
 
 # ---------------------------------------------------------------------------

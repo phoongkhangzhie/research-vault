@@ -356,7 +356,10 @@ class TestCoverageCriticStructuredVerdict:
             encoding="utf-8",
         )
         result = check_coverage_critic_verdict(note)
-        assert result == {"blocking": [], "not_run": []}
+        assert result == {
+            "blocking": [], "not_run": [],
+            "remediation_target": None, "remediation_target_expected": False,
+        }
 
     def test_wellformed_block_surfaces_reasons(self, tmp_path: Path):
         from research_vault.review import check_coverage_critic_verdict
@@ -378,7 +381,10 @@ class TestCoverageCriticStructuredVerdict:
         note = tmp_path / "_coverage-critic.md"
         note.write_text("---\nverdict: pass\n---\n\nlowercase ok.\n", encoding="utf-8")
         result = check_coverage_critic_verdict(note)
-        assert result == {"blocking": [], "not_run": []}
+        assert result == {
+            "blocking": [], "not_run": [],
+            "remediation_target": None, "remediation_target_expected": False,
+        }
 
     def test_duplicate_verdict_keys_fail_closed(self, tmp_path: Path):
         """Contradictory duplicate ``verdict:`` keys must fail-closed, NOT

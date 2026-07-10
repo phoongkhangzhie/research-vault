@@ -708,6 +708,16 @@ def _evaluate_autonomous_gate(
         # ``verdict:`` frontmatter field (PASS/BLOCK, fixed vocab — prose is
         # never scanned) — SAME structural-payload adapter approve-framework
         # already uses (no new disposition path).
+        #
+        # PR-3 (D-5a): extended further, mirroring the coverage-gate branch
+        # above — ``review.remediation.resolve_coverage_critic`` may upgrade
+        # a REVISE (from a PURE counter-position/thin-pole BLOCK) to
+        # CRITIC_BACKTRACK, immediately driven to completion in-process by
+        # ``review.remediation.run_bounded_critic_backtrack`` before this
+        # function returns. A mixed BLOCK (any PROTOCOL-DRIFT/DIRECTION-
+        # STARVED/TAG-UNDER-COUNTING reason present) is untouched —
+        # `resolve_coverage_critic` passes it straight through, REVISE/HALT
+        # exactly as before this PR.
         critic_node = nodes_lookup.get("review-coverage-critic")
         critic_ref = None
         if critic_node is not None:
@@ -723,10 +733,31 @@ def _evaluate_autonomous_gate(
             )
         from ..review import check_coverage_critic_verdict as _cccv
 
-        payload = _cccv(Path(critic_ref))
-        return _autonomy.classify_disposition(
+        critic_note_path = Path(critic_ref)
+        payload = _cccv(critic_note_path)
+        base = _autonomy.classify_disposition(
             _autonomy.evaluation_from_structural_payload(payload)
         )
+
+        from ..review import remediation as _remediation
+
+        review_dir = critic_note_path.parent
+        disposition = _remediation.resolve_coverage_critic(
+            base, payload,
+            remediation_state=run_state.meta.get("critic_backtrack_state"),
+        )
+        if disposition.disposition == _autonomy.CRITIC_BACKTRACK:
+            disposition = _remediation.run_bounded_critic_backtrack(
+                run_state.meta,
+                disposition,
+                payload,
+                protocol_path=review_dir / "_protocol.md",
+                corpus_path=review_dir / "_corpus.md",
+                deviations_path=review_dir / "_deviations.md",
+                out_dir=review_dir,
+                critic_note_path=critic_note_path,
+            )
+        return disposition
 
     raise ValueError(f"_evaluate_autonomous_gate: {node_id!r} is not an autonomous gate id")
 
