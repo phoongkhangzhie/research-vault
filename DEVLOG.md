@@ -1,3 +1,68 @@
+## 2026-07-10 (note-authoring correctness fixes surfaced by a live downstream e2e run)
+
+### Done
+- **Fix 1 (genuine defect, highest value)** — `review.relate_check`'s
+  presence-check misdiagnosed two flat-frontmatter authoring mistakes an
+  LLM-authored note commonly hits:
+  - Two fields glued onto ONE physical line (no newline between them, e.g.
+    `position: "...narrative." contribution_kind: benchmark`) — the flat
+    parser absorbs the second field's `key: value` into the first field's
+    parsed VALUE, so the second field then reads as "missing" even though
+    it was written, just mis-attached.
+  - A YAML block-scalar marker (`>`/`|`) on a flat field, with the real
+    content on indented lines the flat parser never folds in — the field
+    parses to a degenerate ~1-char value, reported as "too thin" even
+    though real content exists.
+  Added `_run_together_hint` / `_block_scalar_hint` in `relate_check.py`,
+  wired into all five checklist fields (`contribution_kind`, `role`,
+  `position`, `result_reported`, `paper_relations_sought`). The check stays
+  fail-closed — both cases still reject; only the diagnostic improves.
+  New tests (TDD, confirmed RED against the pre-fix code first): glued
+  fields report a run-together hint naming both fields (never "missing"),
+  block-scalar fields report a block-scalar hint (never "too thin"), and a
+  correctly-formatted note still passes clean.
+- **Fix 2** — reworded the relate-`<key>` brief (`review/style.py`) so
+  `contribution_kind` (Move 1) and `role` (PR-4) each carry an explicit
+  "this is NOT the other field" note at their instruction point — the two
+  vocabularies are adjacent and overlap-confusable (`empirical` is a valid
+  `role` value but an invalid `contribution_kind` value, and vice versa).
+  Prose-only.
+- **Fix 3** — `rv review <project> relations <scope>` was HARD-REMOVED in
+  the 0.3.0 D1 verb-consolidation (confirmed: `rv review --help` has no
+  `relations` subcommand; it now prints a removed-verb stub redirecting to
+  `rv dag run`). Three prose references to this dead command were fixed:
+  `per_paper_relate_tips` and `review_synthesize_tips` in `review/style.py`,
+  and `_THEMATIC_BRIEF` in `manuscript/types/lit_review.py`. All three now
+  point at reading the typed paper→paper edges directly, verbatim, from
+  each `literature/<key>.md` note's `## Related papers` section (already in
+  each node's `reads:`) rather than instructing a command that no longer
+  exists. Traced the real downstream wiring first: `review-synthesize` has
+  no tool-node/reads pointer to `relations_report()`'s output at all — that
+  function is only invoked later, at manuscript-compile time
+  (`lit_review.py`), for rendering the comparative-relations section. The
+  old brief's claim that `review-synthesize` "reads that command's output"
+  was inaccurate even before the verb removal, not just stale.
+- **Fix 4** — audited `data/examples/demo-litreview/**`: no literature-note
+  example instance exercises `contribution_kind`/`role`/`position` (only a
+  `_PLACEHOLDER.md` documenting the minimal required frontmatter, plus a
+  README.md that names the fields correctly in prose). Per scope, did not
+  invent a new example — nothing to fix here.
+
+### Decisions
+- Kept the block-scalar fix as reject-with-hint, not tolerate-and-flatten:
+  the flat-frontmatter format contract stays strict; the diagnostic just
+  stops lying about *why* the field is thin.
+- Updated (rather than deleted) two existing brief-teeth tests that
+  asserted the removed verb was named in the brief
+  (`test_relate_5move_protocol_brief.py`) — they were pinning the exact
+  defect this PR fixes.
+
+### Open / next
+- Pre-existing, unrelated to this PR:
+  `test_dag_retry.py::TestWalkerByteForByte::test_walker_not_modified_by_sr_retry`
+  fails on origin/main (confirmed via `git stash`) — a stale docstring
+  fixture mismatch, not touched here.
+
 ## 2026-07-09 (evidence-snippet display cap raised 280 -> 800 chars)
 
 ### Done
