@@ -632,6 +632,254 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         tree_root = project_notes_dir / "manuscripts" / scope
         assert not tree_root.exists()
 
+    def test_approve_review_revise_no_emit(self, tmp_instance: Path, monkeypatch):
+        """F3 (#205 emission-review teeth gap): a REVISE disposition at
+        approve-review (review-coverage-critic verdict BLOCK, deterministic
+        fixable, revise budget never exhausted for this structural-payload
+        adapter -> classify_disposition's REVISE branch, not HALT-DECLARE)
+        must leave the node 'awaiting-go' and emit NOTHING — no
+        `emitted_next_phase_run_id`, no `child_runs` entry, no
+        `manuscripts/<scope>/` folder at all. REVISE is a genuine stop-point
+        distinct from both GO (chains) and HALT-DECLARE (blocked, tested by
+        test_approve_review_halt_never_chains above) — this is the third,
+        previously-untested disposition arm of the same `_emit_next_phase`
+        gate."""
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+
+        cfg = load_config()
+        scope = "scope-chain-revise"
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        cmd_tick(argparse.Namespace(run_id=run_id))
+        rs = store.load(run_id)
+        child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
+
+        # critic_verdict="BLOCK" -> a real ``- <reason>`` bullet is written
+        # (see the parent helper), so `check_coverage_critic_verdict` returns
+        # a non-empty `blocking` list -> classify_disposition's REVISE arm
+        # (never HALT-DECLARE, since revise_budget_exhausted is never set on
+        # this structural-payload path — matches
+        # TestStructuralPayloadCanaryHardening.test_no_canary_abort_regular_block_still_revises
+        # above, driven here through the real DAG runner instead of the unit
+        # level).
+        self._drive_phase2_to_approve_review(child_run_id, review_dir, store, critic_verdict="BLOCK")
+        rc = cmd_tick(argparse.Namespace(run_id=child_run_id))
+        assert rc == 0
+        child_rs = store.load(child_run_id)
+        assert child_rs.node_status("approve-review") == "awaiting-go"
+        assert "REVISE" in child_rs.node_states["approve-review"]["decision_note"]
+
+        assert "emitted_next_phase_run_id" not in child_rs.node_states["approve-review"]
+        assert "approve-review" not in child_rs.meta.get("child_runs", {})
+
+        project_notes_dir = review_dir.parent.parent
+        tree_root = project_notes_dir / "manuscripts" / scope
+        assert not tree_root.exists(), (
+            "REVISE must emit NOTHING — no manuscripts/<scope>/ folder"
+        )
+
+    def test_approve_review_full_adopt_existing_scaffold(self, tmp_instance: Path, monkeypatch):
+        """F4 (#205 emission-review teeth gap): the FULL adopt-existing-
+        scaffold branch of `_emit_next_phase`'s approve-review arm —
+        `manuscripts/<scope>/_manuscript.md` AND `phase1-dag.json` BOTH
+        already exist at GO time (e.g. a prior partial-adopt already
+        re-entered and completed Phase-1's own re-scaffold, or an operator
+        pre-staged the tree by hand) — must ADOPT the existing manifest
+        verbatim: start a DAG run against the pre-existing phase1-dag.json
+        (recording `child_runs`/`emitted_next_phase_run_id` as normal), and
+        must NEVER re-scaffold (`cmd_new`/`cmd_expand` never called again)
+        or clobber the pre-existing note/manifest bytes. This is distinct
+        from the PARTIAL-adopt case (note only, no phase1-dag.json — F2,
+        already covered by
+        TestF2PartialAdoptReentersFrameworkPipeline in
+        test_framework_gate_autonomy.py, which re-enters Phase-1 by
+        REBUILDING the manifest) — here the manifest already exists and
+        must be read as-is, not rebuilt."""
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+        from research_vault import manuscript as _ms
+
+        cfg = load_config()
+        scope = "scope-full-adopt"
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        rc = cmd_tick(argparse.Namespace(run_id=run_id))
+        assert rc == 0
+        rs = store.load(run_id)
+        child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
+
+        # Drive Phase-2 up to (but NOT including) marking
+        # review-coverage-critic succeeded — that specific `cmd_complete`
+        # call is what auto-resolves approve-review IN PROCESS (`cmd_complete`
+        # -> `_recompute_awaiting_go` -> `_emit_next_phase`, same call, no
+        # separate tick needed). The pre-existing scaffold MUST be staged
+        # before that call fires, or `_emit_next_phase` will already have
+        # run (and this test would be probing a no-op, not the full-adopt
+        # branch).
+        rs2 = store.load(child_run_id)
+        relate_ids = [nid for nid in rs2.node_states if nid.startswith("relate-")]
+        assert relate_ids, "expected at least one relate-<key> node in Phase-2"
+        project_notes_dir = review_dir.parent.parent
+        for nid in relate_ids:
+            citekey = nid[len("relate-"):]
+            lit_path = project_notes_dir / "literature" / f"{citekey}.md"
+            lit_path.parent.mkdir(parents=True, exist_ok=True)
+            lit_path.write_text(
+                "---\ntype: literature\ncontribution_kind: application\nrole: empirical\n"
+                f"position: {citekey} bears on the review question via a direct empirical "
+                "contribution, considered in full.\nresult_reported: no\n"
+                "paper_relations_sought: no\n---\n"
+                f"Distilled {citekey}.\n",
+                encoding="utf-8",
+            )
+            _mark_succeeded(store, child_run_id, nid)
+        cmd_tick(argparse.Namespace(run_id=child_run_id))
+        rs2 = store.load(child_run_id)
+        if rs2.node_status("review-synthesize") != "succeeded":
+            _mark_succeeded(store, child_run_id, "review-synthesize")
+            cmd_tick(argparse.Namespace(run_id=child_run_id))
+        critic_path = review_dir / "_coverage-critic.md"
+        critic_path.write_text(
+            "---\nverdict: PASS\n---\n\nCoverage looks saturated; counter-position present.\n",
+            encoding="utf-8",
+        )
+
+        # Pre-stage a FULL scaffold at the target tree_root BEFORE the
+        # review-coverage-critic completion below auto-resolves
+        # approve-review — the frozen _corpus.md already exists (from
+        # _drive_to_coverage_gate), so cmd_new's from_review lookup
+        # succeeds cleanly (no "no frozen review corpus" warning).
+        note_path, tree_root, phase1_manifest = _ms.cmd_new(
+            "demo-research", ms_type_key="lit-review", from_review=scope, config=cfg,
+        )
+        assert phase1_manifest is not None
+        phase1_path = tree_root / "phase1-dag.json"
+        assert phase1_path.exists()
+        pre_manifest_text = phase1_path.read_text(encoding="utf-8")
+        pre_note_text = note_path.read_text(encoding="utf-8")
+
+        def _explode(*_a, **_kw):
+            raise AssertionError(
+                "cmd_new/cmd_expand re-invoked despite a full pre-existing "
+                "scaffold — the full-adopt branch must read the existing "
+                "phase1-dag.json, never re-scaffold"
+            )
+        monkeypatch.setattr(_ms, "cmd_new", _explode)
+        monkeypatch.setattr(_ms, "cmd_expand", _explode)
+
+        # THE resolving call: marking review-coverage-critic succeeded
+        # triggers cmd_complete -> _recompute_awaiting_go ->
+        # _emit_next_phase, all in-process, right here.
+        _mark_succeeded(store, child_run_id, "review-coverage-critic")
+
+        rc = cmd_tick(argparse.Namespace(run_id=child_run_id))
+        assert rc == 0
+        child_rs = store.load(child_run_id)
+        assert child_rs.node_status("approve-review") == "succeeded"
+        assert "GO" in child_rs.node_states["approve-review"]["decision_note"]
+
+        ms_run_id = child_rs.node_states["approve-review"]["emitted_next_phase_run_id"]
+        assert ms_run_id == child_rs.meta["child_runs"]["approve-review"]
+        # Adopted the PRE-EXISTING manifest's own run_id (not a freshly
+        # derived one) — proof the existing file was read, not rebuilt.
+        assert ms_run_id == phase1_manifest["run_id"]
+
+        # No clobber: the pre-existing manifest + note are byte-identical.
+        assert phase1_path.read_text(encoding="utf-8") == pre_manifest_text
+        assert note_path.read_text(encoding="utf-8") == pre_note_text
+
+        # The adopted run genuinely started (real frontier, not a stub).
+        ms_rs = store.load(ms_run_id)
+        assert ms_rs.node_status("scope") == "pending"
+
+
+# ===========================================================================
+# 4c. F1 (#205 emission-review teeth gap) — the `child_runs` idempotency
+# guard inside `_emit_next_phase` itself, exercised INDEPENDENTLY of
+# `_recompute_awaiting_go`'s `if current != "pending": continue` status
+# gate. Before this test, emit-once was PROVEN only by the status gate:
+# neutering the in-function `child_runs` early-return left every existing
+# test in this suite green (the status gate alone still prevents
+# `_emit_next_phase` from ever being called a second time through the
+# normal tick path). This test calls `_emit_next_phase` directly a second
+# time with `child_runs[node_id]` already recorded — the exact situation
+# the in-function guard (not the status gate) is responsible for handling
+# (e.g. a stale re-tick / re-entrant call after a crash/restart, or any
+# future caller of `_emit_next_phase` that does not route through
+# `_recompute_awaiting_go`'s status check).
+# ===========================================================================
+
+class TestChildRunsGuardIndependentOfStatusGate:
+    def test_second_emit_call_is_pure_noop_when_child_runs_already_set(
+        self, tmp_instance: Path, monkeypatch,
+    ):
+        from research_vault.config import load_config
+        from research_vault.dag.store import RunState, RunStore
+        from research_vault.dag.verbs import _emit_next_phase
+        from research_vault import manuscript as _ms
+
+        cfg = load_config()
+        scope_id = "scope-guard"
+
+        parent_manifest = {
+            "run_id": f"review-{scope_id}-phase2",
+            "project": "demo-research",
+            "name": "parent",
+            "global_cap": 1,
+            "nodes": [{"id": "approve-review", "type": "human-go", "needs": []}],
+        }
+        store = RunStore.from_config(cfg)
+        parent_manifest_path = (
+            cfg.project_notes_dir("demo-research") / "reviews" / scope_id / "phase2-dag.json"
+        )
+        parent_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        parent_manifest_path.write_text(json.dumps(parent_manifest), encoding="utf-8")
+        run_state = RunState(
+            run_id=parent_manifest["run_id"], manifest_path=str(parent_manifest_path),
+        )
+        run_state.init_nodes(parent_manifest)
+        # Simulate: a PRIOR call already emitted + started a child for this
+        # node — the exact state the in-function guard must recognize.
+        run_state.meta.setdefault("child_runs", {})["approve-review"] = "manuscript-scope-guard-phase1"
+        store.create(run_state)
+
+        # Belt: if the guard is bypassed, NOTHING re-scaffold-shaped should
+        # be invoked. `cmd_new`/`cmd_expand` raising proves a neutered guard
+        # would actually attempt work, not just silently no-op differently.
+        def _explode(*_a, **_kw):
+            raise AssertionError(
+                "cmd_new/cmd_expand invoked on a SECOND _emit_next_phase call "
+                "— the child_runs guard did not short-circuit"
+            )
+        monkeypatch.setattr(_ms, "cmd_new", _explode)
+        monkeypatch.setattr(_ms, "cmd_expand", _explode)
+
+        _emit_next_phase(
+            "approve-review", parent_manifest, parent_manifest_path, run_state, store,
+        )
+
+        # Pure no-op: the pre-existing child_runs entry is untouched, no
+        # node_state fields were written (neither a fresh
+        # emitted_next_phase_run_id NOR a phase_transition_error — a
+        # neutered guard that falls through into the try/except would set
+        # phase_transition_error via the mocked cmd_new raising above).
+        assert run_state.meta["child_runs"]["approve-review"] == "manuscript-scope-guard-phase1"
+        assert "emitted_next_phase_run_id" not in run_state.node_states.get("approve-review", {})
+        assert "phase_transition_error" not in run_state.node_states.get("approve-review", {})
+
+        # Teeth confirmed manually (not committed as a source change, per
+        # scope): commenting out the early-return
+        # (`if run_state.meta.get("child_runs", {}).get(node_id): return`)
+        # in `_emit_next_phase` turns this test RED — the mocked cmd_new
+        # raises, is caught by the function's own `except Exception`, and
+        # `phase_transition_error` appears in node_states, failing the
+        # last assertion above. The existing
+        # `test_second_tick_creates_no_second_child_run`-shaped assertions
+        # elsewhere in this suite (guarded only by the status gate) stay
+        # green under the same mutation — proving this test covers a
+        # DISTINCT protection.
+
 
 # ===========================================================================
 # 4b. Source-coverage fail-closed — `--auto` end-to-end wiring (F2 teeth
