@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import tempfile
 from pathlib import Path
@@ -54,9 +53,13 @@ from typing import Any, Callable
 from research_vault.gates.support_matcher import match_support
 from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE as _WIKILINK_CITE_RE
 
-# Opus-tier model for semantic judgment gates (D-MS-4). Resolved via
-# RV_JUDGE_MODEL env var; never pinned to a versioned ID in source.
-_DEFAULT_JUDGE_MODEL: str = os.environ.get("RV_JUDGE_MODEL", "")
+# PR-F: the judge-model env read was DELETED — no rv code reads a judge-model
+# env var to run a judge. ``judge_model`` is a pass-through audit label only,
+# defaulting to "". Production support-matching runs via the emit/ingest cold
+# fan-out (``emit_support_tasks`` / ``ingest_support_verdicts`` below); the
+# inline ``check_support_tally`` path is exercised only with a test-injected
+# ``judge_fn``.
+_DEFAULT_JUDGE_MODEL: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -67,8 +70,9 @@ def _collect_support_items(draft_files: "list[Path]") -> list[tuple[str, str, st
     """Extract every (sentence, citekey, section) triple carrying a citation.
 
     Shared by BOTH judge paths (charter §6: single source, not two
-    independently-drifting copies): the live API-judge inline loop
-    (``check_support_tally``) and the cold-fanout emit path
+    independently-drifting copies): the inline judge loop
+    (``check_support_tally`` — PR-F: test-injected ``judge_fn`` only, no live
+    API default) and the cold-fanout emit path
     (``emit_support_tasks``, NG-4) call this identically so the two paths
     see the EXACT same set of (claim, citekey) pairs for a given draft.
     """

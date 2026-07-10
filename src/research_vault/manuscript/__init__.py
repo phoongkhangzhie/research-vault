@@ -690,22 +690,23 @@ def cmd_review(
 
     When to use: ``rv manuscript <project> review <slug>`` runs the bounded
     review-revise loop (``manuscript/review_board.py``, PR-M5) against the
-    manuscript's current draft. Behind the ``RV_JUDGE_MODEL`` +
-    ``ANTHROPIC_API_KEY`` loud-fail guard — a review with no judge configured
-    raises loudly rather than silently no-op-ing (charter §2), UNLESS an
-    explicit ``judge_fn`` is passed (the test-injection seam every gate
-    already supports; also counts as "configured").
+    manuscript's current draft. PR-F: the in-process API judge default was
+    DELETED — a None ``judge_fn`` raises loudly (charter §2: never a silent
+    no-op). Production cold-judge review runs via the 6-lens board's
+    emit/ingest fan-out (``manuscript.board`` + ``gates.board_seam``), driven
+    out-of-band by the hub; this OLD 2x3 in-process board is exercised only
+    with a test-injected ``judge_fn``.
 
     Args:
         project: project slug.
         slug: manuscript identifier (same as passed to ``cmd_new``).
         config: optional Config (loaded if None).
-        judge_fn: injectable reviewer judge — ``(prompt: str) -> str``. When
-            None, requires ``RV_JUDGE_MODEL`` + ``ANTHROPIC_API_KEY`` and
-            resolves to the shared Anthropic-Messages default.
+        judge_fn: injectable reviewer judge — ``(prompt: str) -> str``.
+            REQUIRED (PR-F): None raises loudly — there is no live-API
+            default. Pass a mock only in tests.
         canary_judge_fn: injectable canary judge (defaults to the same judge
-            as ``judge_fn`` when a judge is configured — the mandatory
-            canary always fires against the SAME judge it's calibrating).
+            as ``judge_fn`` — the mandatory canary always fires against the
+            SAME judge it's calibrating).
 
     Returns:
         The ``run_review_board`` result dict (``cleared``, ``rounds``,
@@ -713,8 +714,6 @@ def cmd_review(
 
     sr: PR-M5
     """
-    import os
-
     from research_vault.manuscript import review_board as _review_board
     from research_vault.manuscript.check_gates import _read_draft_text
 
@@ -736,26 +735,24 @@ def cmd_review(
     if ms_type is None:
         raise _unknown_type_error(ms_type_key)
 
+    # PR-F: the in-process API judge-construction block was DELETED. rv NEVER
+    # builds a live judge here — the production cold-judge path is the 6-lens
+    # board's emit/ingest fan-out (``gates.board_seam`` + ``manuscript.board``,
+    # driven out-of-band by the hub, its result consumed at
+    # ``approve-manuscript``). This OLD 2x3 in-process board
+    # (``review_board.run_review_board``) is exercised only with a
+    # test-injected ``judge_fn``; a None ``judge_fn`` raises loudly rather
+    # than reach for a deleted live-API default (charter §2: never a silent
+    # no-op).
+    if judge_fn is None:
+        raise RuntimeError(
+            "rv manuscript review: no judge_fn supplied. The in-process API "
+            "judge path was deleted (PR-F) — the production cold-judge review "
+            "runs via the 6-lens board's emit/ingest fan-out (the hub fans "
+            "out fresh cold subagent-judges; the result is consumed at "
+            "approve-manuscript). Pass an explicit judge_fn only in tests."
+        )
     _judge_fn = judge_fn
-    if _judge_fn is None:
-        judge_model = os.environ.get("RV_JUDGE_MODEL", "").strip()
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        if not judge_model or not api_key:
-            raise RuntimeError(
-                "rv manuscript review: no judge configured. Set RV_JUDGE_MODEL "
-                "and ANTHROPIC_API_KEY in the environment before running the "
-                "review-revise board (charter §2: never a silent no-op — a "
-                "review with no judge is NOT the same as a manuscript with "
-                "nothing wrong)."
-            )
-
-        def _judge_fn(prompt: str, _model: str = judge_model) -> str:  # noqa: ANN001
-            from research_vault.gates._llm import call_anthropic_messages
-
-            return call_anthropic_messages(
-                prompt, _model, max_tokens=2048, timeout=90, caller_label="review-board",
-            )
-
     _canary_judge_fn = canary_judge_fn if canary_judge_fn is not None else _judge_fn
 
     review_cfg = _review_board.get_review_config(cfg)
@@ -771,7 +768,7 @@ def cmd_review(
         floor_dims=review_cfg["floor_dimensions"],
         floor_value=review_cfg["floor_value"],
         judge_fn=_judge_fn,
-        judge_model=os.environ.get("RV_JUDGE_MODEL", ""),
+        judge_model="",  # PR-F: audit label only; no env-var judge-model read
         rubric_override=ms_type.rubric,
         config=cfg,
         canary_judge_fn=_canary_judge_fn,

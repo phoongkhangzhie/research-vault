@@ -752,14 +752,17 @@ source_dir = "{tmp_path / 'projects' / 'demo-research'}"
         cmd_new("demo-research", "survey-z", ms_type_key="lit-review", config=cfg)
         return cfg
 
-    def test_raises_loudly_with_no_judge_configured(self, tmp_path, monkeypatch):
+    def test_raises_loudly_with_no_judge_fn(self, tmp_path, monkeypatch):
+        # PR-F: the in-process API judge default was deleted — a None judge_fn
+        # raises loudly (production review runs via the 6-lens board fan-out),
+        # regardless of any env var.
         from research_vault.manuscript import cmd_review
 
         monkeypatch.delenv("RV_JUDGE_MODEL", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         cfg = self._scaffold(tmp_path, monkeypatch)
 
-        with pytest.raises(RuntimeError, match="no judge configured"):
+        with pytest.raises(RuntimeError, match="no judge_fn supplied"):
             cmd_review("demo-research", "survey-z", config=cfg)
 
     def test_explicit_judge_fn_counts_as_configured(self, tmp_path, monkeypatch):

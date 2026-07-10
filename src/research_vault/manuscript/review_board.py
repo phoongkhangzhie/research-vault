@@ -1156,8 +1156,10 @@ def run_review_board(
     """
     if judge_fn is None:
         raise RuntimeError(
-            "run_review_board: judge_fn is required. In production, set "
-            "RV_JUDGE_MODEL and ANTHROPIC_API_KEY; in tests, pass a mock."
+            "run_review_board: judge_fn is required. PR-F: the in-process API "
+            "judge default was deleted — production cold-judge review runs via "
+            "the 6-lens board's emit/ingest fan-out (manuscript.board + "
+            "gates.board_seam); in tests, pass a mock judge_fn."
         )
 
     N_capped = min(N, _MAX_ROUNDS_HARDCAP)

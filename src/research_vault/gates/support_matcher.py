@@ -59,11 +59,16 @@ default, exactly like per_section_tips in style.py (§5J.13-D).
 LLM JUDGE CALL
 ==============
 The judge is injectable (judge_fn parameter) so tests can mock it hermetically.
-Default judge_fn uses urllib.request to call the Anthropic Messages API (stdlib only).
-Requires ANTHROPIC_API_KEY env var. If absent → raises RuntimeError (callers can
-treat this as a soft failure and degrade to [ABSENT] if appropriate).
+PR-F: there is NO in-process API judge default. The PRODUCTION path is the
+cold-agent-judge emit/ingest fan-out (``emit_support_tasks`` /
+``ingest_support_verdicts`` in ``manuscript/fidelity_gates.py``) — rv NEVER
+reaches the Anthropic Messages endpoint itself for a judge.
+``match_support(judge_fn=None)`` raises loudly (fail-closed): a caller with no
+judge_fn is a wiring error, not a soft no-op. The injectable ``judge_fn`` seam
+remains for TESTS only.
 
-D-MS-4 RESOLVED: Opus-tier judge at runtime (not the engineer's run model).
+D-MS-4 RESOLVED: Opus-tier judge at runtime (not the engineer's run model);
+resolved on the cold-fanout side, never from an env var read here.
 
 LOGGING
 =======
@@ -75,7 +80,6 @@ Stdlib only.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -85,12 +89,12 @@ from typing import Any, Callable
 # Constants
 # ---------------------------------------------------------------------------
 
-# D-MS-4 resolved: Opus-tier judge is the runtime model for the matcher.
-# Resolved at import time from RV_JUDGE_MODEL env var; adopters set this to
-# their current Opus-tier model ID. Empty string → _default_judge_fn raises
-# RuntimeError, which is the correct failure mode (never silently downgrade tier).
-# Tests always pass judge_fn= (mock) so this value is never evaluated in test runs.
-DEFAULT_JUDGE_MODEL: str = os.environ.get("RV_JUDGE_MODEL", "")
+# PR-F: the direct-API judge default (a judge-model env read + an in-process
+# ``_default_judge_fn`` that hit the Anthropic Messages endpoint) was DELETED.
+# The production judge path is the cold-agent-judge emit/ingest fan-out; rv
+# reads no judge-model / API-key env var to run a judge. ``judge_model`` is a
+# pass-through label only (stamped into ``SupportVerdict`` for audit),
+# defaulting to "" — never a live model resolution.
 
 # Confirmatory-strength verbs that escalate exploratory findings to BLOCK
 # (D-MS-5: hedged/low-confidence finding stated as unhedged claim → BLOCK;
@@ -630,26 +634,13 @@ def _parse_judge_response(raw: str) -> tuple[str, str | None, str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Default judge_fn (urllib-based, Anthropic Messages API)
-# ---------------------------------------------------------------------------
-
-def _default_judge_fn(prompt: str, model: str = DEFAULT_JUDGE_MODEL) -> str:
-    """Call the Anthropic Messages API via the shared gates._llm helper.
-
-    Requires ANTHROPIC_API_KEY in the environment.
-    Zero external deps (stdlib only).
-
-    Raises RuntimeError if the API key is absent or the request fails.
-    """
-    from research_vault.gates._llm import call_anthropic_messages
-
-    return call_anthropic_messages(
-        prompt, model, max_tokens=1024, timeout=60, caller_label="support-matcher",
-    )
-
-
-# ---------------------------------------------------------------------------
 # Core public callable — match_support()
+#
+# PR-F: the in-process ``_default_judge_fn`` (a direct Anthropic Messages
+# call) was DELETED. Production support-matching runs via the cold-agent-judge
+# emit/ingest fan-out (``fidelity_gates.emit_support_tasks`` /
+# ``ingest_support_verdicts``); ``match_support`` is used inline only with a
+# test-injected ``judge_fn``. A ``judge_fn=None`` call raises loudly.
 # ---------------------------------------------------------------------------
 
 def match_support(
@@ -662,7 +653,7 @@ def match_support(
     rubric_override: str | None = None,
     config: Any | None = None,
     judge_fn: Callable[[str], str] | None = None,
-    judge_model: str = DEFAULT_JUDGE_MODEL,
+    judge_model: str = "",
     section: str = "",
 ) -> SupportVerdict:
     """Assess whether a cited source backs a claim in the manuscript.
@@ -678,8 +669,10 @@ def match_support(
         plan_role:       optional plan_role: field (for J-2 gate context; None → skip).
         rubric_override: optional complete rubric replacement (the researcher rubric drops in here).
         config:          optional Config for rubric lookup via [manuscript_support].
-        judge_fn:        injectable LLM call (prompt: str) -> str. Defaults to
-                         the urllib Anthropic API call. Pass a mock in tests.
+        judge_fn:        injectable LLM call (prompt: str) -> str. REQUIRED —
+                         PR-F deleted the in-process API default; None raises
+                         loudly (production runs via the emit/ingest cold
+                         fan-out). Pass a mock in tests.
         judge_model:     the model-id to log (D-MS-4 resolved: Opus-tier).
         section:         manuscript section stem (tex.stem) passed
                          through from check_support_tally, stored in SupportVerdict.section
@@ -724,10 +717,20 @@ def match_support(
             section=section,
         )
 
-    # Call the judge
-    _judge = judge_fn if judge_fn is not None else _default_judge_fn
+    # Call the judge. PR-F: there is NO in-process API judge default — a
+    # judge_fn=None call is a wiring error (production runs via the
+    # emit/ingest cold fan-out), so fail loudly rather than silently reach
+    # for a deleted live-API default.
+    if judge_fn is None:
+        raise RuntimeError(
+            "match_support: no judge_fn supplied. The direct-API judge path "
+            "was deleted (PR-F) — production support-matching runs via the "
+            "cold-agent-judge emit/ingest fan-out "
+            "(fidelity_gates.emit_support_tasks / ingest_support_verdicts). "
+            "Pass an explicit judge_fn only in tests."
+        )
     try:
-        raw_response = _judge(prompt)
+        raw_response = judge_fn(prompt)
     except Exception as e:  # noqa: BLE001
         # Judge failure degrades to ABSENT (safe — do not pass on failure)
         return SupportVerdict(
