@@ -1,3 +1,57 @@
+## 2026-07-10 (PR-D — [N] numbered render + hermetic ## Sources + references.bib)
+
+### Done
+The manuscript loop's ONLY citation syntax was ``[[citekey]]`` wikilinks
+in the drafted prose (PR-M2/RD-1) — a reader-facing published artifact
+needs numbered ``[N]`` inline citations + a numbered ``## Sources`` list,
+plus a portable ``.bib`` for downstream tooling. Built as a new render
+layer in ``manuscript/bib.py`` (own branch, disjoint from PR-2/PR-E),
+depending on #225's canonical BibTeX citekeys landing first:
+
+- `extract_cited_keys_ordered` + `build_citation_numbering` — deterministic
+  first-appearance-order `[N]` assignment, deduped so the same citekey maps
+  to the same `[N]` everywhere in the reader body.
+- `convert_wikilinks_to_numbered` + `find_residual_wikilinks` — the
+  mechanical substitution + its residue detector: any `[[citekey]]` still
+  present after conversion is a hard BLOCK, never a half-converted ship
+  (D-4d).
+- `_fields_to_sources_entry`/`build_sources_section` — the gold-shape line
+  (`[N] Authors (Year). *Title*. Venue. doi:/arXiv:`), built hermetically
+  from `literature/` frontmatter, never fabricating an absent field
+  (mirrors PR-M2's grounding contract).
+- `_fields_to_bibtex_entry`/`build_references_bib` — a real, parseable
+  `references.bib`, same closed bibliography (cited + resolved keys only).
+- `render_numbered_manuscript` — the orchestrator: writes
+  `report.rendered.md` + `references.bib` as NEW artifacts, never mutating
+  the drafted `report.md`/`sections/*.md` (D-4a: the drafter keeps its
+  stable `[[citekey]]` tokens — mutating in place would break re-run
+  idempotency, since a second render would find zero wikilinks left).
+- **D-4e (3-state citekey contract)**: a blank `""` or the
+  `CITEKEY-UNRESOLVED` sentinel is NEVER numbered or emitted as a `[N]`
+  entry/`.bib` key — hard BLOCK naming the offending claim (with
+  surrounding context), even when a `literature/` note happens to carry
+  that literal sentinel as its own `citekey:` field (a real collision
+  risk: several unresolved-metadata notes can all stamp the same sentinel
+  — see #225's K-2).
+
+`_CITEKEY_SENTINEL` is duplicated locally in `bib.py` (not imported from
+`cite.py`) — the module's hermetic-no-cite.py-import invariant
+(`TestHermeticNoNetwork`) forbids pulling in the Zotero bridge module.
+
+TDD throughout (`tests/test_manuscript_pr_d_numbered_bib.py`, 22 new
+cases); the existing PR-M2 `check_citation_resolve`/`build_references_md`
+gate is untouched and still green (22/22).
+
+### Open / next
+- No caller wiring yet (`check_gates.py`/`verbs.py`/`rv dag approve` don't
+  invoke `render_numbered_manuscript` — out of this PR's scope, bib.py
+  only, per brief). A follow-up PR should decide whether/when the numbered
+  render runs in the approve-manuscript gate flow vs. a separate
+  publish-time verb.
+- Design fork flagged for architect fit-check: `report.rendered.md` as a
+  new file (vs. rendering `report.md` in place) — see the PR body.
+- Returns to the architect for fit-check before merge.
+
 ## 2026-07-10 (PR-4/K — canonical BibTeX citekeys at the source + migration)
 
 ### Done
