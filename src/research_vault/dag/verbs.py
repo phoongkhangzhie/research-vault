@@ -532,9 +532,10 @@ def _evaluate_autonomous_gate(
 
     if node_id == "approve-review":
         # Single-human-gate design (2026-07-09): Gate 3 (approve-review)
-        # resolves autonomously from review-coverage-critic's [BLOCK] count +
-        # counter-position verdict — SAME structural-payload adapter
-        # approve-framework already uses (no new disposition path).
+        # resolves autonomously from review-coverage-critic's STRUCTURED
+        # ``verdict:`` frontmatter field (PASS/BLOCK, fixed vocab — prose is
+        # never scanned) — SAME structural-payload adapter approve-framework
+        # already uses (no new disposition path).
         critic_node = nodes_lookup.get("review-coverage-critic")
         critic_ref = None
         if critic_node is not None:
