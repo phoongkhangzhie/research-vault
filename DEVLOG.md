@@ -1,3 +1,44 @@
+## 2026-07-10 (PR-5 fix-round — architect fit-check: ledger bypass + fabricated count)
+
+### Done
+Two minor, non-gating fixes to `#234` (`feat/pr5-corpus-ledger`) from the
+corpus architect's fit-check, both landed as new commits on the same
+branch (no new PR):
+
+- **CHANGE 1** — the missing-`_saturation.md`-producer HALT (`review-
+  snowball` node absent/malformed from the manifest) used to `return`
+  directly from `_evaluate_autonomous_gate`'s coverage-gate branch,
+  bypassing `_write_ledger_final_act` — the one coverage-gate disposition
+  that never wrote a `_corpus_ledger.md` snapshot (acceptance criterion f
+  gap). Fixed by deriving `review_dir` from `manifest_path.parent` when
+  `saturation_ref` is absent (the coverage-gate node's own manifest always
+  lives at `<review_dir>/phase1-dag.json`) and routing the early HALT
+  through the same `_write_ledger_final_act` wrapper every other
+  disposition already uses.
+- **CHANGE 2** — `_k_block`'s `citekey_migrated_count` was a hardcoded
+  `0`, read as a measured fact when the truth was "not derived" — but
+  `#225`'s K-3 migration DOES write a per-project
+  `_citekey_migration_ledger.json`. Wired the real source: intersect the
+  migration ledger's `new` citekeys with this review's `_corpus.md`
+  citekeys for a traceable count; when the ledger file is absent (migrate
+  never ran for this project) or unreadable, emit the honest string
+  sentinel `"untracked"` — never a fabricated `0`. Deliberately
+  non-gating: an untracked migration count does not flip this review's
+  own `ledger_complete` (migrate-citekeys is an optional, project-wide
+  one-shot pass, not part of a single review's completeness contract).
+
+Both changes are additive to the existing PR-5 test suite: 5 new tests
+(missing-producer HALT-writes-ledger; migration-count present / absent /
+no-literature-dir / malformed-json), all existing PR-5 tests updated only
+where the fixture's prior `citekey_migrated_count == 0` assertion needed
+to become `== "untracked"`. Full suite: 3841 passed, 3 skipped.
+
+### Decisions
+`citekey_migrated_count`'s absent-ledger case does NOT add to the
+ledger's `_gaps` list (does not flip `ledger_complete`) — mirrors the
+`_p_block` honest-no-op pattern for an optional pass that was never
+wired/run, and matches the dispatch's explicit "non-gating" framing.
+
 ## 2026-07-10 (PR-3 — critic-BLOCK -> bounded backtrack + incremental-relate)
 
 ### Done

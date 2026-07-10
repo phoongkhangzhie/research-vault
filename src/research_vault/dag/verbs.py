@@ -392,18 +392,78 @@ def _evaluate_autonomous_gate(
             produces = snowball_node.get("produces")
             if isinstance(produces, dict):
                 saturation_ref = produces.get("_saturation.md")
-        if not saturation_ref:
-            return _autonomy.DispositionResult(
-                _autonomy.HALT_DECLARE,
-                "coverage-gate --auto: no _saturation.md producer found upstream "
-                "(review-snowball node missing/malformed) — cannot self-certify.",
-            )
-        info = check_saturation_backstop(Path(saturation_ref))
-        review_dir = Path(saturation_ref).parent
+
+        # review_dir: normally derived from the saturation producer's path
+        # (Path(saturation_ref).parent). When that producer is missing/
+        # malformed (saturation_ref is falsy) we can't derive it that way —
+        # but THIS node's own manifest_path is always
+        # `<review_dir>/phase1-dag.json` (review._review_artifact_dir /
+        # review.cmd_new write it there directly), so manifest_path.parent
+        # is a reliable fallback. This lets the missing-producer HALT below
+        # still route through `_write_ledger_final_act` (fix-round CHANGE 1
+        # — fixes acceptance (f): every HALT writes a ledger_complete:
+        # false snapshot, never a silent bypass of the ledger).
+        review_dir = Path(saturation_ref).parent if saturation_ref else manifest_path.parent
         gaps_path = review_dir / "_coverage-gaps.md"
         corpus_path = review_dir / "_corpus.md"
         protocol_path = review_dir / "_protocol.md"
         deviations_path = review_dir / "_deviations.md"
+        # PR-5: project_notes_dir/reviews/<scope> is the review_dir's shape
+        # (review._review_artifact_dir) — literature/ lives one level above
+        # "reviews/". Best-effort only: the ledger treats a missing dir as
+        # an honest gap (surfaced), never a crash.
+        literature_dir_for_ledger = review_dir.parent.parent / "literature"
+
+        def _write_ledger_final_act(
+            disposition: Any,
+            relevance_payload_for_ledger: dict[str, Any] | None,
+        ) -> Any:
+            """PR-5: the coverage-gate node's FINAL act — assemble
+            ``_corpus_ledger.md`` from the durable artifacts this branch
+            already read, regardless of which disposition is being
+            returned. On HALT-DECLARE, still write a snapshot with
+            ``ledger_complete: false`` + the HALT reason (auditable halt) —
+            never skip the ledger just because the run didn't GO."""
+            from ..review import ledger as _ledger
+
+            try:
+                _ledger.write_corpus_ledger(
+                    review_dir,
+                    literature_dir=literature_dir_for_ledger,
+                    relevance_payload=relevance_payload_for_ledger,
+                    critic_backtrack_rounds=int(
+                        (run_state.meta.get("remediation_state") or {}).get("rounds_used", 0)
+                    ),
+                    halt_reason=(
+                        disposition.reason
+                        if disposition.disposition == _autonomy.HALT_DECLARE
+                        else None
+                    ),
+                )
+            except Exception as e:  # noqa: BLE001 — never let ledger assembly
+                # crash the coverage-gate's own disposition (surfaced, never
+                # silently swallowed — charter §2).
+                import sys as _sys
+                print(
+                    f"rv dag approve: coverage-gate: _corpus_ledger.md assembly "
+                    f"failed ({e}) — the gate's disposition is UNAFFECTED, but "
+                    f"the ledger is stale/absent; re-run to retry.",
+                    file=_sys.stderr,
+                )
+            return disposition
+
+        if not saturation_ref:
+            return _write_ledger_final_act(
+                _autonomy.DispositionResult(
+                    _autonomy.HALT_DECLARE,
+                    "coverage-gate --auto: no _saturation.md producer found upstream "
+                    "(review-snowball node missing/malformed) — cannot self-certify.",
+                ),
+                None,
+            )
+
+        info = check_saturation_backstop(Path(saturation_ref))
+
         search_hits_node = nodes_lookup.get("review-search")
         search_hits_path = None
         if search_hits_node is not None:
@@ -432,6 +492,7 @@ def _evaluate_autonomous_gate(
         # producer-lookup check above.
         relevance_verify_node = nodes_lookup.get("review-relevance-verify")
         relevance_result = None
+        relevance_payload_for_ledger: dict[str, Any] | None = None
         if relevance_verify_node is not None:
             from ..review import relevance as _relevance
 
@@ -448,9 +509,10 @@ def _evaluate_autonomous_gate(
                     "empty_verdict_set": True, "verdicts": {}, "malformed": [],
                 }
             )
+            relevance_payload_for_ledger = relevance_payload
             relevance_result = _relevance.classify_relevance_verdict(relevance_payload)
             if relevance_result.disposition == _autonomy.HALT_DECLARE:
-                return relevance_result
+                return _write_ledger_final_act(relevance_result, relevance_payload_for_ledger)
             if relevance_result.disposition == _autonomy.GO_WITH_RESIDUE:
                 off_domain_citekeys = relevance_result.evidence.get("off_domain_citekeys", [])
                 _relevance.prune_off_domain_from_corpus(
@@ -522,15 +584,15 @@ def _evaluate_autonomous_gate(
                     (disposition, relevance_result),
                     key=lambda r: _severity[r.disposition],
                 )
-            return disposition
+            return _write_ledger_final_act(disposition, relevance_payload_for_ledger)
         except _CorpusSchemaError as e:
-            return _autonomy.DispositionResult(
+            return _write_ledger_final_act(_autonomy.DispositionResult(
                 _autonomy.HALT_DECLARE,
                 f"coverage-gate --auto: {e} — a malformed corpus row was "
                 "rejected loudly (never silently dropped); fix "
                 "the row schema and re-evaluate.",
                 {"corpus_schema_error": str(e)},
-            )
+            ), relevance_payload_for_ledger)
 
     if node_id == "approve-framework":
         tree_root = manifest_path.parent
