@@ -1,7 +1,6 @@
 # demo-litreview — Literature Review Loop Example
 
-A runnable demonstration of the Research Vault **lit-review loop** DAG (Option C
-hybrid, review-loop-nodekind-drift-fix, 2026-07-09).
+A runnable demonstration of the Research Vault **lit-review loop** DAG.
 
 ## What this demonstrates
 
@@ -22,9 +21,11 @@ single static illustration:
    snowball walk to saturation
 6. **review-curate** (researcher) — concept-tag + curate the raw corpus into
    the final `_corpus.md`
-7. **coverage-gate** — Gate 2: human approves the discovered corpus; every
-   `[NEW]` citekey has a relate slot or is recorded MENTION-ONLY. Approval
-   authorizes the Phase-2 fan-out.
+7. **coverage-gate** — Gate 2: resolved AUTONOMOUSLY (single-human-gate
+   design: `approve-protocol`, Gate 1, is the only genuine human gate in this
+   loop). Every `[NEW]` citekey must have a relate slot or be recorded
+   MENTION-ONLY before this resolves. Resolution authorizes the Phase-2
+   fan-out.
 
 **Phase-2 (5 nodes) — per-paper distillation + synthesis:**
 
@@ -45,9 +46,9 @@ single static illustration:
 
 `coverage-gate` (Gate 2) is the phase boundary: in the real scaffolder, Phase-2
 is a SEPARATE manifest (`phase2-dag.json`) emitted by `rv review <project>
-expand <scope>` only after the human approves the discovered corpus — this
-resolves the "a static manifest cannot fan out over a runtime-discovered set"
-constraint (§5L.4). This demo shows both phases spliced into a single static
+expand <scope>` only after the gate resolves — this resolves the "a static
+manifest cannot fan out over a runtime-discovered set" constraint. This demo
+shows both phases spliced into a single static
 file (with two hardcoded example papers) purely for a linear, self-contained
 walkthrough — a real run always has this boundary as two separate DAG runs.
 
