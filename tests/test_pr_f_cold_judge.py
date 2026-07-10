@@ -33,7 +33,7 @@ def _correct_score_for_band(band: str, floor: int = 3) -> int:
 
 
 def test_per_axis_width_rubber_stamp_trips_halt():
-    """PR-F ★: WIDTH (the csb dropped-cluster catcher) has its OWN canary. A
+    """PR-F ★: WIDTH (the dropped-cluster catcher) has its OWN canary. A
     judge that scores every REAL axis fine but rubber-stamps the WIDTH canary
     high must trip CanaryAbortError — a SYNTH-only canary (the pre-PR-F
     design) would NEVER catch a width-specific rubber-stamp."""

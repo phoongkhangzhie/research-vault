@@ -142,9 +142,9 @@ _CANARY_WIDTH_COVERAGE_DIFF: dict[str, Any] = {
 _CANARY_SELFCONT_JARGON: str = """\
 We push each CPk through the Qk stage and reconcile against the HFS floor;
 the approve-manuscript node then consumes the _board-result.json emitted by
-the CSB fanout. Every DDR is keyed on its CPk handle and the RD-6 gate blocks
-on a missing OKF edge. None of these acronyms, handles, or pipeline stages is
-expanded or defined anywhere in the text.
+the batch fanout. Every DDR is keyed on its CPk handle and the RD-6 gate
+blocks on a missing OKF edge. None of these acronyms, handles, or pipeline
+stages is expanded or defined anywhere in the text.
 """
 
 # ADVERS: a universal, settled-science overclaim that ignores all

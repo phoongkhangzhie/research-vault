@@ -75,7 +75,7 @@ _DEFAULT_FLOOR_VALUE: int = board_lenses._DEFAULT_FLOOR_VALUE
 # the 6 axes now carries its own planted probe (``canary_passages``'s
 # ``BOARD_AXIS_CANARIES``): a rubber-stamping judge on ANY axis scores its
 # FAIL probe >= floor and trips ``CanaryAbortError`` -> the board HALTs.
-# WIDTH (the csb dropped-cluster catcher) and DEPTH (bare-assertion) are
+# WIDTH (the dropped-cluster catcher) and DEPTH (bare-assertion) are
 # explicitly probed; SYNTH keeps its 3 calibrated probes (a PASS-HIGH catches
 # a broken-harsh judge too).
 #
