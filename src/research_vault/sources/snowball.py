@@ -439,6 +439,19 @@ def run_snowball_to_saturation(
             if pid:
                 visited_pids.add(pid)
                 new_frontier_candidates.append((pid, d.hit.citation_count))
+            # Enrich the representative hit's OWN external_ids with the
+            # round-level merged union BEFORE it's stored (F1 teeth
+            # followup, PR #206 review delta): `all_hits`/`new_this_round`
+            # only ever carry the bare `PaperHit` (never the `DedupedHit`
+            # wrapper), so a merged id that lives ONLY on `d.external_ids`
+            # would otherwise vanish the moment this round's dedup result is
+            # discarded — the `_paper_id_of(d.external_ids)` fix a few lines
+            # up only affected the frontier-reseed DECISION, not what
+            # ultimately gets rendered into `_corpus_raw.md`. `update()` is
+            # safe/idempotent: `d.external_ids` is already seeded from
+            # `dict(d.hit.external_ids)` at dedup time (a superset, never a
+            # conflicting overwrite).
+            d.hit.external_ids.update(d.external_ids)
             new_this_round.append(d.hit)
             dirs = directions_by_identity.get(ident, set())
             if "forward" in dirs:

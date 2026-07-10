@@ -50,6 +50,36 @@
   batch); reviewer to confirm the dark-source boundary test (all-cells-dark
   vs one-hit-not-dark) reads as intended.
 
+### Followup (review delta — closing two teeth gaps + a rebase)
+- **Rebased onto origin/main `7851bf0`** (#205, auto-chain review→manuscript
+  at `approve-review` GO, merged on top of this PR's base). `verbs.py`
+  auto-merged cleanly (git); `DEVLOG.md` needed manual resolution (kept both
+  entries). Re-verified the source-coverage BLOCK ordering survived by
+  re-reading both `_evaluate_autonomous_gate`'s coverage-gate branch and the
+  manual `cmd_approve` block post-rebase, and re-running the full targeted
+  test set + full suite green.
+- **F1 closed**: found the snowball-side Paper-id fix's teeth gap went
+  DEEPER than "wrong call site" — `new_this_round.append(d.hit)` only ever
+  stored the BARE representative `PaperHit`, never the `DedupedHit`
+  wrapper, so a round-level merged id had NO path to survive into
+  `all_hits`/the final composition regardless of which dict `_paper_id_of`
+  read. Fixed by enriching `d.hit.external_ids` with the round-level merged
+  union (`d.hit.external_ids.update(d.external_ids)`) before it's stored —
+  the representative hit itself now carries every id any of its round's
+  duplicates resolved. Added two regression tests: one driving
+  `run_snowball_to_saturation` end-to-end + `write_corpus_raw` (mirrors the
+  sweep-side test), one spying on the checkpoint writer to directly observe
+  `visited_pids` after round 1 (proving the FRONTIER RE-SEED call site
+  specifically, not just the render). Both mutation-tested RED-then-GREEN.
+- **F2 closed**: added `TestCoverageGateSourceDarkAutoWiring` — three tests
+  driving the REAL `--auto` self-advancing-runner path (`cmd_tick`, no unit
+  shortcut) through a full review Phase-1 DAG with fake `sweep`/`snowball`
+  ops that write REAL `_search_hits.md`/`_protocol.md` artifacts: a
+  declared-dark source HALTs and names the source in `decision_note`; a
+  healthy sweep GOes; a dark-but-undeclared source still GOes. Confirmed
+  teeth by neutering the wiring (`source_coverage_info` hardcoded to
+  `{"exists": False, ...}`) and observing the declared-dark test go RED.
+
 ## 2026-07-09 (auto-chain review→manuscript at `approve-review` GO)
 
 ### Done

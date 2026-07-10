@@ -458,6 +458,107 @@ def test_write_corpus_raw_and_saturation(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Paper-id join-key regression (F1 teeth followup, PR #206 review delta):
+# `_paper_id_of` at BOTH call sites (frontier re-seed + `write_corpus_raw`)
+# must read the MERGED `d.external_ids` off the `DedupedHit` wrapper, never
+# the bare `d.hit.external_ids` — a strict subset in the common case where a
+# leaner adapter's hit wins representative status over a richer duplicate
+# that only collapses via a shared normalized title (s2 ids never factor
+# into `identity_key`'s priority chain). Reverting either call site to
+# `d.hit.external_ids` must turn this test RED.
+# ---------------------------------------------------------------------------
+
+def test_snowball_paper_id_never_blank_when_a_duplicate_has_it(tmp_path):
+    """Round 1's forward direction surfaces a narrow hit (no ids at all);
+    the SAME round's backward direction surfaces a title-identical
+    duplicate carrying an s2 id. `dedup_hits` collapses them onto one
+    identity (title match — s2 never influences `identity_key`), with the
+    narrow forward hit as the first-seen representative. The merged union
+    DOES carry the s2 id; both the frontier re-seed AND the rendered
+    `_corpus_raw.md` row must reflect it — never a blank/`[NO-ID]`
+    Paper-id."""
+    title = "Activation Steering For Cultural Values In Cross Lingual Models"
+    narrow_hit = PaperHit(
+        title=title, year=2024, authors=["A. One"], external_ids={},
+        abstract=title, citation_count=5, source="openalex",
+    )
+    rich_duplicate = PaperHit(
+        title=title, year=2024, authors=["A. One"], external_ids={"s2": "abc123steer"},
+        abstract=title, citation_count=5, source="semantic-scholar",
+    )
+    adapter = _ScriptedAdapter({
+        1: ([narrow_hit], [rich_duplicate]),
+        2: ([], []),
+        3: ([], []),
+    })
+    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+
+    assert len(result.kept) == 1
+    kept = result.kept[0]
+    # sanity: the merged union really does carry the s2 id (proves this test
+    # is non-vacuous — round 1's own merge is the ONLY source of the id,
+    # since `narrow_hit` itself never carried one).
+    assert kept.external_ids == {"s2": "abc123steer"}
+    assert kept.hit.external_ids == {"s2": "abc123steer"}
+
+    corpus_out = write_corpus_raw(result, tmp_path / "_corpus_raw.md", notes_index={})
+    text = corpus_out.read_text()
+    row = next(line for line in text.splitlines() if title in line)
+    assert "abc123steer" in row, f"Paper-id column is blank despite the merged union carrying an s2 id:\n{row}"
+    assert "[NO-ID" not in row
+
+
+def test_snowball_frontier_reseed_resolves_merged_pid(tmp_path, monkeypatch):
+    """Directly tests the FRONTIER RE-SEED call site (~line 435), not just
+    the render — a separate assertion from the test above, since the render
+    fix and the frontier-reseed fix are two distinct call sites that could
+    independently regress. Spies on ``_atomic_write_json`` (the checkpoint
+    writer) to capture ``visited_pids`` as of round 1's completion — the
+    checkpoint itself is deleted on clean completion, so this is the only
+    window to observe it. Under the pre-fix bug (frontier reseed reading
+    the bare, narrower ``d.hit.external_ids``), round 1's ``pid`` resolves
+    to ``None`` (the representative hit has no ids of its own) and
+    ``abc123steer`` never enters ``visited_pids`` at all."""
+    from research_vault.sources import snowball as snowball_mod
+
+    title = "Activation Steering For Cultural Values In Cross Lingual Models"
+    narrow_hit = PaperHit(
+        title=title, year=2024, authors=["A. One"], external_ids={},
+        abstract=title, citation_count=5, source="openalex",
+    )
+    rich_duplicate = PaperHit(
+        title=title, year=2024, authors=["A. One"], external_ids={"s2": "abc123steer"},
+        abstract=title, citation_count=5, source="semantic-scholar",
+    )
+    adapter = _ScriptedAdapter({
+        1: ([narrow_hit], [rich_duplicate]),
+        2: ([], []),
+        3: ([], []),
+    })
+
+    captured_calls: list[dict] = []
+    real_atomic_write = snowball_mod._atomic_write_json
+
+    def _spy_atomic_write(path, data):
+        captured_calls.append(dict(data))
+        real_atomic_write(path, data)
+
+    monkeypatch.setattr(snowball_mod, "_atomic_write_json", _spy_atomic_write)
+
+    ckpt = tmp_path / "_snowball_checkpoint.json"
+    run_snowball_to_saturation(
+        ["10.1/seed"], adapter=adapter, backstop_waves=3, checkpoint_path=ckpt,
+    )
+
+    assert len(captured_calls) >= 1, "checkpoint must be written after round 1"
+    round1_visited_pids = captured_calls[0]["visited_pids"]
+    assert "abc123steer" in round1_visited_pids, (
+        "the frontier re-seed loop failed to resolve the merged s2 id — "
+        f"visited_pids after round 1 was {round1_visited_pids!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Pre-publish hardening #199 followup: checkpoint write must degrade
 # gracefully on a non-JSON-serializable state, and checkpoint LOAD must
 # treat a key-missing (truncated/foreign) file as absent, never crash.
