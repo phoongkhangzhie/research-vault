@@ -361,10 +361,9 @@ def test_manuscript_in_verb_registry():
     from research_vault.cli import _VERB_REGISTRY
 
     assert "manuscript" in _VERB_REGISTRY
-    # PR-M9 (capstone): the "sr" tag now spans the full build wave, not just
-    # PR-M1 — the when_to_use text was rewritten to describe the shipped
-    # (post-M8) capability, not the PR-M1-era stub.
-    assert _VERB_REGISTRY["manuscript"]["sr"] == "PR-M0..PR-M9"
+    # The when_to_use text describes the shipped (post-build-wave) capability,
+    # not an earlier-stage stub.
+    assert _VERB_REGISTRY["manuscript"]["module"] == "research_vault.manuscript.verbs"
     assert _VERB_REGISTRY["manuscript"]["when_to_use"].strip()
 
 

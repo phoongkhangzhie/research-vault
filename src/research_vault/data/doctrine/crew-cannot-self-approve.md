@@ -9,7 +9,7 @@ A convention ("agents should not self-approve") is only as strong as the
 weakest prompt.  An adversarial or hallucinating agent could generate a
 plausible approval rationale and call `rv dag approve` anyway.
 
-SR-APPROVE-GATE makes the rule *structural*:
+The approval gate makes the rule *structural*:
 
 ```
 security = stdin.isatty()  (full stop)

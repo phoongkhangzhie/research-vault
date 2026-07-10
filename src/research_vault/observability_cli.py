@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""observability_cli.py — SR-MODEL-SEAM: the `rv observability` verb.
+"""observability_cli.py — the `rv observability` verb.
 
 When to use: DISCOVER + TEST your model-seam observability wiring BEFORE a long run
 — not discover-at-teardown that you logged nothing (the P1 failure). Two subcommands:
@@ -17,7 +17,6 @@ still catches a broken seam at runtime; this verb is the ACTIVE pre-run check.
 IMPORT-LIGHT: the backend probes import litellm/weave lazily and guard ImportError,
 so this module is safe to import on the `rv help` path with the toolkit absent.
 
-sr: SR-MODEL-SEAM
 """
 from __future__ import annotations
 

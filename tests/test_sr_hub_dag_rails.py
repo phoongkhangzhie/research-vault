@@ -658,7 +658,7 @@ class TestExperimentNew:
     def test_cli_experiment_verb_registered(self):
         from research_vault.cli import _VERB_REGISTRY
         assert "experiment" in _VERB_REGISTRY
-        assert _VERB_REGISTRY["experiment"]["sr"] == "SR-HUB-DAG"
+        assert _VERB_REGISTRY["experiment"]["module"] == "research_vault.experiment"
 
     def test_cli_experiment_when_to_use_mentions_antipattern(self):
         from research_vault.cli import _VERB_REGISTRY
@@ -674,11 +674,12 @@ class TestExperimentNew:
         assert experiment_group is not None, "'experiment' not in any _HELP_PHASE_MAP group"
         assert experiment_group == "Experiment"
 
-    # B9: plan verb in_registry prints correct sr
-    def test_experiment_verb_in_registry_has_sr(self):
+    # B9: experiment verb in registry is a fully implemented verb
+    def test_experiment_verb_in_registry_is_implemented(self):
         from research_vault.cli import _VERB_REGISTRY
         entry = _VERB_REGISTRY.get("experiment", {})
-        assert "SR-HUB-DAG" in entry.get("sr", "")
+        assert entry.get("module")
+        assert entry.get("when_to_use", "").strip()
 
     # B10: methods-update node present (soft edge)
     def test_methods_update_node_present(self, instance):

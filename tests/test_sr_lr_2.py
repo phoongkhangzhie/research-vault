@@ -735,12 +735,12 @@ def test_canonical_parser_scalar_only():
 # 12. CLI verb registry
 # ---------------------------------------------------------------------------
 
-def test_verb_registry_review_includes_sr_lr2():
-    """12a. 'review' entry in _VERB_REGISTRY has sr field including 'SR-LR-2'."""
+def test_verb_registry_review_documents_gap_scan():
+    """12a. 'review' entry in _VERB_REGISTRY when_to_use documents gap-scan."""
     from research_vault.cli import _VERB_REGISTRY
     entry = _VERB_REGISTRY["review"]
-    sr_value = entry.get("sr", "")
-    assert "SR-LR-2" in sr_value
+    when = entry.get("when_to_use", "")
+    assert "gap-scan" in when
 
 
 # ---------------------------------------------------------------------------

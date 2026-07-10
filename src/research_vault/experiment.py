@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""experiment.py — `rv experiment new` scaffolder (SR-HUB-DAG §B).
+"""experiment.py — `rv experiment new` scaffolder.
 
 Purpose
 -------
@@ -32,7 +32,6 @@ ZERO new DAG mechanism — composes the existing walker/schema/store.
 All node IDs, gate names, and manifest fields mirror the SHIPPED research-loop.json.
 
 Stdlib only.
-sr: SR-HUB-DAG
 """
 from __future__ import annotations
 
@@ -199,7 +198,7 @@ Component manipulated: [name the single component].
 # ---------------------------------------------------------------------------
 
 def _harness_engineer_spec(main_id: str, k: int, exp_id: str) -> str:
-    """Brief-grade spec for the harness engineer node (§5K spec, SR-HARNESS-P2).
+    """Brief-grade spec for the harness engineer node (§5K spec).
 
     Enumerates harness-contract.md §1 constraints as build requirements.
     """
@@ -236,7 +235,7 @@ def _harness_engineer_spec(main_id: str, k: int, exp_id: str) -> str:
 
 
 def _harness_reviewer_spec(main_id: str, k: int) -> str:
-    """Brief-grade spec for the harness reviewer node (SR-HARNESS-P2)."""
+    """Brief-grade spec for the harness reviewer node."""
     return (
         f"Review the harness for Main {k} ({main_id}) AGAINST harness-contract.md.\n\n"
         f"Verify (see reads: for the full contract):\n"
@@ -263,12 +262,12 @@ def _build_experiment_manifest(
 
     Nodes (for N mains, each with 1 supporting ablation):
       plan → plan-critic → [HG:human-go-plan]
-          → (SR-HARNESS-P2, shared_harness=False):
+          → (shared_harness=False):
                {per-main k:
                   <id>-main<k>-harness → <id>-main<k>-harness-review
                   → [HG:human-go-harness-main<k>]}
                → {<id>-main<k>-run, <id>-main<k>-abl-A-run} (afterok HG-harness-main<k>)
-          → (SR-HARNESS-P2, shared_harness=True):
+          → (shared_harness=True):
                shared-harness → shared-harness-review
                → [HG:human-go-harness-shared]
                → per-main run/abl-A-run (all afterok shared gate)
@@ -340,7 +339,7 @@ def _build_experiment_manifest(
         "needs": [_afterok("plan-critic")],
     })
 
-    # 3b. Shared harness triple (SR-HARNESS-P2) — emitted ONCE before the per-main loop
+    # 3b. Shared harness triple — emitted ONCE before the per-main loop
     # when shared_harness=True.  When False, a per-main triple is emitted inside the loop.
     # harness gate ID used by all main run/abl-run needs:
     if shared_harness:
@@ -408,7 +407,7 @@ def _build_experiment_manifest(
         main_id = f"{exp_id}-main{k}"
         abl_id = f"{exp_id}-main{k}-abl-A"
 
-        # Per-main harness triple (SR-HARNESS-P2) — only when NOT shared_harness
+        # Per-main harness triple — only when NOT shared_harness
         if not shared_harness:
             nodes.append({
                 "id": f"{main_id}-harness",
@@ -476,7 +475,7 @@ def _build_experiment_manifest(
             ),
             "produces": {"note": f"experiments/{main_id}.md"},
             "needs": [
-                _afterok(harness_gate_id),       # SR-HARNESS-P2: afterok harness gate
+                _afterok(harness_gate_id),       # afterok harness gate
                 {
                     "from": "plan",
                     "edge": "afterok",
@@ -533,7 +532,7 @@ def _build_experiment_manifest(
             "reads": [_abs("experiments"), _abs("findings")],
         })
 
-        # ablation A run — afterok harness gate instead of human-go-plan (SR-HARNESS-P2)
+        # ablation A run — afterok harness gate instead of human-go-plan
         nodes.append({
             "id": f"{abl_id}-run",
             "type": "agent",
@@ -557,7 +556,7 @@ def _build_experiment_manifest(
             ),
             "produces": {"note": f"experiments/{abl_id}.md"},
             "needs": [
-                _afterok(harness_gate_id),       # SR-HARNESS-P2: afterok harness gate
+                _afterok(harness_gate_id),       # afterok harness gate
                 {
                     "from": "plan",
                     "edge": "afterok",
@@ -783,8 +782,6 @@ def build_parser(
     Anti-pattern: do NOT run a pre-registered study as ad-hoc crew dispatches —
     ``rv experiment new`` registers the DAG so ``rv plan freeze`` has a run_id to
     hash; hand-dispatching silently loses the pre-registration guarantee.
-
-    sr: SR-HUB-DAG
     """
     desc = (
         "Scaffold a pre-registered experiment loop (plan note + DAG manifest).\n"

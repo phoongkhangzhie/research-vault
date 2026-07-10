@@ -182,7 +182,7 @@ fields, distinct concerns, on the same node.
 ≥1 grounding pointer. `reads:` is the ADDITIONAL bounded evidence set for nodes that need
 supporting artifacts beyond the spec. Forcing it on every trivial node breeds filler.
 Absent `reads:` emits a non-fatal `⚠ … dispatched with an unbounded reading-scope` warn
-at `dag run`/`tick`/`status` — the structural-smell WARN idiom from SR-DISP applied here.
+at `dag run`/`tick`/`status` — the structural-smell WARN idiom applied here.
 
 **The relationship to spawn-request `inputs:`.** The spawn-request control-bus field
 `inputs:` (one of the 11 `SPAWN_REQUIRED` fields) is the *prose* reading-scope, authored
@@ -222,7 +222,7 @@ When `reads:` is absent the suffix is omitted. A runtime that logs tool-calls co
 actual-reads vs declared and emit an "out-of-scope read" signal — that is a runtime feature,
 not an RV one. RV only *enables* it by surfacing `reads:` on the frontier.
 
-## Cross-project edge stewardship — hub responsibility (SR-XPB)
+## Cross-project edge stewardship — hub responsibility
 
 The hub **owns** edge-declaration because it holds the registry overview.  Three rules:
 

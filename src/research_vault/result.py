@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""result.py — rv result: predicate-assertion verb (SR-PLAN-2, §5K.7).
+"""result.py — rv result: predicate-assertion verb (§5K.7).
 
 When to use: use ``rv result assert <exp-note-path> --metric M --op OP --value V``
 to evaluate a frozen predicate against a hash-verified experiment note.

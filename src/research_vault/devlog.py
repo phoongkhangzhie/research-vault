@@ -184,7 +184,7 @@ def cmd_view(project: str, *, config: Config | None = None, lines: int = 50) -> 
 
 
 # ---------------------------------------------------------------------------
-# INDEX / SEARCH commands (SR-CP: append-only-record read face)
+# INDEX / SEARCH commands (append-only-record read face)
 # ---------------------------------------------------------------------------
 
 def _parse_entries(devlog_path: Path) -> list[dict]:
@@ -320,13 +320,13 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     view_p = sub.add_parser("view", help="Print the top of the DEVLOG.")
     view_p.add_argument("--lines", type=int, default=50, help="Number of lines to show.")
 
-    # index (SR-CP)
+    # index
     sub.add_parser(
         "index",
         help="Print a one-liner per dated entry (the structured index face).",
     )
 
-    # search (SR-CP)
+    # search
     search_p = sub.add_parser(
         "search",
         help="Search DEVLOG entries by keyword (anti-pattern: do not grep the raw file).",

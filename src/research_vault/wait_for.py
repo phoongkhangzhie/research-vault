@@ -7,14 +7,14 @@ The caller RETURNS IMMEDIATELY. A detached background shell polls the watch
 expression and fires --then on resolution. This is structurally non-blocking:
 it cannot sleep-loop the caller.
 
-This is the SR-2 primitive that SR-3's DAG afterok will compose. The resolver
+This is the primitive that the DAG afterok will compose. The resolver
 grammar is importable and reusable (the DAG imports resolve_watch directly).
 
 Watch sources (resolver grammar):
   artifact:<path>+fresh    — file exists AND was written after registration
   artifact:<path>          — file exists
   sched:<backend>:<jobid>  — remote job reaches a terminal state via manifest-
-                             driven status (SR-7: slurm / pbs / ssh / generic).
+                             driven status (slurm / pbs / ssh / generic).
                              Use: submit → get handle → background
                              ``rv wait-for sched:<backend>:<handle>``
   sacct:<jobid>            — SLURM job terminal state (back-compat alias for
@@ -26,7 +26,7 @@ Watch sources (resolver grammar):
 Verify modifiers (appended with '+'):
   fresh                    — shorthand for fresh_since_registered (written after now)
 
-Resolver grammar is importable by SR-3's DAG for afterok composition.
+Resolver grammar is importable by the DAG for afterok composition.
 
 Stdlib only for core logic. The sched: resolver lazy-imports
 ``research_vault.adapters.remote`` at resolution time (not at import) so this
@@ -83,7 +83,7 @@ def parse_duration_secs(s: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# SR-8: Dataset resolver helpers (stdlib only — no data/compute library)
+# Dataset resolver helpers (stdlib only — no data/compute library)
 # ---------------------------------------------------------------------------
 
 def _parse_dataset_note_frontmatter(text: str) -> dict[str, str]:
@@ -125,7 +125,7 @@ def _verify_local_file_hash(location: str, recorded_hash: str) -> dict:
     If the hash is in an unknown format, we accept it (forward-compatible).
 
     Uses STREAMING chunked read (1 MiB chunks) so large data artifacts do not
-    load into RAM — datasets are big-by-premise (reviewer finding, SR-8 amendment).
+    load into RAM — datasets are big-by-premise (reviewer finding).
     """
     p = Path(location)
     if not p.exists():
@@ -173,7 +173,7 @@ def check_dataset_provenance(
       3. Note has non-empty `hash` field
       4. If location is a local file: file exists AND sha256 matches (streaming read)
 
-    SR-8 amendment: uses datasets_root (shared) not notes_root (project-scoped).
+    Uses datasets_root (shared) not notes_root (project-scoped).
     """
     note_path = Path(dataset_note_filename)
     if not note_path.is_absolute():
@@ -221,7 +221,7 @@ def check_dataset_provenance(
 
 
 # ---------------------------------------------------------------------------
-# sched: resolver helpers (SR-7) — shared SSOT with RemoteBackend.status
+# sched: resolver helpers — shared SSOT with RemoteBackend.status
 # ---------------------------------------------------------------------------
 
 # SLURM terminal states (shared by sacct: resolver and the _resolve_sched
@@ -358,7 +358,7 @@ def _resolve_sched(backend_name: str, job_id: str) -> dict[str, Any]:
 def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str, Any]:
     """Resolve a watch expression to a status dict.
 
-    This function is the importable resolver — SR-3's DAG afterok composes it.
+    This function is the importable resolver — the DAG afterok composes it.
 
     Returns:
       {
@@ -384,7 +384,7 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
     watch = (watch or "").strip()
 
     # ── note:<path>[+fresh] — project-aware OKF note watch ───────────────────
-    # SR-RESOLVE-SCOPE: three-way resolution based on first path segment:
+    # Three-way resolution based on first path segment:
     #
     #   note:<project>/<type>/<id>  — first segment is a registered project slug
     #                                  → project_notes_dir(project) / "<type>/<id>"
@@ -456,7 +456,7 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
 
         return {"ready": True, "state": "exists", "artifact_path": str(p), "error": None}
 
-    # ── dataset:<id> — SR-8 dataset provenance resolver ──────────────────────
+    # ── dataset:<id> — dataset provenance resolver ──────────────────────
     # Resolves ready only when:
     #   1. The provenance note <id>.md exists in cfg.datasets_root (shared cross-project)
     #   2. The note has a non-empty `location` field (points-to)
@@ -464,12 +464,12 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
     #   4. If location is a local file path: the file exists AND the sha256 matches
     #   5. If location is a URL/DOI: trust the recorded hash (no remote fetch)
     #
-    # SR-8 amendment: uses cfg.datasets_root (shared across projects), not
+    # Uses cfg.datasets_root (shared across projects), not
     # notes_root/datasets/ (project-scoped). This lets a dataset note filed for
     # one project be waited-on by a DAG finding in any other project.
     #
     # Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
-    # provenance note and afterok on it so lineage is structural (SR-8).
+    # provenance note and afterok on it so lineage is structural.
     if watch.startswith("dataset:"):
         dataset_id = watch[len("dataset:"):]
         if not dataset_id.strip():
@@ -583,7 +583,7 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
         return {"ready": True, "state": "exists", "artifact_path": rest, "error": None}
 
     # ── sched:<backend>:<jobid> ───────────────────────────────────────────────
-    # Manifest-driven scheduler resolver (SR-7).  One predicate, all archetypes.
+    # Manifest-driven scheduler resolver.  One predicate, all archetypes.
     # Format: sched:slurm:12345 | sched:pbs:67890 | sched:ssh:99 | sched:generic:JOB-1
     # The <backend> value matches the config key (slurm/pbs/ssh/generic).
     # Shares _run_status with RemoteBackend.status — single SSOT, no duplicate parsers.
@@ -672,7 +672,7 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
         except Exception as exc:
             return {"ready": False, "state": "error", "artifact_path": None, "error": str(exc)}
 
-    # ── wandb:<run-id> — W&B run terminal-state resolver (SR-WB) ─────────────
+    # ── wandb:<run-id> — W&B run terminal-state resolver ─────────────
     # Uses the wandb SDK (import-guarded). If wandb is not installed, the
     # predicate resolves to not-ready/error — it NEVER crashes the background
     # poller with an ImportError traceback.
@@ -681,7 +681,7 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
     #   finished / failed / crashed / killed / preempted / preempting
     # Non-terminal (ready=False): running / pending
     #
-    # The state string is passed through in result["state"] so SR-RETRY can key
+    # The state string is passed through in result["state"] so a caller can key
     # retry off failure state without re-querying.
     #
     # Auth: EnvSecretStore.get("wandb-api-key") → WANDB_API_KEY env → keyring.
@@ -946,12 +946,12 @@ def build_parser(
 
     When to use: ``rv wait-for <watch>`` to background-poll a watch expression
     and fire --then on resolution. The caller returns immediately.
-    SR-3's DAG afterok composes the resolve_watch resolver directly.
+    The DAG afterok composes the resolve_watch resolver directly.
     """
     desc = (
         "Background-wait for a watch expression to resolve, then fire --then. "
         "The caller returns immediately — no sleep-looping. "
-        "SR-3's DAG afterok composes the resolver grammar directly."
+        "The DAG afterok composes the resolver grammar directly."
     )
     if parent is not None:
         p = parent.add_parser(
@@ -1020,8 +1020,8 @@ def run(args: argparse.Namespace) -> int:
     _KNOWN_PREFIXES = (
         "artifact:", "sched:", "sacct:", "pr:", "cmd:", "url:",
         "note:",      # OKF note resolver (notes_root-aware)
-        "dataset:",   # SR-8: dataset provenance resolver (exists + hash + location)
-        "wandb:",     # SR-WB: W&B run terminal-state resolver (wandb SDK, import-guarded)
+        "dataset:",   # dataset provenance resolver (exists + hash + location)
+        "wandb:",     # W&B run terminal-state resolver (wandb SDK, import-guarded)
     )
     if not any(watch.startswith(p) for p in _KNOWN_PREFIXES):
         print(f"rv wait-for: unknown watch source: {watch!r}", file=sys.stderr)

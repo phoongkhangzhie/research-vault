@@ -6,12 +6,12 @@ in this environment — iterating each DECLARED backend from the compute manifes
 Run once after ``rv compute init`` or after environment changes. Agents query
 the cache; re-run with --refresh on env-change or failure.
 
-DECLARE → DISCOVER ordering (SR-CO): run ``rv compute init`` FIRST (declare
+DECLARE → DISCOVER ordering: run ``rv compute init`` FIRST (declare
 WHERE your compute is — local + optional remote cluster), THEN run ``rv doctor``
 (discover WHAT is available, per declared backend). Declaration tells doctor
 where to look; doctor cannot see a cluster you haven't declared.
 
-Four-stage principled model (SR-DOCTOR-PRINCIPLED):
+Four-stage principled model:
   DISCOVER — inventory (what exists) + permissions (what you're ALLOWED).
              Scheduler-clusters (ssh+slurm/ssh+pbs) get both probes.
              Single-box (local/ssh) get direct GPU probe, no permissions probe.
@@ -36,7 +36,7 @@ Load-bearing principle (state this plainly):
 
 The doctor cache is stored at ``<state_dir>/doctor_cache.json`` in the
 per-backend shape: ``{backend_name: {ts, capabilities}}``. Back-compat:
-flat legacy cache shape (written before SR-CO) is readable as local caps.
+flat legacy cache shape (written before per-backend caching) is readable as local caps.
 NEVER written to ~/vault — only the instance state_dir.
 
 Graceful degradation: rv doctor NEVER raises a traceback when cluster CLIs
@@ -45,7 +45,7 @@ available" for each missing tool and exits 0. sacctmgr absent → permissions
 not available → falls back to inventory-only proposal with an honest banner.
 
 Backend archetype probes (per declared backend):
-  local       — always available; nvidia-smi for GPU detection (SR-6 probe)
+  local       — always available; nvidia-smi for GPU detection
   ssh+slurm   — ssh probe via sinfo (scheduler inventory), sacctmgr/scontrol
                 (permissions probe, SLURM-first); no login-node nvidia-smi (trap)
   ssh+pbs     — ssh probe via pbsnodes (inventory); PBS permission seam (best-effort)
@@ -209,7 +209,7 @@ def _probe_generic(probe_commands: list[str]) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Remote probe helpers (SR-CO-REMOTE)
+# Remote probe helpers
 # ---------------------------------------------------------------------------
 
 # SSH options that make the probe fail-fast rather than hang:
@@ -239,7 +239,7 @@ def _ssh_probe_call(
     """Run an ssh probe call, handling the shared error ladder.
 
     This is the single SSOT for the ssh-error handling in all remote probers
-    (prereq refactor — SR-DOCTOR-PRINCIPLED). Routes the common
+    (prereq refactor). Routes the common
     FileNotFoundError / TimeoutExpired / OSError / exit-255 → unreachable-caps
     ladder so each prober calls this once and checks the return type.
 
@@ -910,7 +910,7 @@ def _probe_remote_ssh(host: str, backend_name: str) -> dict[str, Any]:
 def _probe_local_backend(cfg: Config) -> dict[str, Any]:
     """Run all local capability probes and return the raw capability dict.
 
-    This is the full SR-6 local probe — unchanged from before SR-CO.
+    This is the full local probe — unchanged from before per-backend caching.
     Never raises — each probe degrades gracefully on failure.
     """
     caps: dict[str, Any] = {}
@@ -1067,7 +1067,7 @@ def _probe_capabilities(cfg: Config) -> dict[str, dict[str, Any]]:
 
     Returns a mapping: ``{backend_name: caps_dict}``.
 
-    The ``local`` backend (archetype="local") receives the full SR-6 local
+    The ``local`` backend (archetype="local") receives the full local
     probe. Remote backends (ssh/ssh+slurm/ssh+pbs) are probed via ssh using
     BatchMode=yes + ConnectTimeout (fail-fast, no hang). GPU discovery is
     scheduler-aware (sinfo GRES), not login-node nvidia-smi.
@@ -1128,9 +1128,9 @@ def _probe_capabilities(cfg: Config) -> dict[str, dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Cache I/O — per-backend shape (SR-CO)
+# Cache I/O — per-backend shape
 # ---------------------------------------------------------------------------
-# Cache format (SR-CO+):
+# Cache format:
 #   {
 #     "ts": "<ISO8601 of last write>",
 #     "backends": {
@@ -1139,7 +1139,7 @@ def _probe_capabilities(cfg: Config) -> dict[str, dict[str, Any]]:
 #     }
 #   }
 #
-# Back-compat with flat pre-SR-CO cache (shape: {"ts", "capabilities": {...}}):
+# Back-compat with the flat legacy cache (shape: {"ts", "capabilities": {...}}):
 # _read_cache normalises the flat shape into the per-backend form under "local".
 
 def _cache_path(cfg: Config) -> Path:
@@ -1149,7 +1149,7 @@ def _cache_path(cfg: Config) -> Path:
 def _read_cache(cfg: Config) -> dict[str, Any] | None:
     """Read and return the doctor cache (per-backend shape), or None if absent/invalid.
 
-    Back-compat: a flat legacy cache written before SR-CO is normalised into
+    Back-compat: a flat legacy cache written before per-backend caching is normalised into
     the per-backend shape under the 'local' key so callers see a uniform interface.
     """
     p = _cache_path(cfg)
@@ -1160,7 +1160,7 @@ def _read_cache(cfg: Config) -> dict[str, Any] | None:
     except (json.JSONDecodeError, OSError):
         return None
 
-    # Detect flat (pre-SR-CO) shape: has "capabilities" at top level
+    # Detect flat (legacy) shape: has "capabilities" at top level
     if "capabilities" in raw and "backends" not in raw:
         # Normalise to per-backend form
         ts = raw.get("ts", "")
@@ -1180,7 +1180,7 @@ def _write_cache(cfg: Config, per_backend: dict[str, dict[str, Any]]) -> None:
     """Write per-backend capabilities to the doctor cache file.
 
     ``per_backend`` maps backend_name → capabilities dict (as returned by
-    ``_probe_capabilities``). The written format is the SR-CO per-backend shape.
+    ``_probe_capabilities``). The written format is the per-backend shape.
     """
     p = _cache_path(cfg)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -1301,7 +1301,7 @@ def _format_local_caps(caps: dict[str, Any]) -> list[str]:
 def format_report(result: dict[str, Any]) -> str:
     """Format the doctor result as a human-readable string.
 
-    Handles the SR-CO per-backend shape (``backends`` key).
+    Handles the per-backend shape (``backends`` key).
     Also handles the legacy flat shape (normalised to per-backend by _read_cache).
     """
     lines: list[str] = ["=== rv doctor — capability report ===", ""]
@@ -1800,7 +1800,7 @@ def run(args: argparse.Namespace) -> int:
     else:
         print(format_report(result))
 
-    # SR-APPROVE-GATE: print approval gate status.
+    # Print approval gate status.
     try:
         from .dag.approval import approval_status_lines
         from .adapters.base import EnvSecretStore

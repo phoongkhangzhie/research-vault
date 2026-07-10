@@ -11,7 +11,7 @@ checks against. This IS the read tool.
   - the task board (active / blocked count + assignees)
   - the DEVLOG tail (latest dated entry)
   - local git state (recent branches, merged status — plain git, NO gh)
-  - DAG run state (from SR-3 run store)
+  - DAG run state (from the run store)
   - a needs-attention roll-up
 
 `rv status --all` iterates all registered projects.
@@ -23,7 +23,7 @@ THE INVESTIGATE-BOUNDARY:
   investigates. It does not ssh a cluster, count run outputs, or diagnose *why*
   something failed. Reading cheap LOCAL git state (branch names, recent commits)
   is fine. Reaching past the record into a live remote system is not.
-  NO `gh` calls in core. The PR/CI SignalSource is a tier-3 adapter (SR-CIF).
+  NO `gh` calls in core. The PR/CI SignalSource is a tier-3 adapter.
 ──────────────────────────────────────────────────────────────────────────────
 
 Stdlib only. No gh. No network.
@@ -50,7 +50,7 @@ class SignalSource(Protocol):
 
     Core sources (local-git, task-board, DAG-run, artifact-freshness) ship
     zero-infra. A PR/CI SignalSource is contributed by the tier-3 vcs/github
-    adapter (SR-CIF) and is absent by default.
+    adapter and is absent by default.
 
     Methods return frozenset of normalized id tokens (lowercase).
     """
@@ -259,7 +259,7 @@ class TaskBoardSource:
 
 
 class DagRunSource:
-    """Signal source: DAG run store (SR-3).
+    """Signal source: DAG run store.
 
     Live set: run_ids with non-terminal status.
     Terminal set: run_ids where all nodes are succeeded/failed/blocked.
@@ -391,7 +391,7 @@ def _build_attention(project: str, cfg: Config) -> list[str]:
     except Exception:
         pass
 
-    # --- Proven-open run-candidate count (SR-GAP-ROUTE §5L.16) ---
+    # --- Proven-open run-candidate count (§5L.16) ---
     # Surfaces the COUNT only — proven-open gaps are run-candidates that survived
     # the read cascade without closing. A non-zero count is a prompt to author
     # an experiment via `rv review gap-scope --target experiment` (human-go required).
@@ -409,7 +409,7 @@ def _build_attention(project: str, cfg: Config) -> list[str]:
     except Exception:
         pass
 
-    # --- Research-loop drift check: orphan preregistration plans (SR-HUB-DAG §D) ---
+    # --- Research-loop drift check: orphan preregistration plans (§D) ---
     # A preregistration plan note with no registered DAG run means rv plan freeze
     # cannot bind (no run_id to hash into meta). This is the guardrail that would
     # have caught the original root cause (ad-hoc dispatch of pre-registered studies).
@@ -459,7 +459,7 @@ def _build_attention(project: str, cfg: Config) -> list[str]:
                     f"DAG run — `rv plan freeze` cannot bind (no run_id to hash). "
                     f"Run `rv experiment new {project} {exp_id_hint} --question '...'` "
                     f"or `rv dag run <manifest>` BEFORE dispatching crew. "
-                    f"(SR-HUB-DAG §D)"
+                    f"(§D)"
                 )
     except Exception:
         pass
@@ -708,7 +708,7 @@ def cmd_status(
 
     lines.append("")
 
-    # --- Pointers.md (SR-LENS-RM D-LR-1) ---
+    # --- Pointers.md (design D-LR-1) ---
     # Echo the pointers.md head so the crew sees project-context pointers
     # automatically (they already read rv status for control state — no new habit).
     try:
@@ -788,7 +788,7 @@ def build_parser(
     and misses live git/DAG/task state. This IS the read tool.
 
     Anti-pattern: raw-reading or catting control/*.md directly is the failure mode
-    this verb exists to prevent (the SR-4-mistaken-for-undispatched incident).
+    this verb exists to prevent (the mistaken-for-undispatched incident).
     """
     desc = (
         "Print structured coordination state for a project (or all with --all). "

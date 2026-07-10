@@ -726,14 +726,15 @@ class TestVerbRegistry:
         wtu = entry.get("when_to_use", "")
         assert "compute init" in wtu
 
-    def test_compute_sr_field_updated(self) -> None:
-        """_VERB_REGISTRY 'compute' sr field includes SR-CO."""
+    def test_compute_verb_mentions_lesson_and_outcome(self) -> None:
+        """_VERB_REGISTRY 'compute' when_to_use covers lesson/outcome recording."""
         from research_vault.cli import _VERB_REGISTRY
         entry = _VERB_REGISTRY.get("compute", {})
-        assert "SR-CO" in entry.get("sr", "")
+        wtu = entry.get("when_to_use", "")
+        assert "lesson" in wtu.lower() and "outcome" in wtu.lower()
 
     def test_help_check_passes(self) -> None:
-        """rv help --check passes after SR-CO additions."""
+        """rv help --check passes."""
         from research_vault.cli import _VERB_REGISTRY
         for verb, entry in _VERB_REGISTRY.items():
             assert "when_to_use" in entry, f"verb {verb!r} missing when_to_use"

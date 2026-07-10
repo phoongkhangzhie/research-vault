@@ -232,12 +232,6 @@ def test_verb_registry_research_mentions_backward_snowball() -> None:
         f"'research' when_to_use must mention backward-snowball or references; got: {when!r}"
     )
 
-    # Must include SR-LR-1 tag
-    sr = entry.get("sr", "")
-    assert "SR-LR-1" in sr or "SR-LR-1" in when, (
-        f"'research' registry entry must reference SR-LR-1; got sr={sr!r}, when={when!r}"
-    )
-
 
 # ---------------------------------------------------------------------------
 # Test 8: rv help --check stays green

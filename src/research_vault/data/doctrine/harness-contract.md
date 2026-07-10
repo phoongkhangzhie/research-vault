@@ -14,7 +14,7 @@ while the study is entirely invalidated.
 
 ### Rules
 
-- **Models are called through the provided `ModelClient` seam (SR-MODEL-SEAM).**  A harness
+- **Models are called through the provided `ModelClient` seam.**  A harness
   reaches models via `load_adapters(cfg).model.complete(model=..., messages=...)`, NOT a
   hand-rolled `anthropic.Anthropic()` / `openai.OpenAI()` / raw `litellm.completion`.  A
   harness that instantiates its own provider client **fails review** — a hand-rolled client

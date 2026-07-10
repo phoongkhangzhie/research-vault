@@ -796,13 +796,13 @@ def test_suggested_route_is_prior_not_decision():
 # 9. Discovery / trigger surface
 # ---------------------------------------------------------------------------
 
-def test_cli_verb_registry_includes_sr_gap_route():
-    """9a. 'review' verb entry in _VERB_REGISTRY sr field includes SR-GAP-ROUTE."""
+def test_cli_verb_registry_includes_gap_route():
+    """9a. 'review' verb entry in _VERB_REGISTRY when_to_use documents gap-route."""
     from research_vault.cli import _VERB_REGISTRY
     review_entry = _VERB_REGISTRY.get("review", {})
-    sr_field = review_entry.get("sr", "")
-    assert "SR-GAP-ROUTE" in sr_field, (
-        f"SR-GAP-ROUTE not in cli._VERB_REGISTRY['review']['sr']: {sr_field!r}"
+    when = review_entry.get("when_to_use", "")
+    assert "gap-route" in when, (
+        f"gap-route not in cli._VERB_REGISTRY['review']['when_to_use']: {when!r}"
     )
 
 

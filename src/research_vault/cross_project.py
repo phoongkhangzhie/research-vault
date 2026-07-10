@@ -3,13 +3,13 @@
 
 When to use:
   - ``corroborate_across_projects`` — search DECLARED peer projects' OKF notes for
-    evidence matching a claim (SR-XPB: gated to hub-declared edges).
+    evidence matching a claim (gated to hub-declared edges).
   - ``list_projects`` — enumerate all registered projects (slug, code, roster,
     source_dir) as structured records; the discovery substrate for agents.
   - ``rank_candidates`` — score and sort corroboration candidates by relevance
     (TF-IDF cosine; stdlib Jaccard fallback if sklearn absent).
 
-Design (SR-XPB architect D1–D5):
+Design (architect D1–D5):
   D1: Sidecar JSON edge store (project_edges.py) backs the reach-permission gate.
   D2: Undirected edges with required ``kind``.
   D3: ``corroborate`` requires ``from_slug``; ``against`` ⊆ peers.
@@ -18,7 +18,7 @@ Design (SR-XPB architect D1–D5):
 
   Everything in research-vault is public by construction. There is NO
   intra-vault disclosure boundary. The only confidentiality membrane is the
-  ~/vault → research-vault boundary, enforced by the SR-4 leakage scanner
+  ~/vault → research-vault boundary, enforced by the leakage scanner
   (which stays UNTOUCHED). Cross-project reads here are plain filesystem reads
   within the public framework.
 
@@ -93,7 +93,7 @@ def _first_heading(text: str) -> str:
     """Return the first markdown heading in ``text``, else ``'line-1'``.
 
     Used to produce a note-level anchor when there is no substring match
-    position (SR-XPB-FIX: substring pre-filter removed).
+    position (substring pre-filter removed).
     """
     m = _HEADING_RE.search(text)
     if m:
@@ -210,7 +210,7 @@ def rank_candidates(
 
 
 # ---------------------------------------------------------------------------
-# Cross-project corroboration (SR-XPB D3 — gated to declared peers)
+# Cross-project corroboration (D3 — gated to declared peers)
 # ---------------------------------------------------------------------------
 
 def corroborate_across_projects(
@@ -224,7 +224,7 @@ def corroborate_across_projects(
 ) -> list[dict[str, Any]]:
     """Search declared peer projects' OKF notes for findings that match a claim.
 
-    Gate (SR-XPB D3): ``from_slug`` is REQUIRED.  The default universe is the
+    Gate (D3): ``from_slug`` is REQUIRED.  The default universe is the
     set of declared peers (``peers_of(cfg, from_slug)`` from the edge store),
     NOT all registered projects.  ``against_slugs``, if supplied, must be a
     subset of declared peers — a ValueError is raised otherwise.
@@ -267,7 +267,7 @@ def corroborate_across_projects(
 
     if from_slug is None:
         raise ValueError(
-            "corroborate_across_projects: from_slug is REQUIRED (SR-XPB D3). "
+            "corroborate_across_projects: from_slug is REQUIRED. "
             "Pass the originating project slug via --from <slug>."
         )
 
@@ -307,7 +307,7 @@ def corroborate_across_projects(
             continue
 
         # Scan all .md files in the project's source directory.
-        # SR-XPB-FIX: no substring pre-filter — every note is a candidate.
+        # No substring pre-filter — every note is a candidate.
         # rank_candidates(min_score, top_k) does the filtering via TF-IDF.
         for note_path in sorted(source_dir.rglob("*.md")):
             try:

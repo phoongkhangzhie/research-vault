@@ -452,14 +452,12 @@ class TestVerbRegistry:
             when = entry.get("when_to_use", "").strip()
             assert when, f"Verb {verb!r} has empty when_to_use"
 
-    def test_sr6_verbs_have_sr_tag(self) -> None:
-        """All SR-6 verbs carry sr='SR-6' tag."""
+    def test_sr6_verbs_are_implemented(self) -> None:
+        """All SR-6 verbs have a module (implemented, not planned)."""
         from research_vault.cli import _VERB_REGISTRY
         for verb in self.SR6_VERBS:
             entry = _VERB_REGISTRY.get(verb, {})
-            assert "SR-6" in entry.get("sr", ""), (
-                f"Verb {verb!r} missing 'SR-6' in sr field: {entry.get('sr')!r}"
-            )
+            assert entry.get("module"), f"Verb {verb!r} missing module"
 
     def test_sr6_when_to_use_names_antipattern(self) -> None:
         """SR-6 compute verb when_to_use names the trial-submit anti-pattern."""

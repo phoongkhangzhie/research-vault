@@ -690,15 +690,15 @@ class TestResultAssert:
     # -----------------------------------------------------------------------
 
     def test_result_verb_in_registry(self):
-        """'result' is registered in the CLI verb registry (SR-PLAN-2)."""
+        """'result' is registered in the CLI verb registry."""
         from research_vault.cli import _VERB_REGISTRY
         assert "result" in _VERB_REGISTRY, (
-            "'result' verb must be registered in _VERB_REGISTRY (SR-PLAN-2)"
+            "'result' verb must be registered in _VERB_REGISTRY"
         )
 
-    def test_result_sr_field(self):
-        """'result' verb registry entry has sr=SR-PLAN-2."""
+    def test_result_verb_is_implemented(self):
+        """'result' verb registry entry has a module (implemented, not planned)."""
         from research_vault.cli import _VERB_REGISTRY
-        assert _VERB_REGISTRY.get("result", {}).get("sr") == "SR-PLAN-2", (
-            "'result' verb sr field must be SR-PLAN-2"
+        assert _VERB_REGISTRY.get("result", {}).get("module"), (
+            "'result' verb must have a module"
         )

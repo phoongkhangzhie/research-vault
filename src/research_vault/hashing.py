@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """hashing.py — shared file-hash utility (sha256 streaming).
 
-Extracted from wandb_pull.py (SR-FIG-METHOD-AB, C2) so the render-script
+Extracted from wandb_pull.py (C2) so the render-script
 domain and the wandb-pull domain share ONE implementation and can never drift.
 
 Usage::

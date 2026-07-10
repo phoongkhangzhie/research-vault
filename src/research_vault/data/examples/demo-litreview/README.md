@@ -103,7 +103,7 @@ rv dag approve lit-review-loop-topic approve-review
 | review-synthesize | concepts (soft) | `notes/concepts/` |
 | review-synthesize | MOC links (soft) | `notes/mocs/` |
 
-## Cross-project corroboration (SR-XPB) — extending the synthesis stage
+## Cross-project corroboration — extending the synthesis stage
 
 After synthesis, the hub can wire in the `corroborate → judge → assert` fragment to
 corroborate findings against declared peer projects.  See
