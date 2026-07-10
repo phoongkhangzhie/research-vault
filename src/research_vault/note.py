@@ -347,6 +347,16 @@ def cmd_new(project: str, note_type: str, title: str, *,
     # an S2 candidate to a filed note without requiring Zotero library.json sync.
     # Fill these in after rv note new to enable [IN-CORPUS] annotation for the note.
     if note_type == "literature":
+        # PR-4/K (§K-2): the canonical BibTeX citekey (K-D1: authorYearWord —
+        # familyShorttitleYear, see cite.CITEKEY_RE). The FILENAME may stay
+        # an arbitrary id (arXiv id, S2 id, slug — whatever this note was
+        # filed under); this field is now the ONE convention downstream
+        # readers cite by. Left blank here (title/authors/year aren't known
+        # yet at `rv note new` time) — computed + stamped by
+        # `rv research citekey <project> <note-id>` once those fields are
+        # filled in (research.compute_and_stamp_citekey). An unresolvable
+        # note gets the visible `cite.CITEKEY_SENTINEL`, never a guess.
+        fields["citekey"] = ""    # fill by hand, or `rv research citekey <project> <id>`
         fields["doi"] = ""        # fill in: DOI of the paper (e.g. 10.1234/example)
         fields["arxiv_id"] = ""   # fill in: ArXiv id (e.g. 2005.14165, NOT arXiv:...)
         # identifier-persistence: the fuller external-id set (sources/identifiers.py) —
@@ -660,6 +670,19 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # Isomorphic to the covers: resolution check — degrade-to-WARN (not BLOCK).
                 anchor_issues = check_gap_anchor(p, fields, base)
                 violations.extend(anchor_issues)
+            elif t == "literature":
+                # Standard OKF type-dir contract for literature.
+                if note_type != t:
+                    violations.append(
+                        f"{p}: type={note_type!r} but file is in {t!r} directory"
+                    )
+                # PR-4/K-4: citekey conformance (DECIDED K-D2: WARN this
+                # release — promotion to a coverage-gate BLOCK is DEFERRED).
+                # An absent or non-conformant citekey never flips the exit
+                # code; it surfaces so a human can migrate it
+                # (`rv research migrate-citekeys`) or fill it in.
+                citekey_warnings = check_citekey_conformance(p, fields)
+                violations.extend(citekey_warnings)
             else:
                 # Standard OKF type-dir contract for the other project-scoped types
                 if note_type != t:
@@ -729,6 +752,47 @@ def check_gap_anchor(
         f"exists at {anchor_path} — re-scan (rv review gap-scan), "
         f"re-anchor, or close this gap (rv review gap-close {gap_note_path.stem})"
     ]
+
+
+# ---------------------------------------------------------------------------
+# PR-4/K-4: citekey conformance (WARN this release — see cite.CITEKEY_RE)
+# ---------------------------------------------------------------------------
+
+def check_citekey_conformance(
+    lit_note_path: Path,
+    fields: dict[str, str],
+) -> list[str]:
+    """WARN when a literature note's ``citekey:`` is absent or non-conformant.
+
+    DECIDED K-D2 (PR-4): this is a WARN-only lint this release — it never
+    flips ``rv note check``'s exit code. Promotion to a coverage-gate BLOCK
+    is DEFERRED to a future release (once enough of the corpus has been
+    migrated via ``rv research migrate-citekeys`` that a hard gate wouldn't
+    just fire on every pre-existing note).
+
+    Conformance is ``cite.CITEKEY_RE`` — the single ``familyShorttitleYear``
+    convention (K-D1). The visible unresolvable-metadata sentinel
+    (``cite.CITEKEY_SENTINEL``) also fails conformance on purpose — a note
+    stuck at "citekey could not be computed" should keep surfacing until a
+    human fills in title/authors/year and re-runs the stamp.
+    """
+    from .cite import CITEKEY_RE  # local import: note.py is the OKF-check SSOT; avoid a cite.py module-level dep
+
+    citekey = (fields.get("citekey") or "").strip()
+    if not citekey:
+        return [
+            f"[citekey-lint] WARN: {lit_note_path.name}: missing 'citekey' field "
+            f"— fill by hand or run `rv research citekey <project> "
+            f"{lit_note_path.stem}` once title/authors/year are filled in"
+        ]
+    if not CITEKEY_RE.match(citekey):
+        return [
+            f"[citekey-lint] WARN: {lit_note_path.name}: citekey {citekey!r} does "
+            f"not conform to the familyShorttitleYear convention — re-run "
+            f"`rv research citekey <project> {lit_note_path.stem}` or "
+            f"`rv research migrate-citekeys <project>` to fix it"
+        ]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1452,7 +1516,11 @@ def run(args: argparse.Namespace) -> int:
             #     experiment (F24). check_dataset_provenance_warn's own docstring
             #     states this is "SURFACE, never a BLOCK — INFO/WARN only"; it must
             #     degrade like the other two WARN classes, not hard-fail.
-            _WARN_PREFIXES = ("[repro-lint]", "[gap-hygiene]", "[dataset-provenance]")
+            #   [citekey-lint] WARN: — literature note citekey absent/non-conformant
+            #     (PR-4/K-4, DECIDED K-D2: WARN this release, BLOCK deferred).
+            _WARN_PREFIXES = (
+                "[repro-lint]", "[gap-hygiene]", "[dataset-provenance]", "[citekey-lint]",
+            )
             hard = [v for v in violations if not v.startswith(_WARN_PREFIXES)]
             warnings = [v for v in violations if v.startswith(_WARN_PREFIXES)]
             for v in hard:

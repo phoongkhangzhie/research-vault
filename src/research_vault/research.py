@@ -23,6 +23,12 @@ Commands:
     --project NAME                target project/collection
     --force                       bypass dedup gate (logs loudly)
     --dry-run                     preview without writing
+  rv research citekey <project> <note-id>
+                                   compute + stamp the canonical citekey (K-D1)
+                                   into a filed literature note (PR-4/K-2)
+  rv research migrate-citekeys <project> [--dry-run]
+                                   one-shot: stamp canonical citekeys into every
+                                   absent/non-conformant literature note (PR-4/K-3)
 
   D1 (verb consolidation) HARD-REMOVED ``sweep``/``cited-by``/``references`` —
   they collapsed into the review-loop DAG's ``sweep``/``snowball`` tool
@@ -308,6 +314,86 @@ def _load_notes_index(literature_dir: Path | None) -> dict[str, str]:
             index[arxiv] = citekey
 
     return index
+
+
+# ---------------------------------------------------------------------------
+# PR-4/K-2/K-3 — canonical citekey computation + stamping (Zotero-free path)
+# ---------------------------------------------------------------------------
+
+def _all_note_citekeys(literature_dir: Path, exclude: Path | None = None) -> set[str]:
+    """Scan ``literature/*.md`` frontmatter for already-used ``citekey:``
+    values — the review loop's (Zotero-free) existing-key universe, reused
+    the same way ``_load_notes_index`` reuses a frontmatter scan for
+    id-based dedup.
+
+    ``exclude`` (typically the note currently being (re)computed) is left
+    out — its own current value should never block recomputing itself. The
+    sentinel is never counted as a real key (it isn't "taken").
+    """
+    from .cite import CITEKEY_SENTINEL
+    from .note import _parse_frontmatter
+
+    lit_path = Path(literature_dir)
+    if not lit_path.exists():
+        return set()
+
+    keys: set[str] = set()
+    for note_path in sorted(lit_path.glob("*.md")):
+        if exclude is not None and note_path.resolve() == Path(exclude).resolve():
+            continue
+        try:
+            text = note_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fields, _ = _parse_frontmatter(text)
+        ck = (fields.get("citekey") or "").strip()
+        if ck and ck != CITEKEY_SENTINEL:
+            keys.add(ck)
+    return keys
+
+
+def compute_and_stamp_citekey(note_path: Path, literature_dir: Path) -> str:
+    """Compute the canonical citekey for *note_path* from its OWN filed
+    frontmatter (``title``/``authors``/``year``) and stamp it into
+    ``citekey:``.
+
+    This is the review-loop hook (PR-4/K-2): the relate-<key> subagent calls
+    ``rv research citekey <project> <id>`` once it has filled in title/
+    authors/year (per the 5-move reading protocol) — the canonical
+    familyShorttitleYear key (K-D1) is computed here rather than left to the
+    agent to invent. Filename stays whatever id the note was filed under;
+    only the ``citekey:`` FIELD becomes the convention.
+
+    Fail-closed (charter §1): if title or year is unresolved (blank/absent),
+    NEVER guess — stamp ``cite.CITEKEY_SENTINEL`` instead, loudly. A missing
+    note is a caller error (raises FileNotFoundError — there is nothing to
+    read metadata from).
+
+    Returns the computed citekey (or the sentinel).
+    """
+    from .cite import CITEKEY_SENTINEL, make_citekey
+    from .note import _parse_frontmatter
+
+    note_path = Path(note_path)
+    if not note_path.is_file():
+        raise FileNotFoundError(f"literature note not found: {note_path}")
+
+    text = note_path.read_text(encoding="utf-8")
+    fields, _ = _parse_frontmatter(text)
+
+    title = (fields.get("title") or "").strip()
+    year = (fields.get("year") or "").strip()
+    family = _first_author_family(fields.get("authors"))
+
+    if title and year:
+        existing = _all_note_citekeys(literature_dir, exclude=note_path)
+        citekey = make_citekey(family or None, title, year, existing)
+    else:
+        citekey = CITEKEY_SENTINEL
+
+    from .sources.identifiers import stamp_note_frontmatter
+    stamp_note_frontmatter(note_path, {"citekey": citekey})
+    return citekey
 
 
 def _title_fallback_match(title_norm: str, note_title: str) -> bool:
@@ -911,6 +997,204 @@ def cmd_add(args: argparse.Namespace) -> int:
     return 0
 
 
+_CITEKEY_MIGRATION_LEDGER_NAME = "_citekey_migration_ledger.json"
+
+
+def cmd_citekey(args: argparse.Namespace) -> int:
+    """rv research citekey <project> <note-id>: PR-4/K-2.
+
+    Compute + stamp the canonical familyShorttitleYear citekey (K-D1) into a
+    filed literature note, from that note's OWN title/authors/year
+    frontmatter. The relate-<key> subagent calls this once those fields are
+    filled in (per the 5-move reading protocol, review/style.py) — the
+    filename may stay whatever id the note was created under; only the
+    `citekey:` FIELD becomes the convention.
+
+    Fail-closed: unresolved title/year -> the visible cite.CITEKEY_SENTINEL
+    is stamped (never a guess), and this command exits 1 so the caller can't
+    silently treat it as done.
+    """
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv research citekey: config error: {e}", file=sys.stderr)
+        return 1
+
+    project = args.project
+    try:
+        lit_dir = cfg.project_notes_dir(project) / "literature"
+    except KeyError as e:
+        print(f"rv research citekey: {e}", file=sys.stderr)
+        return 1
+
+    note_path = lit_dir / f"{args.note_id}.md"
+    try:
+        citekey = compute_and_stamp_citekey(note_path, lit_dir)
+    except FileNotFoundError as e:
+        print(f"rv research citekey: {e}", file=sys.stderr)
+        return 1
+
+    from .cite import CITEKEY_SENTINEL
+    if citekey == CITEKEY_SENTINEL:
+        print(
+            f"rv research citekey: {note_path} has no title/year yet — stamped "
+            f"the {CITEKEY_SENTINEL} sentinel (NOT a guess). Fill in title/"
+            f"authors/year and re-run.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Stamped citekey: {citekey} into {note_path}")
+    return 0
+
+
+def migrate_citekeys(
+    literature_dir: Path,
+    ledger_path: Path,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """PR-4/K-3: one-shot maintenance pass — stamp a canonical citekey into
+    every literature note whose ``citekey:`` is absent or non-conformant.
+
+    NEVER renames files (a rename would break ``reads:``/edge pointers into
+    ``literature/<stem>.md`` elsewhere in the corpus) — only the ``citekey:``
+    FIELD is rewritten. Every rewritten note gets an old->new entry appended
+    to *ledger_path* (a JSON list, append-only across repeated runs) so any
+    prose/citation that referenced the old key can be traced forward.
+
+    ``dry_run=True`` computes the full plan without touching any file or the
+    ledger — the caller can print it for review first.
+
+    Within-batch collision safety: notes already conformant seed the
+    existing-key set up front; each newly-computed key is added to that same
+    set as it's assigned, so two notes migrated in the same run never
+    collide with each other.
+
+    Returns ``{"changed": [{"note","old","new"}...], "unresolved": [name...],
+    "already_conformant": N}``.
+    """
+    from .cite import CITEKEY_RE, CITEKEY_SENTINEL, make_citekey
+    from .note import _parse_frontmatter
+    from .sources.identifiers import stamp_note_frontmatter
+    import datetime
+
+    lit_path = Path(literature_dir)
+    changed: list[dict[str, str]] = []
+    unresolved: list[str] = []
+    already_conformant = 0
+
+    if not lit_path.exists():
+        return {"changed": changed, "unresolved": unresolved, "already_conformant": 0}
+
+    notes = sorted(lit_path.glob("*.md"))
+    parsed: list[tuple[Path, dict[str, Any]]] = []
+    existing: set[str] = set()
+    for note_path in notes:
+        try:
+            text = note_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fields, _ = _parse_frontmatter(text)
+        parsed.append((note_path, fields))
+        ck = (fields.get("citekey") or "").strip()
+        if ck and ck != CITEKEY_SENTINEL and CITEKEY_RE.match(ck):
+            existing.add(ck)
+
+    for note_path, fields in parsed:
+        old_ck = (fields.get("citekey") or "").strip()
+        if old_ck and old_ck != CITEKEY_SENTINEL and CITEKEY_RE.match(old_ck):
+            already_conformant += 1
+            continue  # already conformant — nothing to migrate
+
+        title = (fields.get("title") or "").strip()
+        year = (fields.get("year") or "").strip()
+        family = _first_author_family(fields.get("authors"))
+
+        if title and year:
+            new_ck = make_citekey(family or None, title, year, existing)
+            existing.add(new_ck)
+        else:
+            new_ck = CITEKEY_SENTINEL
+            unresolved.append(note_path.name)
+
+        changed.append({
+            "note": note_path.name,
+            "old": old_ck or note_path.stem,
+            "new": new_ck,
+        })
+
+        if not dry_run:
+            stamp_note_frontmatter(note_path, {"citekey": new_ck})
+
+    if changed and not dry_run:
+        ledger_path = Path(ledger_path)
+        ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        entries: list[Any] = []
+        if ledger_path.is_file():
+            try:
+                loaded = json.loads(ledger_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, list):
+                    entries = loaded
+            except (OSError, json.JSONDecodeError):
+                entries = []
+        ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        for c in changed:
+            entries.append({**c, "migrated_at": ts})
+        ledger_path.write_text(
+            json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+    return {
+        "changed": changed,
+        "unresolved": unresolved,
+        "already_conformant": already_conformant,
+    }
+
+
+def cmd_migrate_citekeys(args: argparse.Namespace) -> int:
+    """rv research migrate-citekeys <project> [--dry-run]: PR-4/K-3.
+
+    DECIDED K-D2: this release, run this by hand only against the ONE
+    project whose corpus needs migrating (no code-level project restriction
+    here — this verb is general; the *rollout* is scoped by the operator
+    invoking it against a single project at a time, not by this module).
+    """
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv research migrate-citekeys: config error: {e}", file=sys.stderr)
+        return 1
+
+    project = args.project
+    try:
+        lit_dir = cfg.project_notes_dir(project) / "literature"
+    except KeyError as e:
+        print(f"rv research migrate-citekeys: {e}", file=sys.stderr)
+        return 1
+
+    ledger_path = lit_dir / _CITEKEY_MIGRATION_LEDGER_NAME
+    result = migrate_citekeys(lit_dir, ledger_path, dry_run=args.dry_run)
+
+    changed = result["changed"]
+    unresolved = result["unresolved"]
+    print(
+        f"{result['already_conformant']} note(s) already conformant; "
+        f"{len(changed)} note(s) {'would be ' if args.dry_run else ''}migrated; "
+        f"{len(unresolved)} unresolved (missing title/year — stamped the "
+        f"unresolvable sentinel, never a guess)."
+    )
+    for c in changed:
+        print(f"  {c['note']}: {c['old']!r} -> {c['new']!r}")
+    if unresolved:
+        print("UNRESOLVED (needs manual title/authors/year, then re-run):", file=sys.stderr)
+        for name in unresolved:
+            print(f"  {name}", file=sys.stderr)
+    if not args.dry_run and changed:
+        print(f"Migration ledger: {ledger_path}")
+    return 0
+
+
 def cmd_sweep(args: argparse.Namespace) -> int:
     """sweep: NG-3 parallel width-sweep over the FROZEN _protocol.md angle
     matrix + sources.
@@ -1123,6 +1407,42 @@ def build_parser(
     from .fulltext import build_parser as _build_fulltext_parser
     _build_fulltext_parser(sub)
 
+    # citekey — PR-4/K-2: compute + stamp the canonical citekey into a
+    # filed literature note (Zotero-free, review-loop path).
+    citekey_p = sub.add_parser(
+        "citekey",
+        help="Compute + stamp the canonical citekey into a filed literature note.",
+        description=(
+            "Reads title/authors/year from the note's OWN frontmatter and stamps "
+            "the canonical familyShorttitleYear citekey (K-D1) into `citekey:`. "
+            "Unresolved metadata -> the visible CITEKEY_SENTINEL, never a guess "
+            "(exit 1)."
+        ),
+    )
+    citekey_p.add_argument("project", help="Project slug (from config registry).")
+    citekey_p.add_argument(
+        "note_id", help="The literature note's filename stem (literature/<note_id>.md).",
+    )
+
+    # migrate-citekeys — PR-4/K-3: one-shot maintenance pass over a
+    # project's literature/ notes (DECIDED K-D2: one project only this
+    # release — the verb itself is general; only the rollout is scoped).
+    migrate_p = sub.add_parser(
+        "migrate-citekeys",
+        help="One-shot: stamp canonical citekeys into non-conformant literature notes.",
+        description=(
+            "Scans a project's literature/*.md for citekey: fields absent or "
+            "non-conformant to the familyShorttitleYear convention, stamps the "
+            "canonical key (NEVER renames files), and records the old->new map "
+            "in a migration ledger (literature/_citekey_migration_ledger.json)."
+        ),
+    )
+    migrate_p.add_argument("project", help="Project slug (from config registry).")
+    migrate_p.add_argument(
+        "--dry-run", action="store_true",
+        help="Preview the migration plan without writing any note or the ledger.",
+    )
+
     return p
 
 
@@ -1145,6 +1465,10 @@ def run(args: argparse.Namespace) -> int:
         elif cmd == "fulltext":
             from .fulltext import cmd_fulltext
             return cmd_fulltext(args)
+        elif cmd == "citekey":
+            return cmd_citekey(args)
+        elif cmd == "migrate-citekeys":
+            return cmd_migrate_citekeys(args)
         else:
             print(f"rv research: unknown subcommand {cmd!r}", file=sys.stderr)
             return 1

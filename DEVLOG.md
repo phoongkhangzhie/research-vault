@@ -1,3 +1,57 @@
+## 2026-07-10 (PR-4/K — canonical BibTeX citekeys at the source + migration)
+
+### Done
+Four incompatible citekey schemes (arXiv-id/S2-id/OpenAlex-id/slug) were
+reaching the corpus because each ingestion path minted its own key. Set ONE
+convention at the source (DECIDED K-D1: `familyShorttitleYear` + `a/b/c`
+disambiguation — what `cite._make_citekey`/Zotero already produce):
+
+- **K-1** — promoted `cite._make_citekey` to a public `cite.make_citekey`
+  (already Zotero-free/pure — took an explicit `existing: set[str]`) +
+  added the canonical conformance regex `cite.CITEKEY_RE` and the
+  fail-closed sentinel `cite.CITEKEY_SENTINEL`. `_make_citekey` kept as a
+  backward-compat alias (review/remediation.py's existing corpus-append
+  path is unaffected).
+- **K-2** — `note.cmd_new`'s literature scaffold now carries a blank
+  `citekey:` placeholder. New `research.compute_and_stamp_citekey(note_path,
+  literature_dir)` reads the note's OWN `title`/`authors`/`year`
+  frontmatter, computes the canonical key against a scan of the project's
+  other filed literature notes' `citekey:` fields (existing-set reuses the
+  `_load_notes_index` scan pattern), and stamps it — never renames the
+  file. Unresolved title/year → stamps `CITEKEY_SENTINEL`, never a guess.
+  Wired to a new `rv research citekey <project> <note-id>` verb (mirrors
+  the `rv research fulltext` "call again once resolved" pattern the relate
+  loop already uses); exits 1 on the sentinel so a caller can't silently
+  treat it as done.
+- **K-3** — `research.migrate_citekeys(literature_dir, ledger_path,
+  dry_run=)` + `rv research migrate-citekeys <project> [--dry-run]`: a
+  one-shot pass that stamps a canonical key into every absent/non-conformant
+  literature note (NEVER renames files — `reads:`/edge pointers stay
+  intact), recording the old→new map in an append-only JSON ledger
+  (`literature/_citekey_migration_ledger.json`). Within-batch collision
+  safety: already-conformant keys seed the existing-set up front so two
+  notes migrated in the same run can't collide with each other.
+- **K-4** — `note.check_citekey_conformance` + a new `[citekey-lint]`
+  WARN-class in `note.cmd_check`/`rv note check`: fires when a literature
+  note's `citekey:` is absent or fails `CITEKEY_RE`. DECIDED K-D2: WARN
+  only this release (never flips the exit code) — promotion to a
+  coverage-gate BLOCK is deferred until enough of the corpus is migrated.
+
+TDD throughout (tests/test_cite_keys.py, tests/test_citekey_pipeline.py,
+new cases in tests/test_note.py). Updated
+`tests/test_pr_l1_lit_ingestion.py::test_literature_scaffold_passes_check`
+— a freshly-scaffolded literature note now trips exactly one
+`[citekey-lint]` WARN (never a hard violation), which is the intended new
+behavior, not a regression.
+
+### Open / next
+- The migration verb is general (any project); actually RUNNING it against
+  a live corpus is an operational follow-up outside this repo (the corpus
+  lives in the adopting project's instance, not in research-vault).
+- Returns to the architect for fit-check before merge (file overlap:
+  cite.py/note.py/research.py only — flagged, no manuscript-PR overlap
+  found).
+
 ## 2026-07-10 (relate/edge-quality hardening — OKF-conformant markdown-link edges)
 
 ### Done

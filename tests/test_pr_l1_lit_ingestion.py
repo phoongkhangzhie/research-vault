@@ -144,11 +144,17 @@ def test_literature_scaffold_new_fields_are_optional_empty(cfg):
 
 
 def test_literature_scaffold_passes_check(cfg):
-    """A freshly scaffolded literature note (fields empty) passes cmd_check
-    unchanged — absence of key_equations/repo/artifacts is never a violation."""
+    """A freshly scaffolded literature note (fields empty) never hard-BLOCKs
+    cmd_check — absence of key_equations/repo/artifacts is never a violation.
+
+    PR-4/K-4 (DECIDED K-D2): the one exception is the `citekey:` field, which
+    IS scaffolded (blank) and DOES trip a WARN-class `[citekey-lint]` lint —
+    but WARN never flips `rv note check`'s exit code (see
+    test_check_warns_absent_citekey_never_blocks in test_note.py)."""
     note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
     violations = note_mod.cmd_check("demo-research", config=cfg)
-    assert violations == []
+    assert all(v.startswith("[citekey-lint]") for v in violations)
+    assert len(violations) == 1
 
 
 # ---------------------------------------------------------------------------
