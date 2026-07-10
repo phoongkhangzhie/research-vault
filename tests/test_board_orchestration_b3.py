@@ -16,8 +16,14 @@ from research_vault.manuscript import board
 _DRAFT = "## Introduction\n\nSome draft text.\n"
 
 
+_ALL_AXES = ("DEPTH", "WIDTH", "SYNTH", "SELFCONT", "ADVERS", "INSTRUCT")
+
+
 def _clean_verdicts(tasks_doc, canary_key_doc, *, scores: dict[str, int] | None = None):
-    scores = scores or {"CONTENT": 4, "SELFCONT": 4, "ADVERS": 4, "FRAMEWORK": 4}
+    merged = {axis: 4 for axis in _ALL_AXES}
+    if scores:
+        merged.update(scores)
+    scores = merged
     canaries = canary_key_doc["canaries"]
     verdicts = []
     for t in tasks_doc["tasks"]:
@@ -44,30 +50,29 @@ def _make_ingest_fn(scores: dict[str, int] | None = None, call_log: list | None 
 # ---------------------------------------------------------------------------
 
 class TestFloorSinksOnAnyAxis:
-    @pytest.mark.parametrize("failing_axis", ["CONTENT", "SELFCONT", "ADVERS", "FRAMEWORK"])
+    @pytest.mark.parametrize("failing_axis", ["DEPTH", "WIDTH", "SYNTH", "SELFCONT", "ADVERS", "INSTRUCT"])
     def test_single_failing_axis_prevents_clear(self, failing_axis):
-        scores = {"CONTENT": 4, "SELFCONT": 4, "ADVERS": 4, "FRAMEWORK": 4}
-        scores[failing_axis] = 2  # below floor
+        scores = {failing_axis: 2}  # below floor; every other axis defaults to 4
         ingest_fn = _make_ingest_fn(scores)
         result = board.run_bounded_board(_DRAFT, ingest_fn=ingest_fn, N=1)
         assert result["cleared"] is False
         assert result["rounds"][0]["floor_results"][failing_axis]["passed"] is False
 
-    def test_all_four_axes_passing_clears(self):
-        ingest_fn = _make_ingest_fn({"CONTENT": 3, "SELFCONT": 3, "ADVERS": 3, "FRAMEWORK": 3})
+    def test_all_six_axes_passing_clears(self):
+        ingest_fn = _make_ingest_fn({axis: 3 for axis in _ALL_AXES})
         result = board.run_bounded_board(_DRAFT, ingest_fn=ingest_fn, N=1)
         assert result["cleared"] is True
 
     def test_evaluate_board_floor_direct(self):
-        r = board.evaluate_board_floor({"CONTENT": 5, "SELFCONT": 2, "ADVERS": 5, "FRAMEWORK": 5})
+        r = board.evaluate_board_floor({"DEPTH": 5, "WIDTH": 5, "SYNTH": 5, "SELFCONT": 2, "ADVERS": 5, "INSTRUCT": 5})
         assert r["cleared"] is False
         assert r["floor_results"]["SELFCONT"]["passed"] is False
-        assert r["floor_results"]["CONTENT"]["passed"] is True
+        assert r["floor_results"]["DEPTH"]["passed"] is True
 
     def test_missing_axis_defaults_to_zero_fails_closed(self):
-        r = board.evaluate_board_floor({"CONTENT": 5, "SELFCONT": 5, "ADVERS": 5})  # FRAMEWORK absent
+        r = board.evaluate_board_floor({"DEPTH": 5, "WIDTH": 5, "SYNTH": 5, "SELFCONT": 5, "ADVERS": 5})  # INSTRUCT absent
         assert r["cleared"] is False
-        assert r["floor_results"]["FRAMEWORK"]["score"] == 0
+        assert r["floor_results"]["INSTRUCT"]["score"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -86,14 +91,14 @@ class TestSkipOnceCleared:
 
     def test_not_cleared_round1_runs_round2(self):
         call_log: list = []
-        ingest_fn = _make_ingest_fn({"CONTENT": 2, "SELFCONT": 4, "ADVERS": 4, "FRAMEWORK": 4}, call_log=call_log)
+        ingest_fn = _make_ingest_fn({"DEPTH": 2}, call_log=call_log)
         result = board.run_bounded_board(_DRAFT, ingest_fn=ingest_fn, N=2)
         assert result["cleared"] is False
         assert call_log == [1, 2]
         assert len(result["rounds"]) == 2
 
     def test_hardcap_never_exceeds_3_rounds(self):
-        ingest_fn = _make_ingest_fn({"CONTENT": 2, "SELFCONT": 4, "ADVERS": 4, "FRAMEWORK": 4})
+        ingest_fn = _make_ingest_fn({"DEPTH": 2})
         result = board.run_bounded_board(_DRAFT, ingest_fn=ingest_fn, N=10)
         assert result["n_rounds_run"] == 3
 
@@ -105,12 +110,12 @@ class TestSkipOnceCleared:
 
 class TestNotClearedPayload:
     def test_not_cleared_after_n_builds_payload(self):
-        ingest_fn = _make_ingest_fn({"CONTENT": 2, "SELFCONT": 4, "ADVERS": 4, "FRAMEWORK": 4})
+        ingest_fn = _make_ingest_fn({"DEPTH": 2})
         result = board.run_bounded_board(_DRAFT, ingest_fn=ingest_fn, N=2)
         assert result["cleared"] is False
         nc = result["not_cleared"]
         assert nc is not None
-        assert "CONTENT" in " ".join(nc["failing_dims"])
+        assert "DEPTH" in " ".join(nc["failing_dims"])
         assert nc["persistent_weakness"]
         assert nc["n_rounds"] == 2
 
@@ -122,14 +127,14 @@ class TestNotClearedPayload:
     def test_worst_findings_surface_failing_axis_issue_text(self):
         def _ingest(tasks_doc, canary_key_doc):
             verdicts_doc = _clean_verdicts(
-                tasks_doc, canary_key_doc, scores={"CONTENT": 2, "SELFCONT": 4, "ADVERS": 4, "FRAMEWORK": 4},
+                tasks_doc, canary_key_doc, scores={"DEPTH": 2},
             )
             canaries = canary_key_doc["canaries"]
             for v in verdicts_doc["verdicts"]:
                 task = next(t for t in tasks_doc["tasks"] if t["id"] == v["id"])
-                if task["axis"] == "CONTENT" and v["id"] not in canaries:
+                if task["axis"] == "DEPTH" and v["id"] not in canaries:
                     v["findings"] = [{
-                        "finding_id": "f-content-0001", "severity": "critical",
+                        "finding_id": "f-depth-0001", "severity": "critical",
                         "location": "§1", "issue": "no cross-paper synthesis",
                         "evidence": "lit/foo", "recommendation": "compare A vs B",
                     }]
@@ -150,14 +155,14 @@ class TestRegressionGuardAndHalt:
 
         def _ingest(tasks_doc, canary_key_doc):
             calls["n"] += 1
-            # Round 1: CONTENT=2 (fail). Round 2: CONTENT drops further to 1 (regression).
-            scores = {"CONTENT": 2, "SELFCONT": 4, "ADVERS": 4, "FRAMEWORK": 4} if calls["n"] == 1 \
-                else {"CONTENT": 1, "SELFCONT": 4, "ADVERS": 4, "FRAMEWORK": 4}
+            # Round 1: DEPTH=2 (fail). Round 2: DEPTH drops further to 1 (regression).
+            scores = {"DEPTH": 2} if calls["n"] == 1 \
+                else {"DEPTH": 1}
             return _clean_verdicts(tasks_doc, canary_key_doc, scores=scores)
 
         result = board.run_bounded_board(_DRAFT, ingest_fn=_ingest, N=2)
         assert result["rounds"][1]["regression"]["regressed"] is True
-        assert "CONTENT" in result["rounds"][1]["regression"]["axes"]
+        assert "DEPTH" in result["rounds"][1]["regression"]["axes"]
 
     def test_incomplete_fanout_halts_the_whole_loop(self):
         def _ingest(tasks_doc, canary_key_doc):

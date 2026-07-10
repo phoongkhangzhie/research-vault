@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""gates/board_seam.py — PR-B1: the 4-lens cold-agent-judge emit/ingest
-fan-out contract for the autonomous review board.
+"""gates/board_seam.py — PR-B1: the 6-lens cold-agent-judge emit/ingest
+fan-out contract for the autonomous review board (PR-E: 4->6 lenses —
+CONTENT split into DEPTH/WIDTH/SYNTH, FRAMEWORK renamed INSTRUCT).
 
 Built ON ``gates.judge_seam``'s primitives (charter §6 — reuse, don't
 fork): ``interleave_with_canaries``, ``fail_closed_fill`` (id-vocab
@@ -32,7 +33,7 @@ verdict string):
     missing/empty verdicts file with tasks emitted -> ``halt=True``
     (``fanout_incomplete``).
   - Canary-verified: the 3 calibrated review-board probes (strong/weak/
-    annotated-bib) are re-emitted UNMARKED, interleaved among the 4 real
+    annotated-bib) are re-emitted UNMARKED, interleaved among the 6 real
     lens tasks. Extended ``check_canaries``-equivalent
     (``_check_board_canaries``) compares the ingested axis SCORE against
     the expected BAND (PASS-HIGH: score >= floor+1; FAIL-LOW: score <=
@@ -64,10 +65,12 @@ _DEFAULT_FLOOR_VALUE: int = board_lenses._DEFAULT_FLOOR_VALUE
 
 # ---------------------------------------------------------------------------
 # The 3 calibrated canary probes (design §1: reuse review_board's, don't
-# fork new passages) — all fed to the CONTENT lens (design §1: "the
-# annotated-bib probe is fed to the CONTENT judge with expected CONTENT:
-# FAIL"; the strong/weak probes are calibrated on the same content-quality
-# signal, so they are likewise scored on CONTENT here).
+# fork new passages) — all fed to the SYNTH lens (PR-E: CONTENT was split
+# into DEPTH/WIDTH/SYNTH; the annotated-bibliography probe — an enumeration
+# with no cross-paper synthesis — is precisely a SYNTH failure now, and the
+# strong/weak probes are calibrated on the same synthesis-quality signal, so
+# all three are scored on SYNTH here; the annotated-bib probe's expected
+# band stays FAIL).
 # ---------------------------------------------------------------------------
 
 def _canary_bank(floor_value: int) -> list[tuple[dict[str, Any], str]]:
@@ -77,19 +80,19 @@ def _canary_bank(floor_value: int) -> list[tuple[dict[str, Any], str]]:
         _CANARY_ANNOTATED_BIB_PASSAGE,
     )
 
-    rubric = board_lenses.CONTENT_RUBRIC.replace(
+    rubric = board_lenses.SYNTH_RUBRIC.replace(
         "{FINDING_SCHEMA}", board_lenses._FINDING_SCHEMA_INSTRUCTIONS,
     )
 
     def _task(passage: str) -> dict[str, Any]:
         return {
             "kind": "board",
-            "lens": "content",
-            "axis": "CONTENT",
+            "lens": "synthesis",
+            "axis": "SYNTH",
             "rubric": rubric.replace("{DRAFT}", passage),
             "draft": passage,
-            "finding_cap": board_lenses.FINDING_CAPS["CONTENT"],
-            "sub_budgets": dict(board_lenses.SUB_BUDGETS["CONTENT"]),
+            "finding_cap": board_lenses.FINDING_CAPS["SYNTH"],
+            "sub_budgets": dict(board_lenses.SUB_BUDGETS["SYNTH"]),
         }
 
     return [
@@ -155,24 +158,34 @@ def emit_board_tasks(
     contradiction_map: Any | None = None,
     heading_diff: dict[str, Any] | None = None,
     frozen_order: list[str] | None = None,
+    coverage_map: Any | None = None,
+    coverage_diff: dict[str, Any] | None = None,
     floor_value: int = _DEFAULT_FLOOR_VALUE,
 ) -> dict[str, Any]:
     """Build ``_board-tasks.json`` + the private ``_board-canary-key.json``
-    (design §2). The 4 real lens tasks (content / self-containment /
-    adversarial / framework) + the 3 interleaved unmarked canary probes.
+    (design §2). The 6 real lens tasks (depth / width / synthesis /
+    self-containment / adversarial / instruction-following) + the 3
+    interleaved unmarked canary probes.
 
-    A completely empty ``draft_text`` still emits all 4 real tasks — unlike
+    A completely empty ``draft_text`` still emits all 6 real tasks — unlike
     the support-matcher (which has an honest zero-citations no-op), the
-    board's 4 lenses always have something to judge (an empty draft IS a
-    finding, most sharply on CONTENT/FRAMEWORK).
+    board's 6 lenses always have something to judge (an empty draft IS a
+    finding, most sharply on DEPTH/SYNTH/INSTRUCT).
 
-    sr: PR-B1
+    Only the WIDTH task carries ``coverage_map``/``coverage_diff`` (the
+    mechanical dropped-``used``-paper ground truth); only ADVERS carries
+    ``contradiction_map``; only INSTRUCT carries ``heading_diff``/
+    ``frozen_order`` — the anti-anchoring per-lens scoping.
+
+    sr: PR-B1 (PR-E: 6 lenses + WIDTH coverage_diff)
     """
     real_tasks = board_lenses.build_lens_tasks(
         draft_text,
         contradiction_map=contradiction_map,
         heading_diff=heading_diff,
         frozen_order=frozen_order,
+        coverage_map=coverage_map,
+        coverage_diff=coverage_diff,
     )
     combined, canary_key = judge_seam.interleave_with_canaries(
         real_tasks, _canary_bank(floor_value),

@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/board.py — PR-B3: the re-lensed board orchestration —
-floor-on-ALL-4-axes, fanout-driven, bounded N=2/hardcap-3 unroll.
+floor-on-ALL-6-axes, fanout-driven, bounded N=2/hardcap-3 unroll (PR-E:
+4->6 lenses — CONTENT split into DEPTH/WIDTH/SYNTH, FRAMEWORK renamed
+INSTRUCT).
 
 Design: docs/superpowers/specs/2026-07-08-autonomous-board-design.md §3/§5.1.
 
 Distinct from ``manuscript.review_board`` (the OLDER 2x3 conference-style,
-8-dim, floor-on-3-of-8 board) — this module is the NEW 4-lens cold-fanout
-board (design decision #1: FOUR judges, distinct lenses, one vote per
+8-dim, floor-on-3-of-8 board) — this module is the NEW 6-lens cold-fanout
+board (design decision #1: SIX judges, distinct lenses, one vote per
 axis, EVERY axis a floor axis). It reuses ``review_board``'s bounded-unroll
 SHAPE (N pre-declared round-blocks, skip-once-cleared, the regression guard,
 the NOT-CLEARED payload) but drives ``gates.board_seam``'s fanout instead
@@ -81,9 +83,11 @@ def run_board_round(
     contradiction_map: Any | None = None,
     heading_diff: dict[str, Any] | None = None,
     frozen_order: list[str] | None = None,
+    coverage_map: Any | None = None,
+    coverage_diff: dict[str, Any] | None = None,
     floor_value: int = _DEFAULT_FLOOR_VALUE,
 ) -> dict[str, Any]:
-    """Run one fanout round: emit the 4 lens tasks + 3 canaries, obtain
+    """Run one fanout round: emit the 6 lens tasks + 3 canaries, obtain
     verdicts via ``ingest_fn(tasks_doc, canary_key_doc) -> verdicts_doc``,
     ingest (fail-closed + canary-verified), evaluate the floor.
 
@@ -99,6 +103,8 @@ def run_board_round(
         contradiction_map=contradiction_map,
         heading_diff=heading_diff,
         frozen_order=frozen_order,
+        coverage_map=coverage_map,
+        coverage_diff=coverage_diff,
         floor_value=floor_value,
     )
     verdicts_doc = ingest_fn(emitted["tasks_doc"], emitted["canary_key_doc"])
@@ -146,6 +152,8 @@ def run_bounded_board(
     contradiction_map: Any | None = None,
     heading_diff: dict[str, Any] | None = None,
     frozen_order: list[str] | None = None,
+    coverage_map: Any | None = None,
+    coverage_diff: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The full bounded N-round (default 2, hardcap 3) board loop.
 
@@ -180,6 +188,7 @@ def run_bounded_board(
             r, draft_text,
             ingest_fn=ingest_fn, manuscript=manuscript, floor_value=floor_value,
             contradiction_map=contradiction_map, heading_diff=heading_diff, frozen_order=frozen_order,
+            coverage_map=coverage_map, coverage_diff=coverage_diff,
         )
 
         if round_record["halt"]:
