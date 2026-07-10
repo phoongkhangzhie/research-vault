@@ -225,6 +225,54 @@ def test_search_no_oa_pointer_when_openaccesspdf_absent(monkeypatch) -> None:
     assert hits[0].oa_source is None
 
 
+# ---------------------------------------------------------------------------
+# Substance-screening gap fix (pre-publish hardening batch, 2026-07-09): the
+# snowball walk's `cited_by`/`references` calls never requested `abstract` or
+# `venue` — so `_corpus_raw.md` rows had no evidence beyond title, and
+# `review-curate` degraded to title-only screening (cannot verify the
+# "measured human baseline" inclusion axis, which is not title-visible).
+# ---------------------------------------------------------------------------
+
+def test_cited_by_fields_projection_includes_abstract_and_venue(monkeypatch) -> None:
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"data": [{"citingPaper": S2_PAPER}]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    adapter.cited_by("ARXIV:1706.03762", limit=20)
+
+    fields_idx = captured["cmd"].index("--fields") + 1
+    assert "abstract" in captured["cmd"][fields_idx]
+    assert "venue" in captured["cmd"][fields_idx]
+
+
+def test_references_fields_projection_includes_abstract_and_venue(monkeypatch) -> None:
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"references": [S2_PAPER]})
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    adapter.references("ARXIV:1706.03762")
+
+    fields_idx = captured["cmd"].index("--fields") + 1
+    assert "references.abstract" in captured["cmd"][fields_idx]
+    assert "references.venue" in captured["cmd"][fields_idx]
+
+
 def test_search_exits_on_asta_failure(monkeypatch) -> None:
     def fake_run(cmd, **kwargs):
         r = MagicMock()

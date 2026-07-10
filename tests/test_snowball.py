@@ -437,6 +437,79 @@ def test_progress_log_custom_callback():
     assert any("round 1/3" in line for line in lines)
 
 
+# ---------------------------------------------------------------------------
+# Substance-screening gap fix (pre-publish hardening batch, 2026-07-09): the
+# `review-curate` node screens `_corpus_raw.md` — the snowball raw pool —
+# which used to carry ONLY `annotation | paper-id | title`, no abstract/
+# venue/year. Unlike `review-screen` (sweep, #202-enriched), curate degraded
+# to title-only screening — cannot verify the "measured human baseline"
+# substance-level inclusion axis, which is not title-visible. Mirror
+# sweep.py's evidence-snippet enrichment onto the raw pool.
+# ---------------------------------------------------------------------------
+
+def test_write_corpus_raw_carries_substance_evidence(tmp_path):
+    """A kept row with a real abstract/venue/year must render all three —
+    `review-curate` needs substance, not a title, to judge inclusion."""
+    hit = PaperHit(
+        title="Measuring Human Baselines Across Ten Languages",
+        year=2023,
+        authors=["A. Author"],
+        external_ids={"doi": "10.1/new1"},
+        abstract="We report a measured human baseline on ten held-out languages, "
+                  "collected from 40 annotators per language, and compare against "
+                  "zero-shot model performance.",
+        citation_count=0,
+        source="semantic-scholar",
+        venue="ACL",
+    )
+    adapter = _ScriptedAdapter({
+        1: ([hit], []),
+        2: ([], []),
+        3: ([], []),
+    })
+    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+
+    corpus_out = write_corpus_raw(result, tmp_path / "_corpus_raw.md", notes_index={})
+    text = corpus_out.read_text()
+
+    assert "Venue" in text  # column header present
+    assert "Year" in text
+    assert "Abstract" in text
+    assert "ACL" in text
+    assert "2023" in text
+    assert "measured human baseline" in text
+    # the id column must stay intact alongside the new evidence columns
+    # (the #206 id-fix invariant: never a blank id when one is resolvable).
+    assert "10.1/new1" in text
+
+
+def test_write_corpus_raw_blank_abstract_is_a_blank_cell_not_a_dropped_row(tmp_path):
+    """A `PaperHit` with no abstract (adapter genuinely had none) must still
+    appear as a row — a blank evidence cell is an honest signal, never a
+    reason to drop the candidate or its id."""
+    hit = PaperHit(
+        title="A Paper With No Abstract",
+        year=2022,
+        authors=["B. Author"],
+        external_ids={"doi": "10.1/noabstract"},
+        abstract="",
+        citation_count=0,
+        source="openalex",
+    )
+    adapter = _ScriptedAdapter({
+        1: ([hit], []),
+        2: ([], []),
+        3: ([], []),
+    })
+    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+
+    corpus_out = write_corpus_raw(result, tmp_path / "_corpus_raw.md", notes_index={})
+    text = corpus_out.read_text()
+
+    assert "A Paper With No Abstract" in text
+    assert "10.1/noabstract" in text  # id never dropped alongside a blank abstract
+
+
 def test_write_corpus_raw_and_saturation(tmp_path):
     adapter = _ScriptedAdapter({
         1: ([_hit("New Paper 1", doi="10.1/new1")], []),

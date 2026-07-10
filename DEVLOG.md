@@ -1,3 +1,42 @@
+## 2026-07-09 (substance-screening gap fix — snowball raw pool now carries abstract/venue/year)
+
+### Done
+- **Fixed a substance-screening gap surfaced by a downstream project's live
+  e2e run**: `review-screen` (the sweep node) screens on substance —
+  abstract/venue/year — but `review-curate` (the snowball node) screened
+  the raw pool (`_corpus_raw.md`), which carried only
+  `annotation | paper-id | title`, no abstract. Curate degraded to
+  title-only screening, unable to verify substance-level inclusion axes
+  (e.g. a "measured human baseline" requirement, never title-visible). In
+  the live run this forced a title-only triage of 2000+ candidates, with
+  the result only reportable as an upper bound.
+- Root cause: `SemanticScholarAdapter.cited_by`/`references` (the snowball
+  walk's two fetch directions) never requested `abstract`/`venue` in their
+  `--fields` projection — so the `PaperHit`s the walk collected genuinely
+  never carried the data, not just failed to render it.
+- Fix: added `abstract`/`venue` to both fields projections (mirrors
+  `search`'s existing projection). `write_corpus_raw` now renders
+  Venue/Year/Abstract-TL;DR columns via `sweep.py`'s `_evidence_snippet`
+  (reused, not reimplemented) — same evidence shape the sweep-based
+  `_search_hits.md` already carries. A blank cell (adapter genuinely had
+  none) is an honest signal, never a dropped row or id.
+- Updated `review_curate_tips` prose to instruct the agent to screen on the
+  new evidence columns (mirrors `review_screen_tips`'s equivalent
+  instruction).
+- Audited every review/manuscript node that applies inclusion/exclusion:
+  `review-screen` (sweep, has evidence — unchanged), `review-curate`
+  (snowball — the fix above), `per-paper-relate` (reads full OA fetched
+  text or abstract, never title-only). No other node screens candidates on
+  title alone.
+- Tests: field-projection assertions for `cited_by`/`references`, plus
+  `write_corpus_raw` substance-evidence + blank-abstract-is-not-a-dropped-
+  row tests. Confirmed RED against the pre-fix source (mutation test).
+
+### Decisions
+- Reused `sweep.py`'s `_evidence_snippet` directly in `snowball.py` rather
+  than duplicating the abstract/tldr-fallback + truncation logic — same
+  evidence shape, one implementation.
+
 ## 2026-07-09 (DX: frontier print no longer floods the terminal with the full spec body)
 
 ### Done

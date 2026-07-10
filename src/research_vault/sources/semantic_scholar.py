@@ -127,7 +127,14 @@ class SemanticScholarAdapter:
         paper_id: str,
         *,
         limit: int = 20,
-        fields: str = "title,year,authors,externalIds,citationCount,openAccessPdf",
+        # abstract/venue added (pre-publish hardening batch, 2026-07-09,
+        # substance-screening gap fix): the snowball walk's raw pool
+        # (`_corpus_raw.md`) is read by `review-curate` to apply the frozen
+        # inclusion/exclusion criteria — without abstract/venue on the hit,
+        # curation degrades to title-only screening (cannot verify a
+        # substance-level axis like "measured human baseline", never
+        # title-visible). Mirrors `search`'s fields projection.
+        fields: str = "title,year,authors,externalIds,abstract,citationCount,openAccessPdf,venue",
     ) -> list[PaperHit]:
         cmd = [
             "asta", "papers", "citations", paper_id,
@@ -176,9 +183,12 @@ class SemanticScholarAdapter:
         paper_id: str,
         *,
         limit: int = 20,
+        # abstract/venue added — see `cited_by`'s comment (same
+        # substance-screening gap fix, same fields-projection rationale).
         fields: str = (
             "references.title,references.year,references.authors,"
-            "references.externalIds,references.citationCount"
+            "references.externalIds,references.citationCount,"
+            "references.abstract,references.venue"
         ),
     ) -> list[PaperHit]:
         cmd = [

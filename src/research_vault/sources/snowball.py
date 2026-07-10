@@ -51,6 +51,7 @@ from typing import Any, Callable
 from .base import AdapterFetchError, NotSupported, PaperHit, SourceAdapter
 from .dedup import DedupedHit, dedup_hits, identity_key
 from .derivative import count_independent, mark_derivatives
+from .sweep import _evidence_snippet  # reuse, not reinvent — charter §6
 
 DEFAULT_BACKSTOP_WAVES = 2
 
@@ -624,12 +625,23 @@ def write_corpus_raw(
     produce the FINAL ``_corpus.md`` — the tool op writes the mechanical
     record (annotation + derivative flags), the agent adds the judgment
     layer (concept-tags, honest residue prose) on top.
+
+    Evidence columns (Venue/Year/Abstract-TL;DR) mirror ``sweep.py``'s
+    ``write_search_hits`` exactly (same ``_evidence_snippet`` helper, reused
+    not reimplemented — charter §6): the substance-screening gap fix
+    (pre-publish hardening batch, 2026-07-09). Before this, the raw pool
+    carried only ``annotation | paper-id | title`` — no abstract — so
+    ``review-curate`` degraded to title-only screening, unable to verify a
+    substance-level inclusion axis (e.g. "measured human baseline") that is
+    never title-visible. A blank Venue/Abstract cell means the adapter
+    genuinely didn't return one (same honest-blank convention as the sweep's
+    evidence column) — never a reason to drop the row or its id.
     """
     lines: list[str] = ["# Corpus (raw, pre-curation)\n"]
     lines.append(f"Seed count: {result.seed_count}\n")
     lines.append(f"Stop reason: {result.stop_reason}\n")
-    lines.append("| Annotation | Paper-id | Title | Flags |")
-    lines.append("|---|---|---|---|")
+    lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags |")
+    lines.append("|---|---|---|---|---|---|---|")
     for d in result.kept:
         hit = d.hit
         annotation = _annotate_hit(
@@ -643,7 +655,12 @@ def write_corpus_raw(
         if hit.derivative_of is not None:
             flags.append(f"[DERIVATIVE-OF:{hit.derivative_of}]")
         title = (hit.title or "").replace("|", "/")
-        lines.append(f"| {annotation} | {pid} | {title} | {' '.join(flags)} |")
+        venue = (hit.venue or "").replace("|", "/")
+        year = str(hit.year) if hit.year is not None else ""
+        evidence = _evidence_snippet(hit)
+        lines.append(
+            f"| {annotation} | {pid} | {title} | {venue} | {year} | {evidence} | {' '.join(flags)} |"
+        )
     lines.append("")
 
     if result.errors:
