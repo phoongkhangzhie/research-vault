@@ -147,7 +147,9 @@ class TestSchemaConformance:
         assert fields["citekey_convention"] == "authorYearWord"
         assert str(fields["citekey_conformant_count"]) == "2"
         assert str(fields["citekey_nonconformant_count"]) == "0"
-        assert str(fields["citekey_migrated_count"]) == "0"
+        # PR-5 fix-round CHANGE 2: no _citekey_migration_ledger.json in
+        # lit_dir -> honest "untracked" sentinel, never a fabricated 0.
+        assert fields["citekey_migrated_count"] == "untracked"
         assert str(fields["accepted"]) == "2"
         assert str(fields["in_corpus"]) == "1"
         assert str(fields["new"]) == "1"
@@ -440,3 +442,67 @@ class TestCoverageGapsResidue:
         assert "stability sub-literature" in fields["open_counter_poles"]
         assert "bounded-not-saturated" in text
         assert str(fields["ledger_complete"]).strip().lower() == "true"
+
+
+# ---------------------------------------------------------------------------
+# PR-5 fix-round CHANGE 2: citekey_migrated_count traces to the real
+# _citekey_migration_ledger.json (never a fabricated bare 0).
+# ---------------------------------------------------------------------------
+
+class TestCitekeyMigratedCount:
+    def test_absent_ledger_is_untracked_not_zero(self, tmp_path):
+        """No _citekey_migration_ledger.json in lit_dir -> honest sentinel,
+        never a bare 0 (charter §1: don't fabricate a "measured zero")."""
+        review_dir, lit_dir = _build_scope(tmp_path)
+        assert not (lit_dir / "_citekey_migration_ledger.json").exists()
+
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
+        assert fields["citekey_migrated_count"] == "untracked"
+        # Non-gating: the absence of a migration ledger does not itself
+        # flip the review's own ledger_complete (migrate-citekeys is an
+        # optional, project-wide one-shot pass, not part of THIS review's
+        # completeness contract).
+        assert str(fields["ledger_complete"]).strip().lower() == "true"
+
+    def test_no_literature_dir_is_untracked(self, tmp_path):
+        """literature_dir=None (no lookup possible at all) -> same honest
+        sentinel, not a crash and not a fabricated 0."""
+        review_dir, _lit_dir = _build_scope(tmp_path)
+        out = write_corpus_ledger(review_dir, literature_dir=None)
+        fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
+        assert fields["citekey_migrated_count"] == "untracked"
+
+    def test_present_ledger_traces_real_count(self, tmp_path):
+        """A real _citekey_migration_ledger.json intersected with THIS
+        review's _corpus.md citekeys -> a real, traceable count, not the
+        raw entry count (an entry for a citekey NOT in this review's
+        corpus must not be counted)."""
+        import json
+
+        review_dir, lit_dir = _build_scope(tmp_path)
+        # _build_scope's default corpus rows are smith2024a + jones2023.
+        ledger_entries = [
+            {"note": "smith2024a.md", "old": "smith24", "new": "smith2024a",
+             "migrated_at": "2026-07-01T00:00:00Z"},
+            {"note": "unrelated.md", "old": "unrelated23", "new": "unrelated2023",
+             "migrated_at": "2026-07-01T00:00:00Z"},
+        ]
+        (lit_dir / "_citekey_migration_ledger.json").write_text(
+            json.dumps(ledger_entries), encoding="utf-8",
+        )
+
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
+        # Only smith2024a is in THIS review's corpus -> count is 1, not 2.
+        assert str(fields["citekey_migrated_count"]) == "1"
+        assert str(fields["ledger_complete"]).strip().lower() == "true"
+
+    def test_malformed_ledger_json_is_untracked_not_a_crash(self, tmp_path):
+        review_dir, lit_dir = _build_scope(tmp_path)
+        (lit_dir / "_citekey_migration_ledger.json").write_text(
+            "{not valid json", encoding="utf-8",
+        )
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
+        assert fields["citekey_migrated_count"] == "untracked"

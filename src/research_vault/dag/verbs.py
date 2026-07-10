@@ -392,14 +392,18 @@ def _evaluate_autonomous_gate(
             produces = snowball_node.get("produces")
             if isinstance(produces, dict):
                 saturation_ref = produces.get("_saturation.md")
-        if not saturation_ref:
-            return _autonomy.DispositionResult(
-                _autonomy.HALT_DECLARE,
-                "coverage-gate --auto: no _saturation.md producer found upstream "
-                "(review-snowball node missing/malformed) — cannot self-certify.",
-            )
-        info = check_saturation_backstop(Path(saturation_ref))
-        review_dir = Path(saturation_ref).parent
+
+        # review_dir: normally derived from the saturation producer's path
+        # (Path(saturation_ref).parent). When that producer is missing/
+        # malformed (saturation_ref is falsy) we can't derive it that way —
+        # but THIS node's own manifest_path is always
+        # `<review_dir>/phase1-dag.json` (review._review_artifact_dir /
+        # review.cmd_new write it there directly), so manifest_path.parent
+        # is a reliable fallback. This lets the missing-producer HALT below
+        # still route through `_write_ledger_final_act` (fix-round CHANGE 1
+        # — fixes acceptance (f): every HALT writes a ledger_complete:
+        # false snapshot, never a silent bypass of the ledger).
+        review_dir = Path(saturation_ref).parent if saturation_ref else manifest_path.parent
         gaps_path = review_dir / "_coverage-gaps.md"
         corpus_path = review_dir / "_corpus.md"
         protocol_path = review_dir / "_protocol.md"
@@ -447,6 +451,18 @@ def _evaluate_autonomous_gate(
                     file=_sys.stderr,
                 )
             return disposition
+
+        if not saturation_ref:
+            return _write_ledger_final_act(
+                _autonomy.DispositionResult(
+                    _autonomy.HALT_DECLARE,
+                    "coverage-gate --auto: no _saturation.md producer found upstream "
+                    "(review-snowball node missing/malformed) — cannot self-certify.",
+                ),
+                None,
+            )
+
+        info = check_saturation_backstop(Path(saturation_ref))
 
         search_hits_node = nodes_lookup.get("review-search")
         search_hits_path = None

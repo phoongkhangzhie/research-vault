@@ -272,15 +272,58 @@ def _resolving_ids_for_note(note_path: Path) -> str:
     return ", ".join(ids)
 
 
+def _citekey_migrated_count(
+    literature_dir: Path | None, corpus_citekeys: set[str],
+) -> int | str:
+    """PR-5 fix-round (CHANGE 2): ``rv research migrate-citekeys`` (K-3)
+    DOES record a per-project, append-only provenance artifact —
+    ``literature/_citekey_migration_ledger.json`` (``research.py``'s
+    ``_CITEKEY_MIGRATION_LEDGER_NAME``) — so a bare ``0`` here would be a
+    fabricated fact (charter §1), not an honest "not derived".
+
+    When the ledger file exists: count DISTINCT migration-ledger entries
+    whose ``new`` citekey appears in THIS review's ``_corpus.md`` — the
+    real, traceable intersection of "migrated" x "in this review's corpus".
+
+    When ``literature_dir`` is ``None`` or the ledger file is absent
+    (``rv research migrate-citekeys`` never ran for this project): return
+    the literal string ``"untracked"`` — an honest sentinel, never a
+    fabricated count. This mirrors ``_p_block``'s honest-no-op pattern for
+    an optional pass that was never wired/run; it does NOT feed into the
+    ledger's ``_gaps`` list (non-gating, per PR-5 fix-round dispatch) —
+    "migrate-citekeys was never run for this project" is not itself an
+    incompleteness of THIS review's ledger.
+    """
+    import json as _json
+    from .. import research as _research
+
+    if literature_dir is None:
+        return "untracked"
+    ledger_path = Path(literature_dir) / _research._CITEKEY_MIGRATION_LEDGER_NAME
+    if not ledger_path.is_file():
+        return "untracked"
+    try:
+        entries = _json.loads(ledger_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "untracked"
+    if not isinstance(entries, list):
+        return "untracked"
+
+    migrated_new_keys = {
+        str(e.get("new")).strip()
+        for e in entries
+        if isinstance(e, dict) and e.get("new")
+    }
+    return len(migrated_new_keys & corpus_citekeys)
+
+
 def _k_block(corpus_path: Path, literature_dir: Path | None) -> dict[str, Any]:
     """Assemble the K (canonical-citekey) block + the corpus counts +
     the canonical-key-map body rows.
 
-    ``citekey_migrated_count`` is always 0 — this ledger has no per-review
-    artifact recording whether ``rv research migrate-citekeys`` (the one-
-    shot, whole-library migration verb) ran for this review's citekeys;
-    reporting anything else would be a guess (charter §1), so the honest
-    default (explicitly allowed by the PR-5 brief) is 0.
+    ``citekey_migrated_count``: see ``_citekey_migrated_count`` — traces to
+    the real ``_citekey_migration_ledger.json`` when present; an honest
+    ``"untracked"`` sentinel (never a fabricated ``0``) when absent.
     """
     from ..cite import CITEKEY_RE
 
@@ -303,11 +346,14 @@ def _k_block(corpus_path: Path, literature_dir: Path | None) -> dict[str, Any]:
             gaps.append(f"K/key-map: no literature note found for citekey {citekey!r}.")
         key_map_rows.append((citekey, resolving_ids, ok))
 
+    corpus_citekeys = {citekey for _ann, citekey in rows}
+    migrated_count = _citekey_migrated_count(literature_dir, corpus_citekeys)
+
     return {
         "citekey_convention": CITEKEY_CONVENTION,
         "citekey_conformant_count": conformant,
         "citekey_nonconformant_count": nonconformant,
-        "citekey_migrated_count": 0,
+        "citekey_migrated_count": migrated_count,
         "accepted": len(rows),
         "in_corpus": in_corpus_count,
         "new": new_count,

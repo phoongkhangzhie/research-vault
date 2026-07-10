@@ -224,3 +224,46 @@ class TestCoverageGateWritesLedger:
         fields, text = _parse_frontmatter(ledger_path.read_text(encoding="utf-8"))
         assert str(fields["ledger_complete"]).strip().lower() == "false"
         assert "[LEDGER-GAP] HALT:" in text
+
+
+class TestMissingSaturationProducerWritesLedger:
+    """PR-5 fix-round CHANGE 1 (acceptance f): the missing-``_saturation.md``-
+    producer HALT (``review-snowball`` node missing/malformed from the
+    manifest) used to ``return`` directly, bypassing ``_write_ledger_final_act``
+    entirely -- the ONE coverage-gate HALT path that never wrote a ledger
+    snapshot. Now it routes through the same wrapper as every other
+    coverage-gate disposition."""
+
+    def test_missing_snowball_producer_halt_still_writes_ledger(self, tmp_instance: Path):
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import _evaluate_autonomous_gate
+        from research_vault.dag.store import RunState
+        from research_vault.review import autonomy as _auto
+        from research_vault.review import cmd_new
+
+        cfg = load_config()
+        _note_path, review_dir, phase1 = cmd_new(
+            "demo-research", "scope-ledger-missing-producer", config=cfg,
+            question="Does X generalize across Y?",
+        )
+        manifest_path = review_dir / "phase1-dag.json"
+
+        # nodes_lookup deliberately has NO "review-snowball" entry -- the
+        # exact malformed/missing-producer case this HALT branch guards.
+        nodes_lookup: dict = {}
+        run_state = RunState(run_id=phase1["run_id"], manifest_path=str(manifest_path))
+
+        disposition = _evaluate_autonomous_gate(
+            "coverage-gate", nodes_lookup, manifest_path, run_state,
+        )
+        assert disposition.disposition == _auto.HALT_DECLARE
+        assert "no _saturation.md producer found" in disposition.reason
+
+        ledger_path = review_dir / "_corpus_ledger.md"
+        assert ledger_path.exists(), (
+            "the missing-saturation-producer HALT must STILL write a "
+            "ledger snapshot, not silently bypass it"
+        )
+        fields, text = _parse_frontmatter(ledger_path.read_text(encoding="utf-8"))
+        assert str(fields["ledger_complete"]).strip().lower() == "false"
+        assert "no _saturation.md producer found" in text
