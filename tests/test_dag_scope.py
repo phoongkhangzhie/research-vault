@@ -473,16 +473,18 @@ class TestReadsResolution:
 # ===========================================================================
 
 class TestFrontierReadsSuffix:
-    def test_fresh_agent_with_reads_prints_suffix(self, capsys):
-        """A FRESH agent with reads: → DISPATCH line includes '— reads:' suffix."""
+    def test_fresh_agent_with_reads_prints_count_suffix(self, capsys):
+        """A FRESH agent with reads: → DISPATCH line includes a bounded '— reads: N
+        pointer(s)' suffix — NOT the full resolved list (that's in the brief)."""
         node = _agent("a", spec="task://t#spec",
                       reads=["src/schema.py", "docs/design.md#5B-SCOPE"])
         frontier = [FrontierNode(node_id="a", action="dispatch", node=node)]
         _print_frontier(frontier, run_id="r1")
         out = capsys.readouterr().out
-        assert "reads:" in out
-        assert "src/schema.py" in out
-        assert "docs/design.md#5B-SCOPE" in out
+        assert "reads: 2 pointer(s)" in out
+        assert "src/schema.py" not in out
+        assert "docs/design.md#5B-SCOPE" not in out
+        assert "rv dag brief r1 a" in out
 
     def test_fresh_agent_without_reads_no_suffix(self, capsys):
         """A FRESH agent without reads: → DISPATCH line has no '— reads:' suffix."""
@@ -492,10 +494,10 @@ class TestFrontierReadsSuffix:
         out = capsys.readouterr().out
         assert "reads:" not in out
         assert "FRESH" in out
-        assert "task://t#spec" in out
 
-    def test_continues_agent_with_reads_prints_suffix(self, capsys):
-        """A CONTINUES agent with reads: → DISPATCH line includes reads: suffix after spec."""
+    def test_continues_agent_with_reads_prints_count_suffix(self, capsys):
+        """A CONTINUES agent with reads: → DISPATCH line includes the reads: count
+        suffix, never the full path list."""
         node = _agent(
             "b",
             spec="task://t#refine",
@@ -506,8 +508,8 @@ class TestFrontierReadsSuffix:
         _print_frontier(frontier, run_id="r1")
         out = capsys.readouterr().out
         assert "CONTINUES" in out
-        assert "reads:" in out
-        assert "src/walker.py" in out
+        assert "reads: 1 pointer(s)" in out
+        assert "src/walker.py" not in out
 
     def test_continues_agent_without_reads_no_suffix(self, capsys):
         """A CONTINUES agent without reads: → DISPATCH line has no reads: suffix."""
@@ -522,14 +524,16 @@ class TestFrontierReadsSuffix:
         assert "CONTINUES" in out
         assert "reads:" not in out
 
-    def test_dict_ref_items_show_ref_in_output(self, capsys):
-        """Dict {ref:..., why:...} items → only the ref is shown in the frontier line."""
+    def test_dict_ref_items_counted_not_listed(self, capsys):
+        """Dict {ref:..., why:...} items are counted in the reads: N suffix — the
+        individual ref text is NOT printed in the frontier map (see the brief)."""
         node = _agent("a", spec="task://t#spec",
                       reads=[{"ref": "src/schema.py", "why": "struct reference"}])
         frontier = [FrontierNode(node_id="a", action="dispatch", node=node)]
         _print_frontier(frontier, run_id="r1")
         out = capsys.readouterr().out
-        assert "src/schema.py" in out
+        assert "reads: 1 pointer(s)" in out
+        assert "src/schema.py" not in out
 
     def test_await_go_unaffected_by_reads(self, capsys):
         """human-go AWAIT-GO items are never modified by reads: logic."""
@@ -580,16 +584,18 @@ class TestReadsDoesNotBreakSRDISP:
         with pytest.raises(ManifestError, match="reason"):
             validate_manifest(m)
 
-    def test_fresh_mode_line_unchanged(self, capsys):
-        """FRESH — spec:<ptr> mode line is unchanged when reads: absent."""
+    def test_fresh_mode_line_compact_when_reads_absent(self, capsys):
+        """FRESH mode line stays compact (no spec body, no reads:) when reads: absent."""
         node = _agent("a", spec="task://t#myspec")
         frontier = [FrontierNode(node_id="a", action="dispatch", node=node)]
         _print_frontier(frontier, run_id="r1")
         out = capsys.readouterr().out
-        assert "FRESH — spec:task://t#myspec" in out
+        assert "FRESH" in out
+        assert "reads:" not in out
+        assert "task://t#myspec" not in out
 
-    def test_continues_mode_line_unchanged(self, capsys):
-        """CONTINUES mode line format is unchanged when reads: absent."""
+    def test_continues_mode_line_compact_when_reads_absent(self, capsys):
+        """CONTINUES mode line stays compact (no spec body, no reads:) when reads: absent."""
         node = _agent(
             "b",
             spec="task://t#spec",
@@ -598,4 +604,6 @@ class TestReadsDoesNotBreakSRDISP:
         frontier = [FrontierNode(node_id="b", action="dispatch", node=node)]
         _print_frontier(frontier, run_id="r1")
         out = capsys.readouterr().out
-        assert "CONTINUES a — tight iteration — spec:task://t#spec" in out
+        assert "CONTINUES a — tight iteration" in out
+        assert "reads:" not in out
+        assert "task://t#spec" not in out

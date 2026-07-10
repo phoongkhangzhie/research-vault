@@ -120,10 +120,12 @@ loaded once. Coordination is tiny file I/O. The hub stays thin. That beats both
 ## Dispatch: fresh + pointed by default; resume is the justified exception
 
 **Default: spawn a FRESH agent pointed at a durable spec.** Every DAG `agent` node carries
-a `spec` field — a non-empty pointer to the brief the agent is dispatched against
-(a task-file section, a control-file slug, or a path). Absence is a `ManifestError` by
-construction (the schema enforces it). The `rv dag` frontier line prints `FRESH — spec:<ptr>`
-so the adopter's runtime knows to spawn new.
+a `spec` field — the non-empty brief text (or pointer) the agent is dispatched against
+(a task-file section, a control-file slug, a path, or full brief prose). Absence is a
+`ManifestError` by construction (the schema enforces it). The `rv dag` frontier line prints
+`FRESH` — a "you are here" map, never the spec body itself (specs are often multi-KB prose,
+not short pointers) — plus a `brief: rv dag brief <run> <node>` hint pointing at the one
+place that DOES emit the full spec verbatim (`rv dag brief`, the dispatch path).
 
 **Why fresh by default:** a resumed background agent reloads its entire accumulated transcript
 on every invocation — per-call cost grows monotonically. A fresh agent pays only for the
@@ -137,7 +139,7 @@ assumptions).
 The schema validates: `continues.node` must exist, be `type: agent`, be a
 transitive-upstream ancestor, and not be self. `continues.reason` is **required** — the
 tool forces articulation of the justification on the record. The frontier prints
-`CONTINUES <node> — <reason> — spec:<ptr>`.
+`CONTINUES <node> — <reason>` (plus the same `rv dag brief` hint — never the spec body).
 
 Valid use: tight iterative continuation with no intervening durable artifact — a one-step
 refinement where transcript context is genuinely useful.
@@ -195,7 +197,7 @@ semantic ancestor of the structured `reads:` field.
 |---|---|
 | `reads:` well-formed (list · non-empty-if-present · str-or-`{ref,why}` items) | **TOOLED** (ManifestError, pure validate) |
 | Every pointer RESOLVES (file/anchor/bus exists) | **TOOLED** (hard, at `dag run`/`tick`) |
-| `reads:` surfaced on the `DISPATCH` line for the runtime | **TOOLED** (frontier print suffix) |
+| `reads:` COUNT surfaced on the `DISPATCH` line (full list in the brief) | **TOOLED** (frontier print suffix) |
 | Is the scope **SUFFICIENT** (agent won't need more)? | **DOCTRINE** (irreducible spec-author judgment) |
 | Is the scope **MINIMAL** (no over-listing)? | **DOCTRINE** (same irreducible judgment) |
 | Did the agent actually read outside scope? | **RUNTIME** (not RV — no observation seam) |
@@ -207,12 +209,15 @@ owns: a returning agent that had to read far beyond its `reads:` surfaces it in 
 The spec-author reads that to fix the scope next round. No new hard `⟦RETURN⟧` field —
 this is a doctrine convention, not a schema change.
 
-**The `DISPATCH` line** carries the bounded scope so the adopter's runtime hands the agent
-its targeted reading list:
+**The `DISPATCH` line** is a compact "you are here" map, not the dispatch payload — it
+surfaces the reads: COUNT and a brief pointer, never the resolved list or the spec body:
 ```
 → DISPATCH  [lit-search] Literature search
-    FRESH — spec:task://research#lit-search — reads: src/schema.py, tasks/design.md#5B-SCOPE
+    FRESH — reads: 2 pointer(s)
+    brief: rv dag brief <run> lit-search
 ```
+`rv dag brief <run> <node>` resolves and prints the full `reads:` list (absolute paths)
+alongside the verbatim spec — that's the dispatch payload the agent actually reads.
 When `reads:` is absent the suffix is omitted. A runtime that logs tool-calls could diff
 actual-reads vs declared and emit an "out-of-scope read" signal — that is a runtime feature,
 not an RV one. RV only *enables* it by surfacing `reads:` on the frontier.
