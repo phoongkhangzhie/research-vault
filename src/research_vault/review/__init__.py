@@ -130,6 +130,70 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
+# PR-2 D-7: empty-counter-facet structural gate — mirrors check_protocol_gate
+# above (the free-text `counter-position` field), one level more mechanical:
+# a facet declared with a THESIS query but no frozen COUNTER-side query is a
+# protocol defect, caught BEFORE any search executes (design §4,
+# "Structural gate at approve-protocol").
+# ---------------------------------------------------------------------------
+
+def check_counter_facet_gate(protocol_path: Path) -> tuple[bool, str]:
+    """PR-2 D-7: BLOCK when a nested ``seed_queries`` facet (the D-3
+    thesis/counter schema) has one or more THESIS queries but ZERO frozen
+    COUNTER-side queries.
+
+    Only applies to protocols that use the nested facet form at all — a
+    legacy scalar-only ``seed_queries`` matrix (no facet ever declares a
+    thesis/counter split) never declared a counter-pole in the first place,
+    so this gate has nothing to check there (``group_facet_stances``
+    correctly returns ``{}`` for a purely-legacy matrix; see its docstring).
+    This is the forward-only D-7 requirement on NEWLY-scoped protocols, not
+    a retroactive re-check of an already-approved protocol (``approve-
+    protocol`` is a one-time gate; an already-passed protocol never re-hits
+    it).
+
+    Args:
+        protocol_path: path to the review's ``_protocol.md`` artifact.
+
+    Returns:
+        (ok, message) — ok is False when any facet has a non-empty
+        ``thesis`` list and an empty ``counter`` list.
+    """
+    from research_vault.sources.sweep import group_facet_stances, parse_angle_matrix
+
+    if not protocol_path.exists():
+        return False, (
+            f"rv dag approve: D-7 gate BLOCKED — _protocol.md not found at "
+            f"{protocol_path}."
+        )
+
+    text = protocol_path.read_text(encoding="utf-8")
+    angle_matrix = parse_angle_matrix(text)
+    facets = group_facet_stances(angle_matrix)
+
+    empty_counter_poles = sorted(
+        angle for angle, stances in facets.items()
+        if stances["thesis"] and not stances["counter"]
+    )
+    if empty_counter_poles:
+        poles = ", ".join(empty_counter_poles)
+        return False, (
+            f"rv dag approve: D-7 gate BLOCKED — {protocol_path} declares a "
+            f"THESIS query for facet(s) [{poles}] with NO frozen counter-side "
+            f"query.\n"
+            f"A contested facet with no disconfirming query is a protocol "
+            f"defect (the exact downstream-project by-temporal failure: a drift/thesis "
+            f"query with no stability/counter query, structurally "
+            f"under-sampling the opposing pole before search ever runs).\n"
+            f"Fix: add a `counter:` query list under `seed_queries.{empty_counter_poles[0]}` "
+            f"naming the refuting sub-literature, then re-run "
+            f"`rv dag approve <run_id> approve-protocol`."
+        )
+
+    return True, "OK"
+
+
+# ---------------------------------------------------------------------------
 # deliverable field (review-only default, manuscript opt-in, 2026-07-09) —
 # frozen alongside counter-position at approve-protocol; consumed by
 # `_emit_next_phase`'s approve-review arm (dag/verbs.py) to decide whether
