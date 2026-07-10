@@ -66,6 +66,7 @@ from research_vault.manuscript.types.lit_review import (
     FRAMEWORK_SHAPES,
     SECTION_SET,
     STYLE_BRIEFS,
+    _build_consolidated_draft_brief,
     build_reframe_escalation_payload,
     check_framework_gate,
     index_literature_rows,
@@ -73,9 +74,11 @@ from research_vault.manuscript.types.lit_review import (
     render_comparison_table,
     render_framework_candidates_menu,
     render_prisma_ledger,
+    render_provenance_header,
     source_transform,
 )
 from research_vault.dag.schema import validate_manifest
+from research_vault.manuscript import _inject_source_transform_tips
 
 
 # ---------------------------------------------------------------------------
@@ -625,6 +628,50 @@ def test_source_transform_no_spine_yet(tmp_path):
     result = source_transform("demo", project_notes_dir, tree_root, spine={})
     assert result["framework_branches"] == []
     assert result["spine_shape"] == ""
+
+
+# ---------------------------------------------------------------------------
+# CR1/CR2 (architect fit-check on PR-B, #223) — the appendix-removal sweep
+# ---------------------------------------------------------------------------
+
+def test_provenance_header_does_not_reference_appendix():
+    """CR1: with the Appendix A render dropped (PR-B, gold-settled
+    `report.md`), the provenance blockquote must not point the reader at
+    a section that no longer exists."""
+    header = render_provenance_header()
+    assert "appendix" not in header.lower()
+    assert "control note" in header.lower()
+
+
+def test_prisma_ledger_reaches_devlog_block_not_a_dead_key():
+    """CR2: the PRISMA/audit ledger `source_transform` computes under the
+    `appendix-methods` key must actually REACH the single drafting agent
+    (via the consolidated draft brief's DEVLOG/control-note block) — never
+    silently dropped into a dead key. Uses a POPULATED coverage ledger (not
+    the honest-empty fallback) so the proof is non-vacuous: a real count
+    (not just a static header) must survive the full pipeline."""
+    coverage = {
+        "corpus_citekeys": ["a2024", "b2024", "c2024"],
+        "materialized": ["a2024", "b2024"],
+        "unmaterialized": ["c2024"],
+        "orphan": [],
+        "counts": {"corpus": 3, "materialized": 2, "unmaterialized": 1, "orphan": 0, "mention_only": 0},
+    }
+    ledger = render_prisma_ledger(coverage)
+    assert "c2024" in ledger  # the real, populated count reached the ledger
+
+    transform = {"appendix-methods": ledger}
+    tips = dict(STYLE_BRIEFS)
+    tips = _inject_source_transform_tips(tips, transform)
+    draft_brief = _build_consolidated_draft_brief(tips)
+
+    # The real PRISMA count must survive all the way to the consolidated
+    # draft brief the drafting agent actually reads.
+    assert "c2024" in draft_brief
+    # ... but strictly inside the DEVLOG/control-note block, never a
+    # `report.md` section heading (CR2's "relocated, not discarded").
+    assert "Section: appendix-methods" not in draft_brief
+    assert "DEVLOG/control-note record" in draft_brief
 
 
 # ---------------------------------------------------------------------------

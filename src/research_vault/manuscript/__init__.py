@@ -185,8 +185,10 @@ def _inject_source_transform_tips(
     comparison table" instructions dangled. This makes it real:
 
       - ``appendix-methods``   -> appended to the ``appendix-methods`` tip
-        (RD-3: the PRISMA ledger relocates from the removed ``prisma-scope``
-        body row to the reader-optional appendix).
+        (PR-B, gold-settled: the PRISMA ledger relocates from the removed
+        ``prisma-scope`` body row all the way OUT of ``report.md`` — the
+        tip now instructs a DEVLOG/control-note write, never a body
+        section or an appendix; ``report.md`` carries no Appendix at all).
       - ``references``         -> appended to the ``references`` tip.
       - ``provenance_header``  -> appended to the ``assemble`` tip (RD-3: the
         hash-free blockquote the assembler prepends atop ``report.md``).

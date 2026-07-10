@@ -976,25 +976,28 @@ def render_provenance_header() -> str:
     enforces this: a literal ``sha256:...`` in reader prose is a hard BLOCK).
 
     This is deliberately static boilerplate, not survey-specific data — the
-    per-survey counts/funnel/saturation-stop detail lives in Appendix A
-    (``render_prisma_ledger``), never fabricated here.
+    per-survey counts/funnel/saturation-stop detail lives in the project's
+    DEVLOG/control note (``render_prisma_ledger``'s output — PR-B,
+    gold-settled: `report.md` carries no Appendix, so this can no longer
+    point the reader at one), never fabricated here.
 
-    ★ Dependency (flagged, not silently resolved): the appendix's
-    PRISMA counts are only as fresh as the frozen ``_corpus.md`` /
-    ``coverage_report`` this reads — the known tool-vs-corpus count
-    reconciliation bug (green-but-stale after a remediation append) is fixed
-    by the ``rv review refresh`` verb (Wave C), NOT by this wave. RD-3's
-    appendix-move must not ship as if it silently fixed that bug — it only
-    relocates WHERE an (already-correct-or-not) count is displayed.
+    ★ Dependency (flagged, not silently resolved): the PRISMA counts
+    (now a DEVLOG/control-note record, PR-B) are only as fresh as the
+    frozen ``_corpus.md`` / ``coverage_report`` this reads — the known
+    tool-vs-corpus count reconciliation bug (green-but-stale after a
+    remediation append) is fixed by the ``rv review refresh`` verb
+    (Wave C), NOT by this wave. Relocating WHERE the ledger is recorded
+    must not ship as if it silently fixed that bug — it only moves WHERE
+    an (already-correct-or-not) count is displayed.
 
-    sr: NG-lit-review-waveB (RD-3)
+    sr: NG-lit-review-waveB (RD-3); PR-B (Appendix reference dropped, CR1)
     """
     return (
         "> This survey follows a pre-registered protocol — frozen inclusion/"
         "exclusion criteria, a documented multi-source search and snowball "
         "process, and a saturation-verified stopping rule. The full audit "
         "trail (PRISMA funnel, corpus provenance, any scope deviations) is "
-        "in Appendix A and the project's control note."
+        "in the project's control note."
     )
 
 
@@ -1016,9 +1019,24 @@ def source_transform(
         under the ``reviews/<slug>/`` convention — manuscript slug == review
         scope id; degrades to an honest "no corpus" ledger otherwise) — PR-B
         (gold-settled): injected into the ``appendix-methods`` tip, which
-        routes it to the project's DEVLOG/control note — NEVER a
-        ``report.md`` section (the reader-facing document carries no
-        Appendix at all, see ``SECTION_SET``/``READING_ORDER``).
+        instructs the single drafting agent to write it to the project's
+        DEVLOG/control note — NEVER a ``report.md`` section (the reader-
+        facing document carries no Appendix at all, see
+        ``SECTION_SET``/``READING_ORDER``).
+        ★ CR2 (defensibility relocated, not discarded — verified, flagged
+        not silently assumed): TODAY this routing is a PROSE INSTRUCTION
+        to the drafting agent (via ``_build_consolidated_draft_brief``'s
+        "Separate artifact — DEVLOG/control-note record" block) — the
+        ledger DOES reach the agent (never a dead key; proven by
+        ``test_prisma_ledger_reaches_devlog_block_not_a_dead_key``), but
+        nothing here MECHANICALLY appends it to ``DEVLOG.md`` the way
+        ``render_comparison_table``/``render_prisma_ledger`` mechanically
+        (zero-hallucination) build their own output. Closing that loop —
+        an actual code-driven DEVLOG-append verb/hook, so the audit trail
+        no longer depends on the agent remembering the instruction — is
+        PR-G's scope, not this wave's. This does NOT error today (the
+        instruction always reaches the agent); it is an honest, named gap,
+        not a silent one.
       - the comparison-table rows (``index_literature_rows`` /
         ``render_comparison_table``)
       - the frozen framework's branches (from ``spine`` — the `_manuscript.md`

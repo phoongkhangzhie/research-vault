@@ -250,8 +250,12 @@ def build_principle_anchor_block(blocks: list[dict[str, Any]]) -> str:
 # RD-4 (next-gen lit-review design §6): the standalone ``framework`` body
 # section is deleted — its exemplar category ("framework"/"figure-caption")
 # now folds into ``introduction``, which carries the spine-at-a-glance
-# orientation table that replaced it. RD-3: ``prisma-scope`` is renamed
-# ``appendix-methods`` (relocated to the appendix, same category).
+# orientation table that replaced it. RD-3: ``prisma-scope`` was renamed
+# ``appendix-methods`` (same "scope-method" category). PR-B (gold-settled
+# `report.md`): ``appendix-methods`` is no longer a `report.md`/appendix
+# body section at all — it is a DEVLOG/control-note record — but its
+# exemplar category mapping is unchanged (the DEVLOG record is still
+# prose describing scope/method; the "scope-method" moves still apply).
 LIT_REVIEW_SECTION_CATEGORY_MAP: dict[str, tuple[str, ...]] = {
     "introduction": ("framework", "figure-caption"),
     "thematic-sections": ("synthesis", "comparison"),
