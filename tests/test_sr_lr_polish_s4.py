@@ -1,4 +1,4 @@
-"""test_sr_lr_polish_s4.py — SR-LR-POLISH Slice 4: F16+F17 coverage report.
+"""test_sr_lr_polish_s4.py — review-loop polish Slice 4: F16+F17 coverage report.
 
 Acceptance criteria:
   F17: corpus citekey zheng2023-pride → note zheng2023-pride-mc-selectors.md

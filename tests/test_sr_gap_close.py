@@ -1,4 +1,4 @@
-"""test_sr_gap_close.py — SR-GAP-CLOSE (SR-LR-4) acceptance tests: gap-closure lifecycle.
+"""test_sr_gap_close.py — acceptance tests: gap-closure lifecycle.
 
 Coverage (spec §5L.19–5L.24 + §5L-GAP-CLOSE-REQ):
 
@@ -29,14 +29,14 @@ Coverage (spec §5L.19–5L.24 + §5L-GAP-CLOSE-REQ):
      3e. promoted gap does not appear in open_gap_count
 
   4. reopened: structural re-detection (§5L.21(3))
-     4a. (SR-RM-FIGMS: absent_row removed)
+     4a. (absent_row removed)
      4b. reopened gap has reopened_reason: field stamped (provenance surface)
      4c. reopened gap retains its closed_by: field as history (not erased)
      4d. contradictory re-fire on ANY closed status → "reopened" (Signal 2: both edges re-acquired)
-     4e. (SR-RM-FIGMS: absent_row removed)
+     4e. (absent_row removed)
      4f. knowledge_void re-fire on "closed-filled" → WARN only, status UNCHANGED (FP guard)
      4g. evaluation_void re-fire on "closed-filled" → WARN only, status UNCHANGED
-     4h. (SR-RM-FIGMS: absent_row removed)
+     4h. (absent_row removed)
      4i. reopened gap re-enters open-routing: open_gap_count counts it
      4j. gap-route / gap-scope accepts a "reopened" gap (re-enters routing)
 
@@ -70,7 +70,6 @@ Coverage (spec §5L.19–5L.24 + §5L-GAP-CLOSE-REQ):
 
 All hermetic (tmp_instance / tmp_path). No live LLM calls.
 Stdlib only.
-sr: SR-GAP-CLOSE (SR-LR-4)
 """
 from __future__ import annotations
 
@@ -505,7 +504,7 @@ def test_gap_promote_not_in_open_gap_count(tmp_instance):
 def test_reopened_has_reopened_reason(tmp_instance):
     """4b. reopened gap has reopened_reason: field stamped (provenance surface).
 
-    Uses contradictory re-fire as the mechanism (absent_row removed SR-RM-FIGMS).
+    Uses contradictory re-fire as the mechanism (absent_row removed).
     """
     from research_vault.config import load_config
     from research_vault.review.gap_scan import (
@@ -542,7 +541,7 @@ def test_reopened_has_reopened_reason(tmp_instance):
 def test_reopened_retains_closed_by(tmp_instance):
     """4c. reopened gap retains its closed_by: field as history (not erased).
 
-    Uses contradictory re-fire as the mechanism (absent_row removed SR-RM-FIGMS).
+    Uses contradictory re-fire as the mechanism (absent_row removed).
     """
     from research_vault.config import load_config
     from research_vault.review.gap_scan import (
@@ -682,7 +681,7 @@ def test_reopened_evaluation_void_on_closed_filled_warn_only(tmp_instance):
 def test_reopened_enters_open_gap_count(tmp_instance):
     """4i. reopened gap re-enters open-routing: open_gap_count counts it.
 
-    Uses contradictory re-fire as the mechanism (absent_row removed SR-RM-FIGMS).
+    Uses contradictory re-fire as the mechanism (absent_row removed).
     """
     from research_vault.config import load_config
     from research_vault.review.gap_scan import (

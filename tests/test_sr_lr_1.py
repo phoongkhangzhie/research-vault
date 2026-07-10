@@ -1,4 +1,4 @@
-"""test_sr_lr_1.py — SR-LR-1 acceptance tests.
+"""test_sr_lr_1.py — review loop acceptance tests.
 
 Coverage:
   1. review/style.py — get_review_tips seam

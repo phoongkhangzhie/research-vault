@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/style.py — the review_tips config seam (SR-LR-1).
+"""review/style.py — the review_tips config seam.
 
 SEAM CONTRACT
   ``get_review_tips(config=None)`` is the call-point for the review DAG nodes'
@@ -31,7 +31,7 @@ SEAM CONTRACT
   ``research_vault.toml``.
 
   ``get_saturation_backstop_waves(config=None)`` returns the wave-count cap for
-  the review-snowball loop's TERMINATION BACKSTOP (SR-LR-1-BACKSTOP) — a
+  the review-snowball loop's TERMINATION BACKSTOP — a
   guaranteed-termination escape hatch for when the primary saturation rule
   (2-consecutive-zero rounds) doesn't converge (an exploding-intersection RQ
   where every wave keeps finding more).  Adopted via
@@ -43,12 +43,11 @@ SEAM CONTRACT
   genuine saturation plateau.
 
 Two halves independently mergeable:
-  - Engineer ships this module (SR-LR-1 plumbing).
+  - Engineer ships this module (plumbing).
   - The researcher owns the default payload — the retrieval-grounded prose strings.
   Keep ``get_review_tips`` / ``get_review_style_preamble`` signatures stable.
 
 Stdlib only.
-sr: SR-LR-1
 """
 from __future__ import annotations
 
@@ -73,7 +72,7 @@ REVIEW_TIPS_KEYS: frozenset[str] = frozenset({
 
 _DEFAULT_PREAMBLE: str = (
     "You are conducting a structured, pre-registered, saturation-gated literature review "
-    "following the Research Vault SR-LR-1 protocol.\n"
+    "following the Research Vault structured literature review protocol.\n"
     "Anti-fabrication spine: every claim must trace to a citekey in the corpus; "
     "every citekey must resolve to a `literature/` OKF note; "
     "no invented references, no paraphrased-without-citation claims.\n"
@@ -608,8 +607,6 @@ def get_review_tips(config: Any = None) -> dict[str, str]:
         - Always returns a dict with all REVIEW_TIPS_KEYS present.
         - Adopter overrides cannot remove a key — they can only replace the value.
         - The default is the researcher's review-prompt content; adopters own the prose.
-
-    sr: SR-LR-1
     """
     tips: dict[str, str] = dict(_DEFAULT_REVIEW_TIPS)
 
@@ -633,8 +630,6 @@ def get_review_style_preamble(config: Any = None) -> str:
 
     Returns:
         The preamble string injected before every node's spec.
-
-    sr: SR-LR-1
     """
     if config is not None:
         raw = getattr(config, "_raw", {})
@@ -647,7 +642,7 @@ def get_review_style_preamble(config: Any = None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Saturation backstop config seam (SR-LR-1-BACKSTOP)
+# Saturation backstop config seam
 # ---------------------------------------------------------------------------
 
 DEFAULT_SATURATION_BACKSTOP_WAVES: int = 2
@@ -683,8 +678,6 @@ def get_saturation_backstop_waves(config: Any = None) -> int:
         The wave-count cap (int, >= 1).  Default 2.  A non-int, non-positive,
         or missing override falls back to the default (never a crash, never a
         silently-accepted nonsensical cap like 0 or a negative number).
-
-    sr: SR-LR-1-BACKSTOP
     """
     if config is not None:
         raw = getattr(config, "_raw", {})

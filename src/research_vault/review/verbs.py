@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/verbs.py — rv review subcommand dispatcher (SR-LR-1 + SR-LR-2 + SR-GAP-ROUTE + SR-GAP-CLOSE, §5L).
+"""review/verbs.py — rv review subcommand dispatcher (§5L).
 
 When to use: use ``rv review new <project> <scope> --question '...'`` to start a
 pre-registered, saturation-gated literature review.  ``rv review expand`` emits the
 Phase-2 fan-out after the coverage-gate human-go.  ``rv review list`` enumerates
 all reviews for a project.  ``rv review gap-scan`` detects typed research gaps from
-the OKF corpus and/or a manuscript critic report (SR-LR-2 §5L.7, the loop-closer).
+the OKF corpus and/or a manuscript critic report (§5L.7, the loop-closer).
 ``rv review gap-scope`` (or the alias ``gap-route``) auto-authors the remedy scope:
-literature (SR-LR-1) OR experiment (SR-PLAN-1), routed by error-asymmetry.
+literature (Part-1 review) OR experiment (pre-registration plan), routed by error-asymmetry.
 
 This is the ONLY path that creates the closed protocol-freeze + saturation-curve +
 coverage-critic framework.  A hand-run literature scan gets none of these gates.
 
-Subcommands (SR-LR-1):
+Subcommands:
   rv review <project> new <scope> --question "..."
       Create a review OKF note + reviews/<scope>/ artifact dir + Phase-1 DAG manifest.
       Phase-1 shape: review-scope → [HG:approve-protocol] → review-search
@@ -35,19 +35,19 @@ Subcommands (SR-LR-1):
   rv review <project> tips [--key <key>]
       Print the review_tips seam content (researcher's default or adopter override).
 
-Subcommands (SR-LR-2 — the gap-driven pass):
+Subcommands (the gap-driven pass):
   rv review <project> gap-scan [--threshold <n>]
       Detect typed research gaps from the OKF corpus (knowledge_void, contradictory,
       evaluation_void).
-      Writes gaps/<id>.md for each new gap with a suggested_route: field (SR-GAP-ROUTE).
+      Writes gaps/<id>.md for each new gap with a suggested_route: field.
       Idempotent (does NOT re-create existing gaps).
       Surfaces a COUNT only — records are never inlined into the control bus.
       Human authorizes which gaps become targeted scopes (no auto-fire).
 
   rv review <project> gap-scope <gap-id> <scope> [--target {literature|experiment}]
       Auto-author a scope from a gap record: default target = gap.suggested_route.
-      --target literature (default): Part-1 review scope (SR-LR-1 loop, unchanged).
-      --target experiment (new): SR-PLAN-1 pre-registration plan (research question
+      --target literature (default): Part-1 review scope (unchanged).
+      --target experiment (new): pre-registration plan (research question
         ← claim verbatim; covers: skeleton; diagnosis-table stub). No new mechanism.
       Emits the scope artifact + _gap-context.md.
 
@@ -65,19 +65,19 @@ Subcommands (SR-LR-2 — the gap-driven pass):
   rv review <project> gap-close <gap-id> --status <status> [--by <note-ref>]
       Stamp a gap's closure status. status ∈ {closed-supported, closed-filled, proven-open}.
       A ``proven-open`` gap saturated without closing → run-candidate contribution.
-      SR-GAP-CLOSE: --by is REQUIRED for closed-supported and closed-filled (charter §2:
+      --by is REQUIRED for closed-supported and closed-filled (charter §2:
       a closed gap with no closer is un-auditable). --by is REJECTED for proven-open
       (nothing closed it — that's the point). --by writes bidirectional edges:
         closed_by: <note-ref> in the gap FM + closes: <gap-id> in the closing note FM.
       Anti-pattern: do NOT gap-close a closed-* gap without --by — a closer-less closure
-      is un-auditable and breaks the provenance chain (SR-GAP-CLOSE §5L.21(1)).
+      is un-auditable and breaks the provenance chain (§5L.21(1)).
 
   rv review <project> gap-promote <gap-id> --to <ref>
-      SR-GAP-CLOSE: promote a proven-open gap to 'promoted' status (human-only).
+      Promote a proven-open gap to 'promoted' status (human-only).
       Writes promoted_to: <ref> in the gap FM.
       Requires --to <manuscript-section/claim> (unauditable without a target).
       Anti-pattern: do NOT hand-write a contribution claim from a proven-open gap —
-      run gap-promote first so the claim round-trips the SR-MS-2 support-matcher
+      run gap-promote first so the claim round-trips the support-matcher
       (the honesty backstop that polices its own promotions).
 
 Anti-pattern: do NOT hand-collect papers without running ``rv review new`` — a
@@ -90,10 +90,9 @@ or ``gap-route`` (operator confirmed: no auto-fire, D-GAP-4).
 
 Anti-pattern: do NOT hand-decide read-vs-run and hand-spin a lit pass or a plan —
 run ``rv review gap-scope <project> <gap-id> <scope>``; it routes by error-asymmetry
-and auto-authors the remedy scope (SR-GAP-ROUTE §5L.17 when-to-use).
+and auto-authors the remedy scope (§5L.17 when-to-use).
 
 Stdlib only.
-sr: SR-LR-1, SR-LR-2, SR-GAP-ROUTE, SR-GAP-CLOSE
 """
 from __future__ import annotations
 
@@ -111,16 +110,14 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
 
     When to use: use ``rv review new <project> <scope> --question '...'`` to scaffold
     a pre-registered, saturation-gated literature review with protocol-freeze,
-    internal saturation loop, and coverage-critic gates (SR-LR-1, §5L.1).
+    internal saturation loop, and coverage-critic gates (§5L.1).
 
     Anti-pattern: do NOT hand-collect papers without ``rv review new`` — the hand-run
     path has no protocol-freeze (anti-fishing), no saturation curve, and no rejects-only
     critic (the coverage gate cannot fire without the artifacts ``rv review new`` scaffolds).
-
-    sr: SR-LR-1
     """
     desc = (
-        "Staged, pre-registered, saturation-gated literature review loop (SR-LR-1).\n"
+        "Staged, pre-registered, saturation-gated literature review loop.\n"
         "'rv review new' is the ONLY path that creates the protocol-freeze +\n"
         "saturation-curve + coverage-critic framework.\n"
         "Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json\n"
@@ -256,7 +253,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_scan_p = sub.add_parser(
         "gap-scan",
         help=(
-            "Detect typed research gaps from the OKF corpus (SR-LR-2, §5L.7). "
+            "Detect typed research gaps from the OKF corpus (§5L.7). "
             "Rejects-only screen — PROPOSES gaps, never auto-fires a pass. "
             "Surfaces a COUNT; run `rv review gap-scope` to author a targeted review."
         ),
@@ -275,9 +272,9 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_scope_p = sub.add_parser(
         "gap-scope",
         help=(
-            "Auto-author a targeted scope from a gap record (§5L.7, SR-GAP-ROUTE §5L.16). "
+            "Auto-author a targeted scope from a gap record (§5L.7, §5L.16). "
             "--target literature: Part-1 review scope (default). "
-            "--target experiment: SR-PLAN-1 pre-registration plan. "
+            "--target experiment: pre-registration plan. "
             "Default target = gap.suggested_route (computed at gap-scan time)."
         ),
     )
@@ -297,17 +294,17 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         default=None,
         metavar="{literature|experiment}",
         help=(
-            "Route target. 'literature': Part-1 review scope (SR-LR-1). "
-            "'experiment': SR-PLAN-1 pre-registration plan. "
+            "Route target. 'literature': Part-1 review scope. "
+            "'experiment': pre-registration plan. "
             "Omit to use the gap's suggested_route field (computed at scan time)."
         ),
     )
 
-    # ── gap-route (alias for gap-scope — SR-GAP-ROUTE §5L.17 discoverability) ──
+    # ── gap-route (alias for gap-scope — §5L.17 discoverability) ──
     gap_route_p = sub.add_parser(
         "gap-route",
         help=(
-            "Thin alias for gap-scope (SR-GAP-ROUTE discoverability hook). "
+            "Thin alias for gap-scope (discoverability hook). "
             "Routes a gap to the appropriate remedy scope by error-asymmetry. "
             "When to use: do NOT hand-decide read-vs-run — run gap-route and confirm."
         ),
@@ -334,7 +331,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_list_p = sub.add_parser(
         "gap-list",
         help=(
-            "List gap records for the project (SR-GAP-ROUTE §5L.16 + SR-GAP-CLOSE §5L.20). "
+            "List gap records for the project (§5L.16 + §5L.20). "
             "--status proven-open shows the run-candidate queue; "
             "--status promoted shows promoted contribution candidates; "
             "--status reopened shows gaps that re-entered open-routing."
@@ -348,7 +345,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help=(
             "Filter by gap status. 'proven-open' = the run-candidate queue "
             "(gaps whose targeted lit pass saturated without closing). "
-            "'promoted' = proven-open gaps promoted to manuscript candidate (SR-GAP-CLOSE). "
+            "'promoted' = proven-open gaps promoted to manuscript candidate. "
             "'reopened' = gaps that re-entered open-routing via structural reopen signal."
         ),
     )
@@ -357,7 +354,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_close_p = sub.add_parser(
         "gap-close",
         help=(
-            "Stamp a gap's closure status with provenance edge (§5L.8 + SR-GAP-CLOSE §5L.21(1)). "
+            "Stamp a gap's closure status with provenance edge (§5L.8 + §5L.21(1)). "
             "--by is REQUIRED for closed-supported/closed-filled (charter §2); "
             "REJECTED for proven-open (nothing closed it). "
             "proven-open = targeted pass saturated without closing → candidate contribution."
@@ -383,7 +380,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         default=None,
         metavar="<note-ref>",
         help=(
-            "SR-GAP-CLOSE: the OKF note that resolved this gap (e.g. 'literature/smith2024', "
+            "The OKF note that resolved this gap (e.g. 'literature/smith2024', "
             "'experiments/exp-001'). REQUIRED for closed-supported and closed-filled "
             "(a closed gap with no closer is un-auditable — charter §2). "
             "REJECTED for proven-open (nothing closed it). "
@@ -395,11 +392,11 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_promote_p = sub.add_parser(
         "gap-promote",
         help=(
-            "SR-GAP-CLOSE §5L.21(2): promote a proven-open gap to 'promoted' status (human-only). "
+            "§5L.21(2): promote a proven-open gap to 'promoted' status (human-only). "
             "proven-open → promoted; writes promoted_to: <ref> in the gap FM. "
             "Requires --to <manuscript-section/claim>. "
             "Anti-pattern: do NOT hand-write a contribution from a proven-open gap — "
-            "run gap-promote so the claim round-trips the SR-MS-2 support-matcher."
+            "run gap-promote so the claim round-trips the support-matcher."
         ),
     )
     gap_promote_p.add_argument(
@@ -464,7 +461,7 @@ def run(args: argparse.Namespace) -> int:
     elif subcommand == "gap-scan":
         return _run_gap_scan(args)
     elif subcommand in ("gap-scope", "gap-route"):
-        # gap-route is a thin alias for gap-scope (SR-GAP-ROUTE §5L.17 discoverability)
+        # gap-route is a thin alias for gap-scope (§5L.17 discoverability)
         return _run_gap_scope(args)
     elif subcommand == "gap-list":
         return _run_gap_list(args)
@@ -695,7 +692,7 @@ def _run_tips(args: argparse.Namespace) -> int:
 
 
 def _run_gap_scan(args: argparse.Namespace) -> int:
-    """Run the gap-scan screen (SR-LR-2 §5L.7)."""
+    """Run the gap-scan screen (§5L.7)."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_scan
 
@@ -729,7 +726,7 @@ def _run_gap_scan(args: argparse.Namespace) -> int:
 
 
 def _run_gap_scope(args: argparse.Namespace) -> int:
-    """Auto-author a targeted scope from a gap record (SR-LR-2 §5L.7 + SR-GAP-ROUTE §5L.16).
+    """Auto-author a targeted scope from a gap record (§5L.7 + §5L.16).
 
     gap-route is a thin alias — both call this function.
     """
@@ -756,7 +753,7 @@ def _run_gap_scope(args: argparse.Namespace) -> int:
         # result is either a Phase-1 manifest dict (literature) or
         # {'plan_note_path': ..., 'gap_context_path': ...} (experiment)
         if "plan_note_path" in result:
-            # Experiment arm (SR-GAP-ROUTE)
+            # Experiment arm
             plan_path = Path(result["plan_note_path"])
             context_path = Path(result["gap_context_path"])
             print(f"rv review {verb}: experiment plan: {plan_path}")
@@ -768,7 +765,7 @@ def _run_gap_scope(args: argparse.Namespace) -> int:
             print(f"  4. rv plan freeze <run-id> {plan_path}")
             print(f"rv review {verb}: run NEVER auto-fires — human-go required at step 3.")
         else:
-            # Literature arm (SR-LR-2 behavior)
+            # Literature arm (unchanged behavior)
             pnd = cfg.project_notes_dir(args.project)
             review_dir = pnd / "reviews" / args.scope
             print(f"rv review {verb}: Phase-1 manifest: {review_dir / 'phase1-dag.json'}")
@@ -787,7 +784,7 @@ def _run_gap_scope(args: argparse.Namespace) -> int:
 
 
 def _run_gap_list(args: argparse.Namespace) -> int:
-    """List gap records for the project (SR-GAP-ROUTE §5L.16 run-candidate queue)."""
+    """List gap records for the project (§5L.16 run-candidate queue)."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_list
 
@@ -807,7 +804,7 @@ def _run_gap_list(args: argparse.Namespace) -> int:
             return 0
         for item in results:
             route = ""
-            # Show suggested_route if available (SR-GAP-ROUTE)
+            # Show suggested_route if available
             gap_path_hint = ""
             print(
                 f"  {item['id']}: [{item['type']}] {item['claim']}"
@@ -826,7 +823,7 @@ def _run_gap_list(args: argparse.Namespace) -> int:
 
 
 def _run_gap_close(args: argparse.Namespace) -> int:
-    """Stamp a gap's closure status with provenance edge (SR-LR-2 §5L.8 + SR-GAP-CLOSE §5L.21(1))."""
+    """Stamp a gap's closure status with provenance edge (§5L.8 + §5L.21(1))."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_close
 
@@ -836,7 +833,7 @@ def _run_gap_close(args: argparse.Namespace) -> int:
         print(f"rv review gap-close: config error: {e}", file=sys.stderr)
         return 1
 
-    # SR-GAP-CLOSE: --by flag (maps to closer_ref parameter)
+    # --by flag (maps to closer_ref parameter)
     closer_ref = getattr(args, "by", None)
 
     try:
@@ -969,7 +966,7 @@ def _run_relations(args: argparse.Namespace) -> int:
 
 
 def _run_gap_promote(args: argparse.Namespace) -> int:
-    """Promote a proven-open gap to 'promoted' status (SR-GAP-CLOSE §5L.21(2), human-only)."""
+    """Promote a proven-open gap to 'promoted' status (§5L.21(2), human-only)."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_promote
 
@@ -992,7 +989,7 @@ def _run_gap_promote(args: argparse.Namespace) -> int:
         print(f"rv review gap-promote: gap {args.gap_id!r} status → promoted")
         print(f"rv review gap-promote: promoted_to: {to_ref!r}")
         print(
-            "rv review gap-promote: the promoted claim must round-trip the SR-MS-2 "
+            "rv review gap-promote: the promoted claim must round-trip the "
             "support-matcher when cited in the manuscript. If the manuscript sentence "
             "asserting significance is unsupported, the matcher returns [ABSENT] — "
             "the honesty backstop."

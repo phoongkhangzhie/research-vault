@@ -1,23 +1,23 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""gap_scan.py — SR-LR-2 + SR-GAP-ROUTE: gap-driven pass + gap-loop router.
+"""gap_scan.py — gap-driven pass + gap-loop router.
 
-SR-LR-2: The gap-driven pass is Part-1 (SR-LR-1) invoked with a scope protocol
+The gap-driven pass is Part-1 of the review loop invoked with a scope protocol
 AUTO-AUTHORED from a detected gap record — no new DAG mechanism.
 
-SR-GAP-ROUTE (SR-LR-3): the gap-loop ROUTER makes ``cmd_gap_scope`` route-aware
+The gap-loop ROUTER makes ``cmd_gap_scope`` route-aware
 (read-vs-run by error-asymmetry).  A ``suggested_route:`` frontmatter field is
 written at scan time; ``cmd_gap_scope --target`` (default = suggested_route) authors
-either a literature scope (SR-LR-1) or an experiment plan (SR-PLAN-1).
+either a literature scope (Part-1 review) or an experiment pre-registration plan.
 
 Architecture:
   - gap-detect = a rejects-only SCREEN (no auto-fire; human authorizes each pass).
   - ``rv review gap-scan`` is the surface: a cheap OKF graph query over findings/,
     concepts/, mocs/, and an optional support_matcher meta dict.
   - The screen emits typed ``gaps/<id>.md`` notes (first-class OKF type,
-    SR-LR-2 §5L.8 D-GAP-1) with a ``suggested_route:`` field (§5L.14–5L.15).
+    §5L.8 D-GAP-1) with a ``suggested_route:`` field (§5L.14–5L.15).
   - ``rv review gap-scope <gap-id> <scope> [--target {literature|experiment}]``
-    auto-authors either a Part-1 review scope (literature, unchanged) or a
-    SR-PLAN-1 pre-registration plan (experiment, new).
+    auto-authors either a Part-1 review scope (literature, unchanged) or an
+    experiment pre-registration plan (experiment, new).
   - ``rv review gap-route`` is a thin alias for ``gap-scope`` (discoverability).
   - ``rv review gap-close <gap-id> --status <status>`` stamps closure.
   - ``rv review gap-list [--status <status>]`` lists gap records.
@@ -41,16 +41,15 @@ Closure statuses (§5L.8):
   closed-filled     — support-degree crossed threshold / MOC region filled
   proven-open       — targeted pass saturated without closing → candidate contribution
 
-Suggested routes (§5L.14–5L.15, SR-GAP-ROUTE):
+Suggested routes (§5L.14–5L.15):
   literature  — read-first (knowledge_void, contradictory in intro/background)
   experiment  — run-first fast-path (evaluation_void in results section)
   triage      — human decides (gaps with unknown/absent section)
 
 The router SUGGESTS; it never auto-fires a run.  cmd_gap_scope is the human-authorized
-step; the experiment route additionally rides SR-PLAN-1's own human-go-plan gate.
+step; the experiment route additionally rides the experiment plan's own human-go-plan gate.
 
 Stdlib only.
-sr: SR-LR-2, SR-GAP-ROUTE
 """
 from __future__ import annotations
 
@@ -70,7 +69,7 @@ from research_vault.note import _parse_frontmatter as _pfm
 # Constants
 # ---------------------------------------------------------------------------
 
-# Suggested-route tokens (SR-GAP-ROUTE §5L.14)
+# Suggested-route tokens (§5L.14)
 ROUTE_LITERATURE = "literature"   # read-first (low-regret default)
 ROUTE_EXPERIMENT = "experiment"   # run-first fast-path (evaluation_void in results)
 ROUTE_TRIAGE = "triage"           # human decides (unknown/absent section)
@@ -101,7 +100,7 @@ GAP_TYPES: frozenset[str] = frozenset({
     GAP_TYPE_EVALUATION_VOID,
 })
 
-# Valid closure statuses (§5L.8 + §5L.20 SR-GAP-CLOSE)
+# Valid closure statuses (§5L.8 + §5L.20)
 # NOTE: "superseded" is INTENTIONALLY ABSENT — DEFERRED to note.cmd_check (D-CLOSE-3).
 # The vanished-anchor hygiene check belongs in the existing validation path, not here.
 GAP_STATUSES: frozenset[str] = frozenset({
@@ -109,8 +108,8 @@ GAP_STATUSES: frozenset[str] = frozenset({
     "closed-supported",
     "closed-filled",
     "proven-open",
-    "promoted",   # SR-GAP-CLOSE: proven-open → promoted (human-only via gap-promote)
-    "reopened",   # SR-GAP-CLOSE: structural reopen signal; re-enters open-routing
+    "promoted",   # proven-open → promoted (human-only via gap-promote)
+    "reopened",   # structural reopen signal; re-enters open-routing
 })
 
 # Default support-degree threshold (D-GAP-2)
@@ -157,7 +156,7 @@ class GapRecord:
     claim: str
     why: str
     status: str = "open"
-    # SR-GAP-ROUTE: suggested_route is written to the gap note frontmatter at scan time.
+    # suggested_route is written to the gap note frontmatter at scan time.
     # Set by suggest_route() in cmd_gap_scan; "" means not yet computed.
     suggested_route: str = ""
     # Optional: extra context from the detector (not written to frontmatter by default)
@@ -173,7 +172,7 @@ class GapRecord:
 
 
 # ---------------------------------------------------------------------------
-# Router: suggest_route pure function (SR-GAP-ROUTE §5L.14–5L.15)
+# Router: suggest_route pure function (§5L.14–5L.15)
 # ---------------------------------------------------------------------------
 
 def suggest_route(gap_type: str, meta: dict[str, Any]) -> str:
@@ -413,7 +412,7 @@ def _gap_note_path(project_notes_dir: Path, gap_id: str) -> Path:
 def _render_gap_note(rec: GapRecord, gap_id: str) -> str:
     """Render a gap record to OKF note markdown (frontmatter + body)."""
     today = datetime.date.today().isoformat()
-    # SR-GAP-ROUTE: compute suggested_route if not already set on the record
+    # Compute suggested_route if not already set on the record
     route = rec.suggested_route or suggest_route(rec.type, rec._meta)
     lines = [
         "---",
@@ -523,7 +522,7 @@ def cmd_gap_scan(
         gid = _gap_id(rec.type, rec.anchor, rec.claim)
         if gid in existing:
             # Gap already recorded — idempotent-preserve guard.
-            # SR-GAP-CLOSE §5L.21(3): check for CONSERVATIVE structural reopen signals.
+            # §5L.21(3): check for CONSERVATIVE structural reopen signals.
             existing_status = existing[gid]
             _check_reopen_signal(
                 rec=rec,
@@ -532,7 +531,7 @@ def cmd_gap_scan(
                 pnd=pnd,
             )
             continue
-        # SR-GAP-ROUTE: stamp suggested_route on the record before writing
+        # Stamp suggested_route on the record before writing
         rec.suggested_route = suggest_route(rec.type, rec._meta)
         _write_gap_note(rec, gid, pnd)
         new_gaps.append(rec)
@@ -549,7 +548,7 @@ def _check_reopen_signal(
 ) -> None:
     """Evaluate whether a re-firing detector should trigger a 'reopened' status.
 
-    SR-GAP-CLOSE §5L.21(3) — CONSERVATIVE structural reopen (one signal):
+    §5L.21(3) — CONSERVATIVE structural reopen (one signal):
 
     Signal — contradictory re-fires on a MACHINE-CLOSED status (§5L.21 / #30):
         The concept note re-acquired both supported_by AND contradicted_by edges.
@@ -608,7 +607,7 @@ def _check_reopen_signal(
 def _stamp_reopened(pnd: Path, gid: str, reason: str) -> None:
     """Stamp a gap as 'reopened' with a reason field (in-place, retains closed_by:).
 
-    SR-GAP-CLOSE §5L.21(3): reopened carries 'reopened_reason: <signal>' AND
+    §5L.21(3): reopened carries 'reopened_reason: <signal>' AND
     retains 'closed_by:' as history — surface, never drop (charter §2).
     """
     gap_path = _gap_note_path(pnd, gid)
@@ -638,13 +637,13 @@ def cmd_gap_scope(
     config: Any = None,
     target: str | None = None,
 ) -> "dict[str, Any]":
-    """Auto-author a targeted scope from a gap record (SR-LR-2 §5L.7 + SR-GAP-ROUTE §5L.16).
+    """Auto-author a targeted scope from a gap record (§5L.7 + §5L.16).
 
-    SR-GAP-ROUTE: the ``target`` parameter (``literature`` | ``experiment``) controls
+    The ``target`` parameter (``literature`` | ``experiment``) controls
     which arm is taken.  Default = the gap note's ``suggested_route:`` field (computed
     at scan time by ``suggest_route()``), with a ``literature`` fallback for back-compat.
 
-    ``--target literature`` (unchanged from SR-LR-2):
+    ``--target literature`` (unchanged):
       - question ← gap.claim (exact words, the anti-fabrication spine)
       - seed_queries ← per-type templates derived from the claim
       - snowball_seeds ← anchor's citekeys (backed_by/supported_by)
@@ -658,10 +657,10 @@ def cmd_gap_scope(
       - Creates experiments/<gap_id>-plan.md with plan_kind: preregistration,
         research question ← gap.claim verbatim (anti-fabrication spine),
         covers: skeleton, and a diagnosis-table stub (D-ROUTE-3).
-      - Writes _gap-context.md adjacent to the plan note with SR-PLAN-1 next-step chain.
+      - Writes _gap-context.md adjacent to the plan note with the plan's next-step chain.
       - Prints the next-step chain: rv plan check → human-go-plan → rv plan freeze.
       - Returns a dict with 'plan_note_path' key.
-      - ZERO new DAG mechanism — the operator then drives the existing SR-PLAN-1 loop.
+      - ZERO new DAG mechanism — the operator then drives the existing plan-check loop.
     """
     from research_vault.config import load_config as _load_config
 
@@ -730,7 +729,7 @@ def _cmd_gap_scope_literature(
     pnd: Path,
     config: Any,
 ) -> "dict[str, Any]":
-    """Literature arm of cmd_gap_scope (SR-LR-2 behavior, unchanged)."""
+    """Literature arm of cmd_gap_scope (unchanged Part-1 review-scope behavior)."""
     from research_vault.review import cmd_new
 
     # Derive snowball seeds from the anchor note (backed_by / supported_by)
@@ -764,7 +763,7 @@ def _cmd_gap_scope_literature(
 
     # Write _gap-context.md with the auto-authored protocol seed
     context_lines = [
-        "# Gap-context (auto-authored — SR-LR-2 §5L.7)",
+        "# Gap-context (auto-authored — §5L.7)",
         "",
         f"**Gap ID:** {gap_id}",
         f"**Gap type:** {gap_type}",
@@ -818,17 +817,17 @@ def _cmd_gap_scope_experiment(
     pnd: Path,
     config: Any,
 ) -> "dict[str, Any]":
-    """Experiment arm of cmd_gap_scope (SR-GAP-ROUTE §5L.16 — new, mirrors lit path).
+    """Experiment arm of cmd_gap_scope (§5L.16 — new, mirrors lit path).
 
     Creates experiments/<gap_id>-plan.md with:
       - plan_kind: preregistration
       - research question ← gap.claim verbatim (anti-fabrication spine)
       - covers: skeleton (empty, no path-prefix violations for K-2)
       - diagnosis-table stub that passes K-2 shape-lint (D-ROUTE-3)
-    Writes _gap-context.md adjacent to the plan note with SR-PLAN-1 next-step chain.
+    Writes _gap-context.md adjacent to the plan note with the plan's next-step chain.
 
     ZERO new mechanism: mirrors note.cmd_new via direct file write (same pattern as
-    _render_gap_note); the operator then drives the SR-PLAN-1 loop externally.
+    _render_gap_note); the operator then drives the plan-check loop externally.
     """
     today = datetime.date.today().isoformat()
     plan_id = f"{gap_id}-plan"
@@ -857,8 +856,8 @@ def _cmd_gap_scope_experiment(
         "",
         f"# Pre-registration Plan: {plan_id}",
         "",
-        "<!-- SR-GAP-ROUTE: auto-authored from gap record. Fill in before rv plan freeze. -->",
-        "<!-- Driven by the SR-PLAN-1 loop: rv plan check → human-go-plan → rv plan freeze -->",
+        "<!-- Auto-authored from gap record. Fill in before rv plan freeze. -->",
+        "<!-- Driven by the plan-check loop: rv plan check → human-go-plan → rv plan freeze -->",
         "",
         "## Research Question (verbatim from gap claim — anti-fabrication spine)",
         "",
@@ -898,9 +897,9 @@ def _cmd_gap_scope_experiment(
     ]
     plan_path.write_text("\n".join(plan_content_lines), encoding="utf-8")
 
-    # Write _gap-context.md adjacent to the plan note with SR-PLAN-1 next-step chain
+    # Write _gap-context.md adjacent to the plan note with the plan's next-step chain
     context_lines = [
-        "# Gap-context (auto-authored — SR-GAP-ROUTE §5L.16)",
+        "# Gap-context (auto-authored — §5L.16)",
         "",
         f"**Gap ID:** {gap_id}",
         f"**Gap type:** {gap_type}",
@@ -919,7 +918,7 @@ def _cmd_gap_scope_experiment(
         "avoidable-waste) favors running. (If this result already exists but was never",
         "captured, capture it rather than re-run.)",
         "",
-        "## SR-PLAN-1 next steps",
+        "## Plan-check next steps",
         "",
         f"1. Fill in the plan note: `{plan_path}`",
         "2. Add supporting ablation IDs to `covers:` in the frontmatter (bare IDs only).",
@@ -1017,11 +1016,11 @@ def cmd_gap_close(
     closer_ref: str | None = None,
     config: Any = None,
 ) -> Path:
-    """Stamp a gap's closure status with bidirectional provenance edge (SR-GAP-CLOSE §5L.21(1)).
+    """Stamp a gap's closure status with bidirectional provenance edge (§5L.21(1)).
 
     ``status`` must be one of: closed-supported, closed-filled, proven-open.
 
-    SR-GAP-CLOSE provenance rules (§5L.24 D-CLOSE-1):
+    Provenance rules (§5L.24 D-CLOSE-1):
     - ``closer_ref`` is REQUIRED for ``closed-supported`` / ``closed-filled``.
       A closed gap with no closer is un-auditable (charter §2). The closer is the
       specific that must be recorded — a literature/ note, experiments/ result, etc.
@@ -1121,7 +1120,7 @@ def cmd_gap_promote(
     to_ref: str | None,
     config: Any = None,
 ) -> Path:
-    """Promote a proven-open gap to the 'promoted' status (SR-GAP-CLOSE §5L.21(2)).
+    """Promote a proven-open gap to the 'promoted' status (§5L.21(2)).
 
     Human-only verb: proven-open → promoted. Writes ``promoted_to: <to_ref>`` in
     the gap frontmatter.
@@ -1136,7 +1135,7 @@ def cmd_gap_promote(
 
     The honesty backstop (zero new mechanism — §5L.21(2)):
     A contribution claim written from a promoted gap is ultimately a drafted manuscript
-    sentence that round-trips through the SR-MS-2 support-matcher. If the significance
+    sentence that round-trips through the support-matcher. If the significance
     is asserted without backing, the matcher returns [ABSENT]. The honesty backstop
     polices its own promotions; gap-promote is a data-write.
 
@@ -1229,7 +1228,7 @@ def cmd_gap_list(
 def open_gap_count(project: str, *, config: Any = None) -> int:
     """Return the count of open (unresolved) gaps for a project.
 
-    SR-GAP-CLOSE D-CLOSE-4: counts BOTH 'open' AND 'reopened' gaps — both are
+    D-CLOSE-4: counts BOTH 'open' AND 'reopened' gaps — both are
     actionable and must be visible as needing-work. 'promoted' and 'closed-*'
     remain uncounted (terminal / provenance states).
 
@@ -1256,7 +1255,7 @@ def open_gap_count(project: str, *, config: Any = None) -> int:
 
 
 def proven_open_count(project: str, *, config: Any = None) -> int:
-    """Return the count of proven-open gaps for a project (SR-GAP-ROUTE §5L.16).
+    """Return the count of proven-open gaps for a project (§5L.16).
 
     A proven-open gap is a first-class run-candidate: the targeted lit pass
     saturated without closing the gap, confirming it is a candidate contribution.

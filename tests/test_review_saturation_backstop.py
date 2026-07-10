@@ -1,4 +1,4 @@
-"""test_review_saturation_backstop.py — SR-LR-1-BACKSTOP acceptance tests.
+"""test_review_saturation_backstop.py — saturation-backstop acceptance tests.
 
 The review-snowball loop's PRIMARY saturation rule (2-consecutive-zero
 rounds, §5L.2) is principled but not guaranteed to converge — an
