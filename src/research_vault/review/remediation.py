@@ -613,6 +613,77 @@ def _extract_snowball_hits(tool_op_result: Any) -> list[Any]:
 _RELAXED_PER_CELL_LIMIT = 40  # a backtrack round intensifies vs. the sweep op's default 20
 
 
+# ---------------------------------------------------------------------------
+# PR-3b fix (Shape B): wiring the backtrack's newly-found counter-papers
+# through PR-3's ``review.incremental_relate`` module (D-5b) — previously
+# built + unit-tested but UNREACHED from the running loop (zero references
+# from dag/verbs.py). This section owns ONLY the plumbing: filtering
+# ``added`` citekeys to those with an already-distilled
+# ``literature/<citekey>.md`` note (``run_incremental_relate``'s own caller
+# contract).
+#
+# The direct-API judge defaults PR-3b originally shipped here
+# (``_default_relate_fn`` calling the deleted ``gates/_llm.py`` helper)
+# were doctrine-violating (PR-F deleted the direct-API judge path
+# wholesale) and are DELETED, not patched. This module NEVER self-judges —
+# ``relate_fn``/``escalate_relate_fn`` must be an already-resolved,
+# synchronous callable (a dict-lookup over harness cold-judge fan-out
+# verdicts) injected by the caller. Production callers get that resolved
+# callable from ``review.relate_judge_seam`` via ``dag/verbs.py``'s
+# ``approve-review`` branch (the harness emit/ingest fan-out is
+# asynchronous + two-phase — it cannot live inside a synchronous per-pair
+# ``relate_fn(a, b) -> edge`` default; see ``relate_judge_seam``'s module
+# docstring for the full "why Shape B" reasoning). ``run_incremental_relate``
+# itself (concept-graph blocking, bidirectional write, island escalation) is
+# untouched — this is plumbing only.
+# ---------------------------------------------------------------------------
+
+def run_incremental_relate_for_new_citekeys(
+    new_citekeys: list[str],
+    *,
+    literature_dir: Path,
+    baseline_citekeys: set[str],
+    relate_fn: Callable[[str, str], dict[str, str] | None] | None = None,
+    escalate_relate_fn: Callable[[str, set[str]], list[dict[str, str]]] | None = None,
+) -> dict[str, Any]:
+    """The wiring layer between a remediation/backtrack round's ``added``
+    citekeys and ``review.incremental_relate.run_incremental_relate``.
+
+    Filters ``new_citekeys`` to those with an already-existing
+    ``literature/<citekey>.md`` note (``run_incremental_relate``'s own
+    caller contract — full-distill happens upstream/out-of-band). A
+    corpus-row-only citekey with no distilled note yet is surfaced in
+    ``not_yet_distilled`` — never silently dropped, never crashed on
+    (charter §2).
+
+    ``relate_fn``/``escalate_relate_fn`` are passed straight through to
+    ``run_incremental_relate`` — NEVER resolved to a live-API default here.
+    A caller with nothing to relate (every ``new_citekeys`` entry not yet
+    distilled) never even reaches the requirement (``run_incremental_relate``
+    is only called when ``ready`` is non-empty); a caller WITH something to
+    relate but ``relate_fn=None`` gets ``run_incremental_relate``'s own
+    fail-closed ``RuntimeError`` (this module never self-judges — PR-3b fix,
+    Shape B).
+
+    Returns ``{"result": IncrementalRelateResult | None, "not_yet_distilled":
+    [...]}``. ``result`` is ``None`` only when EVERY new citekey lacks a
+    distilled note (nothing to relate this round).
+    """
+    from .incremental_relate import run_incremental_relate
+
+    ready = [ck for ck in new_citekeys if (literature_dir / f"{ck}.md").exists()]
+    not_yet_distilled = [ck for ck in new_citekeys if ck not in ready]
+
+    if not ready:
+        return {"result": None, "not_yet_distilled": not_yet_distilled}
+
+    result = run_incremental_relate(
+        ready, literature_dir=literature_dir, baseline_citekeys=baseline_citekeys,
+        relate_fn=relate_fn, escalate_relate_fn=escalate_relate_fn,
+    )
+    return {"result": result, "not_yet_distilled": not_yet_distilled}
+
+
 def run_directed_remediation_round(
     run_state_meta: dict[str, Any],
     *,
@@ -623,6 +694,9 @@ def run_directed_remediation_round(
     out_dir: Path,
     config: Any = None,
     tool_op_fn: Callable[..., Any] | None = None,
+    literature_dir: Path | None = None,
+    relate_fn: Callable[[str, str], dict[str, str] | None] | None = None,
+    escalate_relate_fn: Callable[[str, set[str]], list[dict[str, str]]] | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
     """Execute ONE bounded, POLE-DIRECTED critic-backtrack round (§D-5a).
@@ -638,9 +712,20 @@ def run_directed_remediation_round(
     never authors a new one — there is no code path here that can inject a
     new query.
 
-    Returns ``{"round": int, "added": [...], "stopped": str | None}`` — the
-    same shape as ``run_remediation_round`` (``stopped == "zero-new"`` when
-    even the harder sweep+snowball found nothing new for this pole).
+    PR-3b: on a non-empty round, the newly-added counter-papers are ALSO
+    flowed through ``run_incremental_relate_for_new_citekeys`` (concept-
+    graph-blocked candidate generation, bidirectional edge write, island
+    escalation — see that function + ``incremental_relate.py``). This is
+    the wiring this PR closes: previously the round appended corpus rows
+    only, and ``review.incremental_relate`` was never reached from here.
+    ``literature_dir`` defaults to the standard ``project_notes_dir/
+    literature`` layout derived from ``corpus_path`` (which lives at
+    ``project_notes_dir/reviews/<scope>/_corpus.md``) when not given.
+
+    Returns ``{"round": int, "added": [...], "stopped": str | None,
+    "related": {...} | None}`` — ``related`` (new in this PR) is the dict
+    ``run_incremental_relate_for_new_citekeys`` returns, or ``None`` when
+    the round found zero-new (nothing to relate).
     """
     if tool_op_fn is None:
         tool_op_fn = run_tool_op
@@ -730,95 +815,15 @@ def run_directed_remediation_round(
         deviations_path=deviations_path, now=now,
     )
 
-    return {"round": rs_state["rounds_used"], "added": added, "stopped": None}
-
-
-_CRITIC_OUTER_LOOP_GUARD = 10
-
-
-def run_bounded_critic_backtrack(
-    run_state_meta: dict[str, Any],
-    initial: DispositionResult,
-    critic_payload: dict[str, Any],
-    *,
-    protocol_path: Path,
-    corpus_path: Path,
-    deviations_path: Path,
-    out_dir: Path,
-    critic_note_path: Path | None = None,
-    config: Any = None,
-    tool_op_fn: Callable[..., Any] | None = None,
-    max_rounds: int | None = None,
-) -> DispositionResult:
-    """Drive the resolve -> backtrack -> re-resolve cycle to a non-
-    ``CRITIC_BACKTRACK`` disposition (mirrors ``run_bounded_remediation``'s
-    shape exactly).
-
-    Every iteration re-reads ``critic_note_path`` (when given) to re-derive
-    the ``critic_payload`` for the NEXT ``resolve_coverage_critic`` call —
-    the critic note itself does not change across backtrack rounds in this
-    engineering-level loop (a fresh coverage-critic pass is an agent step,
-    out of scope here); passing ``critic_note_path=None`` (the default) just
-    re-uses the SAME ``critic_payload`` across iterations, which is correct
-    for a hermetic unit test that only cares about the remediation-state
-    bookkeeping (``rounds_used``/``last_wave_added_count``), not a live
-    re-critique.
-    """
-    if tool_op_fn is None:
-        tool_op_fn = run_tool_op
-    disposition = initial
-    payload = critic_payload
-    target = critic_payload.get("remediation_target") or {}
-    pole = target.get("pole")
-
-    for _ in range(_CRITIC_OUTER_LOOP_GUARD):
-        if disposition.disposition != CRITIC_BACKTRACK:
-            return disposition
-        if not pole:
-            # Defence-in-depth: resolve_coverage_critic never returns
-            # CRITIC_BACKTRACK without a valid pole, but a caller-supplied
-            # `initial` bypassing that function could — fail-closed rather
-            # than dispatch a pole-less (i.e. whole-matrix) backtrack.
-            return DispositionResult(
-                HALT_DECLARE,
-                "run_bounded_critic_backtrack: CRITIC_BACKTRACK disposition "
-                "but no 'pole' in remediation_target — fail-closed.",
-                {},
-            )
-
-        run_directed_remediation_round(
-            run_state_meta,
-            pole=pole,
-            protocol_path=protocol_path,
-            corpus_path=corpus_path,
-            deviations_path=deviations_path,
-            out_dir=out_dir,
-            config=config,
-            tool_op_fn=tool_op_fn,
-        )
-
-        if critic_note_path is not None:
-            from . import check_coverage_critic_verdict
-
-            payload = check_coverage_critic_verdict(critic_note_path)
-
-        from .autonomy import classify_disposition, evaluation_from_structural_payload
-
-        base = classify_disposition(evaluation_from_structural_payload(payload))
-        if base.disposition == HALT_DECLARE:
-            return base
-
-        disposition = resolve_coverage_critic(
-            base,
-            payload,
-            remediation_state=run_state_meta.get("critic_backtrack_state"),
-            max_rounds=max_rounds,
-        )
-
-    return DispositionResult(
-        HALT_DECLARE,
-        "critic-backtrack outer-loop guard exhausted — this should be "
-        "unreachable under a correctly-configured critic_backtrack_max_rounds; "
-        "fail-closed rather than loop unboundedly.",
-        {},
+    # PR-3b: flow the newly-found counter-papers through the concept-graph
+    # -blocked incremental relate (never re-fans-out over the whole corpus,
+    # never re-relates the existing baseline — ``existing_citekeys`` here is
+    # the baseline BEFORE this round's additions, matching "against already-
+    # distilled EXISTING notes" per incremental_relate.py's contract).
+    lit_dir = literature_dir if literature_dir is not None else corpus_path.parent.parent / "literature"
+    related = run_incremental_relate_for_new_citekeys(
+        added, literature_dir=lit_dir, baseline_citekeys=existing_citekeys,
+        relate_fn=relate_fn, escalate_relate_fn=escalate_relate_fn,
     )
+
+    return {"round": rs_state["rounds_used"], "added": added, "stopped": None, "related": related}

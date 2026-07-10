@@ -257,6 +257,14 @@ _AUTONOMOUS_GATE_IDS = frozenset({
 
 _TOOL_AUTO_EXEC_MAX_PASSES = 100  # bounded loop guard — never spin forever
 
+# PR-3b fix (Shape B): a defence-in-depth backstop on the approve-review
+# incremental-relate round-stepping loop — distinct from
+# ``review.style.get_critic_backtrack_max_rounds`` (which bounds ROUNDS
+# specifically); this bounds the outer resolve<->round<->relate-fanout loop
+# itself, in case a wiring bug ever made rounds_used fail to increment.
+# Should be unreachable under a correctly-configured max_rounds.
+_CRITIC_RELATE_LOOP_GUARD = 20
+
 
 def _missing_produces_artifacts(node: dict[str, Any]) -> list[str]:
     """Return the declared ``produces:`` values (as strings) that are NOT
@@ -774,10 +782,15 @@ def _evaluate_autonomous_gate(
         # PR-3 (D-5a): extended further, mirroring the coverage-gate branch
         # above — ``review.remediation.resolve_coverage_critic`` may upgrade
         # a REVISE (from a PURE counter-position/thin-pole BLOCK) to
-        # CRITIC_BACKTRACK, immediately driven to completion in-process by
-        # ``review.remediation.run_bounded_critic_backtrack`` before this
-        # function returns. A mixed BLOCK (any PROTOCOL-DRIFT/DIRECTION-
-        # STARVED/TAG-UNDER-COUNTING reason present) is untouched —
+        # CRITIC_BACKTRACK. PR-3b fix (Shape B): the round-stepping loop is
+        # driven HERE (not via ``review.remediation.run_bounded_critic_
+        # backtrack``, which assumed a synchronous in-process relate_fn) —
+        # each round's newly-found counter-papers' relate judgment goes
+        # through the harness cold emit/ingest fan-out (``review.
+        # relate_judge_seam``), which is asynchronous across DAG
+        # invocations; see the CRITIC_BACKTRACK branch below for the full
+        # emit/ingest orchestration. A mixed BLOCK (any PROTOCOL-DRIFT/
+        # DIRECTION-STARVED/TAG-UNDER-COUNTING reason present) is untouched —
         # `resolve_coverage_critic` passes it straight through, REVISE/HALT
         # exactly as before this PR.
         critic_node = nodes_lookup.get("review-coverage-critic")
@@ -809,16 +822,184 @@ def _evaluate_autonomous_gate(
             remediation_state=run_state.meta.get("critic_backtrack_state"),
         )
         if disposition.disposition == _autonomy.CRITIC_BACKTRACK:
-            disposition = _remediation.run_bounded_critic_backtrack(
-                run_state.meta,
-                disposition,
-                payload,
-                protocol_path=review_dir / "_protocol.md",
-                corpus_path=review_dir / "_corpus.md",
-                deviations_path=review_dir / "_deviations.md",
-                out_dir=review_dir,
-                critic_note_path=critic_note_path,
-            )
+            # PR-3b fix (Shape B): the newly-found counter-papers' relate
+            # judgment (does paper A relate to paper B) is a JUDGE, so it
+            # routes the CC harness cold emit/ingest fan-out — never a
+            # synchronous in-process LLM call (PR-3b's original
+            # ``_default_relate_fn`` called ``gates._llm`` directly,
+            # doctrine-violating; PR-F deleted that path wholesale).
+            #
+            # The fan-out is async + two-phase, so it CANNOT live inside a
+            # single synchronous in-process loop assuming a synchronous
+            # ``relate_fn`` that drives the whole resolve->round->re-resolve
+            # cycle to completion in one call (PR-3b removed exactly that
+            # shell — ``review.remediation.run_bounded_critic_backtrack`` —
+            # once this DAG-level round-stepping replaced it).
+            # This DAG layer instead drives round-stepping itself, pausing
+            # between rounds to emit a batched relate-task set and, on a
+            # LATER invocation (once the hub's cold judges have written
+            # ``_relate-verdicts.json``), ingesting the verdicts and
+            # injecting a resolved SYNCHRONOUS dict-lookup ``relate_fn``/
+            # ``escalate_relate_fn`` down into ``run_incremental_relate``
+            # (via ``review.relate_judge_seam`` — see its module docstring
+            # for the full "why Shape B, not Shape A" reasoning).
+            from ..review import _parse_corpus_citekeys
+            from ..review import relate_judge_seam as _rjs
+            from ..review.incremental_relate import run_incremental_relate
+
+            protocol_path = review_dir / "_protocol.md"
+            corpus_path = review_dir / "_corpus.md"
+            deviations_path = review_dir / "_deviations.md"
+            literature_dir = review_dir.parent.parent / "literature"
+            judge_dir = review_dir / "judge" / "relate"
+
+            # The pole is resolved ONCE from the triggering critic_payload
+            # and reused for every round this backtrack drives — same
+            # single-pole-per-backtrack behavior as the removed synchronous
+            # shell it replaced.
+            target = payload.get("remediation_target") or {}
+            pole = target.get("pole")
+
+            _noop_relate_fn = lambda a, b: None  # noqa: E731 — phase-1: append only, never judge yet
+            _noop_escalate_fn = lambda a, baseline: []  # noqa: E731
+
+            for _ in range(_CRITIC_RELATE_LOOP_GUARD):
+                if disposition.disposition != _autonomy.CRITIC_BACKTRACK:
+                    break
+                if not pole:
+                    disposition = _autonomy.DispositionResult(
+                        _autonomy.HALT_DECLARE,
+                        "approve-review: CRITIC_BACKTRACK disposition but no "
+                        "'pole' in remediation_target — fail-closed.",
+                        {},
+                    )
+                    break
+
+                if _rjs.relate_fanout_present(judge_dir):
+                    # Phase 2: a relate fan-out from a PRIOR call is ready to
+                    # ingest — write this round's edges, then re-derive the
+                    # disposition to see if ANOTHER round is needed.
+                    try:
+                        ingest_result = _rjs.ingest_relate_verdicts_from_dir(judge_dir)
+                    except _rjs.CanaryAbortError as e:
+                        disposition = _autonomy.DispositionResult(
+                            _autonomy.HALT_DECLARE,
+                            f"approve-review: incremental-relate judge CANARY "
+                            f"ABORTED — the fan-out judge is untrustworthy: {e}",
+                            {},
+                        )
+                        break
+                    if ingest_result["halt"]:
+                        disposition = _autonomy.DispositionResult(
+                            _autonomy.HALT_DECLARE,
+                            "; ".join(ingest_result["not_run"]) or ingest_result["halt_reason"],
+                            {},
+                        )
+                        break
+
+                    tasks_doc = _rjs.read_relate_tasks_doc(judge_dir) or {}
+                    round_new_citekeys = tasks_doc.get("new_citekeys", [])
+                    round_baseline_citekeys = set(tasks_doc.get("baseline_citekeys", []))
+                    edges = ingest_result["edges"]
+                    escalated_edges = ingest_result["escalated_edges"]
+
+                    def _resolved_relate_fn(a: str, b: str, _edges: dict = edges) -> dict[str, str] | None:
+                        return _edges.get((a, b))
+
+                    def _resolved_escalate_fn(
+                        a: str, baseline: set[str], _esc: dict = escalated_edges,
+                    ) -> list[dict[str, str]]:
+                        return [
+                            {"candidate": b, **v}
+                            for (aa, b), v in _esc.items() if aa == a
+                        ]
+
+                    if round_new_citekeys:
+                        run_incremental_relate(
+                            round_new_citekeys,
+                            literature_dir=literature_dir,
+                            baseline_citekeys=round_baseline_citekeys,
+                            relate_fn=_resolved_relate_fn,
+                            escalate_relate_fn=_resolved_escalate_fn,
+                        )
+                    _rjs.clear_relate_fanout(judge_dir)
+
+                    payload = _cccv(critic_note_path)
+                    base2 = _autonomy.classify_disposition(
+                        _autonomy.evaluation_from_structural_payload(payload)
+                    )
+                    if base2.disposition == _autonomy.HALT_DECLARE:
+                        disposition = base2
+                        break
+                    disposition = _remediation.resolve_coverage_critic(
+                        base2, payload,
+                        remediation_state=run_state.meta.get("critic_backtrack_state"),
+                    )
+                    continue
+
+                # Phase 1: run ONE bounded, pole-directed round (search +
+                # append + deviation + freeze) with a no-op relate — nothing
+                # is judged yet. If the round found new counter-papers, emit
+                # their concept-graph-blocked candidate pairs as a batched
+                # relate-task set and PAUSE (HALT-DECLARE, awaiting the
+                # hub's cold judge fan-out); if it found nothing new, no
+                # relate is needed — re-derive the disposition and continue.
+                baseline_before = set(_parse_corpus_citekeys(corpus_path))
+                round_result = _remediation.run_directed_remediation_round(
+                    run_state.meta,
+                    pole=pole,
+                    protocol_path=protocol_path,
+                    corpus_path=corpus_path,
+                    deviations_path=deviations_path,
+                    out_dir=review_dir,
+                    literature_dir=literature_dir,
+                    relate_fn=_noop_relate_fn,
+                    escalate_relate_fn=_noop_escalate_fn,
+                )
+                added = round_result.get("added", [])
+                if added:
+                    pairs, islands = _rjs.build_relate_candidate_pairs(
+                        added, literature_dir=literature_dir, baseline_citekeys=baseline_before,
+                    )
+                    _rjs.emit_relate_tasks_to_dir(
+                        judge_dir, pairs, islands,
+                        literature_dir=literature_dir,
+                        baseline_citekeys=baseline_before,
+                        new_citekeys=added,
+                        scope=review_dir.name,
+                    )
+                    disposition = _autonomy.DispositionResult(
+                        _autonomy.HALT_DECLARE,
+                        f"approve-review: pole-directed backtrack round found "
+                        f"{len(added)} new counter-paper(s) — incremental-"
+                        f"relate judge fan-out emitted under {judge_dir} "
+                        "(awaiting the hub's cold judge fan-out). Re-run "
+                        "approve-review once _relate-verdicts.json is "
+                        "written to write the relate edges and continue.",
+                        {"pending_relate_pairs": len(pairs), "pending_islands": len(islands)},
+                    )
+                    break
+
+                payload = _cccv(critic_note_path)
+                base2 = _autonomy.classify_disposition(
+                    _autonomy.evaluation_from_structural_payload(payload)
+                )
+                if base2.disposition == _autonomy.HALT_DECLARE:
+                    disposition = base2
+                    break
+                disposition = _remediation.resolve_coverage_critic(
+                    base2, payload,
+                    remediation_state=run_state.meta.get("critic_backtrack_state"),
+                )
+            else:
+                disposition = _autonomy.DispositionResult(
+                    _autonomy.HALT_DECLARE,
+                    "approve-review: incremental-relate backtrack outer-loop "
+                    "guard exhausted — this should be unreachable under a "
+                    "correctly-configured critic_backtrack_max_rounds; "
+                    "fail-closed rather than loop unboundedly.",
+                    {},
+                )
         return disposition
 
     raise ValueError(f"_evaluate_autonomous_gate: {node_id!r} is not an autonomous gate id")

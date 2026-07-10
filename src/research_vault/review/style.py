@@ -946,8 +946,11 @@ DEFAULT_CRITIC_BACKTRACK_MAX_ROUNDS: int = 2
 def get_critic_backtrack_max_rounds(config: Any = None) -> int:
     """Return the autonomous, pole-directed critic-backtrack round cap.
 
-    One of the independent termination bounds on
-    ``review.remediation.run_bounded_critic_backtrack``: even a pathological
+    One of the independent termination bounds on the pole-directed
+    backtrack loop (``review.remediation.resolve_coverage_critic`` +
+    ``dag/verbs.py``'s approve-review round-stepping, which drives
+    ``review.remediation.run_directed_remediation_round`` one round at a
+    time across the harness's async cold-judge fan-out): even a pathological
     "one new counter-paper per wave" pole cannot exceed this many autonomous
     backtrack rounds before the loop HALT-DECLAREs (a counter-position/
     thin-pole BLOCK is a hard structural gate, axis 4 — it cannot declare

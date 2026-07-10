@@ -38,6 +38,125 @@ to become `== "untracked"`. Full suite: 3841 passed, 3 skipped.
 ledger's `_gaps` list (does not flip `ledger_complete`) — mirrors the
 `_p_block` honest-no-op pattern for an optional pass that was never
 wired/run, and matches the dispatch's explicit "non-gating" framing.
+## 2026-07-10 (PR-3b fix — Shape B: harness fan-out for the relate judge)
+
+### Done
+Diagnosis: PR-3b's shipped `_default_relate_fn` called the direct-API judge
+path (the now-deleted `gates/_llm.py` helper) — doctrine-violating (PR-F
+deleted that path wholesale + added `test_no_direct_api_judge.py`'s
+grep-guard, which this made RED on the rebased branch). An earlier fix
+brief (Shape A: "the module default does emit/ingest itself") was withdrawn
+by the architect as architecturally wrong — a synchronous per-pair
+`relate_fn(a, b) -> edge` signature cannot BE the harness's async, two-phase
+emit/ingest fan-out.
+
+Shipped the corpus architect's Shape B instead: the DAG layer
+(`dag/verbs.py`'s `approve-review` branch) drives the round-stepping +
+emit/ingest orchestration itself, injecting an already-resolved
+SYNCHRONOUS dict-lookup down into `run_incremental_relate`'s
+`relate_fn`/`escalate_relate_fn` — no API call, no async, anywhere below
+the DAG layer.
+
+- **`review/remediation.py`** — deleted `_default_relate_fn`/
+  `_default_escalate_relate_fn`/`_DEFAULT_RELATE_JUDGE_MODEL`/
+  `_relate_judge_configured`/the `RV_JUDGE_MODEL`/`ANTHROPIC_API_KEY` reads/
+  the `gates._llm` import. `run_incremental_relate_for_new_citekeys` no
+  longer resolves `relate_fn`/`escalate_relate_fn` to a live-API default —
+  it passes them straight through; this module never self-judges.
+- **`review/incremental_relate.py`** — `run_incremental_relate` now
+  fail-closes on `relate_fn=None` (`RuntimeError`) instead of crashing on
+  `NoneType not callable` deep in the loop. Candidate generation
+  (concept-graph blocking), bidirectional write, and island escalation are
+  UNTOUCHED.
+- **`review/relate_judge_seam.py`** (new) — the harness emit/ingest
+  fan-out for the relate judgment, built on `gates.judge_seam` (same
+  primitives `counter_facet_guard.py`/`support_matcher.py` already use — no
+  new injection convention). `build_relate_candidate_pairs` REUSES
+  `incremental_relate.build_concept_index`/`note_concepts` directly — same
+  blocking rule, no new candidate-generation mechanism. Fail-closed default
+  is `NONE` (no edge, not a hard BLOCK) — a missing/unparseable verdict
+  just means "don't write this edge," never fabricates one. A whole-batch
+  canary failure still HALTs (untrustworthy judge).
+- **`dag/verbs.py`**'s `approve-review` branch — replaced the in-process
+  call to `run_bounded_critic_backtrack` (which assumed a synchronous
+  relate_fn) with a round-stepping loop it drives itself: phase 1 runs ONE
+  bounded round with a no-op relate (search+append only), computes the
+  neighborhood-blocked candidate pairs for any newly-added counter-papers,
+  emits them as a batched relate-task set, and PAUSES (HALT-DECLARE,
+  awaiting the hub's cold judge fan-out); phase 2 (a later invocation, once
+  `_relate-verdicts.json` exists) ingests the verdicts, writes the
+  bidirectional edges via `run_incremental_relate` directly, clears the
+  fan-out, and re-derives the disposition to see if another round is
+  needed. `run_bounded_critic_backtrack`/`run_directed_remediation_round`
+  stay in `remediation.py` (still unit-tested directly) but are no longer
+  the DAG's call path for this branch.
+
+Tests: `tests/test_pr3b_incremental_relate_wiring.py` rewritten for the
+two-phase flow — call 1 asserts the emit fired with EXACTLY the
+neighborhood-blocked candidate pairs (1 relate-pair task vs. a 20-paper
+corpus) + the island's escalate tasks cover the whole baseline; a fake
+hub-verdicts file is written; call 2 asserts the bidirectional edges
+materialized and the fan-out is cleared. Mutation-check: stubbing
+`incremental_relate.run_incremental_relate` (simulating this fix's DAG
+wiring reverted) proves the stub IS reached but writes zero edges — RED
+under the old direct-API code (import error / grep-guard failure), GREEN
+here. Full suite: 3828 passed, 3 skipped.
+
+### Open / next
+- Returns to the corpus architect for re-fit-check before merge.
+
+## 2026-07-10 (PR-3b — wire incremental-relate into the remediation backtrack)
+
+### Done
+PR-3 shipped `review/incremental_relate.py` built + unit-tested, but
+`dag/verbs.py` had ZERO references to it — nothing in the running loop
+called it, so the operator's "don't let new papers stay disjoint from the
+corpus" constraint was unenforced. Closed the reachability gap (plumbing
+only, no change to `incremental_relate.py`'s own mechanism):
+
+- **`review.remediation.run_incremental_relate_for_new_citekeys`** (new) —
+  the wiring layer between a backtrack round's `added` citekeys and
+  `run_incremental_relate`. Filters `added` to citekeys with an
+  already-distilled `literature/<citekey>.md` note (the module's own
+  caller contract — full-distill stays out of scope, upstream/out-of-band);
+  a not-yet-distilled citekey is surfaced in `not_yet_distilled`, never
+  silently dropped. Defaults `relate_fn`/`escalate_relate_fn` to REAL,
+  live-judge-backed callables (`_default_relate_fn`/`_default_escalate_
+  relate_fn`, a cold LLM call over the two already-written note bodies)
+  when the caller passes `None` — mirrors the `tool_op_fn=None ->
+  run_tool_op` / `judge_fn=None -> _default_judge_fn` seam already used by
+  `counter_facet_guard.py`/`manuscript/check_gates.py` (no new injection
+  convention); fail-closed (no edges) when no judge is configured.
+- **`run_directed_remediation_round`/`run_bounded_critic_backtrack`** now
+  accept `literature_dir`/`relate_fn`/`escalate_relate_fn` and flow the
+  round's `added` citekeys through the wiring layer on every non-empty
+  round. `dag/verbs.py`'s `approve-review` branch now REACHES
+  `review.incremental_relate.run_incremental_relate` (previously zero
+  references) — `literature_dir` derived from the standard
+  `project_notes_dir/literature` layout.
+
+Tests: `tests/test_pr3b_incremental_relate_wiring.py` — a reachability
+acceptance test driving the backtrack END-TO-END via
+`dag.verbs._evaluate_autonomous_gate("approve-review", ...)` (the real
+wired DAG path, not a direct module-unit call), asserting bidirectional
+edge writes, neighborhood-blocked candidate generation (1 relate call vs.
+a 20-paper corpus), and an island newcomer escalating ONLY itself;
+mutation-checked — a companion test proves the SAME scenario produces NO
+edges when the wiring function is stubbed (confirmed by hand: reverting the
+wiring call in `run_directed_remediation_round` makes the acceptance test
+go RED). Plus a cheap contract test binding the coverage-critic tips'
+`COUNTER-POSITION THIN-POLE` phrasing literally to
+`_COUNTER_POSITION_BULLET_PREFIX`.
+
+### Open / next
+- Full-distill (fetching + reading + writing a `literature/<citekey>.md`
+  note for a newly-found counter-paper) is still out-of-band/agent work —
+  this PR assumes it has already happened by the time a round's `added`
+  citekeys reach the relate wiring; a citekey without a note yet is
+  surfaced as `not_yet_distilled`, not related this round.
+- The structured `block_classes:` field (0.3.1 fast-follow) stays out of
+  scope, per PR-3b's brief.
+- Returns to the architect for fit-check before merge.
 
 ## 2026-07-10 (PR-3 — critic-BLOCK -> bounded backtrack + incremental-relate)
 
