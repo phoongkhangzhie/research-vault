@@ -115,6 +115,29 @@ def test_write_search_hits_no_evidence_when_both_absent(tmp_path):
     assert out.exists()
 
 
+def test_evidence_snippet_default_cap_is_800_chars():
+    """Pre-publish curation finding (v0.3.0): 280 chars was too short to
+    verify the "measured human baseline" inclusion axis during the sweep/
+    snowball candidate-table screen — that signal often sits deeper in the
+    abstract. Raise the default cap 280 -> 800 (display-cap only; the full
+    abstract is already fetched onto ``hit.abstract``, this only changes how
+    much of it is written to the table)."""
+    from research_vault.sources.sweep import _evidence_snippet
+
+    long_abstract = "word " * 300  # far more than 800 chars raw
+    hit = _hit("Long Abstract Paper", doi="10.1/long")
+    hit.abstract = long_abstract
+    snippet = _evidence_snippet(hit)
+    assert len(snippet) == 800
+    assert snippet.endswith("…")
+
+    short_abstract = "A short abstract well under the cap."
+    hit2 = _hit("Short Abstract Paper", doi="10.1/short")
+    hit2.abstract = short_abstract
+    snippet2 = _evidence_snippet(hit2)
+    assert snippet2 == short_abstract  # written whole, no truncation
+
+
 def test_write_search_hits_venue_and_year_present(tmp_path):
     hit = _hit("Venued Paper", doi="10.1/venue")
     hit.venue = "NeurIPS"
