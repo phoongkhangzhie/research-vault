@@ -119,8 +119,9 @@ def test_e2e_dangling_cite_blocks_dropped_equation_signals_transform_wired(cfg):
 
     # NG-7: lit-review's Phase-2 is now the single-pass phase2_builder —
     # outline -> draft -> assemble, replacing the per-section chain. Every
-    # section's tip (references/introduction/thematic-sections/appendix-
-    # methods) is consolidated into the ONE "draft" node's spec.
+    # tip (references/introduction/thematic-sections) is consolidated into
+    # the ONE "draft" node's spec — PR-B: appendix-methods too, but as a
+    # separate DEVLOG/control-note block, never a `report.md` section.
     node_specs = {n["id"]: n.get("spec", "") for n in manifest["nodes"]}
     assert set(node_specs) >= {"outline", "draft", "assemble", "approve-manuscript"}
     draft_spec = node_specs["draft"]
@@ -137,9 +138,10 @@ def test_e2e_dangling_cite_blocks_dropped_equation_signals_transform_wired(cfg):
         "The frozen framework branches never reached the consolidated draft "
         "spec (RD-4: spine-at-a-glance folded into introduction)."
     )
-    # RD-3: the PRISMA ledger renders into 'appendix-methods' (was
-    # 'prisma-scope'), honestly, no frozen corpus in this test — proves the
-    # renderer's output flows into the spec at all.
+    # RD-3/PR-B: the PRISMA ledger renders into the 'appendix-methods'
+    # DEVLOG/control-note block (was 'prisma-scope'), honestly, no frozen
+    # corpus in this test — proves the renderer's output flows into the
+    # spec at all (never a dead key, CR2 on PR-B/#223).
     assert "PRISMA scope & method" in draft_spec
 
     # ── Simulate a drafted manuscript: a dangling [[citekey]] AND a dropped
