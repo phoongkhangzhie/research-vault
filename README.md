@@ -148,11 +148,13 @@ search fires (L-2 anti-fishing gate); a deterministic width-sweep (`review-searc
 is screened by a thin agent judgment layer (`review-screen`) before the
 deterministic snowball walks forward (cited-by) and backward (references)
 (`review-snowball`), whose raw corpus is then concept-tagged and curated
-(`review-curate`); Phase-2 relate nodes fan out over every in-scope paper.
-OKF outputs: `literature/*.md` notes, `concepts/`, `mocs/`, and typed gap notes.
+(`review-curate`); Phase-2 relate nodes fan out over every in-scope paper. On
+GO, `approve-review` auto-emits and auto-starts the manuscript loop over the
+same scope (no hand-run hand-off). OKF outputs: `literature/*.md` notes,
+`concepts/`, `mocs/`, and typed gap notes.
 
 ```mermaid
-flowchart LR
+flowchart TD
     scope[review-scope] --> HG1[["[HG] approve-protocol"]]
     HG1 --> search[review-search] --> screen[review-screen] --> snowball[review-snowball]
     snowball --> curate[review-curate]
@@ -160,6 +162,7 @@ flowchart LR
     GATE2 --> relate["relate-*\n(Phase-2 fan-out)"]
     relate --> synthesize[review-synthesize] --> critic[review-coverage-critic]
     critic --> GATE3[["approve-review (auto-resolved)"]]
+    GATE3 -. "auto-emits + auto-starts" .-> MS[["manuscript loop\n(new tree, slug == scope)"]]
 ```
 
 ### Experiment (`rv experiment`)
@@ -170,7 +173,7 @@ gate conditional ablations; all findings are ratified before write-up.
 OKF outputs: `experiments/*.md` (pre-reg), `findings/*.md`.
 
 ```mermaid
-flowchart LR
+flowchart TD
     plan --> critic[plan-critic]
     critic --> HG1[["[HG] human-go-plan"]]
     HG1 --> harness["harness\n(×N mains)"] --> hr[harness-review]
@@ -188,8 +191,10 @@ flowchart LR
 Turns a saturated `notes/` corpus into a submittable document, **by type**
 (`type: lit-review` — a survey/review paper — ships today; a future
 `type: experiment-paper` is designed for, not built). The organizing framework
-is a human commitment, never machine-discovered; every draft/revise round
-re-fires hard fidelity gates (hermetic references build, citation-resolve, coverage,
+is chosen by an ensemble — N cold, independent lens candidates (each a
+different organizing lens) are synthesized into a single backbone by select-and-graft,
+then vetted by a cold, rejects-only critic before the gate auto-commits; every
+draft/revise round re-fires hard fidelity gates (hermetic references build, citation-resolve, coverage,
 equation-fidelity) and, when a judge is configured, LLM-judged support-matcher +
 cold-read gates; a 2-round × 3-reviewer conference-style board scores FLOOR axes
 by MIN-across-3 (never average) plus a **mandatory** annotated-bibliography
@@ -198,9 +203,20 @@ canary that must not clear. OKF inputs: `literature/`, `concepts/`, `mocs/`,
 (markdown only — no LaTeX).
 
 ```mermaid
-flowchart LR
-    scope[scope] --> fp[framework-propose] --> GATE1[["approve-framework (auto-resolved)"]]
-    GATE1 --> sec["section(s)\n(type-generic)"] --> assemble
+flowchart TD
+    scope[scope] --> L1[framework-lens-by-chronology]
+    scope --> L2[framework-lens-by-mechanism]
+    scope --> L3[framework-lens-by-outcome]
+    scope --> L4[framework-lens-by-population]
+    scope --> L5[framework-lens-by-theoretical-tension]
+    L1 --> syn[framework-synthesize]
+    L2 --> syn
+    L3 --> syn
+    L4 --> syn
+    L5 --> syn
+    syn --> fcritic[framework-critic]
+    fcritic --> GATE1[["approve-framework (auto-resolved)"]]
+    GATE1 --> sec["section(s)\n(type-generic, sequential)"] --> assemble
     assemble --> GATE2[["approve-manuscript (auto-resolved)"]]
 ```
 

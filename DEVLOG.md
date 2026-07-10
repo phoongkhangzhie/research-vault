@@ -1,3 +1,37 @@
+## 2026-07-09 (README loop diagrams: LR->TD + re-grounded to the current topology)
+
+### Done
+- **Switched all three README loop mermaid diagrams from `flowchart LR` to
+  `flowchart TD`** so GitHub stacks nodes vertically and renders them at
+  readable size (the LR layout scaled each to one tiny wide row).
+- **Re-grounded the diagrams against the real builders** (not a summary):
+  read `dag/catalog.py` topology_summaries, `review/__init__.py`
+  (`_build_phase1_manifest`/`_build_phase2_manifest`),
+  `manuscript/types/lit_review.py::phase1_builder`, and
+  `manuscript/__init__.py::_build_phase2_manifest`.
+  - **Review loop:** added the `approve-review -> manuscript loop` auto-emit
+    edge (approve-review auto-emits + auto-starts a new manuscript tree,
+    slug == scope; grounded in `dag/verbs.py`). Preserved the
+    `(auto-resolved)` labels on `coverage-gate`/`approve-review`.
+  - **Manuscript loop:** replaced the stale `framework-propose -> [HG]
+    approve-framework` with the current ensemble — `scope -> 5x
+    framework-lens-<lens> (fan-out) -> framework-synthesize ->
+    framework-critic -> approve-framework (auto-resolved)`, using the 5 real
+    default `FRAMEWORK_LENSES` node ids; approve-framework shown autonomous.
+  - **Experiment loop:** shape verified unchanged against the catalog; LR->TD only.
+- **Prose fix:** the "organizing framework is a human commitment, never
+  machine-discovered" claim was stale (contradicts the auto-resolved gate) —
+  rewrote it to describe the ensemble -> select-and-graft synthesis -> cold
+  critic -> auto-commit path.
+
+### Decisions
+- Show the 5 concrete default lens node ids (grounded in `FRAMEWORK_LENSES`)
+  rather than a generic `lens-*` placeholder — the fan-out reads honestly and
+  matches the builder.
+- README-only change; did NOT add the deliverable-choice branch (not merged).
+- Verified all three blocks parse/render via mermaid-cli (system Chrome) — no
+  parse errors.
+
 ## 2026-07-09 (framework-gate-autonomy, option A: N-lens ensemble -> select-and-graft synthesis -> cold critic -> auto-GO)
 
 ### Done
