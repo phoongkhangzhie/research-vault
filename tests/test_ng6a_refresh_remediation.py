@@ -669,6 +669,27 @@ class TestEndToEndThroughDagVerbs:
         rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-curate", status="succeeded"))
         assert rc == 0
 
+        # review-relevance-verify-prep (TOOL, real op) auto-executed above;
+        # review-relevance-verify (COLD agent) "completes": a canary-clean,
+        # all-IN verdict for the well-formed citekeys (PR-1, design
+        # 2026-07-10-trustworthy-curation-relevance-gate-design.md §3b) —
+        # the malformed `[WEIRD]` row never parses into a verify-input row
+        # in the first place (parse_corpus_table_with_abstract only picks
+        # up `[NEW]` rows), so it needs no verdict entry.
+        from research_vault.review.relevance import (
+            CANARY_IN_SCOPE_CITEKEY, CANARY_OFF_DOMAIN_CITEKEY, IN, OFF_DOMAIN,
+        )
+
+        verdict_path = review_dir / "_relevance-verdict.md"
+        lines = ["| Citekey | Verdict |", "|---|---|"]
+        for ck in citekeys:
+            lines.append(f"| {ck} | {IN} |")
+        lines.append(f"| {CANARY_IN_SCOPE_CITEKEY} | {IN} |")
+        lines.append(f"| {CANARY_OFF_DOMAIN_CITEKEY} | {OFF_DOMAIN} |")
+        verdict_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-relevance-verify", status="succeeded"))
+        assert rc == 0
+
     def test_backstop_gate_autonomously_remediates_and_go_with_residues_on_exhaustion(
         self, tmp_instance, monkeypatch,
     ):
@@ -815,6 +836,24 @@ class TestRefreshCliVerb:
         corpus_path = review_dir / "_corpus.md"
         _corpus_note(corpus_path, ["alpha2024"])
         cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-curate", status="succeeded"))
+
+        # review-relevance-verify-prep (TOOL, real op) auto-executed above;
+        # review-relevance-verify (COLD agent) "completes": a canary-clean,
+        # all-IN verdict (PR-1, design 2026-07-10-trustworthy-curation-
+        # relevance-gate-design.md §3b) so coverage-gate can resolve.
+        from research_vault.review.relevance import (
+            CANARY_IN_SCOPE_CITEKEY, CANARY_OFF_DOMAIN_CITEKEY, IN, OFF_DOMAIN,
+        )
+
+        verdict_path = review_dir / "_relevance-verdict.md"
+        verdict_path.write_text(
+            "| Citekey | Verdict |\n|---|---|\n"
+            f"| alpha2024 | {IN} |\n"
+            f"| {CANARY_IN_SCOPE_CITEKEY} | {IN} |\n"
+            f"| {CANARY_OFF_DOMAIN_CITEKEY} | {OFF_DOMAIN} |\n",
+            encoding="utf-8",
+        )
+        cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-relevance-verify", status="succeeded"))
         cmd_tick(argparse.Namespace(run_id=run_id))  # stamps corpus_freeze v1
 
         rs = store.load(run_id)

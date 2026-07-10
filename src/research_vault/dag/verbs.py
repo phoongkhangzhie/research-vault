@@ -410,6 +410,53 @@ def _evaluate_autonomous_gate(
             search_hits_produces = search_hits_node.get("produces")
             if isinstance(search_hits_produces, dict):
                 search_hits_path = search_hits_produces.get("_search_hits.md")
+
+        # Relevance-verify (PR-1, design 2026-07-10-trustworthy-curation-
+        # relevance-gate-design.md §3c) — evaluated BEFORE the corpus_freeze
+        # stamp/deviation check below, so any auto-prune this performs is
+        # folded into the VERY FIRST frozen baseline (never flagged as an
+        # undeclared deviation against its own pruning on a later
+        # re-evaluation — idempotent by construction, see
+        # ``review.relevance.prune_off_domain_from_corpus``).
+        #
+        # Optional-collaborator pattern (mirrors approve-manuscript's
+        # board-result handling, above): a manifest that never wired
+        # ``review-relevance-verify`` (a pre-PR-1 manifest, or a minimal
+        # hand-built test manifest exercising the saturation disposition in
+        # isolation) is an honest no-op — proceed exactly as before this
+        # feature, never a forced HALT for a node that was never supposed
+        # to be there. A manifest that DOES declare the node but never
+        # produced its artifact IS a floor-gate failure (see
+        # ``review.relevance.classify_relevance_verdict``'s ``not exists``
+        # branch) — HALT-DECLARE, same as the analogous coverage-critic
+        # producer-lookup check above.
+        relevance_verify_node = nodes_lookup.get("review-relevance-verify")
+        relevance_result = None
+        if relevance_verify_node is not None:
+            from ..review import relevance as _relevance
+
+            relevance_produces = relevance_verify_node.get("produces")
+            relevance_ref = (
+                relevance_produces.get("_relevance-verdict.md")
+                if isinstance(relevance_produces, dict) else None
+            )
+            relevance_payload = (
+                _relevance.check_relevance_verifier(Path(relevance_ref))
+                if relevance_ref
+                else {
+                    "exists": False, "canary_aborted": False,
+                    "empty_verdict_set": True, "verdicts": {}, "malformed": [],
+                }
+            )
+            relevance_result = _relevance.classify_relevance_verdict(relevance_payload)
+            if relevance_result.disposition == _autonomy.HALT_DECLARE:
+                return relevance_result
+            if relevance_result.disposition == _autonomy.GO_WITH_RESIDUE:
+                off_domain_citekeys = relevance_result.evidence.get("off_domain_citekeys", [])
+                _relevance.prune_off_domain_from_corpus(
+                    corpus_path, off_domain_citekeys, review_dir / "_relevance-residue.md",
+                )
+
         try:
             from ..review import corpus_freeze as _corpus_freeze
             from ..review import check_source_coverage
@@ -457,6 +504,23 @@ def _evaluate_autonomous_gate(
                     corpus_path=corpus_path,
                     deviations_path=deviations_path,
                     coverage_gaps_path=gaps_path,
+                )
+
+            # Fold in the relevance-verify residue (PR-1): most-severe-wins,
+            # same pattern approve-framework/approve-manuscript already use
+            # to combine a structural disposition with a second, orthogonal
+            # gate's disposition. By construction relevance_result here is
+            # never HALT-DECLARE (that already returned above) — only GO or
+            # GO-WITH-RESIDUE reach this point, so this can only ever ADD a
+            # residue annotation, never downgrade a saturation-based GO.
+            if relevance_result is not None:
+                _severity = {
+                    _autonomy.HALT_DECLARE: 3, _autonomy.GO_WITH_RESIDUE: 2,
+                    _autonomy.REVISE: 1, _autonomy.GO: 0,
+                }
+                disposition = max(
+                    (disposition, relevance_result),
+                    key=lambda r: _severity[r.disposition],
                 )
             return disposition
         except _CorpusSchemaError as e:

@@ -96,14 +96,17 @@ def test_relate_tips_scopes_lean_no_acquisition_subsystem():
 
 def test_review_tips_keys_unchanged():
     """PR-L1 extends an existing tip's PROSE — it does not add a new DAG node
-    or a new tips key. REVIEW_TIPS_KEYS has 6 keys (review_search_tips/
-    review_snowball_tips were later replaced by review_screen_tips/
-    review_curate_tips — review-loop-nodekind-drift-fix, a breaking key
-    change unrelated to PR-L1's own scope)."""
+    or a new tips key. REVIEW_TIPS_KEYS has 7 keys as of PR-1 (2026-07-10
+    trustworthy-curation-relevance-gate design): review_search_tips/
+    review_snowball_tips were replaced by review_screen_tips/
+    review_curate_tips (review-loop-nodekind-drift-fix), and PR-1 added
+    review_relevance_verify_tips for the new cold final-corpus verifier
+    node — both breaking key changes unrelated to PR-L1's own scope."""
     assert REVIEW_TIPS_KEYS == frozenset({
         "review_scope_tips",
         "review_screen_tips",
         "review_curate_tips",
+        "review_relevance_verify_tips",
         "per_paper_relate_tips",
         "review_synthesize_tips",
         "review_critic_tips",

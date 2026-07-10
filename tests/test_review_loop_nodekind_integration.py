@@ -203,7 +203,31 @@ def _drive_through_screen(run_id, review_dir, store, seed_line: str = "10.1000/f
         _REALISTIC_SCREEN_MD_TEMPLATE.format(seed_ids=seed_ids), encoding="utf-8",
     )
     rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-screen", status="succeeded"))
-    assert rc == 0  # review-snowball (tool, real op) auto-executes in this same call
+    assert rc == 0  # review-snowball (tool, real op) + review-relevance-screen (tool, real op) auto-execute in this same call
+
+
+def _complete_relevance_verify(run_id, review_dir, store, real_citekeys: list[str]) -> None:
+    """review-relevance-verify-prep (tool, real op) auto-executes when
+    review-curate completes; this hand-completes the COLD agent node with a
+    canary-clean, all-IN verdict (PR-1, design 2026-07-10-trustworthy-
+    curation-relevance-gate-design.md §3b) so coverage-gate can resolve."""
+    from research_vault.dag.verbs import cmd_complete
+    from research_vault.review.relevance import (
+        CANARY_IN_SCOPE_CITEKEY, CANARY_OFF_DOMAIN_CITEKEY, IN, OFF_DOMAIN,
+    )
+
+    verdict_path = review_dir / "_relevance-verdict.md"
+    lines = ["| Citekey | Verdict |", "|---|---|"]
+    for ck in real_citekeys:
+        lines.append(f"| {ck} | {IN} |")
+    lines.append(f"| {CANARY_IN_SCOPE_CITEKEY} | {IN} |")
+    lines.append(f"| {CANARY_OFF_DOMAIN_CITEKEY} | {OFF_DOMAIN} |")
+    verdict_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    rc = cmd_complete(argparse.Namespace(
+        run_id=run_id, node_id="review-relevance-verify", status="succeeded",
+    ))
+    assert rc == 0
 
 
 class TestRealRunnerEndToEnd:
@@ -277,6 +301,8 @@ class TestRealRunnerEndToEnd:
         )
         rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-curate", status="succeeded"))
         assert rc == 0
+
+        _complete_relevance_verify(run_id, review_dir, store, ["snowballed2024"])
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
@@ -392,6 +418,8 @@ class TestBackstopPath:
         )
         rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-curate", status="succeeded"))
         assert rc == 0
+
+        _complete_relevance_verify(run_id, review_dir, store, ["alpha2024"])
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0

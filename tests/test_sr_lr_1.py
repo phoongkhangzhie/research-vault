@@ -91,14 +91,17 @@ def test_review_tips_keys_all_present():
 
 
 def test_review_tips_keys_fixed_set():
-    """REVIEW_TIPS_KEYS contains exactly the 6 required keys (Option C hybrid,
+    """REVIEW_TIPS_KEYS contains exactly the 7 required keys (Option C hybrid,
     review-loop-nodekind-drift-fix: review_search_tips/review_snowball_tips
     replaced by review_screen_tips/review_curate_tips — a breaking key
-    change, see the spec §F)."""
+    change, see the spec §F; PR-1 2026-07-10 trustworthy-curation-relevance-
+    gate design adds review_relevance_verify_tips for the new cold final-
+    corpus verifier node, a second breaking key change)."""
     assert REVIEW_TIPS_KEYS == frozenset({
         "review_scope_tips",
         "review_screen_tips",
         "review_curate_tips",
+        "review_relevance_verify_tips",
         "per_paper_relate_tips",
         "review_synthesize_tips",
         "review_critic_tips",
