@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""adapters/github_ci.py — SR-CIF: tier-3 GitHub Actions CI fetch as a SignalSource.
+"""adapters/github_ci.py — tier-3 GitHub Actions CI fetch as a SignalSource.
 
 GitHubActionsSource implements the SignalSource Protocol (status.py:47) and plugs
 into the existing ``extra_sources`` seam (control.py:453, 293, 334).
 
 TIER-3 / OPT-IN — requires ``gh`` (GitHub CLI) and a GitHub repository.
 A zero-infra adopter never constructs this source; reconcile/status/approve stay
-fully local on the SR-CI local artifact gate.
+fully local on the local artifact gate.
 
 HARD BOUNDARY (crew-cannot-self-approve):
   This source FETCHES + SURFACES CI truth. It NEVER auto-approves.
@@ -63,7 +63,7 @@ class GitHubActionsSource:
     """SignalSource: GitHub Actions CI state fetched via ``gh pr checks --json``.
 
     Implements the SignalSource Protocol (status.py:47) for the tier-3 GitHub
-    adapter (SR-CIF). Plugs into the ``extra_sources`` seam with zero core changes.
+    adapter. Plugs into the ``extra_sources`` seam with zero core changes.
 
     ID vocabulary: emits sr-* tokens from headRefName (the PR branch name), exactly
     as LocalGitSource does.  This is the remote-CI analogue of that source; both

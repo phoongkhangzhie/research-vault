@@ -2,7 +2,7 @@
 """gates — shared LLM-judged research-integrity gates for Research Vault (PR-M3).
 
 ★ SHAREABLE LOCATION (D-SV-0). The removed ``manuscript/support_matcher.py``
-(deleted in SR-RM-FIGMS) is re-instantiated HERE — a top-level
+(deleted during a manuscript-loop refactor) is re-instantiated HERE — a top-level
 ``research_vault.gates`` package, sibling to ``manuscript/``, ``review/``,
 and ``experiment/`` — rather than back under ``manuscript/``.
 
@@ -17,7 +17,7 @@ canary-gated) that wires this into ``rv manuscript check``.
 
 Modules:
   support_matcher.py — 4-verdict claim -> source matcher
-                        ([SUPPORTS|PARTIAL|ABSENT|CONTRADICTS]) (SR-MS-2)
+                        ([SUPPORTS|PARTIAL|ABSENT|CONTRADICTS])
 
 (The former ``coldread.py`` self-containment critic — 3-verdict
 [STANDS-ALONE|DANGLING|NEEDS-CONTEXT] — was removed: it was SIGNAL-only,

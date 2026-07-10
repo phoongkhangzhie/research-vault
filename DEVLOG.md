@@ -22,6 +22,46 @@
   the same screening-substance tradeoff (charter §6: one implementation, no
   duplication).
 
+## 2026-07-09 (SR-* scrub consolidation — plan/ + gates/ + adapters/ finished)
+
+### Done
+- Consolidated the 4-stream SR-* scrub fan-out (review/, dag/, manuscript/+
+  sources/, cli.py + top-level + doctrine/examples) into ONE branch
+  (`feat/sr-scrub-consolidated`) via plain `git merge` of each — all four
+  touch disjoint files and merged clean except a DEVLOG.md conflict,
+  resolved by unioning every entry (newest-on-top preserved).
+- Finished the 3 directories the original fan-out partition missed:
+  `plan/` (check.py, style.py, verbs.py, __init__.py, freeze.py — SR-PLAN-1/2,
+  SR-HARNESS-P2, SR-FREEZE-FIX, SR-PLAN-FREEZE-RETRY, SR-HUB-DAG refs),
+  `gates/` (__init__.py, support_matcher.py — SR-MS-2, SR-RM-FIGMS,
+  SR-GAP-ROUTE, SR-CI refs, plus the two `sr:` docstring frontmatter lines),
+  `adapters/` (remote.py, __init__.py, model_client.py, observability.py,
+  github_ci.py, base.py — SR-7, SR-MODEL-SEAM, SR-CO, SR-CO-REMOTE, SR-PKG,
+  SR-CIF, SR-CI refs, plus the two `sr:` docstring frontmatter lines).
+- Left `lint.py`'s `_SR_TAG_PAT` regex + its describing comments untouched
+  (rule-9's own detector for this pattern) and left `adapters/github_ci.py`'s
+  functional lowercase `sr-*` branch-id-token vocabulary (matched by
+  `controllib._ID_TOKEN_RE`) untouched — that's a real control-plane ID
+  convention, not design-doc traceability noise, and is out of scope.
+- Verified: `grep -rnE "SR-[A-Z0-9-]+" src/research_vault/` returns ZERO
+  matches outside lint.py; token-skeleton diff (AST with string/docstring
+  values blanked) of every touched plan/gates/adapters file against
+  `origin/main` is byte-identical — confirms prose-only, no identifier/logic
+  drift; full suite green (3556 passed, 3 skipped); `rv help` renders exit 0;
+  isolated `rv lint` (scratch HOME/XDG) is a clean PASS (the real instance's
+  config-schema warnings are pre-existing operator-environment noise,
+  unrelated to this change); `scripts/leakage_scan.sh src/research_vault`
+  and `scripts/leakage_scan.sh DEVLOG.md` both clean.
+- Supersedes PR #214 (review/), #216 (dag/), #213 (manuscript/+sources/),
+  #217 (cli.py + top-level + doctrine/examples) — close all four once this
+  merges.
+
+### Decisions
+- Prose-scrub, never touch: any genuinely functional SR-*/sr-* token (a
+  keyed value the control plane actually matches against) stays; only
+  design-doc traceability numbering in comments/docstrings/help text/
+  runtime message strings is removed.
+
 ## 2026-07-09 (substance-screening gap fix — snowball raw pool now carries abstract/venue/year)
 
 ### Done

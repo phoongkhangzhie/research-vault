@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""plan/ — pre-registered experiment + ablation plan support (SR-PLAN-1).
+"""plan/ — pre-registered experiment + ablation plan support.
 
 Modules:
   style   — plan_tips config seam (adopter-customizable prompt keys).

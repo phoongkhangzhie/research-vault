@@ -65,6 +65,6 @@ __all__ = [
     "EnvSecretStore",
     "load_adapters",
     "RemoteBackend",       # Available lazily via __getattr__
-    "ModelClient",         # Available lazily via __getattr__ (SR-MODEL-SEAM)
-    "ObservabilityError",  # Available lazily via __getattr__ (SR-MODEL-SEAM)
+    "ModelClient",         # Available lazily via __getattr__
+    "ObservabilityError",  # Available lazily via __getattr__
 ]
