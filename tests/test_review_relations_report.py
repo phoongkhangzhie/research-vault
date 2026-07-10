@@ -49,14 +49,14 @@ class TestRelationsReport:
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
-            "- [CONTRADICTS] huang2022 — huang2022 assumes a known safe "
+            "- [CONTRADICTS] [huang2022](/literature/huang2022.md) — huang2022 assumes a known safe "
             "baseline; this paper's bound removes that assumption. (refutational)\n",
         )
         _write_lit_note(
             literature_dir,
             "li2023",
             "## Related papers\n\n"
-            "- [SUPPORTS] xiong2023-stepwise — replicates the same bound in "
+            "- [SUPPORTS] [xiong2023-stepwise](/literature/xiong2023-stepwise.md) — replicates the same bound in "
             "a related regime, agreeing on the mechanism. (reciprocal)\n",
         )
 
@@ -91,8 +91,8 @@ class TestRelationsReport:
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
-            "- [SUPPORTS] li2023 — agrees on the mechanism in a related setting.\n"
-            "- [CONTRADCTS] huang2022 — typo'd tag, must be surfaced.\n",
+            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the mechanism in a related setting.\n"
+            "- [CONTRADCTS] [huang2022](/literature/huang2022.md) — typo'd tag, must be surfaced.\n",
         )
         report = relations_report("demo-litreview", "scope-any", config=cfg)
         assert len(report["edges"]) == 1
@@ -112,7 +112,7 @@ class TestRelationsReport:
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
-            "- [CONTRADICTS] never-ingested-2019 — a citekey with no note.\n",
+            "- [CONTRADICTS] [never-ingested-2019](/literature/never-ingested-2019.md) — a citekey with no note.\n",
         )
         report = relations_report("demo-litreview", "scope-any", config=cfg)
         assert len(report["dangling"]) == 1
@@ -127,7 +127,7 @@ class TestRelationsReport:
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
-            "- [SUPPORTS] li2023 — agrees on the mechanism in a related setting.\n",
+            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the mechanism in a related setting.\n",
         )
         _write_lit_note(literature_dir, "li2023", "No relations here.\n")
         report = relations_report("demo-litreview", "scope-any", config=cfg)
@@ -144,7 +144,7 @@ class TestRelationsReport:
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
-            "- [CONTRADICTS] huang2022 — removes the baseline assumption. (reciprocal)\n",
+            "- [CONTRADICTS] [huang2022](/literature/huang2022.md) — removes the baseline assumption. (reciprocal)\n",
         )
         report = relations_report("demo-litreview", "scope-any", config=cfg)
         e = report["edges"][0]
@@ -179,7 +179,7 @@ class TestRelationsVerb:
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
-            "- [EXTENDS] li2023 — generalizes the same result to a broader "
+            "- [EXTENDS] [li2023](/literature/li2023.md) — generalizes the same result to a broader "
             "class of MDPs, building on the earlier special case. "
             "(line-of-argument)\n",
         )
@@ -211,7 +211,7 @@ class TestRelationsVerb:
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
-            "- [CONTRADCTS] huang2022 — typo'd tag, must be surfaced.\n",
+            "- [CONTRADCTS] [huang2022](/literature/huang2022.md) — typo'd tag, must be surfaced.\n",
         )
         args = argparse.Namespace(project="demo-litreview", scope="scope-any")
         rc = review_verbs._run_relations(args)
@@ -228,7 +228,7 @@ class TestRelationsVerb:
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
-            "- [CONTRADICTS] never-ingested-2019 — a citekey with no note.\n",
+            "- [CONTRADICTS] [never-ingested-2019](/literature/never-ingested-2019.md) — a citekey with no note.\n",
         )
         args = argparse.Namespace(project="demo-litreview", scope="scope-any")
         rc = review_verbs._run_relations(args)

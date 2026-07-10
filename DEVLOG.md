@@ -1,3 +1,56 @@
+## 2026-07-10 (relate/edge-quality hardening — OKF-conformant markdown-link edges)
+
+### Done
+Three related defects surfaced by a live downstream e2e run, all in
+`review/relate_check.py` (the relate-`<key>` presence check):
+
+- **Defect #69 — paper→paper edges failed to materialize.** Root cause:
+  relate agents naturally wrote OKF-conformant markdown links (Google
+  Cloud's OKF spec cross-links notes with standard markdown links —
+  explicitly NOT wikilinks — e.g. `- [Baltaji 2024](/literature/
+  baltajipersonainconstancymulti2024.md) — reason`), but the pre-fix
+  parser demanded a bare citekey token and rejected the (correct)
+  markdown-link form. Fixed by ALIGNING the parser to OKF: it now
+  accepts+requires `[TAG] [display](/literature/<citekey>.md) — reason`
+  for paper→paper edges (and the analogous `/concepts/<slug>.md` form for
+  paper→concept edges). The old bare-citekey grammar is now itself a
+  malformed edge (surfaced, never silently accepted or dropped).
+- **Defect #70 — header-scoped traversal could silently drop edges.**
+  `parse_paper_relations`/new `parse_concept_edges` now scan the FULL note
+  body (not just the exact `## Related papers`/`## Concept edges` heading
+  slice) — a misplaced or misspelled heading can no longer make an edge
+  invisible. The canonical heading's presence is still checked
+  independently as a structural requirement (downstream traversal depends
+  on the exact heading name). Migrated the concept-edge format to OKF
+  markdown links too, canonicalized the heading name to `## Concept edges`
+  (was `## Verified concept edges`), and added `parse_concept_edges` (no
+  mechanical parser existed for concept edges before this — they were
+  prose-only). Full-body scanning required a new false-positive guard:
+  `_looks_like_tag_attempt` (difflib similarity to the 4 known tags) so an
+  unrelated bracket marker elsewhere in the note (`[TODO]`, `[1]`) is never
+  misflagged as a malformed edge attempt.
+- **Defect #71 — retrieval tier didn't gate edge strength.** A note whose
+  `read_basis` is not exactly `full-text` (abstract-only, title-only, any
+  other value, or unstamped — fail-closed) can no longer carry a
+  `[SUPPORTS]`/`[CONTRADICTS]` edge of either kind; the check now caps the
+  permissible tag at `[PARTIAL]` and surfaces a finding when violated.
+
+Bundle root for the OKF absolute-link resolution: the project notes dir
+(`cfg.project_notes_dir(project)` — the directory directly containing
+`literature/`, `concepts/`, `mocs/`), so `/literature/<citekey>.md` and
+`/concepts/<slug>.md` resolve there.
+
+TDD throughout: confirmed every existing bare-citekey-format test failed
+RED against the new parser first, then updated all fixtures to the OKF
+markdown-link form and added new coverage for each defect (full-body scan
+recovery, canonical-heading enforcement, the tag-attempt false-positive
+guard, and the retrieval-tier cap on both edge kinds).
+
+### Open / next
+- Flagged for a separate conformance task (not fixed here): other rv OKF
+  non-conformances worth auditing — frontmatter shape vs the OKF spec, and
+  reserved filenames (`index.md`/`log.md`) that OKF treats specially.
+
 ## 2026-07-10 (note-authoring correctness fixes surfaced by a live downstream e2e run)
 
 ### Done
