@@ -267,7 +267,7 @@ def run_snowball_to_saturation(
         coverage-gate whitelist (``review.autonomy.classify_coverage_gate``)
         therefore fail-closes on it (HALT-DECLARE) exactly like any other
         non-canonical, non-``"saturated"`` value; it is not wired into the
-        ``GO_WITH_RESIDUE`` backstop branch (SR-175 confirmed unchanged).
+        ``GO_WITH_RESIDUE`` backstop branch (confirmed unchanged).
 
     An adapter direction that raises ``NotSupported`` for a given paper id is
     skipped for that (paper, direction) this round — graceful degradation,

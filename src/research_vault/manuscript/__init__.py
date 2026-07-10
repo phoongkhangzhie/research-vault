@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript — PR-M1: the manuscript-loop TYPE-GENERIC core.
 
-Re-instantiates the removed ``manuscript`` loop (SR-RM-FIGMS deleted it — the
+Re-instantiates the removed ``manuscript`` loop (deleted earlier — the
 craft is preserved in ``honesty-gates.md``/``review-board.md``), rebuilt with a
 TYPE system (``manuscript/types/``): the manuscript loop turns ``notes/`` (the
 crew-reasoning pillar, built by the knowledge loops) into ``manuscripts/<slug>/``
