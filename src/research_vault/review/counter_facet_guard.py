@@ -175,7 +175,32 @@ def check_counter_facet_strength(
       that case; nothing to judge here.
     - A non-STRONG (or unparseable) verdict on a real facet -> blocking.
     """
-    from research_vault.sources.sweep import group_facet_stances, parse_angle_matrix
+    from research_vault.sources.sweep import (
+        group_facet_stances,
+        parse_angle_matrix,
+        seed_queries_declared_but_unparsed,
+    )
+
+    # Architect fit-check finding (judge-INDEPENDENT fail-open): a malformed
+    # `seed_queries:` block parses to ZERO usable queries — an empty facet-
+    # iteration loop below must never look identical to "nothing to judge
+    # here". This check fires BEFORE the judge-configured branch below (a
+    # structural BLOCK on garbage input, not a judge-availability signal —
+    # leave the no-judge SIGNAL direction itself untouched, per the
+    # coordinator's note; that's PR-F's concern).
+    if seed_queries_declared_but_unparsed(protocol_text):
+        return {
+            "ok": False,
+            "blocking": [
+                "counter-facet strength guard (D-6) BLOCKED — `seed_queries:` "
+                "is declared but parses to ZERO usable queries (malformed "
+                "nesting/indentation, or an empty/garbage block). An empty "
+                "facet-iteration loop must never look identical to 'no "
+                "counter-facets to check'."
+            ],
+            "not_run": [],
+            "canary_aborted": False,
+        }
 
     if not _judge_configured(judge_fn):
         return {

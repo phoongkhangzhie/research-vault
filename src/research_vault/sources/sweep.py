@@ -206,6 +206,43 @@ def group_facet_stances(angle_matrix: dict[str, str]) -> dict[str, dict[str, lis
     }
 
 
+def seed_queries_declared_but_unparsed(protocol_text: str) -> bool:
+    """True iff the protocol declares a ``seed_queries:`` key at all, but
+    ``parse_angle_matrix`` yields ZERO usable queries (architect fit-check
+    finding on PR-2, judge-independent fail-open): a malformed/mis-indented
+    nested block, or an otherwise-garbage ``seed_queries:`` value, can
+    silently collapse to ``{}`` — and an empty facet-iteration loop at
+    ``approve-protocol`` then looks IDENTICAL to "this protocol has no
+    counter-facets to check", clearing BOTH the D-7 existence gate and the
+    D-6 strength guard for a protocol that never actually froze anything
+    usable.
+
+    A protocol that never declares ``seed_queries:`` at all is a DIFFERENT,
+    already-handled case (``run_sweep_from_protocol`` raises ``ValueError``
+    on a wholly-absent angle matrix) — this check is scoped to "declared but
+    empty", not "absent".
+    """
+    if not protocol_text.startswith("---"):
+        return False
+    end = protocol_text.find("\n---", 3)
+    if end == -1:
+        return False
+    fm_block = protocol_text[3:end]
+
+    declared = False
+    for line in fm_block.splitlines():
+        stripped = line.strip()
+        if stripped == "":
+            continue
+        if not line.startswith((" ", "\t")) and stripped.rstrip(":") == "seed_queries" and stripped.endswith(":"):
+            declared = True
+            break
+
+    if not declared:
+        return False
+    return len(parse_angle_matrix(protocol_text)) == 0
+
+
 # ---------------------------------------------------------------------------
 # Query-time near-dup filter (D-4) + post-dedup distinct-query count/band
 # (D-1, friction iii): a semantic (asta/S2) backend collapses near-literal

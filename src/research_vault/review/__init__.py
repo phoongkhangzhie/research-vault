@@ -159,7 +159,11 @@ def check_counter_facet_gate(protocol_path: Path) -> tuple[bool, str]:
         (ok, message) — ok is False when any facet has a non-empty
         ``thesis`` list and an empty ``counter`` list.
     """
-    from research_vault.sources.sweep import group_facet_stances, parse_angle_matrix
+    from research_vault.sources.sweep import (
+        group_facet_stances,
+        parse_angle_matrix,
+        seed_queries_declared_but_unparsed,
+    )
 
     if not protocol_path.exists():
         return False, (
@@ -168,6 +172,22 @@ def check_counter_facet_gate(protocol_path: Path) -> tuple[bool, str]:
         )
 
     text = protocol_path.read_text(encoding="utf-8")
+
+    # Architect fit-check finding (judge-independent fail-open): a malformed
+    # `seed_queries:` block (mis-indented nesting, or otherwise garbage) can
+    # parse to ZERO usable queries — an empty facet-iteration loop below
+    # must never look identical to "nothing to check here". Hard BLOCK
+    # before the loop even runs.
+    if seed_queries_declared_but_unparsed(text):
+        return False, (
+            f"rv dag approve: D-7 gate BLOCKED — {protocol_path} declares a "
+            f"`seed_queries:` key that parses to ZERO usable queries "
+            f"(malformed nesting/indentation, or an empty/garbage block).\n"
+            f"An empty query matrix must never silently clear this gate — "
+            f"fix `seed_queries:`'s structure, then re-run "
+            f"`rv dag approve <run_id> approve-protocol`."
+        )
+
     angle_matrix = parse_angle_matrix(text)
     facets = group_facet_stances(angle_matrix)
 

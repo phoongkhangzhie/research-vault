@@ -162,7 +162,7 @@ class TestGroupFacetStances:
     def test_multi_frame_union_retains_both_frames_crux_facets(self) -> None:
         """A multi-frame RQ (PICO population-frame + SPIDER temporal-frame)
         must retain BOTH frames' facets — the union rule (friction i). This
-        is the exact csb defect: the temporal/stability facet must survive
+        is the exact downstream-project defect: the temporal/stability facet must survive
         alongside a population facet, neither picked over the other under
         'default to PICO'."""
         matrix = parse_angle_matrix(MIXED_MULTI_FRAME_PROTOCOL)
@@ -314,6 +314,126 @@ class TestCheckCounterFacetGate:
         ok, msg = check_counter_facet_gate(tmp_path / "nope" / "_protocol.md")
         assert ok is False
         assert "_protocol.md" in msg
+
+
+# ---------------------------------------------------------------------------
+# Architect fit-check finding: a `seed_queries:` block DECLARED but that
+# parses to ZERO usable queries (malformed nesting/indentation) must never
+# silently clear D-7 or D-6 — an empty facet-iteration loop looks identical
+# to "nothing to check" unless explicitly guarded against.
+# ---------------------------------------------------------------------------
+
+# `by-temporal:` sits at indent 0 (mis-indented — should be nested under
+# `seed_queries:`), so `parse_angle_matrix` sees `seed_queries:` end the
+# block immediately and returns {} — a garbage/malformed block, not a
+# legitimate "no facets" case.
+MALFORMED_ZERO_FACET_PROTOCOL = """---
+type: review-protocol
+question: "Does X improve Y?"
+seed_queries:
+by-temporal:
+  thesis:
+    - "cultural drift multi-turn LLM persona"
+counter-position: "stability sub-literature"
+---
+"""
+
+
+class TestSeedQueriesDeclaredButUnparsed:
+    def test_malformed_nested_block_is_declared_but_unparsed(self) -> None:
+        from research_vault.sources.sweep import seed_queries_declared_but_unparsed
+
+        assert seed_queries_declared_but_unparsed(MALFORMED_ZERO_FACET_PROTOCOL) is True
+
+    def test_legacy_bare_list_is_declared_but_unparsed(self) -> None:
+        """The pre-angle-matrix bare-list shape is ALSO declared-but-empty —
+        it already hard-fails at `run_sweep_from_protocol` (ValueError); this
+        check correctly flags it too rather than treating it as benign."""
+        from research_vault.sources.sweep import seed_queries_declared_but_unparsed
+
+        LEGACY_LIST = (
+            '---\ntype: review-protocol\nseed_queries:\n  - "a"\n  - "b"\n---\n'
+        )
+        assert seed_queries_declared_but_unparsed(LEGACY_LIST) is True
+
+    def test_absent_seed_queries_key_is_not_flagged(self) -> None:
+        """A protocol with NO `seed_queries:` key at all is a DIFFERENT case
+        (handled elsewhere, e.g. run_sweep_from_protocol's own ValueError) —
+        this check must not fire on absence, only on declared-but-empty."""
+        from research_vault.sources.sweep import seed_queries_declared_but_unparsed
+
+        NO_SEED_QUERIES = '---\ntype: review-protocol\nquestion: "X?"\n---\n'
+        assert seed_queries_declared_but_unparsed(NO_SEED_QUERIES) is False
+
+    def test_well_formed_matrix_is_not_flagged(self) -> None:
+        from research_vault.sources.sweep import seed_queries_declared_but_unparsed
+
+        assert seed_queries_declared_but_unparsed(NESTED_PROTOCOL) is False
+        assert seed_queries_declared_but_unparsed(LEGACY_SCALAR_PROTOCOL) is False
+
+
+class TestZeroFacetsFailOpenBlock:
+    def test_d7_gate_blocks_on_malformed_zero_facet_protocol(self, tmp_path) -> None:
+        from research_vault.review import check_counter_facet_gate
+
+        p = tmp_path / "_protocol.md"
+        p.write_text(MALFORMED_ZERO_FACET_PROTOCOL, encoding="utf-8")
+        ok, msg = check_counter_facet_gate(p)
+        assert ok is False
+        assert "ZERO usable queries" in msg
+
+    def test_d6_guard_blocks_on_malformed_zero_facet_protocol_no_judge(self, monkeypatch) -> None:
+        """The zero-facets BLOCK is judge-INDEPENDENT — it must fire even
+        with no judge configured at all (the no-judge SIGNAL direction is
+        untouched; this is a structural BLOCK that takes priority over it)."""
+        from research_vault.review.counter_facet_guard import check_counter_facet_strength
+
+        monkeypatch.delenv("RV_JUDGE_MODEL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        result = check_counter_facet_strength(MALFORMED_ZERO_FACET_PROTOCOL, judge_fn=None)
+        assert result["ok"] is False
+        assert result["canary_aborted"] is False
+        assert result["not_run"] == []
+        assert any("ZERO usable queries" in b for b in result["blocking"])
+
+    def test_d6_guard_blocks_on_malformed_zero_facet_protocol_with_judge(self) -> None:
+        """Also blocks with a judge configured — the malformed-input BLOCK
+        fires BEFORE the canary/judging loop ever runs (nothing to judge is
+        never reached; the earlier structural defect wins)."""
+        from research_vault.review.counter_facet_guard import check_counter_facet_strength
+
+        never_called = lambda prompt: (_ for _ in ()).throw(
+            AssertionError("judge must not be invoked when input is malformed")
+        )
+        result = check_counter_facet_strength(MALFORMED_ZERO_FACET_PROTOCOL, judge_fn=never_called)
+        assert result["ok"] is False
+        assert result["canary_aborted"] is False
+
+    def test_mutation_neutralize_zero_facet_check_lets_it_sail_through(self, monkeypatch) -> None:
+        """Mutation test: with `seed_queries_declared_but_unparsed` neutralized
+        to always return False, the malformed protocol now sails through
+        BOTH gates (ok=True) — proving the fix above is load-bearing, not
+        some other unrelated block."""
+        import research_vault.sources.sweep as sweep_mod
+
+        # review/__init__.py's check_counter_facet_gate does
+        # `from ..sources.sweep import ... seed_queries_declared_but_unparsed`
+        # INLINE inside the function body, so patching the sweep module
+        # attribute re-binds it on every call (same pattern as the existing
+        # check_protocol_gate mutation test in test_review_protocol_gate.py).
+        monkeypatch.setattr(sweep_mod, "seed_queries_declared_but_unparsed", lambda text: False)
+
+        from research_vault.review import check_counter_facet_gate
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "_protocol.md"
+            p.write_text(MALFORMED_ZERO_FACET_PROTOCOL, encoding="utf-8")
+            ok, msg = check_counter_facet_gate(p)
+            assert ok is True, (
+                "with the zero-facets check neutralized, the malformed "
+                "protocol must sail through — confirms the real check is "
+                "what blocks it"
+            )
 
 
 # ---------------------------------------------------------------------------
