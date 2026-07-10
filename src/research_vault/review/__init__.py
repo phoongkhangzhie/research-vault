@@ -324,6 +324,68 @@ def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Source-coverage gate (pre-publish hardening batch, 2026-07-09 downstream
+# e2e-run finding) — coverage-gate fail-closed on a DARK declared source
+# ---------------------------------------------------------------------------
+
+def check_source_coverage(
+    search_hits_path: Path,
+    protocol_path: Path,
+) -> dict[str, Any]:
+    """Cross-check the sweep's ``dark_sources:`` signal (stamped on
+    ``_search_hits.md`` by ``sources.sweep.write_search_hits``) against the
+    protocol's DECLARED ``sources:`` list.
+
+    A whole source going dark this sweep (every cell for it errored or
+    returned zero hits across ALL angles — see ``sources.sweep.
+    detect_dark_sources``) looks nearly identical to a healthy, genuinely-
+    thin sweep at the coverage-gate: nothing else in the composed result
+    distinguishes "this source never actually answered" from "this source
+    answered honestly with few/no hits". If that dark source is one the
+    protocol DECLARED (``sources:`` in ``_protocol.md``), the corpus cannot
+    be certified as covering it — this is fail-closed, never a soft
+    "probably fine".
+
+    Returns:
+      exists:        bool       — whether ``_search_hits.md`` was found.
+      dark_sources:  list[str]  — every source the sweep reported dark.
+      declared_dark: list[str]  — the subset of the protocol's declared
+                                   ``sources:`` that are dark this run.
+                                   Non-empty -> the coverage-gate must
+                                   fail-closed (never certify saturated).
+
+    charter §2 (surface, never silently drop): a missing ``_search_hits.md``
+    returns ``exists: False`` with empty lists — the CALLER decides how to
+    treat that (structurally can't have reached coverage-gate without a
+    search having run, so this is a defensive default, not a green light).
+    """
+    if not search_hits_path.exists():
+        return {"exists": False, "dark_sources": [], "declared_dark": []}
+
+    text = search_hits_path.read_text(encoding="utf-8")
+    fields, _ = _parse_frontmatter(text)
+    raw_dark = fields.get("dark_sources", "")
+    if isinstance(raw_dark, list):
+        dark_sources = [str(s).strip() for s in raw_dark if str(s).strip()]
+    else:
+        dark_sources = [s.strip() for s in str(raw_dark).split(",") if s.strip()]
+
+    declared_sources: list[str] = []
+    if protocol_path.exists():
+        from research_vault.sources.sweep import parse_sources
+
+        declared_sources = parse_sources(protocol_path.read_text(encoding="utf-8"))
+
+    declared_dark = [s for s in dark_sources if s in declared_sources]
+
+    return {
+        "exists": True,
+        "dark_sources": dark_sources,
+        "declared_dark": declared_dark,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Coverage report (F16+F17) — deterministic, keyed by citekey
 # ---------------------------------------------------------------------------
 

@@ -18,9 +18,11 @@ for that (angle, source) cell — never treated as a fatal sweep failure
 from __future__ import annotations
 
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from .base import NotSupported, PaperHit, SourceAdapter
 from .dedup import DedupedHit, dedup_hits, identity_key
@@ -29,6 +31,17 @@ from .ranker import UtilityScore, rank_and_select, score_hit
 from .registry import DEFAULT_SOURCES, get_adapter
 
 DEFAULT_FETCH_BUDGET = 65  # HR's validated "diminishing returns beyond ~80" range (D4)
+
+# Retry-with-backoff on a transient adapter/cell failure (pre-publish
+# hardening batch, a downstream project's live-e2e-run finding 2026-07-09: all 5 arXiv cells timed
+# out in one run and the sweep degraded them to zero with no retry — a
+# single transient network blip looked identical to a genuinely-dead
+# adapter). Bounded — never infinite — so a cell always terminates: at most
+# ``_CELL_RETRY_ATTEMPTS`` total tries, exponential backoff seeded by
+# ``_CELL_RETRY_BACKOFF_BASE`` seconds (0.5s, 1s — capped, two sleeps
+# between three tries).
+_CELL_RETRY_ATTEMPTS = 3
+_CELL_RETRY_BACKOFF_BASE = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -114,18 +127,49 @@ class SweepCell:
     error: str | None = None
 
 
-def _fetch_cell(angle: str, query: str, source: str, *, limit: int) -> SweepCell:
+def _fetch_cell(
+    angle: str,
+    query: str,
+    source: str,
+    *,
+    limit: int,
+    retry_attempts: int = _CELL_RETRY_ATTEMPTS,
+    backoff_base: float = _CELL_RETRY_BACKOFF_BASE,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> SweepCell:
+    """Fetch one ``(angle, source)`` cell, retrying a TRANSIENT adapter
+    failure with bounded exponential backoff before degrading the cell.
+
+    ``NotSupported`` and an unknown-adapter-name ``ValueError`` are NEVER
+    retried — both are permanent signals (the source genuinely doesn't
+    support this op / the name is a protocol typo), not a transient network
+    blip; retrying them would just burn the backoff budget for no chance of
+    success. Every other exception (timeout, connection error, 5xx, ...) is
+    treated as transient and retried up to ``retry_attempts`` times; only
+    after the LAST attempt still fails does the cell record ``error`` and
+    degrade to zero hits (§10 graceful degradation — unchanged contract,
+    just no longer on the FIRST transient blip).
+    """
     try:
         adapter: SourceAdapter = get_adapter(source)
     except ValueError as e:
         return SweepCell(angle=angle, query=query, source=source, error=str(e))
-    try:
-        hits = adapter.search(query, limit=limit)
-        return SweepCell(angle=angle, query=query, source=source, hits=hits)
-    except NotSupported as e:
-        return SweepCell(angle=angle, query=query, source=source, error=str(e))
-    except Exception as e:  # noqa: BLE001 — an adapter failure degrades the cell, not the sweep
-        return SweepCell(angle=angle, query=query, source=source, error=f"{type(e).__name__}: {e}")
+
+    last_error: Exception | None = None
+    for attempt in range(retry_attempts):
+        try:
+            hits = adapter.search(query, limit=limit)
+            return SweepCell(angle=angle, query=query, source=source, hits=hits)
+        except NotSupported as e:
+            return SweepCell(angle=angle, query=query, source=source, error=str(e))
+        except Exception as e:  # noqa: BLE001 — retried transient; degrades only after exhaustion
+            last_error = e
+            if attempt < retry_attempts - 1:
+                sleep_fn(backoff_base * (2 ** attempt))
+    return SweepCell(
+        angle=angle, query=query, source=source,
+        error=f"{type(last_error).__name__}: {last_error} (after {retry_attempts} attempts)",
+    )
 
 
 def run_width_sweep(
@@ -134,6 +178,7 @@ def run_width_sweep(
     *,
     per_cell_limit: int = 20,
     max_workers: int = 8,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> list[SweepCell]:
     """Fetch the cross-product ``(angle × source)`` concurrently.
 
@@ -141,7 +186,10 @@ def run_width_sweep(
     angle-then-source enumeration order (order-preserving, so dedup's
     "first-seen wins as representative" stays deterministic across runs).
     A cell with ``error`` set contributes zero hits — the sweep degrades
-    gracefully per adapter/pair, never fails wholesale (§10).
+    gracefully per adapter/pair, never fails wholesale (§10) — but only
+    after ``_fetch_cell``'s bounded retry-with-backoff has exhausted its
+    attempts on a transient failure. ``sleep_fn`` is test-injectable (never
+    real ``time.sleep`` in a hermetic test).
     """
     cells: list[SweepCell] = []
     jobs = [
@@ -151,7 +199,7 @@ def run_width_sweep(
     ]
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
-            pool.submit(_fetch_cell, angle, query, source, limit=per_cell_limit): (angle, query, source)
+            pool.submit(_fetch_cell, angle, query, source, limit=per_cell_limit, sleep_fn=sleep_fn): (angle, query, source)
             for angle, query, source in jobs
         }
         results_by_key = {}
@@ -161,6 +209,37 @@ def run_width_sweep(
     for angle, query, source in jobs:
         cells.append(results_by_key[(angle, query, source)])
     return cells
+
+
+# ---------------------------------------------------------------------------
+# Dark-source detection (pre-publish hardening batch, 2026-07-09 a downstream project's live-e2e-run
+# finding): a whole source going dark (every one of its cells errored or
+# returned zero hits, across ALL angles) looks near-identical to a healthy,
+# genuinely-thin sweep at the coverage-gate — nothing in the composed result
+# previously distinguished "this source never actually answered" from "this
+# source answered honestly with few/no hits". §10's per-cell graceful
+# degradation is right at the CELL level; it must not silently compose up
+# into "the whole source is dark and nobody noticed".
+# ---------------------------------------------------------------------------
+
+def detect_dark_sources(cells: list[SweepCell]) -> list[str]:
+    """Return the names of sources that are DARK across the whole sweep.
+
+    A source is dark iff EVERY cell for it (across all angles) either
+    errored or returned zero hits — i.e. it never once contributed a hit on
+    any angle. A source that returned even one hit on one angle is NOT
+    dark, however thin it looks overall (that's "legitimately thin", a
+    different — and fine — outcome from "never actually reached").
+
+    Deterministic, sorted output (never depends on the sweep's concurrent
+    completion order).
+    """
+    hit_seen: dict[str, bool] = {}
+    for cell in cells:
+        hit_seen.setdefault(cell.source, False)
+        if cell.hits:
+            hit_seen[cell.source] = True
+    return sorted(name for name, has_hit in hit_seen.items() if not has_hit)
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +253,7 @@ class SweepResult:
     total_hits_fetched: int
     cells: list[SweepCell]
     errors: list[str]
+    dark_sources: list[str] = field(default_factory=list)
 
 
 def compose_sweep_result(
@@ -228,6 +308,7 @@ def compose_sweep_result(
         )
 
     kept = rank_and_select(deduped, budget=budget, floor=floor, scores=scores)
+    dark_sources = detect_dark_sources(cells)
 
     return SweepResult(
         kept=kept,
@@ -235,6 +316,7 @@ def compose_sweep_result(
         total_hits_fetched=total_fetched,
         cells=cells,
         errors=errors,
+        dark_sources=dark_sources,
     )
 
 
@@ -266,22 +348,32 @@ def run_sweep_from_protocol(
 # _search_hits.md rendering (review-loop-nodekind-drift-fix §4-A)
 # ---------------------------------------------------------------------------
 
-def _paper_id_of_hit(hit: PaperHit) -> str | None:
-    """Best-available external identifier for a hit — DOI > arXiv > S2 id.
+def _paper_id_of_hit(external_ids: dict[str, str]) -> str | None:
+    """Best-available external identifier — DOI > arXiv > OpenAlex > S2 id.
 
-    Used both for the [NEW]/[IN-CORPUS] annotation lookup and as the seed
-    identifier the review-screen agent hands to the review-snowball tool op.
+    Takes the MERGED ``external_ids`` off a ``DedupedHit`` (``d.external_ids``)
+    — NEVER a bare ``hit.external_ids`` (the enrichment regression, a
+    downstream project's live e2e run 2026-07-09: ``dedup_hits`` unions every duplicate's ids onto the
+    ``DedupedHit`` wrapper, but the wrapper's ``hit`` field stays the FIRST-
+    seen representative — its OWN ``external_ids`` can be a strict subset of
+    the merged union. The 4 strongest accepted seeds that run came out with a
+    BLANK Paper-id because the id lookup read the narrower representative
+    dict instead of the merged one that actually had the id). Used both for
+    the [NEW]/[IN-CORPUS] annotation lookup and as the seed identifier the
+    review-screen agent hands to the review-snowball tool op.
     """
     return (
-        hit.external_ids.get("doi")
-        or hit.external_ids.get("arxiv")
-        or hit.external_ids.get("s2")
+        external_ids.get("doi")
+        or external_ids.get("arxiv")
+        or external_ids.get("openalex")
+        or external_ids.get("s2")
     )
 
 
 def _annotate_hit(
     hit: PaperHit,
     *,
+    external_ids: dict[str, str] | None = None,
     notes_index: dict[str, str] | None,
     notes_title_index: dict[str, list[tuple[str, str]]] | None,
 ) -> str:
@@ -290,13 +382,20 @@ def _annotate_hit(
     Bridges the PaperHit shape (normalized ``external_ids`` dict) to the
     ``_corpus_annotation`` S2-native-dict contract it was written against —
     reuse over reinvention (charter §6), not a second annotation mechanism.
+
+    ``external_ids`` is the caller's MERGED ids (``d.external_ids`` off a
+    ``DedupedHit``) when available — same fix as ``_paper_id_of_hit``, a
+    hit's own ``external_ids`` can be a narrower subset. Defaults to
+    ``hit.external_ids`` for a caller with no ``DedupedHit`` wrapper on hand
+    (never a required-but-missing param).
     """
     from research_vault.research import _corpus_annotation  # avoid import cycle
 
+    ids = external_ids if external_ids is not None else hit.external_ids
     paper = {
         "externalIds": {
-            "DOI": hit.external_ids.get("doi"),
-            "ArXiv": hit.external_ids.get("arxiv"),
+            "DOI": ids.get("doi"),
+            "ArXiv": ids.get("arxiv"),
         },
         "title": hit.title,
         "authors": [{"name": a} for a in hit.authors],
@@ -347,8 +446,32 @@ def write_search_hits(
     frontier — the tool op writes the mechanical record, the agent judges
     it. The evidence columns exist so that judgment is made on real
     evidence (abstract, venue, year), not on titles alone.
+
+    Stamps flat frontmatter with ``dark_sources:`` (comma-joined, empty when
+    none) — same convention ``sources/snowball.py``'s ``write_saturation``
+    uses for ``stop_reason:`` — the machine-readable signal
+    ``review.check_source_coverage`` reads to fail-closed the coverage-gate
+    when a source declared in the protocol's ``sources:`` list never
+    actually contributed a hit (pre-publish hardening batch, a downstream project's live-e2e-run
+    finding 2026-07-09).
     """
-    lines: list[str] = ["# Search hits\n"]
+    lines: list[str] = [
+        "---",
+        f"dark_sources: {', '.join(result.dark_sources)}",
+        "---",
+        "",
+        "# Search hits\n",
+    ]
+
+    if result.dark_sources:
+        lines.append(
+            "> ⚠ SOURCE DARK: "
+            f"{', '.join(result.dark_sources)} — every cell for this source "
+            "errored or returned zero hits across ALL angles this sweep. If "
+            "this source is declared in the protocol's `sources:` list, the "
+            "corpus CANNOT be trusted as covering it — re-run the sweep "
+            "once the source is reachable before accepting a seed frontier.\n"
+        )
 
     lines.append("## Cells\n")
     lines.append("| Angle | Source | Hits | Error |")
@@ -390,9 +513,18 @@ def write_search_hits(
     lines.append("|---|---|---|---|---|---|---|")
     for d in result.kept:
         hit = d.hit
-        annotation = _annotate_hit(hit, notes_index=notes_index, notes_title_index=notes_title_index)
-        pid = _paper_id_of_hit(hit) or ""
+        annotation = _annotate_hit(
+            hit, external_ids=d.external_ids,
+            notes_index=notes_index, notes_title_index=notes_title_index,
+        )
+        pid = _paper_id_of_hit(d.external_ids) or ""
         flags: list[str] = []
+        if not pid:
+            # The id is the JOIN KEY the review-screen agent hands to the
+            # snowball tool op as a seed — a hit with no resolvable id can
+            # never be emitted as a seed. Flag it loudly rather than let an
+            # empty Paper-id cell look like an oversight (charter §2).
+            flags.append("[NO-ID: cannot resolve doi/arxiv/openalex/s2 — needs manual id lookup]")
         if hit.derivative_of is not None:
             flags.append(f"[DERIVATIVE-OF:{hit.derivative_of}]")
         if hit.below_floor and not below_floor_suppressed:

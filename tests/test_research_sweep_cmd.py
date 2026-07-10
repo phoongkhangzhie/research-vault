@@ -38,7 +38,7 @@ def test_cmd_sweep_end_to_end(tmp_path: Path, monkeypatch, capsys) -> None:
 
     from research_vault.sources import sweep as sweep_mod
 
-    def fake_fetch_cell(angle, query, source, *, limit):
+    def fake_fetch_cell(angle, query, source, *, limit, **_ignored):
         return SweepCell(
             angle=angle, query=query, source=source,
             hits=[_hit(f"Paper for {angle}", source, {"doi": f"10.1/{angle}"})],
@@ -98,7 +98,7 @@ def test_cmd_sweep_annotates_with_project(tmp_path: Path, monkeypatch, capsys) -
 
     from research_vault.sources import sweep as sweep_mod
 
-    def fake_fetch_cell(angle, query, source, *, limit):
+    def fake_fetch_cell(angle, query, source, *, limit, **_ignored):
         return SweepCell(
             angle=angle, query=query, source=source,
             hits=[_hit(f"Paper for {angle}", source, {"doi": f"10.1/{angle}"})],

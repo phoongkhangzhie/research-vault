@@ -147,6 +147,46 @@ class TestClassifyCoverageGate:
 
 
 # ---------------------------------------------------------------------------
+# 2b. classify_coverage_gate — source-coverage fail-closed (pre-publish
+# hardening batch, 2026-07-09 downstream e2e-run finding): a source declared
+# in the protocol's `sources:` list that went DARK this sweep must HALT,
+# even when the saturation record itself would otherwise say "saturated".
+# ---------------------------------------------------------------------------
+
+class TestClassifyCoverageGateSourceDark:
+    SATURATED_INFO = {"exists": True, "stop_reason": "saturated", "is_backstop": False, "wave_count": None}
+
+    def test_declared_dark_source_halts_even_when_saturated(self):
+        """The dark-source check must short-circuit BEFORE the (otherwise
+        GO) saturation logic runs — a genuinely-saturated-looking record is
+        NOT trustworthy if a declared source never actually answered."""
+        source_info = {"exists": True, "dark_sources": ["arxiv"], "declared_dark": ["arxiv"]}
+        result = auto.classify_coverage_gate(self.SATURATED_INFO, source_coverage_info=source_info)
+        assert result.disposition == auto.HALT_DECLARE
+        assert "arxiv" in result.reason
+        assert result.evidence["declared_dark_sources"] == ["arxiv"]
+
+    def test_dark_but_undeclared_source_does_not_halt(self):
+        """A source that went dark but was NEVER declared in the protocol's
+        `sources:` list (e.g. an opt-in source nobody asked for) must not
+        block — only DECLARED coverage is a promise the gate must keep."""
+        source_info = {"exists": True, "dark_sources": ["pubmed"], "declared_dark": []}
+        result = auto.classify_coverage_gate(self.SATURATED_INFO, source_coverage_info=source_info)
+        assert result.disposition == auto.GO
+
+    def test_no_dark_sources_proceeds_to_normal_saturation_logic(self):
+        source_info = {"exists": True, "dark_sources": [], "declared_dark": []}
+        result = auto.classify_coverage_gate(self.SATURATED_INFO, source_coverage_info=source_info)
+        assert result.disposition == auto.GO
+
+    def test_source_coverage_info_none_is_backward_compatible(self):
+        """Callers that don't pass source_coverage_info at all (pre-existing
+        call sites) must behave exactly as before this feature."""
+        result = auto.classify_coverage_gate(self.SATURATED_INFO, source_coverage_info=None)
+        assert result.disposition == auto.GO
+
+
+# ---------------------------------------------------------------------------
 # 3. Adapters
 # ---------------------------------------------------------------------------
 

@@ -1,3 +1,55 @@
+## 2026-07-09 (sweep hardening — no silent recall loss: dark-source fail-closed, retry-with-backoff, Paper-id join-key regression)
+
+### Done
+- **Three defects surfaced by a downstream project's live e2e run, all the
+  same shape — the sweep silently drops recall without anyone noticing**:
+  1. **Dark-source fail-closed at coverage-gate.** `sources/sweep.py` gained
+     `detect_dark_sources` — a source is DARK iff every one of its cells
+     (across ALL angles) errored or returned zero hits; a single hit on one
+     angle is "legitimately thin", not dark. `write_search_hits` stamps a
+     `dark_sources:` frontmatter signal (mirrors `_saturation.md`'s
+     `stop_reason:` convention) plus a loud `> ⚠ SOURCE DARK` note.
+     `review.check_source_coverage` cross-checks that signal against the
+     protocol's DECLARED `sources:` list; `review.autonomy.
+     classify_coverage_gate` HALT-DECLAREs (fail-closed, before the
+     saturation logic even runs) when a declared source is dark — wired
+     into both the `--auto` path (`_evaluate_autonomous_gate`) and the
+     manual `rv dag approve` path (a hard BLOCK, not a mere SIGNAL).
+  2. **Retry-with-backoff on adapter timeout.** `_fetch_cell` now retries a
+     transient failure (any exception except `NotSupported`/an unknown-
+     adapter `ValueError`, both permanent signals) up to 3 attempts with
+     exponential backoff (0.5s, 1s) before degrading the cell — this is
+     exactly what bit the live run: all 5 arXiv cells timed out with zero
+     retry.
+  3. **Paper-id join-key regression.** `_paper_id_of_hit`/`_paper_id_of`
+     (sweep.py + snowball.py) were reading the representative (first-seen)
+     hit's OWN `external_ids` instead of the MERGED union `dedup_hits`
+     accumulates onto the `DedupedHit` wrapper — a strict subset in the
+     common case where a leaner adapter's hit (e.g. OpenAlex, no ids) wins
+     representative status over a richer duplicate (e.g. S2, carries an s2
+     id) that only merges via a shared normalized title. The 4 strongest
+     accepted seeds in the live run came out with a BLANK Paper-id and
+     couldn't be emitted as snowball seeds. Fixed at both call sites (the
+     rendered table AND the snowball frontier re-seeding loop — the same
+     bug, same root cause, in two places); added an `openalex` fallback tier;
+     a hit with genuinely no resolvable id now gets a loud `[NO-ID]` flag
+     instead of a silently blank cell.
+
+### Decisions
+- Dark-source detection is scoped to the WIDTH sweep's declared `sources:`
+  (arxiv/S2/OpenAlex/PubMed) — the depth snowball walks citation graphs on
+  whatever adapter resolved the accepted seeds, a different mechanism with
+  no equivalent "declared list" to cross-check against.
+- The manual (non-`--auto`) `rv dag approve coverage-gate` path gets its own
+  dark-source BLOCK (mirrors the existing backstop-SIGNAL wiring) rather than
+  routing through `classify_coverage_gate`, so a manual approve never
+  bypasses the disposition/remediation machinery `--auto` uses.
+
+### Open / next
+- None — all three land in one PR (one coherent "no silent recall loss"
+  batch); reviewer to confirm the dark-source boundary test (all-cells-dark
+  vs one-hit-not-dark) reads as intended.
+
 ## 2026-07-09 (auto-chain review→manuscript at `approve-review` GO)
 
 ### Done
