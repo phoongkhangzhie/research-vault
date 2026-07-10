@@ -52,13 +52,27 @@ from .base import AdapterFetchError, NotSupported, PaperHit, SourceAdapter
 from .dedup import DedupedHit, dedup_hits, identity_key
 from .derivative import count_independent, mark_derivatives
 
-DEFAULT_BACKSTOP_WAVES = 3
+DEFAULT_BACKSTOP_WAVES = 2
+
+# Breadth x depth bounds (2026-07-09 — a broad-topic downstream-project validation walk ran
+# unbounded for 1+ hour: per_round_limit only capped fetches PER PAPER, never
+# the number of frontier papers, so the walk grew O(per_round_limit^waves).
+# These three, plus backstop_waves=2 above, are the closed set of knobs that
+# bound total work: seed_cap bounds the STARTING width, frontier_cap bounds
+# each round's re-seeding width, fetch_budget is the hard backstop-of-
+# backstops on total asta calls regardless of waves/width.
+DEFAULT_SEED_CAP = 25
+DEFAULT_FRONTIER_CAP = 25
+DEFAULT_FETCH_BUDGET = 200
 
 # Bump if the on-disk checkpoint shape ever changes incompatibly — a
 # mismatched version is treated exactly like "no checkpoint" (start fresh),
 # never a crash on an old/foreign file (charter §5: reversible, never trust
-# a stale/foreign artifact blindly).
-_CHECKPOINT_VERSION = 1
+# a stale/foreign artifact blindly). Bumped 1->2 for the fetch-budget
+# addition (total_calls must be resumed, not reset to 0 — a pre-existing
+# checkpoint from before this feature can't supply it, so it's dropped and
+# the walk restarts fresh, same as any other incompatible-shape checkpoint).
+_CHECKPOINT_VERSION = 2
 
 # Every key the resume path reads directly off a loaded checkpoint dict. A
 # checkpoint missing ANY of these (truncated write, hand-edited, a foreign
@@ -69,7 +83,7 @@ _CHECKPOINT_VERSION = 1
 _REQUIRED_CHECKPOINT_KEYS = (
     "seen_identities", "visited_pids", "all_hits", "errors", "rounds",
     "unresolvable_ids", "unresolvable_seen", "frontier", "consecutive_zero",
-    "completed_round",
+    "completed_round", "total_calls",
 )
 
 
@@ -167,6 +181,9 @@ def run_snowball_to_saturation(
     backstop_waves: int = DEFAULT_BACKSTOP_WAVES,
     derivative_threshold: float = 0.6,
     per_round_limit: int = 20,
+    seed_cap: int = DEFAULT_SEED_CAP,
+    frontier_cap: int = DEFAULT_FRONTIER_CAP,
+    fetch_budget: int = DEFAULT_FETCH_BUDGET,
     checkpoint_path: Path | str | None = None,
     progress_cb: Callable[[str], None] | None = None,
 ) -> SnowballResult:
@@ -184,15 +201,43 @@ def run_snowball_to_saturation(
         backstop_waves: the guaranteed-termination cap (SR-LR-1-BACKSTOP).
         derivative_threshold: passed through to ``mark_derivatives``.
         per_round_limit: per-(paper,direction) fetch limit each round.
+        seed_cap: hard cap on the STARTING frontier width. No ``PaperHit``
+            (hence no relevance score) exists yet at the seed stage — seeds
+            are bare ids off ``_screen.md`` — so the ranking here is the
+            declared fallback: preserve input order, keep the first
+            ``seed_cap``. A no-op when ``len(seed_ids) <= seed_cap``.
+        frontier_cap: each round, after discovering ``new_frontier_ids``,
+            only the top ``frontier_cap`` (ranked by ``citation_count``
+            desc, stable tie-break on discovery order) are PROMOTED to seed
+            the next round. Every discovered paper still counts toward the
+            corpus (``kept``, ``rounds[].new_independent``) — capping only
+            bounds which papers get to EXPAND the walk further, never drops
+            a paper from the corpus (discount, never delete — the same
+            discipline ``derivative_of`` already uses).
+        fetch_budget: hard ceiling on total ``cited_by``/``references``
+            calls across the whole walk (both directions, every round). A
+            broad-topic neighborhood that never saturates and outlives even
+            ``backstop_waves`` still terminates here — the backstop-of-
+            backstops. Checked before each call; the walk stops as soon as
+            the budget would be exceeded (never over-shoots), finishes
+            processing the partial round's already-fetched hits, then sets
+            ``stop_reason == f"budget:{fetch_budget}-calls"`` and returns —
+            never a crash, never silently truncated without a distinct,
+            non-``"saturated"`` stop reason (charter §2).
         checkpoint_path: when given, round-granularity walk state is
             persisted here after every completed round, and a PRIOR
             checkpoint at this same path (matching ``seed_ids`` +
             ``backstop_waves``) is loaded and RESUMED from — the walk
             continues from the next round rather than re-fetching anything
-            already visited. Removed on any clean completion. A mismatched
-            or corrupt checkpoint is treated as absent (fresh start) —
-            never a crash. ``None`` (the default) disables checkpointing
-            entirely — unchanged, backward-compatible in-memory-only walk.
+            already visited. The running ``total_calls`` fetch-count is
+            part of that persisted state, so a resumed walk's fetch_budget
+            check starts from where the killed walk left off — never
+            resets to 0 (which would let a resumed walk blow past the
+            budget across the resume boundary). Removed on any clean
+            completion. A mismatched or corrupt checkpoint is treated as
+            absent (fresh start) — never a crash. ``None`` (the default)
+            disables checkpointing entirely — unchanged, backward-compatible
+            in-memory-only walk.
         progress_cb: called with one human-readable line after each
             completed round (``"round N/backstop: frontier=.. new=..
             unresolvable=.. corpus=.."``) — liveness for an operator
@@ -201,10 +246,18 @@ def run_snowball_to_saturation(
     Returns:
         A ``SnowballResult`` whose ``stop_reason`` is exactly ``"saturated"``
         (2 consecutive rounds with 0 new independent papers),
-        ``f"backstop:{backstop_waves}-waves"``, or ``"no-seeds-resolved"``
-        (every seed id failed to resolve on BOTH directions — an all-seeds
-        lookup failure, never mislabeled as genuine saturation; see below)
-        — never anything else, and never left blank (charter §2).
+        ``f"backstop:{backstop_waves}-waves"``,
+        ``f"budget:{fetch_budget}-calls"`` (the total-fetch ceiling fired —
+        a bounded, non-saturated corpus), or ``"no-seeds-resolved"`` (every
+        seed id failed to resolve on BOTH directions — an all-seeds lookup
+        failure, never mislabeled as genuine saturation; see below) — never
+        anything else, and never left blank (charter §2). Like
+        ``"backstop:N-waves"``, ``"budget:N-calls"`` does NOT start with
+        ``"backstop:"`` so ``is_backstop`` is False for it — the
+        coverage-gate whitelist (``review.autonomy.classify_coverage_gate``)
+        therefore fail-closes on it (HALT-DECLARE) exactly like any other
+        non-canonical, non-``"saturated"`` value; it is not wired into the
+        ``GO_WITH_RESIDUE`` backstop branch (SR-175 confirmed unchanged).
 
     An adapter direction that raises ``NotSupported`` for a given paper id is
     skipped for that (paper, direction) this round — graceful degradation,
@@ -241,16 +294,28 @@ def run_snowball_to_saturation(
 
     seed_ids = [s for s in seed_ids if s]
 
+    # Seed cap (breadth bound, §1): no PaperHit/relevance score exists yet at
+    # the seed stage (bare ids off _screen.md) — the declared fallback is
+    # input-order preservation, first `seed_cap` kept. Applied BEFORE the
+    # checkpoint match check, so a resumed walk's `seed_ids` comparison is
+    # against the SAME (already-capped) set the original run started with.
+    if len(seed_ids) > seed_cap:
+        seed_ids = seed_ids[:seed_cap]
+
     start_round = 1
     loaded = _load_checkpoint(ckpt_file) if ckpt_file is not None else None
     if loaded is not None and (
         loaded.get("version") != _CHECKPOINT_VERSION
         or set(loaded.get("seed_ids", [])) != set(seed_ids)
         or loaded.get("backstop_waves") != backstop_waves
+        or loaded.get("seed_cap") != seed_cap
+        or loaded.get("frontier_cap") != frontier_cap
+        or loaded.get("fetch_budget") != fetch_budget
     ):
         progress(
             "snowball: checkpoint present but does not match this walk's "
-            "seed_ids/backstop_waves — ignoring it, starting fresh"
+            "seed_ids/backstop_waves/seed_cap/frontier_cap/fetch_budget — "
+            "ignoring it, starting fresh"
         )
         loaded = None
 
@@ -271,11 +336,13 @@ def run_snowball_to_saturation(
         _unresolvable_seen = set(loaded["unresolvable_seen"])
         frontier = list(loaded["frontier"])
         consecutive_zero = loaded["consecutive_zero"]
+        total_calls = loaded["total_calls"]
         start_round = loaded["completed_round"] + 1
         progress(
             f"snowball: resuming from checkpoint after round "
             f"{loaded['completed_round']}/{backstop_waves} "
-            f"(cumulative so far: {len(all_hits)} hits)"
+            f"(cumulative so far: {len(all_hits)} hits, "
+            f"{total_calls}/{fetch_budget} asta calls used)"
         )
     else:
         seen_identities = set()
@@ -287,6 +354,7 @@ def run_snowball_to_saturation(
         _unresolvable_seen = set()
         frontier = list(seed_ids)
         consecutive_zero = 0
+        total_calls = 0
 
     stop_reason = ""
 
@@ -294,10 +362,16 @@ def run_snowball_to_saturation(
         round_frontier_size = len(frontier)
         round_hits: list[PaperHit] = []
         directions_by_identity: dict[str, set[str]] = {}
+        budget_exhausted = False
 
         for pid in frontier:
+            if total_calls >= fetch_budget:
+                budget_exhausted = True
+                break
+
             asta_id = _normalize_paper_id_for_asta(pid)
             fwd_failed = False
+            total_calls += 1
             try:
                 fwd = adapter.cited_by(asta_id, limit=per_round_limit)
             except NotSupported:
@@ -310,7 +384,16 @@ def run_snowball_to_saturation(
                 round_hits.append(h)
                 directions_by_identity.setdefault(identity_key(h), set()).add("forward")
 
+            if total_calls >= fetch_budget:
+                # Budget hit exactly on the forward call — skip the backward
+                # call for THIS pid (never overshoot the ceiling) and stop
+                # fetching entirely; already-collected round_hits are still
+                # processed normally below (partial round, never dropped).
+                budget_exhausted = True
+                break
+
             bwd_failed = False
+            total_calls += 1
             try:
                 bwd = adapter.references(asta_id, limit=per_round_limit)
             except NotSupported:
@@ -330,7 +413,12 @@ def run_snowball_to_saturation(
         deduped_round = dedup_hits(round_hits)
 
         new_this_round: list[PaperHit] = []
-        new_frontier_ids: list[str] = []
+        # (pid, citation_count) pairs — capped to `frontier_cap` (§2, ranked
+        # citation_count desc, stable tie-break on discovery order) AFTER
+        # this loop, below. Every discovered paper still lands in
+        # `new_this_round`/`all_hits` regardless of the cap — capping only
+        # bounds which papers seed the NEXT round's frontier.
+        new_frontier_candidates: list[tuple[str, int]] = []
         new_fwd = 0
         new_bwd = 0
         for d in deduped_round:
@@ -341,13 +429,20 @@ def run_snowball_to_saturation(
             seen_identities.add(ident)
             if pid:
                 visited_pids.add(pid)
-                new_frontier_ids.append(pid)
+                new_frontier_candidates.append((pid, d.hit.citation_count))
             new_this_round.append(d.hit)
             dirs = directions_by_identity.get(ident, set())
             if "forward" in dirs:
                 new_fwd += 1
             if "backward" in dirs:
                 new_bwd += 1
+
+        # Frontier cap (breadth bound, §2): sort DESC by citation_count;
+        # Python's sort is stable, so ties preserve discovery order. Cap to
+        # `frontier_cap` — the rest are still kept in `all_hits`/`kept`
+        # above, they just don't expand the walk further.
+        new_frontier_candidates.sort(key=lambda pair: pair[1], reverse=True)
+        new_frontier_ids = [pid for pid, _ in new_frontier_candidates[:frontier_cap]]
 
         all_hits.extend(new_this_round)
         # Discount derivatives against the FULL accumulated history — never
@@ -382,6 +477,14 @@ def run_snowball_to_saturation(
             stop_reason = "saturated"
             break
 
+        if budget_exhausted:
+            # Total-fetch ceiling (backstop-of-backstops, §3): a bounded,
+            # NOT-saturated corpus — distinct from both "saturated" and
+            # "backstop:N-waves" so the coverage-gate whitelist fail-closes
+            # on it (never mislabeled as convergence).
+            stop_reason = f"budget:{fetch_budget}-calls"
+            break
+
         frontier = new_frontier_ids
 
         # Log-as-you-go (round-granularity checkpoint): persist everything
@@ -394,6 +497,10 @@ def run_snowball_to_saturation(
                 "version": _CHECKPOINT_VERSION,
                 "seed_ids": seed_ids,
                 "backstop_waves": backstop_waves,
+                "seed_cap": seed_cap,
+                "frontier_cap": frontier_cap,
+                "fetch_budget": fetch_budget,
+                "total_calls": total_calls,
                 "completed_round": round_num,
                 "frontier": frontier,
                 "consecutive_zero": consecutive_zero,
