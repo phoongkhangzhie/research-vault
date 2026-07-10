@@ -539,8 +539,9 @@ def test_checkpoint_missing_required_key_treated_as_absent(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Breadth x depth bounds — csb validation ran an unbounded 1hr+ broad-topic
-# walk (seed_cap / frontier_cap / fetch_budget / backstop_waves=2 default).
+# Breadth x depth bounds — a broad-topic downstream-project validation walk ran
+# unbounded (1hr+); these cap it (seed_cap / frontier_cap / fetch_budget /
+# backstop_waves=2 default).
 # ---------------------------------------------------------------------------
 
 
