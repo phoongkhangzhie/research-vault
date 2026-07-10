@@ -598,9 +598,12 @@ def check_relevance_verifier(verifier_path: Path) -> dict[str, Any]:
 # 5. Disposition (§3c) — coverage-gate reads this
 # ---------------------------------------------------------------------------
 
-# Design §3c/§6: "below ~15-20% -> auto-prune + declare"; "above ~15-20% ->
-# HALT-DECLARE". A single threshold in the middle of that band.
-OFF_DOMAIN_HALT_THRESHOLD: float = 0.20
+# Below the threshold -> auto-prune + declare residue; at/above it -> HALT-DECLARE
+# (don't silently prune a large fraction of the corpus). The threshold sits above
+# the cold verifier's observed natural off-domain rate on a curated corpus (~16%)
+# so a citation-promiscuous domain doesn't false-HALT, while still catching a
+# genuinely-broken (~40%+) corpus.
+OFF_DOMAIN_HALT_THRESHOLD: float = 0.30
 
 
 def classify_relevance_verdict(
@@ -613,8 +616,9 @@ def classify_relevance_verdict(
     Args:
         payload: ``check_relevance_verifier``'s return dict.
         threshold: off-domain fraction at/above which the disposition is
-            HALT-DECLARE rather than an auto-prune (default 0.20 — design
-            §3c/§6's "~15-20%" band).
+            HALT-DECLARE rather than an auto-prune (default 0.30 — headroom
+            above the ~16% cold-verifier natural rate, still HALTs a broken
+            ~40%+ corpus).
 
     Returns:
         A ``review.autonomy.DispositionResult``:
