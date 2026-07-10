@@ -1,7 +1,7 @@
 """test_manuscript_coverage_allocation.py — PR-A: the full-corpus coverage
 contract enforced at the framework stage.
 
-The verified 0.3.0 drop mechanism: a real corpus (csb=47) routed to the lossy
+The verified 0.3.0 drop mechanism: a real corpus (47 papers) routed to the lossy
 per-branch fallback with NO gate blocking an unallocated paper (~20/47 silently
 dropped). This PR makes full-corpus coverage a framework-stage contract:
 `_coverage-map.md` allocates EVERY frozen-corpus citekey, and

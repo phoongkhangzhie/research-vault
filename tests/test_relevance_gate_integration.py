@@ -55,14 +55,14 @@ _CORPUS_RAW_ROWS = (
     "| | | We measure large language models' cultural values and social norm "
     "adherence across a diverse sample of human populations, comparing model "
     "responses to the World Values Survey. | |\n"
-    # Real csb-shaped contamination class #1: an astronomy survey.
+    # Real contamination class #1: an astronomy survey.
     "| [NEW] | 10.1/astro2024 | A wide-field spectroscopic survey of "
     "methanol masers in star-forming regions | | | We present a "
     "spectroscopic survey of 3,500 galactic methanol maser sources, "
     "deriving distance estimates via trigonometric parallax and "
     "characterizing the spatial distribution of star-forming regions "
     "across the Milky Way disk. | |\n"
-    # Real csb-shaped contamination class #2: materials physics.
+    # Real contamination class #2: materials physics.
     "| [NEW] | 10.1/materials2024 | Strain relaxation in Silicon-on-Sapphire "
     "epitaxial heterostructures | | | We investigate strain relaxation "
     "mechanisms in Silicon-on-Sapphire epitaxial thin films grown via "

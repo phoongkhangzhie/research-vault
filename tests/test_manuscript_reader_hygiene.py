@@ -104,7 +104,7 @@ def test_empty_body_is_a_clean_noop():
 
 
 # ---------------------------------------------------------------------------
-# PR-C — the three verified-missing leak classes (hub bake-off, 0.2.6 csb
+# PR-C — the three verified-missing leak classes (hub bake-off, 0.2.6
 # manuscript: 5/25 leak-lines caught). Each gets its own planted-leak RED
 # proof — silence is not proof (charter §2).
 # ---------------------------------------------------------------------------

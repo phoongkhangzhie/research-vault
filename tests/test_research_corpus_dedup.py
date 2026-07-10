@@ -1052,7 +1052,7 @@ def test_corpus_annotation_emits_bbt_citekey_end_to_end(tmp_path: Path) -> None:
     """End-to-end: `rv research references` style annotation must show the
     BBT citekey (argyleOutOneMany2022), not the filename slug
     (argyle-2023-silicon-sampling), for a note filed with a `citekey:` field
-    that differs from its filename — the real 116/126 csb-notes case (rv-023).
+    that differs from its filename — the real 116/126 notes case (rv-023).
     """
     lit_dir = tmp_path / "literature"
     _make_literature_note(

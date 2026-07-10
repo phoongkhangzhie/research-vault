@@ -460,10 +460,10 @@ def test_resolve_target_project_defaults_to_project_slug(tmp_path, monkeypatch):
     from research_vault.adapters.observability import resolve_run_logging_target
     enabled, entity, project = resolve_run_logging_target(
         _cfg(tmp_path, {"backend": "local", "run_logging": True}),
-        project_slug="cultural-social-sim",
+        project_slug="demo-research",
     )
     assert enabled is True
-    assert project == "cultural-social-sim"
+    assert project == "demo-research"
 
 
 def test_resolve_target_explicit_wandb_project_wins_over_slug(tmp_path, monkeypatch):
@@ -472,7 +472,7 @@ def test_resolve_target_explicit_wandb_project_wins_over_slug(tmp_path, monkeypa
     from research_vault.adapters.observability import resolve_run_logging_target
     enabled, entity, project = resolve_run_logging_target(
         _cfg(tmp_path, {"backend": "local", "run_logging": True, "wandb_project": "acme/override"}),
-        project_slug="cultural-social-sim",
+        project_slug="demo-research",
     )
     assert entity == "acme"
     assert project == "override"
@@ -484,7 +484,7 @@ def test_resolve_target_env_project_wins_over_slug(tmp_path, monkeypatch):
     from research_vault.adapters.observability import resolve_run_logging_target
     enabled, entity, project = resolve_run_logging_target(
         _cfg(tmp_path, {"backend": "local", "run_logging": True}),
-        project_slug="cultural-social-sim",
+        project_slug="demo-research",
     )
     assert project == "env-proj"
 
@@ -495,10 +495,10 @@ def test_resolve_target_env_entity_resolved_independently(tmp_path, monkeypatch)
     from research_vault.adapters.observability import resolve_run_logging_target
     enabled, entity, project = resolve_run_logging_target(
         _cfg(tmp_path, {"backend": "local", "run_logging": True}),
-        project_slug="cultural-social-sim",
+        project_slug="demo-research",
     )
     assert entity == "env-ent"
-    assert project == "cultural-social-sim"
+    assert project == "demo-research"
 
 
 def test_resolve_target_manifest_project_is_last_resort_fallback(tmp_path, monkeypatch):
