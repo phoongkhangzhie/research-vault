@@ -165,7 +165,18 @@ def _build_scope(tmp_path: Path):
     return project_notes_dir, review_dir, literature_dir, baseline_citekeys
 
 
-def _run_gate(review_dir: Path, monkeypatch, *, fake_tool_op) -> tuple[Any, Any]:  # type: ignore[name-defined]
+class _FakeRunState:
+    def __init__(self):
+        self.meta: dict = {}
+
+
+def _run_gate(review_dir: Path, monkeypatch, *, fake_tool_op, run_state=None) -> tuple[Any, Any]:  # type: ignore[name-defined]
+    """Drive ONE ``_evaluate_autonomous_gate("approve-review", ...)`` call.
+
+    ``run_state`` is reusable across calls (Shape B's emit/ingest fan-out is
+    asynchronous ACROSS DAG invocations — a caller simulating the hub's
+    cold-judge turnaround makes two calls sharing the SAME run_state.meta,
+    exactly like two real ``rv dag approve`` invocations of the same run)."""
     monkeypatch.setattr(rem, "run_tool_op", fake_tool_op)
     nodes_lookup = {
         "review-coverage-critic": {
@@ -173,11 +184,8 @@ def _run_gate(review_dir: Path, monkeypatch, *, fake_tool_op) -> tuple[Any, Any]
         },
     }
 
-    class _FakeRunState:
-        def __init__(self):
-            self.meta: dict = {}
-
-    run_state = _FakeRunState()
+    if run_state is None:
+        run_state = _FakeRunState()
     disposition = _evaluate_autonomous_gate(
         "approve-review", nodes_lookup, review_dir / "manifest.json", run_state,
     )
@@ -215,47 +223,91 @@ class TestBacktrackReachesIncrementalRelate:
 
         return review_dir, literature_dir, baseline_citekeys, connected_ck, island_ck, fake_tool_op
 
+    def _write_fake_verdicts(self, judge_dir: Path, *, tag_by_pair: dict[tuple[str, str, str], str]):
+        """Simulate the hub's cold judge fan-out: read the REAL emitted
+        ``_relate-tasks.json`` + ``_relate-canary-key.json``, answer every
+        canary correctly (from the private canary key — a hermetic stand-in
+        for "the judge is trustworthy"), and answer every real task from
+        ``tag_by_pair`` (keyed ``(kind, a, b)``), defaulting to ``NONE`` for
+        anything not scripted."""
+        from research_vault.gates import judge_seam as _js
+
+        tasks_doc = _js.read_json_or_none(judge_dir / "_relate-tasks.json")
+        canary_key_doc = _js.read_json_or_none(judge_dir / "_relate-canary-key.json")
+        canaries = (canary_key_doc or {}).get("canaries", {})
+
+        verdicts = []
+        for t in tasks_doc["tasks"]:
+            tid = t["id"]
+            if tid in canaries:
+                verdicts.append({"id": tid, "verdict": canaries[tid], "reason": "canary"})
+                continue
+            key = (t.get("kind"), t["a"], t["b"])
+            tag = tag_by_pair.get(key, "NONE")
+            verdicts.append({"id": tid, "verdict": tag, "reason": f"scripted {tag} for {key}"})
+
+        _js.write_json(judge_dir / "_relate-verdicts.json", {"verdicts": verdicts})
+
     def test_bidirectional_neighborhood_blocked_island_escalates_only_itself(self, tmp_path, monkeypatch):
         (
             review_dir, literature_dir, baseline_citekeys, connected_ck, island_ck, fake_tool_op,
         ) = self._scenario(tmp_path)
 
-        monkeypatch.setenv("RV_JUDGE_MODEL", "test-judge-model")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        from research_vault.review import relate_judge_seam as rjs
 
-        relate_calls: list[tuple[str, str]] = []
-        escalate_calls: list[str] = []
+        judge_dir = review_dir / "judge" / "relate"
         escalate_target = sorted(baseline_citekeys)[10]
 
-        def fake_default_relate_fn(new_ck, cand_ck, *, literature_dir, judge_model):
-            relate_calls.append((new_ck, cand_ck))
-            return {"tag": "SUPPORTS", "reason": f"{new_ck} and {cand_ck} share a concept"}
+        # --- CALL 1: phase 1 — the round runs (search+append), the
+        # concept-graph-blocked candidate pairs are emitted as a batched
+        # relate-task set, and the gate PAUSES (HALT-DECLARE, awaiting the
+        # hub's cold judge fan-out). No LLM call happens anywhere in rv.
+        disposition, run_state = _run_gate(review_dir, monkeypatch, fake_tool_op=fake_tool_op)
 
-        def fake_default_escalate_relate_fn(new_ck, baseline, *, literature_dir, judge_model):
-            escalate_calls.append(new_ck)
-            return [{"candidate": escalate_target, "tag": "PARTIAL", "reason": "wider relate found a weak link"}]
+        from research_vault.review import autonomy as auto
+        assert disposition.disposition == auto.HALT_DECLARE
+        assert rjs.relate_fanout_present(judge_dir)
 
-        monkeypatch.setattr(rem, "_default_relate_fn", fake_default_relate_fn)
-        monkeypatch.setattr(rem, "_default_escalate_relate_fn", fake_default_escalate_relate_fn)
-
-        disposition, _run_state = _run_gate(review_dir, monkeypatch, fake_tool_op=fake_tool_op)
-
-        # The corpus rows DID land (proves the round ran at all).
+        # The corpus rows DID land (proves the round ran at all) even though
+        # relate-judging is still pending.
         citekeys = set(_parse_corpus_citekeys(review_dir / "_corpus.md"))
         assert connected_ck in citekeys
         assert island_ck in citekeys
 
-        # ★ NEIGHBORHOOD-BLOCKED (sub-quadratic vs. corpus size): the
-        # connected newcomer shares a concept with EXACTLY ONE of the 20
-        # baseline papers — a naive `new x N` scan would have judged 20
-        # pairs; concept-graph blocking judges exactly 1.
-        assert relate_calls == [(connected_ck, "base0drift2020")]
+        # ★ NEIGHBORHOOD-BLOCKED (sub-quadratic vs. corpus size), asserted at
+        # the EMIT boundary: the connected newcomer shares a concept with
+        # EXACTLY ONE of the 20 baseline papers — a naive `new x N` scan
+        # would have emitted 20 relate-pair tasks; concept-graph blocking
+        # emits exactly 1.
+        tasks_doc = rjs.read_relate_tasks_doc(judge_dir)
+        pair_tasks = [(t["a"], t["b"]) for t in tasks_doc["tasks"] if t.get("kind") == "relate-pair"]
+        assert pair_tasks == [(connected_ck, "base0drift2020")]
 
-        # ★ ISLAND ESCALATES ONLY ITSELF: the island newcomer (zero concept
-        # overlap with ANY baseline paper) is the ONLY citekey escalated —
-        # the connected newcomer (which HAD candidates) must never be
-        # escalated too.
-        assert escalate_calls == [island_ck]
+        # ★ ISLAND ESCALATES ONLY ITSELF: every relate-escalate task's "a" is
+        # the island citekey — the connected newcomer (which HAD candidates)
+        # must never appear as an escalation source.
+        escalate_tasks = [(t["a"], t["b"]) for t in tasks_doc["tasks"] if t.get("kind") == "relate-escalate"]
+        assert {a for a, _b in escalate_tasks} == {island_ck}
+        assert {b for _a, b in escalate_tasks} == set(baseline_citekeys)
+
+        # --- Simulate the hub's cold judge fan-out writing verdicts: the
+        # connected pair -> SUPPORTS; the island's escalation against
+        # `escalate_target` -> PARTIAL; everything else (the other 19
+        # escalation candidates) -> NONE (no edge).
+        self._write_fake_verdicts(judge_dir, tag_by_pair={
+            ("relate-pair", connected_ck, "base0drift2020"): "SUPPORTS",
+            ("relate-escalate", island_ck, escalate_target): "PARTIAL",
+        })
+
+        # --- CALL 2: phase 2 — ingests the (now-present) verdicts, writes
+        # the bidirectional edges, clears the fan-out, then re-derives the
+        # disposition (this round's relate is done; the SAME critic payload
+        # still BLOCKs, so another round runs — finds zero-new via dedup —
+        # and the backtrack correctly exhausts to HALT-DECLARE, all within
+        # this one call, since a zero-new round needs no further fan-out).
+        disposition, _run_state = _run_gate(
+            review_dir, monkeypatch, fake_tool_op=fake_tool_op, run_state=run_state,
+        )
 
         # ★ BIDIRECTIONAL EDGE WRITE: the connected pair's edge round-trips
         # through BOTH notes.
@@ -276,40 +328,67 @@ class TestBacktrackReachesIncrementalRelate:
         assert any(e["target"] == escalate_target and e["tag"] == "PARTIAL" for e in island_edges.edges)
         assert any(e["target"] == island_ck and e["tag"] == "PARTIAL" for e in target_edges.edges)
 
+        # Zero stray edges from the 19 NONE-scripted escalation candidates.
+        assert len(island_edges.edges) == 1
+        assert len(connected_edges.edges) == 1
+
+        # The fan-out is consumed (idempotent per round).
+        assert not rjs.relate_fanout_present(judge_dir)
+
         # This is an axis-4 hard structural gate — a still-thin pole after
         # the frozen counter-query round(s) genuinely exhausts to
         # HALT-DECLARE (never a silent GO/residue); unrelated to the relate
         # wiring itself, but confirms the backtrack ran to a real terminal
         # disposition (not a crash/short-circuit).
-        from research_vault.review import autonomy as auto
         assert disposition.disposition == auto.HALT_DECLARE
 
     def test_mutation_check_stubbed_wiring_produces_no_edges(self, tmp_path, monkeypatch):
-        """★ MUTATION-CHECK: the SAME scenario, but with the wiring function
-        (``run_incremental_relate_for_new_citekeys``) stubbed/bypassed —
-        exactly what would happen if PR-3b's plumbing were reverted/never
-        shipped. Proves the positive test's edge assertions above are real
-        signal: under a stub, NO edges appear anywhere and the injected
-        relate/escalate callables are never even invoked."""
+        """★ MUTATION-CHECK: the SAME scenario, but with the DAG-layer's
+        connection to ``run_incremental_relate`` stubbed/bypassed — exactly
+        what would happen if this fix's emit/ingest wiring were reverted/
+        never shipped. Proves the positive test's edge assertions above are
+        real signal: under a stub, NO edges appear anywhere even after the
+        verdicts file is written and ingested."""
         (
             review_dir, literature_dir, baseline_citekeys, connected_ck, island_ck, fake_tool_op,
         ) = self._scenario(tmp_path)
 
-        relate_calls: list[tuple[str, str]] = []
+        from research_vault.review import incremental_relate as ir_mod
+        from research_vault.review import relate_judge_seam as rjs
 
-        def stub_wiring(new_citekeys, *, literature_dir, baseline_citekeys, relate_fn=None, escalate_relate_fn=None, judge_model=""):
-            # A "bypassed module" stub: never calls run_incremental_relate,
-            # never invokes relate_fn/escalate_relate_fn at all.
-            return {"result": None, "not_yet_distilled": list(new_citekeys)}
+        judge_dir = review_dir / "judge" / "relate"
+        escalate_target = sorted(baseline_citekeys)[10]
 
-        monkeypatch.setattr(rem, "run_incremental_relate_for_new_citekeys", stub_wiring)
+        calls: list[Any] = []
 
-        disposition, _run_state = _run_gate(review_dir, monkeypatch, fake_tool_op=fake_tool_op)
+        def stub_run_incremental_relate(new_citekeys, **kwargs):
+            # A "reverted wiring" stub: never writes any edge, never even
+            # calls the injected relate_fn/escalate_relate_fn.
+            calls.append(new_citekeys)
+            from research_vault.review.incremental_relate import IncrementalRelateResult
 
-        # The corpus rows still land (the stub only bypasses the RELATE
-        # step, not the sweep/append step) — but NO edges appear anywhere:
-        # this is the exact green-but-unreached failure mode PR-3b exists
-        # to close.
+            return IncrementalRelateResult(corpus_size=len(kwargs.get("baseline_citekeys", set())))
+
+        monkeypatch.setattr(ir_mod, "run_incremental_relate", stub_run_incremental_relate)
+
+        disposition, run_state = _run_gate(review_dir, monkeypatch, fake_tool_op=fake_tool_op)
+        assert rjs.relate_fanout_present(judge_dir)
+
+        self._write_fake_verdicts(judge_dir, tag_by_pair={
+            ("relate-pair", connected_ck, "base0drift2020"): "SUPPORTS",
+            ("relate-escalate", island_ck, escalate_target): "PARTIAL",
+        })
+
+        _disposition, _run_state = _run_gate(
+            review_dir, monkeypatch, fake_tool_op=fake_tool_op, run_state=run_state,
+        )
+
+        # The DAG layer's phase-2 branch DID call the (stubbed)
+        # run_incremental_relate — proves the ingest path was reached — but
+        # since the stub never writes anything, NO edges appear anywhere:
+        # this is the exact green-but-unreached failure mode this fix
+        # exists to close.
+        assert calls  # reached
         connected_note = literature_dir / f"{connected_ck}.md"
         island_note = literature_dir / f"{island_ck}.md"
         assert connected_note.exists()
@@ -318,7 +397,6 @@ class TestBacktrackReachesIncrementalRelate:
         island_edges = parse_paper_relations(island_note.read_text(encoding="utf-8"))
         assert connected_edges.edges == []  # the positive test asserted a SUPPORTS edge here
         assert island_edges.edges == []     # the positive test asserted a PARTIAL edge here
-        assert relate_calls == []           # never even invoked
 
 
 # ===========================================================================

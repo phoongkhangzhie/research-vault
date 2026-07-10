@@ -173,7 +173,7 @@ def run_incremental_relate(
     *,
     literature_dir: Path,
     baseline_citekeys: set[str],
-    relate_fn: Callable[[str, str], dict[str, str] | None],
+    relate_fn: Callable[[str, str], dict[str, str] | None] | None,
     escalate_relate_fn: Callable[[str, set[str]], list[dict[str, str]]] | None = None,
 ) -> IncrementalRelateResult:
     """Concept-graph-blocked incremental relate for a batch of new papers.
@@ -197,7 +197,22 @@ def run_incremental_relate(
     wider relate over the WHOLE baseline corpus — scoped to ONLY that one
     island paper (never fans out to any other newcomer, even in the same
     batch).
+
+    ``relate_fn=None`` raises ``RuntimeError`` — fail-closed (PR-3b fix,
+    Shape B). This module NEVER self-judges: the judgment callable must
+    already be resolved (a synchronous dict-lookup over harness-ingested
+    verdicts, injected by the caller — see ``review.relate_judge_seam`` /
+    ``dag/verbs.py``'s ``approve-review`` branch), never a live API default
+    constructed in-process here.
     """
+    if relate_fn is None:
+        raise RuntimeError(
+            "run_incremental_relate: relate_fn is required — this module "
+            "never self-judges the paper<->paper relation. Pass an explicit "
+            "callable resolved from the harness cold-judge fan-out (see "
+            "review.relate_judge_seam.ingest_relate_verdicts + "
+            "dag/verbs.py's approve-review branch)."
+        )
     result = IncrementalRelateResult(corpus_size=len(baseline_citekeys))
     _citekey_concepts, concept_to_citekeys = build_concept_index(literature_dir, baseline_citekeys)
 
