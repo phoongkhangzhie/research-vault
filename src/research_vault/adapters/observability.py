@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""adapters/observability.py — SR-MODEL-SEAM: observability backends + emission counter.
+"""adapters/observability.py — observability backends + emission counter.
 
 When to use: the observability layer for the provided ``ModelClient`` (see
 ``adapters/model_client.py``). Every model call through the seam is logged
@@ -21,15 +21,14 @@ AND accrues usage/cost/latency from the ``log_success_event`` kwargs. ONE counte
 feeds BOTH planes (Plane A trace tags / Plane B run.summary aggregates), and it is
 what ``ModelClient.assert_observed()`` reads to catch a silently-broken seam.
 
-IMPORT-LIGHT (charter / SR-PKG): ``litellm`` and ``weave`` are core deps that MUST
+IMPORT-LIGHT (charter): ``litellm`` and ``weave`` are core deps that MUST
 stay lazy. This module keeps EVERY ``litellm`` / ``weave`` import inside functions.
 The ``CustomLogger`` subclasses are built by factory closures so that importing this
 module — which ``load_adapters`` does on the ``rv help`` path — never pulls in
-litellm at module top-level. ``weave`` (core since SR-MODEL-SEAM) is imported ONLY
+litellm at module top-level. ``weave`` (a core dep) is imported ONLY
 when backend == "weave".
 
 Stdlib only at module top.
-sr: SR-MODEL-SEAM
 """
 from __future__ import annotations
 
@@ -220,7 +219,7 @@ def make_emission_counter(stats: EmissionStats) -> Any:
 
     The subclass is defined INSIDE this function (not at module top) so that
     ``import research_vault.adapters.observability`` — which happens on the
-    ``rv help`` path — does not import litellm (import-light, SR-PKG).
+    ``rv help`` path — does not import litellm (import-light).
     """
     from litellm.integrations.custom_logger import CustomLogger  # lazy — toolkit dep
 

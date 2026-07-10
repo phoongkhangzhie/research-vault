@@ -83,7 +83,6 @@ when_to_use = "When you need to run the custom step."
     assert "custom-step" in result
     assert result["custom-step"]["module"] == "myproject.verbs.custom"
     assert "custom step" in result["custom-step"]["when_to_use"].lower()
-    assert result["custom-step"]["sr"] == "instance"
 
 
 def test_load_instance_verbs_skips_verb_without_module(monkeypatch, tmp_path, capsys) -> None:

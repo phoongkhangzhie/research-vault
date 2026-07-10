@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""support_matcher.py — claim→source support-matcher (SR-MS-2).
+"""support_matcher.py — claim→source support-matcher.
 
 SHAREABLE LOCATION (D-SV-0, PR-M3): lives in research_vault.gates — a
 top-level shared module, NOT under manuscript/. Re-instantiated from the
 preserved craft in data/doctrine/honesty-gates.md (the module was removed
-in SR-RM-FIGMS; the craft survived the removal). The manuscript loop is
+during a manuscript-loop refactor; the craft survived the removal). The manuscript loop is
 the first consumer (see manuscript/fidelity_gates.py for the thin adapter),
 not the only one — any loop needing a claim→source support check may call
 match_support() directly.
@@ -24,9 +24,9 @@ boundary and never claim a guarantee we cannot make.
 
 VERDICTS
 ========
-Four typed verdicts, bracket-keyed (mirrors SR-CI's [PASS]/[BLOCK] convention but
-is a NEW 4-verdict extractor — the existing one is [PASS]/[BLOCK]-only, not
-overloaded here):
+Four typed verdicts, bracket-keyed (mirrors the local CI-gate's [PASS]/[BLOCK]
+convention but is a NEW 4-verdict extractor — the existing one is [PASS]/[BLOCK]-only,
+not overloaded here):
 
   [SUPPORTS]     — the cited note directly backs the claim with a quotable span
   [PARTIAL]      → WARN — the note is related but does not fully support the claim;
@@ -47,7 +47,7 @@ Anti-positivity moves (baked into the rubric and enforced in build_prompt):
 RUBRIC SEAM
 ===========
 The researcher-authored adversarial rubric ships as DEFAULT_SUPPORT_RUBRIC — the seam
-default, exactly like per_section_tips in style.py (SR-MS-2 §5J.13-D).
+default, exactly like per_section_tips in style.py (§5J.13-D).
 
   - get_support_rubric(override=None, config=None) — returns the active rubric.
   - The config key is [manuscript_support] in research_vault.toml.
@@ -71,7 +71,6 @@ judge_model + prompt_hash are returned in SupportVerdict and can be stored in
 RunState.meta["support_matcher"] by the caller (the DAG gate or rv manuscript check).
 
 Stdlib only.
-sr: SR-MS-2
 """
 from __future__ import annotations
 
@@ -141,7 +140,7 @@ def _extract_support_verdict(verdict_val: str) -> str | None:
 # Rubric seam
 # ---------------------------------------------------------------------------
 
-# Researcher-authored default rubric — the seam default (researcher, SR-MS-2 §5J.13-D).
+# Researcher-authored default rubric — the seam default (researcher, §5J.13-D).
 # Mirrors the get_style_preamble() pattern in style.py.
 #
 # Runtime slots filled by _build_judge_prompt before the judge call:
@@ -326,7 +325,7 @@ class SupportVerdict:
     prompt_hash: str
     j2_escalation: bool = False
     raw_response: str = field(default="", repr=False)
-    # SR-GAP-ROUTE Tier B: manuscript section stem (tex.stem) threaded from
+    # Manuscript section stem (tex.stem) threaded from
     # check_support_tally → match_support → SupportVerdict → to_meta_dict →
     # _detect_absent_rows → GapRecord._meta['section'] → suggest_route().
     # Default "" for back-compat: old verdicts without section → triage fallback.
@@ -354,7 +353,7 @@ class SupportVerdict:
             "judge_model": self.judge_model,
             "prompt_hash": self.prompt_hash,
             "j2_escalation": self.j2_escalation,
-            # SR-GAP-ROUTE Tier B: section stem for absent_row routing in gap_scan.py.
+            # Section stem for absent_row routing in gap_scan.py.
             # Empty string when not threaded (old verdicts) → back-compat triage fallback.
             "section": self.section,
         }
@@ -367,7 +366,7 @@ class SupportVerdict:
 def _read_note_structured_fields(note_path: Path) -> dict[str, str]:
     """Extract structured fields from a literature/ note for judge input.
 
-    SR-MS2-FIX: Robust extraction — feeds the judge ALL evidence in real OKF notes.
+    Robust extraction — feeds the judge ALL evidence in real OKF notes.
 
     Strategy:
       1. Strip HTML comments first (comment-only scaffold → {} → correctly ABSENT).
@@ -503,7 +502,7 @@ def _build_judge_prompt(
     === CLAIM === / === CITED SOURCE === markers are ALWAYS appended so the
     parser and test mocks can reliably locate claim + note content.
     """
-    # SR-MS2-FIX: un-truncate — per-field cap raised to ~2000 chars; overall
+    # Un-truncate — per-field cap raised to ~2000 chars; overall
     # budget ~6000 chars with a visible marker when exceeded (never silently drop).
     _PER_FIELD_CAP = 2000
     _OVERALL_BUDGET = 6000
@@ -682,7 +681,7 @@ def match_support(
         judge_fn:        injectable LLM call (prompt: str) -> str. Defaults to
                          the urllib Anthropic API call. Pass a mock in tests.
         judge_model:     the model-id to log (D-MS-4 resolved: Opus-tier).
-        section:         SR-GAP-ROUTE Tier B: manuscript section stem (tex.stem) passed
+        section:         manuscript section stem (tex.stem) passed
                          through from check_support_tally, stored in SupportVerdict.section
                          and emitted in to_meta_dict() for absent_row routing in gap_scan.py.
                          Default "" (back-compat: old callers without section → triage fallback).
@@ -694,7 +693,6 @@ def match_support(
     BLOCK on [ABSENT] / [CONTRADICTS]; WARN on [PARTIAL].
     Log judge_model + prompt_hash to RunState.meta["support_matcher"] at the call site.
 
-    sr: SR-MS-2, SR-GAP-ROUTE
     """
     rubric = get_support_rubric(override=rubric_override, config=config)
     note_fields = _read_note_structured_fields(note_path)

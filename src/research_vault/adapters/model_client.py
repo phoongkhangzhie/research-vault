@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""adapters/model_client.py — SR-MODEL-SEAM: the provided model client.
+"""adapters/model_client.py — the provided model client.
 
 When to use: a harness NEVER hand-rolls ``anthropic.Anthropic()`` or calls
 ``litellm.completion`` directly. It reaches the seam:
@@ -28,7 +28,6 @@ factory). Importing this module does NOT import litellm. ``AdapterSet.model`` is
 LAZY property so ``load_adapters`` never constructs a ModelClient (which would
 import litellm and call ``weave.init``) as a side effect.
 
-sr: SR-MODEL-SEAM
 """
 from __future__ import annotations
 

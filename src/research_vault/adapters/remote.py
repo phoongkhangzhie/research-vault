@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""adapters/remote.py — Remote ComputeBackend adapter (SR-7).
+"""adapters/remote.py — Remote ComputeBackend adapter.
 
 One manifest-driven adapter for ssh, slurm, pbs, and generic archetypes.
 Import-guarded: this module can be imported on a box with no ssh installed;
@@ -134,8 +134,8 @@ def _ssh_exec(
       subprocess.TimeoutExpired — the command timed out
 
     Call sites:
-      - ``_run_status`` (SR-CO) — uses this for all status queries
-      - ``doctor._probe_remote_*`` (SR-CO-REMOTE) — uses this for remote probing
+      - ``_run_status`` — uses this for all status queries
+      - ``doctor._probe_remote_*`` — uses this for remote probing
         with BatchMode=yes + ConnectTimeout flags prepended to argv
 
     Note: ``submit()`` uses ``subprocess.run`` directly (not this function) because

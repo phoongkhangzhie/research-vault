@@ -236,7 +236,7 @@ a loop's DAG carries.
   point every other section on this page assumes has already run.
 - **Operate** — the project lives through the OKF loops (`experiment`, `lit-review`, the
   manuscript loop) described above; `rv project relate`/`rv project edges` manage its
-  *declared peer* graph (cross-project corroboration, SR-XPB) — a separate axis from
+  *declared peer* graph (cross-project corroboration) — a separate axis from
   lifecycle.
 - **Stand down** — `rv project remove <slug>` is `add`'s parity counterpart: local
   teardown of the registry entry + scaffolded folders. The safety model, briefly (an

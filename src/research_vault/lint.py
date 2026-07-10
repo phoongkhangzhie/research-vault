@@ -9,21 +9,21 @@ When to use: ``rv lint [--strict]`` to run the project linter. Checks:
      fields (source_dir, code).
   3. Zero-hardcoded-path rule: confirms no absolute paths to private home
      directories appear in the source tree.
-  4. Vacuous-assertion rule (SR-LINT): flags ``assert True`` / ``or True``
+  4. Vacuous-assertion rule: flags ``assert True`` / ``or True``
      in test files — tautological assertions always pass, masking bugs.
-  5. Unpinned-git-init rule (SR-LINT): flags ``git init`` WITHOUT
+  5. Unpinned-git-init rule: flags ``git init`` WITHOUT
      ``--initial-branch`` in test files — an unpinned branch passes locally
      but fails on master-default CI runners.
   6. Redefined-in-same-scope rule (F811): flags ``def``/``async def``/``class``
      names that are shadowed in the same statement-list — a silent dead-code
-     bug (duplicate ``check_manuscript`` shipped through SR-MS-2).
+     bug (a duplicate ``check_manuscript`` shipped once before this rule existed).
      Exempts ``@overload`` / ``@typing.overload`` chains, ``@property`` /
      ``@x.setter`` / ``@x.deleter`` / ``@x.getter`` pairs, and
      ``@singledispatch`` / ``@fn.register`` chains — all standard same-name
      idioms.  Recurses into control-flow block bodies (if/for/while/with/try)
      so in-branch duplicates are caught; try/except split-branch definitions
      remain naturally exempt.  Scans src/research_vault/ (production code only).
-  7. Getsource-guard smell (SR-LINT): flags two forms in test files —
+  7. Getsource-guard smell: flags two forms in test files —
      (a) DIRECT: ``assert "X" in inspect.getsource(fn)`` (or bare ``getsource``);
      (b) INDIRECTED: ``src = inspect.getsource(fn); assert "X" in src``
      (intra-function taint: a name directly assigned from a getsource call,
@@ -145,14 +145,14 @@ _REL_LINK_PAT: re.Pattern[str] = re.compile(
     r"\]\((\.\.?/[^)#\s]+?)(?:#[^)]*)?\)"
 )
 
-# Vacuous-assertion patterns (rule 4 / SR-LINT).
+# Vacuous-assertion patterns (rule 4).
 # Each entry is (compiled_pattern, human_label).
 _VACUOUS_ASSERT_PATS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bassert\s+True\b"), "assert True"),
     (re.compile(r"\bor\s+True\b"), "or True"),
 ]
 
-# Unpinned-git-init pattern (rule 5 / SR-LINT).
+# Unpinned-git-init pattern (rule 5).
 # Matches ["git", "init" as a list literal with init as the immediate subcommand.
 # The tight form `"git",\s*"init"` avoids matching commit messages like
 # `["git", "-C", repo, "commit", "-m", "init"]` where "init" follows "-m".
@@ -161,7 +161,7 @@ _INITIAL_BRANCH_PAT: re.Pattern[str] = re.compile(r"--initial-branch")
 
 
 # ---------------------------------------------------------------------------
-# Test-hygiene helpers (SR-LINT)
+# Test-hygiene helpers
 # ---------------------------------------------------------------------------
 
 def _get_test_hygiene_skip_files(cfg: Config) -> frozenset[str]:
@@ -255,7 +255,7 @@ def check_unpinned_git_init(
 
 
 # ---------------------------------------------------------------------------
-# Getsource-guard smell (AST-based, rule 7 / SR-LINT)
+# Getsource-guard smell (AST-based, rule 7)
 # ---------------------------------------------------------------------------
 
 def _is_getsource_call(node: ast.expr) -> bool:
@@ -340,7 +340,7 @@ def _collect_fn_scope_taint_and_asserts(
 def check_getsource_guard(
     files: list[Path],
 ) -> list[tuple[str, int, str]]:
-    """Scan *files* for the getsource-guard smell (rule 7 / SR-LINT).
+    """Scan *files* for the getsource-guard smell (rule 7).
 
     Detects two forms:
 
@@ -562,8 +562,8 @@ def check_redefined_while_unused(
     is unreachable.  Note: the check is statement-list membership, not use-before-
     redefine; the rule name "F811" is used for compatibility with the Flake8 code.
 
-    The motivating bug: a duplicate ``check_manuscript`` function shipped in
-    SR-MS-2 because ``rv lint`` had no AST-level scope check, and ``CI green``
+    The motivating bug: a duplicate ``check_manuscript`` function shipped once
+    because ``rv lint`` had no AST-level scope check, and ``CI green``
     was recorded without this gate.
 
     Exemptions (never flagged):
@@ -830,7 +830,7 @@ def cmd_lint(cfg: Config, *, strict: bool = False) -> int:
     else:
         print("Verb docstring gate: OK")
 
-    # 4. Test-hygiene rules (SR-LINT) — scoped to test files only
+    # 4. Test-hygiene rules — scoped to test files only
     skip_files = _get_test_hygiene_skip_files(cfg)
     test_files = _collect_test_files(_TESTS_DIR, skip_files=skip_files)
 
@@ -860,7 +860,7 @@ def cmd_lint(cfg: Config, *, strict: bool = False) -> int:
         n = len(test_files)
         print(f"Unpinned-git-init rule: OK ({n} test file(s) checked)")
 
-    # 4c. Getsource-guard smell (rule 7 / SR-LINT)
+    # 4c. Getsource-guard smell (rule 7)
     gs_findings = check_getsource_guard(test_files)
     if gs_findings:
         print(

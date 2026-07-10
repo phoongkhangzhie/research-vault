@@ -1137,7 +1137,7 @@ class TestVerbRegistry:
     def test_plan_in_verb_registry(self):
         from research_vault.cli import _VERB_REGISTRY
         assert "plan" in _VERB_REGISTRY
-        assert _VERB_REGISTRY["plan"]["sr"] == "SR-PLAN-1"
+        assert _VERB_REGISTRY["plan"]["module"]
 
     def test_rv_help_check_passes(self, tmp_path):
         """rv help --check must pass with 'plan' verb registered."""

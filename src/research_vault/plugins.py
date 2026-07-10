@@ -111,7 +111,7 @@ def build_parser(
     if parent is not None:
         p = parent.add_parser(
             "plugins",
-            help="List registered adapter plugins + config-selected ones (SR-6).",
+            help="List registered adapter plugins + config-selected ones.",
             description=desc,
         )
     else:

@@ -4,18 +4,18 @@
 When to use: this is the entry point for the `rv` command. It dispatches to verb modules
 via config-driven argparse. All verbs are project-scoped and all paths resolve via Config.
 
-Verbs (SR-1):
+Verbs:
   rv task <project> <subcommand>    — manage project task cards
   rv note <project> <subcommand>    — manage OKF notes
   rv control <project> <subcommand> — manage the coordination control file
   rv devlog <project> <subcommand>  — manage the project DEVLOG
 
-Verbs (SR-CP): status — structured READ face for coordination state (rv status <project>)
+Also: status — structured READ face for coordination state (rv status <project>)
 
-Verbs (SR-2): project, cite, research, role, build-agents, mdstore, wt,
+Also: project, cite, research, role, build-agents, mdstore, wt,
   git-health, lint, wait-for
 
-Verbs (SR-CC): code — repo-plane code-conventions gate (rv code check <project>),
+Also: code — repo-plane code-conventions gate (rv code check <project>),
   distinct from the note-plane `rv note <project> check`.
 
 Plugin seam (instance vs portable verbs):
@@ -56,7 +56,7 @@ from .config import load_config
 # The build_parser + run functions are fetched from the module at dispatch time.
 
 _VERB_REGISTRY: dict[str, dict] = {
-    # --- SR-ORIENT ---
+    # --- orient ---
     "orient": {
         "module": "research_vault.orient",
         "when_to_use": (
@@ -74,9 +74,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "rather than crashing — orientation amplifies existing artifacts, it does "
             "not manufacture them."
         ),
-        "sr": "SR-ORIENT",
     },
-    # --- SR-CP ---
+    # --- status (coordination read) ---
     "status": {
         "module": "research_vault.status",
         "when_to_use": (
@@ -85,18 +84,16 @@ _VERB_REGISTRY: dict[str, dict] = {
             "This IS the tooled read face. "
             "Anti-pattern: do NOT `cat`/`Read` `control/*.md` and parse by eye — it "
             "silently misses live git/DAG/task state and parses stale prose "
-            "(the SR-4-mistaken-for-undispatched incident, 2026-07-01); use `rv status` instead."
+            "(the mistaken-for-undispatched incident, 2026-07-01); use `rv status` instead."
         ),
-        "sr": "SR-CP",
     },
-    # --- SR-1 ---
+    # --- task / note / control / devlog ---
     "task": {
         "module": "research_vault.task",
         "when_to_use": (
             "When you need to create, list, view, or update task cards for a project. "
             "Cards are markdown files with frontmatter stored in the project's tasks directory."
         ),
-        "sr": "SR-1",
     },
     "note": {
         "module": "research_vault.note",
@@ -104,12 +101,11 @@ _VERB_REGISTRY: dict[str, dict] = {
             "When you need to create or inspect OKF notes (literature, concepts, methods, "
             "experiments, findings, mocs, datasets) for a project. "
             "Enforces the type↔directory contract. "
-            "SR-8 datasets notes are provenance metadata — they POINT to the data artifact "
+            "Datasets notes are provenance metadata — they POINT to the data artifact "
             "(path/URL/DOI + content-hash), never contain the data itself. "
             "Anti-pattern: do NOT hand-copy a data path into a finding — file a "
             "datasets/ provenance note and afterok on it so data lineage is structural."
         ),
-        "sr": "SR-1, SR-8",
     },
     "control": {
         "module": "research_vault.control",
@@ -126,7 +122,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT hand-type 'CI green' into a merge decision — use "
             "`rv control reconcile --gh-pr N` so the gate fetches Actions state directly."
         ),
-        "sr": "SR-1, SR-CIF",
     },
     "devlog": {
         "module": "research_vault.devlog",
@@ -138,9 +133,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT grep/cat DEVLOG.md directly to find entries — that loads "
             "the whole file and misses the structured index face."
         ),
-        "sr": "SR-1",
     },
-    # --- SR-2 ---
+    # --- project / cite / research / role / build-agents / mdstore / wt / git-health / lint / wait-for ---
     "project": {
         "module": "research_vault.project",
         "when_to_use": (
@@ -153,7 +147,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Use `rv project add <name> --code <c> --source <dir>` "
             "if you only need the registry entry for an existing repo. Use `rv project "
             "list` to enumerate all registered projects. "
-            "SR-XPB — cross-project edge stewardship (hub coordination act): "
+            "Cross-project edge stewardship (hub coordination act): "
             "use `rv project relate <a> <b> --kind <why>` to declare a cross-project "
             "edge (grants intentional reach for corroboration); "
             "`rv project relate <a> <b> --remove` to prune a stale edge; "
@@ -162,7 +156,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT blanket-relate all projects (forfeits narrowing); "
             "declare on genuine relatedness (shared methodology, domain, or data) only."
         ),
-        "sr": "SR-2, SR-XPB",
     },
     "cite": {
         "module": "research_vault.cite",
@@ -171,7 +164,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "collection. Requires ZOTERO_KEY env var (or cross-platform keyring). "
             "Routes secrets through the SecretStore Protocol — never macOS security binary."
         ),
-        "sr": "SR-2",
     },
     "research": {
         "module": "research_vault.research",
@@ -187,7 +179,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT hand-copy a bibliography — run the lit-review loop's "
             "review-search/review-snowball nodes instead, which discover, dedup, and "
             "annotate against the corpus automatically. "
-            "SR-XPB — cross-project corroboration (gated to declared peers): "
+            "Cross-project corroboration (gated to declared peers): "
             "use `rv research corroborate \"<claim>\" --from <project>` to search declared "
             "peer projects for corroborating evidence. --from is REQUIRED. "
             "Use `--emit <path>` to write a candidates JSON for the judge node. "
@@ -196,7 +188,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT substring-grep across all projects (ignores the declared-edge "
             "gate, no rank, no provenance anchor) — use rv research corroborate instead."
         ),
-        "sr": "SR-2, SR-LR-1, SR-XPB",
     },
     "role": {
         "module": "research_vault.role",
@@ -204,7 +195,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "When you need to list, view, or manage agent roles in the project registry. "
             "Use `rv role list` to see all registered roles."
         ),
-        "sr": "SR-2",
     },
     "build-agents": {
         "module": "research_vault.build_agents",
@@ -212,7 +202,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "When you need to regenerate agent hat files from the role registry and "
             "role-doc templates. Runs the build-agents pipeline for all or a specific project."
         ),
-        "sr": "SR-2",
     },
     "mdstore": {
         "module": "research_vault.mdstore",
@@ -220,7 +209,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "When you need to check, archive, or inspect the markdown document store. "
             "Validates OKF link integrity, freshness, and document structure."
         ),
-        "sr": "SR-2",
     },
     "wt": {
         "module": "research_vault.wt",
@@ -230,7 +218,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-patterns this prevents: committed-to-main directly · never made a worktree · "
             "working on main instead of an isolated branch."
         ),
-        "sr": "SR-2",
     },
     "git-health": {
         "module": "research_vault.git_health",
@@ -239,7 +226,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "stale, or have unique content. Use --prune to clean up DELETE-classed branches. "
             "Anti-patterns caught: committed-to-main / never-made-a-worktree / hand-merged-red-CI."
         ),
-        "sr": "SR-2",
     },
     "lint": {
         "module": "research_vault.lint",
@@ -247,18 +233,16 @@ _VERB_REGISTRY: dict[str, dict] = {
             "When you need to run the project linter: checks for leakage of private "
             "codenames/paths, validates config schema, and enforces the zero-hardcoded-path rule."
         ),
-        "sr": "SR-2",
     },
     "wait-for": {
         "module": "research_vault.wait_for",
         "when_to_use": (
             "When you need to background-wait for an artifact to appear (file freshness, "
             "sacct terminal, pr merged) and then fire a command on resolution. The caller "
-            "returns immediately — no sleep-looping. Primitive that SR-3's DAG afterok composes."
+            "returns immediately — no sleep-looping. Primitive that the DAG afterok composes."
         ),
-        "sr": "SR-2",
     },
-    # --- SR-CC (code-conventions, PR-CC-5) ---
+    # --- code-conventions (PR-CC-5) ---
     "code": {
         "module": "research_vault.code_check",
         "when_to_use": (
@@ -273,9 +257,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT hand-eyeball code/ for a stray notebook or an absolute "
             "personal path — use `rv code check` so it's mechanical, not vibes."
         ),
-        "sr": "SR-CC",
     },
-    # --- SR-GD ---
+    # --- git-discipline ---
     "git-discipline": {
         "module": "research_vault.git_discipline",
         "when_to_use": (
@@ -285,9 +268,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-patterns addressed: committed-to-main directly · never made a worktree · "
             "hand-merged red CI."
         ),
-        "sr": "SR-GD",
     },
-    # --- SR-3 / SR-HUB-DAG / SR-DAG-BRIEF ---
+    # --- dag (multi-node research-loop DAG) ---
     "dag": {
         "module": "research_vault.dag.verbs",
         "when_to_use": (
@@ -311,13 +293,13 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Afterok+watch edges gate on artifact freshness (OKF type-dir checked by vault check). "
             "In-session resolution only — no background pollers. "
             "For external watches use: rv wait-for <cond> --then 'rv dag tick <run_id>' &"
-            " — SR-DISP dispatch discipline: agent nodes require 'spec' (non-empty pointer to "
+            " — dispatch discipline: agent nodes require 'spec' (non-empty pointer to "
             "the durable brief); absence is a ManifestError. Anti-patterns: (1) an agent node "
             "dispatched with no pointed 'spec' — always ground the dispatch; "
             "(2) a 'continues' resume across a durable-artifact boundary (a produces:/human-go "
             "node between the resumed ancestor and this node) — prefer a fresh dispatch "
             "pointed at the artifact instead."
-            " — SR-SCOPE grounding: agent nodes may carry a 'reads:' field (optional, "
+            " — reads-scope grounding: agent nodes may carry a 'reads:' field (optional, "
             "resolve-checked) to bound the agent's reading-scope — a list of file/doc-section/"
             "bus-ref pointers the agent must read. Anti-pattern: (3) an agent node dispatched "
             "with an unbounded reading-scope (no 'reads:') will re-ground by broad exploration, "
@@ -325,9 +307,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "artifacts the agent must read."
             " Anti-pattern: (4) hand-writing the dispatch brief — use `rv dag brief` instead."
         ),
-        "sr": "SR-3, SR-DISP, SR-SCOPE, SR-HUB-DAG, SR-DAG-BRIEF",
     },
-    # --- SR-5 ---
+    # --- start / init / update / check / onboard ---
     "start": {
         "module": "research_vault.start",
         "when_to_use": (
@@ -340,7 +321,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "verifies the vault and the runtime first, so the session always boots "
             "correctly as Alfred."
         ),
-        "sr": "SR-5",
     },
     "init": {
         "module": "research_vault.init",
@@ -352,7 +332,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "type dirs). Real projects are SEPARATE repos — register them with "
             "`rv project add` after init. Refuses to overwrite an existing instance."
         ),
-        "sr": "SR-5",
     },
     "update": {
         "module": "research_vault.update",
@@ -372,7 +351,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT run it on a dirty tree — commit/stash first so the "
             "update diff is clean (or pass --force)."
         ),
-        "sr": "SR-RV-UPDATE",
     },
     "check": {
         "module": "research_vault.check",
@@ -390,7 +368,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "provider/s2/wandb/zotero key never fails the check; it just gates that one "
             "capability until you run `rv onboard`."
         ),
-        "sr": "SR-5",
     },
     "onboard": {
         "module": "research_vault.onboard",
@@ -411,9 +388,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "unified service is `research-vault` (hyphen); `rv onboard` uses the right "
             "one automatically."
         ),
-        "sr": "SR-ONBOARD",
     },
-    # --- SR-PKG ---
+    # --- bootstrap ---
     "bootstrap": {
         "module": "research_vault.bootstrap",
         "when_to_use": (
@@ -428,9 +404,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT install into the system Python — `rv bootstrap` always "
             "uses an isolated `.venv`."
         ),
-        "sr": "SR-PKG",
     },
-    # --- SR-WB ---
+    # --- wandb ---
     "wandb": {
         "module": "research_vault.wandb_pull",
         "when_to_use": (
@@ -445,11 +420,10 @@ _VERB_REGISTRY: dict[str, dict] = {
             "a content-hash + provenance chain. "
             "Anti-pattern: do NOT use `wandb:` as a wait predicate and ignore the state "
             "field — a failed/crashed run wakes the waiter with its specific state so "
-            "SR-RETRY can key retry off failure."
+            "retry logic can key off failure."
         ),
-        "sr": "SR-WB",
     },
-    # --- SR-6 / SR-CO ---
+    # --- compute / doctor ---
     "compute": {
         "module": "research_vault.compute",
         "when_to_use": (
@@ -464,13 +438,12 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what "
             "env/tier to use — rv compute show / rv doctor already declare it. "
             "Do NOT hand-edit compute_manifest.json from scratch — use rv compute init. "
-            "Anti-pattern (SR-EP-ROLE): do NOT declare a data-transfer node (DTN) as a "
+            "Anti-pattern: do NOT declare a data-transfer node (DTN) as a "
             "compute backend and hope the crew guesses its role — give each endpoint a "
             "when_to_use so the run node knows which endpoint to stage data on vs submit "
             "jobs on. Use a shared host_group tag to express that a compute node and a "
             "transfer node reach the same underlying cluster/filesystem."
         ),
-        "sr": "SR-6, SR-CO, SR-EP-ROLE",
     },
     "doctor": {
         "module": "research_vault.doctor",
@@ -486,9 +459,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "backends; running it first is useless when your compute is a remote cluster. "
             "Degrades gracefully without a scheduler: reports 'not available', no traceback."
         ),
-        "sr": "SR-6, SR-CO",
     },
-    # --- SR-MODEL-SEAM ---
+    # --- observability / plugins ---
     "observability": {
         "module": "research_vault.observability_cli",
         "when_to_use": (
@@ -508,7 +480,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT hand-wire litellm callbacks in a harness — the "
             "ModelClient seam registers them once, automatically."
         ),
-        "sr": "SR-MODEL-SEAM",
     },
     "plugins": {
         "module": "research_vault.plugins",
@@ -521,9 +492,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT re-probe the cluster by trial-submit to learn what "
             "adapters are wired — rv plugins list already shows the registry."
         ),
-        "sr": "SR-6",
     },
-    # --- SR-APPROVE-GATE ---
+    # --- approval ---
     "approval": {
         "module": "research_vault.approval",
         "when_to_use": (
@@ -539,9 +509,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "HMAC enforce_sig). Only `rv approval disable` writes the valid sig. "
             "Crew agents CANNOT self-approve — by design. [crew-cannot-self-approve]"
         ),
-        "sr": "SR-APPROVE-GATE",
     },
-    # --- SR-HUB-DAG §B / SR-HARNESS-P2 ---
+    # --- experiment ---
     "experiment": {
         "module": "research_vault.experiment",
         "when_to_use": (
@@ -565,9 +534,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "hash; hand-dispatching silently loses the pre-registration guarantee (K-3 "
             "covers:-hash + harness SHAs never get bound to a run_id)."
         ),
-        "sr": "SR-HUB-DAG",
     },
-    # --- SR-PLAN-2 ---
+    # --- result ---
     "result": {
         "module": "research_vault.result",
         "when_to_use": (
@@ -582,9 +550,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "a shell one-liner — use rv result assert so the predicate is hash-verified "
             "against the recorded results_hash and logged to run state for reproducibility."
         ),
-        "sr": "SR-PLAN-2",
     },
-    # --- SR-PLAN-1 / SR-HARNESS-P2 ---
+    # --- plan ---
     "plan": {
         "module": "research_vault.plan.verbs",
         "when_to_use": (
@@ -610,9 +577,8 @@ _VERB_REGISTRY: dict[str, dict] = {
             "This verb is note.py-FREE: plan fields (plan_kind/covers/plan_role/"
             "supports_main/stance) are agent-authored content, not cmd_new templates."
         ),
-        "sr": "SR-PLAN-1",
     },
-    # --- SR-LR-1 + SR-LR-2 ---
+    # --- review (literature review loop) ---
     "review": {
         "module": "research_vault.review.verbs",
         "when_to_use": (
@@ -636,21 +602,21 @@ _VERB_REGISTRY: dict[str, dict] = {
             "`review-synthesize` → `review-coverage-critic` → `approve-review` (auto-resolved)). "
             "Use `rv review <project> list` to enumerate all reviews. "
             "Use `rv review <project> tips [--key <key>]` to inspect the review_tips seam. "
-            "SR-LR-2 gap-driven pass (§5L.7): use `rv review <project> gap-scan` to "
+            "Gap-driven pass (§5L.7): use `rv review <project> gap-scan` to "
             "detect typed research gaps (knowledge_void, contradictory, evaluation_void) "
             "from the OKF corpus. "
             "Each gap note gets a suggested_route: field (literature|experiment|triage). "
             "This is a rejects-only SCREEN — it PROPOSES gaps, never auto-fires a review. "
-            "SR-GAP-ROUTE (§5L.14–5L.16): use `rv review <project> gap-scope <gap-id> <scope>` "
+            "Gap-driven routing (§5L.14–5L.16): use `rv review <project> gap-scope <gap-id> <scope>` "
             "(or the alias `gap-route`) to auto-author the remedy scope by error-asymmetry. "
             "--target literature (default): auto-authors a Part-1 review scope. "
-            "--target experiment: auto-authors an SR-PLAN-1 pre-registration plan "
+            "--target experiment: auto-authors a pre-registration plan "
             "(research question ← claim verbatim; covers: skeleton; diagnosis-table stub). "
             "Use `rv review <project> gap-list [--status proven-open]` to list gaps; "
             "--status proven-open is the run-candidate queue. "
             "Use `rv review <project> gap-close <gap-id> --status proven-open` to stamp "
             "a proven-open gap (targeted pass saturated without closing → run-candidate). "
-            "SR-GAP-CLOSE (§5L.19–5L.24): use `rv review <project> gap-close <gap-id> "
+            "Gap closure (§5L.19–5L.24): use `rv review <project> gap-close <gap-id> "
             "--by <note-ref> --status <status>` to record the bidirectional provenance "
             "edge — --by is REQUIRED for closed-supported/closed-filled (charter §2: a "
             "closed gap with no closer is un-auditable); --by is REJECTED for proven-open. "
@@ -676,7 +642,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "counts — import `_corpus_annotation` from "
             "`research_vault.research` directly (the corpus-helper import rule, §5L.11)."
         ),
-        "sr": "SR-LR-1, SR-LR-2, SR-GAP-ROUTE, SR-GAP-CLOSE",
     },
     # --- the manuscript loop (PR-M0..M8, the type-generic core + the lit-review type) ---
     "manuscript": {
@@ -735,7 +700,6 @@ _VERB_REGISTRY: dict[str, dict] = {
             "lit-review` and hand-carries the misfits/candidates. See "
             "doctrine/manuscript-loop.md's known-limitations section."
         ),
-        "sr": "PR-M0..PR-M9",
     },
 }
 
@@ -873,7 +837,6 @@ def _load_instance_verbs() -> dict[str, dict]:
         result[verb_name] = {
             "module": module,
             "when_to_use": when_to_use or f"Instance verb {verb_name!r} (see config [verbs]).",
-            "sr": "instance",
         }
     return result
 
@@ -1077,8 +1040,9 @@ def main(argv: list[str] | None = None) -> int:
         parser, _, merged_registry = _build_top_parser(instance_verbs)
 
         # Check if the verb is registered-but-unimplemented BEFORE argparse rejects it.
-        # argparse only knows implemented verbs; future-SR verbs are in _VERB_REGISTRY
-        # with module=None and must be handled here for a friendly error message.
+        # argparse only knows implemented verbs; a planned verb can be present in
+        # _VERB_REGISTRY with module=None and must be handled here for a friendly
+        # error message.
         # Strip global flags (--config PATH, --show-instance) to find the verb token.
         _stripped = list(raw_argv)
         if "--config" in _stripped:
@@ -1090,9 +1054,8 @@ def main(argv: list[str] | None = None) -> int:
             verb = _stripped[0]
             entry = merged_registry[verb]
             if not entry.get("module"):
-                sr = entry.get("sr", "a future SR")
                 print(
-                    f"rv: verb {verb!r} is not yet implemented (ships at {sr}).",
+                    f"rv: verb {verb!r} is not yet implemented.",
                     file=sys.stderr,
                 )
                 return 1
@@ -1172,9 +1135,8 @@ def main(argv: list[str] | None = None) -> int:
                         continue  # verb absent from this merged registry
                     printed.add(verb_name)
 
-                    sr = entry.get("sr", "")
-                    status = "" if entry.get("module") else f"  [{sr}]"
-                    tag = " [instance]" if sr == "instance" else ""
+                    status = "" if entry.get("module") else "  [planned]"
+                    tag = " [instance]" if verb_name in instance_verbs else ""
                     first_sent = _first_sentence(entry.get("when_to_use", ""))
 
                     print(f"  rv {verb_name:<20} {first_sent}{status}{tag}")
@@ -1192,7 +1154,7 @@ def main(argv: list[str] | None = None) -> int:
             # Show any instance verbs not covered by the phase map.
             ungrouped = [
                 v for v in merged_registry
-                if v not in printed and merged_registry[v].get("sr") == "instance"
+                if v not in printed and v in instance_verbs
             ]
             if ungrouped:
                 print(f"── Instance verbs {_RULE * max(0, _HEADER_WIDTH - 18)}")
@@ -1216,10 +1178,8 @@ def main(argv: list[str] | None = None) -> int:
         # --- dispatch to verb (merged registry: instance verbs shadow portable) ---
         _, run_fn = _load_verb(args.verb, merged_registry)
         if run_fn is None:
-            entry = _VERB_REGISTRY.get(args.verb, {})
-            sr = entry.get("sr", "a future SR")
             print(
-                f"rv: verb {args.verb!r} is not yet implemented (ships at {sr}).",
+                f"rv: verb {args.verb!r} is not yet implemented.",
                 file=sys.stderr,
             )
             return 1

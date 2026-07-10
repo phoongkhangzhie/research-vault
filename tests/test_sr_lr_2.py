@@ -1,14 +1,14 @@
-"""test_sr_lr_2.py — SR-LR-2 acceptance tests: the gap-driven pass.
+"""test_sr_lr_2.py — acceptance tests: the gap-driven pass.
 
 Coverage:
   1. gaps/ OKF type
-     1a. "gaps" in note.OKF_TYPES (the 8th type, SR-RM-FIGMS)
+     1a. "gaps" in note.OKF_TYPES (the 8th type)
      1b. "gaps" not in note.OKF_SHARED_TYPES (project-scoped, like findings/)
      1c. rv note new <project> gaps <id> creates gaps/<id>.md
   2. GapRecord dataclass
      2a. GapRecord has type, anchor, claim, why, status fields
      2b. status ∈ {open, closed-supported, closed-filled, proven-open}
-     2c. GAP_TYPES frozenset has 3 gap type constants (SR-RM-FIGMS removes absent_row)
+     2c. GAP_TYPES frozenset has 3 gap type constants (absent_row removed)
   3. Gap detectors — Knowledge Void (D-GAP-2)
      3a. finding with backed_by empty/absent → knowledge_void gap detected
      3b. finding with backed_by ≥ threshold → NOT detected
@@ -21,7 +21,7 @@ Coverage:
      5a. finding with effect + no comparator → evaluation_void gap
      5b. finding with effect AND comparator → NOT detected
      5c. finding with no effect field → NOT detected
-  6. (SR-RM-FIGMS: absent_row detector removed)
+  6. (absent_row detector removed)
   7. cmd_gap_scan — writes gap records
      7a. scans project_notes_dir, returns list of GapRecord
      7b. writes gaps/<id>.md for each new gap (in project_notes_dir)
@@ -52,7 +52,6 @@ Coverage:
 
 All hermetic (tmp_instance / tmp_path). No live LLM calls.
 Stdlib only.
-sr: SR-LR-2
 """
 from __future__ import annotations
 
@@ -172,12 +171,12 @@ def test_gap_status_values():
 
 
 def test_gap_types_frozenset():
-    """2c. GAP_TYPES frozenset has all 3 gap type constants (SR-RM-FIGMS removes absent_row)."""
+    """2c. GAP_TYPES frozenset has all 3 gap type constants (absent_row removed)."""
     from research_vault.review.gap_scan import GAP_TYPES
     assert "knowledge_void" in GAP_TYPES
     assert "contradictory" in GAP_TYPES
     assert "evaluation_void" in GAP_TYPES
-    assert "absent_row" not in GAP_TYPES  # SR-RM-FIGMS: removed
+    assert "absent_row" not in GAP_TYPES  # removed
     assert len(GAP_TYPES) == 3
 
 
@@ -466,7 +465,7 @@ def test_gap_scope_context_file_written(tmp_instance):
 
 
 def test_gap_scope_seed_queries_per_type(tmp_instance):
-    """8d. Different seed_query templates for different gap types (SR-RM-FIGMS: 3 types)."""
+    """8d. Different seed_query templates for different gap types (3 types)."""
     from research_vault.review.gap_scan import _build_seed_queries
 
     kv_queries = _build_seed_queries("knowledge_void", claim="X outperforms Y on task Z")
@@ -496,7 +495,7 @@ def test_gap_close_supported(tmp_instance):
     cfg = load_config()
     pnd = cfg.project_notes_dir("demo-research")
     _make_finding(pnd, "f-close-1", claim="Gap to close as supported")
-    # Create the closing note (SR-GAP-CLOSE: --by required for closed-supported)
+    # Create the closing note (--by required for closed-supported)
     lit_dir = pnd / "literature"
     lit_dir.mkdir(parents=True, exist_ok=True)
     (lit_dir / "closer2024.md").write_text(
@@ -548,7 +547,7 @@ def test_gap_close_missing_gap(tmp_instance):
     from research_vault.review.gap_scan import cmd_gap_close
 
     cfg = load_config()
-    # SR-GAP-CLOSE: must pass closer_ref to satisfy --by check before the file-not-found check
+    # Must pass closer_ref to satisfy --by check before the file-not-found check
     with pytest.raises(FileNotFoundError):
         cmd_gap_close("demo-research", "nonexistent-gap-id", "closed-supported",
                       closer_ref="literature/any-ref", config=cfg)
@@ -694,7 +693,7 @@ def test_gap_scan_parser_handles_list_values():
 def test_canonical_parser_scalar_only():
     """note._parse_frontmatter: scalar fields unaffected, .strip() callers still work.
 
-    #26 convergence: the SR-LR-2 STOP decision is lifted (grep-before-extend audit
+    #26 convergence: the earlier STOP decision is lifted (grep-before-extend audit
     confirmed all .strip() callers only access SCALAR fields).  The canonical parser
     now returns list[str] for '  - item' formatted fields and str for scalar fields.
     Empty-valued keys with NO following list items remain as '' (lazy-promote: only
@@ -735,12 +734,12 @@ def test_canonical_parser_scalar_only():
 # 12. CLI verb registry
 # ---------------------------------------------------------------------------
 
-def test_verb_registry_review_includes_sr_lr2():
-    """12a. 'review' entry in _VERB_REGISTRY has sr field including 'SR-LR-2'."""
+def test_verb_registry_review_documents_gap_scan():
+    """12a. 'review' entry in _VERB_REGISTRY when_to_use documents gap-scan."""
     from research_vault.cli import _VERB_REGISTRY
     entry = _VERB_REGISTRY["review"]
-    sr_value = entry.get("sr", "")
-    assert "SR-LR-2" in sr_value
+    when = entry.get("when_to_use", "")
+    assert "gap-scan" in when
 
 
 # ---------------------------------------------------------------------------

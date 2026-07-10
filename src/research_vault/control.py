@@ -12,7 +12,7 @@ Anti-patterns this replaces:
   - Opening control/*.md and typing bullets directly (races concurrent mutators,
     skips schema validation, no auto-slug/date).
   - cat-ing / Read-ing control/*.md and parsing by eye (misses live git/DAG/task
-    state; the SR-4-undispatched incident, 2026-07-01).
+    state; the mistaken-for-undispatched incident, 2026-07-01).
 
 Control file structure (REQUIRED_SECTIONS):
   # CONTROL — <project>
@@ -87,7 +87,7 @@ def _slugify(s: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# GitHub repo detection (SR-CIF CLI activation helper)
+# GitHub repo detection (tier-3 CLI activation helper)
 # ---------------------------------------------------------------------------
 
 def _parse_github_slug(url: str) -> str | None:
@@ -354,7 +354,7 @@ def cmd_inbox(project: str, message: str, *,
               config: Config | None = None) -> Path:
     """Append a dated message to the Inbox section (legacy convenience).
 
-    Returns the control file path (backward-compatible with pre-SR-CP callers).
+    Returns the control file path (backward-compatible with legacy callers).
     """
     path, _ = cmd_post(project, section="inbox", title=message, config=config)
     return path
@@ -684,7 +684,7 @@ def _make_block(marker: str, fields: dict[str, str]) -> str:
     """Render a ⟦MARKER⟧ block with the given fields.
 
     RETURN blocks with a ``[PASS]`` or ``[BLOCK]`` verdict field get a gate-clean
-    verdict header as the first line of the block body (TOOL-D3 / SR-CI).  Shape:
+    verdict header as the first line of the block body (TOOL-D3).  Shape:
 
         VERDICT: [PASS]
           did: …
@@ -1006,7 +1006,7 @@ def build_parser(
     When to use: use `rv control <project> <subcommand>` to initialize, read,
     validate, reconcile, or update the coordination control file for a project.
     READ via `rv status` or `rv control reconcile` — do NOT cat/Read control/*.md
-    by eye (parses stale prose, misses live git/DAG/task state; the SR-4 incident).
+    by eye (parses stale prose, misses live git/DAG/task state; the mistaken-for-undispatched incident).
     MUTATE via post/spawn-request/return/close/edit/move — do NOT hand-edit
     control/*.md (races other agents, can author schema-invalid entries).
 
@@ -1164,7 +1164,7 @@ def run(args: argparse.Namespace) -> int:
             return 0
 
         elif cmd == "reconcile":
-            # SR-CIF tier-3 activation: --gh-pr N [--repo owner/repo]
+            # Tier-3 activation: --gh-pr N [--repo owner/repo]
             extra_sources = None
             gh_pr = getattr(args, "gh_pr", None)
             if gh_pr is not None:

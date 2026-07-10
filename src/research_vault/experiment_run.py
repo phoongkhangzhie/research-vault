@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""experiment_run.py — SR-MODEL-SEAM S6: Plane-B classic W&B run logging.
+"""experiment_run.py — Plane-B classic W&B run logging.
 
 When to use: wrap an experiment's real model-calling work so it emits a **classic
 W&B run** readable by ``rv wandb pull`` — distinct from Plane-A traces (weave/JSONL).
@@ -24,7 +24,6 @@ Reliability (charter §2): ``run_logging=true`` with an unresolvable key / proje
 a ``wandb.init`` that raises → a LOUD Notifier warn (raise under
 ``require_observability``). Uses core ``wandb`` — NO new dep. ``wandb`` imported lazily.
 
-sr: SR-MODEL-SEAM
 """
 from __future__ import annotations
 

@@ -23,9 +23,8 @@ Run-id grammar:
   project/run-id         — entity from WANDB_ENTITY env
   entity/project/run-id  — fully qualified, no env vars needed
 
-SR-WB + SR-EXP-REPRO.
-SR-WB: No stdlib HTTP client needed — the SDK handles the REST/GraphQL transport.
-SR-EXP-REPRO: fetch_run now returns dict(run.config) + run.metadata; wandb_pull
+No stdlib HTTP client needed — the SDK handles the REST/GraphQL transport.
+fetch_run returns dict(run.config) + run.metadata; wandb_pull
   writes a Layer-1 config artifact + populates 22 flat repro_* scalars via the
   alias table. Empty keys → sentinel "not-recorded-in-provenance" (never blank).
 """
@@ -46,7 +45,7 @@ from .note import REPRO_SENTINEL
 
 
 # ---------------------------------------------------------------------------
-# SR-EXP-REPRO: alias table + metadata map
+# Alias table + metadata map
 # ---------------------------------------------------------------------------
 
 # Alias table: maps run.config keys (in priority order within each group) to
@@ -162,8 +161,8 @@ def fetch_run(entity: str, project: str, run_name: str, api_key: str) -> dict[st
       state         — 'running'/'finished'/'failed'/'crashed'/'killed'/'preempted'/…
       commit        — git SHA of the code that produced the run (or empty string)
       summaryMetrics — dict of metric-name → value (run.summary)
-      config        — dict(run.config): full hyperparameter/config snapshot (SR-EXP-REPRO)
-      metadata      — dict(run.metadata): env info (python version, packages, …) (SR-EXP-REPRO)
+      config        — dict(run.config): full hyperparameter/config snapshot
+      metadata      — dict(run.metadata): env info (python version, packages, …)
 
     Raises ImportError if the wandb SDK is not installed (friendly message).
     Raises ValueError if the project or run is not found.
@@ -185,7 +184,7 @@ def fetch_run(entity: str, project: str, run_name: str, api_key: str) -> dict[st
             raise ValueError(f"W&B run {path!r} not found (or API key lacks access).") from exc
         raise
 
-    # SR-EXP-REPRO: capture full config + metadata for Layer-1 artifact + alias map
+    # Capture full config + metadata for Layer-1 artifact + alias map
     run_config: dict[str, Any] = dict(run.config) if run.config else {}
     run_metadata: dict[str, Any] = dict(run.metadata) if run.metadata else {}
 
@@ -253,7 +252,7 @@ def _update_frontmatter(note_path: Path, updates: dict[str, str]) -> None:
 # ---------------------------------------------------------------------------
 
 def _resolve_wandb_from_manifest(cfg: Config) -> tuple[str, str]:
-    """Read W&B entity + project from the compute manifest (SR-CO results.wandb block).
+    """Read W&B entity + project from the compute manifest (results.wandb block).
 
     Returns (entity, project) strings — empty string when not set or manifest absent.
     Env vars (WANDB_ENTITY / WANDB_PROJECT) take priority over the manifest; this
@@ -277,7 +276,7 @@ def _resolve_wandb_from_manifest(cfg: Config) -> tuple[str, str]:
 
 
 def _resolve_repro_hw(cfg: Config) -> str:
-    """Read the active backend from the SR-6 compute manifest for repro_hw.
+    """Read the active backend from the compute manifest for repro_hw.
 
     Returns the active backend name if the manifest file exists and specifies
     a non-empty active list, otherwise the REPRO_SENTINEL.
@@ -299,7 +298,7 @@ def _resolve_repro_hw(cfg: Config) -> str:
 def _resolve_repro_dataset(
     cfg: Config, dataset_id: str
 ) -> tuple[str, str]:
-    """Read location and hash from an SR-8 dataset note.
+    """Read location and hash from a dataset note.
 
     Returns (repro_dataset_id, repro_dataset_hash).  If the note is not found
     or is missing the hash field, returns (REPRO_SENTINEL, REPRO_SENTINEL).
@@ -333,7 +332,7 @@ def wandb_pull(
       run_id        — W&B run id (bare-id, project/run-id, or entity/project/run-id)
       experiment    — experiment note stem (e.g. 'exp-q1') to attach results to
       project_slug  — project slug; required when experiment is set
-      dataset_id    — SR-8 dataset note stem to link (fills repro_dataset_* fields)
+      dataset_id    — dataset note stem to link (fills repro_dataset_* fields)
       config        — resolved Config (or None to auto-load)
       json_out      — unused here; callers can choose output format
 
@@ -348,7 +347,7 @@ def wandb_pull(
     store = EnvSecretStore()
     api_key = store.get("wandb-api-key")
 
-    # Resolve entity/project from env (primary) → manifest (fallback, SR-CO).
+    # Resolve entity/project from env (primary) → manifest (fallback).
     # parse_run_id applies env-over-param naturally via os.environ.get; we only
     # inject manifest values when the env var is NOT set (env wins when set).
     manifest_entity, manifest_project = _resolve_wandb_from_manifest(cfg)
@@ -389,10 +388,10 @@ def wandb_pull(
         metrics_json = json.dumps(run_data["summaryMetrics"], indent=2, sort_keys=True)
         results_path.write_text(metrics_json, encoding="utf-8")
 
-        # Compute content hash (streaming, same hasher as SR-8)
+        # Compute content hash (streaming, same hasher used elsewhere)
         results_hash = _hash_file(results_path)
 
-        # SR-EXP-REPRO: Layer-1 — dump full dict(run.config) to <exp>.config.json + hash it
+        # Layer-1 — dump full dict(run.config) to <exp>.config.json + hash it
         run_config: dict[str, Any] = run_data.get("config", {})
         config_path = exp_dir / f"{experiment}.config.json"
         config_json = json.dumps(run_config, indent=2, sort_keys=True)
@@ -405,14 +404,14 @@ def wandb_pull(
             "repro_config_hash": config_hash,
         }
 
-        # SR-EXP-REPRO: Layer-2 auto scalars — apply alias table to run.config
+        # Layer-2 auto scalars — apply alias table to run.config
         for repro_field, candidate_keys in _REPRO_CONFIG_ALIAS_TABLE:
             for key in candidate_keys:
                 if key in run_config:
                     repro_updates[repro_field] = str(run_config[key])
                     break
 
-        # SR-EXP-REPRO: Layer-2 auto scalars — apply metadata map to run.metadata
+        # Layer-2 auto scalars — apply metadata map to run.metadata
         run_metadata: dict[str, Any] = run_data.get("metadata", {})
         for repro_field, candidate_keys in _REPRO_META_MAP:
             for key in candidate_keys:
@@ -423,10 +422,10 @@ def wandb_pull(
                     repro_updates[repro_field] = str(val)
                     break
 
-        # SR-EXP-REPRO: repro_hw — defer to SR-6 manifest (never re-probe)
+        # repro_hw — defer to the compute manifest (never re-probe)
         repro_updates["repro_hw"] = _resolve_repro_hw(cfg)
 
-        # SR-EXP-REPRO: repro_dataset_* — link SR-8 dataset note (never re-enter)
+        # repro_dataset_* — link the dataset note (never re-enter)
         if dataset_id:
             ds_id, ds_hash = _resolve_repro_dataset(cfg, dataset_id)
             repro_updates["repro_dataset_id"] = ds_id
@@ -518,8 +517,8 @@ def build_parser(
         default=None,
         metavar="DATASET_ID",
         help=(
-            "SR-8 dataset note stem (e.g. 'xnli-en') to link as repro_dataset_*. "
-            "Inherits the dataset note's hash — never re-enters data. (SR-EXP-REPRO)"
+            "Dataset note stem (e.g. 'xnli-en') to link as repro_dataset_*. "
+            "Inherits the dataset note's hash — never re-enters data."
         ),
     )
     pull_p.add_argument(

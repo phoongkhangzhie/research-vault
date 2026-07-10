@@ -536,10 +536,10 @@ class TestRegistryAndHelpCheck:
         from research_vault.cli import _VERB_REGISTRY
         assert "bootstrap" in _VERB_REGISTRY
 
-    def test_bootstrap_verb_has_sr_pkg_tag(self):
-        """bootstrap entry has SR-PKG sr tag."""
+    def test_bootstrap_verb_is_implemented(self):
+        """bootstrap entry has a module (implemented, not planned)."""
         from research_vault.cli import _VERB_REGISTRY
-        assert _VERB_REGISTRY["bootstrap"].get("sr") == "SR-PKG"
+        assert _VERB_REGISTRY["bootstrap"].get("module")
 
     def test_bootstrap_in_setup_phase(self):
         """bootstrap appears in the Setup help phase."""

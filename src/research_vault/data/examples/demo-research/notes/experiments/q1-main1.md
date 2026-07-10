@@ -40,7 +40,7 @@ Fill in at run dispatch:
 - results_summary: (macro-averaged accuracy, filled post-run)
 - results_commit: (git commit SHA at scoring time)
 
-## Reproduction (filled post-run by Ada — SR-EXP-REPRO)
+## Reproduction (filled post-run by the researcher)
 
 - repro_cmd: _
 - repro_env: _

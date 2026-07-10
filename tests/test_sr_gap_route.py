@@ -1,20 +1,20 @@
-"""test_sr_gap_route.py — SR-GAP-ROUTE (SR-LR-3) acceptance tests: gap-loop router.
+"""test_sr_gap_route.py — acceptance tests: gap-loop router.
 
 Coverage:
   1. suggest_route pure function — per-type default routes
      1a. knowledge_void → literature (read-first default)
      1b. contradictory → literature (reconcile via abstraction first)
      1c. evaluation_void → experiment (RUN fast-path)
-     1d. (SR-RM-FIGMS: absent_row removed)
+     1d. (absent_row removed)
 
   2. suggested_route field written to gap note frontmatter
      2a. cmd_gap_scan writes suggested_route: to gaps/<id>.md
      2b. suggested_route for knowledge_void is "literature"
      2c. suggested_route for evaluation_void is "experiment"
-     2d. (SR-RM-FIGMS: absent_row removed)
+     2d. (absent_row removed)
 
   3. Route-aware cmd_gap_scope — literature target
-     3a. --target literature = SR-LR-2 behavior (Phase-1 DAG + _gap-context.md)
+     3a. --target literature = the unchanged behavior (Phase-1 DAG + _gap-context.md)
      3b. default target (gap.suggested_route) uses the gap note's route field
      3c. regression: literature target is byte-for-byte equivalent to old gap-scope
 
@@ -25,7 +25,7 @@ Coverage:
      4d. plan note passes rv plan check (K-2 shape-lint) with stubbed diagnosis table
      4e. plan note covers: skeleton present (no path-prefix violations)
      4f. _gap-context.md written in experiments/<id>-plan.md's directory (adjacent)
-     4g. _gap-context.md contains SR-PLAN-1 next-step chain
+     4g. _gap-context.md contains the plan-check next-step chain
 
   5. proven-open → run-candidate promotion
      5a. proven_open_count returns count of proven-open gaps
@@ -33,14 +33,14 @@ Coverage:
      5c. rv status Needs Attention includes proven-open count when > 0
      5d. a run does NOT auto-fire on proven-open (human-go required — no auto experiment)
 
-  6. SupportVerdict section field (check_gates.py; absent_row sub-tests removed SR-RM-FIGMS)
+  6. SupportVerdict section field (check_gates.py; absent_row sub-tests removed)
      6a. SupportVerdict has optional section field (default "")
      6b. to_meta_dict() emits section field
      6c. match_support() accepts section= parameter
-     6d. (SR-RM-FIGMS: absent_row removed)
-     6e. (SR-RM-FIGMS: absent_row removed)
-     6f. (SR-RM-FIGMS: absent_row removed)
-     6g. (SR-RM-FIGMS: absent_row removed)
+     6d. (absent_row removed)
+     6e. (absent_row removed)
+     6f. (absent_row removed)
+     6g. (absent_row removed)
      6h. check_support_tally threads tex.stem into each match_support call
 
   7. CLI subcommands (gap-route alias + gap-list)
@@ -62,7 +62,6 @@ Coverage:
 
 All hermetic (tmp_instance / tmp_path). No live LLM calls.
 Stdlib only.
-sr: SR-GAP-ROUTE (SR-LR-3)
 """
 from __future__ import annotations
 
@@ -215,7 +214,7 @@ def test_cmd_gap_scan_evaluation_void_suggested_route(tmp_instance):
 # ---------------------------------------------------------------------------
 
 def test_gap_scope_literature_target_creates_review(tmp_instance):
-    """3a. --target literature = SR-LR-2 behavior (Phase-1 DAG + _gap-context.md)."""
+    """3a. --target literature = the unchanged behavior (Phase-1 DAG + _gap-context.md)."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_scan, cmd_gap_scope
 
@@ -449,7 +448,7 @@ def test_gap_scope_experiment_gap_context_written(tmp_instance):
 
 
 def test_gap_scope_experiment_context_has_plan_chain(tmp_instance):
-    """4g. <gap_id>-gap-context.md contains SR-PLAN-1 next-step chain (#28: gap-scoped name)."""
+    """4g. <gap_id>-gap-context.md contains the plan-check next-step chain (#28: gap-scoped name)."""
     import warnings
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_scan, cmd_gap_scope
@@ -477,14 +476,14 @@ def test_gap_scope_experiment_context_has_plan_chain(tmp_instance):
     context_path = plan_path.parent / f"{gid}-gap-context.md"
     context = context_path.read_text(encoding="utf-8")
 
-    # Must reference the SR-PLAN-1 chain steps
+    # Must reference the plan-check chain steps
     assert "rv plan check" in context
     assert "human-go-plan" in context
     assert "rv plan freeze" in context
 
 
 # ---------------------------------------------------------------------------
-# 4-new. Item #28 — SR-GAP-ROUTE polish: gap-scoped context filename + scope warning
+# 4-new. Item #28 — polish: gap-scoped context filename + scope warning
 # ---------------------------------------------------------------------------
 
 def test_gap_scope_experiment_context_file_gap_scoped(tmp_instance):
@@ -796,13 +795,13 @@ def test_suggested_route_is_prior_not_decision():
 # 9. Discovery / trigger surface
 # ---------------------------------------------------------------------------
 
-def test_cli_verb_registry_includes_sr_gap_route():
-    """9a. 'review' verb entry in _VERB_REGISTRY sr field includes SR-GAP-ROUTE."""
+def test_cli_verb_registry_includes_gap_route():
+    """9a. 'review' verb entry in _VERB_REGISTRY when_to_use documents gap-route."""
     from research_vault.cli import _VERB_REGISTRY
     review_entry = _VERB_REGISTRY.get("review", {})
-    sr_field = review_entry.get("sr", "")
-    assert "SR-GAP-ROUTE" in sr_field, (
-        f"SR-GAP-ROUTE not in cli._VERB_REGISTRY['review']['sr']: {sr_field!r}"
+    when = review_entry.get("when_to_use", "")
+    assert "gap-route" in when, (
+        f"gap-route not in cli._VERB_REGISTRY['review']['when_to_use']: {when!r}"
     )
 
 

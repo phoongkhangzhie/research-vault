@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""plan/style.py — the plan_tips config seam (SR-PLAN-1, §5K.4).
+"""plan/style.py — the plan_tips config seam (§5K.4).
 
 SEAM CONTRACT
   ``get_plan_tips(config=None)`` is the call-point for the `plan` DAG node's
@@ -24,7 +24,7 @@ SEAM CONTRACT
   specify the keys they want to change.
 
 Two halves are independently mergeable via this seam:
-  - Engineer ships this module (SR-PLAN-1 plumbing PR).
+  - Engineer ships this module (plumbing PR).
   - The researcher's content is the default payload (already folded; §5K.4).
   Keep the ``get_plan_tips`` signature stable — it is the seam boundary.
 

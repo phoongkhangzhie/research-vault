@@ -143,7 +143,7 @@ def _default_config() -> dict[str, Any]:
             "secrets": "env",
         },
         "projects": {},
-        # SR-APPROVE-GATE: human-presence enforcement at rv dag approve.
+        # Human-presence enforcement at rv dag approve.
         # enforce=true (default): require TTY keystroke or valid RV_APPROVER_TOKEN.
         # token_fingerprint: sha256 of the provisioned token (written by rv approval setup).
         # enforce_sig: HMAC keyed on the token (written by rv approval disable — Slice 3).
@@ -152,7 +152,7 @@ def _default_config() -> dict[str, Any]:
             "token_fingerprint": "",
             "enforce_sig": "",
         },
-        # SR-MODEL-SEAM: observability layer for the provided ModelClient.
+        # Observability layer for the provided ModelClient.
         # backend: local (zero-infra JSONL default) | weave (Plane-A traces, needs
         #   the [observability] extra) | langfuse (adopter's own install) | none.
         # run_logging: Plane-B classic W&B run (rv wandb pull-readable) — opt-in.
@@ -184,7 +184,7 @@ def _default_config() -> dict[str, Any]:
 def _merge(base: dict, override: dict) -> dict:
     """Deep merge: override wins at every level; nested dicts are recursively merged.
 
-    SR-1 forward-flag fix: the original shallow (one-level) merge drops
+    Forward-flag fix: the original shallow (one-level) merge drops
     sibling defaults when a depth-2 key is overridden (e.g.
     ``[adapters.backend.slurm]`` overriding ``[adapters.backend]`` would lose
     ``adapters.notifier``). Full recursion prevents that.
@@ -273,7 +273,7 @@ class Config:
         self.agents_dir = Path(raw["agents_dir"])
         self.tasks_dir = Path(raw["tasks_dir"])
         self.control_dir = Path(raw["control_dir"])
-        # SR-8: datasets_root — shared cross-project dataset provenance store.
+        # datasets_root — shared cross-project dataset provenance store.
         # Default: notes_root/datasets (derived, not stored in _default_config so
         # that a custom notes_root still yields notes_root/datasets by default).
         # Override in research_vault.toml: datasets_root = "/shared/datasets"
@@ -282,13 +282,13 @@ class Config:
         else:
             self.datasets_root = self.notes_root / "datasets"
         self.adapters: dict[str, str] = raw.get("adapters", {})
-        # SR-MODEL-SEAM: observability config block (backend/run_logging/wandb_project).
+        # Observability config block (backend/run_logging/wandb_project).
         # Empty dict when absent so callers can .get(...) with defaults.
         self.observability: dict[str, Any] = raw.get("observability", {})
         # OA-fulltext-enrichment: [fulltext] config block (see _default_config).
         self.fulltext: dict[str, Any] = raw.get("fulltext", {})
         self.projects: dict[str, dict[str, Any]] = raw.get("projects", {})
-        # SR-HARDENING: slug-collision guard — reject project slugs that collide
+        # Slug-collision guard — reject project slugs that collide
         # with OKF type names. Such slugs silently shadow note routing (the project
         # notes dir becomes indistinguishable from the shared OKF type root).
         #

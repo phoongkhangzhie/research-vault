@@ -1,4 +1,4 @@
-"""test_sr_lr_1.py — SR-LR-1 acceptance tests.
+"""test_sr_lr_1.py — review loop acceptance tests.
 
 Coverage:
   1. review/style.py — get_review_tips seam
@@ -518,11 +518,10 @@ def test_review_in_verb_registry():
     assert "review" in _VERB_REGISTRY
 
 
-def test_review_verb_sr_is_sr_lr_1():
-    """The review verb is tagged sr: SR-LR-1 (and SR-LR-2 after gap-driven pass added)."""
+def test_review_verb_is_implemented():
+    """The review verb is a fully implemented verb (module present)."""
     from research_vault.cli import _VERB_REGISTRY
-    sr_value = _VERB_REGISTRY["review"].get("sr", "")
-    assert "SR-LR-1" in sr_value
+    assert _VERB_REGISTRY["review"].get("module") == "research_vault.review.verbs"
 
 
 def test_rv_help_check_passes(tmp_instance):

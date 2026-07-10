@@ -22,6 +22,46 @@
   the same screening-substance tradeoff (charter §6: one implementation, no
   duplication).
 
+## 2026-07-09 (SR-* scrub consolidation — plan/ + gates/ + adapters/ finished)
+
+### Done
+- Consolidated the 4-stream SR-* scrub fan-out (review/, dag/, manuscript/+
+  sources/, cli.py + top-level + doctrine/examples) into ONE branch
+  (`feat/sr-scrub-consolidated`) via plain `git merge` of each — all four
+  touch disjoint files and merged clean except a DEVLOG.md conflict,
+  resolved by unioning every entry (newest-on-top preserved).
+- Finished the 3 directories the original fan-out partition missed:
+  `plan/` (check.py, style.py, verbs.py, __init__.py, freeze.py — SR-PLAN-1/2,
+  SR-HARNESS-P2, SR-FREEZE-FIX, SR-PLAN-FREEZE-RETRY, SR-HUB-DAG refs),
+  `gates/` (__init__.py, support_matcher.py — SR-MS-2, SR-RM-FIGMS,
+  SR-GAP-ROUTE, SR-CI refs, plus the two `sr:` docstring frontmatter lines),
+  `adapters/` (remote.py, __init__.py, model_client.py, observability.py,
+  github_ci.py, base.py — SR-7, SR-MODEL-SEAM, SR-CO, SR-CO-REMOTE, SR-PKG,
+  SR-CIF, SR-CI refs, plus the two `sr:` docstring frontmatter lines).
+- Left `lint.py`'s `_SR_TAG_PAT` regex + its describing comments untouched
+  (rule-9's own detector for this pattern) and left `adapters/github_ci.py`'s
+  functional lowercase `sr-*` branch-id-token vocabulary (matched by
+  `controllib._ID_TOKEN_RE`) untouched — that's a real control-plane ID
+  convention, not design-doc traceability noise, and is out of scope.
+- Verified: `grep -rnE "SR-[A-Z0-9-]+" src/research_vault/` returns ZERO
+  matches outside lint.py; token-skeleton diff (AST with string/docstring
+  values blanked) of every touched plan/gates/adapters file against
+  `origin/main` is byte-identical — confirms prose-only, no identifier/logic
+  drift; full suite green (3556 passed, 3 skipped); `rv help` renders exit 0;
+  isolated `rv lint` (scratch HOME/XDG) is a clean PASS (the real instance's
+  config-schema warnings are pre-existing operator-environment noise,
+  unrelated to this change); `scripts/leakage_scan.sh src/research_vault`
+  and `scripts/leakage_scan.sh DEVLOG.md` both clean.
+- Supersedes PR #214 (review/), #216 (dag/), #213 (manuscript/+sources/),
+  #217 (cli.py + top-level + doctrine/examples) — close all four once this
+  merges.
+
+### Decisions
+- Prose-scrub, never touch: any genuinely functional SR-*/sr-* token (a
+  keyed value the control plane actually matches against) stays; only
+  design-doc traceability numbering in comments/docstrings/help text/
+  runtime message strings is removed.
+
 ## 2026-07-09 (substance-screening gap fix — snowball raw pool now carries abstract/venue/year)
 
 ### Done
@@ -60,6 +100,48 @@
 - Reused `sweep.py`'s `_evidence_snippet` directly in `snowball.py` rather
   than duplicating the abstract/tldr-fallback + truncation logic — same
   evidence shape, one implementation.
+## 2026-07-09 (cli/top-level/docs stream: internal requirement-ID scrub)
+
+### Done
+- Removed the `sr:` metadata field entirely from `cli.py`'s `_VERB_REGISTRY`
+  (37 entries) and from `_load_instance_verbs()`. The field leaked internal
+  story-requirement IDs into `rv help`'s unimplemented-verb status tag
+  (`[SR-X]`) and the "not yet implemented (ships at ...)" messages — neither
+  is grounded to anything an adopter can resolve.
+- Replaced the unimplemented-verb status with a plain `[planned]` marker
+  driven off `module` presence; replaced the "ships at {sr}" message with a
+  plain "not yet implemented." message.
+- The `sr` field also doubled as the load-bearing signal for instance-verb
+  tagging (`"sr": "instance"`, checked by the `[instance]` help-render tag
+  and the ungrouped-verbs listing) — this is now driven directly off
+  membership in the `instance_verbs` dict, no field needed.
+- Updated/removed the tests that asserted the `sr` field
+  (`test_sr_lr_1.py`, `test_sr_lr_2.py`, `test_research_references.py`,
+  `test_sr_gap_close.py`, `test_sr_gap_route.py`, `test_sr_wb.py`,
+  `test_sr6.py`, `test_sr_co.py`, `test_sr_plan1.py`, `test_sr_plan2.py`,
+  `test_sr_plan2_remainder.py`, `test_sr_hub_dag_rails.py`,
+  `test_manuscript_m1.py`, `test_pkg_toolkit.py`, `test_plugin_seam.py`,
+  `test_cli.py`) — each now asserts on `module`/`when_to_use` presence or a
+  when_to_use substring instead.
+- Prose-scrubbed internal `SR-*` requirement-ID references (comments,
+  docstrings, help text) across `cli.py`, all top-level
+  `src/research_vault/*.py` modules, and `data/doctrine/**` +
+  `data/examples/**` — these point at internal design docs that don't ship
+  and mean nothing to an adopter reading the source or the doctrine.
+  `SR-LR-1`/`SR-LR-2` tokens are explicitly left untouched (owned by a
+  separate migration stream). `lint.py`'s own `SR-tag` detection code
+  (the regex + its describing comments/docstrings/print messages — rule 9,
+  the very rule this scrub satisfies) is left untouched as functional.
+
+### Decisions
+- Treated `lint.py`'s `_SR_TAG_PAT` regex and the surrounding prose that
+  describes what it catches (`SR-tags`, illustrative examples like
+  `SR-XPB`/`SR-CO-REMOTE`) as functional documentation of the tool's own
+  detection target, not leaked internal jargon — scrubbing it would corrupt
+  the description of the exact rule this whole cleanup satisfies.
+
+### Open / next
+- CI pending on the PR for this stream.
 
 ## 2026-07-09 (DX: frontier print no longer floods the terminal with the full spec body)
 
@@ -94,6 +176,29 @@
   print time. A uniform drop-and-hint is simpler and consistent across
   every caller (`run`/`tick`/`complete`/`approve` all funnel through the one
   `_print_frontier` function).
+
+## 2026-07-09 (SR-* scrub, stream 3: manuscript/ + sources/)
+
+### Done
+- Removed rv's internal Structured-Requirement design-doc traceability
+  numbering (SR-3, SR-RM-FIGMS, SR-175, SR-PKG, SR-MS-REVIEW-a/-b) from
+  prose docstrings/comments across `manuscript/__init__.py`, `bib.py`,
+  `exemplars.py`, `review_board.py`, `sources/snowball.py`, and
+  `tests/test_snowball.py` — these numbers point at internal design docs
+  that don't ship and mean nothing to an adopter reading the source.
+- Left `SR-LR-1-BACKSTOP` untouched in `sources/snowball.py` (×2) — a
+  functional token owned by a different stream migrating it globally to
+  `lit-review-v1-backstop`.
+- One of four disjoint fan-out streams scrubbing this design-doc numbering
+  repo-wide; this stream's file set was `manuscript/**` + `sources/**`.
+
+### Decisions
+- Confirmed prose-only diff (no node id / gate id / config key / function
+  name touched) before pushing; ran the full suite (3552 passed) and the
+  staged leakage scan clean.
+
+### Open / next
+- PR #213 open against `origin/main`, awaiting CI + review.
 
 ## 2026-07-09 (review-only default, manuscript opt-in via frozen deliverable field)
 

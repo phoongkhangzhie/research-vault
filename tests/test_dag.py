@@ -1,4 +1,4 @@
-"""test_dag.py — hermetic tests for the SR-3 DAG implementation.
+"""test_dag.py — hermetic tests for the DAG implementation.
 
 All tests run entirely in tmp_path. No ~/vault, no real cluster, no network.
 
@@ -105,7 +105,7 @@ notifier = "file"
 backend = "local"
 secrets = "env"
 
-# SR-APPROVE-GATE: token fingerprint for test-time token approval.
+# Token fingerprint for test-time token approval.
 [approval]
 enforce = true
 token_fingerprint = "d309a810bb5f40cef518202e46d197aa61e4dddafc5984c8c698da29ac8fd2bc"
@@ -140,7 +140,7 @@ def _node(
 ) -> dict:
     """Build a manifest node.
 
-    For agent nodes, spec defaults to "fixture://test-spec" (SR-DISP: spec is required).
+    For agent nodes, spec defaults to "fixture://test-spec" (spec is required).
     For human-go nodes, spec is omitted (human-go nodes are exempt from spec requirement).
     Pass spec=None explicitly to test the missing-spec error path.
     """
@@ -1081,7 +1081,7 @@ class TestOKFTypedArtifact:
 class TestNoPollers:
     """Asserts that the dag/ package never imports pollers, drain, or launchd.
 
-    This enforces the in-session-only resolution contract (SR-3).
+    This enforces the in-session-only resolution contract.
     """
 
     def _dag_src_files(self) -> list[Path]:
@@ -1107,7 +1107,7 @@ class TestNoPollers:
                 violations.append(f"{src_file.name}: {match.group(0).strip()!r}")
         assert not violations, (
             "DAG module must NOT import pollers/drain/launchd — "
-            "in-session resolution only (SR-3 contract):\n"
+            "in-session resolution only:\n"
             + "\n".join(violations)
         )
 

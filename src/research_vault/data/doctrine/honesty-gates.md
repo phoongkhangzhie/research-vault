@@ -1,7 +1,7 @@
 # Honesty Gates — doctrine for LLM-judged research integrity checks
 
 Harvested from `manuscript/support_matcher.py`, `manuscript/coldread.py`, and
-`manuscript/review_board.py` before those modules were removed in SR-RM-FIGMS.
+`manuscript/review_board.py` before those modules were removed.
 The craft here is reusable: any LLM-judged gate in research-vault should apply
 these principles.
 
@@ -178,10 +178,10 @@ after "correlat" (since "i" follows). Stems without trailing `\b` correctly matc
 ## References
 
 These principles were first implemented and tested in:
-- `manuscript/support_matcher.py` — 4-verdict claim→source matcher (SR-MS-2)
-- `manuscript/coldread.py` — self-containment judge with Flag-A (SR-MS-COLDREAD)
-- `manuscript/review_board.py` — 7-dim review-board scorer (SR-MS-REVIEW-a/b)
+- `manuscript/support_matcher.py` — 4-verdict claim→source matcher
+- `manuscript/coldread.py` — self-containment judge with Flag-A
+- `manuscript/review_board.py` — 7-dim review-board scorer
 
-The modules were removed in SR-RM-FIGMS (the figure + manuscript loop removal).
+The modules were removed in the figure + manuscript loop removal.
 The craft lives here, available for any future gate that calls an LLM judge in
 a research integrity context.

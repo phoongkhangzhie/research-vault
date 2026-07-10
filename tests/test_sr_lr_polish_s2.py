@@ -1,4 +1,4 @@
-"""test_sr_lr_polish_s2.py — SR-LR-POLISH Slice 2: F14 coverage-gate arg-order fix.
+"""test_sr_lr_polish_s2.py — review-loop polish Slice 2: F14 coverage-gate arg-order fix.
 
 Acceptance: a regression test greps every review-emitted label/help/note-body string
 and asserts NONE contains 'review expand <project>' (the wrong-order signature).

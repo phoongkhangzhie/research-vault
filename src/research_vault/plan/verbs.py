@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""plan/verbs.py — rv plan subcommand dispatcher (SR-PLAN-1/SR-PLAN-2/SR-HARNESS-P2).
+"""plan/verbs.py — rv plan subcommand dispatcher.
 
 When to use: use ``rv plan check <plan-note>`` to run the K-2 shape-lint on a
 pre-registration plan note before the ``human-go-plan`` approval gate.
 The K-2 lint is also run automatically (NON-OPTIONAL) inside ``rv plan freeze``
-(SR-PLAN-2 promotion) — freeze is refused if any violations are present.
+(promotion) — freeze is refused if any violations are present.
 
 Subcommands:
   rv plan check <plan-note-path>
-      Run the structural shape-lint (K-2, §5K.5.5 + SR-PLAN-2):
+      Run the structural shape-lint (K-2, §5K.5.5):
         - branch-presence: every diagnosis table row has a named conclusion +
           committed action (no empty cells, no 'fallback', no 'TBD').
         - one-component-per-ablation: 'Component manipulated:' lines must not
@@ -27,14 +27,14 @@ Subcommands:
   rv plan freeze <run-id> <plan-note-path> [--notes-root <dir>]
       K-3 (§5K.5.1): hash the frozen covers:-set into the DAG run state.
       Run immediately after ``rv dag approve <run-id> human-go-plan``.
-      SR-PLAN-2: the K-2 shape-lint runs automatically first — freeze is
+      The K-2 shape-lint runs automatically first — freeze is
       BLOCKED if any violations are present (non-optional gate).
       Stores SHA-256 of (sorted child_id, stance, plan_role) tuples in
       run_state.meta["plan_freeze"]; checked at human-go-findings by ``rv dag approve``.
 
   rv plan freeze-harness <run-id> <plan-note-path> --scope <main<k>|shared>
                          --harness-commit <sha> [--notes-root <dir>]
-      SR-HARNESS-P2 (§5K.5.1): record the reviewed harness commit SHA(s) in
+      §5K.5.1: record the reviewed harness commit SHA(s) in
       the plan note's harness_commits: field and re-derive the K-3 hash to
       incorporate them.
       Run after each harness review gate (human-go-harness-main<k> or
@@ -140,11 +140,11 @@ def build_parser(parent: argparse._SubParsersAction) -> argparse.ArgumentParser:
         help="Directory containing child experiment notes.",
     )
 
-    # freeze-harness (SR-HARNESS-P2)
+    # freeze-harness
     fh_p = sub.add_parser(
         "freeze-harness",
         help=(
-            "SR-HARNESS-P2: record reviewed harness commit SHA in plan note "
+            "Record reviewed harness commit SHA in plan note "
             "and re-derive K-3 hash. Run after human-go-harness-<k> approval."
         ),
     )
@@ -270,7 +270,7 @@ def _run_freeze(args: argparse.Namespace) -> int:
 
     Run immediately after ``rv dag approve <run_id> human-go-plan``.
 
-    SR-PLAN-2: the K-2 shape-lint (check_plan) is NON-OPTIONAL here.  Freeze
+    The K-2 shape-lint (check_plan) is NON-OPTIONAL here.  Freeze
     BLOCKs if check_plan reports any violations — you cannot freeze a plan that
     fails the structural screen.
     """
@@ -282,7 +282,7 @@ def _run_freeze(args: argparse.Namespace) -> int:
     notes_root_arg = getattr(args, "notes_root", None)
     notes_root = Path(notes_root_arg) if notes_root_arg else None
 
-    # --- K-2 gate (non-optional, SR-PLAN-2) ---
+    # --- K-2 gate (non-optional) ---
     # Run the structural shape-lint before storing the hash.  A violation here
     # means the plan is structurally incomplete; the freeze is refused until
     # the plan is fixed and rv plan freeze is re-run.
@@ -304,7 +304,7 @@ def _run_freeze(args: argparse.Namespace) -> int:
 
     # Resolve notes_root from plan-note's parent dir when not given.
     #
-    # SR-HUB-DAG §B fix: the old default (cfg.notes_root / "experiments") was
+    # §B fix: the old default (cfg.notes_root / "experiments") was
     # wrong for projects that use a separate source_dir — the plan note and its
     # child stubs live under source_dir/experiments, NOT under notes_root/experiments.
     # Using plan_note.parent is correct: child stubs are scaffolded in the SAME
@@ -397,10 +397,10 @@ def _upsert_frontmatter_list_field(
 def _run_verify_freeze(args: argparse.Namespace) -> int:
     """K-3: re-derive covers:-hash and compare to stored value (§5K.5.1).
 
-    SR-FREEZE-FIX: fail CLOSED — exits 1 when no freeze is stored (a never-frozen
+    Fail CLOSED — exits 1 when no freeze is stored (a never-frozen
     run must NOT pass the K-3 gate silently).
 
-    SR-FREEZE-FIX: caller-invariant — notes_root is used ONLY as an explicit
+    Caller-invariant — notes_root is used ONLY as an explicit
     re-pin override when the stored pin is absent (legacy meta back-compat).
     The stored pin in plan_freeze["notes_root"] takes precedence; the old
     config auto-resolve (cfg.notes_root/"experiments") has been REMOVED because
@@ -447,7 +447,7 @@ def _run_verify_freeze(args: argparse.Namespace) -> int:
 
 
 def _run_freeze_harness(args: argparse.Namespace) -> int:
-    """SR-HARNESS-P2: record reviewed harness commit SHA in plan note + re-hash (§5K.5.1).
+    """Record reviewed harness commit SHA in plan note + re-hash (§5K.5.1).
 
     Flow:
     1. Load run; FAIL-CLOSED if plan_freeze absent (requires prior rv plan freeze).
@@ -509,8 +509,8 @@ def _run_freeze_harness(args: argparse.Namespace) -> int:
     if stored_retries_hash is None:
         print(
             f"rv plan freeze-harness: BLOCKED — plan_freeze for run {run_id!r} has no "
-            f"covers_retries_hash (legacy freeze format).  Re-run `rv plan freeze` with "
-            f"SR-HARNESS-P2 code to establish the baseline before freeze-harness.",
+            f"covers_retries_hash (legacy freeze format).  Re-run `rv plan freeze` "
+            f"to establish the baseline before freeze-harness.",
             file=sys.stderr,
         )
         return 1

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""approval.py — `rv approval` verb for SR-APPROVE-GATE.
+"""approval.py — `rv approval` verb for the human-presence approval gate.
 
 Subverbs:
   rv approval setup [--keyring]
@@ -388,7 +388,7 @@ def cmd_approval_status(cfg: Config) -> int:
 def build_parser(parent: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
     """Build and return the `rv approval` argument parser."""
     desc = (
-        "Manage the human-presence gate for rv dag approve (SR-APPROVE-GATE). "
+        "Manage the human-presence gate for rv dag approve. "
         "setup: provision a token + fingerprint. "
         "disable: turn the gate off (signed when a token is provisioned). "
         "enable: re-arm the gate. "
@@ -397,7 +397,7 @@ def build_parser(parent: argparse.ArgumentParser | None = None) -> argparse.Argu
     if parent is not None:
         p = parent.add_parser(
             "approval",
-            help="Manage the rv dag approve human-presence gate (SR-APPROVE-GATE).",
+            help="Manage the rv dag approve human-presence gate.",
             description=desc,
         )
     else:

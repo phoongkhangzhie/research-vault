@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""store.py — atomic file state for DAG runs (SR-3).
+"""store.py — atomic file state for DAG runs.
 
 State file location: <config.state_dir>/dag/<run_id>.json
 
@@ -24,7 +24,7 @@ Run state JSON structure:
     }
   }
 
-SR-RETRY fields (§5I.5, SR-RETRY):
+Retry fields:
   attempts     — persisted count of failed attempts so far (default 0; incremented at FAIL,
                  D-RETRY-5). The retry-decision input: retry fires iff attempts < max_retries.
   last_failure — the latest failure summary string (length-capped ~4000 chars) persisted on
@@ -97,19 +97,19 @@ class RunState:
     meta: dict[str, Any] = field(default_factory=dict)
     """Generic key-value metadata for the run.
 
-    Used by plan/freeze.py (K-3, SR-PLAN-1) to store the covers:-freeze-set hash
+    Used by plan/freeze.py (K-3) to store the covers:-freeze-set hash
     at human-go-plan approval time and re-verify at human-go-findings.
 
     Known keys:
       "plan_freeze": {
           "covers_hash":  "<sha256-hex>",       — hash of sorted (child_id, stance, plan_role) tuples
           "plan_note":    "<abs-path-str>",      — path to the plan master note that was frozen
-          "notes_root":   "<abs-path-str>|null", — resolution input pin (SR-FREEZE-FIX, hole b);
+          "notes_root":   "<abs-path-str>|null", — resolution input pin;
                                                     stored at freeze time so verify_freeze_hash
                                                     re-derives with the SAME notes_root regardless
                                                     of caller cwd/config.  null = legacy format
-                                                    (pre-SR-FREEZE-FIX) — requires explicit
-                                                    --notes-root at verify time.
+                                                    (from before this pin was introduced) — requires
+                                                    explicit --notes-root at verify time.
           "frozen_at":    <float>,               — Unix timestamp of freeze
       }
     """
@@ -168,7 +168,7 @@ class RunState:
         """Initialize node_states for all nodes in the manifest to 'pending'.
 
         Also populates edge_registered_ts for all afterok+watch edges
-        (SR-3 owns persisting this timestamp, per the architect's flag).
+        (this module owns persisting this timestamp, per the architect's flag).
         """
         ts = time.time()
         for node in manifest["nodes"]:
@@ -179,7 +179,7 @@ class RunState:
                     "started_at": None,
                     "completed_at": None,
                     "error": None,
-                    # SR-RETRY: retry state fields (§5I.5) — walker never reads these
+                    # Retry state fields — walker never reads these
                     "attempts": 0,
                     "last_failure": None,
                     "failures": [],

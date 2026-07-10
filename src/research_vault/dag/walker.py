@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""walker.py — pure DAG frontier computation for Research Vault (SR-3).
+"""walker.py — pure DAG frontier computation for Research Vault.
 
 THE CORE GUARANTEE: compute_frontier is PURE.
   Same (manifest, node_states, edge_registered_ts, global_cap) inputs
@@ -13,7 +13,7 @@ Frontier items:
     — a human-go node whose ALL TRANSITIVE UPSTREAM nodes are terminal;
       ready for human approval via `dag approve`.
 
-THE TRANSITIVE-UPSTREAM INVARIANT (the SR-3 defect fix):
+THE TRANSITIVE-UPSTREAM INVARIANT:
   A human-go node MUST NOT appear in the frontier (as "await-go") until every
   transitive ancestor is in a terminal state (succeeded/failed/blocked).
 
@@ -28,7 +28,7 @@ THE TRANSITIVE-UPSTREAM INVARIANT (the SR-3 defect fix):
 
 NO LIVENESS NET: this module NEVER imports pollers, drain, launchd, or any
 background-scheduler module. Afterok watch expressions are resolved INLINE
-(synchronously) via resolve_watch from SR-2's wait_for module. Unsatisfied
+(synchronously) via resolve_watch from the wait_for module. Unsatisfied
 external watches → the documented shell pattern:
   wait-for <cond> --then 'rv dag tick <run_id>' &
 
@@ -132,7 +132,7 @@ def _edge_satisfied(
     """Return True iff a single need/edge is satisfied given the current node_states.
 
     For afterok edges with a watch expression, the watch is resolved INLINE
-    (synchronously) using resolve_watch from SR-2. This is the in-session
+    (synchronously) using resolve_watch. This is the in-session
     resolution contract: satisfied watches resolve immediately; unsatisfied
     external watches remain False until the next dag tick.
 
@@ -207,7 +207,7 @@ def compute_frontier(
       is terminal. This is checked by _all_transitive_upstream_terminal().
 
     afterok+watch resolution:
-      Resolved INLINE via resolve_watch (SR-2). No background poller.
+      Resolved INLINE via resolve_watch. No background poller.
     """
     nodes_lookup: dict[str, dict] = {n["id"]: n for n in manifest["nodes"]}
 

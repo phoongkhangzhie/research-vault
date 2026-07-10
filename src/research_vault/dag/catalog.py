@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""dag/catalog.py — static catalog SSOT for the two built-in research loops (SR-HUB-DAG).
+"""dag/catalog.py — static catalog SSOT for the two built-in research loops.
 
 Purpose
 -------
@@ -26,7 +26,6 @@ human_go_gate.node_id appears as a real "human-go" typed node in the correspondi
 shipped manifest or scaffolded manifest — this test is the canonical drift detector.
 
 Stdlib only.
-sr: SR-HUB-DAG
 """
 from __future__ import annotations
 
@@ -145,7 +144,7 @@ class LoopEntry:
 
 
 # ---------------------------------------------------------------------------
-# The catalog  (SR-HUB-DAG §A1 — grounded in real scaffolders, NOT design docs)
+# The catalog — grounded in real scaffolders, NOT design docs
 # ---------------------------------------------------------------------------
 #
 # Grounding sources (read these if you need to verify or update gates):
@@ -172,7 +171,7 @@ LOOP_CATALOG: list[LoopEntry] = [
                 ),
                 freeze_action="rv plan freeze <run_id> <plan-note>",
             ),
-            # SR-HARNESS-P2: per-main harness gate between plan and run
+            # Per-main harness gate between plan and run
             LoopGate(
                 node_id="human-go-harness-main1",
                 label=(

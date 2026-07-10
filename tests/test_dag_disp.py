@@ -1,4 +1,4 @@
-"""test_dag_disp.py — hermetic tests for SR-DISP (schema-by-construction dispatch discipline).
+"""test_dag_disp.py — hermetic tests for schema-by-construction dispatch discipline.
 
 Coverage:
   1. Schema teeth — spec REQUIRED on agent nodes (ManifestError on absence)
@@ -272,10 +272,10 @@ class TestContinuesValidation:
 # ===========================================================================
 
 def _continues_boundary_warns(manifest: dict) -> list[str]:
-    """Filter manifest_warns to only continues-boundary-smell warns (SR-DISP).
+    """Filter manifest_warns to only continues-boundary-smell warns.
 
-    SR-SCOPE adds a second warn category (absent reads:) — the DISP tests
-    should filter to the specific warn type they are testing.
+    The reads-scope check adds a second warn category (absent reads:) — the
+    DISP tests should filter to the specific warn type they are testing.
     """
     return [w for w in manifest_warns(manifest) if "resumes across" in w]
 
@@ -318,8 +318,8 @@ class TestBoundarySmellWarn:
     def test_continues_no_boundary_crossing_no_continues_warn(self):
         """A continues with no boundary crossing → no continues-boundary WARN.
 
-        NOTE: SR-SCOPE may add absent-reads: warns for these nodes; this test
-        filters to continues-smell warns only (the SR-DISP concern).
+        NOTE: the reads-scope check may add absent-reads: warns for these
+        nodes; this test filters to continues-smell warns only.
         """
         m = _manifest([
             _agent("a", spec="task://test#a"),
@@ -350,8 +350,8 @@ class TestBoundarySmellWarn:
     def test_manifest_warns_no_continues_no_continues_warn(self):
         """A manifest with no continues nodes → no continues-boundary warns.
 
-        NOTE: SR-SCOPE may add absent-reads: warns; this test filters to
-        continues-smell warns only (the SR-DISP concern).
+        NOTE: the reads-scope check may add absent-reads: warns; this test
+        filters to continues-smell warns only.
         """
         m = _manifest([
             _agent("a", spec="task://test#a"),
@@ -451,7 +451,7 @@ class TestWarnSurfacedByVerb:
                    continues={"node": "a", "reason": "iter-d"},
                    needs=[_need("b")]),
         ])
-        # Filter to continues-boundary warns only (SR-SCOPE adds absent-reads warns too)
+        # Filter to continues-boundary warns only (the reads-scope check adds absent-reads warns too)
         warns = _continues_boundary_warns(m)
         # Both c and d cross the produces boundary
         assert len(warns) == 2

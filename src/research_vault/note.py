@@ -31,25 +31,25 @@ OKF_TYPES = frozenset({
     "experiments",
     "findings",
     "mocs",
-    "datasets",    # SR-8: provenance note for data artifacts (points to data, never contains it)
-    "gaps",        # SR-LR-2: typed research gap record (§5L.7-5L.8); project-scoped; first-class lifecycle
+    "datasets",    # provenance note for data artifacts (points to data, never contains it)
+    "gaps",        # typed research gap record (§5L.7-5L.8); project-scoped; first-class lifecycle
 })
 
-# SR-RESOLVE-SCOPE: the sole SHARED (cross-project) OKF type — lives in cfg.datasets_root.
+# The sole SHARED (cross-project) OKF type — lives in cfg.datasets_root.
 # All other OKF types are PROJECT-SCOPED (cfg.project_notes_dir / type_dir).
 # SSOT for the project-scoped-vs-shared split.
 # Consumed by: wait_for (note: resolver), dag/verbs (_check_project_scoped_note).
 # Do NOT duplicate this — import from here.
 OKF_SHARED_TYPES: frozenset[str] = frozenset({"datasets"})
 
-# SR-PLAN-2: valid values for stance + plan_role on child experiment notes.
+# Valid values for stance + plan_role on child experiment notes.
 _VALID_STANCE: frozenset[str] = frozenset({"confirmatory", "exploratory"})
 _VALID_PLAN_ROLE: frozenset[str] = frozenset({
     "main", "supporting_ablation", "conditional_ablation"
 })
 
 # ---------------------------------------------------------------------------
-# SR-EXP-REPRO: experiment reproducibility schema
+# Experiment reproducibility schema
 # ---------------------------------------------------------------------------
 
 # Sentinel value for all repro_* fields that are not (yet) populated.
@@ -89,9 +89,9 @@ REPRO_AUTO_META = [
     "repro_env_python",
     "repro_cost_gpu_hours",
 ]
-# Layer 2 — AUTO from SR-6 manifest (deferred — do NOT re-probe):
+# Layer 2 — AUTO from the compute manifest (deferred — do NOT re-probe):
 REPRO_AUTO_HW = ["repro_hw"]
-# Layer 2 — AUTO from linked SR-8 dataset note (links note + inherits its hash):
+# Layer 2 — AUTO from linked dataset note (links note + inherits its hash):
 REPRO_AUTO_DATASET = ["repro_dataset_id", "repro_dataset_hash"]
 # Layer 2 — AUTO from results_commit (only if in-repo):
 REPRO_AUTO_HARNESS = ["repro_eval_harness"]
@@ -200,7 +200,7 @@ def _parse_frontmatter(
     - Inline ``key: []`` syntax stays as the literal string ``"[]"`` (not a list).
 
     #26 convergence: this canonical parser now replaces the local
-    ``gap_scan._parse_frontmatter_gap`` duplicate (SR-LR-2 STOP decision lifted).
+    ``gap_scan._parse_frontmatter_gap`` duplicate (STOP decision lifted).
     The extension is backwards-compatible for all existing callers: callers that
     do ``.strip()`` on results only access SCALAR fields (``synthesized_okf``,
     ``confidence``, ``plan_kind``, etc.); none of them access list-valued fields
@@ -306,7 +306,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
     Returns the path to the created note file.
     Raises ValueError if note_type is not a valid OKF type.
 
-    SR-8: for note_type == 'datasets', the template includes placeholder fields:
+    For note_type == 'datasets', the template includes placeholder fields:
       location — path/URL/DOI of the actual data artifact (fill this in)
       hash     — content hash in sha256:<hex> format (fill this in)
     Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
@@ -319,10 +319,10 @@ def cmd_new(project: str, note_type: str, title: str, *,
         )
     cfg = config or load_config()
 
-    # SR-8: shared types (OKF_SHARED_TYPES) live in cfg.datasets_root, not in
+    # Shared types (OKF_SHARED_TYPES) live in cfg.datasets_root, not in
     # the project-scoped notes directory. A shared-type note filed for one project
     # is visible and lineage-gatable from any other project.
-    # SR-HARDENING (fix 3b): use OKF_SHARED_TYPES SSOT — not a hardcoded "datasets"
+    # Use OKF_SHARED_TYPES SSOT — not a hardcoded "datasets"
     # string — so a 2nd shared type automatically routes correctly here.
     if note_type in OKF_SHARED_TYPES:
         notes_dir = cfg.datasets_root
@@ -368,12 +368,12 @@ def cmd_new(project: str, note_type: str, title: str, *,
         fields["repo"] = ""           # fill in: the paper's code repo URL (empty if none)
         fields["artifacts"] = ""      # fill in: scalar list of "label: url" pointers
 
-    # SR-8: datasets notes carry provenance-specific placeholder fields
+    # datasets notes carry provenance-specific placeholder fields
     if note_type == "datasets":
         fields["location"] = ""   # fill in: path/URL/DOI of the data artifact
         fields["hash"] = ""       # fill in: sha256:<hex> content hash of the artifact
 
-    # SR-WB / PR-3 (D2): experiments notes carry the generalized results
+    # experiments notes carry the generalized results
     # attachment — EMPTY runs:/scores: lists (zero items, not blank placeholder
     # entries: an entry with blank fields would falsely trip the per-entry
     # "location empty" check in check_result_provenance). Empty = not-yet-run
@@ -385,7 +385,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
         fields["runs"] = ""       # the executions (any N) — scalar list of run refs
         fields["scores"] = ""     # the computed outputs (any M) — list of {location, hash, label}
         fields["results_commit"] = ""     # git SHA of the code that produced the run
-        # SR-EXP-REPRO: reproducibility schema — flat repro_* fields.
+        # Reproducibility schema — flat repro_* fields.
         # Sentinel = "not-recorded-in-provenance" (NEVER blank, NEVER guessed).
         # Layer 1 (auto via rv wandb pull): hashed full-config artifact.
         # Layer 2 (auto via rv wandb pull alias table): promoted flat scalars.
@@ -404,7 +404,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
     if note_type == "datasets":
         body = (
             "\n"
-            "<!-- Datasets provenance note (SR-8) -->\n"
+            "<!-- Datasets provenance note -->\n"
             "<!-- Fill in 'location' and 'hash' above before completing the DAG node. -->\n"
             "<!--   location: /path/to/data.csv  OR  https://...  OR  doi:10.xxx/... -->\n"
             "<!--   hash: sha256:<hex>  (run: sha256sum <file>) -->\n"
@@ -419,7 +419,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
     elif note_type == "experiments":
         body = (
             "\n"
-            "<!-- Experiments provenance note (SR-WB + SR-EXP-REPRO + PR-3 results schema) -->\n"
+            "<!-- Experiments provenance note (results + reproducibility schema) -->\n"
             "<!-- Run `rv wandb pull <run-id> --experiment <id> --project <slug>` to fill -->\n"
             "<!-- runs:/scores:/results_commit, plus all auto repro_* fields -->\n"
             "<!-- (Layer 1 + Layer 2 alias map) — or fill by hand for CSV/manual fallback. -->\n"
@@ -490,7 +490,7 @@ def cmd_list(project: str, note_type: str | None = None, *,
     If note_type is given, list only that type's subdirectory.
     Returns list of {path, fields} dicts.
 
-    SR-8: datasets are SHARED — cmd_list for note_type='datasets' scans
+    datasets are SHARED — cmd_list for note_type='datasets' scans
     cfg.datasets_root rather than the project-scoped notes directory.
     """
     cfg = config or load_config()
@@ -503,7 +503,7 @@ def cmd_list(project: str, note_type: str | None = None, *,
 
     notes = []
     for t in types_to_scan:
-        # SR-8 / SR-HARDENING (fix 3b): shared types live in the shared root, not
+        # Shared types live in the shared root, not
         # project_notes_dir/<type>/. Use OKF_SHARED_TYPES SSOT, not a hardcoded
         # "datasets" string, so a 2nd shared type routes correctly automatically.
         if t in OKF_SHARED_TYPES:
@@ -526,15 +526,15 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
     - Each note has a `type` frontmatter field
     - The `type` value matches its parent directory name (non-datasets types)
     - The `type` is a known OKF type
-    - SR-8: datasets notes (scanned from cfg.datasets_root) have non-empty
+    - datasets notes (scanned from cfg.datasets_root) have non-empty
       `location` and `hash` fields. The type-dir check is skipped for datasets
       since datasets_root may have any directory name.
 
-    SR-8 note: datasets are SHARED across projects. cmd_check scans
+    Note: datasets are SHARED across projects. cmd_check scans
     cfg.datasets_root for the datasets type (same root for all projects);
     the 7 other OKF types remain project-scoped in project_notes_dir.
 
-    SR-PLAN-2 note: for experiments notes, cmd_check now also:
+    Note: for experiments notes, cmd_check now also:
     - (plan masters) resolves each covers: child, verifies it EXISTS at the
       experiments/ directory, and checks it has valid stance (confirmatory|
       exploratory) + valid plan_role (main|supporting_ablation|
@@ -551,7 +551,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
     violations = []
 
     for t in OKF_TYPES:
-        # SR-8 / SR-HARDENING (fix 3b): shared types live in the shared root.
+        # Shared types live in the shared root.
         # Use OKF_SHARED_TYPES SSOT — not a hardcoded "datasets" — so a 2nd
         # shared type is handled automatically.
         if t in OKF_SHARED_TYPES:
@@ -561,7 +561,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
         if not subdir.exists():
             continue
 
-        # SR-PLAN-2: pre-pass for experiments — collect covered_ids from all plan
+        # Pre-pass for experiments — collect covered_ids from all plan
         # masters so child notes can be checked for absent-from-covers (§5K.7).
         # Skipped for non-experiments types (covered_ids stays empty → no checks).
         covered_ids: set[str] = set()
@@ -594,13 +594,13 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
             if t in OKF_SHARED_TYPES:
                 # For shared types, the directory name may differ from the type name
                 # (datasets_root can have any directory name) — check type == t.
-                # SR-HARDENING (fix 3b): use OKF_SHARED_TYPES SSOT + `t` for the
+                # Use OKF_SHARED_TYPES SSOT + `t` for the
                 # inner check, so a 2nd shared type is handled automatically.
                 if note_type != t:
                     violations.append(
                         f"{p}: expected type={t!r}, got {note_type!r}"
                     )
-                # SR-8: datasets notes must have location and hash filled in.
+                # datasets notes must have location and hash filled in.
                 # Nested under `if t == "datasets"` because these fields are
                 # datasets-specific; a future 2nd shared type has its own fields.
                 if t == "datasets":
@@ -620,7 +620,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                     violations.append(
                         f"{p}: type={note_type!r} but file is in {t!r} directory"
                     )
-                # SR-WB: validate results_* provenance when results_hash is filled
+                # validate results_* provenance when results_hash is filled
                 # (empty = not yet pulled — not a violation)
                 result_issues = check_result_provenance(p)
                 violations.extend(result_issues)
@@ -630,7 +630,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # is claimed. No _WARN_PREFIXES prefix: this BLOCKS (flips exit).
                 chain_issues = check_provenance_chain(p)
                 violations.extend(chain_issues)
-                # SR-EXP-REPRO: warn when results_hash is set but repro_* are still sentinel
+                # warn when results_hash is set but repro_* are still sentinel
                 # (surfaces manual gaps right after the run, not at paper-writing time)
                 repro_warnings = check_repro_sentinel_lint(p)
                 violations.extend(repro_warnings)
@@ -638,14 +638,14 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # (SURFACE, never block — researcher records via `rv note <p> new datasets`)
                 dataset_warnings = check_dataset_provenance_warn(p)
                 violations.extend(dataset_warnings)
-                # SR-PLAN-2: covers: link-validation for plan master notes
+                # covers: link-validation for plan master notes
                 # (plan_kind: preregistration); resolves each covers: child,
                 # checks stance ∈ {confirmatory, exploratory} and plan_role ∈
                 # {main, supporting_ablation, conditional_ablation} (§5K.7).
                 if fields.get("plan_kind") == "preregistration":
                     covers_issues = check_covers_links(p, fields, subdir)
                     violations.extend(covers_issues)
-                # SR-PLAN-2: child note checks — plan_role/stance presence +
+                # child note checks — plan_role/stance presence +
                 # supports_main target existence + absent-from-covers warning
                 # (only for notes with plan_role set, §5K.7).
                 child_issues = check_plan_child_links(p, fields, subdir, covered_ids)
@@ -656,7 +656,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                     violations.append(
                         f"{p}: type={note_type!r} but file is in {t!r} directory"
                     )
-                # SR-GAP-HYGIENE: check that open/reopened gap anchor: notes still exist.
+                # check that open/reopened gap anchor: notes still exist.
                 # Isomorphic to the covers: resolution check — degrade-to-WARN (not BLOCK).
                 anchor_issues = check_gap_anchor(p, fields, base)
                 violations.extend(anchor_issues)
@@ -671,7 +671,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# SR-GAP-HYGIENE: vanished-anchor check for gap notes
+# Vanished-anchor check for gap notes
 # ---------------------------------------------------------------------------
 
 #: Gap statuses that count toward open_gap_count — the actionable ones that
@@ -685,7 +685,7 @@ def check_gap_anchor(
     fields: dict[str, str],
     project_notes_dir: Path,
 ) -> list[str]:
-    """SR-GAP-HYGIENE: warn when an open/reopened gap's anchor: note no longer exists.
+    """Warn when an open/reopened gap's anchor: note no longer exists.
 
     A gap note carries an ``anchor:`` field — an OKF path relative to
     ``project_notes_dir`` (e.g. ``findings/slug``, ``literature/citekey``).  When
@@ -732,7 +732,7 @@ def check_gap_anchor(
 
 
 # ---------------------------------------------------------------------------
-# SR-PLAN-2: covers:/stance link-validation helpers
+# covers:/stance link-validation helpers
 # ---------------------------------------------------------------------------
 
 def _parse_covers_list(covers_str: str) -> list[str]:
@@ -754,7 +754,7 @@ def check_covers_links(
     fields: dict[str, str],
     notes_root: Path,
 ) -> list[str]:
-    """SR-PLAN-2: validate that each covers: entry exists with valid stance + plan_role.
+    """Validate that each covers: entry exists with valid stance + plan_role.
 
     Called by cmd_check for experiments notes with ``plan_kind: preregistration``.
 
@@ -838,7 +838,7 @@ def check_plan_child_links(
     notes_root: Path,
     covered_ids: "set[str]",
 ) -> list[str]:
-    """SR-PLAN-2: validate plan_role / stance / supports_main on a child note.
+    """Validate plan_role / stance / supports_main on a child note.
 
     Checks performed only when ``plan_role`` is set (i.e., the note is a plan child):
     - ``stance`` must be present (confirmatory or exploratory)
@@ -892,7 +892,7 @@ def check_plan_child_links(
 
 
 # ---------------------------------------------------------------------------
-# SR-WB / PR-3 (D2, D8): experiment-results provenance validation
+# Experiment-results provenance validation
 # ---------------------------------------------------------------------------
 
 def _is_local_results_path(location: str) -> bool:
@@ -921,8 +921,8 @@ def _normalize_results(fields: "dict[str, Any]") -> "dict[str, list]":
     A legacy ``results_hash`` value of "" or the REPRO_SENTINEL placeholder is
     treated as "not yet run" (no scores entry synthesized) — matching the
     existing not-yet-run semantics of check_dataset_provenance_warn /
-    check_repro_sentinel_lint, which is the standing "empty run" gate as of
-    SR-EXP-REPRO. A legacy `results_wandb_run` is folded the same way (empty ->
+    check_repro_sentinel_lint, which is the standing "empty run" gate.
+    A legacy `results_wandb_run` is folded the same way (empty ->
     no runs entry).
 
     Shared by note.py (check_result_provenance + the sibling lints) and
@@ -990,7 +990,7 @@ def check_result_provenance(exp_note_path: Path) -> list[str]:
     _normalize_results shim (folded into a 1-element scores list).
 
     Returns a list of violation strings (empty = OK, gate passes).
-    SR-WB / PR-3. Reuses the streaming hash pattern from
+    Reuses the streaming hash pattern from
     wait_for._verify_local_file_hash.
     """
     if not exp_note_path.exists():
@@ -1074,7 +1074,7 @@ def check_provenance_chain(exp_note_path: Path) -> list[str]:
 
     Design: docs/superpowers/specs/2026-07-07-code-conventions-design.md
     §3 CHECK-1/CHECK-2/CHECK-3a. Zero new field, zero new walker — every
-    field asserted here already exists in the SR-EXP-REPRO schema.
+    field asserted here already exists in the reproducibility schema.
 
     Rule: when _normalize_results(fields)["scores"] is non-empty (a result is
     claimed), ALL of the following must be non-sentinel and non-empty:
@@ -1245,7 +1245,7 @@ def check_provenance_chain(exp_note_path: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# SR-EXP-REPRO: repro sentinel lint
+# Repro sentinel lint
 # ---------------------------------------------------------------------------
 
 def check_dataset_provenance_warn(exp_note_path: Path) -> list[str]:
@@ -1320,7 +1320,7 @@ def check_repro_sentinel_lint(exp_note_path: Path) -> list[str]:
     No scores recorded (experiment not yet run) → no lint (not a violation).
 
     Returns a list of warning strings prefixed with "[repro-lint] WARN:" (empty = clean).
-    SR-EXP-REPRO / PR-3. Anti-fabrication: the sentinel is an honest hole, not a guessed value.
+    Anti-fabrication: the sentinel is an honest hole, not a guessed value.
     """
     if not exp_note_path.exists():
         return []
@@ -1370,7 +1370,7 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     When to use: use `rv note <project> <subcommand>` to create or inspect OKF notes.
     Notes are typed markdown files (literature, concepts, methods, experiments, findings,
     mocs, datasets) stored under the project's notes directory. The type field in
-    frontmatter is enforced. datasets notes are SR-8 provenance metadata — they POINT to
+    frontmatter is enforced. datasets notes are provenance metadata — they POINT to
     data artifacts (path/URL/DOI + content-hash), never contain the data itself.
     Anti-pattern: do NOT hand-copy a data path into a finding — file a datasets/
     provenance note and afterok on it so lineage is structural.
@@ -1444,10 +1444,10 @@ def run(args: argparse.Namespace) -> int:
             if not violations:
                 print(f"rv note check: OK — {args.project!r}")
                 return 0
-            # Separate hard violations from soft warnings (§5J.14, SR-GAP-HYGIENE).
+            # Separate hard violations from soft warnings (§5J.14).
             # Prefixes that degrade-to-warn (shown but do not flip exit code):
-            #   [repro-lint] WARN: — repro-sentinel lint (SR-EXP-REPRO)
-            #   [gap-hygiene] WARN: — vanished anchor on open/reopened gap (SR-GAP-HYGIENE)
+            #   [repro-lint] WARN: — repro-sentinel lint
+            #   [gap-hygiene] WARN: — vanished anchor on open/reopened gap
             #   [dataset-provenance] WARN: — unrecorded dataset provenance on a ran
             #     experiment (F24). check_dataset_provenance_warn's own docstring
             #     states this is "SURFACE, never a BLOCK — INFO/WARN only"; it must

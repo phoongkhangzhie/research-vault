@@ -345,7 +345,7 @@ class EnvSecretStore:
 class AdapterSet:
     """A resolved, bound set of adapters for a Research Vault instance.
 
-    ``model`` (SR-MODEL-SEAM) is a first-class member alongside notifier / backend /
+    ``model`` is a first-class member alongside notifier / backend /
     secrets, but resolved LAZILY on first access — constructing a ModelClient imports
     litellm and arms the observability backend (``weave.init`` etc.), which must NOT
     happen as a side effect of ``load_adapters`` (that would break import-light and
@@ -395,7 +395,7 @@ def _remote_backend_cls() -> type:
 
 _BACKEND_REGISTRY: dict[str, type | None] = {
     "local": LocalSubprocess,
-    # SR-7: one RemoteBackend class registered under four archetype keys.
+    # One RemoteBackend class registered under four archetype keys.
     # Loaded lazily so the module stays importable on any machine.
     "slurm":   None,  # populated in load_adapters via _remote_backend_cls()
     "pbs":     None,
@@ -456,5 +456,5 @@ def load_adapters(cfg: Config) -> AdapterSet:
     secrets: SecretStore = secrets_cls()  # type: ignore[call-arg]
 
     # cfg is threaded so AdapterSet.model can lazily resolve the observability
-    # backend + construct the ModelClient on first access (SR-MODEL-SEAM).
+    # backend + construct the ModelClient on first access.
     return AdapterSet(notifier=notifier, backend=backend, secrets=secrets, cfg=cfg)

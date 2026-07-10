@@ -2,9 +2,9 @@
 """manuscript/review_board.py — PR-M5: the bounded-unroll review-revise loop
 MACHINERY (2 rounds x 3 conference-style reviewers).
 
-Re-instantiates the removed ``manuscript/review_board.py`` craft (deleted at
-SR-RM-FIGMS, ``git show 4fdb9b2^:src/research_vault/manuscript/review_board.py``
-— the "SR-MS-REVIEW-a/-b" design-of-record), rebuilt against the NEW lit-review
+Re-instantiates the removed ``manuscript/review_board.py`` craft (deleted
+earlier, ``git show 4fdb9b2^:src/research_vault/manuscript/review_board.py``
+— the prior design-of-record), rebuilt against the NEW lit-review
 rubric's 8-dimensioned score set (design §11.1) instead of the old 7-dim
 generic venue rubric — same bounded-unroll / floor-not-average / canary /
 skip-once-cleared CONTROL-FLOW, new DIMENSIONS.
@@ -65,7 +65,7 @@ bind the clear predicate.
 
 Stdlib only. Hermetic in tests -- judge_fn is always injectable; no live LLM
 call is required to exercise this module.
-sr: PR-M5 (mirrors the removed SR-MS-REVIEW-a/-b craft)
+sr: PR-M5 (mirrors the removed prior review-board craft)
 """
 from __future__ import annotations
 

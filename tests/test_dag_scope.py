@@ -1,4 +1,4 @@
-"""test_dag_scope.py — hermetic tests for SR-SCOPE (reads: grounding manifest).
+"""test_dag_scope.py — hermetic tests for the reads: grounding manifest (bounded reading-scope).
 
 Coverage:
   1. Structural teeth — reads: if present must be non-empty list, items well-formed (ManifestError)
@@ -561,20 +561,20 @@ class TestDiscovery:
 
 
 # ===========================================================================
-# 8. Integration — existing SR-DISP tests still pass (regression guard)
+# 8. Integration — existing dispatch-discipline tests still pass (regression guard)
 # ===========================================================================
 
 class TestReadsDoesNotBreakSRDISP:
     """Regression: adding reads: support must not break any existing DISP behaviour."""
 
     def test_spec_still_required_on_agent(self):
-        """spec is still REQUIRED on agent nodes, unchanged by SR-SCOPE."""
+        """spec is still REQUIRED on agent nodes, unchanged by the reads: scope check."""
         m = _manifest([{"id": "a", "type": "agent"}])  # no spec
         with pytest.raises(ManifestError, match="spec"):
             validate_manifest(m)
 
     def test_continues_validation_unchanged(self):
-        """continues.reason still required — SR-SCOPE did not relax it."""
+        """continues.reason still required — the reads: scope check did not relax it."""
         m = _manifest([
             _agent("a", spec="task://t#a"),
             _agent("b", spec="task://t#b",

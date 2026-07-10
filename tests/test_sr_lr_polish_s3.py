@@ -1,4 +1,4 @@
-"""test_sr_lr_polish_s3.py — SR-LR-POLISH Slice 3: F15 robust corpus parse + fail-loud.
+"""test_sr_lr_polish_s3.py — review-loop polish Slice 3: F15 robust corpus parse + fail-loud.
 
 Acceptance criteria:
   - Well-formed corpus → N relate nodes.

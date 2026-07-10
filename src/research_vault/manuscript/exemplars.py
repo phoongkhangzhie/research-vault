@@ -7,7 +7,7 @@ style. A writer told "write in a synthesis style" enumerates; a writer shown thr
 synthesis paragraphs imitates the MOVE. This module is the type-generic mechanism; the
 DATA (real, attributed, fair-use-short excerpts) lives at
 ``data/exemplars/manuscript/<ms_type.exemplar_bundle>/`` — package data, loaded via
-``importlib.resources`` (zipimport-safe, mirrors SR-PKG's pattern for doctrine/examples/
+``importlib.resources`` (zipimport-safe, mirrors the existing pattern for doctrine/examples/
 templates).
 
 Each excerpt file is a labeled few-shot block (the "block-header schema", matching the researcher's

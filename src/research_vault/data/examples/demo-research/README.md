@@ -1,7 +1,7 @@
-# demo-research — Research Loop Example (SR-PLAN-1: multi-main + ablations + conditionals)
+# demo-research — Research Loop Example (multi-main + ablations + conditionals)
 
 A runnable demonstration of the Research Vault **research loop** DAG, upgraded
-in SR-PLAN-1 to the full §5K.2 multi-main + ablation + conditional shape.
+to the full §5K.2 multi-main + ablation + conditional shape.
 
 ## What this demonstrates
 
@@ -29,7 +29,7 @@ The `research-loop.json` manifest encodes the full pre-registration discipline
 7. **human-go-findings** — final gate (runs K-3 re-verify automatically via
    `rv dag approve`).
 
-## The key structural guarantees (SR-PLAN-1 additions)
+## The key structural guarantees
 
 - **K-2 shape-lint:** run `rv plan check notes/experiments/q1-plan.md` before
   the human-go-plan gate.  REJECTS-ONLY structural screen: catches empty/TBD/
