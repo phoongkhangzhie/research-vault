@@ -621,6 +621,60 @@ def check_coverage_allocation_gate(
 
 
 # ---------------------------------------------------------------------------
+# compute_coverage_diff — PR-E: the WIDTH lens's mechanical ground truth.
+# ---------------------------------------------------------------------------
+#
+# Mirror of ``check_heading_order``'s role for the INSTRUCT lens: a
+# deterministic diff the WIDTH board judge is handed as ground truth (never
+# re-derived inside the judge prompt). The board's WIDTH (Coverage) lens
+# owns "full-corpus use, no ignored clusters"; this function FINDS the
+# dropped paper — the set of ``used`` citekeys the coverage map committed to
+# that DO NOT appear as a ``[[citekey]]`` wikilink in the assembled reader
+# body — and the judge explains why the drop matters (a whole missing
+# cluster vs. a single missing paper). Reuses the same coverage-map parser
+# (``_coverage_records`` / ``_pfm_gates``) and the citation SSOT
+# (``WIKILINK_CITE_RE``) — charter §6, no new grammar.
+
+def compute_coverage_diff(coverage_map_path: Path, reader_body: str) -> dict[str, Any]:
+    """The mechanical WIDTH ground truth: which ``used`` papers were dropped.
+
+    Reads the ``used`` bucket of ``_coverage-map.md`` (the papers the
+    framework stage committed to citing in a named branch) and diffs it
+    against the citekeys actually present (as ``[[citekey]]`` wikilinks) in
+    the assembled ``reader_body``.
+
+    Returns::
+
+        {"used":    [sorted unique 'used' citekeys from the coverage map],
+         "present": [sorted 'used' citekeys that DO appear in the body],
+         "missing": [sorted 'used' citekeys that DO NOT appear in the body]}
+
+    Honest no-op: an absent/empty coverage map yields empty lists (there is
+    nothing committed to drop). ``missing`` is the load-bearing field handed
+    to the WIDTH judge as ``coverage_diff``.
+
+    sr: PR-E
+    """
+    from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE
+
+    used: list[str] = []
+    if coverage_map_path.exists():
+        fields, _ = _pfm_gates(coverage_map_path.read_text(encoding="utf-8"))
+        records, _ = _coverage_records(fields.get("used"))
+        used = [
+            str(rec.get("citekey", "")).strip()
+            for rec in records
+            if str(rec.get("citekey", "")).strip()
+        ]
+
+    used_set = sorted(set(used))
+    cited_in_body = set(WIKILINK_CITE_RE.findall(reader_body or ""))
+    present = [k for k in used_set if k in cited_in_body]
+    missing = [k for k in used_set if k not in cited_in_body]
+    return {"used": used_set, "present": present, "missing": missing}
+
+
+# ---------------------------------------------------------------------------
 # _cold_fanout_dirs_present — NG-4 detector (design §1.9)
 # ---------------------------------------------------------------------------
 

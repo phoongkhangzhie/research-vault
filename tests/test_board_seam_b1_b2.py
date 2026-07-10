@@ -21,15 +21,16 @@ from research_vault.manuscript.check_gates import check_heading_order
 _DRAFT = "## Introduction\n\nSome draft text about the corpus.\n"
 
 
-def _happy_verdicts(tasks_doc, canary_key_doc, *, content_score=4, selfcont_score=4,
-                     advers_score=4, framework_score=4):
-    """Build a verdicts doc scoring every real task at floor+1 and every
-    canary at its expected band."""
+_ALL_AXES = ("DEPTH", "WIDTH", "SYNTH", "SELFCONT", "ADVERS", "INSTRUCT")
+
+
+def _happy_verdicts(tasks_doc, canary_key_doc, *, scores=None):
+    """Build a verdicts doc scoring every real task at floor+1 (or the given
+    per-axis ``scores`` override) and every canary at its expected band."""
     canaries = canary_key_doc["canaries"]
-    scores_by_axis = {
-        "CONTENT": content_score, "SELFCONT": selfcont_score,
-        "ADVERS": advers_score, "FRAMEWORK": framework_score,
-    }
+    scores_by_axis = {axis: 4 for axis in _ALL_AXES}
+    if scores:
+        scores_by_axis.update(scores)
     verdicts = []
     for t in tasks_doc["tasks"]:
         tid = t["id"]
@@ -48,54 +49,68 @@ def _happy_verdicts(tasks_doc, canary_key_doc, *, content_score=4, selfcont_scor
 # ---------------------------------------------------------------------------
 
 class TestRoundTrip:
-    def test_emit_produces_4_real_tasks_plus_3_canaries(self):
+    def test_emit_produces_6_real_tasks_plus_3_canaries(self):
         result = emit_board_tasks(_DRAFT, manuscript="ms-x")
         tasks = result["tasks_doc"]["tasks"]
-        assert len(tasks) == 7
+        assert len(tasks) == 9
         canaries = result["canary_key_doc"]["canaries"]
         assert len(canaries) == 3
         real = [t for t in tasks if t["id"] not in canaries]
-        assert len(real) == 4
+        assert len(real) == 6
         axes = {t["axis"] for t in real}
-        assert axes == {"CONTENT", "SELFCONT", "ADVERS", "FRAMEWORK"}
+        assert axes == {"DEPTH", "WIDTH", "SYNTH", "SELFCONT", "ADVERS", "INSTRUCT"}
 
     def test_round_trip_axis_scores_and_findings(self):
         emitted = emit_board_tasks(_DRAFT, manuscript="ms-x")
         finding = {
-            "finding_id": "f-content-0001", "severity": "critical",
-            "location": "intro", "issue": "no synthesis", "evidence": "lit/foo",
-            "recommendation": "compare paper A vs B",
+            "finding_id": "f-depth-0001", "severity": "critical",
+            "location": "intro", "issue": "bare assertion, no number", "evidence": "lit/foo",
+            "recommendation": "carry the reported figure",
         }
         verdicts_doc = _happy_verdicts(emitted["tasks_doc"], emitted["canary_key_doc"])
         for v in verdicts_doc["verdicts"]:
-            if v["axis"] == "CONTENT" and v["id"] not in emitted["canary_key_doc"]["canaries"]:
+            if v["axis"] == "DEPTH" and v["id"] not in emitted["canary_key_doc"]["canaries"]:
                 v["findings"] = [finding]
 
         result = ingest_board_verdicts(emitted["tasks_doc"], emitted["canary_key_doc"], verdicts_doc)
         assert result["halt"] is False
         assert result["canary_aborted"] is False
-        assert result["axis_scores"] == {"CONTENT": 4, "SELFCONT": 4, "ADVERS": 4, "FRAMEWORK": 4}
-        assert result["findings"]["CONTENT"] == [finding]
+        assert result["axis_scores"] == {
+            "DEPTH": 4, "WIDTH": 4, "SYNTH": 4, "SELFCONT": 4, "ADVERS": 4, "INSTRUCT": 4,
+        }
+        assert result["findings"]["DEPTH"] == [finding]
         assert result["findings"]["SELFCONT"] == []
 
     def test_task_fields_scoped_to_own_lens(self):
-        """The ADVERS task carries contradiction_map; the FRAMEWORK task
-        carries heading_diff/frozen_order; neither leaks into the other
-        lenses (anti-anchoring: each judge sees only what its rubric uses)."""
+        """The ADVERS task carries contradiction_map; the INSTRUCT task
+        carries heading_diff/frozen_order; the WIDTH task carries
+        coverage_map/coverage_diff; none leaks into the other lenses
+        (anti-anchoring: each judge sees only what its rubric uses)."""
         cmap = [{"claim_a": "X", "claim_b": "not X", "relation": "contradicts"}]
         hd = {"ok": False, "warnings": ["drift"]}
+        cov_map = {"cluster-a": ["smith2023"]}
+        cov_diff = {"used": ["smith2023"], "present": [], "missing": ["smith2023"]}
         emitted = emit_board_tasks(
             _DRAFT, contradiction_map=cmap, heading_diff=hd, frozen_order=["Introduction", "Body"],
+            coverage_map=cov_map, coverage_diff=cov_diff,
         )
         real = [t for t in emitted["tasks_doc"]["tasks"] if t["id"] not in emitted["canary_key_doc"]["canaries"]]
         by_lens = {t["lens"]: t for t in real}
+        # contradiction_map: only on ADVERS.
         assert "contradiction_map" in by_lens["adversarial"]
-        assert "contradiction_map" not in by_lens["content"]
-        assert "contradiction_map" not in by_lens["self-containment"]
-        assert "contradiction_map" not in by_lens["framework"]
-        assert by_lens["framework"]["heading_diff"] == hd
-        assert by_lens["framework"]["frozen_order"] == ["Introduction", "Body"]
-        assert "heading_diff" not in by_lens["content"]
+        for lens in ("depth", "width", "synthesis", "self-containment", "instruction-following"):
+            assert "contradiction_map" not in by_lens[lens]
+        # heading_diff/frozen_order: only on INSTRUCT.
+        assert by_lens["instruction-following"]["heading_diff"] == hd
+        assert by_lens["instruction-following"]["frozen_order"] == ["Introduction", "Body"]
+        for lens in ("depth", "width", "synthesis", "self-containment", "adversarial"):
+            assert "heading_diff" not in by_lens[lens]
+        # coverage_map/coverage_diff: only on WIDTH.
+        assert by_lens["width"]["coverage_map"] == cov_map
+        assert by_lens["width"]["coverage_diff"] == cov_diff
+        for lens in ("depth", "synthesis", "self-containment", "adversarial", "instruction-following"):
+            assert "coverage_map" not in by_lens[lens]
+            assert "coverage_diff" not in by_lens[lens]
 
     def test_no_old_text_new_text_field_in_finding_schema(self):
         """PR-B2 acceptance (c): a finding carries no old_text/new_text."""
@@ -135,34 +150,34 @@ class TestFailClosedMissingAxis:
     def test_missing_one_real_task_defaults_its_axis_to_zero(self):
         emitted = emit_board_tasks(_DRAFT, manuscript="ms-x")
         verdicts_doc = _happy_verdicts(emitted["tasks_doc"], emitted["canary_key_doc"])
-        # Drop the FRAMEWORK real task's verdict (not a canary).
+        # Drop the INSTRUCT real task's verdict (not a canary).
         canaries = emitted["canary_key_doc"]["canaries"]
-        real_framework_id = next(
+        real_instruct_id = next(
             t["id"] for t in emitted["tasks_doc"]["tasks"]
-            if t["axis"] == "FRAMEWORK" and t["id"] not in canaries
+            if t["axis"] == "INSTRUCT" and t["id"] not in canaries
         )
-        verdicts_doc["verdicts"] = [v for v in verdicts_doc["verdicts"] if v["id"] != real_framework_id]
+        verdicts_doc["verdicts"] = [v for v in verdicts_doc["verdicts"] if v["id"] != real_instruct_id]
 
         result = ingest_board_verdicts(emitted["tasks_doc"], emitted["canary_key_doc"], verdicts_doc)
         assert result["halt"] is False  # partial, not wholesale-missing
-        assert result["axis_scores"]["FRAMEWORK"] == 0
-        assert real_framework_id in result["missing_ids"]
+        assert result["axis_scores"]["INSTRUCT"] == 0
+        assert real_instruct_id in result["missing_ids"]
 
     def test_unparseable_score_defaults_to_zero_and_surfaces(self):
         emitted = emit_board_tasks(_DRAFT, manuscript="ms-x")
         verdicts_doc = _happy_verdicts(emitted["tasks_doc"], emitted["canary_key_doc"])
         canaries = emitted["canary_key_doc"]["canaries"]
-        real_content_id = next(
+        real_depth_id = next(
             t["id"] for t in emitted["tasks_doc"]["tasks"]
-            if t["axis"] == "CONTENT" and t["id"] not in canaries
+            if t["axis"] == "DEPTH" and t["id"] not in canaries
         )
         for v in verdicts_doc["verdicts"]:
-            if v["id"] == real_content_id:
+            if v["id"] == real_depth_id:
                 v["score"] = "garbage"
 
         result = ingest_board_verdicts(emitted["tasks_doc"], emitted["canary_key_doc"], verdicts_doc)
-        assert result["axis_scores"]["CONTENT"] == 0
-        assert real_content_id in result["unrecognized_ids"]
+        assert result["axis_scores"]["DEPTH"] == 0
+        assert real_depth_id in result["unrecognized_ids"]
 
 
 # ---------------------------------------------------------------------------
@@ -215,21 +230,22 @@ class TestCapAndPrioritize:
         findings = [{"severity": "minor", "id": i} for i in range(20)]
         findings[5]["severity"] = "critical"
         findings[10]["severity"] = "major"
-        result = board_lenses.cap_and_prioritize_findings(findings, "CONTENT")
-        assert len(result) == board_lenses.FINDING_CAPS["CONTENT"]
+        result = board_lenses.cap_and_prioritize_findings(findings, "DEPTH")
+        assert len(result) == board_lenses.FINDING_CAPS["DEPTH"]
         assert result[0]["severity"] == "critical"
         assert result[1]["severity"] == "major"
 
-    def test_bloat_subbudget_never_exceeds_two_for_content(self):
+    def test_bloat_subbudget_never_exceeds_two_for_synth(self):
+        # PR-E: the bloat sub-budget moved from CONTENT to SYNTH.
         findings = [{"severity": "minor", "category": "bloat", "id": i} for i in range(10)]
-        result = board_lenses.cap_and_prioritize_findings(findings, "CONTENT")
+        result = board_lenses.cap_and_prioritize_findings(findings, "SYNTH")
         bloat_count = sum(1 for f in result if f.get("category") == "bloat")
-        assert bloat_count <= board_lenses.SUB_BUDGETS["CONTENT"]["bloat"]
+        assert bloat_count <= board_lenses.SUB_BUDGETS["SYNTH"]["bloat"]
 
-    def test_bloat_never_crowds_out_substance_findings(self):
+    def test_bloat_never_crowds_out_synthesis_findings(self):
         substance = [{"severity": "critical", "id": f"s{i}"} for i in range(10)]
         bloat = [{"severity": "critical", "category": "bloat", "id": f"b{i}"} for i in range(5)]
-        result = board_lenses.cap_and_prioritize_findings(substance + bloat, "CONTENT")
+        result = board_lenses.cap_and_prioritize_findings(substance + bloat, "SYNTH")
         substance_kept = [f for f in result if "category" not in f]
         assert len(substance_kept) == 10  # all substance findings survive the cap
 
@@ -245,12 +261,12 @@ class TestCapAndPrioritize:
 # ---------------------------------------------------------------------------
 
 class TestHeadingDiffGroundTruth:
-    def test_framework_task_carries_real_heading_diff(self):
+    def test_instruct_task_carries_real_heading_diff(self):
         reordered_draft = "# Body\n\n# Introduction\n\n"
         expected_order = ["Introduction", "Body"]
         hd = check_heading_order(reordered_draft, expected_order)
         emitted = emit_board_tasks(reordered_draft, heading_diff=hd, frozen_order=expected_order)
         real = [t for t in emitted["tasks_doc"]["tasks"] if t["id"] not in emitted["canary_key_doc"]["canaries"]]
-        framework_task = next(t for t in real if t["axis"] == "FRAMEWORK")
-        assert framework_task["heading_diff"] == hd
+        instruct_task = next(t for t in real if t["axis"] == "INSTRUCT")
+        assert instruct_task["heading_diff"] == hd
         assert hd["ok"] is False  # sanity: the fixture really is reordered
