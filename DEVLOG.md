@@ -1,3 +1,50 @@
+## 2026-07-09 (auto-chain review→manuscript at `approve-review` GO)
+
+### Done
+- `_emit_next_phase` (`dag/verbs.py`) now widens beyond `coverage-gate`/
+  `approve-framework` to `approve-review`: a GO/GO-WITH-RESIDUE at Gate 3
+  (review Phase-2's terminal gate) auto-emits + auto-starts a NEW manuscript
+  tree — cross-loop, not a same-tree Phase-2. The handoff contract is
+  **slug == review scope id, no transform**: `manuscripts/<scope_id>/`
+  pre-binds the frozen `reviews/<scope_id>/_corpus.md` via `manuscript.cmd_new`'s
+  existing `--from-review` convention (NG-7 §2.6).
+  - Adopts an operator/prior-partial manuscript scaffold if one already
+    exists at that slug, rather than clobbering.
+  - Added explicit idempotency at the top of `_emit_next_phase`: a node
+    with a recorded `child_runs` entry is a pure no-op on a re-tick — never
+    a second `cmd_new`/`cmd_expand` scaffold attempt (which would raise
+    `FileExistsError`).
+- `dag/catalog.py`: extended lit-review's `topology_summary` to show the
+  auto-chain into the manuscript loop, and reworded `approve-review`'s
+  `LoopGate` label to state it auto-emits (mirrors `coverage-gate`'s
+  `autonomous=True` framing) — the node stays a real `human-go`-typed node
+  in the shipped manifest (schema/runner shape unchanged, `TestCatalogGrounding`
+  stays green).
+- `tests/test_ng4b_autonomy_wiring.py`: new `TestApproveReviewAutoChainsToManuscript`
+  drives a REAL DAG run (no mocked seam) from a fresh review through
+  `approve-review` GO, asserting the manuscript tree lands with the correct
+  `manuscript_type`, the `scope` node's injected `CORPUS_HASH` resolves the
+  frozen corpus, emit-once (a second tick creates no second child run), and
+  chain continuity that stops at `approve-framework` (never silently jumps
+  to `approve-manuscript` — framework-propose only proposes candidates,
+  never commits a spine, §5/D5's human-commitment gate). Plus GO-WITH-RESIDUE
+  (still chains) and HALT (never chains, no manuscript folder created)
+  variants.
+
+### Decisions
+- Confirmed on re-grounding (origin/main @ `59c485a`) that `approve-review`
+  was ALREADY autonomous (`_AUTONOMOUS_GATE_IDS` + `_evaluate_autonomous_gate`
+  branch, landed same-day by the PR #201 review delta / structured-verdict
+  fix) — only the auto-emission wiring (`_emit_next_phase`) and the catalog
+  topology description were the actual gaps this PR closes.
+
+### Open / next
+- Merge class: `human-go` (Architect + operator review before merge) —
+  a cross-loop phase-transition auto-emission is exactly the kind of
+  precedent-setting DAG-runner change that warrants a second pair of eyes
+  before landing, even with CI green + full-suite passing (3476 passed,
+  3 skipped).
+
 ## 2026-07-09 (review-search evidence enrichment — `_search_hits.md` no longer judges papers blind on titles)
 
 ### Done

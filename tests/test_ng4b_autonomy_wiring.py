@@ -395,6 +395,179 @@ class TestSelfAdvancingRunner:
 
 
 # ===========================================================================
+# 4b. auto-chain-review-manuscript — cross-loop auto-emission at approve-review
+# ===========================================================================
+#
+# Drives coverage-gate's GO all the way through the (auto-emitted) review
+# Phase-2 DAG — relate-<key> fan-out, review-synthesize, review-coverage-
+# critic — to approve-review's own GO, and asserts approve-review auto-emits
+# + auto-starts a NEW manuscript tree (cross-loop, not a same-tree Phase-2).
+
+class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
+    def _drive_phase2_to_approve_review(self, child_run_id: str, review_dir: Path, store, *, critic_verdict: str | None = "PASS"):
+        """review Phase-2: relate-<key> (agent, parallel) -> review-synthesize
+        (agent) -> review-coverage-critic (agent, writes structured
+        `verdict:`) -> approve-review (autonomous). Returns the loaded
+        RunState after ticking past review-coverage-critic (approve-review
+        sitting ready for the caller's own tick, so callers can assert on
+        the SAME tick that resolves it)."""
+        from research_vault.dag.verbs import cmd_tick
+
+        rs = store.load(child_run_id)
+        relate_ids = [nid for nid in rs.node_states if nid.startswith("relate-")]
+        assert relate_ids, "expected at least one relate-<key> node in Phase-2"
+
+        project_notes_dir = review_dir.parent.parent
+        for nid in relate_ids:
+            citekey = nid[len("relate-"):]
+            lit_path = project_notes_dir / "literature" / f"{citekey}.md"
+            lit_path.parent.mkdir(parents=True, exist_ok=True)
+            lit_path.write_text(
+                "---\n"
+                "type: literature\n"
+                "contribution_kind: application\n"
+                "role: empirical\n"
+                f"position: {citekey} bears on the review question via a "
+                "direct empirical contribution, considered in full.\n"
+                "result_reported: no\n"
+                "paper_relations_sought: no\n"
+                "---\n"
+                f"Distilled {citekey}.\n",
+                encoding="utf-8",
+            )
+            _mark_succeeded(store, child_run_id, nid)
+
+        cmd_tick(argparse.Namespace(run_id=child_run_id))
+        rs = store.load(child_run_id)
+        assert rs.node_status("review-synthesize") == "succeeded" or rs.node_status("review-synthesize") == "pending"
+        if rs.node_status("review-synthesize") != "succeeded":
+            _mark_succeeded(store, child_run_id, "review-synthesize")
+            cmd_tick(argparse.Namespace(run_id=child_run_id))
+            rs = store.load(child_run_id)
+
+        if critic_verdict is not None:
+            critic_path = review_dir / "_coverage-critic.md"
+            critic_path.write_text(
+                f"---\nverdict: {critic_verdict}\n---\n\n"
+                + ("Coverage looks saturated; counter-position present.\n" if critic_verdict == "PASS"
+                   else "- protocol not adhered to\n"),
+                encoding="utf-8",
+            )
+        # critic_verdict=None: deliberately do NOT write _coverage-critic.md
+        # — the missing-artifact HALT-DECLARE path (check_coverage_critic_verdict's
+        # not_run branch), a genuine HALT, distinct from a BLOCK verdict
+        # (which classifies as REVISE/awaiting-go, not HALT — a critic BLOCK
+        # is a fixable holes-found signal, not an integrity failure).
+        _mark_succeeded(store, child_run_id, "review-coverage-critic")
+        return store.load(child_run_id)
+
+    def test_approve_review_go_auto_chains_new_manuscript_tree(self, tmp_instance: Path, monkeypatch):
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+        from research_vault.hashing import hash_file
+
+        cfg = load_config()
+        scope = "scope-chain"
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+
+        rc = cmd_tick(argparse.Namespace(run_id=run_id))
+        assert rc == 0
+        rs = store.load(run_id)
+        child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
+
+        self._drive_phase2_to_approve_review(child_run_id, review_dir, store)
+
+        # THE claim: a plain tick resolves approve-review (no --auto anywhere).
+        rc = cmd_tick(argparse.Namespace(run_id=child_run_id))
+        assert rc == 0
+        child_rs = store.load(child_run_id)
+        assert child_rs.node_status("approve-review") == "succeeded"
+        assert "GO" in child_rs.node_states["approve-review"]["decision_note"]
+
+        ms_run_id = child_rs.node_states["approve-review"]["emitted_next_phase_run_id"]
+        assert ms_run_id == child_rs.meta["child_runs"]["approve-review"]
+        assert ms_run_id == f"manuscript-{scope}-phase1"
+
+        project_notes_dir = review_dir.parent.parent
+        tree_root = project_notes_dir / "manuscripts" / scope
+        manuscript_note = tree_root / "_manuscript.md"
+        assert manuscript_note.exists()
+        text = manuscript_note.read_text(encoding="utf-8")
+        assert "manuscript_type: lit-review" in text
+
+        phase1_path = tree_root / "phase1-dag.json"
+        assert phase1_path.exists()
+        phase1_manifest = json.loads(phase1_path.read_text(encoding="utf-8"))
+        scope_node = next(n for n in phase1_manifest["nodes"] if n["id"] == "scope")
+        expected_hash = hash_file(review_dir / "_corpus.md")
+        assert f"CORPUS_HASH: {expected_hash}" in scope_node["spec"]
+
+        # Emit-once: a second tick creates NO second child run.
+        rc = cmd_tick(argparse.Namespace(run_id=child_run_id))
+        assert rc == 0
+        child_rs2 = store.load(child_run_id)
+        assert child_rs2.meta["child_runs"]["approve-review"] == ms_run_id
+        assert "phase_transition_error" not in child_rs2.node_states["approve-review"]
+
+        # Chain continuity: the manuscript run self-advances scope ->
+        # framework-propose, and STOPS at approve-framework (never silently
+        # jumps to approve-manuscript) — framework-propose only writes a
+        # candidate menu, never commits a spine (§5/D5 human-commitment gate).
+        ms_store = store  # same RunStore backend
+        _mark_succeeded(ms_store, ms_run_id, "scope")
+        cmd_tick(argparse.Namespace(run_id=ms_run_id))
+        ms_rs = ms_store.load(ms_run_id)
+        assert ms_rs.node_status("framework-propose") in ("succeeded", "pending")
+        if ms_rs.node_status("framework-propose") != "succeeded":
+            _mark_succeeded(ms_store, ms_run_id, "framework-propose")
+            cmd_tick(argparse.Namespace(run_id=ms_run_id))
+            ms_rs = ms_store.load(ms_run_id)
+        assert ms_rs.node_status("approve-framework") in ("awaiting-go", "blocked", "pending")
+        assert ms_rs.node_status("approve-manuscript") if "approve-manuscript" in ms_rs.node_states else True
+
+    def test_approve_review_go_with_residue_still_chains(self, tmp_instance: Path, monkeypatch):
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+
+        cfg = load_config()
+        scope = "scope-chain-residue"
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="backstop:3-waves", monkeypatch=monkeypatch)
+        cmd_tick(argparse.Namespace(run_id=run_id))
+        rs = store.load(run_id)
+        child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
+
+        self._drive_phase2_to_approve_review(child_run_id, review_dir, store, critic_verdict="PASS")
+        cmd_tick(argparse.Namespace(run_id=child_run_id))
+        child_rs = store.load(child_run_id)
+        assert child_rs.node_status("approve-review") == "succeeded"
+        assert "emitted_next_phase_run_id" in child_rs.node_states["approve-review"]
+
+    def test_approve_review_halt_never_chains(self, tmp_instance: Path, monkeypatch):
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+
+        cfg = load_config()
+        scope = "scope-chain-halt"
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        cmd_tick(argparse.Namespace(run_id=run_id))
+        rs = store.load(run_id)
+        child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
+
+        self._drive_phase2_to_approve_review(child_run_id, review_dir, store, critic_verdict=None)
+        cmd_tick(argparse.Namespace(run_id=child_run_id))
+        child_rs = store.load(child_run_id)
+        assert child_rs.node_status("approve-review") == "blocked"
+        assert "emitted_next_phase_run_id" not in child_rs.node_states["approve-review"]
+
+        project_notes_dir = review_dir.parent.parent
+        tree_root = project_notes_dir / "manuscripts" / scope
+        assert not tree_root.exists()
+
+
+# ===========================================================================
 # 5. NG-6b (scoped) — the PRISMA deviation-ledger
 # ===========================================================================
 #

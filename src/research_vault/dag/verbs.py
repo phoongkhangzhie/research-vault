@@ -608,27 +608,45 @@ def _emit_next_phase(
     run_state: RunState,
     store: RunStore,
 ) -> None:
-    """NG-4b item 1: the self-advancing runner's phase-transition
-    auto-emission. On a GO/GO-WITH-RESIDUE disposition at ``coverage-gate``
-    (review Phase-1 -> Phase-2) or ``approve-framework`` (manuscript
-    Phase-1 -> Phase-2), auto-emit the next phase's manifest AND
-    auto-start its DAG run in-process — retiring the "stranded ops" state
-    where a GO'd autonomous gate left the loop needing a human to hand-run
-    ``rv review expand`` / ``rv manuscript expand`` + ``rv dag run``
-    (both CLI verbs were hard-removed by verb-consolidation on the
-    assumption this wiring would exist — see ``cli_removed_verbs``).
+    """NG-4b item 1 (+ auto-chain-review-manuscript): the self-advancing
+    runner's phase-transition auto-emission. On a GO/GO-WITH-RESIDUE
+    disposition at ``coverage-gate`` (review Phase-1 -> Phase-2),
+    ``approve-framework`` (manuscript Phase-1 -> Phase-2), or
+    ``approve-review`` (review Phase-2 -> a NEW manuscript tree,
+    cross-loop), auto-emit the next manifest AND auto-start its DAG run
+    in-process — retiring the "stranded ops" state where a GO'd
+    autonomous gate left the loop needing a human to hand-run ``rv review
+    expand`` / ``rv manuscript new``+``expand`` + ``rv dag run`` (the CLI
+    verbs were hard-removed by verb-consolidation on the assumption this
+    wiring would exist — see ``cli_removed_verbs``).
+
+    ``approve-review``'s handoff contract is **slug == review scope id, no
+    transform** — the manuscript folder this emits into
+    (``manuscripts/<scope_id>/``) is exactly the slug ``manuscript.cmd_new``'s
+    ``--from-review`` convention (NG-7 §2.6) already expects, which is what
+    pre-binds the frozen corpus (``reviews/<scope_id>/_corpus.md``) to the
+    new manuscript automatically.
 
     A no-op for every other node id (nothing to expand after
     ``approve-manuscript`` — it is the terminal gate of its DAG).
+
+    Idempotency: if this node already has a recorded ``child_runs`` entry
+    (a prior tick already emitted + started the child), this is a pure
+    no-op — never re-scaffold (a second ``cmd_new``/``cmd_expand`` call
+    would raise ``FileExistsError`` against the first child's artifacts).
 
     Any failure to derive/emit is stamped onto the node's state as
     ``phase_transition_error`` and surfaced (never silently dropped,
     charter §2) — the gate itself already resolved GO; a failed
     auto-emission is a distinct, loud signal that manual follow-up
-    (``rv review expand`` / ``rv manuscript expand`` by hand) is needed.
+    (``rv review expand`` / ``rv manuscript new``+``expand`` by hand) is
+    needed.
     """
-    if node_id not in ("coverage-gate", "approve-framework"):
+    if node_id not in ("coverage-gate", "approve-framework", "approve-review"):
         return
+
+    if run_state.meta.get("child_runs", {}).get(node_id):
+        return  # already emitted for this node — never re-scaffold
 
     ns = run_state.node_states.setdefault(node_id, {})
     try:
@@ -644,8 +662,10 @@ def _emit_next_phase(
                 )
             project, scope_id = derived
             from ..review import cmd_expand as _review_cmd_expand
-            phase2_manifest = _review_cmd_expand(project, scope_id, config=cfg)
-        else:  # approve-framework
+            child_manifest = _review_cmd_expand(project, scope_id, config=cfg)
+            child_manifest_path = manifest_path.parent / "phase2-dag.json"
+
+        elif node_id == "approve-framework":
             derived = _derive_project_and_id(manifest, prefix="manuscript-", suffix="-phase1")
             if derived is None:
                 raise ValueError(
@@ -654,10 +674,53 @@ def _emit_next_phase(
                 )
             project, slug = derived
             from ..manuscript import cmd_expand as _ms_cmd_expand
-            phase2_manifest = _ms_cmd_expand(project, slug, config=cfg)
+            child_manifest = _ms_cmd_expand(project, slug, config=cfg)
+            child_manifest_path = manifest_path.parent / "phase2-dag.json"
 
-        phase2_path = manifest_path.parent / "phase2-dag.json"
-        child = _start_dag_run_inprocess(phase2_manifest, phase2_path, store)
+        else:  # approve-review — cross-loop: review Phase-2 -> a NEW manuscript tree
+            derived = _derive_project_and_id(manifest, prefix="review-", suffix="-phase2")
+            if derived is None:
+                raise ValueError(
+                    f"cannot derive (project, scope) from manifest run_id="
+                    f"{manifest.get('run_id')!r} project={manifest.get('project')!r}"
+                )
+            project, scope_id = derived
+            from .. import manuscript as _manuscript
+
+            tree_root = cfg.project_notes_dir(project) / "manuscripts" / scope_id
+            manuscript_note_path = tree_root / "_manuscript.md"
+
+            if manuscript_note_path.exists():
+                # Operator/prior-partial scaffold already present — adopt it
+                # rather than clobbering (cmd_new hard-fails on an existing
+                # note_path anyway; this branch avoids ever calling it).
+                phase1_path = tree_root / "phase1-dag.json"
+                if phase1_path.exists():
+                    child_manifest = json.loads(phase1_path.read_text(encoding="utf-8"))
+                    child_manifest_path = phase1_path
+                else:
+                    child_manifest = _manuscript.cmd_expand(project, scope_id, config=cfg)
+                    child_manifest_path = tree_root / "phase2-dag.json"
+            else:
+                _note_path, tree_root, phase1_manifest = _manuscript.cmd_new(
+                    project,
+                    slug=scope_id,
+                    ms_type_key="lit-review",
+                    from_review=scope_id,
+                    config=cfg,
+                )
+                if phase1_manifest is not None:
+                    child_manifest = phase1_manifest
+                    child_manifest_path = tree_root / "phase1-dag.json"
+                else:
+                    # Defensive pass-through (lit-review always has a real
+                    # Phase-1 today, design §5) — a future type registered
+                    # under this same node_id branch with no Phase-1 still
+                    # advances correctly.
+                    child_manifest = _manuscript.cmd_expand(project, scope_id, config=cfg)
+                    child_manifest_path = tree_root / "phase2-dag.json"
+
+        child = _start_dag_run_inprocess(child_manifest, child_manifest_path, store)
         run_state.meta.setdefault("child_runs", {})[node_id] = child.run_id
         ns["emitted_next_phase_run_id"] = child.run_id
     except Exception as e:  # noqa: BLE001 — surface, never swallow (charter §2)

@@ -235,7 +235,12 @@ LOOP_CATALOG: list[LoopEntry] = [
             ),
             LoopGate(
                 node_id="approve-review",
-                label="Gate 3: Approve review — [BLOCK] count + counter-position verdict",
+                label=(
+                    "Gate 3: Approve review — [BLOCK] count + counter-position verdict; "
+                    "autonomous gate, auto-emits + auto-starts a NEW manuscript tree "
+                    "(manuscripts/<scope>/, slug == scope id, no transform) on GO/"
+                    "GO-WITH-RESIDUE — no `rv manuscript new`/`expand` hand-run needed"
+                ),
                 freeze_action=None,
                 autonomous=True,
             ),
@@ -244,7 +249,9 @@ LOOP_CATALOG: list[LoopEntry] = [
             "review-scope → [HG:approve-protocol] → review-search → review-screen → "
             "review-snowball → review-curate → coverage-gate (auto-resolved) → "
             "(Phase-2) relate-* → review-synthesize → review-coverage-critic → "
-            "approve-review (auto-resolved)"
+            "approve-review (auto-resolved) → ⟶EMITS⟶ manuscript Phase-1 "
+            "(scope → framework-propose → [HG:approve-framework]) → Phase-2 "
+            "(outline → draft → assemble) → approve-manuscript (auto-resolved)"
         ),
     ),
 
