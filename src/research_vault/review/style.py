@@ -713,8 +713,43 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "   - Missing or empty `counter-position` → `[BLOCK]` (hard structural gate).\n"
         "   - Non-empty `counter-position` but corpus contains ZERO papers from the "
         "declared opposing sub-literature → `[BLOCK]` (sought-not-just-present).\n"
+        "   - A SPECIFIC facet's counter-pole is thin/empty (e.g. `by-temporal`'s "
+        "`counter` queries returned nothing while its `thesis` side is well-populated) "
+        "→ `[BLOCK]`, itemized as `COUNTER-POSITION THIN-POLE <facet>` (the "
+        "EXACT prefix — never `COUNTER-POSITION ABSENT`/`NOT SOUGHT`, which "
+        "are the two DIFFERENT, protocol-level hard blocks above), and this "
+        "is the ONE case where you must ALSO stamp a STRUCTURED "
+        "`remediation_target` (see below) naming exactly which facet is thin "
+        "— a bounded autonomous backtrack re-runs THAT facet's frozen "
+        "counter queries harder, it cannot guess which pole from prose alone.\n"
         "   A `counter-position` that was declared but not actively sought is fishing "
         "in reverse — a confirming-only review dressed as balanced.\n\n"
+        "STRUCTURED `remediation_target` (PR-3, `COUNTER-POSITION THIN-POLE` "
+        "BLOCK ONLY): when — and ONLY when — every `[BLOCK]` reason you are "
+        "about to itemize starts with the EXACT prefix `COUNTER-POSITION "
+        "THIN-POLE` — i.e. NOT `COUNTER-POSITION ABSENT`/`NOT SOUGHT` "
+        "(protocol-level, no single facet to name) and NOT mixed with a "
+        "`DIRECTION-STARVED`/`TAG-UNDER-COUNTING`/`PROTOCOL-DRIFT` finding — "
+        "ALSO write three additional frontmatter fields naming the exact "
+        "backtrack target:\n"
+        "  ---\n"
+        "  verdict: BLOCK\n"
+        "  remediation_target_node: review-snowball\n"
+        "  remediation_target_pole: by-temporal\n"
+        "  remediation_target_directive: re-run the by-temporal facet's frozen "
+        "counter queries harder (all sources, relaxed per-cell limit) and "
+        "re-seed a snowball citation-chase from whatever thin counter-hits "
+        "turn up\n"
+        "  ---\n"
+        "`remediation_target_pole` MUST be the EXACT angle key from the "
+        "protocol's `seed_queries:` matrix (e.g. `by-temporal`, "
+        "`by-population`) — never a paraphrase, never a guess at a facet "
+        "that isn't in the frozen matrix. If ANY OTHER finding is also "
+        "present — `COUNTER-POSITION ABSENT`/`NOT SOUGHT`, or an axis-1/3 "
+        "finding (`DIRECTION-STARVED`/`TAG-UNDER-COUNTING`/`PROTOCOL-DRIFT`) "
+        "— do NOT write these three fields at all — a mixed BLOCK is not "
+        "eligible for the autonomous pole-directed backtrack and routes to "
+        "a human/agent revise round exactly as before.\n\n"
         "Output format — STRUCTURED FRONTMATTER FIELD, not a prose bracket "
         "token (single-human-gate design, 2026-07-09): `approve-review` "
         "(Gate 3) resolves AUTONOMOUSLY from `_coverage-critic.md` — there is "
@@ -743,7 +778,10 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "    - TAG-UNDER-COUNTING plateau (axis 1)\n"
         "    - PROTOCOL-DRIFT (axis 3)\n"
         "    - COUNTER-POSITION ABSENT (axis 4 — hard block)\n"
-        "    - COUNTER-POSITION NOT SOUGHT (axis 4 — hard block)\n\n"
+        "    - COUNTER-POSITION NOT SOUGHT (axis 4 — hard block)\n"
+        "    - COUNTER-POSITION THIN-POLE <facet-key> (axis 4 — a SPECIFIC "
+        "facet's counter side is thin/empty; pair with the structured "
+        "`remediation_target_*` fields above)\n\n"
         "Body template (below the frontmatter, for the audit trail — the "
         "gate does not parse this, a human reading the note later does):\n"
         "  'N papers, R rounds, plateau at round K; j orphan concepts "
@@ -892,3 +930,45 @@ def get_remediation_max_rounds(config: Any = None) -> int:
             if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
                 return value
     return DEFAULT_REMEDIATION_MAX_ROUNDS
+
+
+# ---------------------------------------------------------------------------
+# Critic-backtrack round-cap config seam (PR-3, D-5a) — SEPARATE from
+# `remediation_max_rounds` above: a critic backtrack round re-pays the
+# (full-distill + incremental-relate) delta for the papers it finds, which
+# is a materially different cost than a saturation-remediation round's
+# re-sweep — so the two bounds are independently configurable, never shared.
+# ---------------------------------------------------------------------------
+
+DEFAULT_CRITIC_BACKTRACK_MAX_ROUNDS: int = 2
+
+
+def get_critic_backtrack_max_rounds(config: Any = None) -> int:
+    """Return the autonomous, pole-directed critic-backtrack round cap.
+
+    One of the independent termination bounds on
+    ``review.remediation.run_bounded_critic_backtrack``: even a pathological
+    "one new counter-paper per wave" pole cannot exceed this many autonomous
+    backtrack rounds before the loop HALT-DECLAREs (a counter-position/
+    thin-pole BLOCK is a hard structural gate, axis 4 — it cannot declare
+    residue like the coverage-gate's saturation remediation can; closing it
+    for good needs a criteria change, a human decision).
+
+    Args:
+        config: a loaded Config instance (or None for the shipped default).
+                If the config has ``[review_style] critic_backtrack_max_rounds = N``
+                (a positive int), that value overrides the default.
+
+    Returns:
+        The round cap (int, >= 1). Default 2 (conservative). A non-int,
+        non-positive, or missing override falls back to the default —
+        fail-closed, never unbounded.
+    """
+    if config is not None:
+        raw = getattr(config, "_raw", {})
+        override = raw.get("review_style", {})
+        if isinstance(override, dict):
+            value = override.get("critic_backtrack_max_rounds")
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+                return value
+    return DEFAULT_CRITIC_BACKTRACK_MAX_ROUNDS

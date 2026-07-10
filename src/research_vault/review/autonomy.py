@@ -82,9 +82,22 @@ HALT_DECLARE = "HALT-DECLARE"
 # disposition specifically. `dag/verbs.py` is the sole consumer that acts on
 # it (dispatches one bounded remediation round, `review.remediation`).
 REMEDIATE = "REMEDIATE"
+# An approve-review-only disposition (PR-3, D-5a) — a PURE counter-position/
+# thin-pole critic BLOCK (``remediation_target_expected`` on the
+# ``check_coverage_critic_verdict`` payload), a valid ``remediation_target``
+# naming the exact pole, and backtrack budget remaining. Never returned by
+# `classify_disposition` itself; only by
+# `review.remediation.resolve_coverage_critic`, which extends the
+# approve-review disposition specifically. A MIXED BLOCK (any
+# PROTOCOL-DRIFT/DIRECTION-STARVED/TAG-UNDER-COUNTING reason alongside a
+# counter-position one) or a non-counter-position BLOCK never produces this
+# — those route to REVISE/HALT-DECLARE exactly as before this PR.
+# `dag/verbs.py` is the sole consumer that acts on it (dispatches one
+# bounded, pole-directed backtrack round, `review.remediation`).
+CRITIC_BACKTRACK = "CRITIC-BACKTRACK"
 
 _VALID_DISPOSITIONS: frozenset[str] = frozenset(
-    {GO, GO_WITH_RESIDUE, REVISE, HALT_DECLARE, REMEDIATE}
+    {GO, GO_WITH_RESIDUE, REVISE, HALT_DECLARE, REMEDIATE, CRITIC_BACKTRACK}
 )
 
 
@@ -614,6 +627,8 @@ def _op_sweep(
     per_cell_limit: int = 20,
     project: str | None = None,
     config: Any = None,
+    angle_keys: set[str] | None = None,
+    sources_override: list[str] | None = None,
     **_: Any,
 ) -> Any:
     """The ``sweep`` tool op: run the parallel width-sweep AND write
@@ -622,10 +637,20 @@ def _op_sweep(
     Returns the written path (str) when ``out`` is given, else the raw
     ``SweepResult`` (back-compat for any caller that doesn't want the
     artifact written, e.g. a unit test exercising the op in isolation).
+
+    ``angle_keys``/``sources_override`` (PR-3, D-5a): pass-through to
+    ``run_sweep_from_protocol`` — the pole-directed critic-backtrack round
+    (``review.remediation.run_directed_remediation_round``) restricts the
+    sweep to one facet's frozen counter-queries and widens to every
+    registered source. ``None`` (default, unchanged) sweeps the full frozen
+    matrix against the protocol's declared sources.
     """
     from research_vault.sources.sweep import run_sweep_from_protocol, write_search_hits
 
-    result = run_sweep_from_protocol(Path(protocol), budget=budget, per_cell_limit=per_cell_limit)
+    result = run_sweep_from_protocol(
+        Path(protocol), budget=budget, per_cell_limit=per_cell_limit,
+        angle_keys=angle_keys, sources_override=sources_override,
+    )
     if out is None:
         return result
 
@@ -716,7 +741,8 @@ def _extract_seed_ids_from_screen(text: str) -> list[str]:
 
 def _op_snowball(
     *,
-    seed: str,
+    seed: str | None = None,
+    seed_ids: list[str] | None = None,
     out_dir: str,
     backstop_waves: int = 2,
     seed_cap: int | None = None,
@@ -738,6 +764,14 @@ def _op_snowball(
     screen note's own prose PRISMA exclusion audit trail lives freely above
     it; see ``review/style.py``'s ``review_screen_tips``).
 
+    ``seed_ids`` (PR-3, D-5a): an EXPLICIT seed-id list, bypassing the
+    ``_screen.md`` file entirely — the pole-directed critic-backtrack round
+    (``review.remediation.run_directed_remediation_round``) has no
+    ``_screen.md`` of its own (there is no screen step in a backtrack
+    round); it re-seeds directly from the harder sweep's own hits. Exactly
+    one of ``seed``/``seed_ids`` must be given (fail loud, never silently
+    resolve an empty frontier from the wrong source).
+
     ``seed_cap``/``frontier_cap``/``fetch_budget``: breadth x depth bounds
     (2026-07-09 — a broad-topic downstream-project validation walk ran unbounded for 1+
     hour). ``None`` (the manifest's default) lets
@@ -752,10 +786,20 @@ def _op_snowball(
         write_saturation,
     )
 
-    seed_path = Path(seed)
-    seed_ids: list[str] = []
-    if seed_path.exists():
-        seed_ids = _extract_seed_ids_from_screen(seed_path.read_text(encoding="utf-8"))
+    if (seed is None) == (seed_ids is None):
+        raise ValueError(
+            "rv autonomy: 'snowball' tool op requires EXACTLY ONE of "
+            "'seed' (a _screen.md path) or 'seed_ids' (an explicit id "
+            "list) — never both, never neither."
+        )
+    if seed_ids is not None:
+        resolved_seed_ids: list[str] = list(seed_ids)
+    else:
+        seed_path = Path(seed)  # type: ignore[arg-type]
+        resolved_seed_ids = []
+        if seed_path.exists():
+            resolved_seed_ids = _extract_seed_ids_from_screen(seed_path.read_text(encoding="utf-8"))
+    seed_ids = resolved_seed_ids
 
     # Resumable / log-as-you-go (2026-07-09): a long snowball walk that gets
     # dropped mid-flight resumes from its last completed round instead of

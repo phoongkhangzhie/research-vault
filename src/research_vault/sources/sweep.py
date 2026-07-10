@@ -571,12 +571,30 @@ def run_sweep_from_protocol(
     budget: int = DEFAULT_FETCH_BUDGET,
     per_cell_limit: int = 20,
     floor: int = 3,
+    angle_keys: set[str] | None = None,
+    sources_override: list[str] | None = None,
 ) -> SweepResult:
     """End-to-end: read the frozen ``_protocol.md``, parse the angle matrix +
     sources, run the parallel width-sweep, compose the ranked/deduped result.
 
-    Raises ``ValueError`` if the protocol carries no parseable angle matrix
-    (never silently sweeps zero queries)."""
+    ``angle_keys`` (PR-3, critic-backtrack D-5a): restrict the sweep to a
+    SUBSET of the FROZEN angle matrix's own keys — an exact flattened key
+    (``"by-temporal.counter.0"``) or a prefix (``"by-temporal.counter"``,
+    matched via ``key == prefix or key.startswith(prefix + ".")``). This
+    SELECTS existing frozen queries; it can never author a new one — the
+    matrix itself is unchanged, only which of its already-frozen keys are
+    swept this call. ``None`` (default) sweeps the full matrix, unchanged
+    behavior.
+
+    ``sources_override`` (PR-3, D-5a): sweep against this explicit source
+    list instead of the protocol's declared ``sources:`` — e.g. "all
+    registered sources" for a backtrack round that intensifies beyond the
+    protocol's normal default-on subset. ``None`` (default) uses
+    ``parse_sources(text)``, unchanged behavior.
+
+    Raises ``ValueError`` if the protocol carries no parseable angle matrix,
+    or if ``angle_keys`` filters the matrix down to nothing (never silently
+    sweeps zero queries)."""
     text = protocol_path.read_text(encoding="utf-8")
     angle_matrix = parse_angle_matrix(text)
     if not angle_matrix:
@@ -584,7 +602,18 @@ def run_sweep_from_protocol(
             f"{protocol_path}: no `seed_queries:` angle matrix found "
             "(expected by-method/by-outcome/by-paradigm/by-population keys)"
         )
-    sources = parse_sources(text)
+    if angle_keys is not None:
+        angle_matrix = {
+            k: v for k, v in angle_matrix.items()
+            if any(k == ak or k.startswith(ak + ".") for ak in angle_keys)
+        }
+        if not angle_matrix:
+            raise ValueError(
+                f"{protocol_path}: angle_keys={sorted(angle_keys)!r} matched "
+                "ZERO keys in the frozen angle matrix — a directed backtrack "
+                "must never silently sweep zero queries."
+            )
+    sources = sources_override if sources_override is not None else parse_sources(text)
     cells = run_width_sweep(angle_matrix, sources, per_cell_limit=per_cell_limit)
     return compose_sweep_result(cells, budget=budget, floor=floor)
 
