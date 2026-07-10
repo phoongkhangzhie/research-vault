@@ -335,3 +335,100 @@ def test_references_raises_adapter_fetch_error_not_systemexit(monkeypatch) -> No
         pass
     except SystemExit:
         pytest.fail("references must not raise SystemExit — it must raise AdapterFetchError")
+
+
+# ---------------------------------------------------------------------------
+# PR-S1 (pre-publish fix, 2026-07-10): the BACKWARD (references) snowball
+# direction ignored `per_round_limit` entirely — `asta papers get` has no
+# server-side `--limit`/pagination for a nested `references.*` projection
+# (unlike `cited_by`'s dedicated `asta papers citations ... --limit`
+# endpoint), so a seed's FULL reference list was always returned regardless
+# of the caller's `limit` kwarg. Observed on a live run: forward correctly
+# bounded to 31 hits, backward returned 461 from 5 seeds.
+# ---------------------------------------------------------------------------
+
+def _fake_references_run(n: int):
+    """Build a fake_run returning `n` distinct reference items, each
+    identifiable by a unique DOI suffix so order/truncation is verifiable."""
+    items = [
+        {**S2_PAPER, "externalIds": {"DOI": f"10.48550/ARXIV.ref-{i}"}}
+        for i in range(n)
+    ]
+
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"references": items})
+        r.stderr = ""
+        return r
+
+    return fake_run, items
+
+
+def test_references_bound_bites_when_seed_has_more_than_limit(monkeypatch) -> None:
+    """(a) acceptance: a seed with N > per_round_limit references yields
+    <= per_round_limit backward candidates in that round — the knob now
+    bites. Pre-fix this returned all 50 (the knob was dead)."""
+    fake_run, _items = _fake_references_run(50)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+
+    hits = adapter.references("ARXIV:1706.03762", limit=20)
+
+    assert len(hits) == 20
+
+
+def test_references_bound_preserves_as_returned_order_not_arbitrary_drop(monkeypatch) -> None:
+    """The truncation must be a deterministic, documented as-returned-order
+    prefix (per-round throttle), not an arbitrary/random subset — so the
+    excluded tail is knowable (it's whatever asta ranked/ordered last),
+    never a silent, unreproducible drop."""
+    fake_run, items = _fake_references_run(10)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+
+    hits = adapter.references("ARXIV:1706.03762", limit=4)
+
+    assert len(hits) == 4
+    kept_dois = [h.external_ids["doi"] for h in hits]
+    expected_dois = [items[i]["externalIds"]["DOI"] for i in range(4)]
+    assert kept_dois == expected_dois
+
+
+def test_references_below_limit_unaffected(monkeypatch) -> None:
+    """No behavior change when a seed has fewer references than the limit."""
+    fake_run, items = _fake_references_run(3)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+
+    hits = adapter.references("ARXIV:1706.03762", limit=20)
+
+    assert len(hits) == 3
+
+
+def test_cited_by_unaffected_by_references_bound_fix(monkeypatch) -> None:
+    """(b) regression: forward direction behavior is unchanged — still
+    delegates the limit to asta's own `--limit` flag, no client-side
+    truncation added there."""
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps(
+            {"data": [{"citingPaper": {**S2_PAPER, "externalIds": {"DOI": f"10.1/{i}"}}} for i in range(50)]}
+        )
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    hits = adapter.cited_by("ARXIV:1706.03762", limit=20)
+
+    # asta's own --limit flag is what bounds this (mock returns 50 regardless
+    # of the flag — proving cited_by does NOT client-side-truncate, unlike
+    # the references fix above).
+    assert "--limit" in captured["cmd"]
+    assert captured["cmd"][captured["cmd"].index("--limit") + 1] == "20"
+    assert len(hits) == 50

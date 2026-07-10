@@ -1,3 +1,40 @@
+## 2026-07-10 (PR-S1 — bound the backward/references snowball direction to per_round_limit)
+
+### Done
+Fixed a pre-publish bug caught on a front-end observation run against wired
+0.3.0: the snowball's BACKWARD direction (`SemanticScholarAdapter.references`)
+accepted a `limit` kwarg but never applied it — `asta papers get --fields
+references.*` has no server-side `--limit`/pagination for a nested
+`references.*` projection (confirmed via `asta papers get --help`), unlike
+`cited_by`'s dedicated `asta papers citations ... --limit` endpoint. So a
+seed's FULL reference list was always fetched regardless of
+`per_round_limit` (observed live: forward correctly bounded to 31 hits,
+backward returned 461 from 5 seeds — `per_round_limit` was a near-dead knob
+for the backward direction).
+
+### Decisions
+- Bound client-side: `items[:limit]`, preserving asta's as-returned order
+  (no re-ranking added). Documented in-line as a **per-round fanout
+  throttle, not a relevance filter or permanent exclusion** — references
+  beyond the cut are simply not fetched from that seed in that round; the
+  same paper can still be reached via another path (another frontier
+  paper's forward citation, another seed's reference) in this or a later
+  round, exactly as already happens today for the forward direction's
+  server-side `--limit` truncation. The downstream relevance gate +
+  `frontier_cap` reseed (`snowball.py`) still decide corpus inclusion.
+- Forward (`cited_by`) direction left untouched — it already delegates the
+  bound to asta's own `--limit` flag; added a regression test proving no
+  client-side truncation was introduced there.
+- `snowball.py` itself needed no changes: it already calls
+  `adapter.references(asta_id, limit=per_round_limit)` correctly — the bug
+  was entirely inside the adapter ignoring its own kwarg.
+
+### Open / next
+PR: `feat/pr-s1-backward-snowball-limit` off `92a02b0`, opened via owner
+`gh` (kz-mason PAT lacks collaborator access to this repo — known gap, see
+engineer memory). Returns to the corpus architect for a recall-adjacent
+fit-check per the dispatch brief.
+
 ## 2026-07-10 (PR-5 fix-round — architect fit-check: ledger bypass + fabricated count)
 
 ### Done

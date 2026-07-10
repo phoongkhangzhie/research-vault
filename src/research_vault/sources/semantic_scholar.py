@@ -201,4 +201,28 @@ class SemanticScholarAdapter:
             raise AdapterFetchError(f"asta papers get failed:\n{r.stderr}")
         raw = json.loads(r.stdout)
         items = raw.get("references") or []
+        # PR-S1 (pre-publish fix, 2026-07-10): `asta papers get` has no
+        # server-side pagination/limit for a nested `references.*`
+        # projection (confirmed via `asta papers get --help` — only
+        # `--fields`/`--format`), unlike `cited_by`'s dedicated
+        # `asta papers citations ... --limit` endpoint. Before this fix,
+        # `limit` was accepted but silently unused here, so the BACKWARD
+        # snowball direction returned a seed's FULL reference list
+        # regardless of `per_round_limit` (observed: 461 backward hits from
+        # 5 seeds vs. forward's correctly-bounded 31) — `per_round_limit`
+        # was a near-dead knob for this direction.
+        #
+        # Fix: bound client-side, as-returned order (asta's own reference
+        # order, not re-ranked here). This is a PER-ROUND FANOUT THROTTLE,
+        # not a relevance filter or a permanent exclusion — references
+        # beyond the first `limit` are simply not fetched from THIS seed in
+        # THIS round. They are not blacklisted: the same paper can still be
+        # discovered via another path (e.g. as another frontier paper's
+        # forward citation, or as another seed's reference) in this or a
+        # later round, exactly as already happens today when `cited_by`'s
+        # server-side `--limit` similarly truncates the forward direction.
+        # The downstream relevance gate + `frontier_cap` reseed (see
+        # `snowball.py`) still decide what actually enters the corpus.
+        if limit and limit > 0:
+            items = items[:limit]
         return [_s2_item_to_hit(p) for p in items]
