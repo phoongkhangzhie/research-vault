@@ -598,6 +598,22 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
             cmd_tick(argparse.Namespace(run_id=ms_run_id))
             ms_rs = ms_store.load(ms_run_id)
 
+        # PR-A: framework-synthesize also allocates the frozen corpus
+        # (alpha2024/beta2024, from the chained review) to the committed spine
+        # in _coverage-map.md — approve-framework now folds the
+        # coverage-allocation gate most-severe-wins with the critic verdict, so
+        # an unallocated corpus BLOCKs. This must exist BEFORE framework-critic
+        # is marked succeeded: cmd_complete recomputes the frontier and
+        # autonomously evaluates approve-framework in that same call.
+        (tree_root / "_coverage-map.md").write_text(
+            "---\ncoverage_map: true\n"
+            "used:\n"
+            "  - citekey: alpha2024\n    branch: alpha\n"
+            "  - citekey: beta2024\n    branch: beta\n"
+            "---\n\n## rationale\n\nboth papers synthesized in their branches.\n",
+            encoding="utf-8",
+        )
+
         assert ms_rs.node_status("framework-critic") in ("succeeded", "pending")
         if ms_rs.node_status("framework-critic") != "succeeded":
             critic_node = next(

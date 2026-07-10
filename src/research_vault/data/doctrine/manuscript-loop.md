@@ -68,6 +68,16 @@ scope ─► framework-propose ─► [HG: approve-framework]
   (`spine_shape` + `branches`) into `_manuscript.md`. `check_framework_gate` BLOCKs a
   non-empty freeze attempt with an empty spine. **The organizing framework is a human
   commitment (design D5) — it cannot be reliably discovered by the machine.**
+  - **Full-corpus coverage contract (PR-A).** Committing the spine also allocates the whole
+    frozen corpus to it: `framework-synthesize` writes `_coverage-map.md` placing **every**
+    `reviews/<slug>/_corpus.md` citekey into `used` (a named branch), `clustered` (a named
+    group + reason), or `deferred` (a reason). `check_coverage_allocation_gate` folds into
+    `approve-framework` (most-severe-wins with the framework-critic verdict) and BLOCKs
+    fail-closed on any unallocated / reasonless / non-corpus / duplicate citekey — so a survey
+    can never reach drafting with silently-dropped papers. The drafting path then consumes the
+    ledger: the single pass is handed the full `used` set; the above-ceiling fan-out is
+    **ledger-chunked** (each branch drafter gets only its allocated `used` papers), coverage-safe
+    by construction.
 
 Run Phase-1 with `rv dag run manuscripts/<slug>/phase1-dag.json`, then
 `rv dag approve <run_id> approve-framework` once the spine is frozen.

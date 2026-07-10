@@ -781,7 +781,7 @@ def phase1_builder(
             corpus_citekeys=corpus_citekeys,
             coverage_map_path=coverage_map_path,
         ),
-        "reads": [str(tree_root), _rel("literature"), _rel("reviews")],
+        "reads": [str(tree_root)],
         "produces": {
             "_framework-decision.md": decision_path,
             "_coverage-map.md": coverage_map_path,

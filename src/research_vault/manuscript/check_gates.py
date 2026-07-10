@@ -431,7 +431,7 @@ def check_coverage_gate(
 # ---------------------------------------------------------------------------
 #
 # The verified 0.3.0 drop mechanism (the core pre-publish blocker): a real
-# corpus (csb=47) routes past the single-pass ceiling to the lossy per-branch
+# corpus (47 papers) routes past the single-pass ceiling to the lossy per-branch
 # fallback, and NO gate ever blocked an *unallocated* paper — ~20/47 papers
 # silently vanished from the manuscript. This gate closes that hole at the
 # earliest possible point: the framework stage. `_coverage-map.md` (produced by
