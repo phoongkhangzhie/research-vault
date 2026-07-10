@@ -16,8 +16,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from research_vault.sources.base import PaperHit
-from research_vault.sources.dedup import DedupedHit
-from research_vault.sources.sweep import SweepCell, SweepResult, write_search_hits
+from research_vault.sources.dedup import DedupedHit, dedup_hits
+from research_vault.sources.sweep import SweepCell, SweepResult, compose_sweep_result, write_search_hits
 
 
 def _hit(title: str, *, doi: str | None = None, arxiv: str | None = None) -> PaperHit:
@@ -182,3 +182,87 @@ def test_write_search_hits_creates_parent_dirs(tmp_path):
     out_path = tmp_path / "reviews" / "scope1" / "_search_hits.md"
     out = write_search_hits(result, out_path)
     assert out.exists()
+
+
+# ---------------------------------------------------------------------------
+# Paper-id enrichment regression (pre-publish hardening batch, downstream
+# e2e-run finding): the 4 STRONGEST accepted seeds came out with a BLANK
+# Paper-id because the pid lookup read the first-seen representative hit's
+# OWN external_ids instead of the merged union `dedup_hits` accumulates onto
+# the `DedupedHit` wrapper. Drives the REAL `dedup_hits` producer (not a
+# hand-planted DedupedHit) — the "test the real thing" convention.
+# ---------------------------------------------------------------------------
+
+def test_write_search_hits_paper_id_never_blank_when_a_duplicate_has_it(tmp_path):
+    """The representative (first-seen) hit for an identity has NO doi/arxiv/
+    openalex/s2 of its own (identity_key falls back to normalized TITLE for
+    both hits — s2 ids never factor into identity_key's priority chain) —
+    but a LATER duplicate surfacing the same paper from another source DOES
+    carry an s2 id. `dedup_hits` merges that id onto the wrapper's
+    `external_ids`; the rendered Paper-id column must NOT come out blank.
+    This is the exact live-run shape: an S2-native hit resolves an s2 id
+    that never influenced which identity the title-matched duplicates
+    collapsed onto."""
+    narrow_hit = PaperHit(
+        title="Activation Steering For Cultural Values", year=2024, authors=["A. One"],
+        external_ids={}, abstract="", citation_count=5, source="openalex",
+    )
+    rich_duplicate = PaperHit(
+        title="Activation Steering For Cultural Values", year=2024, authors=["A. One"],
+        external_ids={"s2": "abc123"}, abstract="", citation_count=5, source="semantic-scholar",
+    )
+    # order matters: narrow_hit is first-seen (becomes d.hit); rich_duplicate
+    # only contributes external_ids via the union (dedup_hits' documented
+    # "first-seen wins as representative" contract).
+    cells = [
+        SweepCell(angle="by-method", query="q1", source="openalex", hits=[narrow_hit]),
+        SweepCell(angle="by-method", query="q1", source="semantic-scholar", hits=[rich_duplicate]),
+    ]
+    result = compose_sweep_result(cells)
+    assert len(result.kept) == 1
+    # sanity: the representative hit really is the narrow one (proves this
+    # test is non-vacuous — the bug can only manifest if d.hit lacks the id)
+    assert result.kept[0].hit.external_ids == {}
+    assert result.kept[0].external_ids == {"s2": "abc123"}  # the merged union DOES have it
+
+    out = write_search_hits(result, tmp_path / "_search_hits.md", notes_index={})
+    text = out.read_text()
+    row = next(line for line in text.splitlines() if "Activation Steering" in line)
+    assert "abc123" in row, f"Paper-id column is blank despite the merged union carrying an s2 id:\n{row}"
+    assert "[NO-ID" not in row
+
+
+def test_write_search_hits_flags_no_id_when_truly_unresolvable(tmp_path):
+    """When NEITHER the representative nor any duplicate resolved an id, the
+    row must be FLAGGED — never a silently blank Paper-id cell."""
+    hit = PaperHit(
+        title="Untitled Preprint With No Ids", year=2024, authors=["A"],
+        external_ids={}, abstract="", citation_count=0, source="openalex",
+    )
+    kept = [DedupedHit(hit=hit, sources={"openalex"}, external_ids={})]
+    result = SweepResult(kept=kept, independent_count=1, total_hits_fetched=1, cells=[], errors=[])
+    out = write_search_hits(result, tmp_path / "_search_hits.md", notes_index={})
+    text = out.read_text()
+    row = next(line for line in text.splitlines() if "Untitled Preprint" in line)
+    assert "[NO-ID" in row
+
+
+# ---------------------------------------------------------------------------
+# Dark-source signal rendering (pre-publish hardening batch)
+# ---------------------------------------------------------------------------
+
+def test_write_search_hits_stamps_dark_sources_frontmatter(tmp_path):
+    result = SweepResult(kept=[], independent_count=0, total_hits_fetched=0, cells=[], errors=[], dark_sources=["arxiv"])
+    out = write_search_hits(result, tmp_path / "_search_hits.md")
+    text = out.read_text()
+    assert "dark_sources: arxiv" in text
+    assert "SOURCE DARK" in text
+    assert "arxiv" in text.split("SOURCE DARK")[1][:200]
+
+
+def test_write_search_hits_dark_sources_empty_frontmatter_when_healthy(tmp_path):
+    result = SweepResult(kept=[], independent_count=0, total_hits_fetched=0, cells=[], errors=[], dark_sources=[])
+    out = write_search_hits(result, tmp_path / "_search_hits.md")
+    text = out.read_text()
+    assert "dark_sources: " in text
+    assert "SOURCE DARK" not in text

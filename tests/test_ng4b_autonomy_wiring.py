@@ -568,6 +568,145 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
 
 
 # ===========================================================================
+# 4b. Source-coverage fail-closed — `--auto` end-to-end wiring (F2 teeth
+# followup, PR #206 review delta). Drives the REAL `_evaluate_autonomous_gate`
+# coverage-gate branch (reads `_search_hits.md` off
+# `nodes_lookup["review-search"]`, builds `source_coverage_info`) through the
+# self-advancing runner — no unit-level shortcut. Neutering that wiring
+# (e.g. dropping the `search_hits_path`/`source_coverage_info` lookup) must
+# turn this RED.
+# ===========================================================================
+
+class TestCoverageGateSourceDarkAutoWiring(TestSelfAdvancingRunner):
+    def _drive_to_coverage_gate_with_sources(
+        self, run_id: str, review_dir: Path, store, cfg, *,
+        stop_reason: str, declared_sources: list[str], dark_sources: list[str],
+        monkeypatch,
+    ) -> None:
+        """Same shape as the parent's `_drive_to_coverage_gate`, but the fake
+        `sweep` op writes a REAL `_search_hits.md` (with a `dark_sources:`
+        frontmatter stamp) and the protocol declares a real `sources:` list
+        — the two artifacts `check_source_coverage` actually reads. Without
+        this, the parent's fake sweep only ever writes a placeholder
+        `# fake search hits\n` with no `dark_sources:` field at all, which
+        would never exercise the wiring under test."""
+        from research_vault.dag.verbs import cmd_tick, cmd_approve
+        from research_vault.review import autonomy as _auto
+
+        def _fake_sweep(*, out=None, **_kw):
+            if out:
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                Path(out).write_text(
+                    f"---\ndark_sources: {', '.join(dark_sources)}\n---\n\n# Search hits\n",
+                    encoding="utf-8",
+                )
+                return str(out)
+            return "fake sweep result"
+
+        def _fake_snowball(*, out_dir=None, **_kw):
+            out = Path(out_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "_corpus_raw.md").write_text(
+                "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
+                encoding="utf-8",
+            )
+            (out / "_saturation.md").write_text(
+                f"---\nstop_reason: {stop_reason}\n---\n\nSaturation curve.\n", encoding="utf-8",
+            )
+            return {"stop_reason": stop_reason}
+
+        monkeypatch.setitem(_auto.OP_REGISTRY, "sweep", _fake_sweep)
+        monkeypatch.setitem(_auto.OP_REGISTRY, "snowball", _fake_snowball)
+
+        protocol_path = review_dir / "_protocol.md"
+        protocol_path.write_text(
+            "---\ncounter-position: a real counter-position\n"
+            f"sources: [{', '.join(declared_sources)}]\n---\n\nProtocol.\n",
+            encoding="utf-8",
+        )
+        _mark_succeeded(store, run_id, "review-scope")
+        cmd_tick(argparse.Namespace(run_id=run_id))
+
+        rc = cmd_approve(argparse.Namespace(run_id=run_id, node_id="approve-protocol", note=None, output=[], reject=False, auto=False))
+        assert rc == 0
+
+        screen_path = review_dir / "_screen.md"
+        screen_path.write_text("10.1/alpha2024\n10.1/beta2024\n", encoding="utf-8")
+        _mark_succeeded(store, run_id, "review-screen")
+        cmd_tick(argparse.Namespace(run_id=run_id))
+
+        corpus_path = review_dir / "_corpus.md"
+        corpus_path.write_text(
+            "| annotation | citekey | title |\n|---|---|---|\n"
+            "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
+            encoding="utf-8",
+        )
+        if stop_reason.startswith("backstop:"):
+            (review_dir / "_coverage-gaps.md").write_text("open frontier\n", encoding="utf-8")
+        cmd_tick(argparse.Namespace(run_id=run_id))
+        _mark_succeeded(store, run_id, "review-curate")
+
+    def test_declared_dark_source_halts_and_names_it(self, tmp_instance: Path, monkeypatch):
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+
+        cfg = load_config()
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-src-dark")
+        self._drive_to_coverage_gate_with_sources(
+            run_id, review_dir, store, cfg, stop_reason="saturated",
+            declared_sources=["semantic-scholar", "arxiv"], dark_sources=["arxiv"],
+            monkeypatch=monkeypatch,
+        )
+
+        rc = cmd_tick(argparse.Namespace(run_id=run_id))
+        assert rc == 0
+        rs = store.load(run_id)
+        assert rs.node_status("coverage-gate") == "blocked"
+        assert "HALT" in rs.node_states["coverage-gate"]["decision_note"]
+        assert "arxiv" in rs.node_states["coverage-gate"]["decision_note"]
+        assert "emitted_next_phase_run_id" not in rs.node_states["coverage-gate"]
+
+    def test_healthy_sources_go(self, tmp_instance: Path, monkeypatch):
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+
+        cfg = load_config()
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-src-healthy")
+        self._drive_to_coverage_gate_with_sources(
+            run_id, review_dir, store, cfg, stop_reason="saturated",
+            declared_sources=["semantic-scholar", "arxiv"], dark_sources=[],
+            monkeypatch=monkeypatch,
+        )
+
+        rc = cmd_tick(argparse.Namespace(run_id=run_id))
+        assert rc == 0
+        rs = store.load(run_id)
+        assert rs.node_status("coverage-gate") == "succeeded"
+        assert "GO" in rs.node_states["coverage-gate"]["decision_note"]
+
+    def test_dark_but_undeclared_source_still_goes(self, tmp_instance: Path, monkeypatch):
+        """A source dark this sweep but NEVER named in the protocol's
+        declared `sources:` list must not block — only DECLARED coverage is
+        a promise the gate must keep."""
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+
+        cfg = load_config()
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-src-undeclared")
+        self._drive_to_coverage_gate_with_sources(
+            run_id, review_dir, store, cfg, stop_reason="saturated",
+            declared_sources=["semantic-scholar", "arxiv"], dark_sources=["pubmed"],
+            monkeypatch=monkeypatch,
+        )
+
+        rc = cmd_tick(argparse.Namespace(run_id=run_id))
+        assert rc == 0
+        rs = store.load(run_id)
+        assert rs.node_status("coverage-gate") == "succeeded"
+        assert "GO" in rs.node_states["coverage-gate"]["decision_note"]
+
+
+# ===========================================================================
 # 5. NG-6b (scoped) — the PRISMA deviation-ledger
 # ===========================================================================
 #

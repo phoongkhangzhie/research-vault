@@ -164,13 +164,22 @@ class SnowballResult:
         return self.stop_reason.lower().startswith("backstop:")
 
 
-def _paper_id_of(hit: PaperHit) -> str | None:
+def _paper_id_of(external_ids: dict[str, str]) -> str | None:
     """Best-available id to re-seed the frontier with for the NEXT round —
-    prefer DOI, then arXiv, then the adapter's own id (e.g. S2 corpus id)."""
+    prefer DOI, then arXiv, then OpenAlex, then the adapter's own id (e.g.
+    S2 corpus id).
+
+    Takes the MERGED ``external_ids`` off a ``DedupedHit`` (``d.external_ids``)
+    — mirrors ``sweep._paper_id_of_hit``'s fix (2026-07-09 a downstream project's live-e2e-run
+    finding): a bare ``hit.external_ids`` is only the first-seen
+    representative's own ids, a strict subset of what ``dedup_hits`` merged
+    across every duplicate that collapsed onto this identity.
+    """
     return (
-        hit.external_ids.get("doi")
-        or hit.external_ids.get("arxiv")
-        or hit.external_ids.get("s2")
+        external_ids.get("doi")
+        or external_ids.get("arxiv")
+        or external_ids.get("openalex")
+        or external_ids.get("s2")
     )
 
 
@@ -423,13 +432,26 @@ def run_snowball_to_saturation(
         new_bwd = 0
         for d in deduped_round:
             ident = identity_key(d.hit)
-            pid = _paper_id_of(d.hit)
+            pid = _paper_id_of(d.external_ids)
             if ident in seen_identities or (pid and pid in visited_pids):
                 continue
             seen_identities.add(ident)
             if pid:
                 visited_pids.add(pid)
                 new_frontier_candidates.append((pid, d.hit.citation_count))
+            # Enrich the representative hit's OWN external_ids with the
+            # round-level merged union BEFORE it's stored (F1 teeth
+            # followup, PR #206 review delta): `all_hits`/`new_this_round`
+            # only ever carry the bare `PaperHit` (never the `DedupedHit`
+            # wrapper), so a merged id that lives ONLY on `d.external_ids`
+            # would otherwise vanish the moment this round's dedup result is
+            # discarded — the `_paper_id_of(d.external_ids)` fix a few lines
+            # up only affected the frontier-reseed DECISION, not what
+            # ultimately gets rendered into `_corpus_raw.md`. `update()` is
+            # safe/idempotent: `d.external_ids` is already seeded from
+            # `dict(d.hit.external_ids)` at dedup time (a superset, never a
+            # conflicting overwrite).
+            d.hit.external_ids.update(d.external_ids)
             new_this_round.append(d.hit)
             dirs = directions_by_identity.get(ident, set())
             if "forward" in dirs:
@@ -564,18 +586,24 @@ def run_snowball_to_saturation(
 def _annotate_hit(
     hit: PaperHit,
     *,
+    external_ids: dict[str, str] | None = None,
     notes_index: dict[str, str] | None,
     notes_title_index: dict[str, list[tuple[str, str]]] | None,
 ) -> str:
     """[NEW] / [IN-CORPUS:<citekey>] annotation — mirrors
     ``sweep._annotate_hit`` exactly (same bridge to ``_corpus_annotation``,
-    the mechanical corpus-index check; charter §6, do not reinvent)."""
+    the mechanical corpus-index check; charter §6, do not reinvent).
+
+    ``external_ids`` is the caller's MERGED ids (``d.external_ids``) when
+    available — same fix as ``_paper_id_of``. Defaults to
+    ``hit.external_ids`` for back-compat."""
     from research_vault.research import _corpus_annotation  # avoid import cycle
 
+    ids = external_ids if external_ids is not None else hit.external_ids
     paper = {
         "externalIds": {
-            "DOI": hit.external_ids.get("doi"),
-            "ArXiv": hit.external_ids.get("arxiv"),
+            "DOI": ids.get("doi"),
+            "ArXiv": ids.get("arxiv"),
         },
         "title": hit.title,
         "authors": [{"name": a} for a in hit.authors],
@@ -604,9 +632,14 @@ def write_corpus_raw(
     lines.append("|---|---|---|---|")
     for d in result.kept:
         hit = d.hit
-        annotation = _annotate_hit(hit, notes_index=notes_index, notes_title_index=notes_title_index)
-        pid = _paper_id_of(hit) or ""
+        annotation = _annotate_hit(
+            hit, external_ids=d.external_ids,
+            notes_index=notes_index, notes_title_index=notes_title_index,
+        )
+        pid = _paper_id_of(d.external_ids) or ""
         flags: list[str] = []
+        if not pid:
+            flags.append("[NO-ID: cannot resolve doi/arxiv/openalex/s2 — needs manual id lookup]")
         if hit.derivative_of is not None:
             flags.append(f"[DERIVATIVE-OF:{hit.derivative_of}]")
         title = (hit.title or "").replace("|", "/")

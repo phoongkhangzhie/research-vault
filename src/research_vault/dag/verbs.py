@@ -402,8 +402,15 @@ def _evaluate_autonomous_gate(
         corpus_path = review_dir / "_corpus.md"
         protocol_path = review_dir / "_protocol.md"
         deviations_path = review_dir / "_deviations.md"
+        search_hits_node = nodes_lookup.get("review-search")
+        search_hits_path = None
+        if search_hits_node is not None:
+            search_hits_produces = search_hits_node.get("produces")
+            if isinstance(search_hits_produces, dict):
+                search_hits_path = search_hits_produces.get("_search_hits.md")
         try:
             from ..review import corpus_freeze as _corpus_freeze
+            from ..review import check_source_coverage
 
             # NG-6a: stamp the explicit, versioned corpus_freeze baseline
             # (idempotent — a no-op after the first stamp). Reuses/mirrors
@@ -415,12 +422,24 @@ def _evaluate_autonomous_gate(
                 run_state.meta, corpus_path=corpus_path, protocol_path=protocol_path,
             )
 
+            # Source-coverage fail-closed (pre-publish hardening batch,
+            # 2026-07-09 downstream e2e-run finding): a source declared in
+            # the protocol's `sources:` list that went DARK this sweep must
+            # BLOCK certification, checked BEFORE the saturation-based
+            # disposition (`classify_coverage_gate` short-circuits on it).
+            source_coverage_info = (
+                check_source_coverage(Path(search_hits_path), protocol_path)
+                if search_hits_path
+                else {"exists": False, "dark_sources": [], "declared_dark": []}
+            )
+
             base = _autonomy.classify_coverage_gate_with_deviation_check(
                 run_state.meta,
                 info,
                 corpus_path=corpus_path,
                 deviations_path=deviations_path,
                 coverage_gaps_path=gaps_path,
+                source_coverage_info=source_coverage_info,
             )
             from ..review import remediation as _remediation
 
@@ -1754,7 +1773,43 @@ def cmd_approve(args: argparse.Namespace) -> int:
             if isinstance(produces, dict):
                 saturation_ref = produces.get("_saturation.md")
         if saturation_ref:
-            from ..review import check_saturation_backstop
+            from ..review import check_saturation_backstop, check_source_coverage
+
+            # Source-coverage fail-closed (pre-publish hardening batch,
+            # 2026-07-09 downstream e2e-run finding): checked FIRST and
+            # BLOCKS (unlike the backstop SIGNAL below) — a source declared
+            # in the protocol's `sources:` list that went DARK this sweep
+            # must never be certified saturated, whether resolved via
+            # --auto or a manual `rv dag approve`.
+            review_dir_manual = Path(saturation_ref).parent
+            search_hits_node_manual = nodes_lookup.get("review-search")
+            search_hits_ref_manual = None
+            if search_hits_node_manual is not None:
+                _produces = search_hits_node_manual.get("produces")
+                if isinstance(_produces, dict):
+                    search_hits_ref_manual = _produces.get("_search_hits.md")
+            if search_hits_ref_manual and not auto:
+                # --auto is handled by classify_coverage_gate's own
+                # source_coverage_info short-circuit (wired below via
+                # `_evaluate_autonomous_gate`) — never duplicate the BLOCK
+                # here, or a manual `return 1` would bypass the disposition/
+                # remediation machinery the auto path is supposed to run.
+                source_info = check_source_coverage(
+                    Path(search_hits_ref_manual), review_dir_manual / "_protocol.md",
+                )
+                if source_info["declared_dark"]:
+                    print(
+                        "rv dag approve: coverage-gate BLOCKED — source(s) "
+                        "declared in the protocol's `sources:` list were DARK "
+                        f"this sweep — {', '.join(source_info['declared_dark'])} "
+                        "— every cell for each errored or returned zero hits "
+                        "across ALL angles. The corpus cannot be certified "
+                        "saturated while a declared source was never actually "
+                        "reached; re-run the sweep once the source is "
+                        "reachable before re-evaluating this gate.",
+                        file=sys.stderr,
+                    )
+                    return 1
 
             info = check_saturation_backstop(Path(saturation_ref))
             if info["exists"] and info["is_backstop"]:

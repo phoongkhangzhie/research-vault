@@ -271,11 +271,19 @@ def classify_coverage_gate(
     saturation_info: dict[str, Any],
     *,
     coverage_gaps_path: Path | None = None,
+    source_coverage_info: dict[str, Any] | None = None,
 ) -> DispositionResult:
     """§1.6: the coverage-gate disposition, keyed to the EXACT shipped
     0.2.4+ ``_saturation.md`` ``stop_reason:`` contract
     (``review.check_saturation_backstop``'s return shape).
 
+    - a DECLARED protocol source is DARK this sweep (``source_coverage_info
+      ["declared_dark"]`` non-empty, ``review.check_source_coverage``)
+      -> HALT-DECLARE, fail-closed, BEFORE the saturation logic below runs
+      at all — a corpus can never be certified saturated while a source
+      named in the protocol's ``sources:`` was never actually reached
+      (pre-publish hardening batch, 2026-07-09 downstream e2e-run finding:
+      a dark source looked identical to a healthy sweep at this gate).
     - ``stop_reason == "saturated"``               -> GO.
     - ``stop_reason == "backstop:N-waves"``         -> GO-WITH-RESIDUE, IFF
       the required ``_coverage-gaps.md`` residue note exists; its absence is
@@ -284,6 +292,19 @@ def classify_coverage_gate(
       fail-closed (never treat an unparseable stop-reason as saturated —
       charter §2 whitelist-not-blacklist).
     """
+    if source_coverage_info is not None and source_coverage_info.get("declared_dark"):
+        declared_dark = source_coverage_info["declared_dark"]
+        return DispositionResult(
+            HALT_DECLARE,
+            "coverage-gate: source(s) declared in the protocol's `sources:` "
+            f"list were DARK this sweep — {', '.join(declared_dark)} — every "
+            "cell for each errored or returned zero hits across ALL angles. "
+            "The corpus cannot be certified saturated while a declared "
+            "source was never actually reached; re-run the sweep once the "
+            "source is reachable before re-evaluating this gate.",
+            {"declared_dark_sources": declared_dark},
+        )
+
     if not saturation_info.get("exists", False):
         return DispositionResult(
             HALT_DECLARE,
@@ -337,6 +358,7 @@ def classify_coverage_gate_with_deviation_check(
     corpus_path: Path,
     deviations_path: Path,
     coverage_gaps_path: Path | None = None,
+    source_coverage_info: dict[str, Any] | None = None,
 ) -> DispositionResult:
     """NG-4b item 2: the LIVE coverage-deviation BLOCK — wires
     ``check_undeclared_deviation`` (§1.5, D2) into the coverage-gate --auto
@@ -383,7 +405,11 @@ def classify_coverage_gate_with_deviation_check(
                 {"undeclared_deviation": True, "frozen": sorted(frozen_citekeys), "current": sorted(current_citekeys)},
             )
 
-    return classify_coverage_gate(saturation_info, coverage_gaps_path=coverage_gaps_path)
+    return classify_coverage_gate(
+        saturation_info,
+        coverage_gaps_path=coverage_gaps_path,
+        source_coverage_info=source_coverage_info,
+    )
 
 
 def _parse_corpus_citekeys_helper(corpus_path: Path) -> list[str]:

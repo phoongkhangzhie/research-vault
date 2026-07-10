@@ -163,6 +163,80 @@ class TestCheckSaturationBackstop:
 
 
 # ---------------------------------------------------------------------------
+# 2b. check_source_coverage — dark-source × declared-sources cross-check
+# (pre-publish hardening batch, 2026-07-09 downstream e2e-run finding)
+# ---------------------------------------------------------------------------
+
+def _search_hits_note(path: Path, *, dark_sources: list[str]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"---\ndark_sources: {', '.join(dark_sources)}\n---\n\n# Search hits\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _protocol_note(path: Path, *, sources: list[str]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "---\n"
+        'type: review-protocol\n'
+        'question: "Does X improve Y?"\n'
+        "seed_queries:\n"
+        '  by-method: "q1"\n'
+        f"sources: [{', '.join(sources)}]\n"
+        "---\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+class TestCheckSourceCoverage:
+    def test_missing_search_hits_file(self, tmp_path):
+        from research_vault.review import check_source_coverage
+        info = check_source_coverage(tmp_path / "nope" / "_search_hits.md", tmp_path / "_protocol.md")
+        assert info["exists"] is False
+        assert info["dark_sources"] == []
+        assert info["declared_dark"] == []
+
+    def test_declared_dark_source_flagged(self, tmp_path):
+        from research_vault.review import check_source_coverage
+        hits = _search_hits_note(tmp_path / "_search_hits.md", dark_sources=["arxiv"])
+        protocol = _protocol_note(tmp_path / "_protocol.md", sources=["semantic-scholar", "arxiv", "openalex"])
+        info = check_source_coverage(hits, protocol)
+        assert info["exists"] is True
+        assert info["dark_sources"] == ["arxiv"]
+        assert info["declared_dark"] == ["arxiv"]
+
+    def test_dark_but_undeclared_source_not_flagged(self, tmp_path):
+        """A source dark this sweep but NEVER in the protocol's declared
+        `sources:` list must not be flagged — nothing was promised for it."""
+        from research_vault.review import check_source_coverage
+        hits = _search_hits_note(tmp_path / "_search_hits.md", dark_sources=["pubmed"])
+        protocol = _protocol_note(tmp_path / "_protocol.md", sources=["semantic-scholar", "arxiv"])
+        info = check_source_coverage(hits, protocol)
+        assert info["dark_sources"] == ["pubmed"]
+        assert info["declared_dark"] == []
+
+    def test_no_dark_sources(self, tmp_path):
+        from research_vault.review import check_source_coverage
+        hits = _search_hits_note(tmp_path / "_search_hits.md", dark_sources=[])
+        protocol = _protocol_note(tmp_path / "_protocol.md", sources=["arxiv"])
+        info = check_source_coverage(hits, protocol)
+        assert info["dark_sources"] == []
+        assert info["declared_dark"] == []
+
+    def test_missing_protocol_defaults_to_no_declared_sources(self, tmp_path):
+        """A missing `_protocol.md` must never crash — no declared sources
+        means nothing can be cross-checked as "declared dark"."""
+        from research_vault.review import check_source_coverage
+        hits = _search_hits_note(tmp_path / "_search_hits.md", dark_sources=["arxiv"])
+        info = check_source_coverage(hits, tmp_path / "nope_protocol.md")
+        assert info["dark_sources"] == ["arxiv"]
+        assert info["declared_dark"] == []
+
+
+# ---------------------------------------------------------------------------
 # 3. cmd_approve wiring at "coverage-gate" — real DAG path
 # ---------------------------------------------------------------------------
 
@@ -236,6 +310,102 @@ def _make_awaiting_run(tmp_path: Path, run_id: str, saturation_path: Path):
     rs.set_node_status("coverage-gate", "awaiting-go")
     store.create(rs)
     return store
+
+
+def _coverage_gate_manifest_with_search(
+    run_id: str, saturation_path: Path, search_hits_path: Path,
+) -> dict:
+    """Same shape as `_coverage_gate_manifest`, plus the real `review-search`
+    node — needed to exercise the source-coverage fail-closed wiring, which
+    reads `_search_hits.md` off `nodes_lookup["review-search"]`."""
+    manifest = _coverage_gate_manifest(run_id, saturation_path)
+    manifest["nodes"].insert(0, {
+        "id": "review-search",
+        "type": "tool",
+        "op": "sweep",
+        "produces": {"_search_hits.md": str(search_hits_path)},
+        "needs": [],
+    })
+    return manifest
+
+
+def _make_awaiting_run_with_search(
+    tmp_path: Path, run_id: str, saturation_path: Path, search_hits_path: Path,
+):
+    from research_vault.dag.store import RunState, RunStore
+
+    manifest = _coverage_gate_manifest_with_search(run_id, saturation_path, search_hits_path)
+    manifest_path = tmp_path / f"{run_id}-manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    store = RunStore(tmp_path / "state")
+    rs = RunState(run_id=run_id, manifest_path=str(manifest_path))
+    rs.init_nodes(manifest)
+    rs.set_node_status("review-search", "succeeded")
+    rs.set_node_status("review-snowball", "succeeded")
+    rs.set_node_status("coverage-gate", "awaiting-go")
+    store.create(rs)
+    return store
+
+
+class TestApproveCoverageGateSourceDark:
+    """cmd_approve wiring (manual, non-auto path): a source declared in the
+    protocol's `sources:` list that went DARK this sweep must BLOCK
+    approval outright — never a mere SIGNAL (pre-publish hardening batch,
+    2026-07-09 downstream e2e-run finding)."""
+
+    def test_declared_dark_source_blocks_approval(self, tmp_path, capsys):
+        from research_vault.dag.verbs import cmd_approve
+
+        old = _set_run_env(tmp_path)
+        try:
+            review_dir = tmp_path / "reviews" / "scope-dark"
+            saturation_path = review_dir / "_saturation.md"
+            search_hits_path = review_dir / "_search_hits.md"
+            _saturation_note(saturation_path, stop_reason="saturated")
+            _search_hits_note(search_hits_path, dark_sources=["arxiv"])
+            _protocol_note(review_dir / "_protocol.md", sources=["semantic-scholar", "arxiv"])
+            store = _make_awaiting_run_with_search(
+                tmp_path, "review-dark", saturation_path, search_hits_path,
+            )
+
+            args = argparse.Namespace(run_id="review-dark", node_id="coverage-gate")
+            rc = cmd_approve(args)
+            captured = capsys.readouterr()
+
+            assert rc == 1, "a declared-dark source must BLOCK, not just signal"
+            assert "BLOCKED" in captured.err
+            assert "arxiv" in captured.err
+            rs = store.load("review-dark")
+            assert rs.node_status("coverage-gate") == "awaiting-go", "must NOT have advanced past the gate"
+        finally:
+            _restore_env(old)
+
+    def test_dark_but_undeclared_source_does_not_block(self, tmp_path, capsys):
+        from research_vault.dag.verbs import cmd_approve
+
+        old = _set_run_env(tmp_path)
+        try:
+            review_dir = tmp_path / "reviews" / "scope-ok"
+            saturation_path = review_dir / "_saturation.md"
+            search_hits_path = review_dir / "_search_hits.md"
+            _saturation_note(saturation_path, stop_reason="saturated")
+            _search_hits_note(search_hits_path, dark_sources=["pubmed"])  # never declared
+            _protocol_note(review_dir / "_protocol.md", sources=["semantic-scholar", "arxiv"])
+            store = _make_awaiting_run_with_search(
+                tmp_path, "review-ok", saturation_path, search_hits_path,
+            )
+
+            args = argparse.Namespace(run_id="review-ok", node_id="coverage-gate")
+            rc = cmd_approve(args)
+            captured = capsys.readouterr()
+
+            assert rc == 0
+            assert "BLOCKED" not in captured.err
+            rs = store.load("review-ok")
+            assert rs.node_status("coverage-gate") == "succeeded"
+        finally:
+            _restore_env(old)
 
 
 class TestApproveCoverageGateBackstopSurfacing:

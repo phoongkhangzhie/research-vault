@@ -1,3 +1,85 @@
+## 2026-07-09 (sweep hardening — no silent recall loss: dark-source fail-closed, retry-with-backoff, Paper-id join-key regression)
+
+### Done
+- **Three defects surfaced by a downstream project's live e2e run, all the
+  same shape — the sweep silently drops recall without anyone noticing**:
+  1. **Dark-source fail-closed at coverage-gate.** `sources/sweep.py` gained
+     `detect_dark_sources` — a source is DARK iff every one of its cells
+     (across ALL angles) errored or returned zero hits; a single hit on one
+     angle is "legitimately thin", not dark. `write_search_hits` stamps a
+     `dark_sources:` frontmatter signal (mirrors `_saturation.md`'s
+     `stop_reason:` convention) plus a loud `> ⚠ SOURCE DARK` note.
+     `review.check_source_coverage` cross-checks that signal against the
+     protocol's DECLARED `sources:` list; `review.autonomy.
+     classify_coverage_gate` HALT-DECLAREs (fail-closed, before the
+     saturation logic even runs) when a declared source is dark — wired
+     into both the `--auto` path (`_evaluate_autonomous_gate`) and the
+     manual `rv dag approve` path (a hard BLOCK, not a mere SIGNAL).
+  2. **Retry-with-backoff on adapter timeout.** `_fetch_cell` now retries a
+     transient failure (any exception except `NotSupported`/an unknown-
+     adapter `ValueError`, both permanent signals) up to 3 attempts with
+     exponential backoff (0.5s, 1s) before degrading the cell — this is
+     exactly what bit the live run: all 5 arXiv cells timed out with zero
+     retry.
+  3. **Paper-id join-key regression.** `_paper_id_of_hit`/`_paper_id_of`
+     (sweep.py + snowball.py) were reading the representative (first-seen)
+     hit's OWN `external_ids` instead of the MERGED union `dedup_hits`
+     accumulates onto the `DedupedHit` wrapper — a strict subset in the
+     common case where a leaner adapter's hit (e.g. OpenAlex, no ids) wins
+     representative status over a richer duplicate (e.g. S2, carries an s2
+     id) that only merges via a shared normalized title. The 4 strongest
+     accepted seeds in the live run came out with a BLANK Paper-id and
+     couldn't be emitted as snowball seeds. Fixed at both call sites (the
+     rendered table AND the snowball frontier re-seeding loop — the same
+     bug, same root cause, in two places); added an `openalex` fallback tier;
+     a hit with genuinely no resolvable id now gets a loud `[NO-ID]` flag
+     instead of a silently blank cell.
+
+### Decisions
+- Dark-source detection is scoped to the WIDTH sweep's declared `sources:`
+  (arxiv/S2/OpenAlex/PubMed) — the depth snowball walks citation graphs on
+  whatever adapter resolved the accepted seeds, a different mechanism with
+  no equivalent "declared list" to cross-check against.
+- The manual (non-`--auto`) `rv dag approve coverage-gate` path gets its own
+  dark-source BLOCK (mirrors the existing backstop-SIGNAL wiring) rather than
+  routing through `classify_coverage_gate`, so a manual approve never
+  bypasses the disposition/remediation machinery `--auto` uses.
+
+### Open / next
+- None — all three land in one PR (one coherent "no silent recall loss"
+  batch); reviewer to confirm the dark-source boundary test (all-cells-dark
+  vs one-hit-not-dark) reads as intended.
+
+### Followup (review delta — closing two teeth gaps + a rebase)
+- **Rebased onto origin/main `7851bf0`** (#205, auto-chain review→manuscript
+  at `approve-review` GO, merged on top of this PR's base). `verbs.py`
+  auto-merged cleanly (git); `DEVLOG.md` needed manual resolution (kept both
+  entries). Re-verified the source-coverage BLOCK ordering survived by
+  re-reading both `_evaluate_autonomous_gate`'s coverage-gate branch and the
+  manual `cmd_approve` block post-rebase, and re-running the full targeted
+  test set + full suite green.
+- **F1 closed**: found the snowball-side Paper-id fix's teeth gap went
+  DEEPER than "wrong call site" — `new_this_round.append(d.hit)` only ever
+  stored the BARE representative `PaperHit`, never the `DedupedHit`
+  wrapper, so a round-level merged id had NO path to survive into
+  `all_hits`/the final composition regardless of which dict `_paper_id_of`
+  read. Fixed by enriching `d.hit.external_ids` with the round-level merged
+  union (`d.hit.external_ids.update(d.external_ids)`) before it's stored —
+  the representative hit itself now carries every id any of its round's
+  duplicates resolved. Added two regression tests: one driving
+  `run_snowball_to_saturation` end-to-end + `write_corpus_raw` (mirrors the
+  sweep-side test), one spying on the checkpoint writer to directly observe
+  `visited_pids` after round 1 (proving the FRONTIER RE-SEED call site
+  specifically, not just the render). Both mutation-tested RED-then-GREEN.
+- **F2 closed**: added `TestCoverageGateSourceDarkAutoWiring` — three tests
+  driving the REAL `--auto` self-advancing-runner path (`cmd_tick`, no unit
+  shortcut) through a full review Phase-1 DAG with fake `sweep`/`snowball`
+  ops that write REAL `_search_hits.md`/`_protocol.md` artifacts: a
+  declared-dark source HALTs and names the source in `decision_note`; a
+  healthy sweep GOes; a dark-but-undeclared source still GOes. Confirmed
+  teeth by neutering the wiring (`source_coverage_info` hardcoded to
+  `{"exists": False, ...}`) and observing the declared-dark test go RED.
+
 ## 2026-07-09 (auto-chain review→manuscript at `approve-review` GO)
 
 ### Done
