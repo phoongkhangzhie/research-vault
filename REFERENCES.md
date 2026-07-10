@@ -157,3 +157,47 @@ anchors above), NOT corpus citekeys.
   https://web.njit.edu/~egan/Writing_A_Literature_Review.pdf — the concept matrix (papers ×
   concepts × stance), concept-centric review over author-centric collection. Grounds the
   `role`/`position` split (PR-4) and Move 5's live, stance-bearing concept edges.
+
+---
+
+## Search planning → principled frozen search-plan generation
+
+Informs: task #72 — decomposing a frozen research question + scope into a many-query (~40–100),
+counter-position-inclusive search plan, generated once at scope-time and frozen (facet analysis +
+question-framing + sensitivity-first + disconfirming search).
+
+**Facet analysis / building-block method + question frames**
+
+- Cochrane Handbook for Systematic Reviews of Interventions, Ch.4 *Searching for and selecting
+  studies* (Lefebvre C. et al.). https://training.cochrane.org/handbook/current/chapter-04
+  — the canonical facet ("building-block") search-strategy method: identify main concepts (PICO),
+  expand each into terms, combine OR-within/AND-across in a multi-stranded set of searches.
+- Methley, A. M., Campbell, S., Chew-Graham, C., McNally, R. & Cheraghi-Sohi, S. (2014). *PICO,
+  PICOS and SPIDER: a comparison study of specificity and sensitivity in three search tools for
+  qualitative systematic reviews.* BMC Health Services Research 14:579.
+  https://doi.org/10.1186/s12913-014-0579-0 — empirical sensitivity/specificity tradeoff; PICO for
+  a fully comprehensive (high-recall) search, SPIDER risks missing relevant papers. Grounds "use
+  the broadest frame for recall."
+- Cooke, A., Smith, D. & Booth, A. (2012). *Beyond PICO: The SPIDER tool for qualitative evidence
+  synthesis.* Qualitative Health Research 22(10), 1435–1443.
+  https://doi.org/10.1177/1049732312452938 — the SPIDER facet frame for qualitative/mixed-methods.
+
+**Reporting, peer review & anti-fishing discipline**
+
+- Rethlefsen, M. L. et al. (PRISMA-S Group) (2021). *PRISMA-S: an extension to the PRISMA statement
+  for reporting literature searches in systematic reviews.* Systematic Reviews 10:39.
+  https://doi.org/10.1186/s13643-020-01542-z (PMID 34285662) — 16-item checklist; report each
+  search "copied and pasted exactly as run." Grounds the freeze-and-record contract.
+- McGowan, J., Sampson, M., Salzwedel, D. M., Cogo, E., Foerster, V. & Lefebvre, C. (2016). *PRESS
+  Peer Review of Electronic Search Strategies: 2015 Guideline Statement.* Journal of Clinical
+  Epidemiology 75, 40–46. https://doi.org/10.1016/j.jclinepi.2016.01.021 — peer-review protocol for
+  search strategies (translates RQ, covers concepts, no errors). The methodological model for rv's
+  coverage-critic.
+
+**LLM query decomposition (the scaling engine)**
+
+- Rosset, C. et al. (2024). *Researchy Questions: A Dataset of Multi-Perspective, Decompositional
+  Questions for LLM Web Agents.* arXiv:2402.17896. https://arxiv.org/abs/2402.17896 — real research
+  questions are non-factoid, multi-perspective, decompositional (avg 14.3 sub-questions); factored
+  decomposition beats direct answering (+5.6, GPT-4); surfaces "unknown unknowns" / pivotal facts.
+  Grounds LLM sub-query decomposition disciplined by the facet frame to reach HR-scale coverage.
