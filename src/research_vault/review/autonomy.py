@@ -800,6 +800,43 @@ def _op_snowball(
     }
 
 
+def _op_relevance_screen(
+    *,
+    corpus_raw: str,
+    protocol: str,
+    out: str,
+    **_: Any,
+) -> Any:
+    """The ``relevance_screen`` tool op (PR-1, design 2026-07-10-trustworthy-
+    curation-relevance-gate-design.md §3d) — the mechanical snowball-screen
+    gate between ``review-snowball`` and ``review-curate``. Thin call-
+    through to ``review.relevance.screen_corpus_raw`` (charter §6 — no
+    mechanism reimplemented here).
+    """
+    from research_vault.review.relevance import screen_corpus_raw
+
+    counts = screen_corpus_raw(Path(corpus_raw), Path(protocol), Path(out))
+    return {"out": out, **counts}
+
+
+def _op_relevance_verify_prep(
+    *,
+    corpus: str,
+    protocol: str,
+    out: str,
+    **_: Any,
+) -> Any:
+    """The ``relevance_verify_prep`` tool op (PR-1, design §3b) — builds the
+    cold verifier's canary-seeded input artifact from the final
+    ``_corpus.md``. Thin call-through to
+    ``review.relevance.build_verify_input``.
+    """
+    from research_vault.review.relevance import build_verify_input
+
+    result = build_verify_input(Path(corpus), Path(protocol), Path(out))
+    return {"out": out, **result}
+
+
 def _op_coverage(*, project: str, scope: str, config: Any = None, **_: Any) -> Any:
     from research_vault.config import load_config
     from research_vault.review import coverage_report
@@ -819,6 +856,8 @@ def _op_relations(*, project: str, scope: str, config: Any = None, **_: Any) -> 
 OP_REGISTRY: dict[str, Callable[..., Any]] = {
     "sweep": _op_sweep,
     "snowball": _op_snowball,
+    "relevance_screen": _op_relevance_screen,
+    "relevance_verify_prep": _op_relevance_verify_prep,
     "coverage": _op_coverage,
     "relations": _op_relations,
 }

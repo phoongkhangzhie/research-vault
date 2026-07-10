@@ -781,9 +781,14 @@ def _build_phase1_manifest(
 ) -> dict[str, Any]:
     """Build the Phase-1 DAG manifest.
 
-    Phase-1 nodes (7):
+    Phase-1 nodes (10 — PR-1, design 2026-07-10-trustworthy-curation-
+    relevance-gate-design.md, adds review-relevance-screen, review-curate's
+    input rewire, review-relevance-verify-prep, and review-relevance-verify
+    to the prior 7-node topology):
       review-scope → [HG:approve-protocol] → review-search (tool) → review-screen (agent)
-          → review-snowball (tool) → review-curate (agent) → coverage-gate (auto-resolved)
+          → review-snowball (tool) → review-relevance-screen (tool) → review-curate (agent)
+          → review-relevance-verify-prep (tool) → review-relevance-verify (agent)
+          → coverage-gate (auto-resolved)
 
     Topology:
       - review-scope:     agent; produces _protocol.md
@@ -797,12 +802,40 @@ def _build_phase1_manifest(
       - review-snowball:  TOOL (op "snowball"); needs afterok+watch on _screen.md;
                           produces _corpus_raw.md + _saturation.md (the both-
                           direction multi-round saturation walk — no LLM)
-      - review-curate:    agent (thin judgment layer); reads _corpus_raw.md +
-                          _saturation.md, concept-tags + applies inclusion/
-                          exclusion, produces _corpus.md (+ _coverage-gaps.md
-                          on backstop-termination)
-      - coverage-gate:    auto-resolved (phase boundary — Phase-2 static fan-out
-                          authorized here)
+      - review-relevance-screen: TOOL (op "relevance_screen"); needs
+                          afterok+watch on _corpus_raw.md; mechanically
+                          rejects high-confidence off-domain candidates
+                          BEFORE review-curate's bulk judgment pass ever
+                          sees the pool (the snowball is the actual
+                          contamination source — citation-promiscuous,
+                          query-scoping can't help it); produces
+                          _corpus_raw_screened.md (no LLM).
+      - review-curate:    agent (thin judgment layer); reads
+                          _corpus_raw_screened.md + _saturation.md,
+                          concept-tags + applies inclusion/exclusion,
+                          produces _corpus.md WITH an abstract column (+
+                          _coverage-gaps.md on backstop-termination)
+      - review-relevance-verify-prep: TOOL (op "relevance_verify_prep");
+                          needs afterok+watch on _corpus.md; builds the
+                          canary-seeded per-paper input for the cold
+                          verifier; produces _corpus_verify_input.md (no LLM).
+      - review-relevance-verify: COLD agent (rejects-only, no stake in
+                          review-curate's decisions); re-applies the
+                          relevance calibration to the FINAL corpus,
+                          canary-verified; produces _relevance-verdict.md
+                          (structured IN/OFF_DOMAIN/UNCERTAIN per citekey —
+                          this is the guarantee, before the expensive
+                          Phase-2 fan-out).
+      - coverage-gate:    auto-resolved (phase boundary — Phase-2 static
+                          fan-out authorized here). Reads
+                          review-relevance-verify's structured verdict:
+                          canary-abort or a missing/empty verdict set ->
+                          HALT-DECLARE; off-domain fraction >= ~15-20% ->
+                          HALT-DECLARE (curate/search is fundamentally
+                          broken, not a trim); below that threshold ->
+                          auto-prune the off-domain citekeys + declare the
+                          residue, run proceeds. See
+                          ``dag/verbs.py::_evaluate_autonomous_gate``.
 
     Why split each of review-search/review-snowball into tool+agent: the
     mechanical fraction (fetch/dedup/derivative-discount/rank/graph-walk/
@@ -844,8 +877,11 @@ def _build_phase1_manifest(
     search_hits_path = str(review_dir / "_search_hits.md")
     screen_path = str(review_dir / "_screen.md")
     corpus_raw_path = str(review_dir / "_corpus_raw.md")
+    corpus_raw_screened_path = str(review_dir / "_corpus_raw_screened.md")
     saturation_path = str(review_dir / "_saturation.md")
     corpus_path = str(review_dir / "_corpus.md")
+    corpus_verify_input_path = str(review_dir / "_corpus_verify_input.md")
+    relevance_verdict_path = str(review_dir / "_relevance-verdict.md")
 
     nodes: list[dict[str, Any]] = []
 
@@ -950,35 +986,111 @@ def _build_phase1_manifest(
         ],
     })
 
-    # 6. review-curate — thin AGENT judgment layer: concept-tag the raw
-    #    corpus, apply inclusion/exclusion, emit the FINAL _corpus.md (+
-    #    _coverage-gaps.md on backstop-termination or a tag-under-counting
-    #    concern — the declared concept-tag-half caveat).
+    # 6. review-relevance-screen — TOOL node (PR-1, design 2026-07-10-
+    #    trustworthy-curation-relevance-gate-design.md §3d, CORE not
+    #    deferred): the mechanical, deterministic relevance pre-filter over
+    #    the raw snowball pool. The snowball is the ACTUAL contamination
+    #    source (citation-promiscuous — a paper cites a galaxy survey for a
+    #    stats method; query-scoping can't help it), so it is gated here,
+    #    before review-curate's bulk judgment pass ever sees the pool.
+    nodes.append({
+        "id": "review-relevance-screen",
+        "type": "tool",
+        "op": "relevance_screen",
+        "label": "Mechanically screen the raw snowball pool for high-confidence off-domain papers",
+        "args": {
+            "corpus_raw": corpus_raw_path,
+            "protocol": protocol_path,
+            "out": corpus_raw_screened_path,
+        },
+        "produces": {"_corpus_raw_screened.md": corpus_raw_screened_path},
+        "needs": [
+            {
+                "from": "review-snowball",
+                "edge": "afterok",
+                "watch": f"artifact:{corpus_raw_path}+fresh",
+            }
+        ],
+    })
+
+    # 7. review-curate — thin AGENT judgment layer: concept-tag the
+    #    RELEVANCE-SCREENED corpus, apply inclusion/exclusion, emit the
+    #    FINAL _corpus.md (+ _coverage-gaps.md on backstop-termination or a
+    #    tag-under-counting concern — the declared concept-tag-half caveat).
     nodes.append({
         "id": "review-curate",
         "type": "agent",
-        "label": "Concept-tag + curate the raw corpus into the final _corpus.md",
+        "label": "Concept-tag + curate the relevance-screened corpus into the final _corpus.md",
         "spec": _spec("review_curate_tips"),
         "reads": [
             _rel("literature"),
             _rel("concepts"),
             _rel("mocs"),
             protocol_path,
-            corpus_raw_path,
+            corpus_raw_screened_path,
             saturation_path,
         ],
         "produces": {"_corpus.md": corpus_path},
         "needs": [
             {
-                "from": "review-snowball",
+                "from": "review-relevance-screen",
                 "edge": "afterok",
-                "watch": f"artifact:{saturation_path}+fresh",
+                "watch": f"artifact:{corpus_raw_screened_path}+fresh",
             }
         ],
     })
 
-    # 7. coverage-gate — human-go Phase BOUNDARY (auto-resolved in practice —
-    #    see _AUTONOMOUS_GATE_IDS in dag/verbs.py)
+    # 8. review-relevance-verify-prep — TOOL node (PR-1, design §3b): build
+    #    the cold verifier's canary-seeded input from the FINAL _corpus.md.
+    nodes.append({
+        "id": "review-relevance-verify-prep",
+        "type": "tool",
+        "op": "relevance_verify_prep",
+        "label": "Prepare the canary-seeded input for the cold final-corpus relevance verifier",
+        "args": {
+            "corpus": corpus_path,
+            "protocol": protocol_path,
+            "out": corpus_verify_input_path,
+        },
+        "produces": {"_corpus_verify_input.md": corpus_verify_input_path},
+        "needs": [
+            {
+                "from": "review-curate",
+                "edge": "afterok",
+                "watch": f"artifact:{corpus_path}+fresh",
+            }
+        ],
+    })
+
+    # 9. review-relevance-verify — COLD AGENT node (PR-1, design §3b): the
+    #    guarantee. A fresh subagent (no stake in review-curate's
+    #    decisions) re-applies the relevance calibration to every [NEW]
+    #    paper in the final corpus, canary-verified, BEFORE coverage-gate
+    #    authorizes the expensive Phase-2 relate fan-out.
+    nodes.append({
+        "id": "review-relevance-verify",
+        "type": "agent",
+        "label": "Cold, rejects-only relevance re-check of the final corpus (canary-verified)",
+        "spec": _spec("review_relevance_verify_tips"),
+        "reads": [
+            corpus_verify_input_path,
+            protocol_path,
+        ],
+        "produces": {"_relevance-verdict.md": relevance_verdict_path},
+        "needs": [
+            {
+                "from": "review-relevance-verify-prep",
+                "edge": "afterok",
+                "watch": f"artifact:{corpus_verify_input_path}+fresh",
+            }
+        ],
+    })
+
+    # 10. coverage-gate — human-go Phase BOUNDARY (auto-resolved in practice —
+    #    see _AUTONOMOUS_GATE_IDS in dag/verbs.py). Reads
+    #    review-relevance-verify's structured verdict (design §3c: below
+    #    ~15-20% off-domain -> auto-prune + declare, run proceeds; at/above
+    #    -> HALT-DECLARE) IN FRONT OF the saturation-based disposition.
     #    Operator confirms "these are the papers" before N parallel relates dispatch.
     #    On approval → rv review expand emits Phase-2.
     nodes.append({
@@ -990,7 +1102,7 @@ def _build_phase1_manifest(
             "assert coverage via `rv review <project> coverage <scope>` — do not eyeball. "
             "Then run: rv review <project> expand <scope> to emit Phase-2."
         ),
-        "needs": [_afterok("review-curate")],
+        "needs": [_afterok("review-relevance-verify")],
     })
 
     manifest: dict[str, Any] = {

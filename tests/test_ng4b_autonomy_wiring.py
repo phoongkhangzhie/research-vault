@@ -181,6 +181,35 @@ def _mark_succeeded(store, run_id: str, node_id: str) -> None:
     assert rc == 0, f"cmd_complete({node_id}) failed"
 
 
+def _drive_through_relevance_verify(run_id: str, review_dir: Path, store, citekeys: list[str]) -> None:
+    """review-relevance-verify-prep (TOOL, real op — deterministic, no
+    network) auto-executes on the next tick, building
+    _corpus_verify_input.md from the FINAL _corpus.md already written.
+    review-relevance-verify (COLD agent) "completes": a canary-clean,
+    all-IN verdict (PR-1, design 2026-07-10-trustworthy-curation-
+    relevance-gate-design.md §3b) so coverage-gate can resolve exactly as
+    before this feature."""
+    from research_vault.dag.verbs import cmd_tick
+    from research_vault.review.relevance import (
+        CANARY_IN_SCOPE_CITEKEY, CANARY_OFF_DOMAIN_CITEKEY, IN, OFF_DOMAIN,
+    )
+
+    cmd_tick(argparse.Namespace(run_id=run_id))
+    rs = store.load(run_id)
+    assert rs.node_status("review-relevance-verify-prep") == "succeeded", (
+        rs.node_states.get("review-relevance-verify-prep")
+    )
+
+    verdict_path = review_dir / "_relevance-verdict.md"
+    lines = ["| Citekey | Verdict |", "|---|---|"]
+    for ck in citekeys:
+        lines.append(f"| {ck} | {IN} |")
+    lines.append(f"| {CANARY_IN_SCOPE_CITEKEY} | {IN} |")
+    lines.append(f"| {CANARY_OFF_DOMAIN_CITEKEY} | {OFF_DOMAIN} |")
+    verdict_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _mark_succeeded(store, run_id, "review-relevance-verify")
+
+
 class TestSelfAdvancingRunner:
     def _kick_review(self, tmp_instance: Path, cfg, scope: str = "scope-e2e"):
         from research_vault.review import cmd_new
@@ -290,6 +319,7 @@ class TestSelfAdvancingRunner:
             (review_dir / "_coverage-gaps.md").write_text("open frontier\n", encoding="utf-8")
         cmd_tick(argparse.Namespace(run_id=run_id))
         _mark_succeeded(store, run_id, "review-curate")
+        _drive_through_relevance_verify(run_id, review_dir, store, ["alpha2024", "beta2024"])
 
     def test_kick_walk_self_advances_and_auto_emits_phase2_on_go(self, tmp_instance: Path, monkeypatch):
         from research_vault.config import load_config
@@ -1069,6 +1099,7 @@ class TestCoverageGateSourceDarkAutoWiring(TestSelfAdvancingRunner):
             (review_dir / "_coverage-gaps.md").write_text("open frontier\n", encoding="utf-8")
         cmd_tick(argparse.Namespace(run_id=run_id))
         _mark_succeeded(store, run_id, "review-curate")
+        _drive_through_relevance_verify(run_id, review_dir, store, ["alpha2024", "beta2024"])
 
     def test_declared_dark_source_halts_and_names_it(self, tmp_instance: Path, monkeypatch):
         from research_vault.config import load_config
