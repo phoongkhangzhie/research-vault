@@ -553,7 +553,8 @@ def build_reframe_escalation_payload(
 
 
 # ---------------------------------------------------------------------------
-# §5 — Phase-1: scope -> framework-propose -> [HG: approve-framework]
+# §5 — Phase-1: scope -> framework-lens-<L> xN (fan-out) -> framework-synthesize
+#      -> framework-critic -> approve-framework (auto-resolved)
 # ---------------------------------------------------------------------------
 
 def _compute_corpus_hash_note(project: str, slug: str, project_notes_dir: Path) -> str:

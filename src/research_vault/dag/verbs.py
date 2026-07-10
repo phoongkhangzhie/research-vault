@@ -2325,9 +2325,18 @@ def cmd_templates(args: argparse.Namespace) -> int:
         has_scaffolder = entry.scaffolder is not None
         print(f"  scaffolder exists: {'yes' if has_scaffolder else 'no'}")
         if entry.human_go_gates:
-            print(f"  human-go gates ({len(entry.human_go_gates)}):")
+            genuine = [g for g in entry.human_go_gates if not g.autonomous]
+            autonomous = [g for g in entry.human_go_gates if g.autonomous]
+            # The count reflects GENUINE human-keypress gates only — an
+            # autonomous gate (resolved by review.autonomy's gate-policy
+            # engine, no human keypress) must never inflate this number;
+            # doing so would contradict the very next line, which marks
+            # that same gate autonomous.
+            suffix = f" + {len(autonomous)} autonomous" if autonomous else ""
+            print(f"  human-go gates ({len(genuine)}{suffix}):")
             for g in entry.human_go_gates:
-                print(f"    [{g.node_id}] {g.label}")
+                marker = " [AUTONOMOUS — resolves without a human keypress]" if g.autonomous else ""
+                print(f"    [{g.node_id}]{marker} {g.label}")
                 if g.freeze_action:
                     print(f"      freeze: {g.freeze_action}")
         else:
