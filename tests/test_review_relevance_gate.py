@@ -451,6 +451,22 @@ class TestClassifyRelevanceVerdict:
         assert result.disposition == GO_WITH_RESIDUE
         assert result.evidence["off_domain_citekeys"] == ["contaminant1"]
 
+    def test_moderate_fraction_25pct_auto_prunes_under_default(self):
+        """Pins the 0.30 default: ~25% off-domain auto-prunes + proceeds
+        (GO-WITH-RESIDUE). Under the old 0.20 threshold this HALTed; the
+        threshold was raised to sit above the cold verifier's ~16% observed
+        natural rate so a citation-promiscuous domain doesn't false-HALT."""
+        verdicts = {f"paper{i}": "IN" for i in range(9)}
+        for i in range(3):
+            verdicts[f"contaminant{i}"] = "OFF_DOMAIN"  # 3/12 = 25%
+        payload = {
+            "exists": True, "canary_aborted": False, "empty_verdict_set": False,
+            "verdicts": verdicts,
+        }
+        result = rel.classify_relevance_verdict(payload)
+        from research_vault.review.autonomy import GO_WITH_RESIDUE
+        assert result.disposition == GO_WITH_RESIDUE
+
     def test_large_fraction_50pct_halts(self):
         """Mutation-test the HALT boundary: a fixture at ~50% off-domain
         (the real grounding-run 51/97 ratio) must HALT-DECLARE, never silently prune
