@@ -42,12 +42,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-def _protocol_note(path: Path, *, counter_position: str | None = "Opposing view: X does not scale.") -> Path:
+def _protocol_note(
+    path: Path,
+    *,
+    counter_position: str | None = "Opposing view: X does not scale.",
+    deliverable: str | None = None,
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if counter_position is None:
         fm = "type: literature\nquestion: does X scale?\n"
     else:
         fm = f"type: literature\nquestion: does X scale?\ncounter-position: {counter_position}\n"
+    if deliverable is not None:
+        fm += f"deliverable: {deliverable}\n"
     path.write_text(f"---\n{fm}---\n\n# Protocol\n", encoding="utf-8")
     return path
 
@@ -165,6 +172,93 @@ class TestCheckProtocolGate:
         ok, msg = check_protocol_gate(p)
         assert ok is True
         assert msg == "OK"
+
+
+# ---------------------------------------------------------------------------
+# 1b. check_protocol_gate — deliverable field validation (default review,
+#     opt-in manuscript, reject non-vocab)
+# ---------------------------------------------------------------------------
+
+class TestCheckProtocolGateDeliverable:
+    def test_missing_deliverable_field_still_passes_defaults_review(self, tmp_path):
+        """Absence of `deliverable` is the safe/smaller-commitment default
+        (review, not a fail-closed halt) — the gate must NOT block on it."""
+        from research_vault.review import check_protocol_gate
+        p = _protocol_note(tmp_path / "_protocol.md", deliverable=None)
+        ok, msg = check_protocol_gate(p)
+        assert ok is True
+        assert msg == "OK"
+
+    def test_explicit_review_deliverable_passes(self, tmp_path):
+        from research_vault.review import check_protocol_gate
+        p = _protocol_note(tmp_path / "_protocol.md", deliverable="review")
+        ok, msg = check_protocol_gate(p)
+        assert ok is True
+
+    def test_explicit_manuscript_deliverable_passes(self, tmp_path):
+        from research_vault.review import check_protocol_gate
+        p = _protocol_note(tmp_path / "_protocol.md", deliverable="manuscript")
+        ok, msg = check_protocol_gate(p)
+        assert ok is True
+
+    def test_malformed_deliverable_value_blocks_loudly(self, tmp_path):
+        """A typo'd/non-vocab `deliverable` value (e.g. 'paper') is a
+        mis-stated intent, not an absence — reject loudly, never silently
+        default it away."""
+        from research_vault.review import check_protocol_gate
+        p = _protocol_note(tmp_path / "_protocol.md", deliverable="paper")
+        ok, msg = check_protocol_gate(p)
+        assert ok is False
+        assert "deliverable" in msg
+
+    def test_blank_deliverable_value_still_passes_defaults_review(self, tmp_path):
+        """A present-but-blank `deliverable:` field is treated like absence
+        (default review), not like a malformed non-vocab value."""
+        from research_vault.review import check_protocol_gate
+        p = _protocol_note(tmp_path / "_protocol.md", deliverable="")
+        ok, msg = check_protocol_gate(p)
+        assert ok is True
+
+
+# ---------------------------------------------------------------------------
+# 1c. read_protocol_deliverable — the read-side helper `_emit_next_phase`
+#     uses at approve-review to decide manuscript-emission
+# ---------------------------------------------------------------------------
+
+class TestReadProtocolDeliverable:
+    def test_missing_file_defaults_review(self, tmp_path):
+        from research_vault.review import read_protocol_deliverable
+        assert read_protocol_deliverable(tmp_path / "nope" / "_protocol.md") == "review"
+
+    def test_absent_field_defaults_review(self, tmp_path):
+        from research_vault.review import read_protocol_deliverable
+        p = _protocol_note(tmp_path / "_protocol.md", deliverable=None)
+        assert read_protocol_deliverable(p) == "review"
+
+    def test_explicit_review_reads_review(self, tmp_path):
+        from research_vault.review import read_protocol_deliverable
+        p = _protocol_note(tmp_path / "_protocol.md", deliverable="review")
+        assert read_protocol_deliverable(p) == "review"
+
+    def test_explicit_manuscript_reads_manuscript(self, tmp_path):
+        from research_vault.review import read_protocol_deliverable
+        p = _protocol_note(tmp_path / "_protocol.md", deliverable="manuscript")
+        assert read_protocol_deliverable(p) == "manuscript"
+
+    def test_case_and_whitespace_tolerant(self, tmp_path):
+        from research_vault.review import read_protocol_deliverable
+        p = _protocol_note(tmp_path / "_protocol.md", deliverable="  Manuscript  ")
+        assert read_protocol_deliverable(p) == "manuscript"
+
+    def test_malformed_value_defaults_review_not_crash(self, tmp_path):
+        """Defensive: by the time approve-review runs, approve-protocol's
+        gate should already have rejected a malformed value — but this
+        read-side helper never enforces the vocab itself, so an unexpected
+        value here must fall back to the conservative default, never crash
+        or accidentally read as manuscript."""
+        from research_vault.review import read_protocol_deliverable
+        p = _protocol_note(tmp_path / "_protocol.md", deliverable="paper")
+        assert read_protocol_deliverable(p) == "review"
 
 
 # ---------------------------------------------------------------------------

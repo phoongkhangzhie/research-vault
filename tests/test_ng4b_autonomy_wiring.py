@@ -197,7 +197,7 @@ class TestSelfAdvancingRunner:
         store = RunStore.from_config(cfg)
         return run_id, review_dir, store
 
-    def _drive_to_coverage_gate(self, run_id: str, review_dir: Path, store, cfg, *, stop_reason: str, monkeypatch=None):
+    def _drive_to_coverage_gate(self, run_id: str, review_dir: Path, store, cfg, *, stop_reason: str, monkeypatch=None, deliverable: str | None = None):
         """review-scope -> approve-protocol -> review-search (tool) ->
         review-screen (agent) -> review-snowball (tool) -> review-curate
         (agent), landing coverage-gate as 'pending'/ready — the point where
@@ -243,12 +243,16 @@ class TestSelfAdvancingRunner:
         monkeypatch.setitem(_auto.OP_REGISTRY, "snowball", _fake_snowball)
 
         # review-scope "completes": writes _protocol.md with a counter-position
-        # (L-2 gate requirement for approve-protocol).
+        # (L-2 gate requirement for approve-protocol). `deliverable` is left
+        # unset by default here (-> the safe "review" default at
+        # approve-review); callers that need the manuscript auto-chain pass
+        # deliverable="manuscript" explicitly.
         protocol_path = review_dir / "_protocol.md"
-        protocol_path.write_text(
-            "---\ncounter-position: a real counter-position\n---\n\nProtocol.\n",
-            encoding="utf-8",
-        )
+        _protocol_fm = "---\ncounter-position: a real counter-position\n"
+        if deliverable is not None:
+            _protocol_fm += f"deliverable: {deliverable}\n"
+        _protocol_fm += "---\n\nProtocol.\n"
+        protocol_path.write_text(_protocol_fm, encoding="utf-8")
         _mark_succeeded(store, run_id, "review-scope")
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
@@ -469,7 +473,7 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         cfg = load_config()
         scope = "scope-chain"
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch, deliverable="manuscript")
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
@@ -599,7 +603,7 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         cfg = load_config()
         scope = "scope-chain-residue"
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="backstop:3-waves", monkeypatch=monkeypatch)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="backstop:3-waves", monkeypatch=monkeypatch, deliverable="manuscript")
         cmd_tick(argparse.Namespace(run_id=run_id))
         rs = store.load(run_id)
         child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
@@ -679,6 +683,65 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
             "REVISE must emit NOTHING — no manuscripts/<scope>/ folder"
         )
 
+    def test_approve_review_go_default_deliverable_is_terminal_no_manuscript(self, tmp_instance: Path, monkeypatch):
+        """The DEFAULT: no `deliverable` field in _protocol.md -> GO resolves
+        approve-review, but manuscript emission is TERMINAL — no child_runs
+        entry, no manuscripts/<scope>/ tree. This is the review-only-by-
+        default acceptance case."""
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+
+        cfg = load_config()
+        scope = "scope-deliv-default"
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
+        # deliverable=None (default) — no field written into _protocol.md.
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        cmd_tick(argparse.Namespace(run_id=run_id))
+        rs = store.load(run_id)
+        child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
+
+        self._drive_phase2_to_approve_review(child_run_id, review_dir, store, critic_verdict="PASS")
+        cmd_tick(argparse.Namespace(run_id=child_run_id))
+        child_rs = store.load(child_run_id)
+
+        assert child_rs.node_status("approve-review") == "succeeded"
+        assert "GO" in child_rs.node_states["approve-review"]["decision_note"]
+        # No manuscript emission — the review-only terminal outcome.
+        assert child_rs.node_states["approve-review"]["deliverable"] == "review"
+        assert "emitted_next_phase_run_id" not in child_rs.node_states["approve-review"]
+        assert "approve-review" not in child_rs.meta.get("child_runs", {})
+        assert "review complete" in child_rs.node_states["approve-review"]["phase_transition_note"]
+
+        project_notes_dir = review_dir.parent.parent
+        tree_root = project_notes_dir / "manuscripts" / scope
+        assert not tree_root.exists()
+
+    def test_approve_review_go_explicit_review_deliverable_terminal(self, tmp_instance: Path, monkeypatch):
+        """Explicit `deliverable: review` behaves identically to the default
+        (absent) case — terminal, no manuscript."""
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+
+        cfg = load_config()
+        scope = "scope-deliv-explicit-review"
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch, deliverable="review")
+        cmd_tick(argparse.Namespace(run_id=run_id))
+        rs = store.load(run_id)
+        child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
+
+        self._drive_phase2_to_approve_review(child_run_id, review_dir, store, critic_verdict="PASS")
+        cmd_tick(argparse.Namespace(run_id=child_run_id))
+        child_rs = store.load(child_run_id)
+
+        assert child_rs.node_status("approve-review") == "succeeded"
+        assert "emitted_next_phase_run_id" not in child_rs.node_states["approve-review"]
+        assert "approve-review" not in child_rs.meta.get("child_runs", {})
+
+        project_notes_dir = review_dir.parent.parent
+        tree_root = project_notes_dir / "manuscripts" / scope
+        assert not tree_root.exists()
+
     def test_approve_review_full_adopt_existing_scaffold(self, tmp_instance: Path, monkeypatch):
         """F4 (#205 emission-review teeth gap): the FULL adopt-existing-
         scaffold branch of `_emit_next_phase`'s approve-review arm —
@@ -703,7 +766,7 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         cfg = load_config()
         scope = "scope-full-adopt"
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch, deliverable="manuscript")
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
         rs = store.load(run_id)
@@ -792,6 +855,53 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         # The adopted run genuinely started (real frontier, not a stub).
         ms_rs = store.load(ms_run_id)
         assert ms_rs.node_status("scope") == "pending"
+
+
+class TestDeliverableGateHasTeeth(TestApproveReviewAutoChainsToManuscript):
+    """Mutation-test proof that the deliverable-gate early-return in
+    `_emit_next_phase`'s approve-review arm is load-bearing — not vacuous
+    against some other unrelated block. Neutralizing the read helper to
+    always report "manuscript" makes the default-no-field case emit a
+    manuscript tree (RED against the acceptance in
+    `test_approve_review_go_default_deliverable_is_terminal_no_manuscript`),
+    proving that test is actually sensitive to this gate."""
+
+    def test_mutation_neutralize_deliverable_read_forces_manuscript_emission(self, tmp_instance: Path, monkeypatch):
+        import research_vault.dag.verbs as verbs_mod
+        from research_vault.config import load_config
+        from research_vault.dag.verbs import cmd_tick
+
+        # Neutralize: pretend every protocol says "manuscript", regardless
+        # of what's actually frozen in _protocol.md.
+        monkeypatch.setattr(
+            "research_vault.review.read_protocol_deliverable", lambda p: "manuscript"
+        )
+
+        cfg = load_config()
+        scope = "scope-deliv-mutation"
+        run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
+        # deliverable=None (default review) written into _protocol.md — but
+        # the neutralized read always reports "manuscript".
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        cmd_tick(argparse.Namespace(run_id=run_id))
+        rs = store.load(run_id)
+        child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
+
+        self._drive_phase2_to_approve_review(child_run_id, review_dir, store, critic_verdict="PASS")
+        cmd_tick(argparse.Namespace(run_id=child_run_id))
+        child_rs = store.load(child_run_id)
+
+        # With the gate neutralized, the default-review protocol now WRONGLY
+        # emits a manuscript — confirms the real gate (not something else)
+        # is what makes the default case terminal.
+        assert "emitted_next_phase_run_id" in child_rs.node_states["approve-review"], (
+            "with read_protocol_deliverable neutralized to always report "
+            "'manuscript', the default (review) protocol must now WRONGLY "
+            "emit — this proves the real gate is load-bearing"
+        )
+        project_notes_dir = review_dir.parent.parent
+        tree_root = project_notes_dir / "manuscripts" / scope
+        assert tree_root.exists()
 
 
 # ===========================================================================

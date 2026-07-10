@@ -707,6 +707,14 @@ def _emit_next_phase(
     pre-binds the frozen corpus (``reviews/<scope_id>/_corpus.md``) to the
     new manuscript automatically.
 
+    ``approve-review``'s manuscript emission is further gated on the frozen
+    ``deliverable`` field in ``_protocol.md`` (2026-07-09, review-only
+    default / manuscript opt-in): ``deliverable: manuscript`` emits as
+    above; ``deliverable: review`` (or absent -> default ``review``) makes
+    this GO **terminal** — the review stands alone as the knowledge
+    artifact, no manuscript tree, no ``child_runs`` entry recorded for this
+    node. See ``review.read_protocol_deliverable``.
+
     A no-op for every other node id (nothing to expand after
     ``approve-manuscript`` — it is the terminal gate of its DAG).
 
@@ -765,6 +773,29 @@ def _emit_next_phase(
                     f"{manifest.get('run_id')!r} project={manifest.get('project')!r}"
                 )
             project, scope_id = derived
+
+            # Deliverable gate (2026-07-09): manuscript emission is OPT-IN,
+            # chosen ONCE at the human gate the operator already touches
+            # (approve-protocol), via the frozen `deliverable` field in
+            # _protocol.md. `deliverable: manuscript` -> emit (below,
+            # unchanged). `deliverable: review` (or absent -> default
+            # review, the safe/smaller commitment) -> approve-review's GO
+            # is TERMINAL: the review stands alone as the knowledge
+            # artifact, no manuscript tree, no child_runs entry. This is a
+            # NEW early-return guard at the top of the emit decision — the
+            # adopt branches, the F2 partial-adopt-reenters-Phase-1 fix,
+            # and child_runs idempotency below are otherwise untouched.
+            from ..review import read_protocol_deliverable as _read_deliverable
+            protocol_path = cfg.project_notes_dir(project) / "reviews" / scope_id / "_protocol.md"
+            deliverable = _read_deliverable(protocol_path)
+            ns["deliverable"] = deliverable
+            if deliverable != "manuscript":
+                ns["phase_transition_note"] = (
+                    f"deliverable={deliverable} — review complete, manuscript "
+                    f"not emitted (opt-in via protocol deliverable field)"
+                )
+                return
+
             from .. import manuscript as _manuscript
 
             tree_root = cfg.project_notes_dir(project) / "manuscripts" / scope_id

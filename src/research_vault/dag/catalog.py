@@ -237,22 +237,29 @@ LOOP_CATALOG: list[LoopEntry] = [
                 node_id="approve-review",
                 label=(
                     "Gate 3: Approve review — [BLOCK] count + counter-position verdict; "
-                    "autonomous gate, auto-emits + auto-starts a NEW manuscript tree "
-                    "(manuscripts/<scope>/, slug == scope id, no transform) on GO/"
-                    "GO-WITH-RESIDUE — no `rv manuscript new`/`expand` hand-run needed"
+                    "autonomous gate. On GO/GO-WITH-RESIDUE, the frozen `deliverable` "
+                    "field in _protocol.md decides the outcome: `deliverable: manuscript` "
+                    "auto-emits + auto-starts a NEW manuscript tree (manuscripts/<scope>/, "
+                    "slug == scope id, no transform) — no `rv manuscript new`/`expand` "
+                    "hand-run needed; `deliverable: review` (or absent — the default) "
+                    "is TERMINAL — the review stands alone as the knowledge artifact, "
+                    "no manuscript emitted"
                 ),
                 freeze_action=None,
                 autonomous=True,
             ),
         ],
         topology_summary=(
-            "review-scope → [HG:approve-protocol] → review-search → review-screen → "
-            "review-snowball → review-curate → coverage-gate (auto-resolved) → "
-            "(Phase-2) relate-* → review-synthesize → review-coverage-critic → "
-            "approve-review (auto-resolved) → ⟶EMITS⟶ manuscript Phase-1 "
+            "review-scope (proposes `deliverable: review|manuscript`) → "
+            "[HG:approve-protocol] (confirms/flips deliverable) → review-search → "
+            "review-screen → review-snowball → review-curate → "
+            "coverage-gate (auto-resolved) → (Phase-2) relate-* → review-synthesize → "
+            "review-coverage-critic → approve-review (auto-resolved) → "
+            "[if deliverable=manuscript] ⟶EMITS⟶ manuscript Phase-1 "
             "(scope → framework-lens-<L> ×N (fan-out) → framework-synthesize → "
             "framework-critic → approve-framework (auto-resolved)) → Phase-2 "
-            "(outline → draft → assemble) → approve-manuscript (auto-resolved)"
+            "(outline → draft → assemble) → approve-manuscript (auto-resolved); "
+            "[else deliverable=review, default] review is TERMINAL — no manuscript"
         ),
     ),
 
