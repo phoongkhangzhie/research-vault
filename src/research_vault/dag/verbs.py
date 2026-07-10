@@ -809,6 +809,16 @@ def _evaluate_autonomous_gate(
             remediation_state=run_state.meta.get("critic_backtrack_state"),
         )
         if disposition.disposition == _autonomy.CRITIC_BACKTRACK:
+            # PR-3b: reaches review.incremental_relate.run_incremental_relate
+            # (via run_bounded_critic_backtrack -> run_directed_remediation_
+            # round -> run_incremental_relate_for_new_citekeys) for the
+            # newly-found counter-papers — previously unreached (PR-3
+            # shipped the module but nothing here called it). literature_dir
+            # is the standard project_notes_dir/literature layout
+            # (review_dir == project_notes_dir/reviews/<scope>);
+            # relate_fn/escalate_relate_fn default to the REAL, live-judge
+            # -backed callables (None here resolves inside
+            # run_incremental_relate_for_new_citekeys — see its docstring).
             disposition = _remediation.run_bounded_critic_backtrack(
                 run_state.meta,
                 disposition,
@@ -818,6 +828,7 @@ def _evaluate_autonomous_gate(
                 deviations_path=review_dir / "_deviations.md",
                 out_dir=review_dir,
                 critic_note_path=critic_note_path,
+                literature_dir=review_dir.parent.parent / "literature",
             )
         return disposition
 

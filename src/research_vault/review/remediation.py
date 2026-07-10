@@ -34,11 +34,13 @@ Stdlib only (+ intra-package imports). sr: NG-6a
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any, Callable
 
 from ..cite import _make_citekey
+from ..note import _parse_frontmatter
 from .autonomy import (
     CRITIC_BACKTRACK,
     GO_WITH_RESIDUE,
@@ -613,6 +615,206 @@ def _extract_snowball_hits(tool_op_result: Any) -> list[Any]:
 _RELAXED_PER_CELL_LIMIT = 40  # a backtrack round intensifies vs. the sweep op's default 20
 
 
+# ---------------------------------------------------------------------------
+# PR-3b: wiring the backtrack's newly-found counter-papers through PR-3's
+# ``review.incremental_relate`` module (D-5b) — previously built + unit-
+# tested but UNREACHED from the running loop (zero references from
+# dag/verbs.py). This section owns ONLY the plumbing: filtering ``added``
+# citekeys to those with an already-distilled ``literature/<citekey>.md``
+# note (``run_incremental_relate``'s own caller contract), and supplying the
+# REAL, live-judge-backed ``relate_fn``/``escalate_relate_fn`` defaults when
+# the caller doesn't inject its own — mirrors the ``judge_fn=None ->
+# _default_judge_fn`` seam already used by ``counter_facet_guard.py`` /
+# ``manuscript/check_gates.py`` (charter §6, no new injection convention).
+# The relation JUDGMENT itself (does paper A relate to paper B, and how)
+# stays entirely inside these two default functions + the live LLM call —
+# ``incremental_relate.py``'s own candidate-generation/bidirectional-write/
+# island-escalation mechanism is untouched.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_RELATE_JUDGE_MODEL: str = os.environ.get("RV_JUDGE_MODEL", "")
+
+_RELATE_VERDICT_RE = re.compile(r"\[(SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS|NONE)\]", re.IGNORECASE)
+
+_RELATE_NOTE_CHAR_CAP = 3000
+
+_RELATE_JUDGE_RUBRIC = (
+    "You are judging whether two research papers relate to each other, for a "
+    "systematic-review corpus's paper->paper edge graph.\n\n"
+    "Read both paper summaries below and classify their relation as EXACTLY "
+    "one of:\n"
+    "  [SUPPORTS] — paper B corroborates/reinforces paper A's claim (reciprocal).\n"
+    "  [CONTRADICTS] — paper B's findings refute or conflict with paper A's "
+    "claim (refutational).\n"
+    "  [PARTIAL] — paper B bears on paper A's claim but only partially, or "
+    "under different conditions/scope (line-of-argument).\n"
+    "  [EXTENDS] — paper B builds on/generalizes paper A's claim without "
+    "contradicting it (line-of-argument).\n"
+    "  [NONE] — the two papers do not meaningfully relate; no edge should be "
+    "written.\n\n"
+    "=== PAPER A ({A_KEY}) ===\n{A_TEXT}\n=== END PAPER A ===\n\n"
+    "=== PAPER B ({B_KEY}) ===\n{B_TEXT}\n=== END PAPER B ===\n\n"
+    "Answer with exactly one bracketed verdict, followed by one sentence "
+    "giving the reason (this sentence becomes the edge's stored reason)."
+)
+
+
+def _relate_judge_configured(relate_fn: Callable[..., Any] | None) -> bool:
+    """Same fail-closed predicate shape as ``counter_facet_guard``/
+    ``check_gates``'s ``_judge_configured`` — an explicit override always
+    counts as configured; otherwise both ``RV_JUDGE_MODEL`` and
+    ``ANTHROPIC_API_KEY`` must be set. Duplicated rather than imported
+    across the review/gates package boundary (same precedent as
+    ``counter_facet_guard._judge_configured``'s own docstring)."""
+    if relate_fn is not None:
+        return True
+    return bool(os.environ.get("RV_JUDGE_MODEL", "").strip()) and bool(
+        os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    )
+
+
+def _read_note_body(literature_dir: Path, citekey: str) -> str | None:
+    """The de-frontmatter'd, capped body of a literature note — or ``None``
+    if the note does not exist (the caller's cue to skip judging, never
+    crash on a not-yet-distilled paper)."""
+    path = literature_dir / f"{citekey}.md"
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8")
+    _fields, body = _parse_frontmatter(text)
+    body = body.strip()
+    if len(body) > _RELATE_NOTE_CHAR_CAP:
+        body = body[:_RELATE_NOTE_CHAR_CAP] + f" […truncated {len(body) - _RELATE_NOTE_CHAR_CAP} chars…]"
+    return body
+
+
+def _extract_relate_verdict(response: str) -> tuple[str, str] | None:
+    """``(tag, reason)`` or ``None`` if unparseable, or an explicit
+    ``[NONE]`` (no edge — the two papers don't meaningfully relate)."""
+    m = _RELATE_VERDICT_RE.search(response or "")
+    if m is None:
+        return None
+    tag = m.group(1).upper()
+    if tag == "NONE":
+        return None
+    reason = response[m.end():].strip().lstrip("—-: ").strip() or "no reason given"
+    return tag, reason
+
+
+def _default_relate_fn(
+    new_ck: str, cand_ck: str, *, literature_dir: Path, judge_model: str,
+) -> dict[str, str] | None:
+    """The REAL agent relate judgment (PR-3b) — a live LLM call over the two
+    ALREADY-WRITTEN note bodies, mirroring ``counter_facet_guard``'s
+    ``_default_judge_fn`` / the support-matcher's judge pattern (charter §6,
+    same seam shape). Returns ``None`` (never crashes) if either note is
+    missing — ``run_incremental_relate_for_new_citekeys`` already filters
+    ``new_citekeys`` to distilled-only before this is ever called against a
+    NEW paper, so a missing note here would only ever be a candidate's
+    (baseline) note, which should always exist; this guard is defence-in-
+    depth, not the primary gate — or if the judge call raises / returns an
+    unparseable / ``[NONE]`` verdict."""
+    a_text = _read_note_body(literature_dir, new_ck)
+    b_text = _read_note_body(literature_dir, cand_ck)
+    if a_text is None or b_text is None:
+        return None
+    prompt = _RELATE_JUDGE_RUBRIC.format(A_KEY=new_ck, A_TEXT=a_text, B_KEY=cand_ck, B_TEXT=b_text)
+    try:
+        from research_vault.gates._llm import call_anthropic_messages
+
+        response = call_anthropic_messages(
+            prompt, judge_model, max_tokens=256, timeout=60, caller_label="incremental-relate",
+        )
+    except Exception:  # noqa: BLE001 — a judge-call failure means no edge, never a crash
+        return None
+    verdict = _extract_relate_verdict(response)
+    if verdict is None:
+        return None
+    tag, reason = verdict
+    return {"tag": tag, "reason": reason}
+
+
+def _default_escalate_relate_fn(
+    new_ck: str, baseline_citekeys: set[str], *, literature_dir: Path, judge_model: str,
+) -> list[dict[str, str]]:
+    """The REAL island-escalation judgment: relate the one island paper
+    against every baseline citekey (the module's own island-safety-valve
+    contract — scoped to ONLY this one paper, never fanned out to any other
+    newcomer in the same batch). Reuses ``_default_relate_fn`` pairwise;
+    never re-implements the judgment or the escalation scoping."""
+    edges: list[dict[str, str]] = []
+    for cand in sorted(baseline_citekeys):
+        verdict = _default_relate_fn(new_ck, cand, literature_dir=literature_dir, judge_model=judge_model)
+        if verdict is not None:
+            edges.append({"candidate": cand, **verdict})
+    return edges
+
+
+def run_incremental_relate_for_new_citekeys(
+    new_citekeys: list[str],
+    *,
+    literature_dir: Path,
+    baseline_citekeys: set[str],
+    relate_fn: Callable[[str, str], dict[str, str] | None] | None = None,
+    escalate_relate_fn: Callable[[str, set[str]], list[dict[str, str]]] | None = None,
+    judge_model: str = _DEFAULT_RELATE_JUDGE_MODEL,
+) -> dict[str, Any]:
+    """PR-3b: the wiring layer between a remediation/backtrack round's
+    ``added`` citekeys and ``review.incremental_relate.run_incremental_relate``
+    (the module PR-3 shipped, unreached until this PR closed the gap). This
+    function ONLY:
+
+      1. Filters ``new_citekeys`` to those with an already-existing
+         ``literature/<citekey>.md`` note (``run_incremental_relate``'s own
+         caller contract — full-distill happens upstream/out-of-band). A
+         corpus-row-only citekey with no distilled note yet is surfaced in
+         ``not_yet_distilled`` — never silently dropped, never crashed on
+         (charter §2).
+      2. Defaults ``relate_fn``/``escalate_relate_fn`` to the REAL,
+         live-judge-backed defaults above when the caller passes ``None``
+         (mirrors ``tool_op_fn=None -> run_tool_op`` / ``judge_fn=None ->
+         _default_judge_fn`` elsewhere in this codebase) — never a stub/
+         no-op default; when no judge is configured (``RV_JUDGE_MODEL``/
+         ``ANTHROPIC_API_KEY`` unset), the default degrades to "no edges
+         found" rather than crashing, exactly like the other judge-fn seams'
+         fail-closed posture.
+
+    ``run_incremental_relate`` itself (concept-graph blocking, bidirectional
+    write, island escalation) is untouched — this is plumbing only.
+
+    Returns ``{"result": IncrementalRelateResult | None, "not_yet_distilled":
+    [...]}``. ``result`` is ``None`` only when EVERY new citekey lacks a
+    distilled note (nothing to relate this round).
+    """
+    from .incremental_relate import run_incremental_relate
+
+    ready = [ck for ck in new_citekeys if (literature_dir / f"{ck}.md").exists()]
+    not_yet_distilled = [ck for ck in new_citekeys if ck not in ready]
+
+    def _resolved_relate_fn(a: str, b: str) -> dict[str, str] | None:
+        if relate_fn is not None:
+            return relate_fn(a, b)
+        if not _relate_judge_configured(None):
+            return None
+        return _default_relate_fn(a, b, literature_dir=literature_dir, judge_model=judge_model)
+
+    def _resolved_escalate_fn(a: str, baseline: set[str]) -> list[dict[str, str]]:
+        if escalate_relate_fn is not None:
+            return escalate_relate_fn(a, baseline)
+        if not _relate_judge_configured(None):
+            return []
+        return _default_escalate_relate_fn(a, baseline, literature_dir=literature_dir, judge_model=judge_model)
+
+    if not ready:
+        return {"result": None, "not_yet_distilled": not_yet_distilled}
+
+    result = run_incremental_relate(
+        ready, literature_dir=literature_dir, baseline_citekeys=baseline_citekeys,
+        relate_fn=_resolved_relate_fn, escalate_relate_fn=_resolved_escalate_fn,
+    )
+    return {"result": result, "not_yet_distilled": not_yet_distilled}
+
+
 def run_directed_remediation_round(
     run_state_meta: dict[str, Any],
     *,
@@ -623,6 +825,9 @@ def run_directed_remediation_round(
     out_dir: Path,
     config: Any = None,
     tool_op_fn: Callable[..., Any] | None = None,
+    literature_dir: Path | None = None,
+    relate_fn: Callable[[str, str], dict[str, str] | None] | None = None,
+    escalate_relate_fn: Callable[[str, set[str]], list[dict[str, str]]] | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
     """Execute ONE bounded, POLE-DIRECTED critic-backtrack round (§D-5a).
@@ -638,9 +843,20 @@ def run_directed_remediation_round(
     never authors a new one — there is no code path here that can inject a
     new query.
 
-    Returns ``{"round": int, "added": [...], "stopped": str | None}`` — the
-    same shape as ``run_remediation_round`` (``stopped == "zero-new"`` when
-    even the harder sweep+snowball found nothing new for this pole).
+    PR-3b: on a non-empty round, the newly-added counter-papers are ALSO
+    flowed through ``run_incremental_relate_for_new_citekeys`` (concept-
+    graph-blocked candidate generation, bidirectional edge write, island
+    escalation — see that function + ``incremental_relate.py``). This is
+    the wiring this PR closes: previously the round appended corpus rows
+    only, and ``review.incremental_relate`` was never reached from here.
+    ``literature_dir`` defaults to the standard ``project_notes_dir/
+    literature`` layout derived from ``corpus_path`` (which lives at
+    ``project_notes_dir/reviews/<scope>/_corpus.md``) when not given.
+
+    Returns ``{"round": int, "added": [...], "stopped": str | None,
+    "related": {...} | None}`` — ``related`` (new in this PR) is the dict
+    ``run_incremental_relate_for_new_citekeys`` returns, or ``None`` when
+    the round found zero-new (nothing to relate).
     """
     if tool_op_fn is None:
         tool_op_fn = run_tool_op
@@ -730,7 +946,18 @@ def run_directed_remediation_round(
         deviations_path=deviations_path, now=now,
     )
 
-    return {"round": rs_state["rounds_used"], "added": added, "stopped": None}
+    # PR-3b: flow the newly-found counter-papers through the concept-graph
+    # -blocked incremental relate (never re-fans-out over the whole corpus,
+    # never re-relates the existing baseline — ``existing_citekeys`` here is
+    # the baseline BEFORE this round's additions, matching "against already-
+    # distilled EXISTING notes" per incremental_relate.py's contract).
+    lit_dir = literature_dir if literature_dir is not None else corpus_path.parent.parent / "literature"
+    related = run_incremental_relate_for_new_citekeys(
+        added, literature_dir=lit_dir, baseline_citekeys=existing_citekeys,
+        relate_fn=relate_fn, escalate_relate_fn=escalate_relate_fn,
+    )
+
+    return {"round": rs_state["rounds_used"], "added": added, "stopped": None, "related": related}
 
 
 _CRITIC_OUTER_LOOP_GUARD = 10
@@ -748,6 +975,9 @@ def run_bounded_critic_backtrack(
     critic_note_path: Path | None = None,
     config: Any = None,
     tool_op_fn: Callable[..., Any] | None = None,
+    literature_dir: Path | None = None,
+    relate_fn: Callable[[str, str], dict[str, str] | None] | None = None,
+    escalate_relate_fn: Callable[[str, set[str]], list[dict[str, str]]] | None = None,
     max_rounds: int | None = None,
 ) -> DispositionResult:
     """Drive the resolve -> backtrack -> re-resolve cycle to a non-
@@ -763,6 +993,11 @@ def run_bounded_critic_backtrack(
     for a hermetic unit test that only cares about the remediation-state
     bookkeeping (``rounds_used``/``last_wave_added_count``), not a live
     re-critique.
+
+    PR-3b: ``literature_dir``/``relate_fn``/``escalate_relate_fn`` are
+    threaded straight through to each ``run_directed_remediation_round``
+    call — see that function's docstring for the incremental-relate wiring
+    this closes.
     """
     if tool_op_fn is None:
         tool_op_fn = run_tool_op
@@ -795,6 +1030,9 @@ def run_bounded_critic_backtrack(
             out_dir=out_dir,
             config=config,
             tool_op_fn=tool_op_fn,
+            literature_dir=literature_dir,
+            relate_fn=relate_fn,
+            escalate_relate_fn=escalate_relate_fn,
         )
 
         if critic_note_path is not None:

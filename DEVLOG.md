@@ -38,6 +38,58 @@ to become `== "untracked"`. Full suite: 3841 passed, 3 skipped.
 ledger's `_gaps` list (does not flip `ledger_complete`) — mirrors the
 `_p_block` honest-no-op pattern for an optional pass that was never
 wired/run, and matches the dispatch's explicit "non-gating" framing.
+## 2026-07-10 (PR-3b — wire incremental-relate into the remediation backtrack)
+
+### Done
+PR-3 shipped `review/incremental_relate.py` built + unit-tested, but
+`dag/verbs.py` had ZERO references to it — nothing in the running loop
+called it, so the operator's "don't let new papers stay disjoint from the
+corpus" constraint was unenforced. Closed the reachability gap (plumbing
+only, no change to `incremental_relate.py`'s own mechanism):
+
+- **`review.remediation.run_incremental_relate_for_new_citekeys`** (new) —
+  the wiring layer between a backtrack round's `added` citekeys and
+  `run_incremental_relate`. Filters `added` to citekeys with an
+  already-distilled `literature/<citekey>.md` note (the module's own
+  caller contract — full-distill stays out of scope, upstream/out-of-band);
+  a not-yet-distilled citekey is surfaced in `not_yet_distilled`, never
+  silently dropped. Defaults `relate_fn`/`escalate_relate_fn` to REAL,
+  live-judge-backed callables (`_default_relate_fn`/`_default_escalate_
+  relate_fn`, a cold LLM call over the two already-written note bodies)
+  when the caller passes `None` — mirrors the `tool_op_fn=None ->
+  run_tool_op` / `judge_fn=None -> _default_judge_fn` seam already used by
+  `counter_facet_guard.py`/`manuscript/check_gates.py` (no new injection
+  convention); fail-closed (no edges) when no judge is configured.
+- **`run_directed_remediation_round`/`run_bounded_critic_backtrack`** now
+  accept `literature_dir`/`relate_fn`/`escalate_relate_fn` and flow the
+  round's `added` citekeys through the wiring layer on every non-empty
+  round. `dag/verbs.py`'s `approve-review` branch now REACHES
+  `review.incremental_relate.run_incremental_relate` (previously zero
+  references) — `literature_dir` derived from the standard
+  `project_notes_dir/literature` layout.
+
+Tests: `tests/test_pr3b_incremental_relate_wiring.py` — a reachability
+acceptance test driving the backtrack END-TO-END via
+`dag.verbs._evaluate_autonomous_gate("approve-review", ...)` (the real
+wired DAG path, not a direct module-unit call), asserting bidirectional
+edge writes, neighborhood-blocked candidate generation (1 relate call vs.
+a 20-paper corpus), and an island newcomer escalating ONLY itself;
+mutation-checked — a companion test proves the SAME scenario produces NO
+edges when the wiring function is stubbed (confirmed by hand: reverting the
+wiring call in `run_directed_remediation_round` makes the acceptance test
+go RED). Plus a cheap contract test binding the coverage-critic tips'
+`COUNTER-POSITION THIN-POLE` phrasing literally to
+`_COUNTER_POSITION_BULLET_PREFIX`.
+
+### Open / next
+- Full-distill (fetching + reading + writing a `literature/<citekey>.md`
+  note for a newly-found counter-paper) is still out-of-band/agent work —
+  this PR assumes it has already happened by the time a round's `added`
+  citekeys reach the relate wiring; a citekey without a note yet is
+  surfaced as `not_yet_distilled`, not related this round.
+- The structured `block_classes:` field (0.3.1 fast-follow) stays out of
+  scope, per PR-3b's brief.
+- Returns to the architect for fit-check before merge.
 
 ## 2026-07-10 (PR-3 — critic-BLOCK -> bounded backtrack + incremental-relate)
 
