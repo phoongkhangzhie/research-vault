@@ -56,7 +56,7 @@ gate is untouched and still green (22/22).
 ### Done
 rv's width-sweep froze ~5 scalar angle queries where HR runs 40-100, and the
 `by-temporal` angle was one-sided (drift-only; the empty stability pole is
-what blocked the csb coverage-critic). Replaced the flat scalar angle matrix
+what blocked the downstream project's coverage-critic). Replaced the flat scalar angle matrix
 with a nested, stance-tagged facet schema so breadth AND both poles of a
 contested claim are principled and frozen, per the researcher's
 facet-analysis grounding (Cochrane ch.4 building-block method; PICO/SPIDER
