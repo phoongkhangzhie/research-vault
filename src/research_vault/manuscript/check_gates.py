@@ -29,14 +29,15 @@ and the divergence is documented, not silently applied):
     term-definition gate. The operator's call; see DEVLOG).
 
 **The judge guard** (design doctrine: ``honesty-gates.md`` fail-closed
-discipline, applied honestly in the OTHER direction here): the LLM gate
-runs ONLY when a judge is configured — ``RV_JUDGE_MODEL`` + ``ANTHROPIC_API_KEY``
-both set in the environment, OR an explicit ``judge_fn`` is passed in (tests
-inject a mock this way; that counts as "configured"). When neither is present,
-the LLM gate is NOT silently skipped — it lands in the payload's
-``not_run`` list with a LOUD message surfaced at the human-go (charter §2:
-surface, never silently drop; never green-and-empty). This is NOT a hard
-block: a manuscript with no judge configured can still reach
+discipline, applied honestly in the OTHER direction here). PR-F: the env-var
+half of the guard was DELETED — the inline LLM gate runs ONLY when an
+explicit ``judge_fn`` is injected (tests). In PRODUCTION ``judge_fn`` is
+always None, so the gate routes to the cold-agent-judge emit/ingest fan-out
+(the ``_cold_fanout_dirs_present`` branch — the only production judge path)
+or, when nothing was emitted, lands in the payload's ``not_run`` list with a
+LOUD message surfaced at the human-go (charter §2: surface, never silently
+drop; never green-and-empty). This is NOT a hard block on the deterministic
+gates: a manuscript with no fan-out emitted can still reach
 ``approve-manuscript`` on the deterministic bib gate alone, but the human
 sees, unmistakably, that the citation-fidelity floor was never checked.
 
@@ -63,7 +64,6 @@ sr: manuscript-integration (post PR-M2/M3/M4/M6)
 """
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import Any, Callable
@@ -80,18 +80,17 @@ from research_vault.review import _parse_corpus_citekeys
 # ---------------------------------------------------------------------------
 
 def _judge_configured(judge_fn: Callable[[str], str] | None) -> bool:
-    """True iff a judge is usable — env vars set, OR an explicit judge_fn.
+    """True iff an explicit ``judge_fn`` was injected (the test seam).
 
-    An explicit ``judge_fn`` (the test-injection seam every gate already
-    supports) counts as "configured" even with no env vars — this is what
-    lets the calibration/mock tests exercise the LLM-gate branch hermetically
-    without ever touching a live model.
+    PR-F: the env-var half (a judge-model + API-key read) was DELETED — no rv
+    code reads an env var to decide a judge is "configured" for a live API
+    call. In production ``judge_fn`` is always None and this returns False, so
+    ``build_approve_payload`` routes to the cold-agent-judge emit/ingest
+    fan-out (the ``_cold_fanout_dirs_present`` branch) or the ``not_run``
+    HALT — never an in-process API judge. An injected ``judge_fn`` (tests
+    only) exercises the inline ``check_support_tally`` branch hermetically.
     """
-    if judge_fn is not None:
-        return True
-    return bool(os.environ.get("RV_JUDGE_MODEL", "").strip()) and bool(
-        os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    )
+    return judge_fn is not None
 
 
 # ---------------------------------------------------------------------------
@@ -653,7 +652,17 @@ def compute_coverage_diff(coverage_map_path: Path, reader_body: str) -> dict[str
     nothing committed to drop). ``missing`` is the load-bearing field handed
     to the WIDTH judge as ``coverage_diff``.
 
-    sr: PR-E
+    ★ PR-F SOURCE-ROUTING (fit-check): ``reader_body`` MUST be the
+    ``[[citekey]]`` SOURCE body — the assembled ``report.md`` + ``sections/*.md``
+    from ``draft_files.resolve_draft_files`` (or ``_read_draft_text``). It must
+    NEVER be PR-D's ``[N]``-numbered render (``report.rendered.md``): that
+    render has already converted every ``[[citekey]]`` to ``[N]``, so
+    ``WIKILINK_CITE_RE`` finds ZERO citekeys in it — the diff would then flag
+    EVERY used paper as "missing" and false-critical the entire corpus. The
+    board driver assembles ``reader_body`` from the source draft; a regression
+    test (``test_coverage_diff_source_routing``) pins this contract.
+
+    sr: PR-E; source-routing guardrail PR-F
     """
     from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE
 
@@ -825,14 +834,15 @@ def build_approve_payload(
             signals.extend(f"[support-matcher:PARTIAL] {w}" for w in support_result.get("warnings", []))
     else:
         not_run.append(
-            "support-matcher gate NOT RUN — RV_JUDGE_MODEL and/or "
-            "ANTHROPIC_API_KEY are not configured (and no judge_fn was supplied), "
-            "and no cold-agent-judge fan-out was emitted (no `judge/` directory "
-            "under this manuscript). This is NOT a pass: the citation-fidelity "
-            "FLOOR (support-matcher) has NOT been checked on this manuscript. "
-            "Configure both env vars, or emit a judge-fanout task set "
-            "(design §1.9), and re-run `rv dag approve` before trusting this "
-            "manuscript's citation fidelity."
+            "support-matcher gate NOT RUN — no cold-agent-judge fan-out was "
+            "emitted (no `judge/support-matcher/_judge-tasks.json` under this "
+            "manuscript), and no test judge_fn was supplied. This is NOT a "
+            "pass: the citation-fidelity FLOOR (support-matcher) has NOT been "
+            "checked on this manuscript. Emit a judge-fanout task set "
+            "(`rv manuscript judge-emit`, design §1.9), let the hub fan out "
+            "the cold judges, and re-run `rv dag approve` before trusting "
+            "this manuscript's citation fidelity. (PR-F: the in-process API "
+            "judge path was deleted — the fan-out is the only production path.)"
         )
 
     # ── 5. The coverage gate (design §10 gate-4) — deterministic, ALWAYS

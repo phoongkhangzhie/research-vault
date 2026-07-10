@@ -663,15 +663,21 @@ counter-position: "stability"
 
 
 class TestCounterFacetStrengthGuard:
-    def test_not_run_when_no_judge_configured(self, monkeypatch) -> None:
+    def test_halt_declare_when_no_judge(self, monkeypatch) -> None:
+        # PR-F unified HALT (deliverable #3): no judge is no longer the old
+        # SIGNAL (ok=True) — it is a HALT-DECLARE (ok=False, halt=True). The
+        # direct-API judge path was deleted; the guard runs via the emit/ingest
+        # fan-out, and a relied-on cold gate that cannot run HALTs.
         from research_vault.review.counter_facet_guard import check_counter_facet_strength
 
         monkeypatch.delenv("RV_JUDGE_MODEL", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         result = check_counter_facet_strength(STRONG_COUNTER_PROTOCOL, judge_fn=None)
-        assert result["ok"] is True
+        assert result["ok"] is False
+        assert result["halt"] is True
         assert result["not_run"]
         assert "D-6" in result["not_run"][0]
+        assert "HALT-DECLARE" in result["not_run"][0]
 
     def test_canary_passes_then_rejects_planted_strawman(self) -> None:
         from research_vault.review.counter_facet_guard import check_counter_facet_strength

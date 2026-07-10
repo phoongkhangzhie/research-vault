@@ -249,6 +249,27 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help="Print only this tip key. Omit to print all keys.",
     )
 
+    # ── judge-emit / judge-ingest (PR-F: counter-facet cold fan-out) ──────────
+    cf_emit_p = sub.add_parser(
+        "judge-emit",
+        help=(
+            "Emit the counter-facet STRENGTH cold-agent-judge fan-out task set "
+            "(PR-F). Writes reviews/<scope>/judge/counter-facet/. The hub fans "
+            "out cold judges over it; the direct-API judge path was deleted."
+        ),
+    )
+    cf_emit_p.add_argument("scope", metavar="<scope>", help="Review scope identifier slug.")
+
+    cf_ingest_p = sub.add_parser(
+        "judge-ingest",
+        help=(
+            "Ingest the counter-facet fan-out verdicts (PR-F) — a diagnostic "
+            "surface; approve-protocol is the actual gate. HALT-DECLARE on a "
+            "missing/incomplete fan-out; BLOCK on a straw-man/canary abort."
+        ),
+    )
+    cf_ingest_p.add_argument("scope", metavar="<scope>", help="Review scope identifier slug.")
+
     # ── gap-scan ──────────────────────────────────────────────────────────────
     gap_scan_p = sub.add_parser(
         "gap-scan",
@@ -458,6 +479,10 @@ def run(args: argparse.Namespace) -> int:
         return _run_refresh(args)
     elif subcommand == "tips":
         return _run_tips(args)
+    elif subcommand == "judge-emit":
+        return _run_cf_judge_emit(args)
+    elif subcommand == "judge-ingest":
+        return _run_cf_judge_ingest(args)
     elif subcommand == "gap-scan":
         return _run_gap_scan(args)
     elif subcommand in ("gap-scope", "gap-route"):
@@ -689,6 +714,52 @@ def _run_tips(args: argparse.Namespace) -> int:
         print(tips[k])
         print()
     return 0
+
+
+def _run_cf_judge_emit(args: argparse.Namespace) -> int:
+    """Emit the counter-facet strength cold fan-out task set (PR-F)."""
+    from research_vault.config import load_config
+    from research_vault.review import cmd_counter_facet_emit
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv review judge-emit: config error: {e}", file=sys.stderr)
+        return 1
+    try:
+        result = cmd_counter_facet_emit(args.project, args.scope, config=cfg)
+    except FileNotFoundError as e:
+        print(f"rv review judge-emit: {e}", file=sys.stderr)
+        return 1
+    n = len(result["counter-facet"]["tasks_doc"]["tasks"])
+    print(
+        f"rv review: emitted counter-facet fan-out ({n} tasks incl. canaries) "
+        f"under reviews/{args.scope}/judge/counter-facet/. The hub fans out "
+        f"cold judges + writes _cf-verdicts.json; then `rv dag approve "
+        f"<run_id> approve-protocol`."
+    )
+    return 0
+
+
+def _run_cf_judge_ingest(args: argparse.Namespace) -> int:
+    """Ingest the counter-facet fan-out verdicts (PR-F, diagnostic surface)."""
+    from research_vault.config import load_config
+    from research_vault.review import cmd_counter_facet_ingest
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv review judge-ingest: config error: {e}", file=sys.stderr)
+        return 1
+    result = cmd_counter_facet_ingest(args.project, args.scope, config=cfg)["counter-facet"]
+    for nr in result.get("not_run", []):
+        print(f"rv review judge-ingest: HALT-DECLARE: {nr}", file=sys.stderr)
+    for b in result.get("blocking", []):
+        print(f"rv review judge-ingest: BLOCK: {b}", file=sys.stderr)
+    if result.get("ok"):
+        print("rv review: counter-facet strength OK (no straw-man flagged).")
+        return 0
+    return 1
 
 
 def _run_gap_scan(args: argparse.Namespace) -> int:

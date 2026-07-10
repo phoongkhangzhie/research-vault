@@ -49,16 +49,27 @@ def _happy_verdicts(tasks_doc, canary_key_doc, *, scores=None):
 # ---------------------------------------------------------------------------
 
 class TestRoundTrip:
-    def test_emit_produces_6_real_tasks_plus_3_canaries(self):
+    def test_emit_produces_6_real_tasks_plus_per_axis_canaries(self):
+        # PR-F: canaries are now PER-AXIS (one FAIL probe per axis + SYNTH's
+        # 3 calibrated probes = 8), not the old SYNTH-only 3 — so EACH of the
+        # 6 cold judges is canary-verified.
+        from research_vault.gates.canary_passages import BOARD_AXIS_CANARIES
+
         result = emit_board_tasks(_DRAFT, manuscript="ms-x")
         tasks = result["tasks_doc"]["tasks"]
-        assert len(tasks) == 9
+        n_canary = len(BOARD_AXIS_CANARIES)
+        assert len(tasks) == 6 + n_canary
         canaries = result["canary_key_doc"]["canaries"]
-        assert len(canaries) == 3
+        assert len(canaries) == n_canary
         real = [t for t in tasks if t["id"] not in canaries]
         assert len(real) == 6
         axes = {t["axis"] for t in real}
         assert axes == {"DEPTH", "WIDTH", "SYNTH", "SELFCONT", "ADVERS", "INSTRUCT"}
+        # Every board axis carries at least one interleaved canary probe (the
+        # per-axis fit-check: a single-axis canary would certify only one).
+        canary_tasks = [t for t in tasks if t["id"] in canaries]
+        canary_axes = {t["axis"] for t in canary_tasks}
+        assert canary_axes == {"DEPTH", "WIDTH", "SYNTH", "SELFCONT", "ADVERS", "INSTRUCT"}
 
     def test_round_trip_axis_scores_and_findings(self):
         emitted = emit_board_tasks(_DRAFT, manuscript="ms-x")

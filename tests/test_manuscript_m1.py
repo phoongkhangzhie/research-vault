@@ -324,13 +324,16 @@ def test_cmd_expand_empty_section_set_raises(cfg):
 #    end-to-end in tests/test_manuscript_review_board.py::TestCmdReviewWiring.
 # ---------------------------------------------------------------------------
 
-def test_cmd_review_raises_loudly_with_no_judge_configured(cfg, monkeypatch):
+def test_cmd_review_raises_loudly_with_no_judge_fn(cfg, monkeypatch):
+    # PR-F: the in-process API judge default was deleted — a None judge_fn
+    # raises loudly (production review runs via the 6-lens board fan-out),
+    # regardless of any env var.
     from research_vault.manuscript import cmd_new, cmd_review
 
     monkeypatch.delenv("RV_JUDGE_MODEL", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     cmd_new("demo-research", "survey-review-stub", ms_type_key="lit-review", config=cfg)
-    with pytest.raises(RuntimeError, match="no judge configured"):
+    with pytest.raises(RuntimeError, match="no judge_fn supplied"):
         cmd_review("demo-research", "survey-review-stub", config=cfg)
 
 

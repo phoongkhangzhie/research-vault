@@ -95,6 +95,23 @@ def test_interleave_zero_canaries_is_honest_noop():
     assert canary_key == {}
 
 
+def test_interleave_places_every_canary_even_for_small_totals():
+    """PR-F regression: a small ``total`` can make two canaries target the
+    same slot; the placement must resolve every collision to a distinct free
+    slot rather than silently DROP a canary (a vanished probe weakens the
+    guard — charter §2). Sweep the small-total regime that a counter-facet
+    fan-out with only 0-2 facets actually hits."""
+    for n_real in range(0, 8):
+        for n_canary in range(0, 5):
+            real = [{"kind": "support", "claim": f"c{i}"} for i in range(n_real)]
+            canaries = [({"kind": "support", "claim": f"probe{j}"}, f"V{j}") for j in range(n_canary)]
+            combined, canary_key = interleave_with_canaries(real, canaries)
+            assert len(canary_key) == n_canary, (n_real, n_canary)
+            assert len(combined) == n_real + n_canary
+            ids = [t["id"] for t in combined]
+            assert len(set(ids)) == len(ids)  # no duplicate ids
+
+
 def test_interleave_is_deterministic_across_calls():
     real = [{"kind": "support", "claim": f"claim {i}"} for i in range(6)]
     canaries = [

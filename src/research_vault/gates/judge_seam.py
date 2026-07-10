@@ -158,20 +158,26 @@ def interleave_with_canaries(
         return combined, {}
 
     # Evenly-spaced insertion positions among the combined sequence
-    # (deterministic: canary k lands at floor(total * (k+1) / (n_canary+1))).
-    canary_positions = {
+    # (deterministic: canary k targets round(total * (k+1) / (n_canary+1))).
+    #
+    # ★ Build a LIST of length n_canary (NOT a set): for a small ``total``,
+    # two canaries can target the SAME slot; a set comprehension would COLLAPSE
+    # them and silently DROP a canary (a vanished probe weakens the guard —
+    # charter §2). Resolve every collision to a distinct free slot instead, so
+    # ALL n_canary canaries are always placed (verified: len(canary_key) ==
+    # n_canary for any total >= 1).
+    raw_positions = [
         round(total * (k + 1) / (n_canary + 1)) for k in range(n_canary)
-    }
-    # Guard against collisions collapsing the set (tiny total or many
-    # canaries) by filling forward to the next free slot.
-    positions_sorted = sorted(canary_positions)
+    ]
     fixed_positions: list[int] = []
     used: set[int] = set()
-    for p in positions_sorted:
-        while p in used and p < total:
+    for p in raw_positions:
+        p = max(0, min(p, total))
+        # try forward to the next free slot...
+        while p in used and p <= total:
             p += 1
-        p = min(p, total)
-        while p in used:
+        # ...else backward (forward ran off the end).
+        while p in used and p >= 0:
             p -= 1
         used.add(p)
         fixed_positions.append(p)

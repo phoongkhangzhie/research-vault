@@ -70,10 +70,23 @@ sr: PR-M5 (mirrors the removed prior review-board craft)
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from pathlib import Path
 from typing import Any, Callable
+
+# PR-F: the 3 calibrated canary passages + their markers were RELOCATED to
+# ``gates/canary_passages.py`` (deletion-blast-radius: ``gates/board_seam.py``
+# imported them from here, a manuscript<-gates layering inversion). Re-import
+# them so this module's own canary scaffold + the tests that reference
+# ``rb._CANARY_STRONG_MARKER`` etc. keep resolving unchanged.
+from research_vault.gates.canary_passages import (  # noqa: F401 - re-export
+    _CANARY_ANNOTATED_BIB_MARKER,
+    _CANARY_ANNOTATED_BIB_PASSAGE,
+    _CANARY_STRONG_MARKER,
+    _CANARY_STRONG_PASSAGE,
+    _CANARY_WEAK_MARKER,
+    _CANARY_WEAK_PASSAGE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -98,9 +111,10 @@ class CanaryAbortError(RuntimeError):
 # Constants
 # ---------------------------------------------------------------------------
 
-# Judge model resolved via RV_JUDGE_MODEL env var (D-MS-4: Opus-tier);
-# never pinned to a versioned ID in source. Tests always pass judge_fn=.
-DEFAULT_JUDGE_MODEL: str = os.environ.get("RV_JUDGE_MODEL", "")
+# PR-F: the direct-API judge default was DELETED — this module NEVER
+# constructs an in-process judge; ``run_review_board`` requires an injected
+# ``judge_fn`` and raises loudly when it is None (production review runs via
+# the 6-lens board's emit/ingest cold fanout). No judge-model env var is read.
 
 # All 8 review dimensions, in the design §11.1 table's order.
 _ALL_DIMS: tuple[str, ...] = (
@@ -445,61 +459,11 @@ def get_review_rubric(
 # ---------------------------------------------------------------------------
 # Canary scaffold -- calibrated bounds + passages (PR-M8, design §11.3, D-SV-D)
 # ---------------------------------------------------------------------------
-
-# Unique single-line markers so tests can detect which probe fired.
-_CANARY_STRONG_MARKER: str = "does not overlap at the 95% level"
-_CANARY_WEAK_MARKER: str = "clearly the best survey"
-_CANARY_ANNOTATED_BIB_MARKER: str = "Paper 1 studied X. Paper 2 studied Y."
-
-# ★ CALIBRATED passages (PR-M8, design §11.3): each written to exercise ONE
-# specific rubric dimension's GOOD or WEAK tell (§A.2 of the methodology
-# doc), so a correctly-calibrated judge has concrete textual evidence to
-# justify every score against, not just a vibe.
-_CANARY_STRONG_PASSAGE: str = """\
-This survey covers 214 papers retrieved via a documented PRISMA search over
-three databases; the search query, inclusion/exclusion criteria, and a full
-ledger of included/excluded works are given in Section 2 and Appendix A
-(SCOPE/REPRO: a reader could re-derive the corpus). Every claim in Sections
-3-5 is attributed to a specific cited work with a verbatim quotation or
-paraphrase that substantiates it (CITE: no invented attribution). Per Table 2,
-each pairwise comparison of reported effect sizes does not overlap at the 95% level of confidence, and every estimate carries its own interval rather than a single unqualified headline number. The
-taxonomy (Figure 1) organizes the corpus into four coherent, mutually
-exclusive axes, each populated by more than one paper and each explaining why
-its members belong there, and no work is orphaned outside the taxonomy
-(FRAME: Nickerson's ending-conditions hold). Section 4 compares the four
-leading approaches side-by-side on the same three axes and states which wins
-where and why (COMPARE), surfacing a genuine tension between two of them that
-neither original paper resolves. Two of the identified gaps are traced to a
-specific empty cell in the taxonomy grid (GAP), and Section 5 explicitly
-flags three studies whose results conflict with the survey's own synthesis
-before explaining why the majority view is still preferred (BIAS).
-"""
-
-_CANARY_WEAK_PASSAGE: str = """\
-This is clearly the best survey of the field. We read a bunch of papers and
-they are all pretty good. The topic is important and many people work on it.
-No search protocol is given -- we just read what we found. There is no
-taxonomy, just a list. Every claim is stated without a specific citation, and
-more research is clearly needed in this area.
-"""
-
-# ★ The MANDATORY annotated-bibliography canary (D-SV-D, design §11.3(c)):
-# a literal per-paper summary list with NO framework and NO cross-paper
-# synthesis -- the #1 survey failure mode this whole capability exists to
-# catch. Deliberately well-behaved on the FLOOR axes (each paper's summary IS
-# individually well-sourced and the "search" is described) so the probe
-# isolates the SYNTH failure specifically, rather than failing for the wrong
-# reason. This probe must NOT clear on SYNTH.
-_CANARY_ANNOTATED_BIB_PASSAGE: str = """\
-This survey retrieved 40 papers via a documented database search (Section 2
-gives the query and inclusion criteria), and every summary below cites its
-specific source. Paper 1 studied X. Paper 2 studied Y. Paper 3 studied Z.
-Paper 4 studied W. Paper 5 proposed a method for A. Paper 6 evaluated B on a
-benchmark. Paper 7 extended C. Each of these papers is summarized above, one
-paragraph per paper, in the order they were retrieved from the search. No
-comparison is drawn between any two papers, no shared axis is used to
-organize them, and no claim spans more than one source.
-"""
+#
+# PR-F: the 3 calibrated passages + their markers now live in
+# ``gates/canary_passages.py`` (imported at the top of this module) — the
+# names ``_CANARY_STRONG_PASSAGE`` / ``_CANARY_STRONG_MARKER`` etc. resolve
+# unchanged for this module's scaffold and its tests.
 
 # Bounds calibrated to floor_value (design §11.3):
 #   strong probe: SCOPE/REPRO/CITE must be >= floor + 1
@@ -1192,8 +1156,10 @@ def run_review_board(
     """
     if judge_fn is None:
         raise RuntimeError(
-            "run_review_board: judge_fn is required. In production, set "
-            "RV_JUDGE_MODEL and ANTHROPIC_API_KEY; in tests, pass a mock."
+            "run_review_board: judge_fn is required. PR-F: the in-process API "
+            "judge default was deleted — production cold-judge review runs via "
+            "the 6-lens board's emit/ingest fan-out (manuscript.board + "
+            "gates.board_seam); in tests, pass a mock judge_fn."
         )
 
     N_capped = min(N, _MAX_ROUNDS_HARDCAP)

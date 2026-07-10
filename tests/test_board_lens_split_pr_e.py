@@ -271,10 +271,22 @@ def test_e_rubber_stamped_annotated_bib_canary_halts_the_loop():
         board.run_bounded_board(_DRAFT, ingest_fn=_ingest, N=2)
 
 
-def test_e_annotated_bib_canary_rides_the_synth_lens():
-    """The 3 calibrated probes are now scored on SYNTH (PR-E: the
-    annotated-bibliography failure IS a synthesis failure)."""
+def test_e_synth_canaries_ride_the_synth_lens_and_annotated_bib_is_present():
+    """SYNTH keeps its 3 calibrated probes (PR-E: the annotated-bibliography
+    failure IS a synthesis failure). PR-F adds per-axis probes so SYNTH is no
+    longer the ONLY canary axis — but the annotated-bib FAIL probe still
+    rides SYNTH."""
+    from research_vault.gates.canary_passages import (
+        BOARD_AXIS_CANARIES,
+        _CANARY_ANNOTATED_BIB_MARKER,
+    )
+
     emitted = emit_board_tasks(_DRAFT, manuscript="ms-e")
     canary_tasks = [t for t in emitted["tasks_doc"]["tasks"] if t["id"] in emitted["canary_key_doc"]["canaries"]]
     assert canary_tasks  # sanity
-    assert all(t["axis"] == "SYNTH" for t in canary_tasks)
+    synth_canaries = [t for t in canary_tasks if t["axis"] == "SYNTH"]
+    # Exactly the 3 SYNTH-calibrated probes in the spec ride SYNTH.
+    n_synth_spec = sum(1 for s in BOARD_AXIS_CANARIES if s["axis"] == "SYNTH")
+    assert len(synth_canaries) == n_synth_spec == 3
+    # The annotated-bib probe is among them.
+    assert any(_CANARY_ANNOTATED_BIB_MARKER in t["draft"] for t in synth_canaries)

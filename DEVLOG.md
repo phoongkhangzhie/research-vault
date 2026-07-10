@@ -64,6 +64,61 @@ the additive `remediation_target*` keys.
   step; this PR ships the mechanical candidate-generation + bidirectional-
   write machinery only, injectable `relate_fn`/`escalate_relate_fn`).
 - Returns to the architect for fit-check before merge.
+## 2026-07-10 (PR-F — harness emit/ingest is the ONLY cold-judge path; direct-API judge path deleted)
+
+### Done
+Every judge/gate now runs EXCLUSIVELY through the CC harness emit/ingest
+cold fan-out; the hand-rolled direct-`api.anthropic.com` judge path is
+FULLY DELETED. No rv code under `gates/`, `manuscript/`, or `review/` reads
+a judge-model / API-key env var to run a judge, or constructs an in-process
+judge. `ANTHROPIC_API_KEY` stays legitimate ONLY for experiment compute via
+`adapters/model_client` (proven untouched).
+
+- **RELOCATE FIRST**: the 3 calibrated board canary passages + markers moved
+  out of `manuscript/review_board.py` into a new `gates/canary_passages.py`
+  (fixes the gates←manuscript layering inversion in `board_seam._canary_bank`);
+  `review_board` re-imports them so its scaffold + tests are unchanged.
+- **DELETE**: `gates/_llm.py` (whole module); `support_matcher._default_judge_fn`
+  + `DEFAULT_JUDGE_MODEL` (`match_support(judge_fn=None)` now HALTs);
+  `fidelity_gates` judge-model env read; `check_gates._judge_configured`'s
+  env-var half (judge_fn-injected only); the `rv manuscript review` in-process
+  API judge block; `review_board`'s judge-model env read.
+- **MIGRATE (PR-F2 folded, #227)**: `counter_facet_guard` → `judge_seam`
+  emit/ingest (`emit_counter_facet_tasks`/`ingest_counter_facet_verdicts` +
+  `cf_fanout_present` + `rv review judge-emit`/`judge-ingest` CLI verbs). dag
+  approve-protocol ingests the cold fan-out (BLOCK on straw-man/canary abort)
+  or surfaces a loud HALT-DECLARE.
+- **UNIFIED HALT (deliverable #3)**: no judge / no verdicts / incomplete
+  fan-out → HALT-DECLARE uniformly across the board, support-matcher, and
+  counter-facet guard (supersedes the #226-HALT vs #227-SIGNAL split).
+- **★ PER-AXIS CANARIES**: `board_seam` emits one calibrated FAIL probe per
+  axis (WIDTH dropped-cluster, DEPTH bare-assertion, SELFCONT jargon, ADVERS
+  overclaim, INSTRUCT vague-rec) + SYNTH's 3 — so EACH of the 6 cold judges
+  is canary-verified; a rubber-stamp on any single axis trips HALT.
+- **★ CI grep-guard (D-F1)**: `tests/test_no_direct_api_judge.py` FAILS if any
+  module under the 3 dirs reintroduces `anthropic.Anthropic(`, the Anthropic
+  Messages URL, `call_anthropic_messages`, or a judge-purpose env read
+  (mutation-tested).
+- Fixed a latent charter-§2 bug in `judge_seam.interleave_with_canaries`: a
+  small total could collide two canaries into one slot and silently DROP one
+  (a vanished probe weakens the guard). Now every canary is placed.
+
+### Decisions
+- Counter-facet no-fan-out is a loud HALT-DECLARE **not_run** surface (not a
+  hard manual-gate rc=1), matching the support-matcher at approve-manuscript:
+  the disposition is HALT-DECLARE (autonomous path treats not_run as HALT),
+  but the human-go gate still sees + decides; only an actionable straw-man /
+  canary abort hard-BLOCKs.
+- Source-routing (#6): no production board driver exists yet, so the guardrail
+  is a strengthened `compute_coverage_diff` docstring + a regression test
+  proving a `[N]`-rendered body false-flags every paper — the board must feed
+  it the `[[citekey]]` SOURCE body.
+
+### Open / next
+- `rv lint` config-schema FAIL is the operator's real registry (missing
+  `code` field), not this PR — passes in an isolated HOME.
+- PR-3 (parallel) touches `dag/verbs.py`; PR-F touches approve-protocol in
+  `dag/verbs.py` — whichever merges second rebases.
 
 ## 2026-07-10 (PR-D — [N] numbered render + hermetic ## Sources + references.bib)
 

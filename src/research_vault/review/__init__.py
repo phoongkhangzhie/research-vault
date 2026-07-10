@@ -1640,6 +1640,84 @@ def cmd_list(
     return results
 
 
+def _cf_judge_dir(project: str, scope_id: str, cfg: Config) -> Path:
+    """``reviews/<scope>/judge/counter-facet/`` — the counter-facet cold
+    fan-out artifact dir (mirrors the manuscript loop's
+    ``manuscripts/<slug>/judge/support-matcher/``)."""
+    return _review_artifact_dir(project, scope_id, cfg) / "judge" / "counter-facet"
+
+
+def cmd_counter_facet_emit(
+    project: str,
+    scope_id: str,
+    *,
+    config: Config | None = None,
+) -> dict[str, Any]:
+    """Emit the counter-facet STRENGTH cold-agent-judge fan-out task set (PR-F).
+
+    When to use: ``rv review <project> judge-emit <scope>`` — writes
+    ``reviews/<scope>/judge/counter-facet/{_cf-tasks.json, _cf-canary-key.json}``.
+    rv calls NO LLM here; the hub fans fresh cold subagent-judges out over the
+    tasks file and writes ``_cf-verdicts.json`` alongside it, then
+    ``rv review <project> judge-ingest <scope>`` (or ``rv dag approve
+    approve-protocol``) consumes the verdicts. The direct-API judge path was
+    deleted (PR-F) — this fan-out is the ONLY production counter-facet path.
+
+    Returns ``{"counter-facet": {"tasks_doc": ..., "canary_key_doc": ...}}``.
+    """
+    from research_vault.review.counter_facet_guard import emit_counter_facet_tasks_to_dir
+
+    cfg = config or load_config()
+    protocol_path = _review_artifact_dir(project, scope_id, cfg) / "_protocol.md"
+    if not protocol_path.exists():
+        raise FileNotFoundError(
+            f"rv review judge-emit: {protocol_path} not found. Run "
+            f"`rv review {project} new {scope_id} --question '...'` first."
+        )
+    result = emit_counter_facet_tasks_to_dir(
+        _cf_judge_dir(project, scope_id, cfg),
+        protocol_path.read_text(encoding="utf-8"),
+        scope=scope_id,
+    )
+    return {"counter-facet": result}
+
+
+def cmd_counter_facet_ingest(
+    project: str,
+    scope_id: str,
+    *,
+    config: Config | None = None,
+) -> dict[str, Any]:
+    """Ingest the counter-facet fan-out verdicts (PR-F).
+
+    When to use: ``rv review <project> judge-ingest <scope>`` — reads whatever
+    the hub wrote to ``reviews/<scope>/judge/counter-facet/_cf-verdicts.json``
+    and assembles the ingest result (a diagnostic surface; ``rv dag approve
+    approve-protocol`` is the actual gate). A canary abort is caught and folded
+    into the return dict (``canary_aborted``/``halt``) rather than raised.
+
+    Returns ``{"counter-facet": {...}}``.
+    """
+    from research_vault.review.counter_facet_guard import (
+        CanaryAbortError,
+        ingest_counter_facet_verdicts_from_dir,
+    )
+
+    cfg = config or load_config()
+    out: dict[str, Any] = {}
+    try:
+        out["counter-facet"] = ingest_counter_facet_verdicts_from_dir(
+            _cf_judge_dir(project, scope_id, cfg),
+        )
+    except CanaryAbortError as e:
+        out["counter-facet"] = {
+            "ok": False, "blocking": [str(e)], "not_run": [],
+            "canary_aborted": True, "halt": True, "halt_reason": str(e),
+            "missing_ids": [], "unrecognized_ids": [],
+        }
+    return out
+
+
 def cmd_expand(
     project: str,
     scope_id: str,
