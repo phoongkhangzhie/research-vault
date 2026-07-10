@@ -928,30 +928,40 @@ def index_literature_rows(literature_dir: Path) -> list[dict[str, str]]:
 
 
 def render_comparison_table(rows: list[dict[str, str]]) -> str:
-    """Render the deterministic comparison-table (design §4) from rows.
+    """Render the deterministic, hermetic NUMBERED sources ledger (design §4).
+
+    PR-B (gold-settled `report.md`): retired the markdown-table + bare-
+    citekey format in favor of a `[N]`-numbered list — the reader-facing
+    citation convention is `[N]` inline + this ledger, matched 1:1 by list
+    position, never a table of citekeys the reader must cross-reference by
+    hand. (Function name kept — no other caller depends on the table shape,
+    confirmed by grep; renaming would only churn the one call site for no
+    behavioral gain.)
 
     Args:
         rows: as returned by ``index_literature_rows`` — never invented cells.
 
     Returns:
-        A markdown table, byte-deterministic given the same rows.
+        A markdown numbered list, byte-deterministic given the same rows.
+        Each entry publishes its fixed `[N]`, title, venue/year, and the
+        citekey (for provenance cross-check against `literature/`) — never
+        a hand-typed or invented entry.
 
-    sr: PR-M6
+    sr: PR-M6; PR-B (citation-format retirement, gold-settled `report.md`)
     """
     if not rows:
         return (
-            "_No `literature/` notes materialized yet — the comparison table "
+            "_No `literature/` notes materialized yet — the sources list "
             "populates as papers are related into the corpus._\n"
         )
-    lines = [
-        "| Citekey | Title | Year | Venue | Code |",
-        "| --- | --- | --- | --- | --- |",
-    ]
-    for row in rows:
+    lines = []
+    for i, row in enumerate(rows, start=1):
+        title = row["title"] or row["citekey"]
+        venue = row["venue"] or "—"
+        year = row["year"] or "—"
         code = row["repo"] if row["repo"] else "—"
         lines.append(
-            f"| {row['citekey']} | {row['title']} | {row['year']} | "
-            f"{row['venue']} | {code} |"
+            f"[{i}] {title} ({venue}, {year}) — citekey: `{row['citekey']}` — code: {code}"
         )
     return "\n".join(lines) + "\n"
 
@@ -1004,8 +1014,11 @@ def source_transform(
     a count, or a table cell):
       - the PRISMA ledger (``render_prisma_ledger``, via ``review.coverage_report``
         under the ``reviews/<slug>/`` convention — manuscript slug == review
-        scope id; degrades to an honest "no corpus" ledger otherwise) — RD-3:
-        injected into the ``appendix-methods`` section, NOT a body section.
+        scope id; degrades to an honest "no corpus" ledger otherwise) — PR-B
+        (gold-settled): injected into the ``appendix-methods`` tip, which
+        routes it to the project's DEVLOG/control note — NEVER a
+        ``report.md`` section (the reader-facing document carries no
+        Appendix at all, see ``SECTION_SET``/``READING_ORDER``).
       - the comparison-table rows (``index_literature_rows`` /
         ``render_comparison_table``)
       - the frozen framework's branches (from ``spine`` — the `_manuscript.md`
@@ -1076,13 +1089,19 @@ _THEMATIC_BRIEF = (
     "unit: `claim -> the >=2 papers marshalled -> the critical comparison "
     "(which wins where, and why)`. The claim comes from a `concepts/` atom; "
     "the papers from that concept's linked `literature/` notes.\n"
-    "3. Relationships ('X builds on Y', 'X contradicts Y') are drawn ONLY from "
-    "note link-fields — `role`/`position` (PR-4) plus the typed paper→paper "
-    "edges a `## Related papers` section carries (`[SUPPORTS]/[CONTRADICTS]/"
-    "[PARTIAL]/[EXTENDS]`, Wave 0 PR-2 — read them directly, verbatim, from "
-    "each `literature/<key>.md` note's `## Related papers` section rather "
-    "than re-deriving from prose) — NEVER invented. The support-matcher "
-    "(PR-M3) re-fires this.\n"
+    "3. Relationships ('X builds on Y', 'X contradicts Y') are GROUNDED in — "
+    "but never SURFACED as — note link-fields (`role`/`position`, PR-4) and "
+    "the typed paper→paper edges a `## Related papers` section carries "
+    "(`[SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS]`, Wave 0 PR-2). Read the "
+    "edges and note paths directly, verbatim, from each `literature/<key>.md` "
+    "note's `## Related papers` section rather than re-deriving from prose — "
+    "but they are grounding INPUTS ONLY: NEVER quote the edge tag, the "
+    "bracket syntax, or the target note's path in the drafted prose. Turn "
+    "the edge into an ARGUED sentence stating WHY: 'Smith's benchmark "
+    "extends Jones's protocol by adding a held-out split' — never 'Smith "
+    "carries a [SUPPORTS] edge to Jones' or 'Smith supports "
+    "literature/jones2022.md'. NEVER invented. The support-matcher (PR-M3) "
+    "re-fires this (PR-B: enacted, gold-settled).\n"
     "4. Every cited claim carries a provenance pointer to its source note(s) — "
     "the citation-fidelity floor (PR-M3, design §10).\n"
     "5. Voice comes from few-shot REAL excerpts (design §8, PR-M7/M8), not a "
@@ -1090,7 +1109,8 @@ _THEMATIC_BRIEF = (
     "bundle lands, imitate the MOVE the excerpts demonstrate, never the words.\n"
     "6. Reproduce PIVOTAL equations: where a claim turns on a source note's "
     "critical equation (`key_equations:` with `critical: true`), reproduce it "
-    "as block LaTeX (`\\begin{equation}...\\end{equation}`), not prose "
+    "as markdown display math (`$$...$$`), never `\\begin{equation}...\\end"
+    "{equation}` (PR-B, gold-settled `report.md` target) and never a prose "
     "paraphrase (design §7, PR-M4).\n\n"
     "Anti-pattern this brief exists to forbid: 'Smith et al. (2023) showed X. "
     "Jones et al. (2022) showed Y. Lee et al. (2021) showed Z.' — three "
@@ -1104,18 +1124,24 @@ STYLE_BRIEFS: dict[str, str] = {
         "RD-2 (reader-first): open on the THESIS, not the methods — the "
         "survey's central claim and why-now, in the first paragraph. Bold "
         "the topic sentence (RD-6). Do NOT lead with corpus size, search "
-        "process, or a methods preamble — that is Appendix A's job now.\n\n"
-        "RD-4: render ONLY a compact 'spine at a glance' orientation table "
-        "(the frozen `spine_shape:`/`branches:` from `_manuscript.md`, "
-        "approve-framework) + a 2-3 sentence organizing line explaining why "
-        "this shape fits the corpus. Do NOT write a 'why this spine over "
-        "rejected candidates' section — that reasoning stays internal, in "
-        "`_framework-candidates.md` (never re-derive or alter the frozen "
-        "shape here; the candidate-rejection defense is not reader-facing).\n\n"
+        "process, or a methods preamble — that record now lives in the "
+        "project's DEVLOG/control note, not this reader-facing document "
+        "(PR-B, gold-settled — no Appendix in `report.md`).\n\n"
+        "RD-4 (softened, PR-B): orient the reader to the frozen "
+        "`spine_shape:`/`branches:` (from `_manuscript.md`, approve-"
+        "framework) — a compact table is ONE good way to do this, but is "
+        "not mandatory; a 2-3 sentence naming of the branches + why this "
+        "shape fits the corpus is equally acceptable. Pick whichever reads "
+        "better against this section's own prose; do not force a table "
+        "where a sentence would read cleaner. Do NOT write a 'why this "
+        "spine over rejected candidates' section — that reasoning stays "
+        "internal, in `_framework-candidates.md` (never re-derive or alter "
+        "the frozen shape here; the candidate-rejection defense is not "
+        "reader-facing).\n\n"
         "Draw scope framing from `mocs/` and open questions from `gaps/` — "
         "never invent a gap not anchored in a real `gaps/` note. Preview the "
         "contributions, then hand off directly into the thematic sections — "
-        "no PRISMA/methods detour (RD-2/RD-3)."
+        "no PRISMA/methods detour (RD-2)."
     ),
     "thematic-sections": _THEMATIC_BRIEF,
     "cross-cutting-analysis": (
@@ -1139,26 +1165,34 @@ STYLE_BRIEFS: dict[str, str] = {
         "thematic sections and cross-cutting analysis."
     ),
     "references": (
-        "RD-1: this is `## Sources`, MECHANICAL not prose — the reference "
-        "list is built from the hermetic citekey ledger (`references.md`, from "
-        "`literature/` frontmatter) — never hand-type or invent an entry. "
-        "Use the injected comparison-table citekey list verbatim. Cite in "
-        "the body with `[[citekey]]` markdown wikilinks, never `\\cite{}` "
-        "(RD-1 retires tex-macro citations from the reader path)."
+        "RD-1: this is `## Sources`, MECHANICAL not prose — a hermetic "
+        "NUMBERED ledger built from the citekey ledger (`literature/` "
+        "frontmatter), byte-deterministic — never hand-type or invent an "
+        "entry. Use the injected `[N]` numbered list VERBATIM as the body "
+        "of this section, in the injected order — do not renumber, "
+        "reorder, or drop an entry.\n\n"
+        "PR-B (gold-settled `report.md`): cite in the body of EVERY other "
+        "section with the matching `[N]` inline marker (e.g. 'Smith et al. "
+        "[3] show...') — `[[citekey]]` markdown wikilinks are RETIRED from "
+        "the reader path, and `\\cite{}` stays retired too (RD-1). The `[N]` "
+        "a source carries is fixed by this section's list order; look it up "
+        "here, never invent or guess a number."
     ),
     "appendix-methods": (
-        "RD-3: render Appendix A — the full methods/audit-trail record "
-        "(inclusion/exclusion criteria, PRISMA funnel table, saturation "
-        "stop, counter-position list) from the injected PRISMA ledger "
-        "(mechanical — counts come from `rv review coverage`, never "
-        "estimated by you). This is the relocated `prisma-scope` content — "
-        "reader-optional, never the reader's entry point. Do NOT include a "
-        "corpus hash or any raw `sha256:` value here or anywhere in the "
-        "reader body — hashes and reconciliation flags live in the control "
-        "note / DEVLOG only (RD-3; the reader-hygiene leak-gate, RD-5, "
-        "BLOCKs on a literal hash leaking into this document). Name every "
-        "counter-position by its actual argument, never by an internal `CPk` "
-        "handle (RD-6)."
+        "PR-B (gold-settled `report.md`): `report.md` carries NO Appendix "
+        "— do NOT render an 'Appendix A' section, and do NOT join this "
+        "content into `report.md` at all. Instead, write the full methods/"
+        "audit-trail record (inclusion/exclusion criteria, PRISMA funnel "
+        "table, saturation stop, counter-position list) from the injected "
+        "PRISMA ledger (mechanical — counts come from `rv review "
+        "coverage`, never estimated by you) as a DATED ENTRY in the "
+        "project's `DEVLOG.md` (or this run's control note, if the project "
+        "has no DEVLOG yet) — never in the reader body. A corpus hash or "
+        "any raw `sha256:` value belongs HERE, in the DEVLOG/control-note "
+        "record — never in `report.md` (the reader-hygiene leak-gate, "
+        "RD-5, still BLOCKs a literal hash appearing in the assembled "
+        "report). Name every counter-position by its actual argument, "
+        "never by an internal `CPk` handle (RD-6)."
     ),
     "abstract": (
         "Write the abstract LAST, after every other section is drafted — it "
@@ -1168,16 +1202,19 @@ STYLE_BRIEFS: dict[str, str] = {
         "fidelity failure). Never introduce a new claim here."
     ),
     "assemble": (
-        "RD-1: join the drafted sections into `report.md` (markdown, not "
-        "markdown, not a separate assembly step) in READER-FIRST reading order (RD-2): Abstract, "
-        "Introduction (thesis + spine-at-a-glance), Thematic sections, "
-        "Cross-cutting analysis, Open problems, Conclusion, Sources "
-        "(References), Appendix A (Appendix-methods) — even though Abstract "
-        "and Appendix-methods were DRAFTED in a different chain order "
-        "(Abstract last, so it could summarize the finished body). Prepend "
-        "the injected `provenance_header` blockquote (RD-3, hash-free) as "
-        "the very first lines of `report.md`, before the Abstract. Do not "
-        "reorder or drop a section."
+        "RD-1: join the drafted sections into `report.md` (markdown) in "
+        "READER-FIRST reading order (RD-2): Abstract, Introduction (thesis "
+        "+ spine-at-a-glance), Thematic sections, Cross-cutting analysis, "
+        "Open problems, Conclusion, Sources (References) — even though "
+        "Abstract was DRAFTED in a different chain order (last, so it "
+        "could summarize the finished body). Prepend the injected "
+        "`provenance_header` blockquote (RD-3, hash-free) as the very "
+        "first lines of `report.md`, before the Abstract. Do not reorder "
+        "or drop a section.\n\n"
+        "PR-B (gold-settled): `report.md` carries NO Appendix — the "
+        "methods/audit-trail record (PRISMA ledger, counter-positions) is "
+        "written SEPARATELY to the project's DEVLOG/control note (see the "
+        "`appendix-methods` brief) and never joined into this document."
     ),
 }
 
@@ -1215,6 +1252,17 @@ STYLE_BRIEFS: dict[str, str] = {
 # mechanism that would read a per-manuscript N is the core's Phase-2 builder,
 # untouched here per the parallel-wave scope discipline). Documented honestly
 # as the current simplification, not silently assumed.
+#
+# PR-B (gold-settled `report.md`): `appendix-methods` is NOT a row here —
+# the operator's approved gold report carries no Appendix. The PRISMA/methods
+# record it used to render (as "Appendix A") is still computed by
+# `source_transform` and still gets a `STYLE_BRIEFS["appendix-methods"]`
+# tip (so the exemplar/equation injection seams keep working, and the
+# mechanical ledger still reaches the drafter) — but the tip itself now
+# instructs a DEVLOG/control-note write, never a join into `report.md` (see
+# `_build_consolidated_draft_brief`, which folds this tip in as a distinct
+# "not a report section" block rather than a `Section: appendix-methods`
+# row). 8 -> 7 rows.
 SECTION_SET: tuple[SectionSpec, ...] = (
     SectionSpec(
         name="introduction",
@@ -1253,12 +1301,6 @@ SECTION_SET: tuple[SectionSpec, ...] = (
         brief_key="references",
     ),
     SectionSpec(
-        name="appendix-methods",
-        assembly_class="M",
-        source_atoms=("literature", "reviews"),
-        brief_key="appendix-methods",
-    ),
-    SectionSpec(
         name="abstract",
         assembly_class="S",
         source_atoms=(),
@@ -1290,9 +1332,16 @@ _DEFAULT_SINGLE_PASS_CORPUS_CEILING = 40
 # summarize the finished body — the single-pass writer holds the whole
 # survey in view, so "drafted last" is a sequencing note inside one prompt,
 # not a separate DAG node).
+# PR-B (gold-settled `report.md`): `appendix-methods` dropped from the
+# reading order — the assembled reader document carries no Appendix (see
+# the SECTION_SET comment above; the methods record routes to the
+# project's DEVLOG/control note instead). This is also the frozen heading
+# contract `check_heading_order` (manuscript/check_gates.py) diffs the
+# drafted body against — dropping the row here keeps that gate honest
+# (no Appendix heading expected, none should appear).
 READING_ORDER: tuple[str, ...] = (
     "abstract", "introduction", "thematic-sections", "cross-cutting-analysis",
-    "open-problems", "conclusion", "references", "appendix-methods",
+    "open-problems", "conclusion", "references",
 )
 
 # RD-6 (design §6) + HR-craft rec 1 (§7): drafting-style rules folded into
@@ -1315,7 +1364,20 @@ _RD6_STYLE_RULES = (
     "counter-evidence lands, NARROW the claim's scope ('X holds in A; in B, "
     "Z changes the regime') instead of hedging ('X, though this may "
     "differ'). A narrowed claim sharpens the thesis; a hedge dissolves it — "
-    "always prefer the former."
+    "always prefer the former.\n\n"
+    "PR-B (own-voice + per-study depth): draft in TWO PASSES within this "
+    "single pass — (1) a first pass that marshals the grounded facts "
+    "(claims, comparisons, edges, numbers) into rough prose per section, "
+    "then (2) a revision pass that rewrites it in YOUR OWN VOICE. Never "
+    "paste, lightly edit, or stitch together any injected input text "
+    "(the comparison-table row, the relations ledger, an exemplar excerpt) "
+    "verbatim into the draft — those are grounding DATA to synthesize from, "
+    "not prose to forward. For every LOAD-BEARING study (one a thematic "
+    "claim turns on, not a passing mention), carry enough depth that the "
+    "reader could evaluate the claim without opening the source: name its "
+    "actual design/method, at least one concrete number it reports, and "
+    "its stated limitation or scope boundary — a citation with no design, "
+    "no number, and no limit is under-specified for a load-bearing role."
 )
 
 
@@ -1475,11 +1537,25 @@ def check_outline_gate(outline_path: Path, branches: list[str]) -> list[str]:
 def _build_consolidated_draft_brief(tips: dict[str, str]) -> str:
     """Consolidate the per-section tips (RD-2's reading order) into ONE
     single-pass draft brief (design §2.2/§2.6): "the mechanical injections
-    ... now inject into ONE brief + the outline"."""
+    ... now inject into ONE brief + the outline".
+
+    PR-B (gold-settled ``report.md``, no Appendix): ``appendix-methods`` is
+    folded in as a DISTINCT, clearly-labeled non-report block — never a
+    ``### Section: appendix-methods`` row (that heading would misleadingly
+    imply it joins ``report.md`` like every other row in ``READING_ORDER``).
+    Its content (the mechanical PRISMA ledger + the DEVLOG-routing
+    instruction) still reaches the single drafting agent; it is simply
+    never assembled into the reader-facing document.
+    """
     parts: list[str] = []
     for key in READING_ORDER:
         if key in tips:
             parts.append(f"### Section: {key}\n\n{tips[key]}")
+    if "appendix-methods" in tips:
+        parts.append(
+            "### Separate artifact — DEVLOG/control-note record "
+            "(NOT a `report.md` section, PR-B)\n\n" + tips["appendix-methods"]
+        )
     parts.append(f"### Drafting-style rules\n\n{_RD6_STYLE_RULES}")
     return "\n\n---\n\n".join(parts)
 

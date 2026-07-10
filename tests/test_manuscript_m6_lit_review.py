@@ -82,26 +82,30 @@ from research_vault.dag.schema import validate_manifest
 # 1. The section-set (design §3)
 # ---------------------------------------------------------------------------
 
-def test_section_set_has_eight_rows():
+def test_section_set_has_seven_rows():
     """RD-2/RD-4 (next-gen lit-review design §6): prisma-scope and framework
-    are removed as body rows (methods -> appendix, spine shown by structure
-    only); appendix-methods is added — net 9 -> 8."""
+    are removed as body rows (methods -> DEVLOG, spine shown by structure
+    only). PR-B (gold-settled `report.md`): `appendix-methods` is ALSO
+    removed as a body row — the gold report carries no Appendix; the
+    methods record routes to the project's DEVLOG/control note instead
+    (still a STYLE_BRIEFS tip, just never assembled into report.md). Net
+    9 -> 8 -> 7."""
     ms_type = get_type("lit-review")
-    assert len(ms_type.section_set) == 8
+    assert len(ms_type.section_set) == 7
 
 
 def test_section_set_names_reader_first_order():
-    """RD-2: reader-first order — thesis/framing leads, methods demoted to
-    a distinct appendix-methods row rendered last (in chain order; the
-    assemble brief places it last in the READING order too, after references)."""
+    """RD-2: reader-first order — thesis/framing leads. PR-B: no Appendix
+    row at all (methods route to DEVLOG/control note, never report.md)."""
     names = [s.name for s in SECTION_SET]
     assert names == [
         "introduction", "thematic-sections",
         "cross-cutting-analysis", "open-problems", "conclusion",
-        "references", "appendix-methods", "abstract",
+        "references", "abstract",
     ]
     assert "prisma-scope" not in names
     assert "framework" not in names
+    assert "appendix-methods" not in names
 
 
 def test_abstract_is_last():
@@ -148,7 +152,26 @@ def test_thematic_brief_requires_provenance_pointer():
 def test_thematic_brief_requires_pivotal_equation_reproduction():
     brief = STYLE_BRIEFS["thematic-sections"].lower()
     assert "critical equation" in brief or "pivotal" in brief
-    assert "block latex" in brief or "\\begin{equation}".lower() in brief
+    assert "$$" in brief
+
+
+def test_thematic_brief_retires_latex_equation_env():
+    """PR-B (gold-settled `report.md`): markdown `$$...$$` display math is
+    the REQUIRED reproduction form; `\\begin{equation}` is only mentioned
+    as the retired never-use alternative, never instructed."""
+    brief = STYLE_BRIEFS["thematic-sections"]
+    assert "reproduce it as markdown display math" in brief
+    assert "never `\\begin{equation}" in brief
+
+
+def test_thematic_brief_edges_are_grounding_inputs_only():
+    """PR-B rule 3: typed edges/note paths ground the relation but must
+    never be surfaced/quoted verbatim in drafted prose — an argued
+    sentence, not a bracket tag or a note path."""
+    brief = STYLE_BRIEFS["thematic-sections"].lower()
+    assert "grounding" in brief
+    assert "argued" in brief
+    assert "never quote the edge tag" in brief or "never surfaced" in brief
 
 
 def test_regression_guard_brief_missing_rule_would_fail():
@@ -532,6 +555,19 @@ def test_comparison_table_deterministic(tmp_path):
     assert "—" in table1  # no-repo placeholder for a2023
 
 
+def test_comparison_table_is_numbered_sources_list():
+    """PR-B (gold-settled `report.md`): `[N]` numbered ledger, never a
+    markdown table of bare citekeys — the reader-facing citation
+    convention is `[N]` inline + this list, matched 1:1 by position."""
+    rows = [
+        {"citekey": "a2023", "title": "A", "year": "2023", "venue": "ACL", "repo": ""},
+        {"citekey": "z2024", "title": "Z", "year": "2024", "venue": "NeurIPS", "repo": "https://x"},
+    ]
+    table = render_comparison_table(rows)
+    assert "[1]" in table and "[2]" in table
+    assert "| Citekey |" not in table  # the old markdown-table header is gone
+
+
 def test_comparison_table_empty_rows_is_honest():
     table = render_comparison_table([])
     assert "no `literature/` notes" in table.lower()
@@ -624,8 +660,13 @@ def test_e2e_new_and_expand_full_manifest(cfg):
     for expected in (
         "introduction", "thematic-sections",
         "cross-cutting-analysis", "open-problems", "conclusion", "references",
-        "appendix-methods", "abstract",
+        "abstract",
     ):
         assert f"Section: {expected}" in draft_spec, f"{expected!r} missing from consolidated draft brief"
+    # PR-B (gold-settled `report.md`): appendix-methods is folded in as a
+    # distinct non-report artifact block, never a "Section: appendix-methods"
+    # row (that heading would imply it joins report.md like the others).
+    assert "Section: appendix-methods" not in draft_spec
+    assert "NOT a `report.md` section" in draft_spec
     assert "prisma-scope" not in p2_ids
     assert "framework" not in p2_ids

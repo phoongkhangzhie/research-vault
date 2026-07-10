@@ -262,9 +262,12 @@ def build_equation_ledger_brief_block(ledger: list[dict[str, Any]]) -> str:
         "★ REQUIRE — pivotal equations from your source notes (design §7):",
         "The following equations are DATA extracted from your source notes — "
         "they are injected here VERBATIM. Where your argument turns on one of "
-        "these, reproduce it as BLOCK LaTeX (\\begin{equation}...\\end{equation} "
-        "or $$...$$), never as prose paraphrase. Do NOT re-type or re-derive "
-        "them from memory — copy the LaTeX below exactly.",
+        "these, reproduce it as markdown display math ($$...$$) — the "
+        "gold-settled `report.md` render target (PR-B) — never "
+        "\\begin{equation}...\\end{equation} and never a prose paraphrase. "
+        "Do NOT re-type or re-derive them from memory — copy the LaTeX "
+        "below exactly (only re-wrapping the delimiters to $$...$$ if the "
+        "source used a LaTeX environment).",
         "",
     ]
     for entry in ledger:
