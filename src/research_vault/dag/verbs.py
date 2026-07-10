@@ -1952,19 +1952,62 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 print(msg, file=sys.stderr)
                 return 1
 
-            # PR-2 D-6: cold, rejects-only, canary-verified counter-facet
-            # STRENGTH guard — existence (D-7) != strength; a thesis-biased
-            # generator can satisfy D-7 with a straw-man. Judge-gated: an
-            # absent judge is a loud SIGNAL (never a silent skip); a canary
-            # abort or a real straw-man verdict is a hard BLOCK.
-            from ..review.counter_facet_guard import check_counter_facet_strength
-            guard_result = check_counter_facet_strength(Path(protocol_ref).read_text(encoding="utf-8"))
-            for nr in guard_result["not_run"]:
-                print(f"rv dag approve: approve-protocol SIGNAL: {nr}", file=sys.stderr)
-            if not guard_result["ok"]:
-                for b in guard_result["blocking"]:
+            # PR-2 D-6 / PR-F: cold, rejects-only, canary-verified
+            # counter-facet STRENGTH guard — existence (D-7) != strength; a
+            # thesis-biased generator can satisfy D-7 with a straw-man. PR-F:
+            # the direct-API judge path was deleted; the strength judge runs
+            # via the cold emit/ingest fan-out. Unified HALT (deliverable #3):
+            # no fan-out / no verdicts / incomplete fan-out -> HALT-DECLARE
+            # (supersedes the old #227 SIGNAL — a relied-on cold gate that
+            # cannot run HALTs). The structural, judge-INDEPENDENT guard still
+            # runs synchronously and hard-BLOCKs garbage `seed_queries:`.
+            from ..review.counter_facet_guard import (
+                CanaryAbortError as _CFCanaryAbortError,
+                cf_fanout_present,
+                check_counter_facet_strength,
+                ingest_counter_facet_verdicts_from_dir,
+            )
+
+            protocol_text = Path(protocol_ref).read_text(encoding="utf-8")
+            cf_dir = Path(protocol_ref).parent / "judge" / "counter-facet"
+
+            # (a) structural, judge-independent BLOCK (always synchronous).
+            struct = check_counter_facet_strength(protocol_text)  # judge_fn=None
+            if struct["blocking"]:
+                for b in struct["blocking"]:
                     print(f"rv dag approve: approve-protocol BLOCKED: {b}", file=sys.stderr)
                 return 1
+
+            # (b) strength via the cold fan-out — ingest if emitted, else the
+            #     unified HALT-DECLARE surface. Consistent with the
+            #     support-matcher at approve-manuscript: the "cannot run" cases
+            #     (no fan-out / incomplete fan-out / no verdicts) are surfaced
+            #     LOUDLY as a HALT-DECLARE not_run (the human-go gate sees the
+            #     floor was never checked; the autonomous gate-policy engine
+            #     treats not_run as HALT-DECLARE) — they do NOT hard-block the
+            #     manual gate. Only ACTIONABLE untrustworthy signal — a real
+            #     straw-man verdict or a canary abort — is a hard BLOCK.
+            if cf_fanout_present(cf_dir):
+                try:
+                    cf_result = ingest_counter_facet_verdicts_from_dir(cf_dir)
+                except _CFCanaryAbortError as e:
+                    print(
+                        f"rv dag approve: approve-protocol BLOCKED "
+                        f"(CANARY ABORT / HALT-DECLARE): {e}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                for nr in cf_result["not_run"]:
+                    print(f"rv dag approve: approve-protocol HALT-DECLARE: {nr}", file=sys.stderr)
+                if cf_result["blocking"]:
+                    for b in cf_result["blocking"]:
+                        print(f"rv dag approve: approve-protocol BLOCKED: {b}", file=sys.stderr)
+                    return 1
+            else:
+                # No fan-out emitted -> unified HALT-DECLARE surface (`struct`
+                # carries the no-judge HALT message, judge_fn=None).
+                for nr in struct["not_run"]:
+                    print(f"rv dag approve: approve-protocol HALT-DECLARE: {nr}", file=sys.stderr)
 
             # PR-2 D-1: the derived 40-100 distinct-query band is a SIGNAL,
             # never a BLOCK (the generator's derived count is a target, not
