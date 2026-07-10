@@ -135,6 +135,24 @@ _LEAK_SHA256_RE = re.compile(r"\bsha256:[0-9a-fA-F]+\b")
 # Loop/control-artifact filenames (the review/manuscript control notes) —
 # never a reader-facing citation; a real citekey never starts with '_'.
 _LEAK_ARTIFACT_FILENAME_RE = re.compile(r"\b_[a-z][a-z-]*\.md\b")
+# Literal bracketed epistemic edge tags (review/relate paper<->paper and
+# paper<->concept edges, e.g. `[SUPPORTS] concepts/x.md — reason`) — these
+# are OKF-internal relation vocabulary, never reader-facing prose (PR-C,
+# hub bake-off: missed class 1/3, a downstream project's manuscript).
+_LEAK_EDGE_TAG_RE = re.compile(r"\[(?:SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS)\]")
+# OKF note-path fragments (a path SEGMENT shape, `word/...` — NOT the bare
+# word) — the bare words "literature"/"concepts"/"reviews"/"gaps"/"mocs" are
+# ordinary English and must never trip this; only the literal path-fragment
+# shape (the word immediately followed by a slash and more path characters)
+# does. Distinct from _LEAK_ARTIFACT_FILENAME_RE, which only matches
+# underscore-prefixed control filenames, not OKF note-tree paths (PR-C,
+# missed class 2/3).
+_LEAK_OKF_PATH_RE = re.compile(
+    r"\b(?:concepts|literature|mocs|gaps|reviews)/[\w.\-]+"
+)
+# The literal reader-facing label "source notes:" — an internal
+# provenance/control heading, never reader prose (PR-C, missed class 3/3).
+_LEAK_SOURCE_NOTES_LABEL_RE = re.compile(r"(?i)\bsource notes:")
 # Tool/verb/node-vocabulary tokens leaking loop internals into reader prose.
 _LEAK_TOOL_TOKENS: tuple[str, ...] = (
     "rv research",
@@ -199,6 +217,22 @@ def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
         errors.append(
             f"reader-hygiene BLOCK: internal artifact filename {m.group(0)!r} leaked "
             f"into reader prose — this is a loop-control artifact name, not a citation."
+        )
+    for m in _LEAK_EDGE_TAG_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: epistemic edge tag {m.group(0)!r} leaked into "
+            f"reader prose — this is OKF relation-vocabulary, not a citation; state "
+            f"the relationship in reader-facing terms instead."
+        )
+    for m in _LEAK_OKF_PATH_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: OKF note-path fragment {m.group(0)!r} leaked "
+            f"into reader prose — this is an internal note-tree path, not a citation."
+        )
+    for m in _LEAK_SOURCE_NOTES_LABEL_RE.finditer(reader_body):
+        errors.append(
+            f"reader-hygiene BLOCK: internal label {m.group(0)!r} leaked into "
+            f"reader prose — this is a provenance/control heading, never reader text."
         )
     for token in _LEAK_TOOL_TOKENS:
         if token in reader_body:
