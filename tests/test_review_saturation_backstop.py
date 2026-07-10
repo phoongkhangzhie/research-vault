@@ -56,7 +56,7 @@ class TestGetSaturationBackstopWaves:
             DEFAULT_SATURATION_BACKSTOP_WAVES,
         )
         assert get_saturation_backstop_waves(None) == DEFAULT_SATURATION_BACKSTOP_WAVES
-        assert DEFAULT_SATURATION_BACKSTOP_WAVES == 3
+        assert DEFAULT_SATURATION_BACKSTOP_WAVES == 2
 
     def test_config_override_positive_int(self):
         from research_vault.review.style import get_saturation_backstop_waves

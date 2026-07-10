@@ -629,7 +629,15 @@ def get_review_style_preamble(config: Any = None) -> str:
 # Saturation backstop config seam (SR-LR-1-BACKSTOP)
 # ---------------------------------------------------------------------------
 
-DEFAULT_SATURATION_BACKSTOP_WAVES: int = 3
+DEFAULT_SATURATION_BACKSTOP_WAVES: int = 2
+
+# Breadth x depth bounds (2026-07-09): lowered 3 -> 2, alongside
+# sources.snowball's own DEFAULT_BACKSTOP_WAVES (the SSOT for a caller
+# invoking run_snowball_to_saturation directly, e.g. tests). Kept the two
+# constants numerically in sync rather than only overriding one call site —
+# a broad-topic downstream-project validation walk ran unbounded for 1+ hour; combined with
+# the new seed_cap/frontier_cap/fetch_budget knobs (sources/snowball.py),
+# this is the closed set of breadth x depth bounds on the snowball walk.
 
 
 def get_saturation_backstop_waves(config: Any = None) -> int:
@@ -651,7 +659,7 @@ def get_saturation_backstop_waves(config: Any = None) -> int:
                 (a positive int), that value overrides the default.
 
     Returns:
-        The wave-count cap (int, >= 1).  Default 3.  A non-int, non-positive,
+        The wave-count cap (int, >= 1).  Default 2.  A non-int, non-positive,
         or missing override falls back to the default (never a crash, never a
         silently-accepted nonsensical cap like 0 or a negative number).
 

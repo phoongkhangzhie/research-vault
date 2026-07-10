@@ -681,7 +681,10 @@ def _op_snowball(
     *,
     seed: str,
     out_dir: str,
-    backstop_waves: int = 3,
+    backstop_waves: int = 2,
+    seed_cap: int | None = None,
+    frontier_cap: int | None = None,
+    fetch_budget: int | None = None,
     project: str | None = None,
     config: Any = None,
     **_: Any,
@@ -697,6 +700,14 @@ def _op_snowball(
     seed paper-id frontier, which lives in a fenced ```seeds``` block (the
     screen note's own prose PRISMA exclusion audit trail lives freely above
     it; see ``review/style.py``'s ``review_screen_tips``).
+
+    ``seed_cap``/``frontier_cap``/``fetch_budget``: breadth x depth bounds
+    (2026-07-09 — a broad-topic downstream-project validation walk ran unbounded for 1+
+    hour). ``None`` (the manifest's default) lets
+    ``run_snowball_to_saturation`` apply its own shipped defaults
+    (``DEFAULT_SEED_CAP``/``DEFAULT_FRONTIER_CAP``/``DEFAULT_FETCH_BUDGET``
+    — 25/25/200); passed through explicitly only when the DAG manifest
+    overrides them.
     """
     from research_vault.sources.snowball import (
         run_snowball_to_saturation,
@@ -715,8 +726,18 @@ def _op_snowball(
     # review-dir artifacts and is removed automatically on clean completion.
     out_dir_path = Path(out_dir)
     checkpoint_path = out_dir_path / "_snowball_checkpoint.json"
+
+    cap_kwargs: dict[str, int] = {}
+    if seed_cap is not None:
+        cap_kwargs["seed_cap"] = seed_cap
+    if frontier_cap is not None:
+        cap_kwargs["frontier_cap"] = frontier_cap
+    if fetch_budget is not None:
+        cap_kwargs["fetch_budget"] = fetch_budget
+
     result = run_snowball_to_saturation(
         seed_ids, backstop_waves=backstop_waves, checkpoint_path=checkpoint_path,
+        **cap_kwargs,
     )
 
     notes_index = None

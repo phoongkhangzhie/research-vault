@@ -218,11 +218,18 @@ class TestRealRunnerEndToEnd:
         from research_vault.dag.verbs import cmd_tick, cmd_complete
         from research_vault.dag.store import RunStore
         from research_vault.review import cmd_new
+        from research_vault.review import style as review_style
 
         cfg = load_config()
 
         # Round 1 finds one genuinely new paper; rounds 2+3 find nothing ->
-        # 2-consecutive-zero -> "saturated".
+        # 2-consecutive-zero -> "saturated". This scenario needs >= 3 waves
+        # available (1 to find something + 2 to plateau) — the shipped
+        # DEFAULT is now 2 (breadth x depth bounds fix), so bump it back to
+        # 3 for THIS test only (it's specifically exercising the saturated
+        # path, not the default wave count — that's covered by
+        # test_review_saturation_backstop.py).
+        monkeypatch.setattr(review_style, "DEFAULT_SATURATION_BACKSTOP_WAVES", 3)
         _register_fake_adapter(
             monkeypatch,
             search_hits=[_hit("A Width-Swept Paper", "10.1000/searchhit1")],
@@ -342,14 +349,14 @@ class TestBackstopPath:
         cfg = load_config()
 
         # Every round yields a genuinely distinct, non-derivative new paper
-        # -> never 2-consecutive-zero -> the wave-cap backstop fires.
+        # -> never 2-consecutive-zero -> the wave-cap backstop fires
+        # (default backstop_waves is now 2 — breadth x depth bounds fix).
         _register_fake_adapter(
             monkeypatch,
             search_hits=[_hit("Seed Search Hit", "10.1000/searchhit2")],
             graph_script={
                 1: ([_hit("Distinct Paper Alpha population outcome method one", "10.1000/a1")], []),
                 2: ([_hit("Distinct Paper Beta measurement design cohort two", "10.1000/a2")], []),
-                3: ([_hit("Distinct Paper Gamma protocol trial sample three", "10.1000/a3")], []),
             },
         )
 
@@ -369,7 +376,7 @@ class TestBackstopPath:
 
         saturation_path = review_dir / "_saturation.md"
         saturation_text = saturation_path.read_text(encoding="utf-8")
-        assert "stop_reason: backstop:3-waves" in saturation_text
+        assert "stop_reason: backstop:2-waves" in saturation_text
 
         # review-curate (agent): backstop-termination REQUIRES _coverage-gaps.md.
         corpus_path = review_dir / "_corpus.md"
@@ -380,7 +387,7 @@ class TestBackstopPath:
         )
         gaps_path = review_dir / "_coverage-gaps.md"
         gaps_path.write_text(
-            "terminated by backstop after 3 waves; corpus is bounded-not-saturated.\n",
+            "terminated by backstop after 2 waves; corpus is bounded-not-saturated.\n",
             encoding="utf-8",
         )
         rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-curate", status="succeeded"))

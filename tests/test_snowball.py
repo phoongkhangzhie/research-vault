@@ -31,11 +31,11 @@ from research_vault.sources.snowball import (
 )
 
 
-def _hit(title: str, *, doi: str | None = None, abstract: str = "") -> PaperHit:
+def _hit(title: str, *, doi: str | None = None, abstract: str = "", citation_count: int = 0) -> PaperHit:
     ext = {"doi": doi} if doi else {}
     return PaperHit(
         title=title, year=2024, authors=["A. Author"], external_ids=ext,
-        abstract=abstract or title, citation_count=0, source="semantic-scholar",
+        abstract=abstract or title, citation_count=citation_count, source="semantic-scholar",
     )
 
 
@@ -536,3 +536,196 @@ def test_checkpoint_missing_required_key_treated_as_absent(tmp_path):
     )
     assert result.stop_reason == "saturated"
     assert adapter.calls.count(("cited_by", seed)) == 1  # fresh-start refetch
+
+
+# ---------------------------------------------------------------------------
+# Breadth x depth bounds — csb validation ran an unbounded 1hr+ broad-topic
+# walk (seed_cap / frontier_cap / fetch_budget / backstop_waves=2 default).
+# ---------------------------------------------------------------------------
+
+
+class _SpyAdapter:
+    """Fake adapter recording every (direction, pid) call it receives, keyed
+    scripted response per pid (not per round — needed for multi-pid-per-round
+    frontier-cap tests, unlike ``_ScriptedAdapter`` which scripts by round
+    index)."""
+
+    name = "fake"
+
+    def __init__(self, fwd_by_pid: dict[str, list[PaperHit]] | None = None,
+                 bwd_by_pid: dict[str, list[PaperHit]] | None = None):
+        self.fwd_by_pid = fwd_by_pid or {}
+        self.bwd_by_pid = bwd_by_pid or {}
+        self.cited_by_ids: list[str] = []
+        self.references_ids: list[str] = []
+
+    def search(self, query, *, limit=20):
+        raise NotSupported("search not used by snowball")
+
+    def cited_by(self, paper_id, *, limit=20):
+        self.cited_by_ids.append(paper_id)
+        return self.fwd_by_pid.get(paper_id, [])
+
+    def references(self, paper_id, *, limit=20):
+        self.references_ids.append(paper_id)
+        return self.bwd_by_pid.get(paper_id, [])
+
+
+def test_seed_cap_caps_to_top_25_preserving_input_order():
+    """No PaperHit exists at the seed stage (bare ids off ``_screen.md``), so
+    the declared fallback is: preserve input order, take the first
+    ``seed_cap``. 30 seeds in -> only the first 25 are ever fetched."""
+    seeds = [f"10.1234/seed{i}" for i in range(30)]
+    adapter = _SpyAdapter()
+    result = run_snowball_to_saturation(
+        seeds, adapter=adapter, backstop_waves=1, seed_cap=25,
+    )
+    assert len(adapter.cited_by_ids) == 25
+    assert adapter.cited_by_ids == [f"DOI:10.1234/seed{i}" for i in range(25)]
+    assert result.seed_count == 25
+
+
+def test_seed_cap_no_op_when_under_the_cap():
+    seeds = [f"10.1234/seed{i}" for i in range(5)]
+    adapter = _SpyAdapter()
+    result = run_snowball_to_saturation(
+        seeds, adapter=adapter, backstop_waves=1, seed_cap=25,
+    )
+    assert len(adapter.cited_by_ids) == 5
+    assert result.seed_count == 5
+
+
+def test_frontier_cap_promotes_only_top_25_by_citation_count():
+    """Round 1's single seed discovers 30 distinct new papers with varying
+    ``citation_count``. Only the top 25 (by citation_count desc) may seed
+    round 2's frontier — the other 5 are still kept in the corpus (§ discount
+    never delete) but don't expand the walk further."""
+    seed = "10.1234/seed"
+    thirty_hits = [
+        _hit(f"Distinct Topic Paper {i} on subject area {i}", doi=f"10.1234/p{i}",
+             abstract=f"unique abstract content about subject matter number {i} only",
+             citation_count=i)
+        for i in range(30)
+    ]
+    adapter = _SpyAdapter(fwd_by_pid={"DOI:10.1234/seed": thirty_hits})
+    result = run_snowball_to_saturation(
+        [seed], adapter=adapter, backstop_waves=2, frontier_cap=25,
+    )
+    # Round 1: only the seed is fetched (1 cited_by + 1 references call).
+    # Round 2: exactly the top-25-by-citation_count promoted papers are
+    # fetched — never all 30.
+    round2_fetched = adapter.cited_by_ids[1:]
+    assert len(round2_fetched) == 25
+    # citation_count 0..4 (the bottom 5) must NOT have been promoted.
+    for low in range(5):
+        assert f"DOI:10.1234/p{low}" not in round2_fetched
+    # citation_count 5..29 (the top 25) must all have been promoted.
+    for high in range(5, 30):
+        assert f"DOI:10.1234/p{high}" in round2_fetched
+    # All 30 are still kept in the corpus — discount/cap, never delete.
+    assert len(result.kept) == 30
+
+
+def test_fetch_budget_stops_walk_gracefully_with_distinct_stop_reason():
+    """A never-saturating neighborhood would otherwise run indefinitely (up
+    to the wave backstop); the fetch-budget is a HARD ceiling on total asta
+    calls, independent of waves. Set a tiny budget + a huge wave cap so only
+    the budget can be the thing that stops the walk."""
+    adapter = _SpyAdapter(
+        fwd_by_pid={
+            "DOI:10.1234/seed": [_hit("Paper A distinct topic alpha", doi="10.1234/a",
+                                    abstract="distinct alpha topic content")],
+            "DOI:10.1234/a": [_hit("Paper B distinct topic beta", doi="10.1234/b",
+                                 abstract="distinct beta topic content")],
+        },
+    )
+    result = run_snowball_to_saturation(
+        ["10.1234/seed"], adapter=adapter, backstop_waves=100, fetch_budget=3,
+    )
+    assert result.stop_reason == "budget:3-calls"
+    # Never exceeds the budget (2 calls in round 1, budget hit mid-round 2).
+    total_calls = len(adapter.cited_by_ids) + len(adapter.references_ids)
+    assert total_calls <= 3
+    assert len(result.rounds) == 2  # round 1 complete, round 2 truncated by budget
+
+
+def test_fetch_budget_stop_reason_never_exceeds_configured_value():
+    adapter = _SpyAdapter()
+    result = run_snowball_to_saturation(
+        ["10.1234/seed"], adapter=adapter, backstop_waves=5, fetch_budget=1,
+    )
+    assert result.stop_reason == "budget:1-calls"
+
+
+def test_backstop_waves_default_is_2():
+    assert __import__(
+        "research_vault.sources.snowball", fromlist=["DEFAULT_BACKSTOP_WAVES"]
+    ).DEFAULT_BACKSTOP_WAVES == 2
+
+    adapter = _SpyAdapter(
+        fwd_by_pid={
+            "DOI:10.1234/seed": [_hit("Paper A distinct topic alpha", doi="10.1234/a",
+                                    abstract="distinct alpha topic content")],
+            "DOI:10.1234/a": [_hit("Paper B distinct topic beta", doi="10.1234/b",
+                                 abstract="distinct beta topic content")],
+        },
+    )
+    # Never-saturating (each round finds a genuinely new independent paper)
+    # -> hits the DEFAULT wave cap (no explicit backstop_waves passed).
+    result = run_snowball_to_saturation(["10.1234/seed"], adapter=adapter)
+    assert result.stop_reason == "backstop:2-waves"
+    assert len(result.rounds) == 2
+
+
+def test_resume_carries_over_total_calls_and_respects_budget(tmp_path):
+    """The checkpoint must persist the running fetch-count so a resumed walk
+    doesn't reset it to 0 and blow past the budget across the resume
+    boundary."""
+    seed = "10.1234/seed"
+    ckpt = tmp_path / "_snowball_checkpoint.json"
+
+    class _KillOnSecondCitedBy(_SpyAdapter):
+        def cited_by(self, paper_id, *, limit=20):
+            self.cited_by_ids.append(paper_id)
+            if len(self.cited_by_ids) == 2:
+                raise KeyboardInterrupt("simulated process kill")
+            return self.fwd_by_pid.get(paper_id, [])
+
+    kill_adapter = _KillOnSecondCitedBy(
+        fwd_by_pid={"DOI:10.1234/seed": [_hit("Paper A", doi="10.1234/a")]},
+    )
+    with pytest.raises(KeyboardInterrupt):
+        run_snowball_to_saturation(
+            [seed], adapter=kill_adapter, backstop_waves=100,
+            fetch_budget=3, checkpoint_path=ckpt,
+        )
+    # Round 1 completed (2 calls: cited_by + references on the seed);
+    # checkpoint persists total_calls == 2.
+    data = json.loads(ckpt.read_text(encoding="utf-8"))
+    assert data["total_calls"] == 2
+
+    resume_adapter = _SpyAdapter()
+    result = run_snowball_to_saturation(
+        [seed], adapter=resume_adapter, backstop_waves=100,
+        fetch_budget=3, checkpoint_path=ckpt,
+    )
+    # Only ONE more call is permitted before the budget (3) is hit —
+    # never re-counts from 0 (which would allow 3 MORE calls, total 5).
+    resume_total = len(resume_adapter.cited_by_ids) + len(resume_adapter.references_ids)
+    assert resume_total == 1
+    assert result.stop_reason == "budget:3-calls"
+
+
+def test_budget_stop_reason_is_fail_closed_not_saturated_at_coverage_gate():
+    """Confirms the coverage-gate whitelist (SR-175) treats a distinct
+    ``budget:N-calls`` stop_reason exactly like any other non-canonical
+    value — HALT-DECLARE, never a silent GO. ``is_backstop`` must be False
+    (it does not start with ``backstop:``)."""
+    from research_vault.review import autonomy as auto
+
+    info = {
+        "exists": True, "stop_reason": "budget:200-calls",
+        "is_backstop": False, "wave_count": None,
+    }
+    result = auto.classify_coverage_gate(info)
+    assert result.disposition == auto.HALT_DECLARE
