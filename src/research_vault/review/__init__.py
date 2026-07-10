@@ -125,7 +125,80 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
             f"`rv dag approve <run_id> approve-protocol`."
         )
 
+    ok, msg = _check_protocol_deliverable(fields)
+    if not ok:
+        return False, msg
+
     return True, "OK"
+
+
+# ---------------------------------------------------------------------------
+# deliverable field (review-only default, manuscript opt-in, 2026-07-09) —
+# frozen alongside counter-position at approve-protocol; consumed by
+# `_emit_next_phase`'s approve-review arm (dag/verbs.py) to decide whether
+# the manuscript loop auto-chains, or the review is terminal at synthesis.
+# ---------------------------------------------------------------------------
+
+_DELIVERABLE_VOCAB = frozenset({"review", "manuscript"})
+_DEFAULT_DELIVERABLE = "review"
+
+
+def _check_protocol_deliverable(fields: dict[str, Any]) -> tuple[bool, str]:
+    """Validate the (optional) ``deliverable`` frontmatter field.
+
+    Absence/blank -> ``(True, "OK")`` (defaults to the safe/smaller
+    commitment, ``review`` — this is NOT a fail-closed halt, unlike
+    ``counter-position``: an unset deliverable choice is a reasonable
+    default, not a missing methodological obligation).
+
+    A PRESENT but non-vocab value (e.g. ``deliverable: paper``) is a
+    typo'd/mis-stated intent, not an absence -> reject loudly.
+    """
+    deliverable = fields.get("deliverable", "")
+    if isinstance(deliverable, list):
+        deliverable = " ".join(str(item) for item in deliverable)
+    deliverable = str(deliverable).strip()
+    if deliverable and deliverable.lower() not in _DELIVERABLE_VOCAB:
+        return False, (
+            f"rv dag approve: gate BLOCKED — invalid 'deliverable' "
+            f"frontmatter value {deliverable!r} in _protocol.md.\n"
+            f"Valid values: {sorted(_DELIVERABLE_VOCAB)} "
+            f"(absent/blank defaults to 'review').\n"
+            f"Fix: edit _protocol.md to set 'deliverable: review' or "
+            f"'deliverable: manuscript', then re-run "
+            f"`rv dag approve <run_id> approve-protocol`."
+        )
+    return True, "OK"
+
+
+def read_protocol_deliverable(protocol_path: Path) -> str:
+    """Read the frozen ``deliverable`` choice from a review's ``_protocol.md``.
+
+    Missing file / absent field / blank / any non-vocab value all fall back
+    to the conservative default (``"review"``) — this function does NOT
+    enforce the vocab (that is ``check_protocol_gate``'s job, at
+    ``approve-protocol``, BEFORE search ever fires); by the time
+    ``approve-review`` reads this (via ``_emit_next_phase``), a malformed
+    value should already have been rejected upstream. Treating an
+    unexpected value conservatively here — rather than raising, or reading
+    it as ``"manuscript"`` — means a mistake never silently auto-chains the
+    manuscript loop.
+
+    Args:
+        protocol_path: path to the review's ``_protocol.md`` artifact.
+
+    Returns:
+        Exactly ``"review"`` or ``"manuscript"``.
+    """
+    if not protocol_path.exists():
+        return _DEFAULT_DELIVERABLE
+    text = protocol_path.read_text(encoding="utf-8")
+    fields, _ = _parse_frontmatter(text)
+    value = fields.get("deliverable", "")
+    if isinstance(value, list):
+        value = " ".join(str(item) for item in value)
+    value = str(value).strip().lower()
+    return value if value in _DELIVERABLE_VOCAB else _DEFAULT_DELIVERABLE
 
 
 # ---------------------------------------------------------------------------
