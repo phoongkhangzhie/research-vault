@@ -1,16 +1,27 @@
-"""test_relate_check.py — Wave 0 (Reading) PR-1/PR-2/PR-4/PR-5.
+"""test_relate_check.py — Wave 0 (Reading) PR-1/PR-2/PR-4/PR-5 + Defects #69/#70/#71.
 
 Covers:
-  1. parse_paper_relations — the PR-2 paper→paper typed-edge parser.
+  1. parse_paper_relations / parse_concept_edges — the OKF markdown-link
+     typed-edge parsers (full-body scan, Defect #70).
   2. check_relate_presence — the PR-1 rejects-only mandatory-question
      presence check (Move 1 contribution_kind, PR-4 role/position,
      Move 3/PR-5 result_reported, Move 4/PR-2 paper_relations_sought).
   3. The whitelist-not-blacklist discipline: non-canonical spellings of
      yes/no fail closed, never silently pass (PR #175-delta lesson).
   4. The over-rigidity guard: a bare tag with no reasoning is rejected.
+  5. Defect #69 — the OKF-conformant markdown-link edge grammar
+     (`[TAG] [display](/literature/<citekey>.md) — reason`) is accepted;
+     the OLD bare-citekey grammar is now a malformed edge, not silently
+     accepted (it's non-conformant with OKF).
+  6. Defect #70 — full-body scan (edges under a misplaced/wrong heading are
+     still found), canonical heading enforcement, and the
+     `_looks_like_tag_attempt` false-positive guard (`[TODO]`/`[1]` never
+     flagged malformed).
+  7. Defect #71 — the retrieval-tier gate: a note not read at full-text
+     fidelity cannot carry [SUPPORTS]/[CONTRADICTS] on either edge kind.
 
 All hermetic (tmp_path). No live LLM calls, no network.
-sr: NG-lit-review-wave0
+sr: NG-lit-review-wave0; Defects #69/#70/#71
 """
 from __future__ import annotations
 
@@ -23,6 +34,7 @@ from research_vault.review.relate_check import (
     ROLE_TYPES,
     RELATION_TYPES,
     check_relate_presence,
+    parse_concept_edges,
     parse_paper_relations,
 )
 
@@ -47,6 +59,7 @@ _COMPLETE_FIELDS = {
     "position": "This is the counter-position to the safe-exploration rebuttals.",
     "result_reported": "yes",
     "paper_relations_sought": "yes",
+    "read_basis": "full-text",
 }
 
 _RESULT_BODY = (
@@ -55,16 +68,20 @@ _RESULT_BODY = (
     "holds only for tabular MDPs; the paper notes this may not generalize.\n\n"
 )
 
+# OKF-conformant markdown-link edge (Defect #69): the display text is a
+# human-readable label, the link is an absolute bundle-relative path
+# resolved against the project notes dir (the bundle root), and the [TAG]
+# prefix is rv's extension for mechanical Noblit & Hare traversal.
 _RELATED_BODY = (
     "## Related papers\n\n"
-    "- [CONTRADICTS] huang2022 — huang2022 claims near-free safe exploration "
-    "under a known safe baseline; this paper's bound shows that assumption is "
-    "load-bearing. (refutational)\n"
+    "- [CONTRADICTS] [huang2022](/literature/huang2022.md) — huang2022 claims "
+    "near-free safe exploration under a known safe baseline; this paper's "
+    "bound shows that assumption is load-bearing. (refutational)\n"
 )
 
 
 # ===========================================================================
-# parse_paper_relations
+# parse_paper_relations — OKF markdown-link grammar
 # ===========================================================================
 
 class TestParsePaperRelations:
@@ -92,10 +109,12 @@ class TestParsePaperRelations:
     def test_multiple_edges_all_parsed(self):
         body = (
             "## Related papers\n\n"
-            "- [SUPPORTS] li2023 — replicates the same bound in a related "
-            "setting, agreeing on the core mechanism. (reciprocal)\n"
-            "- [PARTIAL] liu2021 — extends the argument to stochastic "
-            "rewards, a special case of the general claim. (line-of-argument)\n"
+            "- [SUPPORTS] [li2023](/literature/li2023.md) — replicates the "
+            "same bound in a related setting, agreeing on the core "
+            "mechanism. (reciprocal)\n"
+            "- [PARTIAL] [liu2021](/literature/liu2021.md) — extends the "
+            "argument to stochastic rewards, a special case of the general "
+            "claim. (line-of-argument)\n"
         )
         parsed = parse_paper_relations(body)
         assert {e["target"] for e in parsed.edges} == {"li2023", "liu2021"}
@@ -104,16 +123,44 @@ class TestParsePaperRelations:
 
     def test_paper_edge_distinct_from_concept_edge(self):
         # A paper->concept edge elsewhere in the body must NOT be picked up
-        # as a paper->paper edge (different target shape, different section).
+        # as a paper->paper edge (different link-target directory).
         body = (
-            "## Verified concept edges\n\n"
-            "- [SUPPORTS] concepts/exploration.md — directly supports.\n\n"
+            "## Concept edges\n\n"
+            "- [SUPPORTS] [exploration](/concepts/exploration.md) — directly "
+            "supports the exploration concept.\n\n"
             "## Related papers\n\n"
-            "- [SUPPORTS] li2023 — agrees on mechanism, same regime tested. (reciprocal)\n"
+            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on "
+            "mechanism, same regime tested. (reciprocal)\n"
         )
         parsed = parse_paper_relations(body)
         assert len(parsed.edges) == 1
         assert parsed.edges[0]["target"] == "li2023"
+        assert parsed.malformed == []
+
+    # -- Defect #69: the OKF-conformant markdown-link grammar --
+
+    def test_old_bare_citekey_grammar_is_now_malformed(self):
+        """The pre-fix bare-citekey grammar (`- [TAG] <citekey> — reason`,
+        with no markdown link) is non-OKF-conformant. Since the parser now
+        REQUIRES the markdown-link form, a bare citekey no longer parses —
+        it is surfaced as malformed (never silently dropped, never silently
+        accepted as if it were valid)."""
+        body = "## Related papers\n\n- [SUPPORTS] li2023 — agrees on the mechanism.\n"
+        parsed = parse_paper_relations(body)
+        assert parsed.edges == []
+        assert len(parsed.malformed) == 1
+        assert "li2023" in parsed.malformed[0]
+
+    def test_display_text_is_captured_but_target_is_the_citekey_from_the_link(self):
+        body = (
+            "## Related papers\n\n"
+            "- [SUPPORTS] [Baltaji 2024]"
+            "(/literature/baltajipersonainconstancymulti2024.md) — same "
+            "persona-drift mechanism, different population.\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert len(parsed.edges) == 1
+        assert parsed.edges[0]["target"] == "baltajipersonainconstancymulti2024"
 
     # -- architect review, PR #178 delta: (kind) optional, [TAG] authoritative --
 
@@ -123,8 +170,8 @@ class TestParsePaperRelations:
         edge that simply omitted it (the most likely malformation)."""
         body = (
             "## Related papers\n\n"
-            "- [EXTENDS] li2023 — generalizes the earlier special case to a "
-            "broader class of MDPs.\n"
+            "- [EXTENDS] [li2023](/literature/li2023.md) — generalizes the "
+            "earlier special case to a broader class of MDPs.\n"
         )
         parsed = parse_paper_relations(body)
         assert parsed.malformed == []
@@ -144,7 +191,8 @@ class TestParsePaperRelations:
         for tag, expected_kind in mapping.items():
             body = (
                 "## Related papers\n\n"
-                f"- [{tag}] li2023 — some real reasoning about the relation.\n"
+                f"- [{tag}] [li2023](/literature/li2023.md) — some real "
+                "reasoning about the relation.\n"
             )
             parsed = parse_paper_relations(body)
             assert parsed.malformed == [], (tag, parsed.malformed)
@@ -153,7 +201,8 @@ class TestParsePaperRelations:
     def test_stated_kind_agreeing_with_tag_no_mismatch(self):
         body = (
             "## Related papers\n\n"
-            "- [SUPPORTS] li2023 — agrees on the mechanism. (reciprocal)\n"
+            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism. (reciprocal)\n"
         )
         parsed = parse_paper_relations(body)
         assert parsed.edges[0]["kind_mismatch"] is None
@@ -164,8 +213,9 @@ class TestParsePaperRelations:
         (kind) mirror is surfaced, not silently resolved either way."""
         body = (
             "## Related papers\n\n"
-            "- [CONTRADICTS] huang2022 — the bound removes the known-baseline "
-            "assumption huang2022 relies on. (reciprocal)\n"  # mismatched on purpose
+            "- [CONTRADICTS] [huang2022](/literature/huang2022.md) — the "
+            "bound removes the known-baseline assumption huang2022 relies "
+            "on. (reciprocal)\n"  # mismatched on purpose
         )
         parsed = parse_paper_relations(body)
         assert len(parsed.edges) == 1
@@ -177,13 +227,14 @@ class TestParsePaperRelations:
     # -- architect review, the LOAD-BEARING fix: surface malformed, never drop --
 
     def test_typo_tag_is_surfaced_as_malformed_not_silently_dropped(self):
-        """The exact defect the architect flagged: a '- [' -shaped line with
-        a typo'd tag must be SURFACED in .malformed, never silently skipped
-        by a finditer-style scan. RED-before-green regression test."""
+        """The exact defect the architect flagged: a bracket-tag-shaped line
+        with a typo'd tag must be SURFACED in .malformed, never silently
+        skipped by a finditer-style scan. RED-before-green regression test."""
         body = (
             "## Related papers\n\n"
-            "- [SUPRTS] xiong2023-stepwise — the bound removes the known-"
-            "baseline assumption the other paper relies on.\n"
+            "- [SUPRTS] [xiong2023-stepwise](/literature/xiong2023-stepwise.md) "
+            "— the bound removes the known-baseline assumption the other "
+            "paper relies on.\n"
         )
         parsed = parse_paper_relations(body)
         assert parsed.edges == []
@@ -191,7 +242,7 @@ class TestParsePaperRelations:
         assert "SUPRTS" in parsed.malformed[0]
 
     def test_missing_target_is_surfaced_as_malformed(self):
-        body = "## Related papers\n\n- [SUPPORTS] — no citekey given here.\n"
+        body = "## Related papers\n\n- [SUPPORTS] — no link given here.\n"
         parsed = parse_paper_relations(body)
         assert parsed.edges == []
         assert len(parsed.malformed) == 1
@@ -201,9 +252,12 @@ class TestParsePaperRelations:
         malformed line is surfaced — neither silently absorbs the other."""
         body = (
             "## Related papers\n\n"
-            "- [SUPPORTS] li2023 — agrees on the mechanism in a related setting.\n"
-            "- [CONTRADCTS] huang2022 — typo'd tag, should be surfaced.\n"
-            "- [EXTENDS] liu2021 — generalizes to a broader class of MDPs.\n"
+            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism in a related setting.\n"
+            "- [CONTRADCTS] [huang2022](/literature/huang2022.md) — typo'd "
+            "tag, should be surfaced.\n"
+            "- [EXTENDS] [liu2021](/literature/liu2021.md) — generalizes to "
+            "a broader class of MDPs.\n"
         )
         parsed = parse_paper_relations(body)
         assert {e["target"] for e in parsed.edges} == {"li2023", "liu2021"}
@@ -216,12 +270,98 @@ class TestParsePaperRelations:
         surfaced as malformed (that would be a false positive)."""
         body = (
             "## Related papers\n\n"
-            "- [SUPPORTS] li2023 — agrees on the mechanism.\n"
+            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism.\n"
             "- Also worth noting: both papers share the same benchmark suite.\n"
         )
         parsed = parse_paper_relations(body)
         assert len(parsed.edges) == 1
         assert parsed.malformed == []
+
+    # -- Defect #70: full-body scan + the tag-attempt false-positive guard --
+
+    def test_edge_under_a_misplaced_heading_is_still_found(self):
+        """The pre-fix parser was scoped to exactly the '## Related papers'
+        heading's slice — an edge placed under any OTHER heading was
+        silently invisible (not even malformed). The full-body scan finds
+        it regardless of which heading it sits under."""
+        body = (
+            "## Notes\n\n"
+            "- [SUPPORTS] [li2023](/literature/li2023.md) — misplaced under "
+            "the wrong heading but still a well-formed edge.\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert len(parsed.edges) == 1
+        assert parsed.edges[0]["target"] == "li2023"
+        assert parsed.malformed == []
+
+    def test_malformed_edge_under_a_misplaced_heading_is_still_surfaced(self):
+        body = (
+            "## Notes\n\n"
+            "- [SUPRTS] [li2023](/literature/li2023.md) — typo'd tag, "
+            "under the wrong heading.\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert parsed.edges == []
+        assert len(parsed.malformed) == 1
+        assert "SUPRTS" in parsed.malformed[0]
+
+    @pytest.mark.parametrize("bracket", ["[TODO]", "[FIXME]", "[NOTE]", "[1]", "[Note]"])
+    def test_unrelated_bracket_markers_are_never_flagged_malformed(self, bracket):
+        """Defect #70 false-positive guard: once scanning is full-body (not
+        header-scoped), a bare '- [' test would misfire on unrelated
+        bracket markers elsewhere in the note (a TODO flag, a numbered
+        reference). `_looks_like_tag_attempt` (tag-similarity) excludes
+        these — they are ordinary prose, never malformed edges."""
+        body = f"## Notes\n\n- {bracket} something unrelated to an edge.\n"
+        parsed = parse_paper_relations(body)
+        assert parsed.edges == []
+        assert parsed.malformed == []
+
+
+# ===========================================================================
+# parse_concept_edges — OKF markdown-link grammar (Defect #70 migration)
+# ===========================================================================
+
+class TestParseConceptEdges:
+    def test_parses_a_typed_concept_edge(self):
+        body = (
+            "## Concept edges\n\n"
+            "- [SUPPORTS] [WEIRD default](/concepts/western-consensus-"
+            "default.md) — directly supports the WEIRD-default concept.\n"
+        )
+        parsed = parse_concept_edges(body)
+        assert len(parsed.edges) == 1
+        e = parsed.edges[0]
+        assert e["tag"] == "SUPPORTS"
+        assert e["target"] == "western-consensus-default"
+        assert "directly supports" in e["reason"]
+
+    def test_concept_edge_distinct_from_paper_edge(self):
+        body = (
+            "## Related papers\n\n"
+            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism.\n\n"
+            "## Concept edges\n\n"
+            "- [CONTRADICTS] [exploration](/concepts/exploration.md) — "
+            "contradicts the naive framing.\n"
+        )
+        parsed = parse_concept_edges(body)
+        assert len(parsed.edges) == 1
+        assert parsed.edges[0]["target"] == "exploration"
+
+    def test_concept_edge_found_regardless_of_heading(self):
+        body = (
+            "## Notes\n\n"
+            "- [PARTIAL] [exploration](/concepts/exploration.md) — partially "
+            "bears on this, placed under the wrong heading.\n"
+        )
+        parsed = parse_concept_edges(body)
+        assert len(parsed.edges) == 1
+
+    def test_no_concept_edges_returns_empty(self):
+        parsed = parse_concept_edges("## Related papers\n\ntext\n")
+        assert parsed.edges == []
 
 
 # ===========================================================================
@@ -466,11 +606,11 @@ class TestMove4PaperRelationsSought:
 
     def test_bare_tag_no_reasoning_fails_the_over_rigidity_guard(self, tmp_path):
         """A relation reduced to a bare tag with no reasoning is as thin as
-        no relation — Ada's §5/§6 caveat, made mechanically catchable."""
+        no relation — the researcher's §5/§6 caveat, made mechanically catchable."""
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPPORTS] li2023 — yes. (reciprocal)\n"
+            + "- [SUPPORTS] [li2023](/literature/li2023.md) — yes. (reciprocal)\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
         result = check_relate_presence(note)
@@ -492,16 +632,17 @@ class TestMove4PaperRelationsSought:
 
 class TestMove4MalformedEdgeSurfacing:
     """Architect review, PR #178 delta — the LOAD-BEARING fix: a malformed
-    '- [' -shaped line under '## Related papers' must FAIL the presence
-    check, never silently pass. RED-before-green: this class asserts the
-    behavior the pre-fix `finditer`-and-skip implementation did NOT have."""
+    bracket-tag-shaped line must FAIL the presence check, never silently
+    pass. RED-before-green: this class asserts the behavior the pre-fix
+    `finditer`-and-skip implementation did NOT have."""
 
     def test_typo_tag_line_fails_the_presence_check(self, tmp_path):
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPRTS] xiong2023-stepwise — the bound removes the "
-            "known-baseline assumption the other paper relies on.\n"
+            + "- [SUPRTS] [xiong2023-stepwise](/literature/xiong2023-stepwise"
+            ".md) — the bound removes the known-baseline assumption the "
+            "other paper relies on.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
         result = check_relate_presence(note)
@@ -515,9 +656,12 @@ class TestMove4MalformedEdgeSurfacing:
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPPORTS] li2023 — agrees on the mechanism in a related setting.\n"
-            + "- [CONTRADCTS] huang2022 — typo'd tag.\n"
-            + "- [EXTENDS] liu2021 — generalizes to a broader class of MDPs.\n"
+            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism in a related setting.\n"
+            + "- [CONTRADCTS] [huang2022](/literature/huang2022.md) — "
+            "typo'd tag.\n"
+            + "- [EXTENDS] [liu2021](/literature/liu2021.md) — generalizes "
+            "to a broader class of MDPs.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
         result = check_relate_presence(note)
@@ -525,15 +669,16 @@ class TestMove4MalformedEdgeSurfacing:
         assert any("malformed" in f.lower() and "CONTRADCTS" in f for f in result.findings)
 
     def test_malformed_line_fails_even_when_sought_is_no(self, tmp_path):
-        """A '- [' -shaped line is unambiguously an attempted edge regardless
-        of what 'paper_relations_sought' claims — the malformed check is not
-        conditioned on the yes/no answer."""
+        """A bracket-tag-shaped line is unambiguously an attempted edge
+        regardless of what 'paper_relations_sought' claims — the malformed
+        check is not conditioned on the yes/no answer."""
         fields = dict(_COMPLETE_FIELDS)
         fields["paper_relations_sought"] = "no"
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPRTS] xiong2023-stepwise — typo'd tag even though sought=no.\n"
+            + "- [SUPRTS] [xiong2023-stepwise](/literature/xiong2023-stepwise"
+            ".md) — typo'd tag even though sought=no.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
         result = check_relate_presence(note)
@@ -547,7 +692,8 @@ class TestMove4MalformedEdgeSurfacing:
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPPORTS] li2023 — agrees on the mechanism in a related setting.\n"
+            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism in a related setting.\n"
             + "- Also worth noting: both papers share the same benchmark suite.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
@@ -560,12 +706,193 @@ class TestMove4MalformedEdgeSurfacing:
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [EXTENDS] li2023 — generalizes the earlier special case to "
-            "a broader class of MDPs.\n"
+            + "- [EXTENDS] [li2023](/literature/li2023.md) — generalizes the "
+            "earlier special case to a broader class of MDPs.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
         result = check_relate_presence(note)
         assert result.ok, result.findings
+
+
+# ===========================================================================
+# Defect #70 — canonical heading enforcement + full-body scan wired into
+# check_relate_presence
+# ===========================================================================
+
+class TestDefect70HeadingEnforcement:
+    def test_sought_yes_edges_present_but_wrong_heading_still_fails_on_heading(self, tmp_path):
+        """The full-body scan recovers the edge (so it's not a silent loss),
+        but the canonical '## Related papers' heading is still REQUIRED as
+        an independent structural signal — a misspelled/misplaced heading
+        is flagged even when the scan finds edges anyway."""
+        body = (
+            _RESULT_BODY
+            + "## Related Work\n\n"  # wrong heading name on purpose
+            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism in a related setting.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any(
+            "canonical" in f.lower() and "related papers" in f.lower()
+            for f in result.findings
+        ), result.findings
+        # But the edge itself was NOT silently dropped — no "no typed edge
+        # found" finding, since the full-body scan recovered it.
+        assert not any(
+            "no typed paper" in f.lower() for f in result.findings
+        ), result.findings
+
+    def test_edge_under_wrong_heading_recovered_by_full_body_scan(self, tmp_path):
+        """Defect #70's core fix: an edge under the WRONG heading is still
+        recovered by the full-body scan (previously: silently invisible —
+        absent from both edges and malformed)."""
+        fields = dict(_COMPLETE_FIELDS)
+        body = (
+            _RESULT_BODY
+            + "## Some Other Section\n\n"
+            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism in a related setting, misplaced under the wrong "
+            "heading.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
+        parsed = parse_paper_relations(body)
+        assert len(parsed.edges) == 1  # the scan itself recovers it
+        result = check_relate_presence(note)
+        # Heading-missing finding still fires (structural requirement), but
+        # NOT the "no edge found" finding (the scan found it).
+        assert any("canonical" in f.lower() for f in result.findings)
+        assert not any("no typed paper" in f.lower() for f in result.findings)
+
+    def test_concept_edges_present_but_wrong_heading_fails(self, tmp_path):
+        fields = dict(_COMPLETE_FIELDS)
+        fields["paper_relations_sought"] = "no"
+        body = (
+            "## Verified concept edges\n\n"  # old, non-canonical heading name
+            "- [SUPPORTS] [exploration](/concepts/exploration.md) — "
+            "supports the concept.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any(
+            "concept edges" in f.lower() and "canonical" in f.lower()
+            for f in result.findings
+        ), result.findings
+
+    def test_concept_edges_under_canonical_heading_no_heading_finding(self, tmp_path):
+        fields = dict(_COMPLETE_FIELDS)
+        fields["paper_relations_sought"] = "no"
+        fields["result_reported"] = "no"
+        body = (
+            "## Concept edges\n\n"
+            "- [SUPPORTS] [exploration](/concepts/exploration.md) — "
+            "supports the concept.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
+        result = check_relate_presence(note)
+        assert result.ok, result.findings
+
+
+# ===========================================================================
+# Defect #71 — retrieval-tier gates edge strength
+# ===========================================================================
+
+class TestDefect71RetrievalTierGate:
+    def test_abstract_only_supports_edge_is_capped(self, tmp_path):
+        fields = dict(_COMPLETE_FIELDS)
+        fields["read_basis"] = "abstract-only"
+        body = (
+            _RESULT_BODY
+            + "## Related papers\n\n"
+            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism in a related setting.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any(
+            "read_basis" in f and "PARTIAL" in f for f in result.findings
+        ), result.findings
+
+    def test_title_only_contradicts_edge_is_capped(self, tmp_path):
+        fields = dict(_COMPLETE_FIELDS)
+        fields["read_basis"] = "title-only"
+        body = (
+            _RESULT_BODY
+            + "## Related papers\n\n"
+            + "- [CONTRADICTS] [li2023](/literature/li2023.md) — disagrees "
+            "with the core claim.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any("read_basis" in f for f in result.findings)
+
+    def test_missing_read_basis_fails_closed_same_as_non_full_text(self, tmp_path):
+        """Fail-closed: an unstamped read_basis must NOT be a free pass to
+        claim full strength by omission — treated the same as
+        abstract-only/title-only."""
+        fields = dict(_COMPLETE_FIELDS)
+        del fields["read_basis"]
+        body = (
+            _RESULT_BODY
+            + "## Related papers\n\n"
+            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism in a related setting.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any("read_basis" in f for f in result.findings)
+
+    def test_full_text_supports_edge_is_not_capped(self, tmp_path):
+        fields = dict(_COMPLETE_FIELDS)
+        fields["read_basis"] = "full-text"
+        body = (
+            _RESULT_BODY
+            + "## Related papers\n\n"
+            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism in a related setting.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
+        result = check_relate_presence(note)
+        assert result.ok, result.findings
+
+    def test_abstract_only_partial_edge_is_allowed(self, tmp_path):
+        """PARTIAL is the strongest permissible tag at abstract-only tier —
+        it must NOT be capped/flagged."""
+        fields = dict(_COMPLETE_FIELDS)
+        fields["read_basis"] = "abstract-only"
+        body = (
+            _RESULT_BODY
+            + "## Related papers\n\n"
+            + "- [PARTIAL] [li2023](/literature/li2023.md) — partially "
+            "bears on the mechanism, not confirmed at this retrieval tier.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
+        result = check_relate_presence(note)
+        assert result.ok, result.findings
+
+    def test_abstract_only_concept_supports_edge_is_capped(self, tmp_path):
+        """The retrieval-tier gate applies to BOTH edge kinds — a
+        paper→concept [SUPPORTS] edge is capped the same as a paper→paper
+        one."""
+        fields = dict(_COMPLETE_FIELDS)
+        fields["paper_relations_sought"] = "no"
+        fields["read_basis"] = "abstract-only"
+        body = (
+            "## Concept edges\n\n"
+            "- [SUPPORTS] [exploration](/concepts/exploration.md) — "
+            "supports the concept.\n"
+        )
+        note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
+        result = check_relate_presence(note)
+        assert not result.ok
+        assert any(
+            "paper→concept" in f and "read_basis" in f for f in result.findings
+        ), result.findings
 
 
 # ===========================================================================
@@ -626,6 +953,7 @@ class TestRunTogetherFieldMisdiagnosis:
             "role: theoretical\n"
             "result_reported: yes\n"
             "paper_relations_sought: yes\n"
+            "read_basis: full-text\n"
             "---\n"
         ) + _RESULT_BODY + _RELATED_BODY
         note = _write_raw(tmp_path / "literature" / "a.md", raw)
@@ -651,6 +979,7 @@ class TestRunTogetherFieldMisdiagnosis:
             "role: theoretical result_reported: yes\n"
             'position: "A real narrative sentence, long enough."\n'
             "paper_relations_sought: yes\n"
+            "read_basis: full-text\n"
             "---\n"
         ) + _RESULT_BODY + _RELATED_BODY
         note = _write_raw(tmp_path / "literature" / "a.md", raw)
@@ -692,6 +1021,7 @@ class TestBlockScalarFieldMisdiagnosis:
             "  spanning multiple indented lines as a YAML block scalar.\n"
             "result_reported: yes\n"
             "paper_relations_sought: yes\n"
+            "read_basis: full-text\n"
             "---\n"
         ) + _RESULT_BODY + _RELATED_BODY
         note = _write_raw(tmp_path / "literature" / "a.md", raw)
@@ -715,6 +1045,7 @@ class TestBlockScalarFieldMisdiagnosis:
             "  Line two of the narrative.\n"
             "result_reported: yes\n"
             "paper_relations_sought: yes\n"
+            "read_basis: full-text\n"
             "---\n"
         ) + _RESULT_BODY + _RELATED_BODY
         note = _write_raw(tmp_path / "literature" / "a.md", raw)

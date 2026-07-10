@@ -25,10 +25,24 @@ THE 5 MOVES → what is checked
                            mandatory whitelist answer) + when `yes`, a non-empty
                            body `## Result` section.
   4. Relate to corpus   → frontmatter `paper_relations_sought: yes|no` (PR-2,
-                           mandatory whitelist answer) + when `yes`, a non-empty
-                           body `## Related papers` section with ≥1 typed edge.
-  5. Concept edges       → unchanged this wave (PR-3 deferred to ride NG-6a's
-                           refresh verb — see the design doc §5, wave ordering).
+                           mandatory whitelist answer) + when `yes`, a canonical
+                           `## Related papers` heading present + ≥1 typed edge
+                           found anywhere in the body (full-body scan).
+  5. Concept edges       → mandatory gating unchanged this wave (PR-3 deferred
+                           to ride NG-6a's refresh verb), but the edge FORMAT
+                           was migrated to OKF markdown links alongside paper
+                           edges (Defect #70), and `parse_concept_edges` now
+                           mechanically parses them (previously prose-only).
+
+RETRIEVAL-TIER GATES EDGE STRENGTH (Defect #71)
+================================================================================
+A note whose `read_basis` is not exactly `"full-text"` (abstract-only,
+title-only, any other value, or unstamped) cannot carry a `[SUPPORTS]` or
+`[CONTRADICTS]` edge — of EITHER kind (paper→paper or paper→concept). The
+paper was never read at the fidelity needed to assert or refute a claim at
+that strength; the strongest permissible tag at that retrieval tier is
+`[PARTIAL]`. Fail-closed: an absent/unstamped `read_basis` is treated as
+NOT full-text — never a free pass to claim full strength by omission.
 
 PR-4 (role/position split) is checked alongside: `role` must be one of
 ROLE_TYPES; `position` must be present and non-trivial.
@@ -71,23 +85,46 @@ The pre-review `parse_paper_relations` used `finditer` over a strict regex and
 silently dropped any non-matching line — a note with 3 edges where 1 is
 typo'd would pass with that edge invisibly lost, and since
 `review_synthesize_tips` instructs "traverse, don't re-derive," a lost edge
-was gone for good. Now: any line under `## Related papers` that OPENS with
-the `- [` bracket-shape (an unambiguously attempted typed edge — e.g.
-`- [SUPRTS] xiong2023`, a typo'd tag) but does not parse to a valid edge is
-collected into `ParsedRelations.malformed` — surfaced by
-`parse_paper_relations`, `relations_report`, AND `check_relate_presence` (a
-hard FAIL, matching this module's existing rejects-only-FAIL posture). A
-plain `- ` bullet with NO bracket (free-form commentary, e.g.
-`- Also worth noting: ...`) is legitimate prose and is never flagged — the
-`- [` prefix is the precise, false-positive-free signal that separates a
-broken edge attempt from prose (coordinator clarification, PR #178 delta 2).
-A `- [`-shaped line is never `finditer`'d-and-skipped again.
+was gone for good. Now: any bracket-tag-shaped line found ANYWHERE in the
+body (full-body scan, Defect #70 — not scoped to a heading) that does not
+parse to a valid edge is collected into `ParsedRelations.malformed` —
+surfaced by `parse_paper_relations`, `relations_report`, AND
+`check_relate_presence` (a hard FAIL, matching this module's existing
+rejects-only-FAIL posture). A plain `- ` bullet with no bracket, or a
+bracket that is not a plausible relation-tag attempt (e.g. `[TODO]`,
+`[1]`), is legitimate prose and is never flagged — see
+`_looks_like_tag_attempt`, the false-positive-free signal that separates a
+broken edge attempt from prose once scanning is no longer header-scoped
+(coordinator clarification, PR #178 delta 2, extended for full-body scan).
+
+DEFECT #70 — FULL-BODY SCAN, NOT HEADER-SCOPED
+================================================================================
+The pre-fix parser only looked inside the exact `## Related papers`
+heading's slice — an agent that misspelled the heading (or a heading that
+somehow split/duplicated) caused every edge under it to be silently
+dropped: absent from `.edges` AND absent from `.malformed` (worse than a
+malformed FAIL — a genuine SILENT loss with no signal at all).
+`parse_paper_relations`/`parse_concept_edges` now scan the FULL body; the
+canonical heading's presence is checked SEPARATELY and unconditionally by
+`check_relate_presence` (Move 4) as its own structural requirement, so a
+missing/misspelled heading is still flagged even when the full-body scan
+recovers the edges.
+
+OKF-CONFORMANT MARKDOWN-LINK EDGE FORMAT (the real #69 root cause)
+================================================================================
+See the "Body-section parsing" section below for the full grounding. In
+short: relate agents naturally write OKF-conformant markdown links
+(`[display](/literature/<citekey>.md)`); the pre-fix parser demanded a bare
+citekey token and rejected the (correct) markdown-link form. This module
+now accepts+requires the markdown-link form for BOTH paper→paper and
+paper→concept edges, aligning rv to OKF rather than the reverse.
 
 Stdlib only.
-sr: NG-lit-review-wave0 (PR-1, PR-2, PR-4, PR-5)
+sr: NG-lit-review-wave0 (PR-1, PR-2, PR-4, PR-5); Defects #69/#70/#71
 """
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -200,26 +237,83 @@ def _block_scalar_hint(field_key: str, raw_val: str) -> str | None:
 
 # ---------------------------------------------------------------------------
 # Body-section parsing
+#
+# OKF-CONFORMANT EDGE FORMAT (Defects #69/#70/#71 hardening, 2026-07-10)
+# ================================================================================
+# Google Cloud's OKF spec cross-links notes with STANDARD MARKDOWN LINKS —
+# explicitly NOT wikilinks — in the absolute bundle-relative form
+# `[display text](/type/<slug>.md)` (begins with `/`, resolved relative to
+# the bundle root; recommended for stability). rv's bundle root for this
+# resolution is the PROJECT NOTES DIR (`cfg.project_notes_dir(project)`) —
+# the directory that directly contains `literature/`, `concepts/`, `mocs/`,
+# etc. — so `/literature/<citekey>.md` and `/concepts/<slug>.md` resolve
+# there. rv EXTENDS OKF with a typed `[TAG]` prefix (SUPPORTS/CONTRADICTS/
+# PARTIAL/EXTENDS) so a mechanical Noblit & Hare traversal is possible; a
+# plain OKF reader still sees a valid markdown link + prose reason.
+#
+# THE REAL #69 ROOT CAUSE: relate agents naturally write markdown links —
+# e.g. `- [Baltaji 2024](/literature/baltajipersonainconstancymulti2024.md) —
+# reason`, which was ALREADY OKF-CONFORMANT — but the pre-fix parser demanded
+# a BARE citekey token and silently rejected the (correct) markdown-link
+# form. This fix ALIGNS rv's parser to OKF rather than asking agents to
+# write non-conformant bare citekeys.
 # ---------------------------------------------------------------------------
 
 _RESULT_HEADING_RE = re.compile(r"^#{2,3}\s+Result\s*$", re.IGNORECASE | re.MULTILINE)
 _RELATED_PAPERS_HEADING_RE = re.compile(
     r"^#{2,3}\s+Related papers\s*$", re.IGNORECASE | re.MULTILINE
 )
-# The distinguishing signal between "a broken edge attempt" and "legitimate
-# free prose" in this section is the `- [` bracket-shape (coordinator
-# clarification, PR #178 delta): a bullet that opens with `[` is
-# unambiguously an attempted typed edge (e.g. `- [SUPRTS] xiong2023` — a
-# typo'd tag), never prose. A plain `- ` bullet with no bracket (e.g.
-# `- Also worth noting: ...`) is legitimate free-form commentary and must
-# NOT be flagged malformed. Only `- [`-shaped lines are the candidate set
-# that MUST parse to a valid edge or be surfaced as malformed.
-_BULLET_RE = re.compile(r"^-\s*\[")
-# "- [SUPPORTS] xiong2023-stepwise — <reason> [(reciprocal)]" — the (kind)
-# suffix is now OPTIONAL (architect review; the tag alone is authoritative).
-_PAPER_EDGE_LINE_RE = re.compile(
+# Canonical concept-edges heading (Defect #70 migration): was "## Verified
+# concept edges" in the old bare-path brief; canonicalized to "## Concept
+# edges" alongside the OKF markdown-link format.
+_CONCEPT_EDGES_HEADING_RE = re.compile(
+    r"^#{2,3}\s+Concept edges\s*$", re.IGNORECASE | re.MULTILINE
+)
+
+# The four rv-typed relation tags (SSOT — see also _TAG_TO_KIND below).
+_KNOWN_TAGS: tuple[str, ...] = ("SUPPORTS", "CONTRADICTS", "PARTIAL", "EXTENDS")
+
+
+def _looks_like_tag_attempt(bracket_content: str) -> bool:
+    """True iff ``bracket_content`` is a plausible (mis-spelled) attempt at
+    one of the four known relation tags — NOT an unrelated bracket marker
+    that happens to appear elsewhere in a note body (e.g. ``[TODO]``,
+    ``[FIXME]``, a numbered-reference-style ``[1]``).
+
+    Defect #70 (full-body scan): once edge detection is no longer confined
+    to the '## Related papers' / '## Concept edges' sections, the bare
+    "any '- [' bullet is an edge attempt" heuristic (safe when scoped to a
+    single known section) becomes too broad across an entire note body — a
+    `- [TODO] check this` line elsewhere would false-positive as a
+    malformed edge. Requiring near-similarity (``difflib`` ratio) to one of
+    the four known tags keeps the true positive (a typo'd tag: 'SUPRTS',
+    'CONTRADCTS') while excluding unrelated all-caps bracket markers, which
+    sit far below the similarity cutoff.
+    """
+    word = bracket_content.strip().upper()
+    if not word or not word.isalpha():
+        return False
+    if word in _KNOWN_TAGS:
+        return True
+    return bool(difflib.get_close_matches(word, _KNOWN_TAGS, n=1, cutoff=0.6))
+
+
+# A lax "is this line even bracket-bulleted" probe, used only to extract the
+# bracket content for the `_looks_like_tag_attempt` similarity check above.
+_BRACKET_PROBE_RE = re.compile(r"^-\s*\[([^\]]*)\]")
+
+# THE OKF EDGE LINE GRAMMAR — one regex covers BOTH edge kinds (paper→paper
+# and paper→concept); they are distinguished after the fact by which bundle
+# directory the link targets (`literature/` vs `concepts/`):
+#   - [SUPPORTS] [Baltaji 2024](/literature/baltaji2024.md) — <reason>
+#   - [SUPPORTS] [WEIRD default](/concepts/western-consensus-default.md) — <reason>
+# The trailing `(reciprocal|refutational|line-of-argument)` mirror is
+# OPTIONAL (architect review, PR #178 delta) and only meaningful for
+# paper→paper edges — a concept edge has no Noblit & Hare kind mapping.
+_EDGE_LINE_RE = re.compile(
     r"^-\s*\[(SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS)\]\s+"
-    r"([A-Za-z0-9][A-Za-z0-9_.\-]*)\s*(?:—|-)\s*(.+?)\s*"
+    r"\[([^\]]+)\]\(/(literature|concepts)/([A-Za-z0-9][A-Za-z0-9_.\-]*)\.md\)\s*"
+    r"(?:—|-)\s*(.+?)\s*"
     r"(?:\((reciprocal|refutational|line-of-argument)\))?\s*$"
 )
 
@@ -243,76 +337,139 @@ def _find_section_body(body: str, heading_re: "re.Pattern[str]") -> str | None:
 
 @dataclass
 class ParsedRelations:
-    """The result of parsing a '## Related papers' section.
+    """The result of parsing a note body's paper→paper typed edges.
 
-    ``edges``     — successfully-parsed paper→paper typed edges.
-    ``malformed`` — raw text of any ``- [``-shaped line (an unambiguously
-                    attempted typed edge) that did NOT parse to a valid edge.
-                    NEVER silently dropped (architect review, the
-                    load-bearing fix) — a caller that ignores this list
-                    re-introduces the exact silent-loss defect the fix closes.
-                    A plain ``- `` bullet with no bracket is legitimate
-                    prose and is excluded from this list.
+    ``edges``     — successfully-parsed paper→paper typed edges, each an
+                    OKF markdown-link edge (``[TAG] [display](/literature/
+                    <citekey>.md) — reason``).
+    ``malformed`` — raw text of any bracket-tag-shaped line (an
+                    unambiguously attempted typed edge — a typo'd tag, a
+                    non-OKF bare-citekey/path, a missing target, etc.) that
+                    did NOT parse to a valid edge. NEVER silently dropped
+                    (architect review, the load-bearing fix) — a caller
+                    that ignores this list re-introduces the exact
+                    silent-loss defect the fix closes. Free-form prose
+                    (including unrelated bracket markers like ``[TODO]``)
+                    is excluded from this list — see
+                    ``_looks_like_tag_attempt``.
+
+    Defect #70 (full-body scan): this is a FULL-BODY scan, not scoped to
+    the '## Related papers' heading — a misplaced/misspelled section
+    header can no longer silently drop a well-formed edge. The canonical
+    heading's PRESENCE is checked separately (see
+    ``check_relate_presence``'s Move 4 section) as an independent
+    structural requirement.
     """
 
     edges: list[dict[str, Any]] = field(default_factory=list)
     malformed: list[str] = field(default_factory=list)
 
 
-def parse_paper_relations(body: str) -> ParsedRelations:
-    """Parse PR-2 paper→paper typed edges from a note body's '## Related papers'
-    section.
+@dataclass
+class ParsedConceptEdges:
+    """The result of parsing a note body's paper→concept typed edges
+    (``[TAG] [display](/concepts/<slug>.md) — reason``).
 
-    Distinct from the existing paper→concept edges (which target
-    ``concepts/<c>.md`` and live anywhere in the body) — a paper→paper edge
-    targets a bare citekey and lives inside the dedicated '## Related papers'
-    section, so the two edge kinds never collide during parsing.
+    ``edges`` — successfully-parsed paper→concept typed edges: {"tag",
+    "target", "reason"}. No ``type``/``kind_mismatch`` fields — concept
+    edges have no Noblit & Hare relation-kind mapping (that mapping is
+    paper→paper specific).
 
-    Each edge dict: {"tag", "target", "reason", "type", "kind_mismatch"}.
-    ``type`` is ALWAYS the tag-derived kind (the tag wins — see module
-    docstring); ``kind_mismatch`` is ``None`` unless a stated ``(kind)``
-    suffix disagreed with the tag, in which case it is
-    ``{"stated": <kind>, "derived": <kind>}`` — surfaced, never silently
-    resolved.
-
-    Any ``- [``-shaped line under the heading (an unambiguously attempted
-    typed edge — a typo'd tag, a missing target, etc.) that does NOT parse to
-    a valid edge is collected into ``.malformed`` (line-by-line — never
-    ``finditer``-and-skip across the whole section). A plain ``- `` bullet
-    with no bracket is legitimate free-form prose and is left alone — the
-    ``- [`` prefix is the precise, false-positive-free signal that separates
-    a broken edge attempt from prose.
-
-    Returns ``ParsedRelations(edges=[], malformed=[])`` if the section is
-    absent.
+    No separate ``malformed`` list here: a bracket-tag-shaped line that
+    fails to parse as EITHER a paper edge or a concept edge is already
+    surfaced once via ``ParsedRelations.malformed`` (from
+    ``parse_paper_relations``, called on the same body) — duplicating it
+    here would double-report the identical line under two different
+    findings.
     """
-    section = _find_section_body(body, _RELATED_PAPERS_HEADING_RE)
-    if not section:
-        return ParsedRelations()
 
-    edges: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _scan_edge_lines(
+    body: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    """Scan the FULL note body (never header-scoped — Defect #70) for
+    bracket-tag-shaped edge lines, classifying each into paper→paper edges,
+    paper→concept edges, or malformed.
+
+    A line is a CANDIDATE only if it opens ``- [`` AND its bracket content
+    is a plausible relation-tag attempt (``_looks_like_tag_attempt`` —
+    exact match or a close typo of SUPPORTS/CONTRADICTS/PARTIAL/EXTENDS).
+    This is deliberately narrower than "any '- [' line" (the pre-full-body-
+    scan heuristic, safe only when scoped to a single known section): once
+    the WHOLE body is in scope, a bare "- [" test would false-positive on
+    unrelated bracket markers elsewhere in the note (e.g. ``- [TODO] flag
+    this concept as missing``). Requiring tag-similarity keeps the true
+    positive (a typo'd tag) while excluding those.
+
+    Returns (paper_edges, concept_edges, malformed_lines).
+    """
+    paper_edges: list[dict[str, Any]] = []
+    concept_edges: list[dict[str, Any]] = []
     malformed: list[str] = []
-    for raw_line in section.splitlines():
+
+    for raw_line in body.splitlines():
         line = raw_line.strip()
-        if not line or not _BULLET_RE.match(line):
-            continue  # blank / non-bullet prose — not an edge-shaped line
-        m = _PAPER_EDGE_LINE_RE.match(line)
+        if not line:
+            continue
+        probe = _BRACKET_PROBE_RE.match(line)
+        if probe is None or not _looks_like_tag_attempt(probe.group(1)):
+            continue  # not a bracket-tag-shaped line — ordinary prose
+
+        m = _EDGE_LINE_RE.match(line)
         if m is None:
             malformed.append(line)
             continue
-        tag, target, reason, stated_kind = m.groups()
-        derived_kind = _TAG_TO_KIND[tag]
-        kind_mismatch = None
-        if stated_kind is not None and stated_kind != derived_kind:
-            kind_mismatch = {"stated": stated_kind, "derived": derived_kind}
-        edges.append({
-            "tag": tag,
-            "target": target,
-            "reason": reason.strip(),
-            "type": derived_kind,
-            "kind_mismatch": kind_mismatch,
-        })
+
+        tag, _display, kind_dir, slug, reason, stated_kind = m.groups()
+        reason = reason.strip()
+        if kind_dir == "literature":
+            derived_kind = _TAG_TO_KIND[tag]
+            kind_mismatch = None
+            if stated_kind is not None and stated_kind != derived_kind:
+                kind_mismatch = {"stated": stated_kind, "derived": derived_kind}
+            paper_edges.append({
+                "tag": tag,
+                "target": slug,
+                "reason": reason,
+                "type": derived_kind,
+                "kind_mismatch": kind_mismatch,
+            })
+        else:  # kind_dir == "concepts"
+            concept_edges.append({"tag": tag, "target": slug, "reason": reason})
+
+    return paper_edges, concept_edges, malformed
+
+
+def parse_paper_relations(body: str) -> ParsedRelations:
+    """Parse PR-2 paper→paper typed edges from a note body (full-body scan
+    — Defect #70; see ``_scan_edge_lines``).
+
+    Each edge dict: {"tag", "target", "reason", "type", "kind_mismatch"}.
+    ``target`` is the citekey extracted from the OKF markdown link
+    ``/literature/<citekey>.md``. ``type`` is ALWAYS the tag-derived kind
+    (the tag wins — see module docstring); ``kind_mismatch`` is ``None``
+    unless a stated ``(kind)`` suffix disagreed with the tag, in which case
+    it is ``{"stated": <kind>, "derived": <kind>}`` — surfaced, never
+    silently resolved.
+
+    Returns ``ParsedRelations(edges=[], malformed=[])`` if no bracket-tag
+    lines are found anywhere in the body.
+    """
+    edges, _concept_edges, malformed = _scan_edge_lines(body)
     return ParsedRelations(edges=edges, malformed=malformed)
+
+
+def parse_concept_edges(body: str) -> ParsedConceptEdges:
+    """Parse Move 5 paper→concept typed edges from a note body (full-body
+    scan — Defect #70; see ``_scan_edge_lines``).
+
+    Each edge dict: {"tag", "target", "reason"}. ``target`` is the concept
+    slug extracted from the OKF markdown link ``/concepts/<slug>.md``.
+    """
+    _paper_edges, edges, _malformed = _scan_edge_lines(body)
+    return ParsedConceptEdges(edges=edges)
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +604,12 @@ def check_relate_presence(note_path: Path) -> RelatePresenceResult:
                 "record the magnitude, conditions, and stated limitations"
             )
 
+    # Parsed once — full-body scan (Defect #70), shared by Move 4 (paper
+    # edges + malformed) and the Defect #71 retrieval-tier gate below (both
+    # edge kinds).
+    parsed_relations = parse_paper_relations(body)
+    parsed_concepts = parse_concept_edges(body)
+
     # ── Move 4 / PR-2: paper→paper relations, mandatory whitelist answer ──
     relations_sought = _get_scalar(fields, "paper_relations_sought").lower()
     if not relations_sought:
@@ -466,36 +629,97 @@ def check_relate_presence(note_path: Path) -> RelatePresenceResult:
                 "(must be exactly 'yes' or 'no' — fail-closed on any other spelling)"
             )
         )
-    else:
-        parsed = parse_paper_relations(body)
-        if relations_sought == "yes" and not parsed.edges and not parsed.malformed:
+    elif relations_sought == "yes":
+        # Defect #70(a): the canonical heading is required as an independent
+        # structural signal — even though the full-body scan below already
+        # finds edge-shaped lines anywhere, downstream traversal
+        # (review.relations_report / review-synthesize) expects this exact
+        # heading, so a misplaced/misspelled heading is still flagged.
+        if _find_section_body(body, _RELATED_PAPERS_HEADING_RE) is None:
+            findings.append(
+                "'paper_relations_sought: yes' but no canonical '## Related "
+                "papers' heading found — the heading is required even though "
+                "a full-body scan may still have found edge-shaped lines "
+                "elsewhere; downstream traversal (review.relations_report / "
+                "review-synthesize) expects this exact heading (Defect #70)"
+            )
+        if not parsed_relations.edges and not parsed_relations.malformed:
             findings.append(
                 "'paper_relations_sought: yes' but no typed paper→paper edge "
-                "found in a '## Related papers' body section — Move 4 requires "
-                "at least one '[SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS] <citekey> "
-                "— <reason>' line (a trailing '(kind)' mirror is optional)"
+                "found anywhere in the body — Move 4 requires at least one "
+                "'[SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS] [display](/literature/"
+                "<citekey>.md) — <reason>' line under a '## Related papers' "
+                "heading (a trailing '(kind)' mirror is optional)"
             )
-        for edge in parsed.edges:
-            if len(edge["reason"]) < _MIN_SUBSTANCE_CHARS:
-                findings.append(
-                    f"paper→paper edge to {edge['target']!r} carries a bare "
-                    "tag with no real reasoning — a relation reduced to a "
-                    "tag with no substance is as thin as no relation "
-                    "(the over-rigidity guard, §5 caveat)"
-                )
-        # Architect review (the load-bearing fix): a malformed edge-shaped
-        # line is a hard FAIL regardless of the yes/no answer — surfacing it
-        # is never conditional on 'yes', because a line under this heading
-        # opening with '- [' is unambiguously an attempted edge (never
-        # prose) whether or not the note claims relations were sought.
-        for bad_line in parsed.malformed:
+
+    for edge in parsed_relations.edges:
+        if len(edge["reason"]) < _MIN_SUBSTANCE_CHARS:
             findings.append(
-                f"malformed paper→paper edge line under '## Related papers': "
-                f"{bad_line!r} — a '- [' -shaped line must parse to "
-                "'[SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS] <citekey> — <reason>' "
-                "(optionally followed by '(reciprocal|refutational|"
-                "line-of-argument)'); it was silently dropped before this fix "
-                "— never again (charter §2)"
+                f"paper→paper edge to {edge['target']!r} carries a bare "
+                "tag with no real reasoning — a relation reduced to a "
+                "tag with no substance is as thin as no relation "
+                "(the over-rigidity guard, §5 caveat)"
             )
+
+    # Architect review (the load-bearing fix): a malformed edge-shaped line
+    # is a hard FAIL unconditionally — surfacing it never depends on the
+    # yes/no answer (or even on that field being well-formed), because a
+    # bracket-tag-shaped line is unambiguously an attempted edge regardless
+    # of what the note's checklist fields claim.
+    for bad_line in parsed_relations.malformed:
+        findings.append(
+            f"malformed edge line: {bad_line!r} — a bracket-tag-shaped line "
+            "must parse to '[SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS] [display]"
+            "(/literature/<citekey>.md)' (paper→paper) or "
+            "'[TAG] [display](/concepts/<slug>.md)' (paper→concept) followed "
+            "by ' — <reason>' (paper→paper edges may optionally add a "
+            "trailing '(reciprocal|refutational|line-of-argument)' mirror); "
+            "it was silently dropped before this fix — never again "
+            "(charter §2)"
+        )
+
+    # Defect #70(a): canonical '## Concept edges' heading, enforced only when
+    # the note actually carries concept edges (Move 5's mandatory gating —
+    # whether a note MUST have concept edges at all — stays unchanged/
+    # deferred this wave; this only enforces the heading NAME when the note
+    # does have some, so downstream consumers can rely on it).
+    if parsed_concepts.edges and _find_section_body(body, _CONCEPT_EDGES_HEADING_RE) is None:
+        findings.append(
+            "note has paper→concept edge(s) but no canonical '## Concept "
+            "edges' heading found — the heading is required so downstream "
+            "consumers can rely on its exact name (Defect #70)"
+        )
+
+    # ── Defect #71: retrieval-tier gates edge strength ─────────────────────
+    # A note read at less than full-text (abstract-only/title-only/any other
+    # or unstamped read_basis) must not carry a [SUPPORTS]/[CONTRADICTS] edge
+    # of EITHER kind (paper→paper or paper→concept) — the paper was never
+    # read at the fidelity needed to assert or refute a claim; cap the
+    # strongest permissible tag at [PARTIAL]. Fail-closed: an absent or
+    # unstamped 'read_basis' is treated as NOT full-text (never a free pass
+    # to claim full strength by simply omitting the field).
+    read_basis = _get_scalar(fields, "read_basis").lower()
+    if read_basis != "full-text":
+        strong_tags = ("SUPPORTS", "CONTRADICTS")
+        for edge in parsed_relations.edges:
+            if edge["tag"] in strong_tags:
+                findings.append(
+                    f"paper→paper edge to {edge['target']!r} carries "
+                    f"[{edge['tag']}] but 'read_basis' is "
+                    f"{(read_basis or '(unstamped)')!r}, not 'full-text' — a "
+                    "note not read at full-text fidelity cannot assert or "
+                    "refute a claim at that strength; cap at [PARTIAL] "
+                    "(Defect #71 retrieval-tier gate)"
+                )
+        for edge in parsed_concepts.edges:
+            if edge["tag"] in strong_tags:
+                findings.append(
+                    f"paper→concept edge to {edge['target']!r} carries "
+                    f"[{edge['tag']}] but 'read_basis' is "
+                    f"{(read_basis or '(unstamped)')!r}, not 'full-text' — a "
+                    "note not read at full-text fidelity cannot assert or "
+                    "refute a claim at that strength; cap at [PARTIAL] "
+                    "(Defect #71 retrieval-tier gate)"
+                )
 
     return RelatePresenceResult(findings=findings)

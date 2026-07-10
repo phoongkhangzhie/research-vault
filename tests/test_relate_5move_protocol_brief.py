@@ -50,6 +50,22 @@ class TestFiveMoveProtocolBrief:
         tip = get_review_tips()["per_paper_relate_tips"].lower()
         assert "bare tag" in tip or "over-rigid" in tip
 
+    def test_move4_okf_markdown_link_format_named_not_wikilink(self):
+        """Defect #69: the brief must instruct the OKF-conformant markdown
+        link form (`[display](/literature/<citekey>.md)`), never a bare
+        citekey and never a `[[wikilink]]`."""
+        tip = get_review_tips()["per_paper_relate_tips"]
+        assert "(/literature/<citekey>.md)" in tip
+        assert "wikilink" in tip.lower()
+
+    def test_move4_retrieval_tier_cap_named(self):
+        """Defect #71: the brief must name the retrieval-tier cap on edge
+        strength."""
+        tip = get_review_tips()["per_paper_relate_tips"]
+        assert "read_basis" in tip
+        assert "[PARTIAL]" in tip
+        assert "abstract-only" in tip.lower()
+
     def test_move4_names_how_the_edges_are_traversed_downstream(self):
         """Pre-publish fix: `rv review <project> relations <scope>` was
         HARD-REMOVED (D1, verb consolidation) — the brief must not instruct
@@ -73,8 +89,9 @@ class TestFiveMoveProtocolBrief:
 
     def test_move5_unchanged_concept_edges_still_present(self):
         tip = get_review_tips()["per_paper_relate_tips"]
-        assert "concepts/<c>.md" in tip
-        assert "[SUPPORTS] concepts" in tip
+        assert "/concepts/<slug>.md" in tip
+        assert "[SUPPORTS] [" in tip
+        assert "## Concept edges" in tip
 
 
 class TestSynthesizeTraversalBrief:
