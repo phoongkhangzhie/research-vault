@@ -267,6 +267,21 @@ def evaluation_from_framework_gate(ok: bool, msg: str) -> GateEvaluation:
     return GateEvaluation(blocking=[msg])
 
 
+def evaluation_from_framework_critic(payload: dict[str, Any]) -> GateEvaluation:
+    """Adapt ``manuscript.types.lit_review.check_framework_critique_verdict``'s
+    ``{blocking, not_run, canary_aborted}`` structural-payload shape into a
+    ``GateEvaluation`` (framework-gate-autonomy design, option A, 2026-07-09).
+
+    This is the SAME shape ``evaluation_from_structural_payload`` already
+    consumes (support-matcher / equation / hermetic-bib) — a thin,
+    named call-through, not a second disposition path (charter §6): the
+    critic's payload already carries ``canary_aborted`` as a top-level flag,
+    so an untrustworthy (canary-mismatched) verdict classifies HALT-DECLARE
+    at priority 1, never downgraded to an ordinary fixable BLOCK/REVISE.
+    """
+    return evaluation_from_structural_payload(payload)
+
+
 def classify_coverage_gate(
     saturation_info: dict[str, Any],
     *,

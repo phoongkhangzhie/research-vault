@@ -1,3 +1,105 @@
+## 2026-07-09 (framework-gate-autonomy, option A: N-lens ensemble -> select-and-graft synthesis -> cold critic -> auto-GO)
+
+### Done
+- **Replaced the single-shot `framework-propose` menu with a 3-stage
+  ensemble->synthesis->critic topology** (`manuscript/types/lit_review.py::phase1_builder`):
+  `scope -> framework-lens-<L1..LN> -> framework-synthesize -> framework-critic
+  -> approve-framework (auto-GO)`.
+  - `FRAMEWORK_LENSES` (5 default lenses, each mapped to a `natural_shape`
+    key drawn from the existing `FRAMEWORK_SHAPES` registry — by-chronology
+    ->evolution-arc, by-mechanism->pipeline, by-outcome/by-population->n-axis,
+    by-theoretical-tension->coupled-taxonomies), overridable via
+    `[manuscript_lit_review] framework_lenses`.
+  - Each `framework-lens-<lens>` is its OWN cold DAG agent node (`needs:
+    [_afterok("scope")]` only — no sibling visibility), expressing its
+    candidate through a real `FRAMEWORK_SHAPES` key (`render_lens_candidate_brief`)
+    — one coherent (lens x shape) vocabulary, never two.
+  - `framework-synthesize`: reads all N `_framework-candidate-<lens>.md`,
+    SELECTS the most internally-coherent backbone, GRAFTS IN only
+    compatible runner-up axes (never a naive union/Frankenstein merge) —
+    commits ONE spine (`spine_shape`+`branches`+`framework_origin: machine`
+    into `_manuscript.md`) and writes `_framework-decision.md` (the full
+    veto-provenance record: all N candidates, the selected backbone +
+    why, what was grafted + from where, and the rejection rationale for
+    every loser).
+  - `framework-critic`: cold, rejects-only, fail-closed, canary-verified —
+    a per-run `canary_id` (generated once at manifest-build time, stamped
+    on the manifest node itself) the critic must echo verbatim into
+    `_framework-critique.md`'s structured `verdict:` frontmatter (mirrors
+    `review.check_coverage_critic_verdict`'s contract exactly — never
+    prose-parsed). `check_framework_critique_verdict` reads it fail-closed:
+    missing artifact / malformed verdict / canary mismatch all HALT.
+  - `review.autonomy.evaluation_from_framework_critic` (thin call-through
+    to `evaluation_from_structural_payload` — no new disposition path).
+  - `dag/verbs.py::_evaluate_autonomous_gate`'s `approve-framework` branch
+    folds the critic disposition in, most-severe-wins, exactly mirroring
+    `approve-manuscript`'s structural+board fold — but ONLY for a
+    `framework_origin: machine` spine (a human-authored spine, hand-edited
+    `_manuscript.md` directly, is unaffected — `check_framework_gate` alone
+    still governs it, as before). A missing critique on a machine-
+    synthesized spine is a fail-closed HALT (§1.2 priority-2 "floor gate
+    not run"), never a silent GO.
+- **F2 fix**: `_emit_next_phase`'s `approve-review` partial-adopt branch
+  (a `_manuscript.md` note exists but no `phase1-dag.json` — an
+  interrupted/prior-partial scaffold) previously called `cmd_expand`
+  directly, bypassing Phase-1 (the framework gate) entirely and landing a
+  manuscript with no committed, critic-cleared spine. Now re-enters Phase-1
+  via `_build_phase1_manifest` (rebuilding the framework-ensemble manifest
+  against the EXISTING note/tree, never re-scaffolding via `cmd_new`) —
+  only a genuinely pass-through type (`phase1_builder is None`) still goes
+  straight to Phase-2, which is the honest, by-design case, not a bypass.
+
+### Decisions
+- **★ GROUNDING CONTRADICTION, surfaced not silently resolved (charter
+  §7).** The dispatching brief (authored against an earlier design note)
+  required wiring an async-veto window on `approve-framework`'s GO
+  (`open_veto_window`/`check_declare_final_gate`/`rv dag veto`), with the
+  human's veto as a passive backstop. Re-grounding against `origin/main`
+  (this PR's mandatory first step) found the ENTIRE async-veto/provisional
+  machinery was REMOVED same-day by commit e411021 (PR #201, "single-
+  human-gate design: approve-review autonomous, async-veto removed" — see
+  this file's own entry immediately below, and `review/autonomy.py`'s
+  module docstring): "only `approve-protocol` is a human gate ... an
+  auto-resolved decision is FINAL THE MOMENT IT RESOLVES: no `provisional`
+  stamp, no async-veto window." `VetoWindow`/`open_veto_window`/
+  `cast_veto`/`clear_provisional_if_elapsed`/`check_declare_final_gate`
+  and the `rv dag veto` CLI verb do not exist anywhere on `origin/main` —
+  this is not stale-line-number drift (which the brief explicitly warned
+  about and this PR re-grepped for); it is an entire subsystem's deletion,
+  landed the same day the framework-gate-autonomy design doc was written.
+  **Resurrecting the veto primitives here would directly contradict a
+  recorded, deliberate architectural decision** — so this PR does NOT do
+  that. `approve-framework` instead resolves FULLY autonomously (identical
+  in shape to every other autonomous gate — coverage-gate/approve-review/
+  approve-manuscript), with NO provisional/veto stamp anywhere. Tests 5/6
+  of the spec's required-tests list are adapted accordingly (see
+  `tests/test_framework_gate_autonomy.py`'s module docstring for the full
+  reasoning + the exact test-by-test mapping) — flagged prominently here
+  and in the PR body for the Architect's fit-check + the operator's go, since
+  this is exactly the kind of precedent-setting call a second pair of eyes
+  should confirm, not an engineer's unilateral pick.
+- Kept `render_framework_candidates_menu` (the pre-ensemble 4-shape menu
+  renderer) as shipped, unused by the new topology but still tested/
+  exported — no removal in scope here; a future cleanup PR can decide
+  whether it's still load-bearing for anything else.
+- `_build_phase1_manifest` is `manuscript/__init__.py`'s private (but
+  importable) function that both `cmd_new` and the new F2 partial-adopt
+  path in `dag/verbs.py` call — reused, not reimplemented (charter §6).
+
+### Open / next
+- Merge class: `human-go` (Architect fit-check on the grounding-
+  contradiction resolution above, then the operator's go) — this PR changes the
+  core framework-commitment topology and deliberately diverges from part
+  of its own dispatching brief; it should not land without a second pair
+  of eyes on that specific call.
+- Coordination: #206 (sweep hardening) is in-flight, touching
+  `review/autonomy.py` (a new dark-source HALT branch in
+  `classify_coverage_gate`) and `dag/verbs.py` (the coverage-gate manual-
+  approve path) — no line-level overlap with this PR's
+  `evaluation_from_framework_critic` addition or the `approve-framework`/
+  `_emit_next_phase` edits (different branches/functions in both files);
+  flagged in the PR body per the coordination note. Merge order: #206
+  before this PR, per the dispatching brief.
 ## 2026-07-09 (sweep hardening — no silent recall loss: dark-source fail-closed, retry-with-backoff, Paper-id join-key regression)
 
 ### Done

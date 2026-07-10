@@ -228,7 +228,12 @@ def test_cmd_new_lit_review_emits_phase1_manifest(cfg):
     assert manifest is not None
     assert (tree_root / "phase1-dag.json").exists()
     ids = [n["id"] for n in manifest["nodes"]]
-    assert ids == ["scope", "framework-propose", "approve-framework"]
+    # framework-gate-autonomy design (option A, 2026-07-09): the single
+    # framework-propose menu node is replaced by an N-lens ensemble ->
+    # synthesize -> critic chain.
+    assert ids[0] == "scope"
+    assert ids[-3:] == ["framework-synthesize", "framework-critic", "approve-framework"]
+    assert any(nid.startswith("framework-lens-") for nid in ids)
     hg = next(n for n in manifest["nodes"] if n["id"] == "approve-framework")
     assert hg["type"] == "human-go"
 

@@ -4,8 +4,12 @@
 Fills the PR-M1 stub with the survey's real machinery (design §3-§5):
   - the real 9-row section-set (§3), abstract drafted LAST (assembly class
     "S (last)" — it must be a subset of the body, so it needs the body first).
-  - the framework-selection Phase-1 (§5): scope -> framework-propose ->
-    approve-framework (auto-resolved), the 4 candidate shapes PROPOSED never forced, a
+  - the framework-selection Phase-1 (§5, extended by the framework-gate-
+    autonomy design, option A, 2026-07-09): scope -> N cold, independent
+    ``framework-lens-<lens>`` candidates (each a real FRAMEWORK_SHAPES
+    archetype) -> ``framework-synthesize`` (select-and-graft, never a naive
+    merge, commits ONE spine) -> ``framework-critic`` (cold, rejects-only,
+    fail-closed, canary-verified) -> approve-framework (auto-resolved), a
     corpus-hash stamp (injected, never agent-computed), and the
     ``check_framework_gate`` structural BLOCK on an empty spine.
   - the OKF -> survey ``source_transform`` (§4): a deterministic PRISMA-ledger
@@ -33,6 +37,7 @@ sr: PR-M6
 from __future__ import annotations
 
 import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -114,6 +119,134 @@ def render_framework_candidates_menu() -> str:
     return "\n".join(lines)
 
 
+def _framework_shape_by_key(key: str) -> dict[str, str] | None:
+    """Look up a ``FRAMEWORK_SHAPES`` record by its ``key`` — the single
+    lookup every lens/candidate/menu-render helper uses, so ``FRAMEWORK_SHAPES``
+    stays the one vocabulary (charter §6: no second shape grammar)."""
+    for shape in FRAMEWORK_SHAPES:
+        if shape["key"] == key:
+            return shape
+    return None
+
+
+_VALID_SHAPE_KEYS: frozenset[str] = frozenset(s["key"] for s in FRAMEWORK_SHAPES)
+
+
+# ---------------------------------------------------------------------------
+# §5 (framework-gate-autonomy design, option A) — the N-lens ensemble
+# ---------------------------------------------------------------------------
+# Each lens is an organizing PRINCIPLE (the axis a corpus could be sliced
+# on); each FRAMEWORK_SHAPES entry is a structural FORM. They are orthogonal
+# but correlated: a lens node expresses its candidate THROUGH a shape
+# archetype (its `natural_shape` default, or an explicit corpus-warranted
+# override it must justify) — never a shape vocabulary of its own. This
+# keeps every downstream `spine_shape` consumer (STYLE_BRIEFS, the
+# fan-out-above-ceiling drafting path, source_transform) working unchanged.
+
+FRAMEWORK_LENSES: tuple[dict[str, str], ...] = (
+    {"key": "by-chronology", "natural_shape": "evolution-arc"},
+    {"key": "by-mechanism", "natural_shape": "pipeline"},
+    {"key": "by-outcome", "natural_shape": "n-axis"},
+    {"key": "by-population", "natural_shape": "n-axis"},
+    {"key": "by-theoretical-tension", "natural_shape": "coupled-taxonomies"},
+)
+
+
+def _get_framework_lenses(config: Any = None) -> tuple[dict[str, str], ...]:
+    """Resolve the lens set (design's ensemble fan-out), adopter-overridable
+    via ``[manuscript_lit_review] framework_lenses`` — a list of
+    ``{"key": ..., "natural_shape": ...}`` records — mirroring
+    ``_get_single_pass_corpus_ceiling``'s override pattern. A malformed
+    override (not a list of dicts each carrying both keys) is rejected
+    loudly at build time (never a partial/garbled ensemble)."""
+    if config is not None:
+        raw = getattr(config, "_raw", {})
+        override = raw.get("manuscript_lit_review", {})
+        if isinstance(override, dict):
+            val = override.get("framework_lenses")
+            if val is not None:
+                if not isinstance(val, list) or not val:
+                    raise ValueError(
+                        "rv manuscript: [manuscript_lit_review] framework_lenses "
+                        "override must be a non-empty list of "
+                        "{key, natural_shape} records."
+                    )
+                lenses: list[dict[str, str]] = []
+                for rec in val:
+                    if not isinstance(rec, dict) or "key" not in rec or "natural_shape" not in rec:
+                        raise ValueError(
+                            "rv manuscript: [manuscript_lit_review] framework_lenses "
+                            f"override record {rec!r} must be a dict with "
+                            "'key' and 'natural_shape'."
+                        )
+                    if rec["natural_shape"] not in _VALID_SHAPE_KEYS:
+                        raise ValueError(
+                            "rv manuscript: [manuscript_lit_review] framework_lenses "
+                            f"override record {rec!r}'s natural_shape must be one "
+                            f"of {sorted(_VALID_SHAPE_KEYS)}."
+                        )
+                    lenses.append({"key": str(rec["key"]), "natural_shape": str(rec["natural_shape"])})
+                return tuple(lenses)
+    return FRAMEWORK_LENSES
+
+
+def render_lens_candidate_brief(lens_key: str, natural_shape_key: str) -> str:
+    """The structurally-binding brief for ONE ``framework-lens-<lens>`` cold,
+    independent node (option A, ensemble fan-out).
+
+    Each lens node is dispatched as its OWN fresh subagent — no shared
+    context, no sibling-candidate visibility (the independence IS the
+    value: it is what lets ``framework-synthesize`` score real diversity
+    instead of N near-identical rewrites of the same anchoring thesis). A
+    single agent authoring N candidates is FORBIDDEN — this brief is
+    written for exactly one candidate.
+
+    The lens↔shape reconciliation (framework-gate-autonomy design, hard
+    requirement): the candidate is expressed THROUGH a ``FRAMEWORK_SHAPES``
+    archetype — the lens's ``natural_shape`` by default, or an explicit,
+    justified override to another registered shape key. No candidate may
+    invent a shape outside ``FRAMEWORK_SHAPES``.
+    """
+    natural = _framework_shape_by_key(natural_shape_key)
+    if natural is None:
+        raise ValueError(
+            f"render_lens_candidate_brief: {natural_shape_key!r} is not a "
+            f"registered FRAMEWORK_SHAPES key ({sorted(_VALID_SHAPE_KEYS)})."
+        )
+    other_shapes = "\n".join(
+        f"  - `{s['key']}` ({s['name']}): {s['description']}"
+        for s in FRAMEWORK_SHAPES
+        if s["key"] != natural_shape_key
+    )
+    return (
+        f"You are ONE independent lens in a cold N-lens ensemble proposing "
+        f"organizing frameworks for this survey's corpus — you do NOT see, "
+        f"and must not try to guess, what the other lenses will propose. "
+        f"Your assigned organizing lens: **{lens_key}**.\n\n"
+        f"Its natural structural form is `{natural['key']}` ({natural['name']}): "
+        f"{natural['description']}\n\n"
+        f"Propose ONE candidate spine organized under the **{lens_key}** "
+        f"lens, expressed through the `{natural['key']}` shape UNLESS this "
+        f"corpus genuinely warrants a different registered shape — if you "
+        f"override, name which shape you used and defend why it fits this "
+        f"lens+corpus better than the natural default. Do NOT invent a shape "
+        f"outside the registered set:\n{other_shapes}\n\n"
+        f"Ground your candidate in this project's `mocs/`+`concepts/`+`gaps/` "
+        f"— defend it honestly (which `mocs/` region(s) it draws on, the "
+        f"top-level branches, and what would NOT fit under this lens — "
+        f"misfits, stated plainly, not glossed over).\n\n"
+        f"Write your candidate to `_framework-candidate-{lens_key}.md` with "
+        f"YAML frontmatter carrying EXACTLY:\n"
+        f"  lens: {lens_key}\n"
+        f"  spine_shape: <the FRAMEWORK_SHAPES key you used>\n"
+        f"  branches:\n    - <branch 1>\n    - <branch 2>\n    - ...\n\n"
+        f"followed by prose defending the candidate (mocs region, misfits, "
+        f"why this shape carries this lens for THIS corpus). This is a "
+        f"PROPOSAL — you never commit it; `framework-synthesize` reads all "
+        f"N candidates and selects/grafts the final spine."
+    )
+
+
 # ---------------------------------------------------------------------------
 # §5 — check_framework_gate (structural BLOCK, wired into `rv dag approve`)
 # ---------------------------------------------------------------------------
@@ -168,6 +301,197 @@ def check_framework_gate(manuscript_note_path: Path) -> tuple[bool, str]:
         )
 
     return True, "OK"
+
+
+# ---------------------------------------------------------------------------
+# framework-gate-autonomy design (option A) — framework-synthesize +
+# framework-critic: select-and-graft, then a cold, fail-closed, canary-
+# verified rejects-only critic.
+# ---------------------------------------------------------------------------
+
+def render_synthesize_brief(lens_candidate_paths: dict[str, str]) -> str:
+    """The structurally-binding ``framework-synthesize`` brief (option A,
+    a2): reads all N ``_framework-candidate-<lens>.md`` files, SELECTS the
+    single most internally-coherent backbone, and GRAFTS IN only compatible
+    axes from runners-up — never a naive union/merge of two spines.
+    """
+    candidate_list = "\n".join(f"  - {lens}: {path}" for lens, path in sorted(lens_candidate_paths.items()))
+    return (
+        "Read ALL of the following independent framework candidates (one per "
+        f"organizing lens, each already committed to a real FRAMEWORK_SHAPES "
+        f"archetype):\n{candidate_list}\n\n"
+        "Your job is SELECT-AND-GRAFT, never naive-merge:\n"
+        "1. SCORE each candidate on internal coherence (do its branches "
+        "actually partition the corpus cleanly under its own lens+shape? "
+        "how many misfits did it itself admit? are its branches anchored "
+        "in real `mocs/`/`concepts/` regions, not vague placeholders?).\n"
+        "2. SELECT the single most internally-coherent candidate as the "
+        "BACKBONE — the one organizing commitment everything else is judged "
+        "against. Name it (its lens + shape) and say why it won.\n"
+        "3. GRAFT IN only axes from runners-up that are STRUCTURALLY "
+        "COMPATIBLE with the backbone's shape (e.g. a `by-population` "
+        "n-axis candidate's population dimension can graft onto a "
+        "`by-mechanism` pipeline backbone as a secondary tag on each stage, "
+        "if — and only if — every backbone branch can genuinely carry it). "
+        "NEVER union two incompatible spines into a single Frankenstein "
+        "structure — the committed result must read as ONE coherent "
+        "organizing decision, not two competing ones stapled together. If "
+        "nothing grafts cleanly, that is a valid, honest outcome — say so.\n"
+        "4. For EVERY candidate NOT selected as the backbone, state the "
+        "REJECTION RATIONALE — why it lost to the backbone (weaker "
+        "coherence, more misfits, a shape mismatch for this corpus, etc.).\n\n"
+        "Then COMMIT the result:\n"
+        "  a. Write `_framework-decision.md` (the veto-provenance record) "
+        "recording: ALL N candidates as `(lens, shape, branches)`; which was "
+        "selected as the backbone and why; exactly what was grafted in and "
+        "from which candidate (name the `(lens, shape, axis)` pulled); and "
+        "the rejection rationale for every loser.\n"
+        "  b. Write into `_manuscript.md`'s frontmatter: a non-empty "
+        "`spine_shape:` (the backbone's shape key), a non-empty `branches:` "
+        "list (the final, possibly-grafted branch set), and "
+        "`framework_origin: machine` (so downstream gating knows this spine "
+        "was synthesized by this pipeline, not hand-authored by a human)."
+    )
+
+
+_FRAMEWORK_CRITIC_BRIEF_TEMPLATE = (
+    "Cold, independent review of the SYNTHESIZED organizing framework — you "
+    "have no stake in which candidate won; your only job is to find "
+    "coherence problems, never to bless. Read `_framework-decision.md` "
+    "(the select-and-graft record) and `_manuscript.md`'s frozen "
+    "`spine_shape:`/`branches:`.\n\n"
+    "Check specifically for:\n"
+    "  - misfits the synthesis glossed over (a branch with no real corpus "
+    "support, a concept that fits nowhere).\n"
+    "  - orphaned concepts (a `concepts/` atom central to the corpus that "
+    "the frozen spine has no branch for).\n"
+    "  - unanchored branches (a branch name with no `mocs/`/`concepts/` "
+    "region actually backing it).\n"
+    "  - Frankenstein-graft incoherence — a grafted axis that does NOT "
+    "actually compose with the backbone (a secondary tag that only some "
+    "backbone branches can carry, or that contradicts the backbone's own "
+    "organizing logic).\n"
+    "  - Nickerson taxonomy ending-conditions (for an n-axis shape: are the "
+    "axes genuinely orthogonal, mutually exclusive within an axis, and "
+    "collectively exhaustive enough to place every corpus paper?).\n\n"
+    "You are REJECTS-ONLY: a clean review is silent (never a certification "
+    "of quality beyond 'no coherence defect found'); only report what is "
+    "actually wrong.\n\n"
+    "Write your verdict to `_framework-critique.md` as YAML frontmatter — "
+    "THIS IS THE ONLY THING READ, prose bracket tokens are NEVER scanned:\n"
+    "---\n"
+    "verdict: PASS  # or BLOCK\n"
+    "canary_id: {canary_id}\n"
+    "---\n\n"
+    "(Copy the `canary_id` value above EXACTLY as given here — this proves "
+    "you actually read this brief rather than rubber-stamping; a missing "
+    "or wrong canary_id is treated as an untrustworthy verdict, fail-closed.)\n\n"
+    "If BLOCK, list each coherence problem as a `- <reason>` bullet in the "
+    "body below the frontmatter (informational — the fail-closed decision "
+    "comes solely from the `verdict:` field)."
+)
+
+
+def render_critic_brief(canary_id: str) -> str:
+    """The cold, rejects-only, fail-closed ``framework-critic`` brief —
+    mirrors the coverage-critic's structured ``verdict:`` frontmatter
+    contract (never prose-parsed, charter §6 reuse-over-create) plus an
+    id-keyed canary (an unmarked probe token the critic must echo back
+    verbatim, proving it actually read this specific brief rather than
+    rubber-stamping a generic PASS — the trustworthy-LLM-verdict shape:
+    cold, rejects-only, fail-closed, canary-verified)."""
+    return _FRAMEWORK_CRITIC_BRIEF_TEMPLATE.format(canary_id=canary_id)
+
+
+_FRAMEWORK_CRITIQUE_VERDICT_VOCAB = frozenset({"PASS", "BLOCK"})
+_FRAMEWORK_CRITIQUE_BULLET_RE = re.compile(r"^\s*-\s+(.+?)\s*$")
+
+
+def check_framework_critique_verdict(
+    critique_note_path: Path,
+    *,
+    expected_canary_id: str | None = None,
+) -> dict[str, Any]:
+    """Read ``framework-critic``'s STRUCTURED ``verdict:`` frontmatter field
+    from ``_framework-critique.md`` into the ``{"blocking": [...],
+    "not_run": [...], "canary_aborted": bool}`` structural-payload shape
+    ``review.autonomy.evaluation_from_framework_critic``/
+    ``evaluation_from_structural_payload`` consume — mirrors
+    ``review.check_coverage_critic_verdict`` exactly (charter §6: no new
+    disposition path, no second prose-scanning grammar).
+
+    Fail-closed, in priority order:
+      1. Missing artifact -> ``not_run`` (floor gate never ran).
+      2. Duplicate ``verdict:`` frontmatter keys -> ``not_run`` (contradictory).
+      3. ``expected_canary_id`` given and the note's ``canary_id`` field is
+         absent or does not match EXACTLY -> ``canary_aborted: True`` (an
+         untrustworthy signal — the critic did not demonstrably read this
+         run's brief; never treated as a pass, never auto-retried the same
+         way, charter §10).
+      4. ``verdict`` absent/malformed (anything but exactly PASS/BLOCK,
+         case-normalized) -> ``not_run`` (fail-closed, whitelist-not-
+         blacklist, charter §2).
+      5. ``PASS`` -> clean. ``BLOCK`` -> every ``- <reason>`` body bullet as
+         ``blocking`` (best-effort, informational only).
+    """
+    if not critique_note_path.exists():
+        return {"blocking": [], "not_run": [str(critique_note_path)], "canary_aborted": False}
+
+    text = critique_note_path.read_text(encoding="utf-8")
+    fields, body = _parse_frontmatter(text)
+
+    if text.startswith("---"):
+        fm_end = text.find("\n---", 3)
+        fm_block = text[3:fm_end] if fm_end != -1 else ""
+        verdict_keys = [
+            ln for ln in fm_block.splitlines()
+            if ln.split(":", 1)[0].strip().lower() == "verdict"
+        ]
+        if len(verdict_keys) > 1:
+            return {
+                "blocking": [],
+                "not_run": [
+                    f"{critique_note_path}: {len(verdict_keys)} 'verdict:' "
+                    f"frontmatter keys — contradictory/ambiguous, fail-closed."
+                ],
+                "canary_aborted": False,
+            }
+
+    if expected_canary_id:
+        canary_val = str(fields.get("canary_id", "")).strip()
+        if canary_val != expected_canary_id:
+            return {
+                "blocking": [],
+                "not_run": [],
+                "canary_aborted": True,
+            }
+
+    verdict_raw = fields.get("verdict", "")
+    if isinstance(verdict_raw, list):
+        verdict_raw = " ".join(str(item) for item in verdict_raw)
+    verdict = str(verdict_raw).strip().upper()
+
+    if verdict not in _FRAMEWORK_CRITIQUE_VERDICT_VOCAB:
+        return {
+            "blocking": [],
+            "not_run": [
+                f"{critique_note_path}: no valid 'verdict:' frontmatter field "
+                f"— expected exactly 'PASS' or 'BLOCK', got {verdict_raw!r}."
+            ],
+            "canary_aborted": False,
+        }
+
+    if verdict == "PASS":
+        return {"blocking": [], "not_run": [], "canary_aborted": False}
+
+    reasons: list[str] = []
+    for line in body.splitlines():
+        m = _FRAMEWORK_CRITIQUE_BULLET_RE.match(line)
+        if m is not None:
+            reasons.append(m.group(1))
+    if not reasons:
+        reasons = ["[BLOCK] verdict with no itemized reason bullets found"]
+    return {"blocking": reasons, "not_run": [], "canary_aborted": False}
 
 
 # ---------------------------------------------------------------------------
@@ -270,26 +594,49 @@ def phase1_builder(
     tree_root: Path,
     config: Any = None,
 ) -> dict[str, Any]:
-    """Build the lit-review Phase-1 manifest: framework selection (design §5).
+    """Build the lit-review Phase-1 manifest: framework selection (design §5,
+    extended by the framework-gate-autonomy design, option A — 2026-07-09).
 
     Topology:
-      scope -> framework-propose -> [HG: approve-framework]
+      scope -> framework-lens-<L1> ┐
+             -> framework-lens-<L2> ┤-> framework-synthesize -> framework-critic -> approve-framework (auto-GO)
+             -> ...                 │
+             -> framework-lens-<LN> ┘
 
     - ``scope``: agent; reads OKF atoms + `reviews/` (the convention above);
       renders the PRISMA inclusion ledger (mechanical — via
       ``source_transform``'s ``render_prisma_ledger`` once wired) and stamps
       the injected corpus hash (never agent-computed) into its brief.
-    - ``framework-propose``: agent; reads `mocs/`+`concepts/`+`gaps/`; proposes
-      the 4 candidate shapes (``render_framework_candidates_menu``) —
-      produces `_framework-candidates.md`; NEVER commits.
-    - ``approve-framework``: human-go; the human picks/shapes/nests/goes
-      custom, writing `spine_shape`+`branches` into `_manuscript.md`.
-      ``check_framework_gate`` (wired into `rv dag approve`) BLOCKs an empty
-      spine.
+    - ``framework-lens-<lens>`` (one per ``_get_framework_lenses``, cold,
+      independent, ``needs: [_afterok("scope")]`` only — no sibling
+      visibility): proposes ONE candidate spine under its lens, expressed
+      through a real ``FRAMEWORK_SHAPES`` archetype
+      (``render_lens_candidate_brief``) — produces
+      ``_framework-candidate-<lens>.md``. A single agent authoring N
+      candidates is structurally impossible here: each lens is its own DAG
+      node, dispatched as its own fresh cold subagent by the harness.
+    - ``framework-synthesize``: agent; ``needs`` every lens node
+      (``_afterok``); reads all N candidates, SELECTS the most coherent
+      backbone, GRAFTS IN only compatible runner-up axes (never a naive
+      union) — commits ONE spine (``spine_shape``+``branches``+
+      ``framework_origin: machine`` into ``_manuscript.md``) and produces
+      ``_framework-decision.md`` (the full veto-provenance record —
+      ``render_synthesize_brief``).
+    - ``framework-critic``: agent; ``needs: [_afterok("framework-synthesize")]``;
+      cold, rejects-only, fail-closed, canary-verified — reads the
+      synthesized decision, writes a STRUCTURED ``verdict:`` frontmatter
+      field to ``_framework-critique.md`` (``render_critic_brief``, checked
+      by ``check_framework_critique_verdict``) — never prose-parsed.
+    - ``approve-framework``: still a ``"human-go"``-typed node (schema/runner
+      shape unchanged — mirrors the single-human-gate design's
+      ``autonomous: True`` catalog annotation pattern), but resolves
+      AUTONOMOUSLY: ``check_framework_gate`` (structural, unchanged) folded
+      with the critic's disposition, most-severe-wins
+      (``dag.verbs._evaluate_autonomous_gate``).
 
     Matches the ``ManuscriptType.phase1_builder`` signature (types/__init__.py).
 
-    sr: PR-M6
+    sr: PR-M6; framework-gate-autonomy design (option A, 2026-07-09)
     """
     def _afterok(from_id: str) -> dict[str, str]:
         return {"from": from_id, "edge": "afterok"}
@@ -297,10 +644,19 @@ def phase1_builder(
     def _rel(okf_type: str) -> str:
         return str(project_notes_dir / okf_type)
 
-    candidates_path = str(tree_root / "_framework-candidates.md")
-    manuscript_note_path = str(tree_root / "_manuscript.md")
-
     corpus_hash_note = _compute_corpus_hash_note(project, slug, project_notes_dir)
+
+    lenses = _get_framework_lenses(config)
+    lens_reads = [_rel("mocs"), _rel("concepts"), _rel("gaps")]
+
+    lens_ids: list[str] = []
+    lens_candidate_paths: dict[str, str] = {}
+    for lens in lenses:
+        lens_key = lens["key"]
+        lens_id = f"framework-lens-{lens_key}"
+        candidate_path = str(tree_root / f"_framework-candidate-{lens_key}.md")
+        lens_candidate_paths[lens_key] = candidate_path
+        lens_ids.append(lens_id)
 
     nodes: list[dict[str, Any]] = [
         {
@@ -320,26 +676,62 @@ def phase1_builder(
             "reads": [_rel("literature"), _rel("mocs"), _rel("reviews")],
             "needs": [],
         },
-        {
-            "id": "framework-propose",
-            "type": "agent",
-            "label": "Propose 4 candidate organizing-framework shapes (never commit)",
-            "spec": render_framework_candidates_menu(),
-            "reads": [_rel("mocs"), _rel("concepts"), _rel("gaps")],
-            "produces": {"_framework-candidates.md": candidates_path},
-            "needs": [_afterok("scope")],
-        },
-        {
-            "id": "approve-framework",
-            "type": "human-go",
-            "label": (
-                "Gate: Approve the organizing framework — pick/shape/nest/go-custom "
-                "from `_framework-candidates.md`, writing `spine_shape:`+`branches:` "
-                "into `_manuscript.md` (BLOCKED if either is empty — design §5, D5)."
-            ),
-            "needs": [_afterok("framework-propose")],
-        },
     ]
+
+    for lens in lenses:
+        lens_key = lens["key"]
+        lens_id = f"framework-lens-{lens_key}"
+        nodes.append({
+            "id": lens_id,
+            "type": "agent",
+            "label": f"Cold, independent framework candidate — lens {lens_key!r}",
+            "spec": render_lens_candidate_brief(lens_key, lens["natural_shape"]),
+            "reads": lens_reads,
+            "produces": {f"_framework-candidate-{lens_key}.md": lens_candidate_paths[lens_key]},
+            "needs": [_afterok("scope")],
+        })
+
+    decision_path = str(tree_root / "_framework-decision.md")
+    nodes.append({
+        "id": "framework-synthesize",
+        "type": "agent",
+        "label": "Select-and-graft: commit ONE coherent framework backbone from the N candidates",
+        "spec": render_synthesize_brief(lens_candidate_paths),
+        "reads": [str(tree_root)],
+        "produces": {"_framework-decision.md": decision_path},
+        "needs": [_afterok(lens_id) for lens_id in lens_ids],
+    })
+
+    # The critic canary id is generated ONCE at manifest-build time (never
+    # agent-computed) and stamped directly on the manifest node — the gate
+    # evaluator (dag/verbs.py) reads it back off THIS SAME manifest to
+    # verify the critic's echoed `canary_id:` field, an id-keyed probe that
+    # proves the critic actually read its brief rather than rubber-stamping.
+    critic_canary_id = uuid.uuid4().hex[:16]
+    critique_path = str(tree_root / "_framework-critique.md")
+    nodes.append({
+        "id": "framework-critic",
+        "type": "agent",
+        "label": "Cold, rejects-only, fail-closed critic of the synthesized framework",
+        "spec": render_critic_brief(critic_canary_id),
+        "reads": [str(tree_root)],
+        "produces": {"_framework-critique.md": critique_path},
+        "needs": [_afterok("framework-synthesize")],
+        "canary_id": critic_canary_id,
+    })
+
+    nodes.append({
+        "id": "approve-framework",
+        "type": "human-go",
+        "label": (
+            "Gate: organizing framework (auto-resolved) — the ensemble/"
+            "synthesis/critic pipeline commits `spine_shape:`+`branches:` "
+            "into `_manuscript.md` (BLOCKED if either is empty, or if a "
+            "machine-synthesized spine's critic verdict is missing/BLOCK/"
+            "canary-aborted — design §5 D5 + framework-gate-autonomy design)."
+        ),
+        "needs": [_afterok("framework-critic")],
+    })
 
     return {
         "run_id": f"manuscript-{slug}-phase1",

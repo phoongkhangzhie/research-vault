@@ -510,21 +510,87 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         assert child_rs2.meta["child_runs"]["approve-review"] == ms_run_id
         assert "phase_transition_error" not in child_rs2.node_states["approve-review"]
 
-        # Chain continuity: the manuscript run self-advances scope ->
-        # framework-propose, and STOPS at approve-framework (never silently
-        # jumps to approve-manuscript) — framework-propose only writes a
-        # candidate menu, never commits a spine (§5/D5 human-commitment gate).
+        # Chain continuity (framework-gate-autonomy design, option A,
+        # 2026-07-09 — UPDATED from the pre-ensemble behavior): the
+        # manuscript run self-advances scope -> N cold framework-lens
+        # candidates -> framework-synthesize -> framework-critic, and NOW
+        # flows THROUGH approve-framework (auto-GO on a critic-cleared,
+        # machine-synthesized spine) all the way to approve-manuscript —
+        # gated instead by the async-veto window that was the design's
+        # intended passive backstop (see the grounding-contradiction note
+        # in DEVLOG.md / the PR body: the async-veto/provisional primitives
+        # were REMOVED same-day by the single-human-gate design, PR #201 —
+        # this test asserts NO provisional/veto stamp anywhere, matching
+        # that shipped, current architecture, not the stale design note).
         ms_store = store  # same RunStore backend
         _mark_succeeded(ms_store, ms_run_id, "scope")
         cmd_tick(argparse.Namespace(run_id=ms_run_id))
         ms_rs = ms_store.load(ms_run_id)
-        assert ms_rs.node_status("framework-propose") in ("succeeded", "pending")
-        if ms_rs.node_status("framework-propose") != "succeeded":
-            _mark_succeeded(ms_store, ms_run_id, "framework-propose")
+        lens_ids = [nid for nid in ms_rs.node_states if nid.startswith("framework-lens-")]
+        assert lens_ids, "expected at least one framework-lens-<lens> node"
+
+        ms_manifest = json.loads((tree_root / "phase1-dag.json").read_text(encoding="utf-8"))
+        for lens_id in lens_ids:
+            lens_key = lens_id[len("framework-lens-"):]
+            (tree_root / f"_framework-candidate-{lens_key}.md").write_text(
+                f"---\nlens: {lens_key}\nspine_shape: n-axis\nbranches:\n  - alpha\n  - beta\n---\n\n"
+                f"Candidate for lens {lens_key}.\n",
+                encoding="utf-8",
+            )
+            _mark_succeeded(ms_store, ms_run_id, lens_id)
+
+        cmd_tick(argparse.Namespace(run_id=ms_run_id))
+        ms_rs = ms_store.load(ms_run_id)
+        assert ms_rs.node_status("framework-synthesize") in ("succeeded", "pending")
+        if ms_rs.node_status("framework-synthesize") != "succeeded":
+            # framework-synthesize commits the spine + framework_origin: machine.
+            note_text = manuscript_note.read_text(encoding="utf-8")
+            note_text = note_text.replace(
+                "spine_shape: \n", "spine_shape: n-axis\n",
+            ).replace(
+                "branches: \n", "branches:\n  - alpha\n  - beta\n",
+            )
+            if "framework_origin" not in note_text:
+                note_text = note_text.replace(
+                    "---\n", "---\nframework_origin: machine\n", 1,
+                )
+            manuscript_note.write_text(note_text, encoding="utf-8")
+            (tree_root / "_framework-decision.md").write_text(
+                "Backbone selected; all N candidates recorded; grafts + "
+                "rejection rationale documented.\n",
+                encoding="utf-8",
+            )
+            _mark_succeeded(ms_store, ms_run_id, "framework-synthesize")
             cmd_tick(argparse.Namespace(run_id=ms_run_id))
             ms_rs = ms_store.load(ms_run_id)
-        assert ms_rs.node_status("approve-framework") in ("awaiting-go", "blocked", "pending")
-        assert ms_rs.node_status("approve-manuscript") if "approve-manuscript" in ms_rs.node_states else True
+
+        assert ms_rs.node_status("framework-critic") in ("succeeded", "pending")
+        if ms_rs.node_status("framework-critic") != "succeeded":
+            critic_node = next(
+                n for n in ms_manifest["nodes"] if n["id"] == "framework-critic"
+            )
+            canary_id = critic_node["canary_id"]
+            (tree_root / "_framework-critique.md").write_text(
+                f"---\nverdict: PASS\ncanary_id: {canary_id}\n---\n\nNo coherence defects found.\n",
+                encoding="utf-8",
+            )
+            _mark_succeeded(ms_store, ms_run_id, "framework-critic")
+
+        rc = cmd_tick(argparse.Namespace(run_id=ms_run_id))
+        assert rc == 0
+        ms_rs = ms_store.load(ms_run_id)
+        assert ms_rs.node_status("approve-framework") == "succeeded"
+        assert "GO" in ms_rs.node_states["approve-framework"]["decision_note"]
+
+        # No provisional/veto bookkeeping anywhere (single-human-gate design).
+        note_text_final = manuscript_note.read_text(encoding="utf-8")
+        assert "provisional" not in note_text_final
+        assert "provisional" not in (tree_root / "_framework-decision.md").read_text(encoding="utf-8")
+
+        ms2_run_id = ms_rs.node_states["approve-framework"]["emitted_next_phase_run_id"]
+        assert ms2_run_id == ms_rs.meta["child_runs"]["approve-framework"]
+        ms2_rs = ms_store.load(ms2_run_id)
+        assert ms2_rs.node_status("outline") in ("succeeded", "pending")
 
     def test_approve_review_go_with_residue_still_chains(self, tmp_instance: Path, monkeypatch):
         from research_vault.config import load_config
