@@ -380,6 +380,27 @@ class TestCoverageCriticStructuredVerdict:
         result = check_coverage_critic_verdict(note)
         assert result == {"blocking": [], "not_run": []}
 
+    def test_duplicate_verdict_keys_fail_closed(self, tmp_path: Path):
+        """Contradictory duplicate ``verdict:`` keys must fail-closed, NOT
+        resolve last-wins to GO. `_parse_frontmatter` is last-wins on repeated
+        scalar keys, so `verdict: BLOCK` then `verdict: PASS` would silently
+        GO without this guard — a residual silent-GO on the humanless gate."""
+        from research_vault.review import check_coverage_critic_verdict
+
+        note = tmp_path / "_coverage-critic.md"
+        note.write_text(
+            "---\nverdict: BLOCK\nverdict: PASS\n---\n\nprotocol drift.\n",
+            encoding="utf-8",
+        )
+        result = check_coverage_critic_verdict(note)
+        assert result["blocking"] == []
+        assert result["not_run"], "duplicate verdict keys must fail-closed (not GO)"
+        # and the reverse order (PASS then BLOCK) also fails closed, not a pass
+        note.write_text(
+            "---\nverdict: PASS\nverdict: BLOCK\n---\n\nx.\n", encoding="utf-8"
+        )
+        assert check_coverage_critic_verdict(note)["not_run"]
+
     def test_prose_only_bracket_tokens_no_verdict_field_fails_closed(self, tmp_path: Path):
         """THE anti-evasion test: a note with [PASS]/[BLOCK] ONLY in body
         prose and NO `verdict:` frontmatter field must fail closed — proves

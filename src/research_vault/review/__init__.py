@@ -190,6 +190,28 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
     text = critic_note_path.read_text(encoding="utf-8")
     fields, body = _parse_frontmatter(text)
 
+    # Fail-closed on DUPLICATE ``verdict:`` keys. ``_parse_frontmatter`` is
+    # last-wins on repeated scalar keys, so a note with ``verdict: BLOCK``
+    # followed by ``verdict: PASS`` would silently resolve GO. Count the
+    # verdict-key lines in the raw frontmatter block; >1 is contradictory /
+    # ambiguous → fail-closed (never a silent GO on a humanless gate).
+    if text.startswith("---"):
+        _fm_end = text.find("\n---", 3)
+        _fm_block = text[3:_fm_end] if _fm_end != -1 else ""
+        _verdict_keys = [
+            ln for ln in _fm_block.splitlines()
+            if ln.split(":", 1)[0].strip().lower() == "verdict"
+        ]
+        if len(_verdict_keys) > 1:
+            return {
+                "blocking": [],
+                "not_run": [
+                    f"{critic_note_path}: {len(_verdict_keys)} 'verdict:' "
+                    f"frontmatter keys — contradictory/ambiguous, fail-closed. "
+                    f"Write exactly one 'verdict: PASS' or 'verdict: BLOCK'."
+                ],
+            }
+
     verdict_raw = fields.get("verdict", "")
     if isinstance(verdict_raw, list):
         verdict_raw = " ".join(str(item) for item in verdict_raw)
