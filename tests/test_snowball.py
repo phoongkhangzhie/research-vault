@@ -819,7 +819,7 @@ def test_resume_carries_over_total_calls_and_respects_budget(tmp_path):
 
 
 def test_budget_stop_reason_is_fail_closed_not_saturated_at_coverage_gate():
-    """Confirms the coverage-gate whitelist (SR-175) treats a distinct
+    """Confirms the coverage-gate whitelist treats a distinct
     ``budget:N-calls`` stop_reason exactly like any other non-canonical
     value — HALT-DECLARE, never a silent GO. ``is_backstop`` must be False
     (it does not start with ``backstop:``)."""
