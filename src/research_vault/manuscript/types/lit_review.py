@@ -309,13 +309,89 @@ def check_framework_gate(manuscript_note_path: Path) -> tuple[bool, str]:
 # verified rejects-only critic.
 # ---------------------------------------------------------------------------
 
-def render_synthesize_brief(lens_candidate_paths: dict[str, str]) -> str:
+def render_coverage_map_instructions(
+    corpus_citekeys: list[str],
+    coverage_map_path: str = "_coverage-map.md",
+) -> str:
+    """Render the ``_coverage-map.md`` authoring contract (PR-A) for the
+    ``framework-synthesize`` brief.
+
+    Committing a spine is the same act as allocating the corpus to it: every
+    frozen-corpus citekey must land in exactly one bucket, or it is silently
+    dropped from the manuscript (the verified 0.3.0 drop mechanism). The exact
+    corpus citekey list is INJECTED here (results-inject discipline — the
+    machine supplies the keys, the agent allocates; never invent, retype, or
+    omit a key). ``check_coverage_allocation_gate`` fail-closed BLOCKs at
+    ``approve-framework`` on any unallocated / reasonless / non-corpus citekey.
+
+    sr: PR-A
+    """
+    if corpus_citekeys:
+        key_block = "\n".join(f"    - {ck}" for ck in sorted(corpus_citekeys))
+        key_line = (
+            f"The frozen corpus has {len(corpus_citekeys)} citekeys — EVERY ONE "
+            f"must be allocated exactly once:\n{key_block}\n\n"
+        )
+    else:
+        key_line = (
+            "No frozen corpus was found for this manuscript yet — if a "
+            "`reviews/<slug>/_corpus.md` exists, allocate every citekey in it; "
+            "otherwise this step is a no-op until a corpus is frozen.\n\n"
+        )
+    return (
+        "COVERAGE MAP (PR-A — the full-corpus coverage contract, enforced "
+        f"BEFORE any section is drafted). Write `{coverage_map_path}` allocating "
+        "EVERY frozen-corpus citekey into exactly one of three buckets:\n"
+        "  - `used`:      the paper is synthesized in a NAMED branch of the "
+        "committed spine (give the branch name);\n"
+        "  - `clustered`: the paper is folded into a NAMED group and cited as a "
+        "group (give the group name + a one-line reason);\n"
+        "  - `deferred`:  the paper is explicitly out of scope for this survey "
+        "(give a one-line reason).\n\n"
+        + key_line
+        + "Machine-checkable format — the note's YAML frontmatter carries the "
+        "allocation as mapping-lists (fuller narrative rationale goes in the "
+        "prose body below the frontmatter):\n"
+        "---\n"
+        "coverage_map: true\n"
+        "used:\n"
+        "  - citekey: <key>\n"
+        "    branch: <one of the committed spine's branch names>\n"
+        "clustered:\n"
+        "  - citekey: <key>\n"
+        "    group: <group name>\n"
+        "    reason: <why this paper is a group-cite, not its own synthesis unit>\n"
+        "deferred:\n"
+        "  - citekey: <key>\n"
+        "    reason: <why this paper is out of scope>\n"
+        "---\n\n"
+        "Every corpus citekey MUST appear exactly once across the three "
+        "buckets. A citekey left out of all three, a clustered/deferred entry "
+        "with no reason, a used entry with no branch, or a citekey not in the "
+        "frozen corpus is a hard BLOCK at approve-framework "
+        "(check_coverage_allocation_gate — deterministic, fail-closed). Prefer "
+        "`used` — a paper is only clustered or deferred with an explicit, "
+        "defensible reason, never to shrink the workload."
+    )
+
+
+def render_synthesize_brief(
+    lens_candidate_paths: dict[str, str],
+    *,
+    corpus_citekeys: list[str] | None = None,
+    coverage_map_path: str = "_coverage-map.md",
+) -> str:
     """The structurally-binding ``framework-synthesize`` brief (option A,
     a2): reads all N ``_framework-candidate-<lens>.md`` files, SELECTS the
-    single most internally-coherent backbone, and GRAFTS IN only compatible
-    axes from runners-up — never a naive union/merge of two spines.
+    single most internally-coherent backbone, GRAFTS IN only compatible
+    axes from runners-up — never a naive union/merge of two spines — and
+    (PR-A) allocates every frozen-corpus citekey to the committed spine in
+    ``_coverage-map.md`` (the full-corpus coverage contract).
     """
     candidate_list = "\n".join(f"  - {lens}: {path}" for lens, path in sorted(lens_candidate_paths.items()))
+    coverage_block = render_coverage_map_instructions(
+        corpus_citekeys or [], coverage_map_path
+    )
     return (
         "Read ALL of the following independent framework candidates (one per "
         f"organizing lens, each already committed to a real FRAMEWORK_SHAPES "
@@ -350,7 +426,8 @@ def render_synthesize_brief(lens_candidate_paths: dict[str, str]) -> str:
         "`spine_shape:` (the backbone's shape key), a non-empty `branches:` "
         "list (the final, possibly-grafted branch set), and "
         "`framework_origin: machine` (so downstream gating knows this spine "
-        "was synthesized by this pipeline, not hand-authored by a human)."
+        "was synthesized by this pipeline, not hand-authored by a human).\n"
+        "  c. " + coverage_block
     )
 
 
@@ -646,6 +723,7 @@ def phase1_builder(
         return str(project_notes_dir / okf_type)
 
     corpus_hash_note = _compute_corpus_hash_note(project, slug, project_notes_dir)
+    corpus_citekeys = _corpus_citekeys(project_notes_dir, slug)
 
     lenses = _get_framework_lenses(config)
     lens_reads = [_rel("mocs"), _rel("concepts"), _rel("gaps")]
@@ -693,13 +771,21 @@ def phase1_builder(
         })
 
     decision_path = str(tree_root / "_framework-decision.md")
+    coverage_map_path = str(tree_root / "_coverage-map.md")
     nodes.append({
         "id": "framework-synthesize",
         "type": "agent",
-        "label": "Select-and-graft: commit ONE coherent framework backbone from the N candidates",
-        "spec": render_synthesize_brief(lens_candidate_paths),
-        "reads": [str(tree_root)],
-        "produces": {"_framework-decision.md": decision_path},
+        "label": "Select-and-graft: commit ONE coherent framework backbone from the N candidates + allocate the full corpus",
+        "spec": render_synthesize_brief(
+            lens_candidate_paths,
+            corpus_citekeys=corpus_citekeys,
+            coverage_map_path=coverage_map_path,
+        ),
+        "reads": [str(tree_root), _rel("literature"), _rel("reviews")],
+        "produces": {
+            "_framework-decision.md": decision_path,
+            "_coverage-map.md": coverage_map_path,
+        },
         "needs": [_afterok(lens_id) for lens_id in lens_ids],
     })
 
@@ -1415,14 +1501,74 @@ def _get_single_pass_corpus_ceiling(config: Any = None) -> int:
     return _DEFAULT_SINGLE_PASS_CORPUS_CEILING
 
 
+def _corpus_path_for(project_notes_dir: Path, slug: str) -> Path:
+    """The frozen corpus path under the ``reviews/<slug>/`` convention
+    (manuscript slug == review scope id) — the single place this path is
+    formed, so every corpus reader here agrees."""
+    return project_notes_dir / "reviews" / slug / "_corpus.md"
+
+
+def _corpus_citekeys(project_notes_dir: Path, slug: str) -> list[str]:
+    """Frozen corpus citekeys ([] if no ``_corpus.md`` exists yet — honest,
+    not an error). A ``CorpusSchemaError`` (a malformed corpus row) is left to
+    propagate to the caller that can surface it as a fail-closed BLOCK; a
+    brief-render caller (phase1) degrades to [] so a manifest still builds."""
+    corpus_path = _corpus_path_for(project_notes_dir, slug)
+    if not corpus_path.exists():
+        return []
+    from research_vault.review import _parse_corpus_citekeys, CorpusSchemaError
+
+    try:
+        return _parse_corpus_citekeys(corpus_path)
+    except CorpusSchemaError:
+        # A malformed corpus is surfaced downstream by the deterministic
+        # coverage-allocation gate (fail-closed BLOCK); here (manifest build)
+        # we never crash the build on it.
+        return []
+
+
 def _corpus_size(project_notes_dir: Path, slug: str) -> int:
     """Frozen corpus size (0 if no ``_corpus.md`` exists yet — honest, not an error)."""
-    corpus_path = project_notes_dir / "reviews" / slug / "_corpus.md"
-    if not corpus_path.exists():
-        return 0
-    from research_vault.review import _parse_corpus_citekeys
+    return len(_corpus_citekeys(project_notes_dir, slug))
 
-    return len(_parse_corpus_citekeys(corpus_path))
+
+def read_coverage_used_by_branch(coverage_map_path: Path) -> dict[str, list[str]]:
+    """Read ``_coverage-map.md``'s ``used`` allocation grouped by branch name.
+
+    Returns ``{branch_name: [citekey, ...]}`` for every well-formed ``used``
+    entry (a record carrying both a non-empty ``citekey`` and a non-empty
+    ``branch``). A missing/empty map is an honest ``{}`` — the coverage
+    ALLOCATION gate (``check_coverage_allocation_gate``) is what BLOCKs a
+    missing map; this reader never raises, so a manifest still builds. This is
+    the ledger the fan-out-above-ceiling path chunks the corpus by, so no
+    ``used`` paper is left to chance (PR-A coverage-safety invariant).
+    """
+    result: dict[str, list[str]] = {}
+    if not coverage_map_path.exists():
+        return result
+    try:
+        fields, _ = _parse_frontmatter(coverage_map_path.read_text(encoding="utf-8"))
+    except OSError:
+        return result
+    raw = fields.get("used")
+    if not raw or isinstance(raw, str):
+        return result
+    for rec in raw:
+        if not isinstance(rec, dict):
+            continue
+        citekey = str(rec.get("citekey", "")).strip()
+        branch = str(rec.get("branch", "")).strip()
+        if citekey and branch:
+            result.setdefault(branch, []).append(citekey)
+    return result
+
+
+def read_coverage_used_citekeys(coverage_map_path: Path) -> list[str]:
+    """The flat, sorted list of every ``used`` citekey in ``_coverage-map.md``
+    (the coverage-safety set the outline pre-pass must anchor — PR-A). Honest
+    ``[]`` when the map is absent/empty (the allocation gate owns the BLOCK)."""
+    by_branch = read_coverage_used_by_branch(coverage_map_path)
+    return sorted({ck for cks in by_branch.values() for ck in cks})
 
 
 def render_relations_ledger(
@@ -1482,7 +1628,11 @@ def render_relations_ledger(
     return "\n".join(lines) + "\n"
 
 
-def check_outline_gate(outline_path: Path, branches: list[str]) -> list[str]:
+def check_outline_gate(
+    outline_path: Path,
+    branches: list[str],
+    used_citekeys: list[str] | None = None,
+) -> list[str]:
     """The cheap, rejects-only outline pre-pass gate.
 
     A cheap screen that can only REJECT (charter §9): before the expensive
@@ -1498,9 +1648,22 @@ def check_outline_gate(outline_path: Path, branches: list[str]) -> list[str]:
       3. at least 2 distinct ``[[citekey]]`` paper references appear overall
          ("the >=2 papers it will compare").
 
+    Plus (PR-A coverage-safety invariant) — when ``used_citekeys`` is supplied
+    (the ``used`` set from ``_coverage-map.md``):
+      4. EVERY ``used`` citekey must appear as a ``[[citekey]]`` reference in
+         the outline. The framework stage committed to synthesizing each
+         ``used`` paper in a named branch; an outline that never anchors one is
+         about to drop it silently in the draft — caught cheaply HERE, before
+         the expensive whole-draft, rather than by the downstream drop this PR
+         exists to prevent.
+
     Args:
         outline_path: path to ``_outline.md``.
         branches: the frozen ``branches:`` list from ``_manuscript.md``.
+        used_citekeys: optional ``used`` allocation from ``_coverage-map.md``
+            (``read_coverage_used_citekeys``). ``None``/empty disables check 4
+            (no coverage map yet is the allocation gate's concern, not this
+            pre-pass's — never fabricated here).
 
     Returns:
         A list of finding strings (empty = OK). Never raises — a missing
@@ -1541,13 +1704,27 @@ def check_outline_gate(outline_path: Path, branches: list[str]) -> list[str]:
             "requires each section name the exemplar id whose move it imitates."
         )
 
-    wikilink_count = len(re.findall(r"\[\[[\w.\-]+\]\]", text))
-    if branches and wikilink_count < 2:
+    wikilinks = re.findall(r"\[\[([\w.\-]+)\]\]", text)
+    if branches and len(wikilinks) < 2:
         issues.append(
             f"outline gate: fewer than 2 [[citekey]] paper references found "
-            f"({wikilink_count}) — each thematic branch must marshal >=2 "
+            f"({len(wikilinks)}) — each thematic branch must marshal >=2 "
             f"papers to compare (design §2.2)."
         )
+
+    # ── (4) PR-A coverage-safety: every `used` paper must be anchored. ──────
+    if used_citekeys:
+        present = {w.strip() for w in wikilinks}
+        missing = sorted({str(ck).strip() for ck in used_citekeys if str(ck).strip()} - present)
+        if missing:
+            issues.append(
+                f"outline gate: {len(missing)} coverage-map `used` citekey(s) are "
+                f"NOT anchored as [[citekey]] references in {outline_path.name} — "
+                f"the framework stage committed to synthesizing each in a named "
+                f"branch, so an unanchored `used` paper is about to be dropped "
+                f"from the draft: {missing}. Anchor each (or re-allocate it in "
+                f"_coverage-map.md as clustered/deferred with a reason)."
+            )
 
     return issues
 
@@ -1660,6 +1837,27 @@ def phase2_builder(
     sections_dir_abs = str(tree_root / "sections")
     outline_path = tree_root / "_outline.md"
 
+    # PR-A: the coverage ledger the drafting path consumes so no `used` paper
+    # is dropped. `used_by_branch` chunks the corpus for the fan-out path;
+    # `used_citekeys` is the flat coverage-safety set injected into every
+    # drafter ("materially cite every one of these").
+    coverage_map_path = tree_root / "_coverage-map.md"
+    used_by_branch = read_coverage_used_by_branch(coverage_map_path)
+    used_citekeys = read_coverage_used_citekeys(coverage_map_path)
+
+    def _coverage_mandate(citekeys: list[str]) -> str:
+        if not citekeys:
+            return ""
+        listed = ", ".join(f"[[{ck}]]" for ck in sorted(citekeys))
+        return (
+            "\n\n---\n\nCOVERAGE MANDATE (PR-A — coverage-safe, no silent drop): "
+            "you MUST materially cite and synthesize EVERY one of the following "
+            f"`used` papers from `_coverage-map.md` ({len(citekeys)} total) — "
+            "each is committed to a named branch of the frozen spine and cannot "
+            "be shed. A paper you cannot place is a framework problem to surface, "
+            "never a paper to quietly omit:\n" + listed
+        )
+
     all_source_atoms = sorted({atom for s in LIT_REVIEW.section_set for atom in s.source_atoms})
     common_reads = [_rel(atom) for atom in all_source_atoms] + [sections_dir_abs]
     if exemplar_bundle_dir is not None:
@@ -1716,29 +1914,41 @@ def phase2_builder(
     ]
 
     if corpus_size <= ceiling:
-        # Default single-pass path (D3).
+        # Default single-pass path (D3): one drafter holds the whole survey —
+        # inject the full `used` coverage mandate so every allocated paper is
+        # materially cited (PR-A coverage-safety).
         nodes.append({
             "id": "draft",
             "type": "agent",
             "label": "Single-pass whole-survey draft",
-            "spec": draft_spec,
+            "spec": draft_spec + _coverage_mandate(used_citekeys),
             "reads": common_reads,
             "needs": [_afterok("outline")],
         })
         last_draft_id = "draft"
     else:
-        # D3's fan-out-above-ceiling path: per-branch drafters
-        # + a coherence node that reads all of them + a label-manifest check
-        # (the residual `\label`/`\ref` drift case).
+        # D3's fan-out-above-ceiling path — PR-A ledger-chunked so it is
+        # coverage-safe by CONSTRUCTION, never a silent lossy fallback: each
+        # branch drafter is handed the EXACT `used` citekeys `_coverage-map.md`
+        # allocated to ITS branch (`used_by_branch`) with a must-cite-all
+        # mandate. The union of the per-branch chunks is the whole `used` set
+        # (the allocation gate already proved every corpus paper is allocated),
+        # so no branch can shed a `used` paper. A coherence node then reads all
+        # branch drafts + runs the label-manifest check.
         branch_ids: list[str] = []
         for branch in branches or ["survey"]:
             branch_slug = "".join(c if c.isalnum() or c == "-" else "-" for c in branch.lower())
             node_id = f"draft-{branch_slug}"
+            branch_used = used_by_branch.get(branch, [])
             nodes.append({
                 "id": node_id,
                 "type": "agent",
                 "label": f"Fan-out draft for branch {branch!r} (above single_pass_corpus_ceiling)",
-                "spec": draft_spec + f"\n\n---\n\nYou are drafting ONLY the {branch!r} branch this pass.",
+                "spec": (
+                    draft_spec
+                    + f"\n\n---\n\nYou are drafting ONLY the {branch!r} branch this pass."
+                    + _coverage_mandate(branch_used)
+                ),
                 "reads": common_reads,
                 "needs": [_afterok("outline")],
             })
@@ -1747,7 +1957,7 @@ def phase2_builder(
         nodes.append({
             "id": "coherence",
             "type": "agent",
-            "label": "Coherence pass — cross-section consistency + label-manifest check",
+            "label": "Coherence pass — cross-section consistency + label-manifest + coverage check",
             "spec": (
                 preamble.rstrip() + "\n\n---\n\n"
                 "Coherence pass: read every branch draft "
@@ -1757,6 +1967,11 @@ def phase2_builder(
                 "match (a fan-out drift is caught HERE, not at compile). This "
                 "check is ONLY required on this fan-out path — the default "
                 "single-pass needs no label manifest (design §2.5)."
+                + _coverage_mandate(used_citekeys)
+                + "\n\nConfirm the assembled branch drafts collectively cite "
+                "EVERY `used` paper above — a `used` paper missing from every "
+                "branch draft is a coverage drop; surface it, do not proceed "
+                "past it."
             ),
             "reads": common_reads,
             "needs": [_afterok(bid) for bid in branch_ids],

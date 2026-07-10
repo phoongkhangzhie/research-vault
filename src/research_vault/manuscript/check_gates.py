@@ -425,6 +425,202 @@ def check_coverage_gate(
 
 
 # ---------------------------------------------------------------------------
+# check_coverage_allocation_gate — PR-A: the full-corpus coverage CONTRACT,
+# enforced at the framework stage BEFORE any section is drafted
+# (deterministic, ALWAYS runs, hard BLOCK — no judge dependency).
+# ---------------------------------------------------------------------------
+#
+# The verified 0.3.0 drop mechanism (the core pre-publish blocker): a real
+# corpus (csb=47) routes past the single-pass ceiling to the lossy per-branch
+# fallback, and NO gate ever blocked an *unallocated* paper — ~20/47 papers
+# silently vanished from the manuscript. This gate closes that hole at the
+# earliest possible point: the framework stage. `_coverage-map.md` (produced by
+# `framework-synthesize`, see lit_review.render_synthesize_brief) must allocate
+# EVERY frozen-corpus citekey into exactly one of three buckets —
+#   - `used`:      cited in a named branch of the frozen spine,
+#   - `clustered`: folded into a named group with a stated reason,
+#   - `deferred`:  explicitly out of scope, with a stated reason.
+# A citekey allocated to none of them (or a bucket entry missing its required
+# reason/branch/group, or an entry naming a citekey absent from the corpus) is a
+# fail-closed BLOCK at `approve-framework`. Allocation is machine-checkable in
+# the note's frontmatter (the D8 mapping-list format `note._parse_frontmatter`
+# already reads — charter §6, no new grammar); fuller narrative rationale lives
+# in the note's prose body (not read by this gate).
+#
+# Design decision (flagged for the architect's fit-check): the brief says
+# "machine-checkable allocation in frontmatter, reasons in prose." The reason
+# for a clustered/deferred entry MUST be machine-checkable for the gate to
+# fail-closed on its absence, so a short reason rides in the frontmatter
+# mapping-list record (`reason:`), where this gate reads it; the note's prose
+# body carries the fuller human-facing rationale. "Reasons in prose" is honored
+# as "expanded rationale in prose"; the machine-checked reason is the structured
+# frontmatter field.
+
+# The three allocation buckets + the fields each REQUIRES (beyond `citekey`).
+_COVERAGE_BUCKET_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "used": ("branch",),
+    "clustered": ("group", "reason"),
+    "deferred": ("reason",),
+}
+
+
+def _coverage_records(raw: Any) -> tuple[list[dict[str, str]], list[str]]:
+    """Split a parsed frontmatter bucket value into (dict records, malformed).
+
+    ``note._parse_frontmatter`` returns a list of dicts for a D8 mapping-list,
+    a list of str for a plain scalar-list, or ``""`` for an absent/empty key.
+    A bucket item that is NOT a ``key: value`` mapping (a bare scalar) is
+    malformed — surfaced, never silently coerced (charter §2).
+    """
+    if not raw or isinstance(raw, str):
+        return [], []
+    records: list[dict[str, str]] = []
+    malformed: list[str] = []
+    for item in raw:
+        if isinstance(item, dict):
+            records.append(item)
+        else:
+            malformed.append(str(item))
+    return records, malformed
+
+
+def check_coverage_allocation_gate(
+    corpus_path: Path,
+    coverage_map_path: Path,
+) -> dict[str, Any]:
+    """The full-corpus coverage-allocation contract (PR-A) — deterministic,
+    fail-closed, no judge dependency.
+
+    When to use: folded into ``approve-framework``'s autonomous evaluation
+    (``dag/verbs.py::_evaluate_autonomous_gate``, most-severe-wins with the
+    framework-critic verdict) so a lit-review can NEVER reach the drafting
+    phase with an unallocated corpus. Also usable standalone.
+
+    BLOCKs on any of:
+      - a frozen-corpus citekey that is UNALLOCATED (in none of used /
+        clustered / deferred) — the silent-drop hole this gate closes;
+      - a ``clustered``/``deferred`` entry with no non-empty ``reason`` (and a
+        ``clustered`` entry with no non-empty ``group``); a ``used`` entry with
+        no non-empty ``branch`` (an allocation with no anchor is unverifiable);
+      - a ledger entry naming a citekey ABSENT from the frozen corpus (a
+        non-corpus / phantom citekey);
+      - the SAME citekey allocated in more than one bucket (contradictory);
+      - a malformed bucket entry (a bare scalar, not a ``citekey: ...`` record).
+
+    Honest no-op (never a BLOCK for absence, mirroring the ``doi``/``corpus_hash``
+    precedent): if no frozen ``_corpus.md`` exists yet, or it has zero citekeys,
+    there is nothing to allocate — returns ok with no errors. But once a real
+    corpus exists, a MISSING ``_coverage-map.md`` is a hard BLOCK (a real corpus
+    with no allocation map is exactly the drop condition).
+
+    A ``CorpusSchemaError`` (a malformed corpus row) is caught and surfaced as a
+    fail-closed BLOCK — never an uncaught crash of the gate.
+
+    Args:
+        corpus_path: the frozen ``reviews/<slug>/_corpus.md``.
+        coverage_map_path: the manuscript's ``_coverage-map.md``.
+
+    Returns:
+        ``{"ok": bool, "errors": list[str]}`` — ok is False iff errors is
+        non-empty.
+
+    sr: PR-A
+    """
+    from research_vault.review import CorpusSchemaError
+
+    errors: list[str] = []
+
+    # ── The frozen-corpus key set (the source of truth). ────────────────────
+    try:
+        corpus_citekeys = _parse_corpus_citekeys(corpus_path) if corpus_path.exists() else []
+    except CorpusSchemaError as e:
+        return {
+            "ok": False,
+            "errors": [
+                f"coverage-allocation BLOCK: the frozen corpus {corpus_path} has "
+                f"a malformed row and cannot be read — {e} (fail-closed; fix the "
+                f"corpus row schema before the coverage map can be verified)."
+            ],
+        }
+
+    if not corpus_citekeys:
+        # Nothing frozen to allocate yet — honest no-op.
+        return {"ok": True, "errors": []}
+
+    corpus_set = set(corpus_citekeys)
+
+    if not coverage_map_path.exists():
+        return {
+            "ok": False,
+            "errors": [
+                f"coverage-allocation BLOCK: the frozen corpus has "
+                f"{len(corpus_set)} citekeys but no _coverage-map.md exists at "
+                f"{coverage_map_path} — every corpus paper must be allocated to a "
+                f"branch (used), a named group (clustered), or explicitly deferred "
+                f"BEFORE any section is drafted. framework-synthesize must produce "
+                f"this ledger (design §5 / PR-A)."
+            ],
+        }
+
+    fields, _ = _pfm_gates(coverage_map_path.read_text(encoding="utf-8"))
+
+    # ── Walk each bucket, validating fields + collecting the allocation. ────
+    allocated: dict[str, str] = {}  # citekey -> first bucket it appeared in
+    for bucket, required in _COVERAGE_BUCKET_REQUIRED_FIELDS.items():
+        records, malformed = _coverage_records(fields.get(bucket))
+        for bad in malformed:
+            errors.append(
+                f"coverage-allocation BLOCK: malformed {bucket!r} entry {bad!r} — "
+                f"each bucket item must be a 'citekey: <key>' mapping record with "
+                f"its required fields, not a bare value."
+            )
+        for rec in records:
+            citekey = str(rec.get("citekey", "")).strip()
+            if not citekey:
+                errors.append(
+                    f"coverage-allocation BLOCK: a {bucket!r} entry has no non-empty "
+                    f"'citekey' field ({rec!r}) — every allocation must name its paper."
+                )
+                continue
+            for field_name in required:
+                if not str(rec.get(field_name, "")).strip():
+                    errors.append(
+                        f"coverage-allocation BLOCK: {bucket!r} citekey {citekey!r} "
+                        f"has no non-empty {field_name!r} — a {bucket} allocation "
+                        f"without its {field_name} is unverifiable."
+                    )
+            if citekey not in corpus_set:
+                errors.append(
+                    f"coverage-allocation BLOCK: {bucket!r} entry names citekey "
+                    f"{citekey!r}, which is NOT in the frozen corpus — a non-corpus "
+                    f"(phantom) citekey in the coverage ledger."
+                )
+                # A phantom key still counts as 'seen' for dup detection but is
+                # never treated as covering a real corpus paper.
+            if citekey in allocated:
+                errors.append(
+                    f"coverage-allocation BLOCK: citekey {citekey!r} is allocated "
+                    f"twice — in both {allocated[citekey]!r} and {bucket!r} "
+                    f"(a duplicate/contradictory allocation; allocate each paper once)."
+                )
+            else:
+                allocated[citekey] = bucket
+
+    # ── The load-bearing check: every corpus citekey allocated SOMEWHERE. ───
+    unallocated = sorted(corpus_set - set(allocated))
+    if unallocated:
+        errors.append(
+            f"coverage-allocation BLOCK: {len(unallocated)} frozen-corpus citekey(s) "
+            f"are UNALLOCATED — they appear in no used/clustered/deferred bucket and "
+            f"would be silently dropped from the manuscript: {unallocated}. Allocate "
+            f"each to a branch (used), a named group (clustered + reason), or defer it "
+            f"(deferred + reason)."
+        )
+
+    return {"ok": not errors, "errors": errors}
+
+
+# ---------------------------------------------------------------------------
 # _cold_fanout_dirs_present — NG-4 detector (design §1.9)
 # ---------------------------------------------------------------------------
 
