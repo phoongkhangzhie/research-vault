@@ -475,6 +475,17 @@ class TestF2PartialAdoptReentersFrameworkPipeline:
         parent_manifest_path = tree_root.parent.parent / "reviews" / scope_id / "phase2-dag.json"
         parent_manifest_path.parent.mkdir(parents=True, exist_ok=True)
         parent_manifest_path.write_text(json.dumps(parent_manifest), encoding="utf-8")
+
+        # The deliverable gate (2026-07-09) reads the frozen _protocol.md at
+        # approve-review — this test's scenario is specifically the
+        # manuscript-emission path (F2 partial-adopt), so it must declare
+        # `deliverable: manuscript` explicitly (the default is `review`,
+        # terminal, which would defeat the F2 assertion below).
+        protocol_path = parent_manifest_path.parent / "_protocol.md"
+        protocol_path.write_text(
+            "---\ncounter-position: a real counter-position\ndeliverable: manuscript\n---\n\nProtocol.\n",
+            encoding="utf-8",
+        )
         run_state = RunState(run_id=parent_manifest["run_id"], manifest_path=str(parent_manifest_path))
         run_state.init_nodes(parent_manifest)
         store.create(run_state)
