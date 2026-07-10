@@ -32,9 +32,12 @@ verdict string):
     axis under any floor_value >= 1) — never a silent pass. An entirely
     missing/empty verdicts file with tasks emitted -> ``halt=True``
     (``fanout_incomplete``).
-  - Canary-verified: the 3 calibrated review-board probes (strong/weak/
-    annotated-bib) are re-emitted UNMARKED, interleaved among the 6 real
-    lens tasks. Extended ``check_canaries``-equivalent
+  - Canary-verified (PR-F: PER-AXIS): one calibrated probe per axis
+    (``canary_passages.BOARD_AXIS_CANARIES``) — incl. a WIDTH dropped-cluster
+    FAIL and a DEPTH bare-assertion FAIL — re-emitted UNMARKED, interleaved
+    among the 6 real lens tasks so EACH of the 6 cold judges is verified (a
+    single-axis canary would certify only one). Extended
+    ``check_canaries``-equivalent
     (``_check_board_canaries``) compares the ingested axis SCORE against
     the expected BAND (PASS-HIGH: score >= floor+1; FAIL-LOW: score <=
     floor-1; FAIL: score < floor) — not exact-verdict-string equality, the
@@ -64,42 +67,47 @@ _DEFAULT_FLOOR_VALUE: int = board_lenses._DEFAULT_FLOOR_VALUE
 
 
 # ---------------------------------------------------------------------------
-# The 3 calibrated canary probes (design §1: reuse review_board's, don't
-# fork new passages) — all fed to the SYNTH lens (PR-E: CONTENT was split
-# into DEPTH/WIDTH/SYNTH; the annotated-bibliography probe — an enumeration
-# with no cross-paper synthesis — is precisely a SYNTH failure now, and the
-# strong/weak probes are calibrated on the same synthesis-quality signal, so
-# all three are scored on SYNTH here; the annotated-bib probe's expected
-# band stays FAIL).
+# The calibrated canary probes (PR-F: PER-AXIS, not SYNTH-only).
+#
+# In the per-axis cold fanout EACH lens goes to a SEPARATE fresh subagent —
+# so a single-axis (SYNTH-only) canary certifies only ONE judge; a
+# rubber-stamping WIDTH or DEPTH judge would sail straight through. Each of
+# the 6 axes now carries its own planted probe (``canary_passages``'s
+# ``BOARD_AXIS_CANARIES``): a rubber-stamping judge on ANY axis scores its
+# FAIL probe >= floor and trips ``CanaryAbortError`` -> the board HALTs.
+# WIDTH (the csb dropped-cluster catcher) and DEPTH (bare-assertion) are
+# explicitly probed; SYNTH keeps its 3 calibrated probes (a PASS-HIGH catches
+# a broken-harsh judge too).
+#
+# Each probe is rendered through its axis's REAL rubric
+# (``board_lenses._render_rubric``) — including WIDTH's coverage-diff ground
+# truth — so it genuinely exercises that judge, not a generic prompt.
 # ---------------------------------------------------------------------------
 
 def _canary_bank(floor_value: int) -> list[tuple[dict[str, Any], str]]:
-    from research_vault.manuscript.review_board import (
-        _CANARY_STRONG_PASSAGE,
-        _CANARY_WEAK_PASSAGE,
-        _CANARY_ANNOTATED_BIB_PASSAGE,
-    )
+    from research_vault.gates.canary_passages import BOARD_AXIS_CANARIES
 
-    rubric = board_lenses.SYNTH_RUBRIC.replace(
-        "{FINDING_SCHEMA}", board_lenses._FINDING_SCHEMA_INSTRUCTIONS,
-    )
-
-    def _task(passage: str) -> dict[str, Any]:
-        return {
+    bank: list[tuple[dict[str, Any], str]] = []
+    for spec in BOARD_AXIS_CANARIES:
+        axis = spec["axis"]
+        passage = spec["passage"]
+        coverage_diff = spec.get("coverage_diff")
+        rubric = board_lenses._render_rubric(
+            axis, passage, coverage_diff=coverage_diff,
+        )
+        task: dict[str, Any] = {
             "kind": "board",
-            "lens": "synthesis",
-            "axis": "SYNTH",
-            "rubric": rubric.replace("{DRAFT}", passage),
+            "lens": board_lenses.AXIS_TO_LENS[axis],
+            "axis": axis,
+            "rubric": rubric,
             "draft": passage,
-            "finding_cap": board_lenses.FINDING_CAPS["SYNTH"],
-            "sub_budgets": dict(board_lenses.SUB_BUDGETS["SYNTH"]),
+            "finding_cap": board_lenses.FINDING_CAPS[axis],
+            "sub_budgets": dict(board_lenses.SUB_BUDGETS.get(axis, {})),
         }
-
-    return [
-        (_task(_CANARY_STRONG_PASSAGE), "PASS-HIGH"),
-        (_task(_CANARY_WEAK_PASSAGE), "FAIL-LOW"),
-        (_task(_CANARY_ANNOTATED_BIB_PASSAGE), "FAIL"),
-    ]
+        if coverage_diff is not None:
+            task["coverage_diff"] = coverage_diff
+        bank.append((task, spec["band"]))
+    return bank
 
 
 def _score_matches_band(score: int, band: str, floor_value: int) -> bool:
