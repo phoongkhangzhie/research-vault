@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""verbs.py — `rv dag` verb implementations for Research Vault (SR-3 + SR-SCOPE + SR-RETRY).
+"""verbs.py — `rv dag` verb implementations for Research Vault.
 
 Verbs:
   rv dag run <manifest>
@@ -40,7 +40,7 @@ Afterok+watch (in-session resolution):
 
   For unsatisfied external watchers (e.g., cluster job still running), use:
     rv wait-for sacct:<jobid> --then 'rv dag tick <run_id>' &
-  which is SR-2's background-poller pattern composing SR-3's dag tick.
+  which is the background-poller pattern composing dag tick.
 
 NO POLLERS: this module NEVER imports pollers, drain, launchd, or any async
 scheduler. The no-liveness-net contract is grep-asserted in the test suite.
@@ -85,7 +85,7 @@ _STATUS_SYMBOL: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# SR-RETRY: diagnose-before-retry doctrine string (D-RETRY-8)
+# Diagnose-before-retry doctrine string (D-RETRY-8)
 # ---------------------------------------------------------------------------
 #
 # This constant is prepended to every attempt-k>0 re-dispatch (whenever attempts > 0).
@@ -130,16 +130,16 @@ def _print_frontier(
     specs are often multi-KB prose, not short pointers) floods the terminal
     and buries the actually-useful "where am I / what's next" information.
 
-    SR-DISP: DISPATCH lines carry the dispatch mode + a brief hint:
+    DISPATCH lines carry the dispatch mode + a brief hint:
       FRESH  (brief: rv dag brief <run> <node>)
       CONTINUES <node> — <reason>  (brief: rv dag brief <run> <node>)
 
-    SR-SCOPE: when reads: is present on the node, appends a bounded COUNT
+    When reads: is present on the node, appends a bounded COUNT
     (not the full list — the full resolved reads: paths are in the brief):
       FRESH — reads: 3 pointer(s)  (brief: rv dag brief <run> <node>)
     When reads: is absent the suffix is omitted (non-breaking additive suffix).
 
-    SR-RETRY: for a dispatch node with attempts > 0, renders the diagnose-first block
+    For a dispatch node with attempts > 0, renders the diagnose-first block
     (RETRY_DIAGNOSIS_DIRECTIVE + optional retry_diagnosis_tips from the node). The
     block appears AFTER the mode line so it's immediately visible to the agent runtime.
     No block is rendered for attempts == 0 (first dispatch).
@@ -150,17 +150,17 @@ def _print_frontier(
     for item in frontier:
         label = item.node.get("label", item.node_id)
         if item.action == "dispatch":
-            # SR-RETRY: read attempts from node_states to decide if this is a retry dispatch
+            # Read attempts from node_states to decide if this is a retry dispatch
             ns = (node_states or {}).get(item.node_id, {})
             attempts = ns.get("attempts", 0)
             last_failure = ns.get("last_failure")
             max_retries = item.node.get("max_retries", 0)
 
             print(f"  → DISPATCH  [{item.node_id}] {label}")
-            # SR-RETRY: retry indicator in the header line
+            # Retry indicator in the header line
             if attempts > 0:
                 print(f"      attempt {attempts + 1}/{max_retries + 1}")
-            # SR-DISP: print mode line (dispatch mode ONLY — never the full spec
+            # Print mode line (dispatch mode ONLY — never the full spec
             # body; the spec is often multi-KB prose, not a short pointer, so
             # embedding it here floods the terminal — the full-fidelity brief
             # lives at `rv dag brief`, printed as a hint below instead).
@@ -171,7 +171,7 @@ def _print_frontier(
                 mode_line = f"      CONTINUES {cont_node} — {cont_reason}"
             else:
                 mode_line = "      FRESH"
-            # SR-SCOPE: append a bounded reads: COUNT if present (not the full
+            # Append a bounded reads: COUNT if present (not the full
             # list — the resolved paths are in the brief, not the frontier map).
             reads = item.node.get("reads")
             if reads and isinstance(reads, list):
@@ -179,7 +179,7 @@ def _print_frontier(
                 mode_line += f" — reads: {n_reads} pointer(s)"
             print(mode_line)
             print(f"      brief: rv dag brief {run_id} {item.node_id}")
-            # SR-RETRY: render diagnose-first block only on retry dispatches (attempts > 0)
+            # Render diagnose-first block only on retry dispatches (attempts > 0)
             if attempts > 0:
                 failure_summary = last_failure or "(no summary captured)"
                 directive = RETRY_DIAGNOSIS_DIRECTIVE.format(
@@ -205,7 +205,7 @@ def _print_frontier(
 
 
 def _print_manifest_warns(manifest: dict[str, Any]) -> None:
-    """Print non-fatal SR-DISP/SR-SCOPE warnings to stdout (if any).
+    """Print non-fatal dispatch/reads-scope warnings to stdout (if any).
 
     Called by dag run / tick / status after loading the manifest.
     """
@@ -221,7 +221,7 @@ def _resolve_reads_or_warn(
     project_root: Path,
     verb_prefix: str,
 ) -> None:
-    """SR-SCOPE: resolve reads: pointers; print errors + warns to stdout/stderr.
+    """Resolve reads: pointers; print errors + warns to stdout/stderr.
 
     Hard errors (unresolvable pointers) are printed to stderr — they signal the
     manifest's reading-scope is broken and the agent would re-ground blindly.
@@ -644,7 +644,7 @@ def _evaluate_autonomous_gate(
 def _derive_project_and_id(manifest: dict[str, Any], *, prefix: str, suffix: str) -> tuple[str, str] | None:
     """Derive ``(project, scope_or_slug)`` from a Phase-1 manifest's
     ``run_id``/``project`` fields (``review-<scope>-phase1`` /
-    ``manuscript-<slug>-phase1``, the SR-LR-1/PR-M1 naming convention — see
+    ``manuscript-<slug>-phase1``, the PR-M1 naming convention — see
     ``review._build_phase1_manifest`` / ``manuscript.types.lit_review.phase1_builder``).
 
     Returns ``None`` if the manifest doesn't carry the expected shape
@@ -1102,7 +1102,7 @@ def _check_relate_presence(
 
 
 # ---------------------------------------------------------------------------
-# SR-RESOLVE-SCOPE: project-scoped typed produces gate
+# Project-scoped typed produces gate
 # ---------------------------------------------------------------------------
 
 # Maps produces.* subkey → OKF type directory.
@@ -1163,7 +1163,6 @@ def _check_project_scoped_note(
     via _check_okf_note_type (type:dir match).
 
     Returns a list of issue strings (empty = OK).
-    SR-RESOLVE-SCOPE.
     """
     try:
         note_path = _project_scoped_note_path(pkey, note_ref, cfg)
@@ -1188,7 +1187,7 @@ def _check_project_scoped_note(
 
 
 # ---------------------------------------------------------------------------
-# SR-DAG-BRIEF: resolve_produces_paths — informational path list for build_brief
+# resolve_produces_paths — informational path list for build_brief
 # ---------------------------------------------------------------------------
 #
 # Used by build_brief (dag/brief.py) to populate the CONTEXT block with the
@@ -1322,7 +1321,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     _print_manifest_warns(manifest)
 
-    # SR-SCOPE: resolve reads: pointers (I/O pass — after pure validate)
+    # Resolve reads: pointers (I/O pass — after pure validate)
     _resolve_reads_or_warn(manifest, manifest_path.parent, "rv dag run")
 
     print(f"Run {run_id!r} started.")
@@ -1367,7 +1366,7 @@ def cmd_tick(args: argparse.Namespace) -> int:
 
     _print_manifest_warns(manifest)
 
-    # SR-SCOPE: resolve reads: pointers (I/O pass — after pure validate)
+    # Resolve reads: pointers (I/O pass — after pure validate)
     _resolve_reads_or_warn(manifest, manifest_path.parent, "rv dag tick")
 
     print(f"Tick: run {run_id!r}")
@@ -1381,13 +1380,13 @@ def cmd_tick(args: argparse.Namespace) -> int:
 # Verb: complete
 # ---------------------------------------------------------------------------
 
-_FAILURE_SUMMARY_MAX_CHARS = 4000  # SR-RETRY: cap stored failure summaries
+_FAILURE_SUMMARY_MAX_CHARS = 4000  # cap stored failure summaries
 
 
 def cmd_complete(args: argparse.Namespace) -> int:
     """Mark a node complete and re-print the frontier.
 
-    SR-RETRY: on --status failed, reads --error / --error-file, persists
+    On --status failed, reads --error / --error-file, persists
     last_failure + failures[], increments attempts.  If attempts_before <
     max_retries → resets to pending (retry-queued); else → terminal failed.
     --error is REQUIRED when the node's max_retries > 0 (D-RETRY-9).
@@ -1439,7 +1438,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
 
     node = nodes_lookup[node_id]
 
-    # ── SR-RETRY: failure capture + retry-reset logic ─────────────────────────
+    # ── failure capture + retry-reset logic ─────────────────────────────────────
     # This block runs BEFORE the OKF produces check (which is succeeded-only)
     # and BEFORE set_node_status, so it controls whether we reach terminal failed
     # or retry-reset to pending.
@@ -1513,7 +1512,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
             # failures[] is retained for the human diagnostician
             run_state.set_node_status(node_id, status)
             store.save(run_state)
-            # SR-RETRY cosmetic fix: only mention "retries exhausted" when there were
+            # Cosmetic fix: only mention "retries exhausted" when there were
             # retries to exhaust (max_retries > 0).  When max_retries == 0 the node is
             # just a plain terminal failure — printing "retries exhausted: 1/0 attempts"
             # is a nonsensical ratio and confusing to the operator.
@@ -1637,7 +1636,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 return 1
-        # SR-8: dataset provenance gate — complete-time check.
+        # Dataset provenance gate — complete-time check.
         # The gate: note exists + location non-empty + hash non-empty +
         # (if local path) file exists and sha256 matches.
         # NOT-done when hash mismatches — "you structurally cannot publish a finding
@@ -1645,7 +1644,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
         # watch/frontier path; this is the post-hoc complete-time check).
         if "dataset" in produces:
             from ..wait_for import check_dataset_provenance
-            # SR-8 amendment: datasets are shared — resolve against cfg.datasets_root
+            # Datasets are shared — resolve against cfg.datasets_root
             # (not notes_root). The produces.dataset value is the note filename
             # (e.g. "my-data.md") resolved against the shared datasets store.
             issues = check_dataset_provenance(produces["dataset"], cfg.datasets_root)
@@ -1662,7 +1661,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 return 1
-        # SR-RESOLVE-SCOPE: project-scoped typed produces gate.
+        # Project-scoped typed produces gate.
         # produces.result = "<project>/<id>"
         # Each resolves to project_notes_dir(project) / <type_dir> / <id>.md
         # and validates type:dir frontmatter match (same gate as produces.note).
@@ -1892,7 +1891,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
-    # Saturation backstop surfacing (SR-LR-1-BACKSTOP): the review loop's
+    # Saturation backstop surfacing: the review loop's
     # ``coverage-gate`` node (phase boundary) reads ``stop_reason:`` off
     # the ``review-snowball`` node's ``_saturation.md`` and, when the corpus
     # terminated via the wave-count backstop (bounded, NOT the primary
@@ -1966,7 +1965,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                         "rv dag approve: coverage-gate SIGNAL: the residue note is "
                         f"REQUIRED on backstop-termination but was not found at "
                         f"{gaps_path} — the open frontier was never declared "
-                        "(review_curate_tips §SR-LR-1-BACKSTOP).",
+                        "(see review_curate_tips's saturation-backstop guidance).",
                         file=sys.stderr,
                     )
             elif info["exists"] and info["stop_reason"].strip().lower() != "saturated":
@@ -2040,18 +2039,18 @@ def cmd_approve(args: argparse.Namespace) -> int:
             # own tick" and "an operator explicitly drove --auto by hand".
             _emit_next_phase(node_id, manifest, manifest_path, run_state, store)
 
-    # K-3 freeze-set verify hook (SR-PLAN-1, SR-FREEZE-FIX).
+    # K-3 freeze-set verify hook.
     #
     # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]
     # AND the node being approved is NOT the plan-freeze gate itself
     # (convention: node_id == "human-go-plan" is the freeze gate), re-derive
     # the hash and BLOCK approval on mismatch.
     #
-    # SR-FREEZE-FIX (hole b): The stored plan_freeze["notes_root"] is used for
+    # The stored plan_freeze["notes_root"] is used for
     # re-derivation — NOT re-derived from cfg.notes_root.  The config re-derive
     # was the source of the non-reproducibility bug.
     #
-    # SR-FREEZE-FIX (approve hardening): on a verify EXCEPTION, BLOCK (return 1)
+    # On a verify EXCEPTION, BLOCK (return 1)
     # instead of warning-and-proceeding.  An integrity gate must fail-closed on
     # inability-to-verify (charter §2: surface, never swallow).
     #
@@ -2082,7 +2081,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     )
                     return 1
             except Exception as k3_err:
-                # SR-FREEZE-FIX: BLOCK on exception — an integrity gate must not
+                # BLOCK on exception — an integrity gate must not
                 # proceed when it cannot verify.  Old code warned-and-proceeded
                 # (a second fail-open); that is now closed.
                 print(
@@ -2112,7 +2111,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
             return 1
         parsed_outputs[k] = v
 
-    # SR-APPROVE-GATE: human-presence check — BEFORE any state write.
+    # Human-presence check — BEFORE any state write.
     # Covers both approve (→ succeeded) and --reject (→ blocked).
     # Fail-closed: non-TTY + no valid token → return 1, state UNCHANGED.
     #
@@ -2148,7 +2147,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     if parsed_outputs:
         ns["outputs"] = parsed_outputs
 
-    # SR-APPROVE-GATE Slice 2: record approval provenance.
+    # Record approval provenance.
     import datetime as _dt
     ns["approved_by"] = _approver
     ns["approval_method"] = _method
@@ -2347,7 +2346,7 @@ def cmd_insert(args: argparse.Namespace) -> int:
 def cmd_templates(args: argparse.Namespace) -> int:
     """Print the built-in loop catalog — discovery entry for all four research loops.
 
-    SR-HUB-DAG §A2: pure read, no config needed.
+    Pure read, no config needed.
     """
     from .catalog import LOOP_CATALOG
 
@@ -2423,7 +2422,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         ns = run_state.node_states.get(nid, {})
         err = ns.get("error", "")
         err_str = f" [{err}]" if err else ""
-        # SR-RETRY: show attempt progress only on genuinely retry-queued (pending) nodes.
+        # Show attempt progress only on genuinely retry-queued (pending) nodes.
         # Terminal nodes (failed/succeeded) must NOT show a live attempt counter — it
         # overshoots (e.g. "[attempt 2/1]" for N=0, "[attempt 4/3]" for exhausted N=2).
         attempts = ns.get("attempts", 0)
@@ -2436,7 +2435,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"  {sym} {nid}  ({status}){err_str}{retry_str}")
         if node.get("type") != "human-go" and label != nid:
             print(f"      {label}")
-        # SR-APPROVE-GATE Slice 2: show approval provenance for decided human-go nodes.
+        # Show approval provenance for decided human-go nodes.
         if node.get("type") == "human-go" and status in ("succeeded", "blocked"):
             _by = ns.get("approved_by", "")
             _meth = ns.get("approval_method", "")
@@ -2446,7 +2445,7 @@ def cmd_status(args: argparse.Namespace) -> int:
                 if _at:
                     _prov += f" at={_at}"
                 print(_prov)
-        # SR-RETRY: for pending nodes with prior failures, print last_failure
+        # For pending nodes with prior failures, print last_failure
         if status == "pending" and attempts > 0:
             last_failure = ns.get("last_failure")
             if last_failure:
@@ -2483,7 +2482,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Verb: brief  (SR-DAG-BRIEF)
+# Verb: brief
 # ---------------------------------------------------------------------------
 
 def cmd_brief(args: argparse.Namespace) -> int:
@@ -2587,7 +2586,7 @@ def build_parser(
     if parent is not None:
         p = parent.add_parser(
             "dag",
-            help="Orchestrate a multi-node research DAG (SR-3).",
+            help="Orchestrate a multi-node research DAG.",
             description=desc,
         )
     else:
@@ -2613,13 +2612,13 @@ def build_parser(
         default="succeeded",
         help="Completion status (default: succeeded).",
     )
-    # SR-RETRY: failure capture for diagnose-before-retry (D-RETRY-9)
+    # Failure capture for diagnose-before-retry (D-RETRY-9)
     comp_p.add_argument(
         "--error",
         metavar="SUMMARY",
         default=None,
         help=(
-            "Short failure summary (SR-RETRY). "
+            "Short failure summary. "
             "REQUIRED when --status failed and the node has max_retries > 0 (D-RETRY-9). "
             "Persisted to node_states for diagnose-before-retry augmentation. "
             "Optional when max_retries == 0 (still recorded for the human diagnostician)."
@@ -2630,7 +2629,7 @@ def build_parser(
         metavar="PATH",
         default=None,
         help=(
-            "Path to a file whose content is used as the failure summary (SR-RETRY). "
+            "Path to a file whose content is used as the failure summary. "
             "Use for multi-line error output (stack traces, logs). "
             "Content is truncated to 4000 chars. Mutually supplements --error; "
             "if both supplied, --error-file takes precedence."
@@ -2679,7 +2678,7 @@ def build_parser(
         action="store_true",
         default=False,
         help=(
-            "SR-APPROVE-GATE: skip the confirmation keystroke when a TTY is present. "
+            "Skip the confirmation keystroke when a TTY is present. "
             "Has NO EFFECT when stdin is not a TTY — the gate still fails closed "
             "(use a provisioned token for non-interactive approval instead)."
         ),
@@ -2719,7 +2718,7 @@ def build_parser(
     stat_p = sub.add_parser("status", help="Print the current run status.")
     stat_p.add_argument("run_id", help="The run_id.")
 
-    # templates  (SR-HUB-DAG §A2 — discovery entry for all four research loops)
+    # templates  (discovery entry for all four research loops)
     sub.add_parser(
         "templates",
         help=(
@@ -2728,7 +2727,7 @@ def build_parser(
         ),
     )
 
-    # brief  (SR-DAG-BRIEF — deterministic crew dispatch brief emitter)
+    # brief  (deterministic crew dispatch brief emitter)
     brief_p = sub.add_parser(
         "brief",
         help=(

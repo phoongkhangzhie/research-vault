@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""schema.py — DAG manifest schema for Research Vault (SR-3 + SR-DISP + SR-SCOPE + SR-RETRY).
+"""schema.py — DAG manifest schema for Research Vault.
 
 JSON manifest format:
   {
@@ -11,19 +11,19 @@ JSON manifest format:
         "id": "lit-search",
         "type": "agent",               # "agent" | "human-go"
         "label": "Literature search",  # optional display label
-        "spec": "task://research#lit-search",  # REQUIRED on agent nodes (SR-DISP)
-        "max_retries": 2,              # OPTIONAL — opt-in retry count (SR-RETRY; default 0)
+        "spec": "task://research#lit-search",  # REQUIRED on agent nodes
+        "max_retries": 2,              # OPTIONAL — opt-in retry count (default 0)
                                        #   agent nodes only; 0 <= N <= 10; integer
                                        #   ManifestError if negative, >10, non-int, or on human-go
         "retry_diagnosis_tips": "Check W&B exit code before assuming OOM.",
                                        # OPTIONAL — domain-specific append to RETRY_DIAGNOSIS_DIRECTIVE
                                        #   str or list[str]; never replaces the standing directive
-        "reads": [                     # OPTIONAL — bounded reading-scope (SR-SCOPE)
+        "reads": [                     # OPTIONAL — bounded reading-scope
           "src/research_vault/dag/schema.py",       # bare = file pointer
           "tasks/design.md#5B-SCOPE",               # <file>#<anchor> = doc/task section
           {"ref": "control/rv.md#sr-scope", "why": "prior verdict"}  # {ref, why?}
         ],
-        "continues": {                 # OPTIONAL — explicit resume exception (SR-DISP)
+        "continues": {                 # OPTIONAL — explicit resume exception
           "node": "prior-agent-id",    # must be a transitive-upstream agent ancestor
           "reason": "tight iterative continuation — one-step refinement, no artifact boundary"
         },
@@ -44,12 +44,12 @@ JSON manifest format:
 
 Edge kinds:
   afterok   — predecessor status == succeeded; optionally gated by a watch expression
-              that resolves via resolve_watch (SR-2's artifact:/sacct:/etc. grammar).
+              that resolves via resolve_watch (the artifact:/sacct:/etc. grammar).
   after     — predecessor has reached any terminal state (succeeded/failed/blocked).
   afterany  — at least one predecessor in a group has reached any terminal state.
   soft      — advisory; never blocks the downstream node from advancing.
 
-Validation rules (SR-3):
+Validation rules:
   - run_id and nodes are required at the top level.
   - Node IDs must be unique strings.
   - All needs.from values must resolve to a known node ID.
@@ -58,7 +58,7 @@ Validation rules (SR-3):
   - node type must be "agent" or "human-go".
   - edge kind must be one of the four above.
 
-SR-DISP additions (schema-by-construction dispatch discipline):
+Schema-by-construction dispatch discipline additions:
   Agent nodes:
   - spec REQUIRED (non-empty string): points to the durable brief for this dispatch.
     Absence is a ManifestError — fresh-by-default enforced by construction.
@@ -72,7 +72,7 @@ SR-DISP additions (schema-by-construction dispatch discipline):
   human-go nodes are EXEMPT from spec/continues/reads requirements (they are decision
   gates, not dispatch targets).
 
-SR-SCOPE additions (bounded reading-scope grounding manifest):
+Bounded reading-scope grounding manifest additions:
   Agent nodes:
   - reads OPTIONAL — but absent emits a non-fatal WARN (manifest_warns).
     When present, must be a non-empty list; each item must be either:
@@ -83,7 +83,7 @@ SR-SCOPE additions (bounded reading-scope grounding manifest):
     it is deferred to the run/tick pass in dag/reads.py (resolve_reads_pointers).
   - human-go nodes must NOT carry reads: (ManifestError if present).
 
-SR-RETRY additions (node-level diagnose-before-retry):
+Node-level diagnose-before-retry additions:
   Agent nodes:
   - max_retries OPTIONAL int — default 0 (N=0 = today's behavior: first failure is terminal).
     Must be 0 <= N <= 10. Non-int, negative, or >10 → ManifestError.
@@ -94,8 +94,8 @@ SR-RETRY additions (node-level diagnose-before-retry):
 
 Non-fatal WARNs (manifest_warns):
   1. A continues path crossing a produces: or human-go node between the continued ancestor
-     and the current node → structural boundary-smell WARN (SR-DISP).
-  2. An agent node with NO reads: field → reads-scope WARN (SR-SCOPE).
+     and the current node → structural boundary-smell WARN.
+  2. An agent node with NO reads: field → reads-scope WARN.
   Both are non-fatal: the manifest is still valid, but the runtime should surface them.
 
 Stdlib only (plus intra-package walker import for _transitive_upstream reuse — no circularity).
@@ -114,7 +114,7 @@ DEFAULT_GLOBAL_CAP = 4
 DEFAULT_NODE_TYPE = "agent"
 DEFAULT_EDGE_KIND = "afterok"
 
-# SR-RETRY: hard cap on max_retries (D-RETRY-4) — cheap insurance against typos.
+# Hard cap on max_retries (D-RETRY-4) — cheap insurance against typos.
 MAX_RETRIES_CAP = 10
 
 
@@ -164,7 +164,7 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     Raises ManifestError describing the first violation found.
     Call this after loading from JSON, or before writing a new manifest.
 
-    SR-DISP: validates spec/continues on agent nodes (see module docstring).
+    Validates spec/continues on agent nodes (see module docstring).
     """
     if not isinstance(manifest, dict):
         raise ManifestError("Manifest must be a dict")
@@ -207,19 +207,19 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
                 f"Node {nid!r}: unknown type {node_type!r}. Valid: {sorted(NODE_TYPES)}"
             )
 
-        # ── SR-DISP: spec and continues validation for agent nodes ────────────
+        # ── spec and continues validation for agent nodes ──────────────────────
         if node_type == "agent":
             _validate_agent_spec(nid, node)
             _validate_continues_structure(nid, node)
             _validate_reads_structure(nid, node)
-            # ── SR-RETRY: opt-in retry + diagnosis seam ───────────────────────
+            # ── opt-in retry + diagnosis seam ──────────────────────────────────
             _validate_max_retries(nid, node)
             _validate_retry_diagnosis_tips(nid, node)
 
-        # ── SR-SCOPE: human-go nodes must NOT carry reads: ────────────────────
+        # ── human-go nodes must NOT carry reads: ───────────────────────────────
         if node_type == "human-go":
             _validate_no_reads_on_human_go(nid, node)
-            # ── SR-RETRY: human-go must NOT carry max_retries (D-RETRY-1) ─────
+            # ── human-go must NOT carry max_retries (D-RETRY-1) ────────────────
             _validate_no_max_retries_on_human_go(nid, node)
 
         # ── D4 (verb consolidation): tool nodes require a non-empty 'op' ──────
@@ -242,7 +242,7 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
                     raise ManifestError(
                         f"Node {nid!r}: produces.note must be a non-empty string"
                     )
-            # SR-8: dataset provenance note (points to data artifact, never contains it)
+            # Dataset provenance note (points to data artifact, never contains it)
             if "dataset" in produces:
                 dataset_path = produces["dataset"]
                 if not isinstance(dataset_path, str) or not dataset_path.strip():
@@ -250,7 +250,7 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
                         f"Node {nid!r}: produces.dataset must be a non-empty string "
                         f"(path to the datasets/ provenance note, e.g. 'datasets/my-data.md')"
                     )
-            # SR-RESOLVE-SCOPE: project-scoped typed produces subkeys.
+            # Project-scoped typed produces subkeys.
             # Each takes "<project>/<id>" — the resolver maps to the correct OKF type dir.
             #   produces.result → experiments/<id>.md in project_notes_dir
             for _pkey in ("result",):
@@ -303,7 +303,7 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     # ── Acyclicity check via Kahn's topological sort ──────────────────────────
     _assert_acyclic(nodes, nodes_by_id)
 
-    # ── SR-DISP: continues cross-node validation (post-acyclicity) ────────────
+    # ── continues cross-node validation (post-acyclicity) ──────────────────────
     # Requires: all nodes known, graph acyclic, needs.from refs resolved.
     for node in nodes:
         nid = node["id"]
@@ -325,7 +325,7 @@ def _validate_agent_spec(nid: str, node: dict) -> None:
     if spec is None:
         raise ManifestError(
             f"Node {nid!r}: agent nodes require a 'spec' field pointing to the durable brief "
-            f"(SR-DISP: fresh-by-default enforcement). "
+            f"(fresh-by-default enforcement). "
             f"Example: \"spec\": \"task://research#lit-search\""
         )
     if not isinstance(spec, str) or not spec.strip():
@@ -366,7 +366,7 @@ def _validate_continues_structure(nid: str, node: dict) -> None:
     if reason is None:
         raise ManifestError(
             f"Node {nid!r}: 'continues' missing 'reason' field — "
-            f"the justification for a resume is required by construction (SR-DISP)"
+            f"the justification for a resume is required by construction"
         )
     if not isinstance(reason, str) or not reason.strip():
         raise ManifestError(
@@ -378,7 +378,7 @@ def _validate_continues_structure(nid: str, node: dict) -> None:
 def _validate_reads_structure(nid: str, node: dict) -> None:
     """Validate the structural shape of a reads field on an agent node (if present).
 
-    SR-SCOPE structural teeth (pure/in-memory — no I/O):
+    Structural teeth (pure/in-memory — no I/O):
       - reads is OPTIONAL; absent is valid.
       - If present: must be a non-empty list.
       - Each item must be either:
@@ -398,13 +398,13 @@ def _validate_reads_structure(nid: str, node: dict) -> None:
     if not isinstance(reads, list):
         raise ManifestError(
             f"Node {nid!r}: 'reads' must be a list of pointer strings or {{ref:...}} dicts, "
-            f"got {type(reads).__name__!r} (SR-SCOPE)"
+            f"got {type(reads).__name__!r}"
         )
 
     if len(reads) == 0:
         raise ManifestError(
             f"Node {nid!r}: 'reads' must be non-empty if present — "
-            f"an empty declared scope is invalid (SR-SCOPE). "
+            f"an empty declared scope is invalid. "
             f"Remove the field entirely if there are no grounding pointers."
         )
 
@@ -413,31 +413,31 @@ def _validate_reads_structure(nid: str, node: dict) -> None:
             if not item.strip():
                 raise ManifestError(
                     f"Node {nid!r}: reads[{i}] must be a non-empty string, "
-                    f"got {item!r} (SR-SCOPE)"
+                    f"got {item!r}"
                 )
         elif isinstance(item, dict):
             ref = item.get("ref")
             if ref is None:
                 raise ManifestError(
-                    f"Node {nid!r}: reads[{i}] dict must have a 'ref' key "
-                    f"(SR-SCOPE). Got keys: {sorted(item.keys())}"
+                    f"Node {nid!r}: reads[{i}] dict must have a 'ref' key. "
+                    f"Got keys: {sorted(item.keys())}"
                 )
             if not isinstance(ref, str) or not ref.strip():
                 raise ManifestError(
                     f"Node {nid!r}: reads[{i}].ref must be a non-empty string, "
-                    f"got {ref!r} (SR-SCOPE)"
+                    f"got {ref!r}"
                 )
             # 'why' is optional — if present, should be a string (non-fatal structural check)
             why = item.get("why")
             if why is not None and not isinstance(why, str):
                 raise ManifestError(
                     f"Node {nid!r}: reads[{i}].why must be a string if present, "
-                    f"got {type(why).__name__!r} (SR-SCOPE)"
+                    f"got {type(why).__name__!r}"
                 )
         else:
             raise ManifestError(
                 f"Node {nid!r}: reads[{i}] must be a non-empty string or a "
-                f"{{ref: <str>, why?: <str>}} dict, got {type(item).__name__!r} (SR-SCOPE)"
+                f"{{ref: <str>, why?: <str>}} dict, got {type(item).__name__!r}"
             )
 
 
@@ -446,20 +446,20 @@ def _validate_no_reads_on_human_go(nid: str, node: dict, *, kind: str = "human-g
     reads: field.
 
     human-go nodes are decision gates, not dispatch targets — they have no
-    reading-scope (same exemption as spec/continues, SR-SCOPE). tool nodes
+    reading-scope (same exemption as spec/continues). tool nodes
     (D4, verb consolidation) are executed IN-PROCESS by the runner, not
     dispatched to a crew agent — same exemption, shared validator.
     """
     if "reads" in node:
         raise ManifestError(
             f"Node {nid!r}: 'reads' is not allowed on {kind} nodes — "
-            f"{kind} nodes are not dispatch targets (SR-SCOPE). "
+            f"{kind} nodes are not dispatch targets. "
             f"Remove the 'reads' field from this node."
         )
 
 
 def _validate_max_retries(nid: str, node: dict) -> None:
-    """Validate max_retries on an agent node (SR-RETRY, §5I.4).
+    """Validate max_retries on an agent node (§5I.4).
 
     - OPTIONAL; absent means default 0 (first failure is terminal — backward-compat).
     - Must be an int (not float, not str): non-int → ManifestError.
@@ -472,16 +472,16 @@ def _validate_max_retries(nid: str, node: dict) -> None:
     if not isinstance(v, int) or isinstance(v, bool):
         raise ManifestError(
             f"Node {nid!r}: 'max_retries' must be a non-negative integer "
-            f"(0 <= N <= {MAX_RETRIES_CAP}), got {v!r} (SR-RETRY)"
+            f"(0 <= N <= {MAX_RETRIES_CAP}), got {v!r}"
         )
     if v < 0:
         raise ManifestError(
-            f"Node {nid!r}: 'max_retries' must be >= 0, got {v!r} (SR-RETRY)"
+            f"Node {nid!r}: 'max_retries' must be >= 0, got {v!r}"
         )
     if v > MAX_RETRIES_CAP:
         raise ManifestError(
             f"Node {nid!r}: 'max_retries' must be <= {MAX_RETRIES_CAP} "
-            f"(hard cap against runaway retries), got {v!r} (SR-RETRY)"
+            f"(hard cap against runaway retries), got {v!r}"
         )
 
 
@@ -514,7 +514,7 @@ def _validate_tool_op(nid: str, node: dict) -> None:
 
 def _validate_no_max_retries_on_human_go(nid: str, node: dict, *, kind: str = "human-go") -> None:
     """Raise ManifestError if a human-go (or, per D4, a tool) node carries
-    max_retries (D-RETRY-1, SR-RETRY).
+    max_retries (D-RETRY-1).
 
     human-go/tool nodes are decision gates or in-process ops, not dispatch
     targets — retry is meaningless. Mirror of _validate_no_reads_on_human_go.
@@ -522,13 +522,13 @@ def _validate_no_max_retries_on_human_go(nid: str, node: dict, *, kind: str = "h
     if "max_retries" in node:
         raise ManifestError(
             f"Node {nid!r}: 'max_retries' is not allowed on {kind} nodes — "
-            f"{kind} nodes are not dispatch targets (SR-RETRY, D-RETRY-1). "
+            f"{kind} nodes are not dispatch targets (D-RETRY-1). "
             f"Remove the 'max_retries' field from this node."
         )
 
 
 def _validate_retry_diagnosis_tips(nid: str, node: dict) -> None:
-    """Validate retry_diagnosis_tips on an agent node (SR-RETRY, §5I, D-RETRY-8).
+    """Validate retry_diagnosis_tips on an agent node (§5I, D-RETRY-8).
 
     - OPTIONAL; absent → only the standing RETRY_DIAGNOSIS_DIRECTIVE is used.
     - When present: must be a str, or a list where every element is a str.
@@ -544,12 +544,12 @@ def _validate_retry_diagnosis_tips(nid: str, node: dict) -> None:
             if not isinstance(item, str):
                 raise ManifestError(
                     f"Node {nid!r}: 'retry_diagnosis_tips[{i}]' must be a string, "
-                    f"got {type(item).__name__!r} (SR-RETRY)"
+                    f"got {type(item).__name__!r}"
                 )
         return
     raise ManifestError(
         f"Node {nid!r}: 'retry_diagnosis_tips' must be a str or list[str], "
-        f"got {type(v).__name__!r} (SR-RETRY)"
+        f"got {type(v).__name__!r}"
     )
 
 
@@ -585,7 +585,7 @@ def _validate_continues_cross_node(
     if cont_type != "agent":
         raise ManifestError(
             f"Node {nid!r}: continues.node {cont_node_id!r} is type {cont_type!r}, "
-            f"not 'agent' — can only continue an agent thread (SR-DISP)"
+            f"not 'agent' — can only continue an agent thread"
         )
 
     # 3. Must not be self
@@ -600,7 +600,7 @@ def _validate_continues_cross_node(
         raise ManifestError(
             f"Node {nid!r}: continues.node {cont_node_id!r} is not a transitive-upstream "
             f"ancestor of {nid!r} — can only continue a thread from actual upstream work "
-            f"(SR-DISP: same rule as needs.from resolution)"
+            f"(same rule as needs.from resolution)"
         )
 
 
@@ -639,7 +639,7 @@ def _assert_acyclic(nodes: list[dict], nodes_by_id: dict[str, dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SR-DISP: non-fatal boundary-smell WARNs
+# Non-fatal boundary-smell WARNs
 # ---------------------------------------------------------------------------
 
 def manifest_warns(manifest: dict[str, Any]) -> list[str]:
@@ -649,11 +649,11 @@ def manifest_warns(manifest: dict[str, Any]) -> list[str]:
     structural smells surfaced here.
 
     Currently detected:
-      1. SR-DISP: a 'continues' path from the continued ancestor to the current node
+      1. A 'continues' path from the continued ancestor to the current node
          that crosses a node with 'produces:' or a 'human-go' node. Structural signal
          that a durable-artifact or decision boundary was crossed — prefer a fresh
          dispatch pointed at the artifact.
-      2. SR-SCOPE: an agent node with NO 'reads:' field — dispatched with an unbounded
+      2. An agent node with NO 'reads:' field — dispatched with an unbounded
          reading-scope; the agent will re-ground by broad exploration. Bound it with
          the artifacts the agent must read (add a 'reads:' field).
 
@@ -721,7 +721,7 @@ def manifest_warns(manifest: dict[str, Any]) -> list[str]:
                 f"— prefer a fresh dispatch pointed at the artifact."
             )
 
-    # ── SR-SCOPE: absent reads: WARN on agent nodes ───────────────────────────
+    # ── absent reads: WARN on agent nodes ──────────────────────────────────────
     for nid, node in nodes_by_id.items():
         node_type = node.get("type", DEFAULT_NODE_TYPE)
         if node_type != "agent":
@@ -730,7 +730,7 @@ def manifest_warns(manifest: dict[str, Any]) -> list[str]:
             warns.append(
                 f"⚠ [{nid}] dispatched with an unbounded reading-scope (no 'reads:') "
                 f"— the agent will re-ground by broad exploration; bound it with "
-                f"the artifacts it must read (SR-SCOPE)."
+                f"the artifacts it must read."
             )
 
     return warns

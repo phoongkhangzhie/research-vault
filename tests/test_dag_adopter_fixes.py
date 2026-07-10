@@ -388,7 +388,7 @@ notifier = "file"
 backend = "local"
 secrets = "env"
 
-# SR-APPROVE-GATE: token fingerprint for test-time token approval.
+# Token fingerprint for test-time token approval.
 [approval]
 enforce = true
 token_fingerprint = "d309a810bb5f40cef518202e46d197aa61e4dddafc5984c8c698da29ac8fd2bc"
@@ -607,7 +607,7 @@ class TestF13ApproveFlags:
 
         # Tick to re-compute frontier — downstream must NOT be dispatchable.
         # We check the store directly (not the printed output, which includes
-        # SR-SCOPE label warnings that mention all node ids).
+        # reads-scope label warnings that mention all node ids).
         cmd_tick(_argns(run_id=run_id))
         capsys.readouterr()
 

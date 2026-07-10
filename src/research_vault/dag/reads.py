@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""reads.py — SR-SCOPE: reads: pointer resolution for Research Vault DAG.
+"""reads.py — reads: pointer resolution for Research Vault DAG.
 
 This module is the I/O-touching, filesystem-aware RESOLUTION pass for the reads:
 field on DAG agent nodes. It MUST NOT be imported by schema.py or walker.py —
 those are deliberately pure/in-memory/stdlib-only. This module is called by
 verbs (dag run / tick) AFTER the pure validate_manifest pass.
 
-Purity boundary (established by SR-DISP and honoured here):
+Purity boundary (established by the dispatch schema and honoured here):
   - validate_manifest (dag/schema.py): pure, in-memory, no I/O, ManifestError only.
   - resolve_reads_pointers (this module): I/O-touching, called at run/tick time.
 
@@ -18,7 +18,7 @@ Pointer grammar (typed by form):
                           symbol is SOFT (warn if not found; no AST coupling).
 
 Resolution reuses the filesystem-access pattern of wait_for.resolve_watch
-(the SR-2 seam) for file-existence checks, plus a thin anchor-search helper
+for file-existence checks, plus a thin anchor-search helper
 (not in resolve_watch — anchor lookup is new).
 
 Stdlib only (plus intra-package config import for project_root fallback).
@@ -99,7 +99,7 @@ def _anchor_found(text: str, anchor: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# SR-DAG-BRIEF: _parse_pointer — SSOT for pointer grammar decomposition
+# _parse_pointer — SSOT for pointer grammar decomposition
 # ---------------------------------------------------------------------------
 #
 # Extracted from resolve_reads_pointer so the SAME grammar (scheme tuple,
@@ -293,7 +293,7 @@ def resolve_reads_pointers(
 
 
 # ---------------------------------------------------------------------------
-# SR-DAG-BRIEF: resolve_reads_paths — returns resolved ABSOLUTE path strings
+# resolve_reads_paths — returns resolved ABSOLUTE path strings
 # ---------------------------------------------------------------------------
 
 def resolve_reads_paths(
