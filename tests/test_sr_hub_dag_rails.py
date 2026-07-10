@@ -379,6 +379,43 @@ class TestDagTemplatesVerb:
         # Manuscript gate from manuscript/__init__.py scaffolder (PR-M1)
         assert "approve-manuscript" in out
 
+    def test_templates_human_go_count_excludes_autonomous_gates(self, capsys):
+        """The printed 'human-go gates (N)' count must not lump autonomous
+        (auto-resolved) gates in with genuine human keypress gates — that
+        self-contradicts the very next line, which labels those same gates
+        '(auto-resolved)'/'autonomous gate'. Each catalog entry's count
+        should reflect only gates with autonomous=False; every autonomous
+        gate must be explicitly marked as such in its printed line.
+        """
+        from research_vault.dag.verbs import build_parser, run
+        from research_vault.dag.catalog import get_loop
+
+        p = build_parser()
+        args = p.parse_args(["templates"])
+        run(args)
+        out = capsys.readouterr().out
+
+        lr = get_loop("lit-review")
+        assert lr is not None
+        genuine = [g for g in lr.human_go_gates if not g.autonomous]
+        autonomous = [g for g in lr.human_go_gates if g.autonomous]
+        # Sanity: this loop actually has both kinds — otherwise this test is vacuous.
+        assert genuine and autonomous
+
+        # The printed count must match the GENUINE human-gate count, not the
+        # total (which would silently count autonomous gates as "human-go").
+        assert f"human-go gates ({len(genuine)}" in out, out
+
+        # Every autonomous gate's line must be marked as such.
+        for g in autonomous:
+            idx = out.find(f"[{g.node_id}]")
+            assert idx != -1, f"{g.node_id} not printed at all"
+            line_end = out.find("\n", idx)
+            line = out[idx:line_end]
+            assert "autonomous" in line.lower(), (
+                f"autonomous gate {g.node_id!r} not marked autonomous in its line: {line!r}"
+            )
+
     def test_templates_output_mentions_scaffolders(self, capsys):
         from research_vault.dag.verbs import build_parser, run
         p = build_parser()

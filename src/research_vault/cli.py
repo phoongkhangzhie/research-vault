@@ -720,7 +720,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Use `rv manuscript <project> list` to enumerate manuscripts for a project. "
             "Anti-pattern: do NOT hand-write markdown sections and hand-collect citations/numbers "
             "from OKF piles — run `rv manuscript new` so the per-manuscript folder "
-            "carries the type-generic scaffold the hermetic .bib build, the hard "
+            "carries the type-generic scaffold the hermetic references build, the hard "
             "fidelity gates (citation-resolve, support-matcher, coverage, "
             "equation-fidelity), and the review-revise board all plug into. "
             "Anti-pattern: do NOT pass an unregistered --type and expect a silent "

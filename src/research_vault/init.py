@@ -202,7 +202,7 @@ watch on the pre-registration note (and its own harness is reviewed
 independently before its own human-go gate). The experiment cannot run until
 the note exists.
 
-### Lit-review loop (Option C: pre-registered, saturation-gated)
+### Lit-review loop (pre-registered, saturation-gated)
 
 Phase-1 (discovery):
 ```

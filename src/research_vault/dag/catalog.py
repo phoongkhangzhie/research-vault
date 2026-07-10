@@ -250,7 +250,8 @@ LOOP_CATALOG: list[LoopEntry] = [
             "review-snowball → review-curate → coverage-gate (auto-resolved) → "
             "(Phase-2) relate-* → review-synthesize → review-coverage-critic → "
             "approve-review (auto-resolved) → ⟶EMITS⟶ manuscript Phase-1 "
-            "(scope → framework-propose → [HG:approve-framework]) → Phase-2 "
+            "(scope → framework-lens-<L> ×N (fan-out) → framework-synthesize → "
+            "framework-critic → approve-framework (auto-resolved)) → Phase-2 "
             "(outline → draft → assemble) → approve-manuscript (auto-resolved)"
         ),
     ),
@@ -292,7 +293,8 @@ LOOP_CATALOG: list[LoopEntry] = [
         ],
         topology_summary=(
             "new --type <type> → (type Phase-1: lit-review = scope → "
-            "framework-propose → approve-framework (auto-resolved), design §5) → "
+            "framework-lens-<L> ×N (fan-out) → framework-synthesize → "
+            "framework-critic → approve-framework (auto-resolved)) → "
             "expand → section(s) (type-generic, from ManuscriptType.section_set) → "
             "assemble → approve-manuscript (auto-resolved)"
         ),

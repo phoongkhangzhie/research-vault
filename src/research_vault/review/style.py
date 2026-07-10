@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/style.py — the review_tips config seam (SR-LR-1, section 5L.6).
+"""review/style.py — the review_tips config seam (SR-LR-1).
 
 SEAM CONTRACT
   ``get_review_tips(config=None)`` is the call-point for the review DAG nodes'
-  spec/prompt.  The shipped default is the researcher's retrieval-grounded section 5L.6 prose:
+  spec/prompt.  The shipped default is the researcher's retrieval-grounded prose:
   the saturation loop, counter-position/L-2 gate, and disconfirming obligation, each
   anchored to the systematic-review methodology it operationalizes (protocol
   pre-registration, both-direction snowballing, saturation-as-plateau, concept-centric
@@ -44,7 +44,7 @@ SEAM CONTRACT
 
 Two halves independently mergeable:
   - Engineer ships this module (SR-LR-1 plumbing).
-  - The researcher owns the default payload — the retrieval-grounded section 5L.6 strings.
+  - The researcher owns the default payload — the retrieval-grounded prose strings.
   Keep ``get_review_tips`` / ``get_review_style_preamble`` signatures stable.
 
 Stdlib only.
@@ -73,7 +73,7 @@ REVIEW_TIPS_KEYS: frozenset[str] = frozenset({
 
 _DEFAULT_PREAMBLE: str = (
     "You are conducting a structured, pre-registered, saturation-gated literature review "
-    "following the Research Vault SR-LR-1 protocol (section 5L).\n"
+    "following the Research Vault SR-LR-1 protocol.\n"
     "Anti-fabrication spine: every claim must trace to a citekey in the corpus; "
     "every citekey must resolve to a `literature/` OKF note; "
     "no invented references, no paraphrased-without-citation claims.\n"
@@ -85,7 +85,7 @@ _DEFAULT_PREAMBLE: str = (
 )
 
 # ---------------------------------------------------------------------------
-# Default payload — researcher's review-prompt content (section 5L.6)
+# Default payload — researcher's review-prompt content
 # ---------------------------------------------------------------------------
 # The architect owns the keys/shape; the researcher owns the prose.
 # Each string is the prompt guidance for that node of the review DAG.
@@ -103,7 +103,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "in advance, the literature that would refute the coverage claim.\n\n"
         "Required `_protocol.md` fields (all REQUIRED — absence blocks search):\n"
         "  - `question`: the exact research question in one sentence.\n"
-        "  - `seed_queries`: an ANGLE MATRIX (NG-3, breadth-then-depth), not near-"
+        "  - `seed_queries`: an ANGLE MATRIX (breadth-then-depth), not near-"
         "synonyms — one query per DISTINCT analytical angle:\n"
         "        seed_queries:\n"
         "          by-method:     \"<query targeting the methodological angle>\"\n"
@@ -122,7 +122,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "  - `exclusion`: criteria that disqualify a paper.\n"
         "  - `coverage_claim`: what a COMPLETE corpus would contain "
         "(e.g. 'all English papers 2015–2025 on X in venues Y').\n"
-        "  - `counter-position` (REQUIRED — L-2 structural gate, section 5L.3/section 5M): "
+        "  - `counter-position` (REQUIRED — L-2 structural gate): "
         "the literature that would REFUTE the coverage claim — name the specific "
         "sub-literature or opposing view that must be actively sought. "
         "A review with an empty or missing `counter-position` cannot pass the "
@@ -135,10 +135,9 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "run and a new `approve-protocol` gate, never a mid-run edit."
     ),
     "review_screen_tips": (
-        "★ Option C hybrid (review-loop-nodekind-drift-fix): the PARALLEL "
-        "WIDTH-SWEEP itself is now a deterministic TOOL node (`review-search`, "
-        "op `sweep`) — it ran automatically before this node and wrote "
-        "`_search_hits.md`. This node is the THIN JUDGMENT LAYER on top: read "
+        "★ The parallel width-sweep itself is now a deterministic TOOL node "
+        "(`review-search`, op `sweep`) — it ran automatically before this node "
+        "and wrote `_search_hits.md`. This node is a thin judgment layer on top: read "
         "`_search_hits.md`, apply the frozen protocol's inclusion/exclusion "
         "criteria, and accept a seed frontier for the snowball walk. Do not "
         "re-run any search yourself — the sweep already happened.\n\n"
@@ -193,11 +192,11 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "else inside it."
     ),
     "review_curate_tips": (
-        "★ Option C hybrid (review-loop-nodekind-drift-fix): the both-"
-        "direction, multi-round saturation WALK itself is now a deterministic "
-        "TOOL node (`review-snowball`, op `snowball`) — it ran automatically "
-        "before this node and wrote `_corpus_raw.md` + `_saturation.md`. This "
-        "node is the THIN JUDGMENT LAYER on top: concept-tag the raw corpus, "
+        "★ The both-direction, multi-round saturation walk itself is now a "
+        "deterministic TOOL node (`review-snowball`, op `snowball`) — it ran "
+        "automatically before this node and wrote `_corpus_raw.md` + "
+        "`_saturation.md`. This node is a thin judgment layer on top: "
+        "concept-tag the raw corpus, "
         "apply inclusion/exclusion, and emit the FINAL `_corpus.md` (+ "
         "`_coverage-gaps.md` on backstop-termination).\n\n"
         "WHY (methodology): two named disciplines back the walk you're now "
@@ -501,7 +500,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "fishing, so the pre-registered counter-position must be sought, not merely "
         "declared.\n\n"
         "Judge FOUR axes (each can independently issue `[BLOCK]`):\n\n"
-        "1. SATURATION PLATEAU — is it real or premature? (section 5L.2)\n"
+        "1. SATURATION PLATEAU — is it real or premature?\n"
         "   Read the `_saturation.md` curve. Check:\n"
         "   - Did the curve plateau at round K with 0 new citekeys AND 0 new concept-tags "
         "for 2 consecutive rounds? (genuine saturation)\n"
@@ -519,7 +518,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "   Compare the accepted corpus against `_protocol.md` inclusion/exclusion.\n"
         "   Any paper included that violates inclusion criteria = fishing = `[BLOCK]`.\n"
         "   Any paper excluded that meets inclusion criteria = coverage gap = `[BLOCK]`.\n\n"
-        "4. COUNTER-POSITION (L-2 gate — REQUIRED, section 5L.3/section 5M)\n"
+        "4. COUNTER-POSITION (L-2 gate — REQUIRED)\n"
         "   The `_protocol.md` MUST have a non-empty `counter-position` field.\n"
         "   - Missing or empty `counter-position` → `[BLOCK]` (hard structural gate).\n"
         "   - Non-empty `counter-position` but corpus contains ZERO papers from the "
@@ -586,7 +585,7 @@ def get_review_tips(config: Any = None) -> dict[str, str]:
     Contract:
         - Always returns a dict with all REVIEW_TIPS_KEYS present.
         - Adopter overrides cannot remove a key — they can only replace the value.
-        - The default is the researcher's review-prompt content (section 5L.6); adopters own the prose.
+        - The default is the researcher's review-prompt content; adopters own the prose.
 
     sr: SR-LR-1
     """
@@ -643,7 +642,7 @@ DEFAULT_SATURATION_BACKSTOP_WAVES: int = 2
 def get_saturation_backstop_waves(config: Any = None) -> int:
     """Return the review-snowball TERMINATION BACKSTOP wave-count cap.
 
-    The primary saturation stop-rule (2-consecutive-zero rounds, §5L.2) is
+    The primary saturation stop-rule (2-consecutive-zero rounds) is
     principled but not guaranteed to converge — an exploding-intersection
     review question (every wave finds more) can run it unboundedly.  This
     backstop is HyperResearch's termination guarantee, additively grafted
@@ -651,7 +650,7 @@ def get_saturation_backstop_waves(config: Any = None) -> int:
     preferred stop; HR has no saturation notion at all and just caps at N
     waves, "proceeding anyway, marking gaps thin" — rv's backstop mirrors
     that cap but ALSO requires the honest residue declaration in
-    ``_coverage-gaps.md``, section 5L.2-backstop).
+    ``_coverage-gaps.md``, backstop-terminated).
 
     Args:
         config: a loaded Config instance (or None for the shipped default).
@@ -676,19 +675,19 @@ def get_saturation_backstop_waves(config: Any = None) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Remediation round-cap config seam (NG-6a §4.3 bound 2)
+# Remediation round-cap config seam
 # ---------------------------------------------------------------------------
 
 DEFAULT_REMEDIATION_MAX_ROUNDS: int = 2
 
 
 def get_remediation_max_rounds(config: Any = None) -> int:
-    """Return the NG-6a autonomous coverage-gap remediation round cap.
+    """Return the autonomous coverage-gap remediation round cap.
 
-    One of the three independent termination bounds on the bounded
-    remediation loop (§4.3): even a pathological "one new paper per wave"
-    corpus cannot exceed this many autonomous remediation rounds before the
-    loop declares residue and surfaces for human review.
+    One of the independent termination bounds on the bounded remediation
+    loop: even a pathological "one new paper per wave" corpus cannot exceed
+    this many autonomous remediation rounds before the loop declares residue
+    and surfaces for human review.
 
     Args:
         config: a loaded Config instance (or None for the shipped default).
@@ -696,12 +695,10 @@ def get_remediation_max_rounds(config: Any = None) -> int:
                 (a positive int), that value overrides the default.
 
     Returns:
-        The round cap (int, >= 1). Default 2 (conservative, per the design
-        doc). A non-int, non-positive, or missing override falls back to the
-        default — fail-closed (a missing/malformed counter reads as "the
-        conservative default", never as "unbounded").
-
-    sr: NG-6a
+        The round cap (int, >= 1). Default 2 (conservative). A non-int,
+        non-positive, or missing override falls back to the default —
+        fail-closed (a missing/malformed counter reads as "the conservative
+        default", never as "unbounded").
     """
     if config is not None:
         raw = getattr(config, "_raw", {})

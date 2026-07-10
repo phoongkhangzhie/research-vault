@@ -1,3 +1,56 @@
+## 2026-07-09 (docs hygiene: internal codenames removed, LaTeX doc-lag fixed, catalog.py re-grounded)
+
+### Done
+- **Removed internal design-iteration codenames from user-facing/shipped
+  prose** (`Option C hybrid`, `review-loop-nodekind-drift-fix`, `NG-2`
+  through `NG-8`, and dangling `§5L.x`/`§4-x`/`§5J`/`§5K.x`-style section
+  refs pointing at an internal design doc that never ships): stripped from
+  `review/style.py`'s injected node briefs, `init.py`'s CONTRACT template,
+  the `demo-litreview` example, and comments/docstrings in
+  `review/__init__.py`, `review/autonomy.py`, `dag/verbs.py`, and
+  `manuscript/types/lit_review.py`. Several of these had landed in actual
+  printed error/help strings an adopter reads directly (the outline-gate
+  failure message, `rv dag approve --auto`'s help, a gate-BLOCK error).
+  Kept the meaningful descriptors (pre-registered, saturation-gated,
+  both-direction snowball).
+- **Fixed stale LaTeX/`.bib` doc-lag** — the manuscript loop's LaTeX output
+  was removed a while back; it validates `[[citekey]]` wikilinks and builds
+  `references.md`, not a `\cite{}`/`.bib` pipeline. Reworded
+  `manuscript-loop.md`, `rv manuscript --help`, and `manuscript/verbs.py`'s
+  module docstring to match. Left the `hermetic-bib` gate identifier alone
+  (a label, not a claim about LaTeX).
+- **Re-grounded `dag/catalog.py` against the post-framework-gate-autonomy
+  topology**: the lit-review and manuscript loop entries'
+  `topology_summary` strings still said `scope -> framework-propose ->
+  [HG:approve-framework]` (the old single-shot shape); fixed both to the
+  real ensemble (`framework-lens-<L> xN fan-out -> framework-synthesize ->
+  framework-critic -> approve-framework auto-resolved`), and fixed the
+  matching stale section-header comment in
+  `manuscript/types/lit_review.py`.
+- **Fixed a self-contradiction in `rv dag templates`**: it printed
+  `human-go gates (N)` counting *autonomous* (auto-resolved) gates as if
+  they required a human keypress, while the very next line labeled those
+  same gates autonomous. The count now reflects only genuine human gates;
+  every autonomous gate is explicitly marked `[AUTONOMOUS — resolves
+  without a human keypress]` in its printed line. New regression test
+  confirmed RED against the old lumped-count behavior before the fix.
+
+### Decisions
+- Scoped Part A's codename sweep to the surfaces named in the task (the
+  injected node briefs + the four review/dag/manuscript modules most
+  recently touched by the framework-gate-autonomy work), not a repo-wide
+  purge of every historical `§`-numbered doctrine reference — those belong
+  to a separate, older, still-in-use internal numbering convention used
+  throughout the codebase's history and are out of scope for this PR.
+- Docs/comments/prose only in Parts A and B; Part C is the one code change
+  (with a test) in this PR.
+
+### Open / next
+- The maintainer flagged that `docs/superpowers/specs/*.md` (the internal
+  design-doc home referenced by several now-removed section tags) never
+  ships in this repo — confirmed by grep; no further action needed here,
+  just noting it for anyone tempted to re-add a `§`-style pointer to it.
+
 ## 2026-07-09 (README loop diagrams: LR->TD + re-grounded to the current topology)
 
 ### Done

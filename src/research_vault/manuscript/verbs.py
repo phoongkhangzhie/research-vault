@@ -16,7 +16,7 @@ Phase-1/2 DAG manifests.
 
 Anti-pattern: do NOT hand-write markdown sections and hand-collect citations
 from OKF piles — run ``rv manuscript new`` so the per-manuscript folder carries the
-type-generic scaffold; the hermetic ``.bib`` (PR-M2), the fidelity gates
+type-generic scaffold; the hermetic references build (PR-M2), the fidelity gates
 (PR-M3), the equation machinery (PR-M4), and the review-revise board (PR-M5)
 all plug into this same folder.
 

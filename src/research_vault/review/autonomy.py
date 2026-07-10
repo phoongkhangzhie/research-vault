@@ -1,10 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/autonomy.py — NG-4/5/6: the gate-policy engine + deviation log +
+"""review/autonomy.py — the gate-policy engine + deviation log +
 the deterministic tool-op registry.
-
-Design of record: docs/superpowers/specs/2026-07-08-next-gen-lit-review-loop-design.md
-(§1 the autonomy program) and 2026-07-08-rv-verb-consolidation.md (§3/§6 D4:
-the ``tool`` node-kind + op registry).
 
 ★ SINGLE-HUMAN-GATE DESIGN (2026-07-09): only ``approve-protocol`` (Gate 1,
 the plan/scope gate before search) is a human gate. Every downstream gate —
@@ -52,7 +48,7 @@ Stdlib only (+ intra-package imports). Hermetic in tests — no live LLM/network
 call is required to exercise the disposition/deviation logic; the op
 registry's network-touching ops are exercised via injected fakes in tests.
 
-sr: NG-4, NG-5, NG-6a, NG-6b (deviation-adjacent), D4 (verb consolidation)
+sr: D4 (verb consolidation)
 """
 from __future__ import annotations
 
@@ -78,7 +74,7 @@ GO = "GO"
 GO_WITH_RESIDUE = "GO-WITH-RESIDUE"
 REVISE = "REVISE"
 HALT_DECLARE = "HALT-DECLARE"
-# NG-6a §4.1: a coverage-gate-only disposition — backstop-terminated (open
+# A coverage-gate-only disposition — backstop-terminated (open
 # frontier) + remediation budget remaining + the last wave found something
 # new. Never returned by `classify_coverage_gate`/`classify_disposition`
 # (the general gate-policy engine); only by
@@ -137,7 +133,7 @@ class GateEvaluation:
 
 
 def classify_disposition(ev: GateEvaluation) -> DispositionResult:
-    """The NG-4 §1.2 gate-policy engine.
+    """The gate-policy engine.
 
     Priority order (most severe first — a gate can trip more than one
     signal; the MOST severe wins, never averaged):
@@ -199,13 +195,14 @@ def evaluation_from_structural_payload(payload: dict[str, Any]) -> GateEvaluatio
     ``{ok, blocking, signals, not_run, canary_aborted}`` shape (hermetic-bib /
     equation / support-matcher) into a ``GateEvaluation``.
 
-    NG-4b (item 3): ``canary_aborted`` is read as a TOP-LEVEL flag, not
+    ``canary_aborted`` is read as a TOP-LEVEL flag, not
     inferred from ``blocking`` text — a support-matcher ``CanaryAbortError``
     must classify as HALT-DECLARE (untrustworthy signal, priority 1), never
     REVISE (a canary-abort landing only in ``blocking`` would be downgraded
     to an ordinary fixable BLOCK and dispatch a bounded auto-revise against
-    the SAME broken judge — the exact priority violation §1.2 exists to
-    prevent; charter §10, never auto-retry an untrustworthy judge). Absent
+    the SAME broken judge — the exact priority violation the gate-policy
+    engine exists to prevent; charter §10, never auto-retry an untrustworthy
+    judge). Absent
     key defaults to ``False`` — backward compatible with any older payload
     shape that predates this field.
     """
@@ -225,12 +222,12 @@ def evaluation_from_board(
     ``{cleared, not_cleared, ...}`` shape into a ``GateEvaluation``.
 
     ``run_review_board`` already runs its OWN bounded N=2/hardcap-3 unroll
-    internally (§1.3: NG-5 reuses this machinery rather than reinventing a
+    internally (this reuses that machinery rather than reinventing a
     second revise loop) — so "not cleared after N rounds" IS "revise budget
     exhausted" from the outer gate-policy engine's point of view; there is
     no further external revise to dispatch.
 
-    ★ PR-B5 (decision #6, 2026-07-08-autonomous-board-design.md §5.2): a
+    ★ PR-B5 (decision #6): a
     board quality shortfall (CONTENT/SELFCONT/ADVERS/FRAMEWORK axis not
     cleared after the bounded revise rounds) is deliberately NOT the same
     failure class as an integrity BLOCK (bib/support). "The output IS the
@@ -260,7 +257,7 @@ def evaluation_from_framework_gate(ok: bool, msg: str) -> GateEvaluation:
     """Adapt ``manuscript.types.lit_review.check_framework_gate``'s
     ``(ok, msg)`` shape into a ``GateEvaluation``. An empty/malformed spine
     is a deterministic, fixable BLOCK — eligible for the bounded auto-revise
-    extension (§1.3, NG-5).
+    extension.
     """
     if ok:
         return GateEvaluation()
@@ -375,8 +372,8 @@ def classify_coverage_gate_with_deviation_check(
     coverage_gaps_path: Path | None = None,
     source_coverage_info: dict[str, Any] | None = None,
 ) -> DispositionResult:
-    """NG-4b item 2: the LIVE coverage-deviation BLOCK — wires
-    ``check_undeclared_deviation`` (§1.5, D2) into the coverage-gate --auto
+    """The LIVE coverage-deviation BLOCK — wires
+    ``check_undeclared_deviation`` (D2) into the coverage-gate --auto
     path, in front of (not behind) the saturation disposition.
 
     The frozen corpus citekey-set is stamped into ``run_state_meta`` (a
@@ -387,14 +384,14 @@ def classify_coverage_gate_with_deviation_check(
     ``check_undeclared_deviation``: an undeclared delta is a DIRECT
     HALT-DECLARE (never routed through the generic bounded-auto-revise
     class — a silent corpus edit must surface to a human, not be
-    "fixed" by an autonomous revise round, per §1.5's transparency-not-
+    "fixed" by an autonomous revise round, per the transparency-not-
     permission contract). A fully declared delta (recorded via
     ``record_deviation`` into ``deviations_path``) passes through to the
     normal ``classify_coverage_gate`` saturation-based disposition.
 
-    ★ Engineering note (NG-4b, grounded against the actual Phase-1 DAG
+    ★ Engineering note (grounded against the actual Phase-1 DAG
     shape — review-scope -> approve-protocol -> review-search ->
-    review-snowball -> coverage-gate): the design doc's §1.5 prose says the
+    review-snowball -> coverage-gate): an earlier design's prose said the
     frozen baseline is stamped "at approve-protocol". No corpus exists at
     that point in the shipped DAG (``_corpus.md`` is a review-snowball
     output, downstream of approve-protocol) — there is nothing to stamp
@@ -442,7 +439,7 @@ def _parse_corpus_citekeys_helper(corpus_path: Path) -> list[str]:
 # 2. The deviation log (§1.5, D2) — the transparency contract + repurposed BLOCK
 # ---------------------------------------------------------------------------
 
-# NG-6a §5 layer 2: the two recognized `kind` values. `within-criteria-append`
+# The two recognized `kind` values. `within-criteria-append`
 # is the ONLY kind the autonomous remediation loop may self-author — its
 # invariant (pre==post criteria, no removals) is asserted below, so the loop
 # can never smuggle a criteria edit or a removal through this kind. A
@@ -450,7 +447,7 @@ def _parse_corpus_citekeys_helper(corpus_path: Path) -> list[str]:
 # removed/added) and is human-authored only (never called by
 # `review.remediation`). ``None`` (the default) is a generic/legacy
 # deviation with no kind-specific invariant — back-compat for callers that
-# predate NG-6a's typing.
+# predate this typing.
 DEVIATION_KIND_WITHIN_CRITERIA_APPEND = "within-criteria-append"
 DEVIATION_KIND_CRITERIA_CHANGE = "criteria-change"
 
@@ -472,8 +469,7 @@ def record_deviation(
     criteria/membership change goes through this function or it is
     undeclared (and will trip ``check_undeclared_deviation``'s BLOCK).
 
-    ``kind`` (NG-6a §5 layer 2, optional — ``None`` is back-compat with
-    pre-NG-6a callers):
+    ``kind`` (optional — ``None`` is back-compat with older callers):
       - ``"within-criteria-append"`` — asserts the invariant
         ``pre_criteria == post_criteria and removed == []``. This is the
         ONLY kind ``review.remediation``'s autonomous loop may author; the
@@ -496,8 +492,8 @@ def record_deviation(
             raise ValueError(
                 "record_deviation: kind='within-criteria-append' requires "
                 "pre_criteria == post_criteria AND removed == [] (the "
-                "denominator may only GROW within the frozen criteria — "
-                "NG-6a §5 layer 2 invariant). Got "
+                "denominator may only GROW within the frozen criteria "
+                "invariant). Got "
                 f"pre_criteria==post_criteria: {pre_criteria == post_criteria!r}, "
                 f"removed={removed!r}. A criteria edit or a removal must be "
                 "recorded as a human-authored kind='criteria-change' "
@@ -620,8 +616,8 @@ def _op_sweep(
     config: Any = None,
     **_: Any,
 ) -> Any:
-    """The ``sweep`` tool op (Option C hybrid, review-loop-nodekind-drift-fix
-    §4-A): run the parallel width-sweep AND write ``_search_hits.md`` — the
+    """The ``sweep`` tool op: run the parallel width-sweep AND write
+    ``_search_hits.md`` — the
     mechanical half of what ``review-search`` used to be an agent node for.
     Returns the written path (str) when ``out`` is given, else the raw
     ``SweepResult`` (back-compat for any caller that doesn't want the
@@ -730,7 +726,7 @@ def _op_snowball(
     config: Any = None,
     **_: Any,
 ) -> Any:
-    """The ``snowball`` tool op (Option C hybrid, §4-B): run the both-
+    """The ``snowball`` tool op: run the both-
     direction, multi-round saturation walk AND write ``_corpus_raw.md`` +
     ``_saturation.md`` — replaces the removed single-paper, single-direction
     ``snowball-forward``/``snowball-backward`` ops (D4 predecessor, which

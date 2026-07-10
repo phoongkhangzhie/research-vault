@@ -85,7 +85,7 @@ _STATUS_SYMBOL: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# SR-RETRY: diagnose-before-retry doctrine string (§5I.5b, D-RETRY-8)
+# SR-RETRY: diagnose-before-retry doctrine string (D-RETRY-8)
 # ---------------------------------------------------------------------------
 #
 # This constant is prepended to every attempt-k>0 re-dispatch (whenever attempts > 0).
@@ -240,10 +240,10 @@ def _resolve_reads_or_warn(
               f"fix the manifest's reads: field(s) before dispatching.", file=_sys.stderr)
 
 
-# NG-4b item 1 / single-human-gate design (2026-07-09): the four gates the
+# single-human-gate design (2026-07-09): the four gates the
 # gate-policy engine (review/autonomy.py) may resolve without a human
 # keypress. approve-protocol is DELIBERATELY excluded — it is the ONE
-# retained human gate (§1.1): every downstream gate resolves autonomously
+# retained human gate: every downstream gate resolves autonomously
 # and FINALLY the moment it resolves (no provisional stamp, no async-veto
 # window — that machinery was removed). Module-level (was previously
 # redeclared locally inside cmd_approve) so both cmd_approve's explicit
@@ -260,7 +260,7 @@ def _missing_produces_artifacts(node: dict[str, Any]) -> list[str]:
     """Return the declared ``produces:`` values (as strings) that are NOT
     present on disk after a tool op ran.
 
-    review-loop-nodekind-drift-fix §4-D: a tool node with no ``produces:``
+    A tool node with no ``produces:``
     dict is exempt (nothing declared, nothing to enforce — e.g. ``coverage``/
     ``relations`` ops that return an in-memory report, not a file). A
     ``produces:`` value that isn't a path-shaped string (rare, defensive) is
@@ -326,7 +326,7 @@ def _auto_execute_tool_nodes(
                 ns["tool_result_summary"] = str(result)[:2000]
                 missing = _missing_produces_artifacts(item.node)
                 if missing:
-                    # review-loop-nodekind-drift-fix §4-D: a declared
+                    # A declared
                     # produces: artifact that isn't on disk after the op
                     # ran is a fail-closed BLOCK, never a green node with
                     # no file (charter §2 — surface, never silently drop).
@@ -354,30 +354,30 @@ def _evaluate_autonomous_gate(
     run_state: RunState,
 ) -> Any:
     """The SINGLE-SOURCED dispatch from a DAG node id to a
-    ``review.autonomy`` disposition (NG-4b: previously duplicated inline
+    ``review.autonomy`` disposition (previously duplicated inline
     inside ``cmd_approve``'s ``--auto`` block AND absent entirely from the
     always-on runner — now used by BOTH so the four autonomous gates
     resolve identically whether triggered by an explicit ``--auto`` flag
     or by the self-advancing runner in ``_recompute_awaiting_go``).
 
-    ``coverage-gate`` additionally runs through the NG-4b item-2 live
+    ``coverage-gate`` additionally runs through a live
     coverage-deviation check (``classify_coverage_gate_with_deviation_check``)
     — the frozen-corpus stamp lives in ``run_state.meta``, which is why this
     function (unlike the pre-existing inline block) takes ``run_state``.
 
-    NG-6a extends the coverage-gate branch further: after
+    This extends the coverage-gate branch further: after
     ``classify_coverage_gate_with_deviation_check`` resolves a base
     disposition, ``review.remediation.resolve_coverage_gate`` may upgrade a
     backstop GO-WITH-RESIDUE to REMEDIATE (budget + last-wave signal); a
     REMEDIATE disposition is immediately driven to completion in-process by
     ``review.remediation.run_bounded_remediation`` (one or more bounded
-    rounds, §4.3's three independent termination bounds) before this
+    rounds, bounded by three independent termination limits) before this
     function returns — the caller (``_recompute_awaiting_go``/
     ``cmd_approve``) only ever sees a terminal (non-REMEDIATE) disposition.
-    A ``CorpusSchemaError`` (NG-6a §3, a malformed corpus row) raised
+    A ``CorpusSchemaError`` (a malformed corpus row) raised
     anywhere in this path is caught here and surfaced as HALT-DECLARE —
     never an uncaught exception that would crash the runner, and never a
-    silent stale-subset GO (the exact green-but-stale hole §3 fixes).
+    silent stale-subset GO (the exact green-but-stale hole this fixes).
     """
     from ..review import autonomy as _autonomy
     from ..review import check_saturation_backstop
@@ -412,7 +412,7 @@ def _evaluate_autonomous_gate(
             from ..review import corpus_freeze as _corpus_freeze
             from ..review import check_source_coverage
 
-            # NG-6a: stamp the explicit, versioned corpus_freeze baseline
+            # Stamp the explicit, versioned corpus_freeze baseline
             # (idempotent — a no-op after the first stamp). Reuses/mirrors
             # the SAME "frozen at coverage-gate's first evaluation" timing
             # #185's frozen_corpus_citekeys already uses (no corpus exists
@@ -461,7 +461,7 @@ def _evaluate_autonomous_gate(
             return _autonomy.DispositionResult(
                 _autonomy.HALT_DECLARE,
                 f"coverage-gate --auto: {e} — a malformed corpus row was "
-                "rejected loudly (NG-6a §3, never silently dropped); fix "
+                "rejected loudly (never silently dropped); fix "
                 "the row schema and re-evaluate.",
                 {"corpus_schema_error": str(e)},
             )
@@ -688,7 +688,7 @@ def _emit_next_phase(
     run_state: RunState,
     store: RunStore,
 ) -> None:
-    """NG-4b item 1 (+ auto-chain-review-manuscript): the self-advancing
+    """The self-advancing
     runner's phase-transition auto-emission. On a GO/GO-WITH-RESIDUE
     disposition at ``coverage-gate`` (review Phase-1 -> Phase-2),
     ``approve-framework`` (manuscript Phase-1 -> Phase-2), or
@@ -703,7 +703,7 @@ def _emit_next_phase(
     ``approve-review``'s handoff contract is **slug == review scope id, no
     transform** — the manuscript folder this emits into
     (``manuscripts/<scope_id>/``) is exactly the slug ``manuscript.cmd_new``'s
-    ``--from-review`` convention (NG-7 §2.6) already expects, which is what
+    ``--from-review`` convention already expects, which is what
     pre-binds the frozen corpus (``reviews/<scope_id>/_corpus.md``) to the
     new manuscript automatically.
 
@@ -861,15 +861,15 @@ def _recompute_awaiting_go(
     Three outcomes for a "await-go"-frontier node that is still "pending":
       - **approve-protocol** (or any other true human-go node, never one of
         ``_AUTONOMOUS_GATE_IDS``) — promoted to "awaiting-go" as before
-        (the one retained human gate, §1.1 — the run genuinely stops here
+        (the one retained human gate — the run genuinely stops here
         for a human keypress).
       - **An autonomous gate (coverage-gate / approve-framework /
-        approve-manuscript)** — NG-4b item 1: resolved AUTOMATICALLY via
+        approve-manuscript)** — resolved AUTOMATICALLY via
         ``_evaluate_autonomous_gate``, no external ``--auto`` call needed.
-        GO/GO-WITH-RESIDUE -> "succeeded" (+ ``_emit_next_phase``, item 1);
+        GO/GO-WITH-RESIDUE -> "succeeded" (+ ``_emit_next_phase``);
         HALT-DECLARE -> "blocked" (a first-class NOT-CLEARED artifact,
         never left sitting in "awaiting-go" looking like it needs a human);
-        REVISE -> promoted to "awaiting-go" same as a human gate (NG-5's
+        REVISE -> promoted to "awaiting-go" same as a human gate (the
         bounded auto-revise dispatch is a SEPARATE, agent-driven follow-up
         this runner cannot execute in-process — an LLM revise round is not
         a tool op).
@@ -1348,7 +1348,7 @@ def cmd_tick(args: argparse.Namespace) -> int:
 # Verb: complete
 # ---------------------------------------------------------------------------
 
-_FAILURE_SUMMARY_MAX_CHARS = 4000  # SR-RETRY: cap stored failure summaries (§5I.2)
+_FAILURE_SUMMARY_MAX_CHARS = 4000  # SR-RETRY: cap stored failure summaries
 
 
 def cmd_complete(args: argparse.Namespace) -> int:
@@ -1464,7 +1464,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
             ns["status"] = "pending"
             ns["completed_at"] = None
             ns["error"] = None
-            ns["started_at"] = None  # per §5I.5: reset for truthful per-attempt timing
+            ns["started_at"] = None  # reset for truthful per-attempt timing
 
             store.save(run_state)
             print(
@@ -1503,7 +1503,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
     if status == "succeeded" and "produces" in node:
         produces = node["produces"]
 
-        # NG-7 (next-gen lit-review design §2.2/§3.2): the outline pre-pass's
+        # The outline pre-pass's
         # cheap, rejects-only gate — ride at complete-time exactly like
         # check_framework_gate rides at approve-time (node-id-keyed gate
         # wiring, the established 3+-instance pattern). Only fires for the
@@ -1536,7 +1536,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                 print(
                     "  Fix: anchor every frozen branch to a real thesis-claim + "
                     ">=2 papers + the exemplar-move it imitates in _outline.md "
-                    "(NG-7, design §2.2/§3.2) — a cheap screen that catches a "
+                    "— a cheap screen that catches a "
                     "framework/corpus problem before the expensive whole-draft.",
                     file=sys.stderr,
                 )
@@ -1705,10 +1705,10 @@ def cmd_approve(args: argparse.Namespace) -> int:
     decision_note: str | None = getattr(args, "note", None) or None
     raw_outputs: list[str] = getattr(args, "output", None) or []
     reject: bool = bool(getattr(args, "reject", False))
-    # NG-4 §1: the autonomy flag — coverage-gate / approve-framework /
+    # The autonomy flag — coverage-gate / approve-framework /
     # approve-manuscript may be resolved by the gate-policy engine instead
     # of a human keypress. approve-protocol is NEVER eligible (the one
-    # retained human gate, §1.1) — see the AUTONOMOUS_GATE_IDS check below.
+    # retained human gate) — see the AUTONOMOUS_GATE_IDS check below.
     auto: bool = bool(getattr(args, "auto", False))
 
     try:
@@ -1756,7 +1756,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
         return 1
 
     # L-2 anti-fishing structural gate (task #33): the review loop's
-    # ``approve-protocol`` node (§5L.3 convention — see review/_build_phase1_manifest)
+    # ``approve-protocol`` node (see review/_build_phase1_manifest)
     # may not be approved unless the upstream ``review-scope`` node's
     # ``_protocol.md`` carries a non-empty ``counter-position`` field.
     #
@@ -1860,7 +1860,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 )
 
     # Saturation backstop surfacing (SR-LR-1-BACKSTOP): the review loop's
-    # ``coverage-gate`` node (§5L.4 phase boundary) reads ``stop_reason:`` off
+    # ``coverage-gate`` node (phase boundary) reads ``stop_reason:`` off
     # the ``review-snowball`` node's ``_saturation.md`` and, when the corpus
     # terminated via the wave-count backstop (bounded, NOT the primary
     # 2-consecutive-zero saturation rule), LOUDLY flags it to the approving
@@ -1962,12 +1962,12 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
-    # ── NG-4 §1 / NG-4b: autonomous-gate dispatch ──────────────────────────
+    # ── Autonomous-gate dispatch ────────────────────────────────────────────
     # coverage-gate / approve-framework / approve-manuscript / approve-review
     # may be resolved by the gate-policy engine (review/autonomy.py) instead
     # of a human keypress. approve-protocol is DELIBERATELY excluded — it is
-    # the one retained human gate (§1.1) and is never eligible for --auto.
-    # NG-4b: dispatch through the SAME `_evaluate_autonomous_gate` the
+    # the one retained human gate and is never eligible for --auto.
+    # Dispatch through the SAME `_evaluate_autonomous_gate` the
     # self-advancing runner uses (single-sourced, no drift between the
     # explicit --auto flag and the always-on runner path).
     if auto and not reject and node_id in _AUTONOMOUS_GATE_IDS:
@@ -1985,7 +1985,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
             print(
                 f"rv dag approve --auto: {node_id!r} needs a bounded auto-revise "
                 "round before it can autonomously GO — dispatch the revise node "
-                "and re-run `rv dag approve --auto` (NG-5). The node remains "
+                "and re-run `rv dag approve --auto`. The node remains "
                 "'awaiting-go' — no state change.",
                 file=sys.stderr,
             )
@@ -2001,13 +2001,13 @@ def cmd_approve(args: argparse.Namespace) -> int:
             # below (reject stays False) — the gate resolves autonomously.
             if decision_note is None:
                 decision_note = f"{_disposition_result.disposition} (auto): {_disposition_result.reason}"
-            # NG-4b item 1: an explicit `--auto` call gets the SAME
+            # An explicit `--auto` call gets the SAME
             # phase-transition auto-emission the always-on runner performs —
             # no behavior gap between "the loop resolved this gate on its
             # own tick" and "an operator explicitly drove --auto by hand".
             _emit_next_phase(node_id, manifest, manifest_path, run_state, store)
 
-    # K-3 freeze-set verify hook (§5K.5.1, SR-PLAN-1, SR-FREEZE-FIX).
+    # K-3 freeze-set verify hook (SR-PLAN-1, SR-FREEZE-FIX).
     #
     # When a covers:-freeze hash is stored in run_state.meta["plan_freeze"]
     # AND the node being approved is NOT the plan-freeze gate itself
@@ -2083,9 +2083,9 @@ def cmd_approve(args: argparse.Namespace) -> int:
     # Covers both approve (→ succeeded) and --reject (→ blocked).
     # Fail-closed: non-TTY + no valid token → return 1, state UNCHANGED.
     #
-    # NG-4 §1: an autonomous-gate node resolved via --auto (coverage-gate /
+    # An autonomous-gate node resolved via --auto (coverage-gate /
     # approve-framework / approve-manuscript) is DELIBERATELY exempt — the
-    # whole point of §1.1's autonomy program is that no human keypress is
+    # whole point of the autonomy program is that no human keypress is
     # required at these three gates; the gate-policy engine's disposition
     # (stamped in decision_note above) IS the authorizing decision, and it
     # is itself grounded in mechanical, reproducible gates. approve-protocol
@@ -2325,9 +2325,18 @@ def cmd_templates(args: argparse.Namespace) -> int:
         has_scaffolder = entry.scaffolder is not None
         print(f"  scaffolder exists: {'yes' if has_scaffolder else 'no'}")
         if entry.human_go_gates:
-            print(f"  human-go gates ({len(entry.human_go_gates)}):")
+            genuine = [g for g in entry.human_go_gates if not g.autonomous]
+            autonomous = [g for g in entry.human_go_gates if g.autonomous]
+            # The count reflects GENUINE human-keypress gates only — an
+            # autonomous gate (resolved by review.autonomy's gate-policy
+            # engine, no human keypress) must never inflate this number;
+            # doing so would contradict the very next line, which marks
+            # that same gate autonomous.
+            suffix = f" + {len(autonomous)} autonomous" if autonomous else ""
+            print(f"  human-go gates ({len(genuine)}{suffix}):")
             for g in entry.human_go_gates:
-                print(f"    [{g.node_id}] {g.label}")
+                marker = " [AUTONOMOUS — resolves without a human keypress]" if g.autonomous else ""
+                print(f"    [{g.node_id}]{marker} {g.label}")
                 if g.freeze_action:
                     print(f"      freeze: {g.freeze_action}")
         else:
@@ -2571,7 +2580,7 @@ def build_parser(
         default="succeeded",
         help="Completion status (default: succeeded).",
     )
-    # SR-RETRY: failure capture for diagnose-before-retry (§5I, D-RETRY-9)
+    # SR-RETRY: failure capture for diagnose-before-retry (D-RETRY-9)
     comp_p.add_argument(
         "--error",
         metavar="SUMMARY",
@@ -2647,15 +2656,15 @@ def build_parser(
         action="store_true",
         default=False,
         help=(
-            "NG-4: resolve this gate via the gate-policy engine "
+            "Resolve this gate via the gate-policy engine "
             "(review/autonomy.py) instead of a human keypress. Only valid on "
             "coverage-gate / approve-framework / approve-manuscript / "
-            "approve-review — the four autonomous gates (§1.1). "
+            "approve-review — the four autonomous gates. "
             "approve-protocol is NEVER eligible (the one retained human "
             "gate) and ignores --auto. "
             "GO/GO-WITH-RESIDUE -> approved; HALT-DECLARE -> rejected with "
             "the NOT-CLEARED reason recorded; REVISE -> exit 2, no state "
-            "change (dispatch a bounded auto-revise round first, NG-5)."
+            "change (dispatch a bounded auto-revise round first)."
         ),
     )
 
