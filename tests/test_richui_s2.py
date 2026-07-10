@@ -87,15 +87,15 @@ def test_render_approval_status_env_warning_surfaced():
 
 def test_render_project_list_table():
     projects = [
-        {"slug": "cultural-sim", "code": "csb", "roster": ["mason", "ada"], "source": "/x/csb"},
+        {"slug": "demo-sim", "code": "dsm", "roster": ["engineer", "researcher"], "source": "/x/dsm"},
         {"slug": "eval-bench", "code": "evb", "roster": [], "source": ""},
     ]
     before = copy.deepcopy(projects)
     text = _render(lambda con: richui.render_project_list(projects, console=con))
     assert projects == before
-    assert "cultural-sim" in text and "csb" in text
+    assert "demo-sim" in text and "dsm" in text
     assert "eval-bench" in text and "evb" in text
-    assert "mason" in text and "ada" in text
+    assert "engineer" in text and "researcher" in text
     assert "2 project(s)" in text
 
 

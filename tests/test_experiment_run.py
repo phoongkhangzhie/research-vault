@@ -168,10 +168,10 @@ def test_project_slug_feeds_wandb_init_project(tmp_path, monkeypatch):
 
     path = log_experiment_run(
         cfg, adapters, config_params={"model": "m"}, analysis_metrics=None,
-        run_fn=lambda mc: _feed_counter(mc), project_slug="cultural-social-sim",
+        run_fn=lambda mc: _feed_counter(mc), project_slug="demo-research",
     )
-    assert fake.init_calls[0][1] == "cultural-social-sim"  # (entity, project, name, config)
-    assert path.split("/")[1] == "cultural-social-sim"
+    assert fake.init_calls[0][1] == "demo-research"  # (entity, project, name, config)
+    assert path.split("/")[1] == "demo-research"
 
 
 def test_explicit_wandb_project_overrides_slug(tmp_path, monkeypatch):
@@ -183,7 +183,7 @@ def test_explicit_wandb_project_overrides_slug(tmp_path, monkeypatch):
 
     log_experiment_run(
         cfg, adapters, config_params={}, analysis_metrics=None,
-        run_fn=lambda mc: _feed_counter(mc), project_slug="cultural-social-sim",
+        run_fn=lambda mc: _feed_counter(mc), project_slug="demo-research",
     )
     assert fake.init_calls[0][0] == "acme"
     assert fake.init_calls[0][1] == "override"

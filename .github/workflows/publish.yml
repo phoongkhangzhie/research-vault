@@ -14,7 +14,6 @@ jobs:
     # WARN in local/CI-push mode (scripts/ci_dogfood_checks.sh) but HARD here
     # (--release), on rv's own repo — a real tag push must not publish a
     # release missing/invalid CITATION.cff or LICENSE.
-    # See docs/superpowers/specs/2026-07-07-code-conventions-design.md §8.
     name: Release-blocking code-conventions gate
     runs-on: ubuntu-latest
 

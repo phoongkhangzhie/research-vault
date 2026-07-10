@@ -4,16 +4,25 @@
 # Exit 0 = clean (safe to ship).  Exit 1 = private marker found (RED BUILD).
 #
 # Usage:
-#   ./scripts/leakage_scan.sh [directory]             # default: doctrine/ (CI mode)
-#   ./scripts/leakage_scan.sh --staged                # scan only git-staged files (pre-commit)
-#   ./scripts/leakage_scan.sh --staged --secrets-only # staged, class 5 only (project-repo profile)
+#   ./scripts/leakage_scan.sh [directory]               # default: doctrine/ (CI mode)
+#   ./scripts/leakage_scan.sh --staged                  # scan only git-staged files (pre-commit)
+#   ./scripts/leakage_scan.sh --staged --secrets-only   # staged, class 5 only (project-repo profile)
+#   ./scripts/leakage_scan.sh tests --codenames-only    # tests/ scan, class 1 only (see below)
 #
 # Flags (order-independent, may come before or after the directory argument):
-#   --staged        Scan only files staged for commit (`git diff --cached --name-only`)
-#                   instead of recursing over a directory. Fast; scans what's being committed.
-#   --secrets-only  Run only class 5 (secret-shaped strings). Used for project-repo pre-commit
-#                   profiles where private-marker classes 1-4,6-9 gate the researcher's own
-#                   possibly-private content (which must NOT be gated by codename checks).
+#   --staged          Scan only files staged for commit (`git diff --cached --name-only`)
+#                     instead of recursing over a directory. Fast; scans what's being committed.
+#   --secrets-only    Run only class 5 (secret-shaped strings). Used for project-repo pre-commit
+#                     profiles where private-marker classes 1-4,6-9 gate the researcher's own
+#                     possibly-private content (which must NOT be gated by codename checks).
+#   --codenames-only  Run ONLY class 1 (private project codenames). Used for scanning tests/
+#                     in CI: tests/*.py legitimately contain fake secrets (test_keys_registry.py,
+#                     test_onboard_verb.py — sk-ant-* fixtures for masking-behavior tests),
+#                     casual operator-name comments (class 2), and versioned-model-id fixtures
+#                     (class 6) that are NOT leaks — they're accepted test-fixture conventions.
+#                     Running the FULL scan over tests/ would flood with those false positives;
+#                     the actual root-cause bug (class-1 codenames like "cultural-social-sim"
+#                     landing in tests/test_config.py etc.) needs only class 1's narrower net.
 #
 # Marker classes:
 #   1. Private project codenames  (cultural-social-sim, csb, dossier)
@@ -25,7 +34,12 @@
 #   7. Placeholder-template lint  (memory.md files must not contain real private journal content)
 #   8. Real citekeys              (Pandoc [@key] citations reveal private bibliography)
 #   9. Real projects.json entries (private project registry slugs/codes not in class 1)
-#  10. Crew narrative-names in .py (Ada/Wren/Mason/Argus/Iris/Atlas must not appear in Python source)
+#  10. Crew narrative-names in .py (Ada/Wren/Mason/Argus/Iris/Atlas must not appear in Python
+#      source). Scoped away from tests/ (in addition to src/-only CI wiring): these names are
+#      ALSO the framework's own shipped git-identity + role-alias convention (doctrine/
+#      git-discipline.md's `--as mason` example, doctrine/roles/*.md), which the test suite
+#      legitimately exercises (git-identity tests, entry_id fixtures, role-doc cross-refs).
+#      tests/ is never shipped in the wheel, so this cannot leak into the published package.
 #  11. Private local dev-paths (~/vault, docs/superpowers/ internal-spec refs) — a shipped
 #      doctrine/root .md file that cites an author-local path (the operator's hub instance
 #      or its internal, unshipped spec directory) tells an adopter to go look at a path they
@@ -35,19 +49,24 @@
 #      append-only entries predate this class and are not rewritten for cosmetic scrubbing).
 #
 # Self-exclusion: the scanner skips itself, ci.yml, and the test file
-# (all three intentionally list the marker strings).
+# (all three intentionally list the marker strings). tests/test_git_discipline.py is also
+# self-excluded — like tests/test_leakage_scan.py, its fixtures must contain the REAL class-1
+# codename literals (cultural-social-sim etc.) to prove the framework-repo-vs-project-repo
+# scanning-profile distinction actually fires; this is the detector's own test, not a leak.
 
 set -uo pipefail
 
 # ── Flag parsing ──────────────────────────────────────────────────────────────
 STAGED=0
 SECRETS_ONLY=0
+CODENAMES_ONLY=0
 TARGET=""
 
 for arg in "$@"; do
     case "$arg" in
-        --staged)        STAGED=1 ;;
-        --secrets-only)  SECRETS_ONLY=1 ;;
+        --staged)          STAGED=1 ;;
+        --secrets-only)    SECRETS_ONLY=1 ;;
+        --codenames-only)  CODENAMES_ONLY=1 ;;
         -*)
             echo "leakage_scan.sh: unknown flag: $arg" >&2
             exit 2
@@ -59,6 +78,11 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+if [ "$SECRETS_ONLY" -eq 1 ] && [ "$CODENAMES_ONLY" -eq 1 ]; then
+    echo "leakage_scan.sh: --secrets-only and --codenames-only are mutually exclusive" >&2
+    exit 2
+fi
 
 # Default target for directory mode
 if [ -z "$TARGET" ] && [ "$STAGED" -eq 0 ]; then
@@ -248,14 +272,24 @@ _grep_re() {
 _grep_py_word() {
     # _grep_py_word LABEL WORD  — whole-word, case-insensitive, .py files only.
     # Used for class 10 (crew narrative-names) so role docs (*.md) are not flagged.
+    #
+    # tests/ is ALSO excluded (in addition to SKIP_PATTERN) — mason/wren/ada/argus/
+    # iris/atlas are the framework's own shipped git-identity + role-alias convention
+    # (see doctrine/git-discipline.md's `--as mason` example, doctrine/roles/*.md),
+    # not just session-narrative crew slang. The test suite legitimately exercises
+    # that convention (git-identity tests, entry_id fixtures, role-doc cross-refs) —
+    # and tests/ is never shipped in the wheel (see pyproject.toml build artifacts),
+    # so a crew-name in a test file cannot leak into the published package. Class 10
+    # stays scoped to real shipped Python source (src/), where CI already runs it.
     local label="$1" word="$2"
     local found
+    local TESTS_EXCLUDE='(^|/)tests/'
     if [ "$STAGED" -eq 1 ]; then
         found=$(echo "$STAGED_FILES" | grep '\.py$' | xargs -I{} grep -nH -wi "$word" {} 2>/dev/null \
-                | grep -Ev "$SKIP_PATTERN" || true)
+                | grep -Ev "$SKIP_PATTERN" | grep -Ev "$TESTS_EXCLUDE" || true)
     else
         found=$(grep -rn --include="*.py" -wi "$word" "$TARGET" 2>/dev/null \
-                | grep -Ev "$SKIP_PATTERN" || true)
+                | grep -Ev "$SKIP_PATTERN" | grep -Ev "$TESTS_EXCLUDE" || true)
     fi
     if [ -n "$found" ]; then
         echo "$found"
@@ -360,8 +394,12 @@ _grep_literal_except() {
     fi
 }
 
-# ── Class 5 always runs (secrets scan applies everywhere) ────────────────────
-# Run this block always (both modes); the other classes are skipped in --secrets-only.
+# ── Class 5 always runs (secrets scan applies everywhere) — EXCEPT --codenames-only ──
+# Run this block in the two full-scan modes (plain + --secrets-only); skipped only in
+# --codenames-only, which scans tests/ (see flag doc above) where sk-ant-* fake-secret
+# test fixtures (test_keys_registry.py, test_onboard_verb.py, etc.) are legitimate and
+# would otherwise flood the scan with false positives unrelated to the codename class.
+if [ "$CODENAMES_ONLY" -eq 0 ]; then
 
 # ── Class 5: Secret-shaped strings ───────────────────────────────────────────
 # Known secret env-var names used in private bridge config
@@ -370,13 +408,19 @@ _grep_literal "secret/WEBHOOK_SECRET"  "WEBHOOK_SECRET"
 # Anthropic API-key prefix in plain text
 _grep_re      "secret/sk-ant"          "sk-ant-[A-Za-z0-9_-]+"
 
+fi  # end CODENAMES_ONLY-skips-class-5 block
+
 # ── Private-marker classes (framework-repo-only; skipped in --secrets-only) ──
 if [ "$SECRETS_ONLY" -eq 0 ]; then
 
 # ── Class 1: Private project codenames ───────────────────────────────────────
+# Runs in both the full scan AND --codenames-only mode.
 _grep_literal "codename/cultural-social-sim" "cultural-social-sim"
 _grep_word    "codename/csb"                 "csb"
 _grep_word    "codename/dossier"             "dossier"
+
+# ── Classes 2-11: skipped in --codenames-only (see flag doc above) ──────────
+if [ "$CODENAMES_ONLY" -eq 0 ]; then
 
 # ── Class 2: Private identity strings ────────────────────────────────────────
 # The author/maintainer entry in pyproject.toml is public PyPI metadata and is
@@ -481,6 +525,8 @@ _grep_py_word "crew-name/atlas"  "atlas"
 DEVLOG_EXEMPT='(^|/)DEVLOG\.md$'
 _grep_literal_non_py_except "path/tilde-vault"       "~/vault"           "$DEVLOG_EXEMPT"
 _grep_literal_non_py_except "path/docs-superpowers"  "docs/superpowers/" "$DEVLOG_EXEMPT"
+
+fi  # end CODENAMES_ONLY-skips-classes-2-11 block
 
 fi  # end SECRETS_ONLY=0 block
 

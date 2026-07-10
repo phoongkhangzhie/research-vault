@@ -166,7 +166,7 @@ def test_minimal_config_derives_paths_from_instance_root(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestResolveRepoRoot:
-    """The csb C6 backfill surfaced: `rv orient`/`rv status` resolved
+    """A downstream project backfill surfaced: `rv orient`/`rv status` resolved
     pointers.md/architecture.md relative to source_dir even when the
     CS-project convention (doctrine/project-structure.md) places them at
     the repo root (source_dir.parent, when source_dir = <repo>/notes)."""

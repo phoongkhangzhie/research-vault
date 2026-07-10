@@ -102,6 +102,18 @@ jobs:
       - name: Check for crew narrative-names in src/ Python source
         run: bash scripts/leakage_scan.sh src/research_vault
 
+      # Root-cause fix: tests/ was never scanned by ANY class, so real private
+      # codenames (cultural-social-sim, csb) leaked into shipped test files
+      # (test_config.py, test_experiment_run.py, etc.) undetected. tests/ is not
+      # shipped in the wheel, but it IS a public tracked file in the OSS repo, so
+      # class-1 codenames in it are still a real leak of private project identity.
+      # Scoped to --codenames-only (class 1 alone): tests/*.py legitimately
+      # contains fixtures that would false-positive under the other classes (fake
+      # sk-ant-* secrets, casual "Khang" attribution comments, model-id regex
+      # fixtures) — see scripts/leakage_scan.sh's flag doc for the full rationale.
+      - name: Check for private codenames in tests/
+        run: bash scripts/leakage_scan.sh tests --codenames-only
+
   # ── help --check gate ───────────────────────────────────────────────────────
   help-check:
     name: rv help --check

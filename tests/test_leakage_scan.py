@@ -94,6 +94,15 @@ def write_doc(tmp_path: Path, content: str, filename: str = "test.md") -> Path:
     return f
 
 
+def run_scan_with_flags(directory: Path, *flags: str) -> subprocess.CompletedProcess:
+    """Run leakage_scan.sh against *directory* with extra CLI flags (e.g. --codenames-only)."""
+    return subprocess.run(
+        ["/bin/bash", str(SCRIPT), str(directory), *flags],
+        capture_output=True,
+        text=True,
+    )
+
+
 def run_scan_bare_file(file_path: Path) -> subprocess.CompletedProcess:
     """Run leakage_scan.sh against a BARE FILE path (not its parent directory).
 
@@ -976,3 +985,80 @@ def test_red_on_email_in_non_pyproject_md(tmp_path):
     """
     write_doc(tmp_path, "Contact the maintainer at phoongkz@gmail.com for support.\n")
     assert_red(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# tests/ codename coverage (--codenames-only) — the root-cause fix.
+#
+# Before this fix, tests/ was never scanned by ANY class in CI, so real private
+# codenames (cultural-social-sim, csb) leaked into shipped test files
+# (test_config.py, test_experiment_run.py, tests/test_observability.py, etc.)
+# undetected — a green leakage-scan job that had no teeth for this class.
+# These tests prove: (a) the gap is now closed for a NORMAL test file, (b) the
+# detector's own fixture files (test_leakage_scan.py, test_git_discipline.py)
+# remain narrowly allowlisted — not a broad tests/ exclusion.
+# ---------------------------------------------------------------------------
+
+
+def test_red_on_codename_in_normal_test_file(tmp_path):
+    """A private codename planted in an ordinary test file (mirroring the real
+    test_config.py leak) is caught by --codenames-only over a tests/ dir."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_config.py").write_text(
+        'PROJECT_SLUG = "cultural-social-sim"  # planted leak\n'
+    )
+    result = run_scan_with_flags(tmp_path, "--codenames-only")
+    assert_red(result)
+    assert "test_config.py" in result.stdout
+
+
+def test_green_on_codenames_only_scrubbed_tests_dir(tmp_path):
+    """The same tests/ dir, scrubbed, passes --codenames-only clean."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_config.py").write_text('PROJECT_SLUG = "demo-research"\n')
+    assert_green(run_scan_with_flags(tmp_path, "--codenames-only"))
+
+
+def test_green_on_test_leakage_scan_py_own_fixtures_under_codenames_only(tmp_path):
+    """The detector's OWN fixture file (test_leakage_scan.py) is narrowly
+    allowlisted — its legitimate codename markers must NOT trip --codenames-only,
+    even though a sibling test file with the same string would (previous test)."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_leakage_scan.py").write_text(
+        'CODENAME_FIXTURE = "cultural-social-sim"  # legitimate detector fixture\n'
+    )
+    assert_green(run_scan_with_flags(tmp_path, "--codenames-only"))
+
+
+def test_green_on_test_git_discipline_py_own_fixtures_under_codenames_only(tmp_path):
+    """tests/test_git_discipline.py is the OTHER legitimate detector-fixture file
+    (it exercises the framework-repo-vs-project-repo scanning-profile split, which
+    requires the REAL class-1 literal to prove class 1 fires/doesn't-fire) — also
+    narrowly allowlisted by exact filename, not swept in by a broad tests/ exclusion."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_git_discipline.py").write_text(
+        'FIXTURE = "cultural-social-sim"  # legitimate detector fixture\n'
+    )
+    assert_green(run_scan_with_flags(tmp_path, "--codenames-only"))
+
+
+def test_red_on_codenames_only_does_not_broadly_exempt_other_tests_files(tmp_path):
+    """Sanity: --codenames-only's allowlist is EXACT-FILE, not a tests/-wide
+    exclusion — a third, differently-named test file with the same leak still
+    fires even when test_leakage_scan.py (clean here) sits right next to it."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_leakage_scan.py").write_text(
+        'CODENAME_FIXTURE = "cultural-social-sim"  # legitimate detector fixture\n'
+    )
+    (tests_dir / "test_experiment_run.py").write_text(
+        'project_slug = "cultural-social-sim"  # NOT a legitimate fixture\n'
+    )
+    result = run_scan_with_flags(tmp_path, "--codenames-only")
+    assert_red(result)
+    assert "test_experiment_run.py" in result.stdout
+    assert "test_leakage_scan.py:" not in result.stdout
