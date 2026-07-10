@@ -786,8 +786,8 @@ def _parse_deviation_blocks(deviations_path: Path) -> list[dict[str, Any]]:
         rationale_m = re.search(r"\*\*Rationale:\*\*\s*(.*)", section, re.DOTALL)
         rationale = rationale_m.group(1).strip() if rationale_m else ""
 
-        # NG-6a: the optional **Kind:** line (record_deviation(kind=...)) —
-        # "" for a pre-NG-6a / kind=None deviation (back-compat, no-op).
+        # The optional **Kind:** line (record_deviation(kind=...)) —
+        # "" for an older / kind=None deviation (back-compat, no-op).
         kind_m = re.search(r"^\*\*Kind:\*\*\s*(.*)$", section, re.MULTILINE)
         kind = kind_m.group(1).strip() if kind_m else ""
 
@@ -814,13 +814,12 @@ def render_prisma_ledger(
     no LLM, no invented numbers; this is a sibling to ``coverage_report``
     itself (design §4).
 
-    NG-4b item 5 (NG-6b, scoped — see the module-level test file's docstring
-    for the grounded scoping note vs the design doc's full NG-6a dependency):
-    when ``deviations_path`` points at a real ``_deviations.md``
-    (``review.autonomy.record_deviation``'s output), every declared
-    scope/membership deviation renders as an explicit denominator-change row
-    — the PRISMA "records excluded, with reasons" row, made real (§1.5
-    requirement 2). A corpus that changed size with NO deviation section is
+    Deliberately scoped — see the module-level test file's docstring for the
+    grounded scoping note: when ``deviations_path`` points at a real
+    ``_deviations.md`` (``review.autonomy.record_deviation``'s output),
+    every declared scope/membership deviation renders as an explicit
+    denominator-change row — the PRISMA "records excluded, with reasons"
+    row, made real. A corpus that changed size with NO deviation section is
     silently unremarkable (nothing to show is the correct no-op); the point
     is that a declared change is never buried behind a bare final count.
 
@@ -834,7 +833,7 @@ def render_prisma_ledger(
     Returns:
         Markdown PRISMA-style ledger.
 
-    sr: PR-M6, NG-6b
+    sr: PR-M6
     """
     counts = coverage.get("counts", {}) if coverage else {}
     if not coverage or not coverage.get("corpus_citekeys"):
@@ -959,7 +958,7 @@ def render_comparison_table(rows: list[dict[str, str]]) -> str:
 def render_provenance_header() -> str:
     """Render the RD-3 provenance blockquote (2-3 lines, no hash/no counts).
 
-    RD-3 (next-gen lit-review design §6): a short, mechanical, hash-free
+    RD-3: a short, mechanical, hash-free
     provenance statement for the top of the assembled document. The corpus
     hash and any reconciliation flags route to the control note / DEVLOG —
     NEVER the manuscript body (the RD-5 reader-hygiene leak-gate structurally
@@ -969,11 +968,11 @@ def render_provenance_header() -> str:
     per-survey counts/funnel/saturation-stop detail lives in Appendix A
     (``render_prisma_ledger``), never fabricated here.
 
-    ★ NG-6a dependency (flagged, not silently resolved): the appendix's
+    ★ Dependency (flagged, not silently resolved): the appendix's
     PRISMA counts are only as fresh as the frozen ``_corpus.md`` /
     ``coverage_report`` this reads — the known tool-vs-corpus count
     reconciliation bug (green-but-stale after a remediation append) is fixed
-    by NG-6a's ``rv review refresh`` verb (Wave C), NOT by this wave. RD-3's
+    by the ``rv review refresh`` verb (Wave C), NOT by this wave. RD-3's
     appendix-move must not ship as if it silently fixed that bug — it only
     relocates WHERE an (already-correct-or-not) count is displayed.
 
@@ -1066,8 +1065,8 @@ def source_transform(
 _THEMATIC_BRIEF = (
     "Draft the thematic sections — one per the frozen framework's top-level "
     "branches (`branches:` in `_manuscript.md`, approved at `approve-framework`). "
-    "This brief is STRUCTURALLY BINDING (design §3.1 — the §5J rule, generalized "
-    "to every thematic section):\n\n"
+    "This brief is STRUCTURALLY BINDING, generalized "
+    "to every thematic section:\n\n"
     "1. FORBID the per-paper paragraph. A paragraph citing exactly ONE source "
     "with no comparison is an annotated-bibliography unit, not a survey — the "
     "review board's SYNTHESIS-VS-ENUMERATION adversary (design §11.2) flags "
@@ -1267,10 +1266,10 @@ SECTION_SET: tuple[SectionSpec, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# NG-7 (next-gen lit-review design §2): single-pass Phase-2 — outline -> draft
-# -> assemble, replacing the type-generic per-section chain. SECTION_SET +
+# Single-pass Phase-2 — outline -> draft
+# -> assemble, replacing an earlier type-generic per-section chain. SECTION_SET +
 # STYLE_BRIEFS above stay the SOURCE DATA (one writer's brief now
-# CONSOLIDATES them, rather than one DAG node per section — design §2.6:
+# CONSOLIDATES them, rather than one DAG node per section:
 # "the mechanical injections that were spread across per-section briefs ...
 # now inject into ONE brief + the outline").
 # ---------------------------------------------------------------------------
@@ -1319,12 +1318,10 @@ _RD6_STYLE_RULES = (
 
 
 def _get_single_pass_corpus_ceiling(config: Any = None) -> int:
-    """Resolve ``single_pass_corpus_ceiling`` (design §2.4, D3).
+    """Resolve ``single_pass_corpus_ceiling`` (D3).
 
     Adopter override: ``[manuscript_lit_review] single_pass_corpus_ceiling``.
     Falls back to the conservative shipped default.
-
-    sr: NG-lit-review-waveB (NG-7)
     """
     if config is not None:
         raw = getattr(config, "_raw", {})
@@ -1352,18 +1349,16 @@ def render_relations_ledger(
     *,
     config: Any = None,
 ) -> str:
-    """PR-2's consume seam (Wave 0) for the single-pass draft brief (NG-7).
+    """PR-2's consume seam (Wave 0) for the single-pass draft brief.
 
     Traverses the corpus-wide paper->paper typed-edge listing
     (``review.relations_report``) — mechanical, zero-hallucination DATA the
     drafter reads instead of re-deriving the comparative spine from prose
-    (design §5's net simplification: "less inference, more structure").
+    ("less inference, more structure").
 
     ``relations_report`` unavailable/erroring (e.g. no literature/ dir yet)
     degrades to an honest empty-ledger note, never an exception that blocks
     the whole manifest build.
-
-    sr: NG-lit-review-waveB (NG-7)
     """
     from research_vault.review import relations_report
 
@@ -1406,7 +1401,7 @@ def render_relations_ledger(
 
 
 def check_outline_gate(outline_path: Path, branches: list[str]) -> list[str]:
-    """NG-7's cheap, rejects-only outline pre-pass gate (design §2.2/§3.2).
+    """The cheap, rejects-only outline pre-pass gate.
 
     A cheap screen that can only REJECT (charter §9): before the expensive
     whole-draft runs, confirm every frozen branch is anchored to something
@@ -1416,11 +1411,10 @@ def check_outline_gate(outline_path: Path, branches: list[str]) -> list[str]:
     Checks, per frozen branch:
       1. the branch name appears in the outline (an anchored thesis-claim).
       2. SOMEWHERE in the outline, an exemplar-move citation is present
-         (design §3.2's enforcement hook — an ``eNN`` id reference, e.g.
-         "imitates e07") — an outline section with no exemplar-move
-         reference is incomplete.
+         (an ``eNN`` id reference, e.g. "imitates e07") — an outline section
+         with no exemplar-move reference is incomplete.
       3. at least 2 distinct ``[[citekey]]`` paper references appear overall
-         (design §2.2: "the >=2 papers it will compare").
+         ("the >=2 papers it will compare").
 
     Args:
         outline_path: path to ``_outline.md``.
@@ -1430,15 +1424,13 @@ def check_outline_gate(outline_path: Path, branches: list[str]) -> list[str]:
         A list of finding strings (empty = OK). Never raises — a missing
         file is a finding, not an exception (mirrors the OKF-type/relate-
         presence gate's structural posture).
-
-    sr: NG-lit-review-waveB (NG-7)
     """
     import re
 
     if not outline_path.exists():
         return [
             f"outline gate: {outline_path} not found — the outline pre-pass "
-            f"must produce _outline.md before `draft` may proceed (design §2.2)."
+            f"must produce _outline.md before `draft` may proceed."
         ]
 
     try:
@@ -1499,23 +1491,21 @@ def phase2_builder(
     manuscript_fields: dict[str, Any] | None = None,
     config: Any = None,
 ) -> dict[str, Any]:
-    """NG-7: build the single-pass Phase-2 manifest — outline -> draft ->
-    assemble -> [HG: approve-manuscript] (design §2.2).
+    """Build the single-pass Phase-2 manifest — outline -> draft ->
+    assemble -> [HG: approve-manuscript].
 
     Default topology (corpus at/under ``single_pass_corpus_ceiling``, D3):
       outline -> draft -> assemble -> approve-manuscript
 
-    Above the ceiling (D3's fan-out path, design §2.4): drafting itself fans
-    out per-branch, with a coherence node (label-manifest check, design
-    §2.5) that reads all branch drafts and revises for cross-section
+    Above the ceiling (D3's fan-out path): drafting itself fans
+    out per-branch, with a coherence node (label-manifest check)
+    that reads all branch drafts and revises for cross-section
     consistency before assemble:
       outline -> draft-<branch-1> ... draft-<branch-N> -> coherence -> assemble
       -> approve-manuscript
 
     Matches the ``ManuscriptType.phase2_builder`` signature
     (``manuscript/types/__init__.py``).
-
-    sr: NG-lit-review-waveB (NG-7)
     """
     from research_vault.manuscript.style import (
         get_manuscript_section_tips,
@@ -1548,7 +1538,7 @@ def phase2_builder(
         principle_block = _exemplars.build_principle_anchor_block(exemplar_blocks)
         if principle_block:
             preamble = preamble.rstrip() + "\n\n---\n\n" + principle_block
-        # NG-8 §3.3: the same pre-dispatch presence assertion as the
+        # The same pre-dispatch presence assertion as the
         # generic-chain path — a hand-rolled consolidated brief that
         # dropped a mapped section's pointer fails loudly here too.
         for section_key in tips:
@@ -1581,7 +1571,7 @@ def phase2_builder(
 
     outline_spec = (
         preamble.rstrip() + "\n\n---\n\n"
-        "Outline pre-pass (NG-7, design §2.2) — a CHEAP, rejects-only screen. "
+        "Outline pre-pass — a CHEAP, rejects-only screen. "
         "For EACH frozen branch (`branches:` in `_manuscript.md`), write a "
         "block in `_outline.md` naming: (1) the section's thesis-claim, (2) "
         "the `concepts/`/`gaps/` anchors it will marshal, (3) the >=2 papers "
@@ -1595,7 +1585,7 @@ def phase2_builder(
     draft_brief = _build_consolidated_draft_brief(tips)
     draft_spec = (
         preamble.rstrip() + "\n\n---\n\n"
-        "Single-pass whole-survey draft (NG-7, design §2.2): ONE subagent "
+        "Single-pass whole-survey draft: ONE subagent "
         "drafts EVERY section below against `_outline.md`, holding the "
         "entire survey in view for coherence. Read `_outline.md` first — "
         "every frozen branch must already be anchored there (the outline "
@@ -1621,7 +1611,7 @@ def phase2_builder(
         {
             "id": "outline",
             "type": "agent",
-            "label": "Outline pre-pass — cheap, rejects-only (NG-7)",
+            "label": "Outline pre-pass — cheap, rejects-only",
             "spec": outline_spec,
             "reads": common_reads,
             "produces": {"_outline.md": str(outline_path)},
@@ -1634,16 +1624,16 @@ def phase2_builder(
         nodes.append({
             "id": "draft",
             "type": "agent",
-            "label": "Single-pass whole-survey draft (NG-7)",
+            "label": "Single-pass whole-survey draft",
             "spec": draft_spec,
             "reads": common_reads,
             "needs": [_afterok("outline")],
         })
         last_draft_id = "draft"
     else:
-        # D3's fan-out-above-ceiling path (design §2.4): per-branch drafters
+        # D3's fan-out-above-ceiling path: per-branch drafters
         # + a coherence node that reads all of them + a label-manifest check
-        # (design §2.5 — the residual `\label`/`\ref` drift case).
+        # (the residual `\label`/`\ref` drift case).
         branch_ids: list[str] = []
         for branch in branches or ["survey"]:
             branch_slug = "".join(c if c.isalnum() or c == "-" else "-" for c in branch.lower())
@@ -1651,7 +1641,7 @@ def phase2_builder(
             nodes.append({
                 "id": node_id,
                 "type": "agent",
-                "label": f"Fan-out draft for branch {branch!r} (above single_pass_corpus_ceiling, NG-7 §2.4)",
+                "label": f"Fan-out draft for branch {branch!r} (above single_pass_corpus_ceiling)",
                 "spec": draft_spec + f"\n\n---\n\nYou are drafting ONLY the {branch!r} branch this pass.",
                 "reads": common_reads,
                 "needs": [_afterok("outline")],
@@ -1661,10 +1651,10 @@ def phase2_builder(
         nodes.append({
             "id": "coherence",
             "type": "agent",
-            "label": "Coherence pass — cross-section consistency + label-manifest check (NG-7 §2.5)",
+            "label": "Coherence pass — cross-section consistency + label-manifest check",
             "spec": (
                 preamble.rstrip() + "\n\n---\n\n"
-                "Coherence pass (design §2.4/§2.5): read every branch draft "
+                "Coherence pass: read every branch draft "
                 "under `sections/`, revise for cross-section consistency, and "
                 "run the LABEL-MANIFEST CHECK — every `\\label{}`/`[[#anchor]]` "
                 "a section declares vs. every one another section refs must "
@@ -1699,7 +1689,7 @@ def phase2_builder(
     return {
         "run_id": f"manuscript-{slug}-phase2",
         "project": project,
-        "name": f"Manuscript Phase-2 (lit-review, single-pass NG-7): {slug}",
+        "name": f"Manuscript Phase-2 (lit-review, single-pass): {slug}",
         "global_cap": 1,
         "nodes": nodes,
     }
@@ -1729,7 +1719,7 @@ LIT_REVIEW = ManuscriptType(
         "synthesis-vs-enumeration-adversary",
     ),
     canaries=(),                             # PR-M8: strong / weak / annotated-bib (§11.3)
-    phase2_builder=phase2_builder,          # NG-7 — single-pass outline->draft->assemble
+    phase2_builder=phase2_builder,          # single-pass outline->draft->assemble
 )
 
 register_type(LIT_REVIEW)
