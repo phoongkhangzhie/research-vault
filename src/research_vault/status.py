@@ -375,7 +375,7 @@ def _build_attention(project: str, cfg: Config) -> list[str]:
     except Exception:
         pass
 
-    # --- Open gap count (SR-LR-2 §5L.7 D-GAP-4) ---
+    # --- Open gap count (§5L.7 D-GAP-4) ---
     # Surfaces the COUNT only — never inlines gap records into the control bus.
     # A non-zero count is a prompt to run `rv review gap-scope` + human-go.
     try:

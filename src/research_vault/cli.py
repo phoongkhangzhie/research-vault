@@ -602,7 +602,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "`review-synthesize` → `review-coverage-critic` → `approve-review` (auto-resolved)). "
             "Use `rv review <project> list` to enumerate all reviews. "
             "Use `rv review <project> tips [--key <key>]` to inspect the review_tips seam. "
-            "SR-LR-2 gap-driven pass (§5L.7): use `rv review <project> gap-scan` to "
+            "Gap-driven pass (§5L.7): use `rv review <project> gap-scan` to "
             "detect typed research gaps (knowledge_void, contradictory, evaluation_void) "
             "from the OKF corpus. "
             "Each gap note gets a suggested_route: field (literature|experiment|triage). "

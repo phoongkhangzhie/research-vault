@@ -182,7 +182,7 @@ def _default_project(cfg: Config) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Corpus-dedup index helpers (SR-LR-1 prerequisite)
+# Corpus-dedup index helpers
 # ---------------------------------------------------------------------------
 
 def _normalize_doi(doi: str | None) -> str | None:
@@ -487,7 +487,7 @@ def _print_candidates(
     extended by rv-refs-corpus-fix to mine `url:`) and/or notes_title_index
     (title+author fallback — rv-refs-corpus-fix) is provided, each candidate is
     annotated [IN-CORPUS:<citekey>] or [NEW] so the lit-review saturation
-    stopping rule (SR-LR-1) can detect when a snowball round adds no new papers.
+    stopping rule can detect when a snowball round adds no new papers.
     """
     print(f"\n{len(papers)} candidate(s)\n")
     for p in papers:
