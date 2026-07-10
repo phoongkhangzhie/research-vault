@@ -829,10 +829,12 @@ def _evaluate_autonomous_gate(
             # ``_default_relate_fn`` called ``gates._llm`` directly,
             # doctrine-violating; PR-F deleted that path wholesale).
             #
-            # The fan-out is async + two-phase, so it CANNOT live inside
-            # ``run_bounded_critic_backtrack``'s single in-process loop (that
-            # loop assumed a synchronous ``relate_fn`` and drove the whole
-            # resolve->round->re-resolve cycle to completion in one call).
+            # The fan-out is async + two-phase, so it CANNOT live inside a
+            # single synchronous in-process loop assuming a synchronous
+            # ``relate_fn`` that drives the whole resolve->round->re-resolve
+            # cycle to completion in one call (PR-3b removed exactly that
+            # shell — ``review.remediation.run_bounded_critic_backtrack`` —
+            # once this DAG-level round-stepping replaced it).
             # This DAG layer instead drives round-stepping itself, pausing
             # between rounds to emit a batched relate-task set and, on a
             # LATER invocation (once the hub's cold judges have written
@@ -852,8 +854,9 @@ def _evaluate_autonomous_gate(
             judge_dir = review_dir / "judge" / "relate"
 
             # The pole is resolved ONCE from the triggering critic_payload
-            # and reused for every round this backtrack drives — mirrors
-            # ``run_bounded_critic_backtrack``'s own (unchanged) behavior.
+            # and reused for every round this backtrack drives — same
+            # single-pole-per-backtrack behavior as the removed synchronous
+            # shell it replaced.
             target = payload.get("remediation_target") or {}
             pole = target.get("pole")
 

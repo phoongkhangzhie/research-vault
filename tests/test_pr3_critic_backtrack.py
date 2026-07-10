@@ -4,9 +4,16 @@ to hand-direct).
 
 Design of record: the PR-3 remediation brief (rv-architect, 2026-07-10) —
 wires review.check_coverage_critic_verdict's remediation_target,
-review.remediation.resolve_coverage_critic/run_directed_remediation_round/
-run_bounded_critic_backtrack, and their approve-review wiring in
-dag/verbs.py.
+review.remediation.resolve_coverage_critic/run_directed_remediation_round,
+and their approve-review wiring in dag/verbs.py.
+
+PR-3b (Shape B) removed ``review.remediation.run_bounded_critic_backtrack``
+(the synchronous in-process backtrack loop) — the round-stepping is now
+driven directly by ``dag/verbs.py``'s approve-review branch, pausing
+between rounds for the harness's async cold-judge relate fan-out. Its
+dedicated test class was removed with it; ``run_directed_remediation_round``
+itself is still live (called per-round from ``dag/verbs.py``) and its tests
+below are unchanged.
 """
 from __future__ import annotations
 
@@ -320,91 +327,7 @@ class TestDirectedRemediationRound:
 
 
 # ===========================================================================
-# 4. run_bounded_critic_backtrack — termination
-# ===========================================================================
-
-class TestBoundedCriticBacktrack:
-    def _seed(self, tmp_path):
-        corpus = tmp_path / "_corpus.md"
-        protocol = tmp_path / "_protocol.md"
-        deviations = tmp_path / "_deviations.md"
-        _corpus_note(corpus, ["driftpaper2023"])
-        _protocol_note(protocol)
-        meta: dict = {}
-        cf.stamp_corpus_freeze(meta, corpus_path=corpus, protocol_path=protocol)
-        return meta, corpus, protocol, deviations
-
-    def _payload(self):
-        return {
-            "blocking": ["COUNTER-POSITION THIN-POLE by-temporal — thin pole"],
-            "not_run": [], "remediation_target_expected": True,
-            "remediation_target": {"node": "review-snowball", "pole": "by-temporal", "directive": "d"},
-        }
-
-    def test_zero_new_terminates_after_one_round_halt_declare(self, tmp_path):
-        meta, corpus, protocol, deviations = self._seed(tmp_path)
-        initial = auto.DispositionResult(auto.CRITIC_BACKTRACK, "start")
-        calls = {"n": 0}
-
-        def fake_tool_op(op, **kwargs):
-            if op == "sweep":
-                calls["n"] += 1
-                return []
-            return {}
-
-        out = rem.run_bounded_critic_backtrack(
-            meta, initial, self._payload(),
-            protocol_path=protocol, corpus_path=corpus, deviations_path=deviations,
-            out_dir=tmp_path, tool_op_fn=fake_tool_op, max_rounds=5,
-        )
-        assert out.disposition == auto.HALT_DECLARE  # axis-4 hard block, never residue
-        assert calls["n"] == 1
-
-    def test_round_cap_terminates(self, tmp_path):
-        meta, corpus, protocol, deviations = self._seed(tmp_path)
-        initial = auto.DispositionResult(auto.CRITIC_BACKTRACK, "start")
-        counter = {"n": 0}
-
-        def fake_tool_op(op, **kwargs):
-            if op == "sweep":
-                counter["n"] += 1
-                return [_hit(f"Pathological Backtrack Paper {counter['n']}")]
-            return {}
-
-        out = rem.run_bounded_critic_backtrack(
-            meta, initial, self._payload(),
-            protocol_path=protocol, corpus_path=corpus, deviations_path=deviations,
-            out_dir=tmp_path, tool_op_fn=fake_tool_op, max_rounds=2,
-        )
-        assert out.disposition == auto.HALT_DECLARE
-        assert counter["n"] == 2  # never exceeds the round cap
-        assert meta["critic_backtrack_state"]["rounds_used"] == 2
-
-    def test_finds_new_then_zero_new_halts_after_two_rounds(self, tmp_path):
-        meta, corpus, protocol, deviations = self._seed(tmp_path)
-        initial = auto.DispositionResult(auto.CRITIC_BACKTRACK, "start")
-        counter = {"n": 0}
-
-        def fake_tool_op(op, **kwargs):
-            if op == "sweep":
-                counter["n"] += 1
-                if counter["n"] == 1:
-                    return [_hit("Round 1 New Paper")]
-                return []
-            return {}
-
-        out = rem.run_bounded_critic_backtrack(
-            meta, initial, self._payload(),
-            protocol_path=protocol, corpus_path=corpus, deviations_path=deviations,
-            out_dir=tmp_path, tool_op_fn=fake_tool_op, max_rounds=5,
-        )
-        assert out.disposition == auto.HALT_DECLARE
-        assert counter["n"] == 2
-        assert len(_parse_corpus_citekeys(corpus)) == 2  # driftpaper2023 + round-1 new
-
-
-# ===========================================================================
-# 5. dag/verbs.py wiring — the real approve-review dispatch
+# 4. dag/verbs.py wiring — the real approve-review dispatch
 # ===========================================================================
 
 class TestDagVerbsApproveReviewWiring:
