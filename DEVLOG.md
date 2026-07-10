@@ -1,3 +1,44 @@
+## 2026-07-09 (review-only default, manuscript opt-in via frozen deliverable field)
+
+### Done
+- **Manuscript emission at `approve-review` is now OPT-IN**, chosen once at
+  the human gate the operator already touches (`approve-protocol`). Added a
+  `deliverable: review|manuscript` field to the frozen `_protocol.md`
+  (default `review`); the `review-scope` node's brief now asks the agent to
+  PROPOSE a recommended value with a one-line justification, which the
+  operator confirms or flips when approving the protocol.
+- `check_protocol_gate` validates `deliverable`: absent/blank defaults to
+  `review` (the safe/smaller commitment — not a fail-closed halt, unlike
+  `counter-position`); a present-but-non-vocab value (e.g. `deliverable:
+  paper`) is rejected loudly as a mis-stated intent.
+- `_emit_next_phase`'s `approve-review` arm now reads the frozen choice via
+  a new `review.read_protocol_deliverable` helper: `manuscript` emits the
+  manuscript tree exactly as before (the prior unconditional #205
+  auto-chain); `review` (or absent) makes the GO **terminal** — the review
+  stands alone as the knowledge artifact, no manuscript tree, no
+  `child_runs` entry, and the outcome is logged in the node's state
+  (`phase_transition_note`) so it never looks like a silent no-op.
+- Updated `dag/catalog.py`'s lit-review `topology_summary` to document the
+  conditional, and updated the existing manuscript-auto-chain tests
+  (`TestApproveReviewAutoChainsToManuscript`) to set `deliverable:
+  manuscript` in their protocol fixture, since the unconditional-emit
+  assumption they were built on no longer holds.
+- New tests: default-absent and explicit-`review` terminal outcomes,
+  malformed-value rejection at `approve-protocol`, and a mutation test
+  (`TestDeliverableGateHasTeeth`) proving the gate is load-bearing (a
+  neutralized read helper makes the default case wrongly emit a
+  manuscript).
+
+### Decisions
+- `deliverable` rides the existing frozen-protocol contract — no new
+  interactive prompt, no new gate. The operator's only new touchpoint is
+  reading/adjusting one more field in the same `approve-protocol` review.
+- The read-side helper (`read_protocol_deliverable`) does not itself
+  enforce the vocab — it conservatively defaults any unexpected value to
+  `review`. Vocab enforcement lives solely at `approve-protocol`
+  (`check_protocol_gate`), so a malformed value is rejected before search
+  ever fires, not silently reinterpreted downstream.
+
 ## 2026-07-09 (docs hygiene: internal codenames removed, LaTeX doc-lag fixed, catalog.py re-grounded)
 
 ### Done
