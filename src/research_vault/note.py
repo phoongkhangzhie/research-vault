@@ -32,7 +32,7 @@ OKF_TYPES = frozenset({
     "findings",
     "mocs",
     "datasets",    # provenance note for data artifacts (points to data, never contains it)
-    "gaps",        # SR-LR-2: typed research gap record (§5L.7-5L.8); project-scoped; first-class lifecycle
+    "gaps",        # typed research gap record (§5L.7-5L.8); project-scoped; first-class lifecycle
 })
 
 # The sole SHARED (cross-project) OKF type — lives in cfg.datasets_root.
@@ -200,7 +200,7 @@ def _parse_frontmatter(
     - Inline ``key: []`` syntax stays as the literal string ``"[]"`` (not a list).
 
     #26 convergence: this canonical parser now replaces the local
-    ``gap_scan._parse_frontmatter_gap`` duplicate (SR-LR-2 STOP decision lifted).
+    ``gap_scan._parse_frontmatter_gap`` duplicate (STOP decision lifted).
     The extension is backwards-compatible for all existing callers: callers that
     do ``.strip()`` on results only access SCALAR fields (``synthesized_okf``,
     ``confidence``, ``plan_kind``, etc.); none of them access list-valued fields
