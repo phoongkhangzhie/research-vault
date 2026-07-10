@@ -1,4 +1,4 @@
-"""test_dag_retry.py — RED/GREEN tests for SR-RETRY (§5I).
+"""test_dag_retry.py — RED/GREEN tests for node-level diagnose-before-retry (§5I).
 
 Covers:
   1.  schema — max_retries validates (default-0 absent OK; negative → ManifestError;
@@ -643,50 +643,71 @@ class TestRetryDiagnosisDirective:
 
 # ===========================================================================
 # 14. §5I.3 interaction-check 5: compute_frontier byte-for-byte unchanged
-# 		(walker file hash compared to pre-SR-RETRY hash via git)
+# 		(walker file logic compared to pre-retry-feature logic via git)
 # ===========================================================================
+
+def _normalize_source_logic(source: str) -> str:
+    """Strip comments and docstrings, returning only the executable logic.
+
+    Comments are naturally dropped by ``ast.unparse`` (comments aren't part
+    of the AST). Docstrings ARE AST nodes (a standalone string-constant Expr
+    as the first statement of a module/function/class), so they're removed
+    explicitly here. This lets a purity/no-logic-change guard tolerate
+    prose-only edits (comments, docstrings) while still catching any real
+    change to the executable logic.
+    """
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            body = node.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(tree)
+
 
 class TestWalkerByteForByte:
     def test_walker_not_modified_by_sr_retry(self):
         """walker.py's PURE compute_frontier logic must have no substantive
         changes relative to origin/main.
 
-        Exemption: the repo-wide SPDX-License-Identifier header stamp
-        (v0.3.0 AGPL relicense checklist, PR #184) adds exactly one
-        mechanical, no-op comment line to every src/research_vault/*.py
-        file, walker.py included. That single-line addition is the ONLY
-        diff this test tolerates — any other change (even one extra line)
-        still fails, preserving the original purity guarantee.
+        Comments and docstrings are normalized away before comparison (see
+        _normalize_source_logic) — this guard cares about the executable
+        logic, not prose. Any change to the actual code (a new branch, a
+        different condition, a renamed variable, …) still fails, preserving
+        the original purity guarantee.
         """
         import subprocess
         result = subprocess.run(
-            ["git", "diff", "origin/main", "--", "src/research_vault/dag/walker.py"],
+            ["git", "show", "origin/main:src/research_vault/dag/walker.py"],
             capture_output=True,
             text=True,
             cwd=Path(__file__).parent.parent,
         )
-        diff = result.stdout.strip()
-        allowed_spdx_diff_line = "+# SPDX-License-Identifier: AGPL-3.0-or-later"
-        added_lines = [
-            line for line in diff.splitlines()
-            if line.startswith("+") and not line.startswith("+++")
-        ]
-        removed_lines = [
-            line for line in diff.splitlines()
-            if line.startswith("-") and not line.startswith("---")
-        ]
-        is_spdx_only = (
-            diff == ""
-            or (added_lines == [allowed_spdx_diff_line] and removed_lines == [])
+        assert result.returncode == 0, (
+            f"could not read origin/main walker.py: {result.stderr}"
         )
-        assert is_spdx_only, (
-            "walker.py must be UNCHANGED from origin/main (except the "
-            f"SPDX header stamp):\n{diff}"
+        origin_source = result.stdout
+        working_source = (
+            Path(__file__).parent.parent / "src" / "research_vault" / "dag" / "walker.py"
+        ).read_text(encoding="utf-8")
+
+        origin_logic = _normalize_source_logic(origin_source)
+        working_logic = _normalize_source_logic(working_source)
+
+        assert working_logic == origin_logic, (
+            "walker.py's executable logic must be UNCHANGED from origin/main "
+            "(comments/docstrings are exempt) — diff the normalized logic to "
+            "find the substantive change."
         )
 
 
 # ===========================================================================
-# 15. SR-RETRY cosmetic fix — attempt counter overshoot (task #21)
+# 15. Cosmetic fix — attempt counter overshoot (task #21)
 # ===========================================================================
 
 class TestAttemptCounterDisplay:

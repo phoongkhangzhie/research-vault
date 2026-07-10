@@ -1,4 +1,4 @@
-"""test_dag_brief.py — SR-DAG-BRIEF acceptance tests.
+"""test_dag_brief.py — dispatch-brief-emitter acceptance tests.
 
 Coverage:
   B1.  BRIEF_PREAMBLE is non-empty, contains role framing, instance boundary,

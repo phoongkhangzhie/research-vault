@@ -1,4 +1,4 @@
-"""test_sr_hub_dag_rails.py — SR-HUB-DAG slices A, B, D acceptance tests.
+"""test_sr_hub_dag_rails.py — DAG catalog/experiment/manuscript-loop acceptance tests (slices A, B, D).
 
 Coverage:
   Slice A — catalog SSOT + `rv dag templates`
@@ -92,7 +92,7 @@ notes_dir = "{proj_notes}"
 class TestCatalogCompleteness:
     """A1: catalog has exactly 3 loops with required structure.
 
-    SR-RM-FIGMS removed figure + manuscript (2 loops); PR-M1 re-instantiates
+    The figure + manuscript loops were removed (2 loops); PR-M1 re-instantiates
     the manuscript loop with a type system (figure stays removed).
     """
 
@@ -104,13 +104,13 @@ class TestCatalogCompleteness:
         assert set(all_keys()) == expected
 
     def test_no_figure_loop(self):
-        """SR-RM-FIGMS: figure loop removed (still absent — not reinstated)."""
+        """figure loop removed (still absent — not reinstated)."""
         assert get_loop("figure") is None
 
     def test_manuscript_loop_reinstated(self):
         """PR-M1: the manuscript loop is reinstated with a type system.
 
-        SR-RM-FIGMS removed it; PR-M1 rebuilds it type-generic — this is the
+        It was removed; PR-M1 rebuilds it type-generic — this is the
         reversal of the old test_no_manuscript_loop pin.
         """
         assert get_loop("manuscript") is not None
@@ -264,7 +264,7 @@ class TestCatalogGrounding:
         """lit-review catalog gates must appear in review/__init__.py scaffolder output.
 
         The REAL source is the scaffolder (review/__init__.py), NOT the legacy
-        demo-litreview/lit-review-loop.json which predates SR-LR-1.
+        demo-litreview/lit-review-loop.json, which predates the current scaffolder.
         Phase-1 gates: approve-protocol, coverage-gate
         Phase-2 gates: approve-review
         """
@@ -360,7 +360,7 @@ class TestDagTemplatesVerb:
         assert rc == 0
         assert "experiment" in out
         assert "lit-review" in out
-        # PR-M1: manuscript loop reinstated (figure stays removed — SR-RM-FIGMS)
+        # PR-M1: manuscript loop reinstated (figure stays removed)
         assert "manuscript" in out
         assert "figure" not in out
 
@@ -424,7 +424,7 @@ class TestDagTemplatesVerb:
         out = capsys.readouterr().out
         assert "rv experiment" in out
         assert "rv review" in out
-        # PR-M1: rv manuscript scaffolder reinstated (rv figure stays removed — SR-RM-FIGMS)
+        # PR-M1: rv manuscript scaffolder reinstated (rv figure stays removed)
         assert "rv manuscript" in out
         assert "rv figure" not in out
 
@@ -603,7 +603,7 @@ class TestExperimentNew:
         verify_args = argparse.Namespace(
             run_id=manifest["run_id"],
             plan_note=str(plan_path),
-            notes_root=None,  # stored pin takes precedence (SR-FREEZE-FIX)
+            notes_root=None,  # stored pin takes precedence
         )
         rc_verify = _run_verify_freeze(verify_args)
         assert rc_verify == 0, (

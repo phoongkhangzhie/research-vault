@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""dag — DAG-orchestration primitives for Research Vault (SR-3).
+"""dag — DAG-orchestration primitives for Research Vault.
 
 Sub-modules:
   schema  — manifest loading + validation (JSON format, node types, edge kinds)
