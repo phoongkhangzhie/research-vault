@@ -75,7 +75,7 @@
   of the spec's required-tests list are adapted accordingly (see
   `tests/test_framework_gate_autonomy.py`'s module docstring for the full
   reasoning + the exact test-by-test mapping) — flagged prominently here
-  and in the PR body for the Architect's fit-check + Khang's go, since
+  and in the PR body for the Architect's fit-check + the operator's go, since
   this is exactly the kind of precedent-setting call a second pair of eyes
   should confirm, not an engineer's unilateral pick.
 - Kept `render_framework_candidates_menu` (the pre-ensemble 4-shape menu
@@ -88,7 +88,7 @@
 
 ### Open / next
 - Merge class: `human-go` (Architect fit-check on the grounding-
-  contradiction resolution above, then Khang's go) — this PR changes the
+  contradiction resolution above, then the operator's go) — this PR changes the
   core framework-commitment topology and deliberately diverges from part
   of its own dispatching brief; it should not land without a second pair
   of eyes on that specific call.
