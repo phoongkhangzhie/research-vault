@@ -208,7 +208,8 @@ def run_snowball_to_saturation(
         adapter: the ``SourceAdapter`` to fan out both directions on.
             Defaults to ``SemanticScholarAdapter()`` (the only adapter with
             a citation graph in the D4 default-on set today).
-        backstop_waves: the guaranteed-termination cap (SR-LR-1-BACKSTOP).
+        backstop_waves: the guaranteed-termination cap for the saturation
+            backstop.
         derivative_threshold: passed through to ``mark_derivatives``.
         per_round_limit: per-(paper,direction) fetch limit each round.
         seed_cap: hard cap on the STARTING frontier width. No ``PaperHit``
@@ -679,8 +680,8 @@ def write_saturation(result: SnowballResult, out_path: Path) -> Path:
 
     Stamps flat frontmatter with the REQUIRED ``stop_reason:`` field —
     exactly ``saturated``, ``backstop:N-waves``, or ``no-seeds-resolved``
-    (SR-LR-1-BACKSTOP contract, ``review.check_saturation_backstop`` reads
-    this verbatim) — followed by the round-by-round curve body and an
+    (the saturation-backstop contract, ``review.check_saturation_backstop``
+    reads this verbatim) — followed by the round-by-round curve body and an
     "Unresolvable ids" count (2026-07-09 live-asta fix: surface, never
     silently drop, a seed/frontier id that 404'd — charter §2).
     """
