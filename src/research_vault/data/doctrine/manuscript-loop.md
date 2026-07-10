@@ -79,7 +79,7 @@ Emits the Phase-2 draft+review manifest generically from the type's `section_set
 PRISMA scope & method (mechanical), the organizing framework/taxonomy (human-shaped, drafted
 from the frozen spine), thematic sections (one node covering all N framework branches — see
 "Known limitations"), cross-cutting critical analysis, open problems, conclusion, and
-references (mechanical, from the hermetic `.bib`). Numbers, citations, table cells, and pivotal
+references (mechanical, from the hermetic references build). Numbers, citations, table cells, and pivotal
 equations are **injected as data**, never hand-typed by the writer (the `results_inject.py`
 discipline, extended to equations by the don't-drop-the-math machinery).
 
@@ -87,9 +87,10 @@ discipline, extended to equations by the don't-drop-the-math machinery).
 
 Every draft/revise round runs, regardless of judge availability:
 
-- **Hermetic `.bib` build + citation-resolve gate** — every `\cite{}` resolves to a real
-  `literature/` note; the `.bib` is built deterministically from frontmatter, no live Zotero
-  call in the compile path. **Hard BLOCK**, always runs, no judge dependency.
+- **Hermetic references build + citation-resolve gate** — every `[[citekey]]` wikilink in the
+  draft resolves to a real `literature/` note; `references.md` is built deterministically from
+  frontmatter, no live Zotero call in the compile path. **Hard BLOCK**, always runs, no judge
+  dependency.
 - **Coverage gate** — re-derives the frozen corpus hash and PRISMA counts; a revise that
   narrows scope to shrink the denominator is a **hard BLOCK**.
 - **Equation-fidelity gate** — for each equation the extractor mined from source notes
@@ -155,7 +156,7 @@ network call reachable from the compile path.
    is resolved by **slug match**: `manuscripts/<slug>/` reads `reviews/<slug>/_corpus.md`. A
    manuscript that draws on a differently-named review (or synthesizes across more than one)
    has no override flag today — a `--corpus <review-slug>` follow-on is the natural fix.
-3. **The gate judge-guard.** The hermetic `.bib`/citation-resolve gate and the coverage gate
+3. **The gate judge-guard.** The hermetic references/citation-resolve gate and the coverage gate
    are deterministic and **always** run (hard BLOCK, no judge dependency). The equation-fidelity
    gate is deterministic-first with an LLM-judge fallback but is **SIGNAL only, never BLOCK** —
    even a marked-critical equation silently dropped surfaces as a flag, not a hard stop (a
