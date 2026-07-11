@@ -107,6 +107,33 @@ def _collect_support_items(draft_files: "list[Path]") -> list[tuple[str, str, st
     return all_items
 
 
+def _resolve_cited_note_path(
+    citekey: str, notes_root: Path, literature_root: Path | None = None,
+) -> Path:
+    """Resolve the note path a citekey's structured fields (``## Result``
+    etc, all intrinsic/CORE-only content per PR-A) should be read from.
+
+    Resolution order:
+      1. ``literature_root/<citekey>.md`` (the CENTRAL CORE) — when given
+         and the file exists.
+      2. ``notes_root/literature/<citekey>.md`` (legacy/degrade — a
+         monolithic fixture, or a caller with no literature_root).
+      3. ``notes_root/<citekey>.md`` (pre-existing bare fallback).
+
+    Both ``check_support_tally`` and ``emit_support_tasks`` share this so
+    the live-judge and cold-fanout-emit paths never resolve a citekey to
+    two different notes.
+    """
+    if literature_root is not None:
+        core_path = Path(literature_root) / f"{citekey}.md"
+        if core_path.exists():
+            return core_path
+    note_path = notes_root / "literature" / f"{citekey}.md"
+    if not note_path.exists():
+        note_path = notes_root / f"{citekey}.md"
+    return note_path
+
+
 # ---------------------------------------------------------------------------
 # check_support_tally — batch support-match over a manuscript tree
 # ---------------------------------------------------------------------------
@@ -119,6 +146,7 @@ def check_support_tally(
     judge_model: str = _DEFAULT_JUDGE_MODEL,
     rubric_override: str | None = None,
     config: Any | None = None,
+    literature_root: Path | None = None,
 ) -> dict[str, Any]:
     r"""Run the claim->source support-matcher on all (sentence, [[citekey]]) pairs.
 
@@ -218,9 +246,7 @@ def check_support_tally(
     m_citations = len(all_items)
 
     for sentence, citekey, section in all_items:
-        note_path = _notes_root / "literature" / f"{citekey}.md"
-        if not note_path.exists():
-            note_path = _notes_root / f"{citekey}.md"
+        note_path = _resolve_cited_note_path(citekey, _notes_root, literature_root or getattr(config, "literature_root", None))
 
         stance: str | None = None
         plan_role: str | None = None
@@ -427,6 +453,7 @@ def emit_support_tasks(
     batch_size: int = DEFAULT_SUPPORT_BATCH_SIZE,
     rubric_override: str | None = None,
     config: Any | None = None,
+    literature_root: Path | None = None,
 ) -> dict[str, Any]:
     r"""Emit ``_judge-tasks.json`` + ``_judge-canary-key.json`` for the
     support-matcher cold-agent-judge fan-out (design §1.9, Phase A).
@@ -517,9 +544,7 @@ def emit_support_tasks(
         if corpus_citekeys is not None and citekey not in corpus_citekeys:
             skipped_non_corpus.append(citekey)
             continue
-        note_path = _notes_root / "literature" / f"{citekey}.md"
-        if not note_path.exists():
-            note_path = _notes_root / f"{citekey}.md"
+        note_path = _resolve_cited_note_path(citekey, _notes_root, literature_root or getattr(config, "literature_root", None))
         fields = _read_note_structured_fields(note_path)
         source = _format_note_source_excerpt(fields)
         real_tasks.append({

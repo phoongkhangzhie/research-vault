@@ -113,7 +113,16 @@ def _cache_dir_for(cfg: Config, project: str) -> Path:
 
 
 def _note_path_for(cfg: Config, project: str, citekey: str) -> Path:
-    return cfg.project_notes_dir(project) / "literature" / f"{citekey}.md"
+    """PR-A: the external-id set (doi/arxiv/pmid/pmcid/openalex) and the
+    read_basis/full_text_* provenance this module reads + stamps are
+    intrinsic (core-only) content — resolve to the CENTRAL CORE
+    (``note.literature_core_path``), not the per-project overlay. ``project``
+    is kept in the signature for API stability (every other call site passes
+    it), even though the two-layer core is project-independent by design.
+    """
+    from .note import literature_core_path
+
+    return literature_core_path(cfg, citekey)
 
 
 # ``stamp_note_frontmatter`` now lives in sources/identifiers.py (the

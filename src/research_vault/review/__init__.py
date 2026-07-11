@@ -688,13 +688,24 @@ def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
     return citekeys
 
 
-def _index_literature_notes_by_citekey(literature_dir: Path) -> dict[str, Path]:
+def _index_literature_notes_by_citekey(
+    literature_dir: Path, literature_root: Path | None = None,
+) -> dict[str, Path]:
     """Build a citekey → note-path index from the project's literature/ OKF dir.
 
     F17: identity is the ``citekey:`` frontmatter field (filename-agnostic).
     Falls back to the filename stem ONLY if the field is absent or empty.
     This allows descriptive filenames like ``zheng2023-pride-mc-selectors.md``
     while matching the corpus citekey ``zheng2023-pride`` without false-orphaning.
+
+    PR-A: ``citekey:`` is intrinsic (core-only) content — when
+    ``literature_root`` is given, resolves each overlay's ``central:``
+    pointer and prefers the CORE's citekey field. ``literature_root=None``
+    (or no resolvable core) degrades to the overlay's own citekey field —
+    which for a two-layer note is normally absent, so this correctly falls
+    through to the filename-stem convention (still F17-correct, since the
+    core's filename and the overlay's filename share one slug by
+    construction — see ``note._cmd_new_two_layer``).
 
     Returns:
         dict mapping citekey (str) → Path of the corresponding literature note.
@@ -710,8 +721,20 @@ def _index_literature_notes_by_citekey(literature_dir: Path) -> dict[str, Path]:
         except OSError:
             continue
         fields, _ = _parse_frontmatter(text)
-        # F17: prefer the citekey: field over the filename stem
         citekey = (fields.get("citekey") or "").strip()
+        if not citekey and literature_root is not None:
+            central = (fields.get("central") or "").strip()
+            if central:
+                core_path = Path(literature_root) / f"{central}.md"
+                if core_path.exists():
+                    try:
+                        core_fields, _ = _parse_frontmatter(
+                            core_path.read_text(encoding="utf-8")
+                        )
+                        citekey = (core_fields.get("citekey") or "").strip()
+                    except OSError:
+                        pass
+        # F17: prefer the citekey: field over the filename stem
         if not citekey:
             citekey = note_path.stem
         index[citekey] = note_path
@@ -794,7 +817,9 @@ def coverage_report(
     corpus_citekeys: list[str] = _parse_corpus_citekeys(corpus_path)
 
     # Index literature notes by citekey: field (F17 — filename-agnostic)
-    lit_index: dict[str, Path] = _index_literature_notes_by_citekey(literature_dir)
+    lit_index: dict[str, Path] = _index_literature_notes_by_citekey(
+        literature_dir, literature_root=cfg.literature_root,
+    )
 
     # Index MOC mentions for orphan detection
     moc_mentions: set[str] = _collect_moc_citekey_mentions(mocs_dir)
@@ -889,7 +914,24 @@ def relations_report(
             except OSError:
                 continue
             fields, body = _parse_frontmatter(text)
-            source_citekey = (fields.get("citekey") or "").strip() or note_path.stem
+            # PR-A: citekey is intrinsic (core-only) — prefer the resolved
+            # central core's citekey field over the (normally-absent on a
+            # thin overlay) local one; degrades to the filename stem, which
+            # shares the core's slug by construction (note._cmd_new_two_layer).
+            source_citekey = (fields.get("citekey") or "").strip()
+            if not source_citekey:
+                central = (fields.get("central") or "").strip()
+                if central:
+                    core_path = cfg.literature_root / f"{central}.md"
+                    if core_path.exists():
+                        try:
+                            core_fields, _ = _parse_frontmatter(
+                                core_path.read_text(encoding="utf-8")
+                            )
+                            source_citekey = (core_fields.get("citekey") or "").strip()
+                        except OSError:
+                            pass
+            source_citekey = source_citekey or note_path.stem
             known_citekeys.add(source_citekey)
             parsed = parse_paper_relations(body)
             for edge in parsed.edges:

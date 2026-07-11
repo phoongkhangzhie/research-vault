@@ -68,7 +68,9 @@ def extract_cited_keys(draft_files: list[Path]) -> set[str]:
 # literature/ frontmatter index (D-SV-A — the hermetic source of truth)
 # ---------------------------------------------------------------------------
 
-def _load_literature_bib_index(literature_dir: Path) -> dict[str, dict[str, Any]]:
+def _load_literature_bib_index(
+    literature_dir: Path, literature_root: Path | None = None,
+) -> dict[str, dict[str, Any]]:
     """Build a citekey -> frontmatter-fields index from ``literature/`` notes.
 
     Mirrors the F17 convention (``review._index_literature_notes_by_citekey``):
@@ -77,6 +79,16 @@ def _load_literature_bib_index(literature_dir: Path) -> dict[str, dict[str, Any]
     frontmatter directly (rather than importing the review-module helper) so
     ``manuscript/bib.py`` stays a leaf module with a single dependency
     (``note.py``) — no cross-loop coupling for a 6-line convention.
+
+    PR-A: citekey/authors/year/venue/doi/arxiv_id (everything a reference
+    entry renders) are intrinsic — CORE-only content. Iterating
+    ``literature_dir`` (the project's overlay) still defines the ADOPTED set
+    (this manuscript can only cite what its own project's corpus contains),
+    but each entry's rendered fields are resolved against ``literature_root``
+    (its ``central:`` pointer) when given. ``literature_root=None`` degrades
+    to reading ``literature_dir`` directly (a monolithic fixture that
+    happens to carry its own fields — not a violation, just a degrade path;
+    some hermetic tests do this on purpose).
 
     Returns:
         dict mapping citekey (str) -> frontmatter fields dict. Empty dict if
@@ -91,7 +103,19 @@ def _load_literature_bib_index(literature_dir: Path) -> dict[str, dict[str, Any]
             text = note_path.read_text(encoding="utf-8")
         except OSError:
             continue
-        fields, _body = _parse_frontmatter(text)
+        overlay_fields, _body = _parse_frontmatter(text)
+        fields = dict(overlay_fields)
+        central = str(overlay_fields.get("central") or "").strip()
+        if literature_root is not None and central:
+            core_path = Path(literature_root) / f"{central}.md"
+            if core_path.exists():
+                try:
+                    core_fields, _ = _parse_frontmatter(
+                        core_path.read_text(encoding="utf-8")
+                    )
+                    fields = {**overlay_fields, **core_fields}
+                except OSError:
+                    pass
         citekey = str(fields.get("citekey") or "").strip()
         if not citekey:
             citekey = note_path.stem
@@ -160,6 +184,7 @@ def build_references_md(
     tree_root: Path,
     *,
     draft_files: list[Path] | None = None,
+    literature_root: Path | None = None,
 ) -> tuple[list[str], Path]:
     """Build ``tree_root/references.md`` from ``literature/`` frontmatter.
 
@@ -185,7 +210,7 @@ def build_references_md(
     errors: list[str] = []
 
     literature_dir = project_notes_dir / "literature"
-    lit_index = _load_literature_bib_index(literature_dir)
+    lit_index = _load_literature_bib_index(literature_dir, literature_root)
 
     if draft_files is None:
         from research_vault.manuscript.draft_files import resolve_draft_files
@@ -487,6 +512,7 @@ def build_references_bib(
     tree_root: Path,
     *,
     draft_files: list[Path] | None = None,
+    literature_root: Path | None = None,
 ) -> tuple[list[str], Path]:
     """Build ``tree_root/references.bib`` from ``literature/`` frontmatter —
     the same closed bibliography as ``build_references_md`` (cited + resolved
@@ -502,7 +528,7 @@ def build_references_bib(
     references_bib_path = tree_root / "references.bib"
 
     literature_dir = project_notes_dir / "literature"
-    lit_index = _load_literature_bib_index(literature_dir)
+    lit_index = _load_literature_bib_index(literature_dir, literature_root)
 
     if draft_files is None:
         from research_vault.manuscript.draft_files import resolve_draft_files
@@ -527,6 +553,7 @@ def render_numbered_manuscript(
     tree_root: Path,
     *,
     draft_files: list[Path] | None = None,
+    literature_root: Path | None = None,
 ) -> dict[str, Any]:
     """The full D-4 render: mechanical ``[[citekey]] -> [N]`` conversion of
     the reader-facing draft + a hermetic numbered ``## Sources`` section +
@@ -560,7 +587,7 @@ def render_numbered_manuscript(
         draft_files = resolve_draft_files(tree_root)
 
     literature_dir = project_notes_dir / "literature"
-    lit_index = _load_literature_bib_index(literature_dir)
+    lit_index = _load_literature_bib_index(literature_dir, literature_root)
 
     ordered_keys, matched, errors = _resolve_citations(draft_files, lit_index)
     numbering = build_citation_numbering(ordered_keys, matched)
@@ -600,6 +627,7 @@ def render_numbered_manuscript(
 
     bib_errors, bib_path = build_references_bib(
         project_notes_dir, tree_root, draft_files=draft_files,
+        literature_root=literature_root,
     )
     for e in bib_errors:
         if e not in errors:
@@ -621,6 +649,7 @@ def check_citation_resolve(
     tree_root: Path,
     *,
     draft_files: list[Path] | None = None,
+    literature_root: Path | None = None,
 ) -> dict[str, Any]:
     """The hermetic citation-resolve gate — BOTH predicates of D-SV-A.
 
@@ -647,10 +676,11 @@ def check_citation_resolve(
     """
     errors, references_path = build_references_md(
         project_notes_dir, tree_root, draft_files=draft_files,
+        literature_root=literature_root,
     )
 
     literature_dir = project_notes_dir / "literature"
-    lit_index = _load_literature_bib_index(literature_dir)
+    lit_index = _load_literature_bib_index(literature_dir, literature_root)
 
     if draft_files is None:
         from research_vault.manuscript.draft_files import resolve_draft_files

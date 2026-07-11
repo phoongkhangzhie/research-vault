@@ -120,7 +120,7 @@ def _snapshot_mtimes(paths: list[Path]) -> dict[Path, float]:
 class TestSchemaConformance:
     def test_assembles_all_frontmatter_scalars(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         assert out == review_dir / "_corpus_ledger.md"
         text = out.read_text(encoding="utf-8")
         fields, body = _parse_frontmatter(text)
@@ -156,7 +156,7 @@ class TestSchemaConformance:
 
     def test_body_has_five_tables(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         text = out.read_text(encoding="utf-8")
         for heading in (
             "## Search plan provenance",
@@ -169,13 +169,13 @@ class TestSchemaConformance:
 
     def test_search_hits_row_traced_to_source(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         text = out.read_text(encoding="utf-8")
         assert "by-method" in text and "semantic-scholar" in text and "| 5 |" in text
 
     def test_key_map_traces_to_literature_note(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         text = out.read_text(encoding="utf-8")
         assert "smith2024a" in text and "doi:10.1234/abcd" in text
         assert "jones2023" in text and "arxiv:2301.00001" in text
@@ -198,7 +198,7 @@ class TestSchemaConformance:
 class TestVerifiablePropertiesFromLedgerAlone:
     def test_complete_verifiable(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
         # COMPLETE: angles + saturation + open poles all present/derivable
         assert fields["angles_searched"]
@@ -207,7 +207,7 @@ class TestVerifiablePropertiesFromLedgerAlone:
 
     def test_clean_verifiable(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
         # CLEAN: relevance disposition + off-domain fraction + prune count
         assert fields["off_domain_count"] == "0" or int(fields["off_domain_count"]) == 0
@@ -215,7 +215,7 @@ class TestVerifiablePropertiesFromLedgerAlone:
 
     def test_canonically_keyed_verifiable(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert fields["citekey_convention"] == "authorYearWord"
         assert int(fields["citekey_conformant_count"]) == 2
@@ -249,7 +249,7 @@ class TestAdditive:
         before_text = {p: p.read_text(encoding="utf-8") for p in siblings}
         before_mtime = _snapshot_mtimes(siblings)
 
-        write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
 
         after_text = {p: p.read_text(encoding="utf-8") for p in siblings}
         after_mtime = _snapshot_mtimes(siblings)
@@ -258,7 +258,7 @@ class TestAdditive:
 
     def test_no_coverage_gaps_file_created_when_absent(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         assert not (review_dir / "_coverage-gaps.md").exists()
 
 
@@ -270,7 +270,7 @@ class TestFailClosed:
     def test_missing_corpus_flips_ledger_incomplete(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
         (review_dir / "_corpus.md").unlink()
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert str(fields["ledger_complete"]).strip().lower() == "false"
         assert "[LEDGER-GAP]" in text
@@ -284,7 +284,7 @@ class TestFailClosed:
             "| [WEIRD-TAG] | ghost2099 | Title Ghost | abstract |\n",
             encoding="utf-8",
         )
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert str(fields["ledger_complete"]).strip().lower() == "false"
         assert "[LEDGER-GAP]" in text
@@ -295,7 +295,7 @@ class TestFailClosed:
     def test_missing_saturation_flips_ledger_incomplete(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
         (review_dir / "_saturation.md").unlink()
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert str(fields["ledger_complete"]).strip().lower() == "false"
         assert fields["stop_reason"] == ""
@@ -304,7 +304,7 @@ class TestFailClosed:
     def test_missing_protocol_flips_ledger_incomplete(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
         (review_dir / "_protocol.md").unlink()
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert str(fields["ledger_complete"]).strip().lower() == "false"
         assert fields["matrix_hash"] == ""
@@ -313,7 +313,7 @@ class TestFailClosed:
     def test_clean_state_is_complete(self, tmp_path):
         """Positive control — proves the FP-guard above isn't just always False."""
         review_dir, lit_dir = _build_scope(tmp_path)
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert str(fields["ledger_complete"]).strip().lower() == "true"
         assert "[LEDGER-GAP]" not in text
@@ -326,15 +326,15 @@ class TestFailClosed:
 class TestIdempotence:
     def test_rerun_on_unchanged_state_is_byte_identical(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        out1 = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out1 = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         first = out1.read_bytes()
-        out2 = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out2 = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         second = out2.read_bytes()
         assert first == second
 
     def test_rerun_after_backtrack_append_reflects_new_state(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
 
         # Simulate a PR-3 backtrack round appending a new corpus row +
         # literature note (append-only source mutation).
@@ -347,7 +347,7 @@ class TestIdempotence:
             "---\ntype: literature\ncitekey: lee2025b\ndoi: 10.9999/zzzz\n---\n", encoding="utf-8",
         )
 
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert int(fields["accepted"]) == 3
         assert int(fields["new"]) == 2
@@ -362,7 +362,7 @@ class TestHaltSnapshot:
     def test_halt_reason_flips_incomplete_and_surfaces_reason(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
         out = write_corpus_ledger(
-            review_dir, literature_dir=lit_dir,
+            review_dir, literature_dir=lit_dir, literature_root=lit_dir,
             halt_reason="off-domain fraction 35% at/above threshold",
         )
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
@@ -378,7 +378,7 @@ class TestHaltSnapshot:
 class TestRelevanceBlock:
     def test_no_relevance_node_is_honest_no_op(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, relevance_payload=None)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=None)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         # Absence of the node is NOT a gap (honest no-op, see dag/verbs.py's
         # own optional-collaborator handling of review-relevance-verify).
@@ -398,7 +398,7 @@ class TestRelevanceBlock:
             "malformed": [],
             "empty_verdict_set": False,
         }
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, relevance_payload=payload)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=payload)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert int(fields["relevance_verdict_total"]) == 6
         assert int(fields["off_domain_count"]) == 1
@@ -417,7 +417,7 @@ class TestRelevanceBlock:
             "malformed": [],
             "empty_verdict_set": False,
         }
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, relevance_payload=payload)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=payload)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert str(fields["ledger_complete"]).strip().lower() == "false"
         assert str(fields["relevance_canary_ok"]).strip().lower() == "false"
@@ -437,7 +437,7 @@ class TestCoverageGapsResidue:
             "- concepts/robustness still growing at termination\n",
             encoding="utf-8",
         )
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert "stability sub-literature" in fields["open_counter_poles"]
         assert "bounded-not-saturated" in text
@@ -456,7 +456,7 @@ class TestCitekeyMigratedCount:
         review_dir, lit_dir = _build_scope(tmp_path)
         assert not (lit_dir / "_citekey_migration_ledger.json").exists()
 
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert fields["citekey_migrated_count"] == "untracked"
         # Non-gating: the absence of a migration ledger does not itself
@@ -492,7 +492,7 @@ class TestCitekeyMigratedCount:
             json.dumps(ledger_entries), encoding="utf-8",
         )
 
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
         # Only smith2024a is in THIS review's corpus -> count is 1, not 2.
         assert str(fields["citekey_migrated_count"]) == "1"
@@ -503,6 +503,6 @@ class TestCitekeyMigratedCount:
         (lit_dir / "_citekey_migration_ledger.json").write_text(
             "{not valid json", encoding="utf-8",
         )
-        out = write_corpus_ledger(review_dir, literature_dir=lit_dir)
+        out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert fields["citekey_migrated_count"] == "untracked"

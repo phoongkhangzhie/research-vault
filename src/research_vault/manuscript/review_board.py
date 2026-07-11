@@ -1042,6 +1042,7 @@ def run_revise(
     ms_type: Any,
     *,
     judge_fn: Callable[[str], str] | None = None,
+    literature_root: Path | None = None,
 ) -> dict[str, Any]:
     """Run the revise-r node: record the rebuttal, RE-FIRE the fidelity +
     equation + coverage gates via ``check_gates.build_approve_payload``.
@@ -1073,7 +1074,10 @@ def run_revise(
 
     from research_vault.manuscript.check_gates import build_approve_payload
 
-    payload = build_approve_payload(tree_root, project_notes_dir, ms_type, judge_fn=judge_fn)
+    payload = build_approve_payload(
+        tree_root, project_notes_dir, ms_type, judge_fn=judge_fn,
+        literature_root=literature_root,
+    )
 
     return {
         "round": round_num,
@@ -1246,6 +1250,7 @@ def run_review_board(
                 project_notes_dir=project_notes_dir,
                 ms_type=ms_type,
                 judge_fn=revise_judge_fn,
+                literature_root=getattr(config, "literature_root", None),
             )
             round_record["revise"] = revise_result
 

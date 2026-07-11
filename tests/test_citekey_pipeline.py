@@ -84,8 +84,11 @@ def test_compute_and_stamp_citekey_disambiguates_against_existing_notes(cfg):
 
 
 def test_cli_research_citekey_stamps_resolved(cfg, capsys):
-    path = note_mod.cmd_new("demo-research", "literature", "CLI Paper", config=cfg, note_id="cli-paper")
-    _stamp(path, title="CLI Paper", authors="Doe, Ravi", year="2021")
+    note_mod.cmd_new("demo-research", "literature", "CLI Paper", config=cfg, note_id="cli-paper")
+    # PR-A: `rv research citekey` resolves + stamps the CENTRAL CORE
+    # (title/authors/year/citekey are all intrinsic content).
+    core_path = cfg.literature_root / "cli-paper.md"
+    _stamp(core_path, title="CLI Paper", authors="Doe, Ravi", year="2021")
 
     from research_vault.cli import main
     result = main(["research", "citekey", "demo-research", "cli-paper"])

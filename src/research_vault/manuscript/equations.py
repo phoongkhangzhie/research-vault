@@ -199,6 +199,8 @@ def _extract_generic_display_math(note_path: Path, body: str) -> list[dict[str, 
 def extract_equation_ledger(
     project_notes_dir: Path,
     equation_sources: tuple[str, ...],
+    *,
+    literature_root: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Mine ``equation_sources`` notes for pivotal equations -> a ledger.
 
@@ -218,6 +220,13 @@ def extract_equation_ledger(
         project_notes_dir: the project's notes root (``cfg.project_notes_dir``).
         equation_sources: OKF type names to mine (e.g. from
             ``ms_type.equation_sources``).
+        literature_root: PR-A: ``cfg.literature_root``. When ``"literature"``
+            is one of ``equation_sources``, ``key_equations:``/``##  Key
+            equations`` are intrinsic (CORE-only) content — mine the CENTRAL
+            CORE for those notes, not the project overlay dir. ``None``
+            degrades to mining the overlay dir directly (a monolithic
+            fixture — not a violation, just a degrade path; some hermetic
+            tests do this on purpose).
 
     Returns:
         A list of ``{"note", "label", "title", "latex", "critical"}`` dicts,
@@ -229,7 +238,13 @@ def extract_equation_ledger(
     """
     ledger: list[dict[str, Any]] = []
     for okf_type in equation_sources:
-        source_dir = project_notes_dir / okf_type
+        # PR-A: literature notes are two-layer — key_equations/## Key
+        # equations are CORE-only, so mine literature_root (when given)
+        # instead of the project's thin overlay dir.
+        if okf_type == "literature" and literature_root is not None:
+            source_dir = literature_root
+        else:
+            source_dir = project_notes_dir / okf_type
         if not source_dir.exists():
             continue
         for note_path in sorted(source_dir.glob("*.md")):

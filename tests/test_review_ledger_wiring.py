@@ -140,13 +140,24 @@ class TestCoverageGateWritesLedger:
         _drive_through_relevance_verify(run_id, review_dir, store, ["alpha2024", "beta2024"])
 
     def _write_literature_notes(self, cfg, project: str = "demo-research"):
-        lit_dir = cfg.project_notes_dir(project) / "literature"
-        lit_dir.mkdir(parents=True, exist_ok=True)
-        (lit_dir / "alpha2024.md").write_text(
+        # PR-A: intrinsic fields (citekey/doi/arxiv_id) live on the CENTRAL
+        # CORE, not the per-project overlay — the ledger's K-block resolves
+        # against cfg.literature_root.
+        core_dir = cfg.literature_root
+        core_dir.mkdir(parents=True, exist_ok=True)
+        (core_dir / "alpha2024.md").write_text(
             "---\ntype: literature\ncitekey: alpha2024\ndoi: 10.1/alpha2024\n---\n", encoding="utf-8",
         )
-        (lit_dir / "beta2024.md").write_text(
+        (core_dir / "beta2024.md").write_text(
             "---\ntype: literature\ncitekey: beta2024\narxiv_id: 2401.00002\n---\n", encoding="utf-8",
+        )
+        overlay_dir = cfg.project_notes_dir(project) / "literature"
+        overlay_dir.mkdir(parents=True, exist_ok=True)
+        (overlay_dir / "alpha2024.md").write_text(
+            "---\ntype: literature\ncentral: alpha2024\n---\n", encoding="utf-8",
+        )
+        (overlay_dir / "beta2024.md").write_text(
+            "---\ntype: literature\ncentral: beta2024\n---\n", encoding="utf-8",
         )
 
     def test_go_saturated_writes_complete_ledger(self, tmp_instance: Path, monkeypatch):
