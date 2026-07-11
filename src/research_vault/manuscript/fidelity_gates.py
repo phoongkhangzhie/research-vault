@@ -61,6 +61,16 @@ from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE as _WIKI
 # ``judge_fn``.
 _DEFAULT_JUDGE_MODEL: str = ""
 
+# NG-4 batch sizing: default per-batch task count for emit_support_tasks.
+# Raised from the original 8 -> 20 (the operator's call, live 0.3.0
+# validation run: 82 tasks / 11 batches for a 25-paper survey was too
+# many cold-judge spawns for the hub to fan out; 20 packs the same task
+# count into ~4-5 batches).
+# A single task carries a claim + a ~5KB source-note excerpt (per-field
+# cap _PER_FIELD_CAP=1200 x several fields), so 20 tasks/batch keeps a
+# single cold judge's context manageable while cutting fan-out ~2-3x.
+DEFAULT_SUPPORT_BATCH_SIZE: int = 20
+
 
 # ---------------------------------------------------------------------------
 # _collect_support_items — shared (sentence, citekey, section) extraction
@@ -414,7 +424,7 @@ def emit_support_tasks(
     *,
     notes_root: Path | None = None,
     manuscript_slug: str = "",
-    batch_size: int = 8,
+    batch_size: int = DEFAULT_SUPPORT_BATCH_SIZE,
     rubric_override: str | None = None,
     config: Any | None = None,
 ) -> dict[str, Any]:
@@ -438,8 +448,10 @@ def emit_support_tasks(
                            ``tree_root`` when None (mirrors
                            ``check_support_tally``).
         manuscript_slug:  stamped into the tasks doc's ``manuscript`` field.
-        batch_size:       max task ids per batch (default 8 — "a handful",
-                           per the dispatch brief, not one spawn per claim).
+        batch_size:       max task ids per batch (default
+                           ``DEFAULT_SUPPORT_BATCH_SIZE`` — "a handful of
+                           batches", per the dispatch brief, not one cold
+                           judge spawn per claim).
         rubric_override:  optional rubric override, stamped into the tasks
                            doc's ``rubric`` field (additive beyond the
                            design's literal JSON example — the hub needs
@@ -449,9 +461,15 @@ def emit_support_tasks(
         config:           optional Config for the rubric config-seam.
 
     Returns:
-        ``{"tasks_doc": {...}, "canary_key_doc": {...}}`` — write both with
-        ``gates.judge_seam.write_json`` (the canary_key_doc goes to a
-        location the hub/judges never read, per design §1.9).
+        ``{"tasks_doc": {...}, "canary_key_doc": {...}, "skipped_non_corpus":
+        [...]}`` — write the first two with ``gates.judge_seam.write_json``
+        (the canary_key_doc goes to a location the hub/judges never read,
+        per design §1.9). ``skipped_non_corpus`` is the sorted, deduped
+        list of citekeys the draft cited that are NOT in the frozen review
+        corpus (concept-slug wikilinks etc.) — surfaced so the caller can
+        report them, never a silent drop (empty when no frozen
+        ``_corpus.md`` exists to filter against — see the implementation
+        comment on corpus scoping).
 
     A draft with zero [[citekey]] pairs is a correct, honest no-op: both docs
     carry an empty ``tasks``/``canaries`` collection, never fabricated.
@@ -464,6 +482,7 @@ def emit_support_tasks(
         _read_note_structured_fields,
         get_support_rubric,
     )
+    from research_vault.review import _parse_corpus_citekeys
 
     draft_files = resolve_draft_files(tree_root)
     _notes_root = notes_root if notes_root is not None else tree_root.parent.parent
@@ -471,8 +490,33 @@ def emit_support_tasks(
     all_items = _collect_support_items(draft_files) if draft_files else []
     citation_set_hash = _compute_citation_set_hash(all_items)
 
+    # Live 0.3.0 validation finding: the draft can drop CONCEPT-slug
+    # wikilinks inline as if they were paper citations (e.g.
+    # ``[[survey-to-behaviour-is-the-untested-arrow]]``). A concept note
+    # has no ``literature/<key>.md`` and no structured source fields — it
+    # is not a paper, so "is this claim supported by that source?" is not
+    # a well-formed question for it. Scope emission to the review's frozen
+    # corpus (``reviews/<slug>/_corpus.md``, the same source-of-truth
+    # ``check_gates.py``'s coverage-gate uses) when it exists; a citekey
+    # outside the corpus is SKIPPED (not emitted as a task) but surfaced
+    # via ``skipped_non_corpus`` on the return -- never a silent drop.
+    #
+    # When no frozen corpus exists (a manuscript not backed by an rv
+    # review loop), there is no ground truth to filter against -- fall
+    # back to the pre-fix behaviour of emitting every citekey the draft
+    # names, so non-review-backed manuscripts are unaffected.
+    corpus_citekeys: set[str] | None = None
+    if manuscript_slug:
+        corpus_path = _notes_root / "reviews" / manuscript_slug / "_corpus.md"
+        if corpus_path.exists():
+            corpus_citekeys = set(_parse_corpus_citekeys(corpus_path))
+
     real_tasks: list[dict[str, Any]] = []
+    skipped_non_corpus: list[str] = []
     for sentence, citekey, _section in all_items:
+        if corpus_citekeys is not None and citekey not in corpus_citekeys:
+            skipped_non_corpus.append(citekey)
+            continue
         note_path = _notes_root / "literature" / f"{citekey}.md"
         if not note_path.exists():
             note_path = _notes_root / f"{citekey}.md"
@@ -498,7 +542,11 @@ def emit_support_tasks(
             "citation_set_hash": citation_set_hash,
         }
         canary_key_doc = {"schema": judge_seam.CANARY_KEY_SCHEMA, "canaries": {}}
-        return {"tasks_doc": tasks_doc, "canary_key_doc": canary_key_doc}
+        return {
+            "tasks_doc": tasks_doc,
+            "canary_key_doc": canary_key_doc,
+            "skipped_non_corpus": sorted(set(skipped_non_corpus)),
+        }
 
     combined, canary_key = judge_seam.interleave_with_canaries(
         real_tasks, _support_canary_bank(),
@@ -523,7 +571,11 @@ def emit_support_tasks(
     }
     canary_key_doc = {"schema": judge_seam.CANARY_KEY_SCHEMA, "canaries": canary_key}
 
-    return {"tasks_doc": tasks_doc, "canary_key_doc": canary_key_doc}
+    return {
+        "tasks_doc": tasks_doc,
+        "canary_key_doc": canary_key_doc,
+        "skipped_non_corpus": sorted(set(skipped_non_corpus)),
+    }
 
 
 def ingest_support_verdicts(

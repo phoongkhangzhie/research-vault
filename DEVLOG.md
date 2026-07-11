@@ -1,3 +1,47 @@
+## 2026-07-10 (support-matcher NG-4 emit: skip non-corpus keys, larger batches)
+
+### Done
+Two bounded fixes to `emit_support_tasks` (`manuscript/fidelity_gates.py`),
+both caught in the live 0.3.0 manuscript validation run:
+
+1. **Concept-slug wikilinks emitted as support tasks (spurious).** A
+   25-paper survey's task list targeted 31 distinct citekeys — the
+   extra ~6 were concept-note wikilinks the draft dropped inline as if
+   they were citations. A concept note has no `literature/<key>.md` and
+   no structured source fields, so "is this claim supported by that
+   source?" isn't a well-formed question for it. Emission is now scoped
+   to the frozen review corpus (`reviews/<slug>/_corpus.md`, the same
+   source-of-truth the coverage-gate uses) when one exists; a citekey
+   outside it is skipped (not emitted as a judge task) but surfaced via
+   a new `skipped_non_corpus` field on the emit result and printed by
+   `rv manuscript judge-emit` — never a silent drop. When no frozen
+   corpus exists (a manuscript not backed by an rv review loop), emission
+   falls back to the pre-fix behaviour unfiltered.
+2. **Batches too small → too many cold-judge spawns.** 82 tasks / 11
+   batches (≈7/batch) meant ~11 fresh subagent judges to fan out for one
+   manuscript. Raised the default `batch_size` from 8 to a named
+   constant `DEFAULT_SUPPORT_BATCH_SIZE = 20`, packing the same task
+   count into ~4-5 batches. The per-task judge contract (claim + ~5KB
+   source excerpt) is unchanged — only the batch packing changed.
+
+### Decisions
+- Corpus membership (not note richness) is the filter signal: a genuine
+  corpus citekey with a missing/thin note is still emitted (and
+  fail-closes to ABSENT downstream) — a missing note for a real corpus
+  paper is a real problem that must surface as a BLOCK, never be
+  silently skipped.
+- `citation_set_hash` (the draft<->tasks staleness binding) is computed
+  over the UNFILTERED citation set, matching how the ingest side
+  recomputes it from the live draft — filtering the emitted tasks does
+  not change what "the draft's citation universe" means for staleness
+  purposes.
+
+### Open / next
+- The root cause (the draft convention surfacing concept-slugs as
+  `[[citekey]]`-shaped citations in the first place) is a separate
+  0.3.1 draft-convention fix; this PR only makes the emit path
+  defensively skip them.
+
 ## 2026-07-10 (coverage-allocation gate: surjective coverage, not a partition)
 
 ### Done

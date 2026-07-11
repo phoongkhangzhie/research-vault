@@ -474,3 +474,176 @@ class TestBuildApprovePayloadColdFanout:
         payload = build_approve_payload(tree_root, project_notes_dir, _FakeType())
         # Cold-fanout path was consulted — no more "NOT RUN" for support-matcher.
         assert not any("support-matcher" in n and "NOT RUN" in n for n in payload["not_run"])
+
+
+# ===========================================================================
+# PR: 0.3.0 live-validation fixes — non-corpus (concept-slug) filtering,
+# larger default batch size.
+# ===========================================================================
+
+def _write_corpus_md(notes_root: Path, slug: str, citekeys: list) -> Path:
+    """A minimal frozen ``_corpus.md`` in the [NEW]/[IN-CORPUS:*] table
+    schema ``review._parse_corpus_citekeys`` reads (see review/__init__.py).
+    """
+    review_dir = notes_root / "reviews" / slug
+    review_dir.mkdir(parents=True, exist_ok=True)
+    lines = ["| status | citekey | note |", "|---|---|---|"]
+    for ck in citekeys:
+        lines.append(f"| [NEW] | {ck} | — |")
+    path = review_dir / "_corpus.md"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _write_md_with_cites_named(tree_root: Path, citekeys: list) -> None:
+    lines = [
+        f"This is claim number {i} about the topic. [[{ck}]]"
+        for i, ck in enumerate(citekeys)
+    ]
+    (tree_root / "sections" / "intro.md").write_text("\n\n".join(lines), encoding="utf-8")
+
+
+class TestNonCorpusCitekeyFiltering:
+    """Fix 1: concept-slug wikilinks the draft drops inline as if they
+    were citations must NOT be emitted as support-matcher tasks — there
+    is no paper to verify a claim against.
+    """
+
+    def test_concept_slug_absent_from_emitted_tasks(self, tmp_path):
+        from research_vault.manuscript.fidelity_gates import emit_support_tasks
+
+        tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path
+        corpus_keys = ["paper0", "paper1"]
+        concept_keys = ["survey-to-behaviour-is-the-untested-arrow"]
+        _write_corpus_md(notes_root, "ms-test", corpus_keys)
+        _write_md_with_cites_named(tree_root, corpus_keys + concept_keys)
+        for ck in corpus_keys:
+            _literature_note(notes_root, ck)
+        # No literature note for the concept slug — it lives in concepts/,
+        # not literature/, and the extractor never resolves it (root cause).
+
+        # Structural proof (RED without the fix): the concept slug appears
+        # as a real [[wikilink]] citation in the draft.
+        draft_text = (tree_root / "sections" / "intro.md").read_text()
+        assert f"[[{concept_keys[0]}]]" in draft_text
+
+        result = emit_support_tasks(
+            tree_root, notes_root=notes_root, manuscript_slug="ms-test",
+        )
+        emitted_citekeys = {t["citekey"] for t in result["tasks_doc"]["tasks"]}
+
+        assert concept_keys[0] not in emitted_citekeys
+        assert corpus_keys[0] in emitted_citekeys
+        assert corpus_keys[1] in emitted_citekeys
+        # Surfaced, not silently dropped.
+        assert result["skipped_non_corpus"] == concept_keys
+
+    def test_no_corpus_file_falls_back_to_emitting_everything(self, tmp_path):
+        """No frozen _corpus.md (manuscript not backed by an rv review
+        loop) -> no ground truth to filter against -> pre-fix behaviour
+        (emit every citekey the draft names), never a false skip.
+        """
+        from research_vault.manuscript.fidelity_gates import emit_support_tasks
+
+        tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path
+        keys = ["paper0", "paper1"]
+        _write_md_with_cites_named(tree_root, keys)
+        for ck in keys:
+            _literature_note(notes_root, ck)
+
+        result = emit_support_tasks(
+            tree_root, notes_root=notes_root, manuscript_slug="ms-test",
+        )
+        emitted_citekeys = {t["citekey"] for t in result["tasks_doc"]["tasks"]}
+        # Real tasks are all present; canary tasks (fixed bank) may also
+        # be interleaved, so check the real citekeys are a subset, not ==.
+        assert set(keys) <= emitted_citekeys
+        assert result["skipped_non_corpus"] == []
+
+    def test_corpus_paper_with_thin_note_still_emitted(self, tmp_path):
+        """A genuine corpus citekey whose note is missing/thin must still
+        be emitted (and fail-closed to ABSENT downstream) — corpus
+        membership, not note richness, is the filter signal. A missing
+        note for a REAL corpus paper is a real problem that must surface
+        as a BLOCK, never be silently skipped.
+        """
+        from research_vault.manuscript.fidelity_gates import emit_support_tasks
+
+        tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path
+        _write_corpus_md(notes_root, "ms-test", ["paper0"])
+        _write_md_with_cites_named(tree_root, ["paper0"])
+        # No literature note written for paper0 at all.
+
+        result = emit_support_tasks(
+            tree_root, notes_root=notes_root, manuscript_slug="ms-test",
+        )
+        emitted_citekeys = {t["citekey"] for t in result["tasks_doc"]["tasks"]}
+        assert "paper0" in emitted_citekeys
+        assert result["skipped_non_corpus"] == []
+
+
+class TestLargerDefaultBatchSize:
+    """Fix 2: fewer, larger batches so the hub fans out a handful of cold
+    judges, not one per ~7 tasks (82 tasks / 11 batches in the 0.3.0 live
+    validation run).
+    """
+
+    def test_default_batch_size_is_named_constant(self):
+        from research_vault.manuscript.fidelity_gates import (
+            DEFAULT_SUPPORT_BATCH_SIZE,
+            emit_support_tasks,
+        )
+        import inspect
+
+        sig = inspect.signature(emit_support_tasks)
+        assert sig.parameters["batch_size"].default == DEFAULT_SUPPORT_BATCH_SIZE
+        # Raised from the old default of 8.
+        assert DEFAULT_SUPPORT_BATCH_SIZE > 8
+
+    def test_82_tasks_pack_into_far_fewer_batches_than_before(self, tmp_path):
+        """Reproduce the live shape: ~25 corpus papers, one claim each
+        (plus 3 interleaved canaries -> ~28 real+canary tasks here, small
+        scale but the ratio is what matters). Old batch_size=8 -> ~4
+        batches for 28 tasks; new default must pack them into fewer.
+        """
+        import math
+
+        from research_vault.manuscript.fidelity_gates import (
+            DEFAULT_SUPPORT_BATCH_SIZE,
+            emit_support_tasks,
+        )
+
+        tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path
+        keys = [f"paper{i}" for i in range(25)]
+        _write_md_with_cites_named(tree_root, keys)
+        for ck in keys:
+            _literature_note(notes_root, ck)
+
+        result = emit_support_tasks(tree_root, notes_root=notes_root, manuscript_slug="ms-test")
+        n_tasks = len(result["tasks_doc"]["tasks"])
+        n_batches = len(result["tasks_doc"]["batches"])
+
+        old_batches = math.ceil(n_tasks / 8)
+        new_batches_default = math.ceil(n_tasks / DEFAULT_SUPPORT_BATCH_SIZE)
+        assert n_batches == new_batches_default
+        assert n_batches < old_batches
+
+    def test_batch_size_override_still_honored(self, tmp_path):
+        from research_vault.manuscript.fidelity_gates import emit_support_tasks
+
+        tree_root = _make_ms_tree(tmp_path)
+        notes_root = tmp_path
+        keys = [f"paper{i}" for i in range(5)]
+        _write_md_with_cites_named(tree_root, keys)
+        for ck in keys:
+            _literature_note(notes_root, ck)
+
+        result = emit_support_tasks(
+            tree_root, notes_root=notes_root, manuscript_slug="ms-test", batch_size=2,
+        )
+        for b in result["tasks_doc"]["batches"]:
+            assert len(b["task_ids"]) <= 2
