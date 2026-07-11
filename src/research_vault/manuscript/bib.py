@@ -225,11 +225,17 @@ def build_references_md(
 # "## Sources" + references.bib (design D-4).
 #
 # The drafter keeps the stable, content-addressable [[citekey]] token in
-# sections/*.md and report.md (RD-1, PR-M2, unchanged above) — this is a
+# sections/*.md and _report.md (RD-1, PR-M2, unchanged above) — this is a
 # SEPARATE render pass that never mutates those draft files. It reads the
 # same draft files + literature/ frontmatter, and writes NEW artifacts:
-#   - tree_root/report.rendered.md  — the reader-facing [N]-numbered body
-#     + a "## Sources" section (the gold shape).
+#   - tree_root/report.md      — PR-D2 (architect ruling, two-artifact
+#     rename): the READER-FACING [N]-numbered body + a "## Sources" section
+#     (the gold shape). No underscore prefix — this is the one file a
+#     reader ever sees; `_report.md` (source) is internal (rv's own
+#     `_LEAK_ARTIFACT_FILENAME_RE` convention: underscore-prefixed .md is
+#     always internal). Because `resolve_draft_files` no longer returns a
+#     file named `report.md`, this render output can never feed back as a
+#     SOURCE on re-run — idempotency is structural, not just observed.
 #   - tree_root/references.bib      — the same closed bibliography as a
 #     real, parseable BibTeX file.
 # This mirrors build_references_md's hermetic, never-fabricate contract
@@ -526,10 +532,11 @@ def render_numbered_manuscript(
     the reader-facing draft + a hermetic numbered ``## Sources`` section +
     ``references.bib`` — the PR-D deliverable.
 
-    Never mutates the drafted ``report.md``/``sections/*.md`` (they keep
+    Never mutates the drafted ``_report.md``/``sections/*.md`` (they keep
     their stable ``[[citekey]]`` tokens, D-4a) — writes two NEW artifacts:
-    ``tree_root/report.rendered.md`` (the numbered reader body + Sources)
-    and ``tree_root/references.bib``.
+    ``tree_root/report.md`` (PR-D2: the reader-facing numbered body +
+    Sources — no underscore, the one file a reader ever sees) and
+    ``tree_root/references.bib``.
 
     Fail-closed (charter §2/§1): a blank/``CITEKEY-UNRESOLVED`` citekey
     (D-4e) or any residual ``[[citekey]]`` left after conversion (D-4d) is a
@@ -543,7 +550,7 @@ def render_numbered_manuscript(
           "numbering": dict[str, int],          # citekey -> N
           "sources_md": str,                    # the "## Sources" block
           "rendered_bodies": dict[str, str],    # draft path (str) -> converted text
-          "rendered_report_path": Path,          # tree_root/report.rendered.md
+          "rendered_report_path": Path,          # tree_root/report.md (PR-D2)
           "bib_path": Path,                      # tree_root/references.bib
         }
     """
@@ -579,7 +586,11 @@ def render_numbered_manuscript(
 
     sources_md = build_sources_section(numbering, matched)
 
-    rendered_report_path = tree_root / "report.rendered.md"
+    # PR-D2: reader-facing render target — no underscore (see module
+    # docstring's two-artifact contract). `resolve_draft_files` never
+    # returns a path named exactly "report.md", so this write can never
+    # feed back into itself as a SOURCE on a subsequent render.
+    rendered_report_path = tree_root / "report.md"
     joined_parts = [
         rendered_bodies[str(p)] for p in draft_files if p.exists()
     ]

@@ -191,7 +191,7 @@ class TestBuildReferencesMd:
 
     def test_cited_and_backed_key_written(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_md(tree_root, "report.md", "Smith [[smith2023]] showed this.")
+        _write_md(tree_root, "_report.md", "Smith [[smith2023]] showed this.")
         errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
         assert errors == []
         text = references_path.read_text(encoding="utf-8")
@@ -200,7 +200,7 @@ class TestBuildReferencesMd:
 
     def test_missing_note_flagged(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_md(tree_root, "report.md", "Ghost work [[ghost2024]] claims this.")
+        _write_md(tree_root, "_report.md", "Ghost work [[ghost2024]] claims this.")
         errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
         assert any("ghost2024" in e for e in errors)
         text = references_path.read_text(encoding="utf-8")
@@ -209,7 +209,7 @@ class TestBuildReferencesMd:
     def test_mixed_backed_and_missing(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
         _write_md(
-            tree_root, "report.md",
+            tree_root, "_report.md",
             "Smith [[smith2023]] showed this. Ghost work [[ghost2024]] claims that.",
         )
         errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
@@ -221,7 +221,7 @@ class TestBuildReferencesMd:
 
     def test_deterministic_rebuild(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_md(tree_root, "report.md", "Smith [[smith2023]] showed this.")
+        _write_md(tree_root, "_report.md", "Smith [[smith2023]] showed this.")
         _errors1, path1 = bib.build_references_md(project_notes_dir, tree_root)
         text1 = path1.read_text(encoding="utf-8")
         _errors2, path2 = bib.build_references_md(project_notes_dir, tree_root)
@@ -230,7 +230,7 @@ class TestBuildReferencesMd:
 
     def test_no_cites_writes_empty_references_no_errors(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_md(tree_root, "report.md", "No citations here.")
+        _write_md(tree_root, "_report.md", "No citations here.")
         errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
         assert errors == []
         assert references_path.exists()
@@ -241,7 +241,7 @@ class TestBuildReferencesMd:
         _write_lit_note(lit_dir, "b2020", citekey="b2020", title="B")
         _write_lit_note(lit_dir, "a2019", citekey="a2019", title="A")
         _write_md(
-            tree_root, "report.md",
+            tree_root, "_report.md",
             "Smith [[smith2023]], [[b2020]], and [[a2019]].",
         )
         _errors, references_path = bib.build_references_md(project_notes_dir, tree_root)
@@ -264,14 +264,14 @@ class TestCheckCitationResolve:
 
     def test_missing_cite_not_ok(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_md(tree_root, "report.md", "Ghost work [[ghost2024]] claims this.")
+        _write_md(tree_root, "_report.md", "Ghost work [[ghost2024]] claims this.")
         result = bib.check_citation_resolve(project_notes_dir, tree_root)
         assert result["ok"] is False
         assert any("ghost2024" in e for e in result["errors"])
 
     def test_self_contained_ok(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_md(tree_root, "report.md", "Smith [[smith2023]] showed this.")
+        _write_md(tree_root, "_report.md", "Smith [[smith2023]] showed this.")
         result = bib.check_citation_resolve(project_notes_dir, tree_root)
         assert result["ok"] is True
         assert result["errors"] == []
@@ -284,7 +284,7 @@ class TestCheckCitationResolve:
         # structurally).
         project_notes_dir, tree_root = self._setup(tmp_path)
         _write_md(
-            tree_root, "report.md",
+            tree_root, "_report.md",
             "Smith [[smith2023]] showed this. Ghost work [[ghost2024]] claims that.",
         )
         result = bib.check_citation_resolve(project_notes_dir, tree_root)
@@ -327,7 +327,7 @@ class TestHermeticNoNetwork:
         tree_root.mkdir(parents=True)
         lit_dir = project_notes_dir / "literature"
         _write_lit_note(lit_dir, "smith2023", citekey="smith2023", title="A Paper")
-        _write_md(tree_root, "report.md", "Smith [[smith2023]] showed this.")
+        _write_md(tree_root, "_report.md", "Smith [[smith2023]] showed this.")
 
         def _blocked(*_a, **_kw):
             raise AssertionError("network call attempted during hermetic references build")

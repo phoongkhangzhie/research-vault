@@ -259,7 +259,7 @@ class TestBuildReferencesBib:
 
     def test_parses_as_valid_bibtex(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_md(tree_root, "report.md", "Smith [[smith2023]] showed this.")
+        _write_md(tree_root, "_report.md", "Smith [[smith2023]] showed this.")
         errors, bib_path = bib.build_references_bib(project_notes_dir, tree_root)
         assert errors == []
         text = bib_path.read_text(encoding="utf-8")
@@ -269,7 +269,7 @@ class TestBuildReferencesBib:
 
     def test_never_fabricates_stub_for_unmatched_key(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
-        _write_md(tree_root, "report.md", "Ghost [[ghost2024]] claims this.")
+        _write_md(tree_root, "_report.md", "Ghost [[ghost2024]] claims this.")
         errors, bib_path = bib.build_references_bib(project_notes_dir, tree_root)
         assert any("ghost2024" in e for e in errors)
         text = bib_path.read_text(encoding="utf-8")
@@ -299,13 +299,23 @@ class TestRenderNumberedManuscript:
     def test_end_to_end_numbered_render(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
         _write_md(
-            tree_root, "report.md",
+            tree_root, "_report.md",
             "Jones [[jones2022]] built on Smith [[smith2023]] and cited Jones again [[jones2022]].",
         )
         result = bib.render_numbered_manuscript(project_notes_dir, tree_root)
         assert result["ok"] is True
         assert result["errors"] == []
         assert result["numbering"] == {"jones2022": 1, "smith2023": 2}
+
+        # PR-D2 (AC1, two-artifact proof): the render lands at `report.md`
+        # (no underscore) — the reader-facing artifact — while `_report.md`
+        # (the internal [[citekey]] SOURCE) is untouched, still carrying
+        # its stable wikilinks.
+        assert result["rendered_report_path"].name == "report.md"
+        assert result["rendered_report_path"] == tree_root / "report.md"
+        source_text = (tree_root / "_report.md").read_text(encoding="utf-8")
+        assert "[[jones2022]]" in source_text
+        assert "[[smith2023]]" in source_text
 
         rendered_text = result["rendered_report_path"].read_text(encoding="utf-8")
         assert "[1]" in rendered_text
@@ -322,7 +332,7 @@ class TestRenderNumberedManuscript:
     def test_d4e_sentinel_citekey_blocks_naming_the_claim(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
         _write_md(
-            tree_root, "report.md",
+            tree_root, "_report.md",
             "Some unresolved claim about transfer learning [[CITEKEY-UNRESOLVED]] "
             "needs a real source.",
         )
@@ -341,7 +351,7 @@ class TestRenderNumberedManuscript:
     def test_d4d_residual_wikilink_blocks(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
         _write_md(
-            tree_root, "report.md",
+            tree_root, "_report.md",
             "Smith [[smith2023]] showed this. Ghost work [[ghost2024]] claims that.",
         )
         result = bib.render_numbered_manuscript(project_notes_dir, tree_root)
@@ -352,15 +362,20 @@ class TestRenderNumberedManuscript:
     def test_deterministic_rerun(self, tmp_path: Path) -> None:
         project_notes_dir, tree_root = self._setup(tmp_path)
         _write_md(
-            tree_root, "report.md",
+            tree_root, "_report.md",
             "Jones [[jones2022]] built on Smith [[smith2023]].",
         )
+        source_before = (tree_root / "_report.md").read_text(encoding="utf-8")
         result1 = bib.render_numbered_manuscript(project_notes_dir, tree_root)
         text1 = result1["rendered_report_path"].read_text(encoding="utf-8")
         result2 = bib.render_numbered_manuscript(project_notes_dir, tree_root)
         text2 = result2["rendered_report_path"].read_text(encoding="utf-8")
         assert result1["numbering"] == result2["numbering"]
         assert text1 == text2
+        # AC4: `_report.md` (the SOURCE) is never mutated by the render —
+        # two renders never feed the render back into itself as a source.
+        source_after = (tree_root / "_report.md").read_text(encoding="utf-8")
+        assert source_after == source_before
 
     def test_resolve_citations_never_matches_sentinel_or_blank(self, tmp_path: Path) -> None:
         # Direct unit proof at the resolve layer (D-4e): _resolve_citations
@@ -372,7 +387,7 @@ class TestRenderNumberedManuscript:
         lit_dir = project_notes_dir / "literature"
         _write_lit_note(lit_dir, "stub-unresolved", citekey="CITEKEY-UNRESOLVED", title="Stub")
         draft = _write_md(
-            tree_root, "report.md",
+            tree_root, "_report.md",
             "An unresolved cite [[CITEKEY-UNRESOLVED]] sits here.",
         )
         lit_index = bib._load_literature_bib_index(lit_dir)
@@ -392,7 +407,7 @@ class TestExistingGateUntouched:
         tree_root.mkdir(parents=True)
         lit_dir = project_notes_dir / "literature"
         _write_lit_note(lit_dir, "smith2023", citekey="smith2023", title="A Paper")
-        _write_md(tree_root, "report.md", "Smith [[smith2023]] showed this.")
+        _write_md(tree_root, "_report.md", "Smith [[smith2023]] showed this.")
         result = bib.check_citation_resolve(project_notes_dir, tree_root)
         assert result["ok"] is True
         assert result["errors"] == []

@@ -1101,10 +1101,13 @@ def source_transform(
     DATA for the writer briefs to consume (results-inject discipline extended
     to the survey's structural artifacts — never let the LLM type a citekey,
     a count, or a table cell):
-      - the PRISMA ledger (``render_prisma_ledger``, via ``review.coverage_report``
+      - the PRISMA ledger — PR-D2: preferentially rendered from the PR-5
+        ``_corpus_ledger.md`` handoff (``review.ledger.render_methods_from_ledger``,
         under the ``reviews/<slug>/`` convention — manuscript slug == review
-        scope id; degrades to an honest "no corpus" ledger otherwise) — PR-B
-        (gold-settled): injected into the ``appendix-methods`` tip, which
+        scope id) when that artifact exists; falls back to the older
+        ``render_prisma_ledger``/``review.coverage_report`` path for a
+        review that predates PR-5 (an honest degrade, not a hard failure).
+        PR-B (gold-settled): injected into the ``appendix-methods`` tip, which
         instructs the single drafting agent to write it to the project's
         DEVLOG/control note — NEVER a ``report.md`` section (the reader-
         facing document carries no Appendix at all, see
@@ -1148,14 +1151,28 @@ def source_transform(
     """
     slug = tree_root.name
 
-    coverage: dict[str, Any] = {}
-    corpus_path = project_notes_dir / "reviews" / slug / "_corpus.md"
-    if corpus_path.exists():
-        from research_vault.review import coverage_report
-        try:
-            coverage = coverage_report(project, slug, config=config)
-        except Exception:
-            coverage = {}
+    # ★ PR-D2 (ledger -> methods fold-in): prefer the PR-5 `_corpus_ledger.md`
+    # — a single, already-consolidated, machine-readable handoff — over
+    # re-deriving the PRISMA ledger from `review.coverage_report()` a
+    # second time. A review that predates PR-5 (no `_corpus_ledger.md` yet)
+    # falls back to the old coverage-report path — an honest degrade, never
+    # a hard failure for pre-existing reviews.
+    ledger_path = project_notes_dir / "reviews" / slug / "_corpus_ledger.md"
+    if ledger_path.exists():
+        from research_vault.review.ledger import render_methods_from_ledger
+
+        appendix_methods = render_methods_from_ledger(ledger_path)
+    else:
+        coverage: dict[str, Any] = {}
+        corpus_path = project_notes_dir / "reviews" / slug / "_corpus.md"
+        if corpus_path.exists():
+            from research_vault.review import coverage_report
+            try:
+                coverage = coverage_report(project, slug, config=config)
+            except Exception:
+                coverage = {}
+        deviations_path = project_notes_dir / "reviews" / slug / "_deviations.md"
+        appendix_methods = render_prisma_ledger(coverage, deviations_path=deviations_path)
 
     rows = index_literature_rows(project_notes_dir / "literature")
 
@@ -1165,10 +1182,8 @@ def source_transform(
     else:
         branches = list(branches_raw)
 
-    deviations_path = project_notes_dir / "reviews" / slug / "_deviations.md"
-
     return {
-        "appendix-methods": render_prisma_ledger(coverage, deviations_path=deviations_path),
+        "appendix-methods": appendix_methods,
         "provenance_header": render_provenance_header(),
         "references": render_comparison_table(rows),
         "framework_branches": branches,
@@ -1306,19 +1321,23 @@ STYLE_BRIEFS: dict[str, str] = {
         "fidelity failure). Never introduce a new claim here."
     ),
     "assemble": (
-        "RD-1: join the drafted sections into `report.md` (markdown) in "
+        "RD-1: join the drafted sections into `_report.md` (markdown, the "
+        "internal `[[citekey]]` SOURCE — PR-D2: never write `report.md` "
+        "directly, that name is reserved for the SEPARATE `[N]`-numbered "
+        "reader render produced later by the bib-render pass) in "
         "READER-FIRST reading order (RD-2): Abstract, Introduction (thesis "
         "+ spine-at-a-glance), Thematic sections, Cross-cutting analysis, "
         "Open problems, Conclusion, Sources (References) — even though "
         "Abstract was DRAFTED in a different chain order (last, so it "
         "could summarize the finished body). Prepend the injected "
         "`provenance_header` blockquote (RD-3, hash-free) as the very "
-        "first lines of `report.md`, before the Abstract. Do not reorder "
+        "first lines of `_report.md`, before the Abstract. Do not reorder "
         "or drop a section.\n\n"
-        "PR-B (gold-settled): `report.md` carries NO Appendix — the "
-        "methods/audit-trail record (PRISMA ledger, counter-positions) is "
-        "written SEPARATELY to the project's DEVLOG/control note (see the "
-        "`appendix-methods` brief) and never joined into this document."
+        "PR-B (gold-settled): the final reader-facing document carries NO "
+        "Appendix — the methods/audit-trail record (PRISMA ledger, "
+        "counter-positions) is written SEPARATELY to the project's "
+        "DEVLOG/control note (see the `appendix-methods` brief) and never "
+        "joined into `_report.md`."
     ),
 }
 
@@ -1891,7 +1910,9 @@ def phase2_builder(
     assemble_spec = tips.get(
         "assemble",
         (
-            "RD-1: join the drafted sections into `report.md` (markdown) in "
+            "RD-1: join the drafted sections into `_report.md` (markdown, "
+            "the internal `[[citekey]]` SOURCE — PR-D2: never `report.md`, "
+            "that name is reserved for the separate reader render) in "
             "READER-FIRST reading order (RD-2): " + ", ".join(READING_ORDER) + ". "
             "Prepend the injected `provenance_header` blockquote (RD-3, "
             "hash-free) as the very first lines, before the Abstract."
@@ -1981,10 +2002,11 @@ def phase2_builder(
     nodes.append({
         "id": "assemble",
         "type": "agent",
-        "label": "Assemble — join drafted sections into report.md (RD-1)",
+        "label": "Assemble — join drafted sections into _report.md (RD-1, PR-D2)",
         "spec": preamble.rstrip() + "\n\n---\n\n" + assemble_spec,
         "reads": [sections_dir_abs],
         "needs": [_afterok(last_draft_id)],
+        "produces": {"_report.md": str(tree_root / "_report.md")},
     })
 
     nodes.append({

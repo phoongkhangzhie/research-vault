@@ -92,6 +92,69 @@ PR: `feat/pr-s1-backward-snowball-limit` off `92a02b0`, opened via owner
 `gh` (kz-mason PAT lacks collaborator access to this repo — known gap, see
 engineer memory). Returns to the corpus architect for a recall-adjacent
 fit-check per the dispatch brief.
+## 2026-07-10 (PR-D2 — wire the numbered render live + pin the board's source-routing driver)
+
+### Done
+Two-artifact rename + production driver, per the manuscript architect's
+ruling on the PR-D-flagged fork: `_report.md` (underscore-prefixed, rv's
+own leak convention for "internal") is now the drafter/assemble write
+target and the `[[citekey]]` SOURCE every gate + the board reads; `report.md`
+(no underscore) is the SEPARATE reader-facing `[N]`-numbered render PR-D
+(#228) built but never wired anywhere.
+
+- **The rename** — `draft_files._ROOT_DRAFT_NAMES` -> `("_report.md",)`;
+  `bib.render_numbered_manuscript` now writes its render to `report.md`
+  (was `report.rendered.md`). Because `resolve_draft_files` no longer
+  returns a path named `report.md`, the render can never feed back into
+  itself as a source on a subsequent run — idempotency is structural, not
+  just observed. Both manuscript-loop assemble-node builders (the
+  type-generic one in `manuscript/__init__.py` and lit-review's
+  single-pass one in `manuscript/types/lit_review.py`) now declare
+  `produces: {"_report.md": ...}` and every brief string that named the
+  join target updated to match — including the scaffold stub `cmd_new`
+  writes (`_write_report_md_stub`), which had a self-inflicted leak (its
+  own explanatory HTML comment used to spell out `[[citekey]]` literally,
+  which the hermetic-bib gate then flagged as an unresolved citation —
+  caught by the full suite, fixed by describing the convention in prose
+  instead of the literal bracket token).
+- **The render is now live** — `build_approve_payload` gained a new
+  structural gate step (`[numbered-render]`) that calls
+  `render_numbered_manuscript` and BLOCKs on any residual/unresolved
+  citekey — fail-closed, never ships a half-converted `report.md`. Runs on
+  every `build_approve_payload` call (including PR-M5's per-round re-fire,
+  same convention `references.md` already follows), so `report.md` +
+  `references.bib` are regenerated every gate check.
+- **★ The board-emit production driver** — `compute_coverage_diff`
+  (PR-E/PR-F) had ZERO production call sites; only a unit regression pinned
+  its source-routing contract. New `manuscript.cmd_board_emit` (+
+  `rv manuscript <project> board-emit <slug>`) assembles the WIDTH lens's
+  `coverage_diff` from `_read_draft_text` (the source, never the render)
+  and drives `gates.board_seam.emit_board_tasks_to_dir`. A driver-level
+  regression test (`test_pr_d2_source_routing_driver.py`) proves this with
+  a negative control: feeding the same mechanical diff function the
+  RENDER instead of the source false-criticals every committed paper as
+  "missing" — the exact failure mode a mispointed call site would produce.
+- **Ledger -> methods fold-in** — `review.ledger.render_methods_from_ledger`
+  renders the reader-facing PRISMA-style methods write-up by CONSUMING
+  `_corpus_ledger.md` (PR-5)'s frontmatter scalars + body tables, never
+  re-deriving a count. `lit_review.source_transform` prefers it when the
+  ledger exists, falling back to the older `render_prisma_ledger`/
+  `coverage_report` path for a review that predates PR-5 (an honest
+  degrade). Per the gold-settled decision, this still routes to the
+  project's DEVLOG/control note, never `report.md`.
+- **Collision guard** — `resolve_draft_files` never returns a path named
+  exactly `report.md`, tested explicitly (including the realistic case
+  where the render already exists on disk alongside the source).
+
+Full suite green (3857+ passed, 3 skipped); `leakage_scan.sh` clean on
+`src/research_vault`, `tests --codenames-only`, and this DEVLOG entry.
+
+### Decisions
+Architect ruling (resolves the fork PR-D left open): reader-facing clean
+`report.md`, internal `[[citekey]]` source `_report.md` — the INVERSE of
+PR-D's original naming. Justified on coherence grounds: an underscore
+prefix already means "internal, never reader-facing" everywhere else in
+this codebase (`_manuscript.md`, `_coverage-map.md`, `_corpus.md`).
 
 ## 2026-07-10 (PR-5 fix-round — architect fit-check: ledger bypass + fabricated count)
 

@@ -12,7 +12,7 @@ Coverage:
      2d. adopter [manuscript_style] section-key override
   3. manuscript cmd_new — per-manuscript folder scaffold
      3a. creates manuscripts/<slug>/_manuscript.md with manuscript_type field
-     3b. creates report.md (RD-1: markdown reader path), references.md, sections/, figures/
+     3b. creates _report.md (RD-1/PR-D2: internal [[citekey]] SOURCE stub), references.md, sections/, figures/
      3c. unknown --type fails loudly (ValueError, no silent fallback)
      3d. re-creating an existing slug raises FileExistsError (no silent overwrite)
      3e. lit-review stub has phase1_builder=None -> cmd_new returns manifest=None
@@ -172,7 +172,7 @@ def test_cmd_new_scaffolds_folder_shape(cfg):
     _, tree_root, _ = cmd_new(
         "demo-research", "survey-shape", ms_type_key="lit-review", config=cfg,
     )
-    assert (tree_root / "report.md").exists()
+    assert (tree_root / "_report.md").exists()
     assert (tree_root / "references.md").exists()
     assert (tree_root / "sections").is_dir()
     assert (tree_root / "figures").is_dir()
@@ -437,7 +437,7 @@ def test_smoke_cli_new_scaffolds_folder(tmp_instance):
     cfg = load_config(reload=True)
     tree_root = cfg.project_notes_dir("demo-research") / "manuscripts" / "survey-smoke"
     assert (tree_root / "_manuscript.md").exists()
-    assert (tree_root / "report.md").exists()
+    assert (tree_root / "_report.md").exists()
     assert (tree_root / "references.md").exists()
     assert (tree_root / "sections").is_dir()
     assert (tree_root / "figures").is_dir()
