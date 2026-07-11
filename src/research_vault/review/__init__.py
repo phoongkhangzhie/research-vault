@@ -1304,15 +1304,15 @@ def _build_phase1_manifest(
     #    ~15-20% off-domain -> auto-prune + declare, run proceeds; at/above
     #    -> HALT-DECLARE) IN FRONT OF the saturation-based disposition.
     #    Operator confirms "these are the papers" before N parallel relates dispatch.
-    #    On approval → rv review expand emits Phase-2.
+    #    On approval → Phase-2 auto-emits (rv review expand is HARD-REMOVED, D1).
     nodes.append({
         "id": "coverage-gate",
         "type": "human-go",
         "label": (
             "Gate 2: Approve discovered corpus (_corpus.md + _saturation.md); "
-            "assert every [NEW] citekey has a relate slot or is recorded MENTION-ONLY. "
-            "assert coverage via `rv review <project> coverage <scope>` — do not eyeball. "
-            "Then run: rv review <project> expand <scope> to emit Phase-2."
+            "assert every [NEW] citekey has a relate slot or is recorded MENTION-ONLY "
+            "(coverage is checked by the 'coverage' tool node-op — do not eyeball). "
+            "On approval, Phase-2 auto-emits (relate-* fan-out) — no hand-run step."
         ),
         "needs": [_afterok("review-relevance-verify")],
     })
@@ -1613,15 +1613,15 @@ def cmd_new(
         "<!--   _corpus.md    — discovered [NEW] citekey list (snowball output) -->\n"
         "<!--   _saturation.md — saturation curve (rounds × new citekeys) -->\n"
         "<!-- Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json -->\n"
-        "<!-- After coverage-gate: rv review <project> expand <scope> → Phase-2 -->\n"
+        "<!-- Phase-2 auto-emits when coverage-gate GOes — no hand-run step. -->\n"
         "\n"
         "## Review question\n\n"
         f"<!-- {question} -->\n\n"
         "## Protocol\n\n"
         f"<!-- Pre-registration: {review_dir}/_protocol.md -->\n\n"
         "## Phase-2 manifest\n\n"
-        "<!-- Emitted by rv review expand after coverage-gate approval. -->\n"
-        "<!-- phase2-dag.json path set here after expand runs. -->\n"
+        "<!-- Auto-emitted when coverage-gate GOes (rv review expand is HARD-REMOVED, D1). -->\n"
+        "<!-- phase2-dag.json path set here after auto-emission. -->\n"
     )
 
     note_path.write_text(_render_frontmatter(fields) + "\n" + body, encoding="utf-8")

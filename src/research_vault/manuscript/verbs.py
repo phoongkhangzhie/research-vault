@@ -4,13 +4,15 @@
 When to use: use ``rv manuscript <project> new <slug> --type <type>`` to scaffold
 a per-manuscript folder (design §0/§12: NOT an OKF taxonomy — a per-manuscript
 ``manuscripts/<slug>/{_manuscript.md, report.md, sections/, references.md, figures/}``
-folder). ``rv manuscript <project> expand <slug>`` emits the Phase-2 draft
-manifest generically from the registered type's section table. ``rv manuscript
-<project> review <slug>`` drives the 2-round x 3-reviewer adversarial
-review-revise board (design §9, PR-M5). PR-F: the in-process API judge default
-was deleted — the production cold-judge review runs via the 6-lens board's
-emit/ingest fan-out; this OLD board raises loudly on a None judge_fn (test-only
-seam). ``rv manuscript <project> list`` enumerates all manuscripts for a project.
+folder). The Phase-2 draft manifest (from the registered type's section table)
+is emitted AUTONOMOUSLY when ``approve-framework`` GOes — ``rv manuscript
+<project> expand`` is HARD-REMOVED (D1, verb consolidation), a no-op stub only.
+The 6-lens review board (design §2, PR-E/PR-D2) runs via cold-agent-judge
+fan-out: ``rv manuscript <project> board-emit <slug>`` writes the task set (rv
+calls no LLM), the hub fans cold subagent judges out over it, and ``rv dag
+approve`` ingests the verdicts for the actual gate decision — ``rv manuscript
+<project> review`` is HARD-REMOVED (D1), a no-op stub only. ``rv manuscript
+<project> list`` enumerates all manuscripts for a project.
 
 This is the ONLY path that creates the type-registered per-manuscript folder +
 Phase-1/2 DAG manifests.
@@ -51,8 +53,10 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     desc = (
         "Type-generic manuscript loop (PR-M1). ``rv manuscript new`` is the ONLY "
         "path that creates the per-manuscript folder convention.\n"
-        "Drive Phase-2 with: rv dag run manuscripts/<slug>/phase2-dag.json\n"
-        "After scaffolding: rv manuscript <project> expand <slug> -> Phase-2"
+        "Drive Phase-1 with: rv dag run manuscripts/<slug>/phase1-dag.json\n"
+        "The Phase-2 manifest (manuscripts/<slug>/phase2-dag.json) emits "
+        "AUTONOMOUSLY when approve-framework GOes — no hand-run 'expand' step; "
+        "then drive it with: rv dag run manuscripts/<slug>/phase2-dag.json"
     )
     if parent is not None:
         p = parent.add_parser(

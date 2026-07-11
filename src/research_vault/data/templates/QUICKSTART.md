@@ -344,28 +344,34 @@ The protocol (question, seed queries, inclusion/exclusion, and a required
 counter-position) must be approved at `approve-protocol` before any search fires
 (the L-2 anti-fishing gate). A deterministic width-sweep (`review-search`) is
 screened by a thin agent judgment layer (`review-screen`); a deterministic
-both-direction snowball walk (`review-snowball`) then runs to saturation and is
-concept-tagged and curated (`review-curate`) into the final corpus. The
-`coverage-gate` node is the Phase-2 boundary: every in-scope paper must have a
-relate slot or be recorded MENTION-ONLY before `rv review <project>
-expand <scope>` fans out the per-paper `relate-*` nodes. Single-human-gate
-design: only `approve-protocol` is a human gate — `coverage-gate` and the
-terminal `approve-review` (Gate 3, after the Phase-2 coverage-critic) both
-resolve AUTONOMOUSLY through the gate-policy engine (`review/autonomy.py`);
-the user receives the reviewed corpus as the system's best version, with no
-"approve the result" gate. Start one with `rv review <project> new <scope>
---question '...'`.
+both-direction snowball walk (`review-snowball`) then runs to saturation. The
+raw pool passes a **relevance gate** — a mechanical off-domain pre-filter
+(`review-relevance-screen`) ahead of concept-tagging and curation
+(`review-curate`), then a cold, canary-verified re-check
+(`review-relevance-verify`) of every `[NEW]` paper — before the final corpus
+reaches the `coverage-gate` node, the Phase-2 boundary: every in-scope paper
+must have a relate slot or be recorded MENTION-ONLY before the per-paper
+`relate-*` nodes auto-emit and fan out (no hand-run `expand` step — that verb
+was removed). Single-human-gate design: only `approve-protocol` is a human
+gate — `coverage-gate` and the terminal `approve-review` (Gate 3, after the
+Phase-2 coverage-critic) both resolve AUTONOMOUSLY through the gate-policy
+engine (`review/autonomy.py`); the user receives the reviewed corpus as the
+system's best version, with no "approve the result" gate. Start one with
+`rv review <project> new <scope> --question '...'`.
 
 ### Manuscript loop — type-generic, gated on structural + semantic fidelity
 
 Transforms the OKF pillar (`notes/`) into a submittable document. Each
 manuscript type may declare its own Phase-1 (e.g. the `lit-review` type's
-framework-selection sub-loop, gated on `approve-framework`); every type shares
-a Phase-2 terminal `approve-manuscript` gate covering structural gates, fidelity
-gates, and the review-revise board. Both `approve-framework` and
-`approve-manuscript` resolve autonomously (single-human-gate design) — neither
-is a human keypress. Start one with `rv manuscript <project> new <slug> --type
-<type>`.
+framework-selection sub-loop — an ensemble of cold, independent lens
+candidates synthesized into one spine by select-and-graft, vetted by a cold
+critic, gated on `approve-framework`); every type shares a Phase-2 terminal
+`approve-manuscript` gate covering the structural/fidelity gates (hermetic
+references, coverage, equation-fidelity) and the **6-lens review board** — a
+cold-agent-judge fan-out (`board-emit`/the hub's cold judges/`judge-ingest`),
+never a direct API call. Both `approve-framework` and `approve-manuscript`
+resolve autonomously (single-human-gate design) — neither is a human
+keypress. Start one with `rv manuscript <project> new <slug> --type <type>`.
 
 ## Adding a real project
 

@@ -48,8 +48,9 @@ you have a saturated `notes/` corpus and need a submittable document out of it �
 notes-to-manuscript synthesis step, distinct from the knowledge loops (`rv experiment`,
 `rv review`) that build `notes/` in the first place. See
 [manuscript-loop.md](./manuscript-loop.md) for the full end-to-end walkthrough (scaffold →
-framework approval → expand → the 2×3 review board → the fidelity gates → the
-`manuscripts/<slug>/` output) and the known limitations accumulated across the build.
+framework lens-ensemble → autonomous Phase-2 emission → the 6-lens review board → the
+fidelity gates → the `manuscripts/<slug>/` output) and the known limitations accumulated
+across the build.
 
 ## The canonical top-level tree
 
