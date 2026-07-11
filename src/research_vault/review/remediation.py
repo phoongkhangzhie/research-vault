@@ -2,7 +2,7 @@
 """review/remediation.py — NG-6a piece 2: the autonomous, bounded
 coverage-gap remediation loop.
 
-Design of record: docs/superpowers/specs/2026-07-08-ng6a-refresh-autonomous-remediation.md
+Design of record: internal design note.
 Extends the coverage-gate disposition (``review.autonomy.classify_coverage_gate``,
 already wired into ``dag/verbs.py`` via
 ``classify_coverage_gate_with_deviation_check``) with a REMEDIATE decision —

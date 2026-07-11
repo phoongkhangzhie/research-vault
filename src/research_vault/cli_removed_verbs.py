@@ -3,8 +3,8 @@
 operator resolved this deliberately): shared redirect-breadcrumb stub for
 a step-verb collapsed into DAG node-execution.
 
-Design of record: docs/superpowers/specs/2026-07-08-rv-verb-consolidation.md
- D1 — "Delete the 8 step-verbs from the CLI outright; they survive only as
+Design of record: internal design note.
+D1 — "Delete the 8 step-verbs from the CLI outright; they survive only as
 importable functions the DAG node-execution calls... the surface goes fully
 clean, no deprecation aliases." mandates a redirect breadcrumb so a
 fresh Alfred doesn't keep reaching for the old verb out of habit.
@@ -46,8 +46,7 @@ def add_removed_verb_stub(
         name,
         help=f"REMOVED — collapsed into {op_or_transition} (D1, verb consolidation).",
         description=(
-            f"This verb was HARD-REMOVED (D1, verb consolidation, "
-            f"docs/superpowers/specs/2026-07-08-rv-verb-consolidation.md). "
+            f"This verb was HARD-REMOVED (D1, verb consolidation). "
             f"It collapsed into {op_or_transition} — the DAG runner invokes "
             f"it IN-PROCESS when it executes the node; you do not choose it. "
             f"Use: {redirect}"

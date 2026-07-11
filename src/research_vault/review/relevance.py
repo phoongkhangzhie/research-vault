@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """review/relevance.py — the trustworthy-curation relevance gate.
 
-Design of record: docs/superpowers/specs/2026-07-10-trustworthy-curation-
-relevance-gate-design.md (internal doctrine, does not ship). Root cause: a
+Design of record: internal doctrine (does not ship). Root cause: a
 downstream project's e2e validation run's Phase-2 relate fan-out refused/flagged 51 of
 97 "curated" papers as off-domain (astronomy, materials physics, musicology,
 literary criticism, surgical robotics, finance) — caught only by luck, AFTER

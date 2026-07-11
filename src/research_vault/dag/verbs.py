@@ -2022,7 +2022,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                     print(f"  {issue}", file=sys.stderr)
                 print(
                     "  Fix: fill results_commit/repro_seed/repro_config_*/dataset-link "
-                    "(CHECK-1, docs/superpowers/specs/2026-07-07-code-conventions-design.md).",
+                    "(CHECK-1).",
                     file=sys.stderr,
                 )
                 return 1
@@ -2040,8 +2040,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                     print(f"  {issue}", file=sys.stderr)
                 print(
                     "  Fix: answer the missing mandatory checklist question(s) — "
-                    "this is a reading-DISCIPLINE check (docs/superpowers/specs/"
-                    "2026-07-08-okf-sufficiency-and-paper-reading.md), not a "
+                    "this is a reading-DISCIPLINE check, not a "
                     "rigid schema; the note body/structure stays free-form.",
                     file=sys.stderr,
                 )
@@ -2108,7 +2107,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                         print(f"  {issue}", file=sys.stderr)
                     print(
                         "  Fix: fill results_commit/repro_seed/repro_config_*/dataset-link "
-                        "(CHECK-1, docs/superpowers/specs/2026-07-07-code-conventions-design.md).",
+                        "(CHECK-1).",
                         file=sys.stderr,
                     )
                     return 1

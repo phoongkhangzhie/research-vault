@@ -11,7 +11,7 @@ DATA (real, attributed, fair-use-short excerpts) lives at
 templates).
 
 Each excerpt file is a labeled few-shot block (the "block-header schema", matching the researcher's
-staging doc `docs/superpowers/specs/2026-07-07-survey-exemplar-corpus.md`):
+internal staging doc):
 
     id: E1
     source: <author, venue, arXiv/DOI>

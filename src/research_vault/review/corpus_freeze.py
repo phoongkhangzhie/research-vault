@@ -2,7 +2,7 @@
 """review/corpus_freeze.py — NG-6a piece 1: the explicit, versioned
 ``corpus_freeze`` baseline + the fail-closed ``rv review refresh`` re-freeze.
 
-Design of record: docs/superpowers/specs/2026-07-08-ng6a-refresh-autonomous-remediation.md
+Design of record: internal design note.
 Builds ON the baseline (``frozen_corpus_citekeys`` in
 ``run_state.meta``, ``review.autonomy.classify_coverage_gate_with_deviation_check``,
 ``check_undeclared_deviation``) — does NOT re-implement it.
