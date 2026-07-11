@@ -2794,6 +2794,191 @@ def cmd_insert(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Verb: redo
+# ---------------------------------------------------------------------------
+#
+# The problem this closes: once a cold critic/gate node reaches a terminal
+# status (succeeded/failed/blocked), there was NO way to re-run it —
+# `rv dag complete` refuses on an already-terminal node (see the "No change"
+# short-circuit above), and there's no other verb that reopens a node.
+# The "critic BLOCKs -> revise -> re-verify -> approve" loop — the entire
+# point of a rejects-only gate — was undrivable in practice.
+#
+# `rv dag redo <run> <node>` re-opens a completed node back to 'pending' so
+# `rv dag tick` re-offers it for dispatch, WITHOUT erasing the prior attempt:
+# the full prior node_state snapshot is preserved in
+# node_states[node_id]['redo_history'] (append-only, oldest-first) — the
+# revise trail matters for audit.
+#
+# Cascade safety (the load-bearing design): redoing a node whose
+# DESCENDANTS have already CONSUMED its output (i.e. are themselves terminal
+# — succeeded/failed/blocked) would leave them silently reading a stale
+# upstream artifact.  So:
+#   - no completed (terminal) descendants -> redo just this node.
+#   - completed (terminal) descendants exist -> BLOCK by default, naming
+#     them; --cascade resets the whole descendant subtree to pending too
+#     (transitively — _transitive_descendants already returns the full
+#     subtree, so one cascade pass covers multi-hop staleness).
+# An 'awaiting-go' descendant is deliberately NOT in the blocking set: it
+# hasn't consumed anything yet (no human has approved it) — a human
+# approving it will read whatever the current upstream artifacts say at
+# THAT time, which is fresh by construction.  Only a TERMINAL descendant
+# (something already ran/decided against the old output) is a real
+# staleness risk.
+
+def _transitive_descendants(node_id: str, nodes_lookup: dict[str, dict]) -> set[str]:
+    """Return the set of ALL transitive descendant node IDs (not including
+    node_id itself).
+
+    The mirror of walker._transitive_upstream: walks FORWARD along the needs
+    edges — i.e. every node whose needs chain traces back to node_id, at any
+    depth. Deliberately kept HERE (verbs.py), not in walker.py — walker.py is
+    a byte-for-byte-pure module (see test_dag_retry.py's
+    test_walker_not_modified_by_sr_retry guard); this helper is redo-specific
+    orchestration logic, not part of compute_frontier's contract.
+
+    Uses iterative DFS to avoid recursion limits on deep DAGs.
+    """
+    children: dict[str, list[str]] = {}
+    for nid, node in nodes_lookup.items():
+        for need in node.get("needs", []):
+            children.setdefault(need["from"], []).append(nid)
+
+    descendants: set[str] = set()
+    stack = [node_id]
+    while stack:
+        nid = stack.pop()
+        for child_id in children.get(nid, []):
+            if child_id not in descendants:
+                descendants.add(child_id)
+                stack.append(child_id)
+    return descendants
+
+
+def _redo_snapshot_node_state(ns: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy of a node_state dict, excluding its own
+    'redo_history' key (history entries are flat — no nesting of histories
+    inside histories)."""
+    return {k: v for k, v in ns.items() if k != "redo_history"}
+
+
+def _redo_reset_node(
+    run_state: RunState,
+    node_id: str,
+    note: str | None,
+) -> None:
+    """Reset a single node's state to 'pending', preserving the prior
+    attempt (a full snapshot of its previous node_state) in
+    node_states[node_id]['redo_history'] (append-only)."""
+    ns = run_state.node_states.setdefault(node_id, {"status": "pending"})
+    prior_history: list[dict[str, Any]] = list(ns.get("redo_history", []))
+    snapshot = _redo_snapshot_node_state(ns)
+    snapshot["redone_at"] = time.time()
+    if note:
+        snapshot["redo_note"] = note
+    prior_history.append(snapshot)
+
+    run_state.node_states[node_id] = {
+        "status": "pending",
+        "started_at": None,
+        "completed_at": None,
+        "error": None,
+        # Retry-state fields — fresh for the new attempt (a redo is a fresh
+        # attempt, not a continuation of the auto-retry counter).
+        "attempts": 0,
+        "last_failure": None,
+        "failures": [],
+        "redo_history": prior_history,
+    }
+
+
+def cmd_redo(args: argparse.Namespace) -> int:
+    """Re-open a completed (succeeded/failed/blocked) node back to 'pending'.
+
+    Drives the critic-BLOCK -> revise -> re-verify -> approve loop: after a
+    node reaches a terminal status, `rv dag redo <run> <node>` reopens it so
+    `rv dag tick` re-offers it for dispatch. The prior attempt is preserved
+    (never erased) in node_states[node_id]['redo_history'].
+
+    --cascade: when the node has descendants that are ALREADY terminal
+    (succeeded/failed/blocked — i.e. they already consumed the old output),
+    redo BLOCKS by default naming them; pass --cascade to also reset that
+    whole descendant subtree to pending.
+    """
+    run_id = args.run_id
+    node_id = args.node_id
+    cascade: bool = bool(getattr(args, "cascade", False))
+    note: str | None = getattr(args, "note", None) or None
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv dag redo: config error: {e}", file=sys.stderr)
+        return 1
+
+    store = RunStore.from_config(cfg)
+    try:
+        run_state = store.load(run_id)
+    except StoreError as e:
+        print(f"rv dag redo: {e}", file=sys.stderr)
+        return 1
+
+    manifest_path = Path(run_state.manifest_path)
+    try:
+        manifest = load_manifest(manifest_path)
+    except ManifestError as e:
+        print(f"rv dag redo: manifest error: {e}", file=sys.stderr)
+        return 1
+
+    nodes_lookup = manifest_nodes_by_id(manifest)
+    if node_id not in nodes_lookup:
+        print(f"rv dag redo: node {node_id!r} not in manifest", file=sys.stderr)
+        return 1
+
+    current_status = run_state.node_status(node_id)
+    if current_status not in TERMINAL_STATUSES:
+        print(
+            f"rv dag redo: node {node_id!r} is not completed "
+            f"(current status: {current_status!r}). Only a terminal "
+            f"({sorted(TERMINAL_STATUSES)}) node can be redone.",
+            file=sys.stderr,
+        )
+        return 1
+
+    descendants = _transitive_descendants(node_id, nodes_lookup)
+    completed_descendants = sorted(
+        d for d in descendants if run_state.node_status(d) in TERMINAL_STATUSES
+    )
+
+    if completed_descendants and not cascade:
+        print(
+            f"rv dag redo: node {node_id!r} has completed descendants "
+            f"{completed_descendants} that would read a stale output; "
+            "re-run with --cascade to reset them too.",
+            file=sys.stderr,
+        )
+        return 1
+
+    _redo_reset_node(run_state, node_id, note)
+    reset_ids = [node_id]
+    if cascade and completed_descendants:
+        for d in completed_descendants:
+            _redo_reset_node(run_state, d, note)
+            reset_ids.append(d)
+
+    store.save(run_state)
+
+    print(f"Node {node_id!r} redone -> pending (prior attempt preserved in redo_history).")
+    if cascade and completed_descendants:
+        print(f"  --cascade: also reset descendant subtree: {', '.join(completed_descendants)}")
+
+    frontier = _recompute_awaiting_go(run_state, manifest, store)
+    print("Frontier:")
+    _print_frontier(frontier, run_id, node_states=run_state.node_states)
+    return 0
+
+
 def cmd_templates(args: argparse.Namespace) -> int:
     """Print the built-in loop catalog — discovery entry for all four research loops.
 
@@ -3024,7 +3209,7 @@ def build_parser(
 ) -> argparse.ArgumentParser:
     """Build the argument parser for the ``dag`` verb.
 
-    When to use: ``rv dag run/tick/complete/approve/add/insert/status``
+    When to use: ``rv dag run/tick/complete/approve/add/insert/redo/status``
     to orchestrate a multi-node research DAG. human-go nodes are the decision
     gate; afterok+watch edges gate on artifact freshness (OKF note type-dir check).
     """
@@ -3165,6 +3350,39 @@ def build_parser(
     ins_p.add_argument("patch", help="Path to a JSON file containing the new node dict.")
     ins_p.add_argument("--after", required=True, help="Insert after this node id.")
 
+    # redo
+    redo_p = sub.add_parser(
+        "redo",
+        help="Re-open a completed (succeeded/failed/blocked) node back to 'pending'.",
+        description=(
+            "Drives the critic-BLOCK -> revise -> re-verify -> approve loop: "
+            "reopens a terminal node so `rv dag tick` re-offers it for dispatch. "
+            "The prior attempt is preserved (never erased) in "
+            "node_states[node_id]['redo_history']. If the node has descendants "
+            "that already consumed its output (themselves terminal), redo BLOCKS "
+            "by default naming them -- pass --cascade to reset that subtree too."
+        ),
+    )
+    redo_p.add_argument("run_id", help="The run_id.")
+    redo_p.add_argument("node_id", help="The completed node id to redo.")
+    redo_p.add_argument(
+        "--cascade",
+        action="store_true",
+        default=False,
+        help=(
+            "Also reset the node's already-terminal (succeeded/failed/blocked) "
+            "descendant subtree to pending. Without this flag, redo BLOCKS "
+            "when such descendants exist (they would silently read a stale "
+            "output otherwise)."
+        ),
+    )
+    redo_p.add_argument(
+        "--note",
+        metavar="TEXT",
+        default=None,
+        help="Rationale for the redo, recorded in the preserved history entry.",
+    )
+
     # status
     stat_p = sub.add_parser("status", help="Print the current run status.")
     stat_p.add_argument("run_id", help="The run_id.")
@@ -3202,6 +3420,7 @@ def run(args: argparse.Namespace) -> int:
         "approve": cmd_approve,
         "add": cmd_add,
         "insert": cmd_insert,
+        "redo": cmd_redo,
         "status": cmd_status,
         "templates": cmd_templates,
         "brief": cmd_brief,

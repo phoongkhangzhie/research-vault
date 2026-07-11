@@ -26,6 +26,38 @@ synthesis.
 
 ### Open / next
 Returns to the manuscript architect for a fit-check.
+## 2026-07-10 (`rv dag redo` — reopen a completed node for the critic-BLOCK -> revise loop)
+
+### Done
+Added `rv dag redo <run> <node> [--cascade] [--note TEXT]`, caught missing
+during the live 0.3.0 validation run: once a node reaches a terminal status
+(succeeded/failed/blocked), there was no verb to reopen it, so the
+"critic BLOCK -> revise -> re-verify -> approve" loop — the whole point of a
+rejects-only gate — was undrivable. `redo` resets the node to `pending` (so
+`rv dag tick` re-offers it for dispatch) while preserving the prior attempt
+in `node_states[node_id]["redo_history"]` (never erased).
+
+### Decisions
+- Cascade safety: redoing a node whose descendants are already TERMINAL
+  (succeeded/failed/blocked — i.e. they already consumed the old output)
+  BLOCKS by default, naming them; `--cascade` resets that whole descendant
+  subtree too. An `awaiting-go` descendant is deliberately NOT treated as
+  "completed" for this check — nothing has consumed the upstream output yet
+  (a human hasn't approved it), so it isn't stale.
+- The transitive-descendants helper (`_transitive_descendants`, the mirror
+  of walker's `_transitive_upstream`) lives in `dag/verbs.py`, NOT
+  `dag/walker.py` — walker.py is guarded byte-for-byte-pure by
+  `test_dag_retry.py::test_walker_not_modified_by_sr_retry`; redo is
+  orchestration logic, not part of `compute_frontier`'s contract.
+- On redo, the node's full retry/attempt state (attempts/last_failure/
+  failures/outputs/decision_note/...) resets fresh for the new attempt; the
+  entire prior `node_state` dict is snapshotted into `redo_history` first
+  (append-only, oldest-first) so nothing is silently lost.
+
+### Open / next
+PR opened against `origin/main` (`7901c0a`); returns to the rv-architect
+for fit-check. CI-scoped leakage scan (src/research_vault, tests
+--codenames-only, DEVLOG.md) clean; full test suite green locally.
 
 ## 2026-07-10 (PR-S1 REWRITE — reversed: backward stays unbounded, honest-knob fix instead)
 
