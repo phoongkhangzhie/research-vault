@@ -512,10 +512,19 @@ _grep_py_word "crew-name/atlas"  "atlas"
 # ── Class 11: Private local dev-paths ─────────────────────────────────────────
 # ~/vault (the operator's own hub instance) and docs/superpowers/ (its internal,
 # unshipped spec directory) are author-local paths — citing them in a shipped
-# doctrine/root .md file tells an adopter to go look at a path they don't have.
-# Non-.py, no exemption (see helper docstring above).
+# file tells an adopter to go look at a path they don't have.
+#
+# ~/vault is checked non-.py only: it legitimately appears in shipped .py
+# comments/docstrings that document rv's OWN boundary ("state_dir, NOT ~/vault").
+#
+# docs/superpowers/ is checked in ALL shipped files INCLUDING .py: a
+# design-of-record citation like "docs/superpowers/specs/foo.md" is a dangling
+# pointer into the operator's private hub and must never ship, in any file type.
+# (The pre-publish wheel audit caught 15 such refs the old non-.py exemption let
+# through — this closes that hole.) Tests are scanned --codenames-only, so their
+# design-of-record citations don't trip this and aren't shipped anyway.
 _grep_literal_non_py "path/tilde-vault"       "~/vault"
-_grep_literal_non_py "path/docs-superpowers"  "docs/superpowers/"
+_grep_literal         "path/docs-superpowers"  "docs/superpowers/"
 
 fi  # end CODENAMES_ONLY-skips-classes-2-11 block
 

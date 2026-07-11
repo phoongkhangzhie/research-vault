@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/snowball.py — the both-direction, multi-round snowball-to-
-saturation walk (Option C hybrid — the review-loop node-kind drift fix,
-docs/superpowers/specs/2026-07-09-review-loop-nodekind-drift-fix.md -B).
+saturation walk (Option C hybrid — the review-loop node-kind drift fix).
 
 Mirrors ``sweep.py``'s shape: fetch (both directions, each round) -> dedup
 -> derivative discount -> compose. Reuses ``sources/derivative.py``

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """review/relate_check.py relate presence check (Wave 0).
 
-docs/superpowers/specs/2026-07-08-okf-sufficiency-and-paper-reading.md.
+Design of record: internal design note.
 
 WHAT THIS IS
 ============

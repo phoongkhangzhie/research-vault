@@ -935,8 +935,12 @@ def test_green_on_tilde_vault_in_py_source(tmp_path):
     assert_green(run_scan(tmp_path))
 
 
-def test_green_on_docs_superpowers_in_py_source(tmp_path):
-    """'docs/superpowers/specs/...' in a .py docstring is exempt — class 11 is non-.py."""
+def test_red_on_docs_superpowers_in_py_source(tmp_path):
+    """'docs/superpowers/specs/...' in a .py docstring must be FLAGGED — unlike
+    ~/vault, docs/superpowers/ is checked in ALL shipped files including .py. A
+    design-of-record citation is a dangling pointer into the operator's private
+    hub and must never ship, in any file type. The pre-publish wheel audit caught
+    15 such refs the old non-.py exemption let through; this locks that hole shut."""
     _write_py(tmp_path, '''\
         """module.py — something.
 
@@ -944,7 +948,7 @@ def test_green_on_docs_superpowers_in_py_source(tmp_path):
         """
         def fn(): pass
     ''')
-    assert_green(run_scan(tmp_path))
+    assert_red(run_scan(tmp_path))
 
 
 def test_red_on_tilde_vault_in_devlog_md(tmp_path):
