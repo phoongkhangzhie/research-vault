@@ -45,8 +45,8 @@
 #      or its internal, unshipped spec directory) tells an adopter to go look at a path they
 #      don't have. Scoped to NON-.py files (mirrors class 10's inverse: internal-spec-path /
 #      boundary-safety comments in Python source are an established, accepted development-
-#      history convention, out of scope here) and DEVLOG.md is grandfathered (its historical,
-#      append-only entries predate this class and are not rewritten for cosmetic scrubbing).
+#      history convention, out of scope here). No grandfather exemption (PR-C2: DEVLOG.md,
+#      the only file that carried one, is now untracked and out of the scanned surface).
 #
 # Self-exclusion: the scanner skips itself, ci.yml, and the test file
 # (all three intentionally list the marker strings). tests/test_git_discipline.py is also
@@ -178,7 +178,7 @@ _grep_word_except() {
     # from silently suppressing detections in every other file type.
     #
     # -H is REQUIRED (not cosmetic): GNU grep on a single explicit non-directory
-    # file argument (CI's per-file invocations, e.g. `leakage_scan.sh DEVLOG.md`)
+    # file argument (CI's per-file invocations, e.g. `leakage_scan.sh README.md`)
     # omits the filename prefix by default even with -r — this shifts $1 to the
     # line number and silently breaks FILE_PAT matching (and, worse, can silently
     # drop the check entirely via the NF>=3 guard on colon-less content). BSD grep
@@ -298,38 +298,30 @@ _grep_py_word() {
     fi
 }
 
-_grep_literal_non_py_except() {
-    # _grep_literal_non_py_except LABEL LITERAL EXEMPT_FILE_PAT
-    # Like _grep_literal but:
-    #   (a) EXCLUDES .py files entirely — internal dev-path references in Python source
-    #       comments/docstrings (design-of-record citations, boundary-safety notes) are an
-    #       established, accepted convention across this codebase (mirrors class 10's
-    #       inverse .py-only scoping: that class is .py-ONLY, this one is .py-EXCLUDED).
-    #   (b) masks the literal out of any file whose grep-output filename field ($1) matches
-    #       EXEMPT_FILE_PAT before re-checking — grandfathers DEVLOG.md, whose historical,
-    #       append-only entries predate this class and are out of the A-1/A-2 blocker scope
-    #       (a devlog is a real record, not rewritten for cosmetic scrubbing).
-    local label="$1" lit="$2" exempt_file_pat="$3"
+_grep_literal_non_py() {
+    # _grep_literal_non_py LABEL LITERAL
+    # Like _grep_literal but EXCLUDES .py files entirely — internal dev-path
+    # references in Python source comments/docstrings (design-of-record
+    # citations, boundary-safety notes) are an established, accepted
+    # convention across this codebase (mirrors class 10's inverse .py-only
+    # scoping: that class is .py-ONLY, this one is .py-EXCLUDED). No
+    # exemption/masking — every non-.py file is checked strictly (PR-C2:
+    # DEVLOG.md's grandfather exemption was removed once DEVLOG.md was
+    # untracked and stopped being part of the scanned/shipped surface).
+    local label="$1" lit="$2"
     local found
-    local _MASK_AWK='NF>=3{
-        content=$3; for(i=4;i<=NF;i++) content=content":"$i
-        if($1 ~ exempt_file_pat) { gsub(lit, "", content) }
-        if(index(content, lit)>0) print $0
-    }'
     if [ "$STAGED" -eq 1 ]; then
         found=$(echo "$STAGED_FILES" | grep -v '\.py$' | xargs -I{} grep -nH -F "$lit" {} 2>/dev/null \
-                | grep -Ev "$SKIP_PATTERN" \
-                | awk -F: -v lit="$lit" -v exempt_file_pat="$exempt_file_pat" "$_MASK_AWK" || true)
+                | grep -Ev "$SKIP_PATTERN" || true)
     else
         found=$(grep -rnH --include="*.md" --include="*.yml" --include="*.yaml" \
                      --include="*.toml" --include="*.json" \
                      -F "$lit" "$TARGET" 2>/dev/null \
-                | grep -Ev "$SKIP_PATTERN" \
-                | awk -F: -v lit="$lit" -v exempt_file_pat="$exempt_file_pat" "$_MASK_AWK" || true)
+                | grep -Ev "$SKIP_PATTERN" || true)
     fi
     if [ -n "$found" ]; then
         echo "$found"
-        echo "FAIL [$label]: literal '$lit' matched (non-.py, outside grandfathered files)"
+        echo "FAIL [$label]: literal '$lit' matched (non-.py)"
         FAIL=1
     fi
 }
@@ -521,10 +513,9 @@ _grep_py_word "crew-name/atlas"  "atlas"
 # ~/vault (the operator's own hub instance) and docs/superpowers/ (its internal,
 # unshipped spec directory) are author-local paths — citing them in a shipped
 # doctrine/root .md file tells an adopter to go look at a path they don't have.
-# Non-.py, DEVLOG.md-grandfathered (see helper docstring above).
-DEVLOG_EXEMPT='(^|/)DEVLOG\.md$'
-_grep_literal_non_py_except "path/tilde-vault"       "~/vault"           "$DEVLOG_EXEMPT"
-_grep_literal_non_py_except "path/docs-superpowers"  "docs/superpowers/" "$DEVLOG_EXEMPT"
+# Non-.py, no exemption (see helper docstring above).
+_grep_literal_non_py "path/tilde-vault"       "~/vault"
+_grep_literal_non_py "path/docs-superpowers"  "docs/superpowers/"
 
 fi  # end CODENAMES_ONLY-skips-classes-2-11 block
 

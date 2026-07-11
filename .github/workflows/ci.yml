@@ -40,7 +40,7 @@ jobs:
   #   src/research_vault/data/doctrine/ + src/research_vault/data/examples/.
   # Coverage broadened to the whole publish-bound tree (whole-tree by default,
   # opt-out by exception — the safe polarity for a public publish).
-  # Scans: package data (doctrine/ + examples/), DEVLOG.md, root public-bound
+  # Scans: package data (doctrine/ + examples/), root public-bound
   # files (README.md, architecture.md, QUICKSTART.md, REFERENCES.md, SETUP.md),
   # and src/ for hardcoded private paths — all private marker classes:
   #   codenames · identity strings · site URLs · cluster paths ·
@@ -63,9 +63,6 @@ jobs:
       # adopter's instance root — must be leakage-clean (publish-bound).
       - name: Run leakage scanner over src/research_vault/data/templates/
         run: bash scripts/leakage_scan.sh src/research_vault/data/templates
-
-      - name: Run leakage scanner over DEVLOG.md
-        run: bash scripts/leakage_scan.sh DEVLOG.md
 
       - name: Run leakage scanner over root public-bound files
         run: |

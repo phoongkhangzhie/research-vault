@@ -107,7 +107,7 @@ def run_scan_bare_file(file_path: Path) -> subprocess.CompletedProcess:
     """Run leakage_scan.sh against a BARE FILE path (not its parent directory).
 
     Mirrors CI's real per-file invocations exactly (e.g. `leakage_scan.sh
-    DEVLOG.md`, `leakage_scan.sh pyproject.toml`) — distinct from run_scan(),
+    README.md`, `leakage_scan.sh pyproject.toml`) — distinct from run_scan(),
     which always passes a directory. This distinction is load-bearing: GNU
     grep (Linux CI) omits the filename prefix for a single explicit
     non-directory file argument even with -r, while BSD grep (macOS) always
@@ -773,8 +773,8 @@ def test_green_on_pyproject_author_entry(tmp_path):
 # ---------------------------------------------------------------------------
 # Bare-file-target parity (CI's real per-file invocation shape)
 #
-# CI invokes leakage_scan.sh with a BARE FILE argument for DEVLOG.md and each
-# root-bound file (e.g. `leakage_scan.sh pyproject.toml`), never a directory
+# CI invokes leakage_scan.sh with a BARE FILE argument for each root-bound
+# file (e.g. `leakage_scan.sh pyproject.toml`), never a directory
 # containing just that file. run_scan() above always passes a directory —
 # a blind spot that masked a real cross-platform bug: GNU grep (Linux CI)
 # drops the filename prefix for a single explicit non-directory file argument
@@ -795,17 +795,20 @@ def test_green_on_pyproject_author_entry_bare_file_target(tmp_path):
     assert_green(run_scan_bare_file(f))
 
 
-def test_green_on_devlog_grandfather_bare_file_target(tmp_path):
-    """DEVLOG.md's ~/vault + docs/superpowers/ grandfather must hold when
-    scanned as a bare file argument (CI's real `leakage_scan.sh DEVLOG.md`
-    shape) — not just when DEVLOG.md sits inside a scanned directory."""
+def test_red_on_devlog_no_longer_grandfathered_bare_file_target(tmp_path):
+    """PR-C2: DEVLOG.md's grandfather exemption is REMOVED — the repo's own
+    DEVLOG.md is untracked (no longer part of the scanned/shipped surface),
+    so there is no file left that legitimately needs the exemption. Any
+    file named DEVLOG.md scanned directly (bare-file-target CI shape) must
+    now be flagged like any other non-.py file — regression pin against the
+    exemption silently reappearing."""
     f = write_doc(
         tmp_path,
         "- ZERO ~/vault edits confirmed: all build + test work happened elsewhere.\n"
         "- design: `docs/superpowers/specs/2026-07-07-survey-capability-design.md`.\n",
         filename="DEVLOG.md",
     )
-    assert_green(run_scan_bare_file(f))
+    assert_red(run_scan_bare_file(f))
 
 
 def test_red_on_bare_phoongkhangzhie_bare_file_target(tmp_path):
@@ -944,30 +947,33 @@ def test_green_on_docs_superpowers_in_py_source(tmp_path):
     assert_green(run_scan(tmp_path))
 
 
-def test_green_on_tilde_vault_in_devlog_md(tmp_path):
-    """'~/vault' in DEVLOG.md is grandfathered — historical, append-only entries
-    predate this class and are out of the A-1/A-2 blocker scope."""
+def test_red_on_tilde_vault_in_devlog_md(tmp_path):
+    """PR-C2: '~/vault' in a file named DEVLOG.md is NO LONGER grandfathered
+    — the repo's own DEVLOG.md is untracked, so the exemption's sole reason
+    to exist (append-only historical entries predating this class) is gone.
+    A DEVLOG.md-named file is flagged like any other non-.py file."""
     write_doc(
         tmp_path,
         "- ZERO ~/vault edits confirmed: all build + test work happened elsewhere.\n",
         filename="DEVLOG.md",
     )
-    assert_green(run_scan(tmp_path))
+    assert_red(run_scan(tmp_path))
 
 
-def test_green_on_docs_superpowers_in_devlog_md(tmp_path):
-    """'docs/superpowers/specs/...' in DEVLOG.md is grandfathered (same rationale)."""
+def test_red_on_docs_superpowers_in_devlog_md(tmp_path):
+    """PR-C2: 'docs/superpowers/specs/...' in a file named DEVLOG.md is no
+    longer grandfathered (same rationale as above)."""
     write_doc(
         tmp_path,
         "design: `docs/superpowers/specs/2026-07-07-survey-capability-design.md`.\n",
         filename="DEVLOG.md",
     )
-    assert_green(run_scan(tmp_path))
+    assert_red(run_scan(tmp_path))
 
 
 def test_red_on_tilde_vault_in_non_devlog_md_still_flagged(tmp_path):
-    """The DEVLOG.md grandfather is file-scoped, not global — a non-DEVLOG .md
-    with the same content still fails (teeth intact outside the grandfather)."""
+    """A non-DEVLOG .md with the same content still fails — teeth intact
+    (and, post-PR-C2, no file gets a name-based exemption at all)."""
     write_doc(
         tmp_path,
         "- ZERO ~/vault edits confirmed: all build + test work happened elsewhere.\n",

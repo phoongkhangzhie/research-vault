@@ -54,3 +54,9 @@ tasks/
 # This repo's own local architecture map (adopter projects still scaffold + track
 # their own architecture.md via `rv init` — this ignore is anchored to the repo root only)
 /architecture.md
+
+# This repo's own private dev log (PR-C2: untracked from the public repo — a real
+# working log, not a shipped artifact; adopter projects still scaffold + track their
+# own DEVLOG.md via `rv init`/`rv project new` — this ignore is anchored to the repo
+# root only, not project-scoped DEVLOG.md files under notes/)
+/DEVLOG.md
