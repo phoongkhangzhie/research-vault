@@ -391,6 +391,14 @@ def _run_judge_emit(args: argparse.Namespace) -> int:
                     f"rv manuscript judge-emit [{gate_name}]: nothing to check yet "
                     f"(no citations found / no draft text resolved) — honest no-op."
                 )
+            skipped = r.get("skipped_non_corpus") or []
+            if skipped:
+                print(
+                    f"rv manuscript judge-emit [{gate_name}]: SKIPPED "
+                    f"{len(skipped)} non-corpus citekey(s) — cited in the "
+                    f"draft but not in the frozen review corpus (likely "
+                    f"concept-slug wikilinks, not papers): {', '.join(skipped)}"
+                )
         print(
             "rv manuscript judge-emit: hand the tasks file(s) to the hub for "
             "cold subagent-judge fan-out, then run "
