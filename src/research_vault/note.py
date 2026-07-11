@@ -11,6 +11,7 @@ Stdlib only.
 """
 
 import argparse
+import dataclasses
 import datetime
 import re
 import sys
@@ -36,11 +37,34 @@ OKF_TYPES = frozenset({
 })
 
 # The sole SHARED (cross-project) OKF type — lives in cfg.datasets_root.
-# All other OKF types are PROJECT-SCOPED (cfg.project_notes_dir / type_dir).
+# All other OKF types are PROJECT-SCOPED (cfg.project_notes_dir / type_dir)
+# UNLESS they are two-layer (see OKF_TWO_LAYER_TYPES below).
 # SSOT for the project-scoped-vs-shared split.
 # Consumed by: wait_for (note: resolver), dag/verbs (_check_project_scoped_note).
 # Do NOT duplicate this — import from here.
 OKF_SHARED_TYPES: frozenset[str] = frozenset({"datasets"})
+
+# The TWO-LAYER (cross-project core + per-project overlay) OKF type(s).
+# `datasets` is purely shared (one file, no per-project part); `literature`
+# is two-layer: an intrinsic core (paper facts + inter-paper edges, distilled
+# once) lives at cfg.literature_root/<citekey>.md, and a thin per-project
+# overlay (role/position/concept-edges + a `central:` pointer) lives at
+# cfg.project_notes_dir(project)/literature/<citekey>.md — same location a
+# literature note has always lived at, now carrying only the RQ-relative
+# layer. See PR-A (2026-07-10-central-note-store-cross-project-design.md
+# §0.5 PR-A, §3.1). A third routing class — NOT membership in
+# OKF_SHARED_TYPES, which would collapse the per-project overlay away.
+# SSOT: consumed by cmd_new/cmd_list/cmd_check's three-arm routing + the
+# note.load_literature_note resolver. Do NOT duplicate this — import from
+# here.
+OKF_TWO_LAYER_TYPES: frozenset[str] = frozenset({"literature"})
+
+# Every OKF type that is plain PROJECT-SCOPED — i.e. neither shared nor
+# two-layer. Derived (not hand-maintained) so it can never drift out of
+# sync with OKF_TYPES / OKF_SHARED_TYPES / OKF_TWO_LAYER_TYPES as new types
+# are added. The three classes are pairwise-disjoint and union to
+# OKF_TYPES (see tests/test_note.py's SSOT class-partition test).
+OKF_PROJECT_TYPES: frozenset[str] = OKF_TYPES - OKF_SHARED_TYPES - OKF_TWO_LAYER_TYPES
 
 # Valid values for stance + plan_role on child experiment notes.
 _VALID_STANCE: frozenset[str] = frozenset({"confirmatory", "exploratory"})
@@ -319,11 +343,21 @@ def cmd_new(project: str, note_type: str, title: str, *,
         )
     cfg = config or load_config()
 
+    # Two-layer types (OKF_TWO_LAYER_TYPES — literature) split into a
+    # cross-project CENTRAL core (intrinsic paper facts, distilled once —
+    # cfg.literature_root) + a thin per-project OVERLAY (role/position/
+    # concept-edges + a `central:` pointer — cfg.project_notes_dir/<type>).
+    # See PR-A, §3.1-3.4. Handled as its own branch (below) — never falls
+    # through to the plain project-scoped/shared branches.
+    #
     # Shared types (OKF_SHARED_TYPES) live in cfg.datasets_root, not in
     # the project-scoped notes directory. A shared-type note filed for one project
     # is visible and lineage-gatable from any other project.
     # Use OKF_SHARED_TYPES SSOT — not a hardcoded "datasets"
     # string — so a 2nd shared type automatically routes correctly here.
+    if note_type in OKF_TWO_LAYER_TYPES:
+        return _cmd_new_two_layer(cfg, project, note_type, title, note_id=note_id, tags=tags)
+
     if note_type in OKF_SHARED_TYPES:
         notes_dir = cfg.datasets_root
     else:
@@ -341,42 +375,6 @@ def cmd_new(project: str, note_type: str, title: str, *,
         "title": title,
         "created": _today(),
     }
-
-    # Fix #32: literature notes carry optional doi/arxiv_id placeholders so the
-    # notes-based corpus-dedup index (_load_notes_index in research.py) can match
-    # an S2 candidate to a filed note without requiring Zotero library.json sync.
-    # Fill these in after rv note new to enable [IN-CORPUS] annotation for the note.
-    if note_type == "literature":
-        # PR-4/K (§K-2): the canonical BibTeX citekey (K-D1: authorYearWord —
-        # familyShorttitleYear, see cite.CITEKEY_RE). The FILENAME may stay
-        # an arbitrary id (arXiv id, S2 id, slug — whatever this note was
-        # filed under); this field is now the ONE convention downstream
-        # readers cite by. Left blank here (title/authors/year aren't known
-        # yet at `rv note new` time) — computed + stamped by
-        # `rv research citekey <project> <note-id>` once those fields are
-        # filled in (research.compute_and_stamp_citekey). An unresolvable
-        # note gets the visible `cite.CITEKEY_SENTINEL`, never a guess.
-        fields["citekey"] = ""    # fill by hand, or `rv research citekey <project> <id>`
-        fields["doi"] = ""        # fill in: DOI of the paper (e.g. 10.1234/example)
-        fields["arxiv_id"] = ""   # fill in: ArXiv id (e.g. 2005.14165, NOT arXiv:...)
-        # identifier-persistence: the fuller external-id set (sources/identifiers.py) —
-        # stamped automatically by `rv research add` when this note is already filed;
-        # fill by hand otherwise. Absence is never a cmd_check violation (same
-        # optional-field precedent as doi/arxiv_id above).
-        fields["pmcid"] = ""      # fill in: PMC id (enables the pmc OA-fulltext provider)
-        fields["openalex"] = ""   # fill in: OpenAlex work id
-        fields["pmid"] = ""       # fill in: PubMed id
-        fields["s2"] = ""         # fill in: Semantic Scholar corpus id
-        # PR-L1 (§7.5): the lit-review ingestion enrichment — three OPTIONAL
-        # fields, populated by the relate-<key> node (review/style.py
-        # per_paper_relate_tips) or filled by hand. Absence is never a
-        # cmd_check violation (doi/arxiv_id precedent — no gate added).
-        fields["key_equations"] = ""  # fill in: D8 mapping-list criticality ledger, e.g.
-                                       #   key_equations:
-                                       #     - label: eq:elbo
-                                       #       critical: true
-        fields["repo"] = ""           # fill in: the paper's code repo URL (empty if none)
-        fields["artifacts"] = ""      # fill in: scalar list of "label: url" pointers
 
     # datasets notes carry provenance-specific placeholder fields
     if note_type == "datasets":
@@ -471,26 +469,374 @@ def cmd_new(project: str, note_type: str, title: str, *,
             "## Analysis\n\n"
             "<!-- What do the results mean? -->\n"
         )
-    elif note_type == "literature":
-        body = (
-            "\n"
-            "<!-- Literature note (relate-<key> Phase-2 output; PR-L1 §7.5) -->\n"
-            "<!-- key_equations: is a criticality ledger keyed by label -- fill by hand as: -->\n"
-            "<!--   key_equations:\\n  - label: eq:elbo\\n    critical: true -->\n"
-            "<!-- repo: the paper's code repo URL (leave empty if none published) -->\n"
-            "<!-- artifacts: scalar list of \"label: url\" pointers (dataset, project page, checkpoint) -->\n"
-            "\n"
-            "## Key equations\n\n"
-            "<!-- One labeled block per pivotal equation this paper's argument turns on. -->\n"
-            "<!-- ### [eq:elbo] Evidence lower bound  *(critical)* -->\n"
-            "<!-- $$ \\log p(x) \\ge \\mathbb{E}_{q}[\\log p(x,z) - \\log q(z)] $$ -->\n"
-            "<!-- Leave this section empty for papers with no pivotal equations. -->\n"
-        )
     else:
         body = "\n<!-- Write your note here -->\n"
 
     note_path.write_text(_render_frontmatter(fields) + "\n" + body, encoding="utf-8")
     return note_path
+
+
+# ---------------------------------------------------------------------------
+# Two-layer literature store — write path (PR-A, §0.5 PR-A, §3.1-3.4)
+# ---------------------------------------------------------------------------
+
+def _literature_core_body() -> str:
+    """Body template for a freshly-distilled central core note."""
+    return (
+        "\n"
+        "<!-- Literature note — CENTRAL CORE (intrinsic paper facts). -->\n"
+        "<!-- Two-layer store: this file is shared across every project that -->\n"
+        "<!-- reads this paper — do NOT put role:/position:/concept-edges here; -->\n"
+        "<!-- those belong in the per-project overlay (see the sibling note at -->\n"
+        "<!-- project_notes_dir/literature/<citekey>.md carrying central: <citekey>). -->\n"
+        "<!-- key_equations: is a criticality ledger keyed by label -- fill by hand as: -->\n"
+        "<!--   key_equations:\\n  - label: eq:elbo\\n    critical: true -->\n"
+        "<!-- repo: the paper's code repo URL (leave empty if none published) -->\n"
+        "<!-- artifacts: scalar list of \"label: url\" pointers (dataset, project page, checkpoint) -->\n"
+        "\n"
+        "## Result\n\n"
+        "<!-- Filled when result_reported: yes (Move 3). -->\n\n"
+        "## Key equations\n\n"
+        "<!-- One labeled block per pivotal equation this paper's argument turns on. -->\n"
+        "<!-- ### [eq:elbo] Evidence lower bound  *(critical)* -->\n"
+        "<!-- $$ \\log p(x) \\ge \\mathbb{E}_{q}[\\log p(x,z) - \\log q(z)] $$ -->\n"
+        "<!-- Leave this section empty for papers with no pivotal equations. -->\n\n"
+        "## Related papers\n\n"
+        "<!-- Typed paper->paper edges (Move 4), e.g.: -->\n"
+        "<!-- - [SUPPORTS] [Baltaji 2024](/literature/baltaji2024.md) — reason -->\n"
+    )
+
+
+def _literature_overlay_body() -> str:
+    """Body template for a freshly-created per-project overlay note."""
+    return (
+        "\n"
+        "<!-- Literature note — PER-PROJECT OVERLAY (RQ-relative layer only). -->\n"
+        "<!-- Two-layer store: intrinsic paper facts live in the central core -->\n"
+        "<!-- (central: pointer above) — do NOT put doi:/contribution_kind:/ -->\n"
+        "<!-- result_reported:/## Result/## Related papers here. -->\n"
+        "<!-- role: one of methodological/empirical/theoretical/counter-position -->\n"
+        "<!-- position: free-form narrative — how this paper relates to THIS RQ -->\n"
+        "\n"
+        "## Concept edges\n\n"
+        "<!-- Paper->concept typed edges, THIS project's concepts/ only, e.g.: -->\n"
+        "<!-- - [links-to] [my-concept](/concepts/my-concept.md) — reason -->\n"
+    )
+
+
+def _cmd_new_two_layer(
+    cfg: Config, project: str, note_type: str, title: str, *,
+    note_id: str | None = None,
+    tags: list[str] | None = None,
+) -> Path:
+    """Create a two-layer OKF note (currently just ``literature``):
+    a cross-project CENTRAL CORE (intrinsic paper facts, distilled once)
+    plus a thin per-project OVERLAY (role/position/concept-edges + a
+    ``central:`` pointer). Returns the OVERLAY path — the project-facing
+    artifact, same shape callers have always gotten back (``path.parent.name
+    == note_type``; see test_note.py's ``test_new_all_types_accepted``).
+
+    Slug/identity note: the central-core FILENAME uses the same
+    note_id-or-slugify(title) convention every other OKF type uses — NOT a
+    re-derived identity precedence (PR-A item 4: use the SHIPPED
+    ``authorYearWord`` convention / ``cite.CITEKEY_RE``, don't invent a
+    new one). The canonical ``citekey:`` frontmatter field is stamped
+    later by ``rv research citekey`` once title/authors/year are known —
+    identical to the pre-PR-A monolithic-note behavior.
+
+    If a core already exists for this slug (another project already
+    distilled this paper), it is NOT overwritten or duplicated — this
+    project's overlay is simply wired to point at the existing core
+    (§3.4: "distilled but not adopted" — now "distilled AND adopted").
+    Cross-id-collision detection (same slug, DIFFERENT paper) is the
+    identity-resolution work deferred to the amortization fast-follow
+    (D6) — out of scope for this write path.
+    """
+    core_dir = cfg.literature_root
+    core_dir.mkdir(parents=True, exist_ok=True)
+    overlay_dir = cfg.project_notes_dir(project) / note_type
+    overlay_dir.mkdir(parents=True, exist_ok=True)
+
+    slug = note_id or _slugify(title)
+    overlay_path = overlay_dir / f"{slug}.md"
+    if overlay_path.exists():
+        # This project already has a note at this slug — bump like any
+        # other OKF type. The core slug follows the (possibly-bumped)
+        # overlay slug so the pair always shares one identity.
+        slug = f"{slug}-{_today()}"
+        overlay_path = overlay_dir / f"{slug}.md"
+    core_path = core_dir / f"{slug}.md"
+
+    if not core_path.exists():
+        core_fields: dict[str, str] = {
+            "type": note_type,
+            "title": title,
+            "created": _today(),
+        }
+        # Fix #32: literature notes carry optional doi/arxiv_id placeholders so the
+        # notes-based corpus-dedup index (_load_notes_index in research.py) can match
+        # an S2 candidate to a filed note without requiring Zotero library.json sync.
+        # Fill these in after rv note new to enable [IN-CORPUS] annotation for the note.
+        #
+        # PR-4/K (§K-2): the canonical BibTeX citekey (K-D1: authorYearWord —
+        # familyShorttitleYear, see cite.CITEKEY_RE). The FILENAME may stay
+        # an arbitrary id (arXiv id, S2 id, slug — whatever this note was
+        # filed under); this field is now the ONE convention downstream
+        # readers cite by. Left blank here (title/authors/year aren't known
+        # yet at `rv note new` time) — computed + stamped by
+        # `rv research citekey <project> <note-id>` once those fields are
+        # filled in (research.compute_and_stamp_citekey). An unresolvable
+        # note gets the visible `cite.CITEKEY_SENTINEL`, never a guess.
+        core_fields["citekey"] = ""    # fill by hand, or `rv research citekey <project> <id>`
+        core_fields["doi"] = ""        # fill in: DOI of the paper (e.g. 10.1234/example)
+        core_fields["arxiv_id"] = ""   # fill in: ArXiv id (e.g. 2005.14165, NOT arXiv:...)
+        # identifier-persistence: the fuller external-id set (sources/identifiers.py) —
+        # stamped automatically by `rv research add` when this note is already filed;
+        # fill by hand otherwise. Absence is never a cmd_check violation (same
+        # optional-field precedent as doi/arxiv_id above).
+        core_fields["pmcid"] = ""      # fill in: PMC id (enables the pmc OA-fulltext provider)
+        core_fields["openalex"] = ""   # fill in: OpenAlex work id
+        core_fields["pmid"] = ""       # fill in: PubMed id
+        core_fields["s2"] = ""         # fill in: Semantic Scholar corpus id
+        # PR-L1 (§7.5): the lit-review ingestion enrichment — three OPTIONAL
+        # fields, populated by the relate-<key> node (review/style.py
+        # per_paper_relate_tips) or filled by hand. Absence is never a
+        # cmd_check violation (doi/arxiv_id precedent — no gate added).
+        core_fields["key_equations"] = ""  # fill in: D8 mapping-list criticality ledger, e.g.
+                                            #   key_equations:
+                                            #     - label: eq:elbo
+                                            #       critical: true
+        core_fields["repo"] = ""           # fill in: the paper's code repo URL (empty if none)
+        core_fields["artifacts"] = ""      # fill in: scalar list of "label: url" pointers
+        core_path.write_text(
+            _render_frontmatter(core_fields) + "\n" + _literature_core_body(),
+            encoding="utf-8",
+        )
+
+    overlay_fields: dict[str, str] = {
+        "type": note_type,
+        "title": title,
+        "created": _today(),
+        # The pointer — resolved to core_dir/<central>.md by the resolver
+        # (literature_core_path). A dangling value here fails closed
+        # (load_literature_note raises DanglingCentralPointerError).
+        "central": slug,
+    }
+    if tags:
+        overlay_fields["tags"] = "[" + ", ".join(tags) + "]"
+
+    overlay_path.write_text(
+        _render_frontmatter(overlay_fields) + "\n" + _literature_overlay_body(),
+        encoding="utf-8",
+    )
+    return overlay_path
+
+
+# ---------------------------------------------------------------------------
+# Two-layer literature store — the canonical resolver (SINGLE read seam)
+# ---------------------------------------------------------------------------
+#
+# Every literature reader routes through here (PR-A §3.4, item 6). Do NOT
+# glob literature/*.md and parse frontmatter directly for intrinsic
+# (core-only) fields — that path re-introduces representation-coupling
+# the resolver exists to prevent.
+
+class DanglingCentralPointerError(ValueError):
+    """Raised when an overlay's ``central:`` pointer does not resolve to an
+    existing central-core note. A surfaced violation (charter §2) — never
+    a silent empty/partial note."""
+
+
+@dataclasses.dataclass
+class AssembledNote:
+    """The merged read-view of a two-layer literature note: central core
+    (intrinsic wins) + per-project overlay (role/position/concept-edges).
+
+    ``fields`` merges overlay first, core second (core wins on any key
+    collision — there should be none by construction, since the two
+    layers own disjoint field sets; see ``check_two_layer_invariants``).
+    ``body`` concatenates core body + overlay body so heading-based
+    parsers (``## Result``/``## Related papers`` in core, ``## Concept
+    edges`` in overlay) keep working unchanged against the assembled text.
+    """
+
+    citekey: str
+    fields: dict[str, str]
+    body: str
+    core_path: Path
+    overlay_path: Path
+
+
+def literature_core_path(cfg: Config, citekey: str) -> Path:
+    """The central-core note path for *citekey* — cfg.literature_root/<citekey>.md."""
+    return cfg.literature_root / f"{citekey}.md"
+
+
+def literature_overlay_path(cfg: Config, project: str, citekey: str) -> Path:
+    """The per-project overlay note path for *citekey* — same location a
+    literature note has always lived at (project_notes_dir/literature/)."""
+    return cfg.project_notes_dir(project) / "literature" / f"{citekey}.md"
+
+
+def load_literature_note(cfg: Config, project: str, citekey: str) -> AssembledNote:
+    """Load + merge a two-layer literature note for *project*.
+
+    Fail-closed:
+      - overlay absent for this project -> ``FileNotFoundError`` (the
+        paper may be central-distilled by ANOTHER project — "distilled
+        but not adopted by X" — but THIS project never adopted it; that
+        is a distinct, non-violation state you get by NOT calling this
+        for a project that hasn't adopted the paper).
+      - overlay present but ``central:`` pointer absent/dangling ->
+        ``DanglingCentralPointerError`` (a real integrity violation,
+        surfaced loudly — never a silent empty note).
+    """
+    overlay_path = literature_overlay_path(cfg, project, citekey)
+    if not overlay_path.exists():
+        raise FileNotFoundError(
+            f"load_literature_note: no overlay for citekey {citekey!r} in "
+            f"project {project!r} at {overlay_path} — this project has not "
+            f"adopted this paper (it may still be central-distilled by "
+            f"another project; that is a valid, separate state)."
+        )
+    overlay_text = overlay_path.read_text(encoding="utf-8")
+    overlay_fields, overlay_body = _parse_frontmatter(overlay_text)
+
+    central = str(overlay_fields.get("central") or "").strip()
+    if not central:
+        raise DanglingCentralPointerError(
+            f"load_literature_note: overlay {overlay_path} carries no "
+            f"'central:' pointer — every literature overlay must point at "
+            f"its central core."
+        )
+    core_path = literature_core_path(cfg, central)
+    if not core_path.exists():
+        raise DanglingCentralPointerError(
+            f"load_literature_note: overlay {overlay_path} points to "
+            f"central: {central!r} but no central core exists at "
+            f"{core_path} — dangling pointer."
+        )
+    core_text = core_path.read_text(encoding="utf-8")
+    core_fields, core_body = _parse_frontmatter(core_text)
+
+    # Intrinsic (core) wins on any key collision — overlay first, core
+    # second. By construction the two layers own disjoint field sets
+    # (check_two_layer_invariants gates this); this merge order is a
+    # safety net, not the primary correctness mechanism.
+    merged_fields: dict[str, str] = {**overlay_fields, **core_fields}
+    merged_body = core_body + "\n" + overlay_body
+
+    return AssembledNote(
+        citekey=central,
+        fields=merged_fields,
+        body=merged_body,
+        core_path=core_path,
+        overlay_path=overlay_path,
+    )
+
+
+def iter_literature_notes(cfg: Config, project: str):
+    """Yield an ``AssembledNote`` for every overlay this project has
+    adopted (globs the overlay dir — the per-project registry, §5/§3.3).
+    A core with no overlay in this project is correctly invisible here —
+    "distilled but not adopted" (§3.4), not an error.
+    """
+    overlay_dir = cfg.project_notes_dir(project) / "literature"
+    if not overlay_dir.exists():
+        return
+    for overlay_file in sorted(overlay_dir.glob("*.md")):
+        yield load_literature_note(cfg, project, overlay_file.stem)
+
+
+# ---------------------------------------------------------------------------
+# Two-layer invariant lint (PR-A §0.5 item 8 — GATING, not a nicety)
+# ---------------------------------------------------------------------------
+#
+# Frontmatter misplacement is a hard BLOCK (unambiguous, and never touched
+# by the deferred incremental_relate edge-write mechanism — see below).
+# Body-section misplacement of '## Related papers' into the overlay is a
+# WARN: incremental_relate.append_bidirectional_edge still physically
+# writes paper->paper edges to the project's literature/<key>.md file
+# (the overlay's location) by explicit PR-A scope-fence deferral (§0.5:
+# "rewiring edge-writes to target the central core is fast-follow, not
+# this PR") — so this is a KNOWN, DOCUMENTED, currently-expected surface
+# until that fast-follow lands, not a bug this lint should hard-fail on.
+# '## Concept edges' appearing in the core IS a hard BLOCK: nothing in the
+# shipped write path ever puts it there, so its presence is a genuine
+# misauthoring, not a deferred-mechanism artifact.
+
+_CORE_ONLY_FIELDS: frozenset[str] = frozenset({
+    "citekey", "doi", "arxiv_id", "pmcid", "openalex", "pmid", "s2",
+    "key_equations", "repo", "artifacts",
+    "contribution_kind", "result_reported",
+    "distilled", "read_basis",
+})
+
+_OVERLAY_ONLY_FIELDS: frozenset[str] = frozenset({
+    "central", "in_corpus_of", "role", "position",
+})
+
+_CORE_ONLY_BODY_HEADINGS_RE = re.compile(
+    r"^#{2,3}\s+(Result|Key equations|Related papers)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_OVERLAY_ONLY_BODY_HEADING_RE = re.compile(
+    r"^#{2,3}\s+Concept edges\s*$", re.IGNORECASE | re.MULTILINE,
+)
+
+
+def check_two_layer_invariants(core_path: Path, overlay_path: Path) -> list[str]:
+    """The invariant lint (PR-A acceptance item 3): no intrinsic field
+    authored in an overlay, no position/role/concept-edge in a core.
+
+    Returns a list of violation strings. Hard violations (frontmatter
+    misplacement, '## Concept edges' in a core) carry no ``WARN`` marker
+    and are meant to flip a caller's exit code / fail a pytest assertion
+    (GATING). Body-section '## Related papers' in an overlay is prefixed
+    ``[two-layer-lint] WARN:`` (degrades like note.py's other WARN
+    classes — see ``run()``'s ``_WARN_PREFIXES``) — a documented, expected
+    surface until the incremental_relate edge-write fast-follow lands.
+    """
+    violations: list[str] = []
+    if not core_path.exists() or not overlay_path.exists():
+        return violations  # nothing to check — presence is a separate gate
+
+    core_fields, core_body = _parse_frontmatter(core_path.read_text(encoding="utf-8"))
+    overlay_fields, overlay_body = _parse_frontmatter(overlay_path.read_text(encoding="utf-8"))
+
+    for key in sorted(set(overlay_fields) & _CORE_ONLY_FIELDS):
+        if str(overlay_fields.get(key) or "").strip():
+            violations.append(
+                f"[two-layer-lint] BLOCK: {overlay_path.name}: intrinsic "
+                f"field {key!r} is authored in the overlay — belongs in "
+                f"the central core ({core_path})."
+            )
+
+    for key in sorted(set(core_fields) & _OVERLAY_ONLY_FIELDS):
+        if str(core_fields.get(key) or "").strip():
+            violations.append(
+                f"[two-layer-lint] BLOCK: {core_path.name}: overlay-only "
+                f"field {key!r} is authored in the core — belongs in the "
+                f"per-project overlay ({overlay_path})."
+            )
+
+    if _CORE_ONLY_BODY_HEADINGS_RE.search(overlay_body):
+        violations.append(
+            f"[two-layer-lint] WARN: {overlay_path.name}: a core-only body "
+            f"section (Result/Key equations/Related papers) was found in "
+            f"the overlay — expected until the incremental_relate "
+            f"edge-write rewiring fast-follow retargets writes at the "
+            f"central core ({core_path}); see PR-A §0.5 scope fence."
+        )
+
+    if _OVERLAY_ONLY_BODY_HEADING_RE.search(core_body):
+        violations.append(
+            f"[two-layer-lint] BLOCK: {core_path.name}: a '## Concept "
+            f"edges' section was found in the core — per-project concept "
+            f"edges belong in the overlay ({overlay_path})."
+        )
+
+    return violations
 
 
 def cmd_list(project: str, note_type: str | None = None, *,
@@ -671,18 +1017,44 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 anchor_issues = check_gap_anchor(p, fields, base)
                 violations.extend(anchor_issues)
             elif t == "literature":
-                # Standard OKF type-dir contract for literature.
+                # Standard OKF type-dir contract for literature. `p` here is
+                # the per-project OVERLAY note (t is a two-layer type —
+                # OKF_TWO_LAYER_TYPES); intrinsic checks (citekey conformance,
+                # the invariant lint) resolve the central CORE via
+                # `central:`, never read intrinsic fields off the overlay
+                # directly (PR-A §3.4 — the resolver is the single read seam).
                 if note_type != t:
                     violations.append(
                         f"{p}: type={note_type!r} but file is in {t!r} directory"
                     )
-                # PR-4/K-4: citekey conformance (DECIDED K-D2: WARN this
-                # release — promotion to a coverage-gate BLOCK is DEFERRED).
-                # An absent or non-conformant citekey never flips the exit
-                # code; it surfaces so a human can migrate it
-                # (`rv research migrate-citekeys`) or fill it in.
-                citekey_warnings = check_citekey_conformance(p, fields)
-                violations.extend(citekey_warnings)
+                central = str(fields.get("central") or "").strip()
+                if not central:
+                    violations.append(
+                        f"{p}: literature overlay missing 'central:' pointer "
+                        f"(every literature overlay must point at its central core)"
+                    )
+                else:
+                    core_path = literature_core_path(cfg, central)
+                    if not core_path.exists():
+                        violations.append(
+                            f"{p}: dangling 'central:' pointer {central!r} — "
+                            f"no central core exists at {core_path}"
+                        )
+                    else:
+                        core_fields, _ = _parse_frontmatter(
+                            core_path.read_text(encoding="utf-8")
+                        )
+                        # PR-4/K-4: citekey conformance (DECIDED K-D2: WARN this
+                        # release — promotion to a coverage-gate BLOCK is DEFERRED).
+                        # An absent or non-conformant citekey never flips the exit
+                        # code; it surfaces so a human can migrate it
+                        # (`rv research migrate-citekeys`) or fill it in.
+                        citekey_warnings = check_citekey_conformance(p, core_fields)
+                        violations.extend(citekey_warnings)
+                        # PR-A item 8: the two-layer invariant lint — GATING
+                        # (BLOCK entries flip the exit code; WARN entries
+                        # degrade like the other WARN classes below).
+                        violations.extend(check_two_layer_invariants(core_path, p))
             else:
                 # Standard OKF type-dir contract for the other project-scoped types
                 if note_type != t:
@@ -1518,8 +1890,14 @@ def run(args: argparse.Namespace) -> int:
             #     degrade like the other two WARN classes, not hard-fail.
             #   [citekey-lint] WARN: — literature note citekey absent/non-conformant
             #     (PR-4/K-4, DECIDED K-D2: WARN this release, BLOCK deferred).
+            #   [two-layer-lint] WARN: — '## Related papers' found in an
+            #     overlay; expected until the incremental_relate edge-write
+            #     fast-follow lands (PR-A §0.5). Note: "[two-layer-lint]
+            #     BLOCK:" entries do NOT match this (more specific) prefix,
+            #     so they stay hard.
             _WARN_PREFIXES = (
                 "[repro-lint]", "[gap-hygiene]", "[dataset-provenance]", "[citekey-lint]",
+                "[two-layer-lint] WARN:",
             )
             hard = [v for v in violations if not v.startswith(_WARN_PREFIXES)]
             warnings = [v for v in violations if v.startswith(_WARN_PREFIXES)]

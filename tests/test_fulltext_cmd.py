@@ -98,9 +98,11 @@ class TestCmdFulltextDegradeToAbstract:
 class TestCmdFulltextFullTextPath:
     def test_full_text_found_stamps_existing_note(self, tmp_instance, monkeypatch, capsys) -> None:
         cfg = load_config(reload=True)
-        lit_dir = cfg.project_notes_dir("demo-research") / "literature"
-        lit_dir.mkdir(parents=True, exist_ok=True)
-        note = lit_dir / "smith2020.md"
+        # PR-A: read_basis/full_text_* provenance is intrinsic — stamped on
+        # the CENTRAL CORE, not the per-project overlay.
+        core_dir = cfg.literature_root
+        core_dir.mkdir(parents=True, exist_ok=True)
+        note = core_dir / "smith2020.md"
         note.write_text("---\ntype: literature\ncitekey: smith2020\n---\n\nBody.\n", encoding="utf-8")
 
         # Force enrich_hit to succeed regardless of providers by monkeypatching
@@ -156,9 +158,10 @@ class TestReadIdentifiersFromFiledNoteNoReResolution:
         import subprocess as _subprocess
 
         cfg = load_config(reload=True)
-        lit_dir = cfg.project_notes_dir("demo-research") / "literature"
-        lit_dir.mkdir(parents=True, exist_ok=True)
-        note = lit_dir / "pmcread2026.md"
+        # PR-A: pmcid/external ids are intrinsic — filed on the CENTRAL CORE.
+        core_dir = cfg.literature_root
+        core_dir.mkdir(parents=True, exist_ok=True)
+        note = core_dir / "pmcread2026.md"
         # Identifier-persistence write path already ran (rv research add) —
         # the note carries a persisted pmcid, no other id.
         note.write_text(

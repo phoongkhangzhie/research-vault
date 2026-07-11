@@ -41,6 +41,74 @@ both caught in the live 0.3.0 manuscript validation run:
   `[[citekey]]`-shaped citations in the first place) is a separate
   0.3.1 draft-convention fix; this PR only makes the emit path
   defensively skip them.
+## 2026-07-10 (PR-A: the central two-layer literature store)
+
+### Done
+Shipped the forward-only two-layer literature store (pre-publish #68,
+architect-dispatched, §0.5 PR-A): a `literature` note now splits into a
+cross-project CENTRAL CORE (intrinsic paper facts — ids, contribution_kind,
+result_reported, key_equations/repo/artifacts, `## Result`/`## Key
+equations`/`## Related papers`) at `cfg.literature_root/<citekey>.md`, plus
+a thin per-project OVERLAY (role/position/concept-edges + a `central:`
+pointer) at `project_notes_dir/literature/<citekey>.md` — the same location
+a literature note has always lived at.
+
+- `note.OKF_TWO_LAYER_TYPES = frozenset({"literature"})` — a third routing
+  class alongside `OKF_PROJECT_TYPES`/`OKF_SHARED_TYPES` (derived, pairwise-
+  disjoint, unions to `OKF_TYPES` — SSOT test).
+- `Config.literature_root` mirrors `datasets_root` exactly (default
+  `notes_root/literature`, TOML-overridable).
+- `cmd_new`/`cmd_list`/`cmd_check` three-arm routing for two-layer types.
+- The resolver (`note.load_literature_note`/`iter_literature_notes`/
+  `literature_core_path`/`literature_overlay_path`) is the single read seam;
+  fails closed (`DanglingCentralPointerError`) on a dangling `central:`
+  pointer.
+- `note.check_two_layer_invariants` — a GATING lint (BLOCK on misplaced
+  frontmatter; WARN on `## Related papers` in an overlay, a documented,
+  expected surface until the incremental_relate edge-write rewiring
+  fast-follow lands) — wired into `cmd_check`.
+- Migrated every literature reader I could find behind the resolver (or the
+  correct root): `review/ledger.py` (K-block resolving-ids + not-yet-
+  distilled edge check — the latter deliberately still reads the OVERLAY,
+  see Decisions), `review/incremental_relate.py` (left unchanged, in-scope
+  deferral), `dag/verbs.py::_check_relate_presence` (assembles core+overlay
+  before the Move 1-4 checklist), `manuscript/bib.py`, `manuscript/
+  fidelity_gates.py`, `manuscript/equations.py`, `manuscript/check_gates.py`
+  (`literature_root` threaded through `build_approve_payload`),
+  `manuscript/review_board.py::run_revise`, `research.py` (`_load_notes_index`/
+  `_load_notes_title_index`/`compute_and_stamp_citekey`/`cmd_citekey`/
+  `cmd_add`/`migrate_citekeys` — all now resolve/stamp intrinsic fields on
+  the CORE), `fulltext.py` (`_note_path_for` → core), `review/autonomy.py`,
+  `review/__init__.py` (`_index_literature_notes_by_citekey`,
+  `relations_report`'s source-citekey resolution).
+
+### Decisions
+- **Edge-write mechanism intentionally left pointed at the overlay.**
+  `incremental_relate.append_bidirectional_edge` still physically writes
+  `## Related papers` into the project's `literature/<key>.md` file (PR-A
+  §0.5's explicit scope fence: "rewiring edge-writes to the central core is
+  fast-follow, not this PR"). Any reader that consumes the MATERIALIZED
+  edge graph (the ledger's not-yet-distilled check, the relate-presence
+  gate's Move-4 check) therefore still resolves against the overlay dir,
+  not `literature_root` — pointing them at the core before the fast-follow
+  lands would find zero edges and false-flag every paper. The invariant
+  lint's WARN class documents this as a known, expected surface.
+- **cmd_new's citekey-collision handling**: if a core already exists for a
+  slug, a second project's `rv note new literature` does NOT duplicate or
+  overwrite it — it wires its own overlay to the existing core ("distilled
+  but not adopted" → now "distilled and adopted"). True identity-collision
+  detection (same slug, different paper) is deferred to the amortization
+  fast-follow (D6), unchanged from the design doc's own scope fence.
+- Left `data/examples/demo-research`/`demo-litreview` and `rv init`'s
+  scaffold untouched (PR-B territory) — `scaffold_okf_dirs` already creates
+  `notes_root/literature/`, which happens to be the default
+  `literature_root`, so `rv init` already produces a working (if
+  PR-B-unaware) two-layer skeleton for free.
+
+### Open / next
+Returns to the architect (Wren) for a fit-check. PR-B (registry-as-pointer,
+demo-fixture two-layer adoption, `rv literature list`) is the fast-follow
+that makes the shipped example teach the contract.
 
 ## 2026-07-10 (coverage-allocation gate: surjective coverage, not a partition)
 

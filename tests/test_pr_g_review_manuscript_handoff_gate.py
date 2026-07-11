@@ -200,7 +200,7 @@ class TestFourHandoffPropertiesGate:
     def test_clean_ledger_passes_all_four(self, tmp_path):
         review_dir, lit_dir = _build_clean_scope(tmp_path)
         ledger = write_corpus_ledger(
-            review_dir, literature_dir=lit_dir, relevance_payload=_clean_relevance_payload(),
+            review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=_clean_relevance_payload(),
         )
         fields = assert_four_handoff_properties(ledger)
         # Sanity: the properties were really CHECKED (not a vacuous pass).
@@ -215,7 +215,7 @@ class TestFourHandoffPropertiesGate:
         sneak through the handoff gate)."""
         review_dir, lit_dir = _build_clean_scope(tmp_path)
         ledger = write_corpus_ledger(
-            review_dir, literature_dir=lit_dir, relevance_payload=_clean_relevance_payload(),
+            review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=_clean_relevance_payload(),
         )
         # Pre-condition: unmutated ledger passes.
         assert_four_handoff_properties(ledger)
@@ -243,7 +243,7 @@ class TestFourHandoffPropertiesGate:
             "---\ntype: literature\ncitekey: smith2024extra\ndoi: 10.1/x\n---\n", encoding="utf-8",
         )
         ledger = write_corpus_ledger(
-            review_dir, literature_dir=lit_dir, relevance_payload=_clean_relevance_payload(),
+            review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=_clean_relevance_payload(),
         )
         with pytest.raises(HandoffPropertyError, match="CANONICALLY-KEYED"):
             assert_four_handoff_properties(ledger)
@@ -253,7 +253,7 @@ class TestFourHandoffPropertiesGate:
         node has no GO-class disposition, so it cannot claim the CLEAN
         handoff property (honest no-op at the writer, REJECT at the gate)."""
         review_dir, lit_dir = _build_clean_scope(tmp_path)
-        ledger = write_corpus_ledger(review_dir, literature_dir=lit_dir, relevance_payload=None)
+        ledger = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=None)
         with pytest.raises(HandoffPropertyError, match="CLEAN"):
             assert_four_handoff_properties(ledger)
 
@@ -294,7 +294,7 @@ class TestNotYetDistilledCount:
         self._lit_note(lit_dir, "lee2025b", related_to="smith2024a")
         self._lit_note(lit_dir, "smith2024a", related_to="lee2025b")
         ledger = write_corpus_ledger(
-            review_dir, literature_dir=lit_dir, relevance_payload=_clean_relevance_payload(),
+            review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=_clean_relevance_payload(),
         )
         fields, _ = _parse_frontmatter(ledger.read_text(encoding="utf-8"))
         assert int(fields["remediation_added_count"]) == 1
@@ -308,7 +308,7 @@ class TestNotYetDistilledCount:
         review_dir, lit_dir = self._scope_with_deviation(tmp_path, added=["orphan2025z"])
         self._lit_note(lit_dir, "orphan2025z", related_to=None)  # distilled, NEVER related
         ledger = write_corpus_ledger(
-            review_dir, literature_dir=lit_dir, relevance_payload=_clean_relevance_payload(),
+            review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=_clean_relevance_payload(),
         )
         fields, _ = _parse_frontmatter(ledger.read_text(encoding="utf-8"))
         assert int(fields["not_yet_distilled_count"]) == 1
@@ -320,7 +320,7 @@ class TestNotYetDistilledCount:
         review_dir, lit_dir = self._scope_with_deviation(tmp_path, added=["missingnote2025"])
         # No note written for missingnote2025 at all.
         ledger = write_corpus_ledger(
-            review_dir, literature_dir=lit_dir, relevance_payload=_clean_relevance_payload(),
+            review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=_clean_relevance_payload(),
         )
         fields, _ = _parse_frontmatter(ledger.read_text(encoding="utf-8"))
         assert int(fields["not_yet_distilled_count"]) == 1
@@ -331,7 +331,7 @@ class TestNotYetDistilledCount:
         has nothing to distill -> 0, honestly (not a crash, not a gap)."""
         review_dir, lit_dir = _build_clean_scope(tmp_path, name="no-dev-scope")
         ledger = write_corpus_ledger(
-            review_dir, literature_dir=lit_dir, relevance_payload=_clean_relevance_payload(),
+            review_dir, literature_dir=lit_dir, literature_root=lit_dir, relevance_payload=_clean_relevance_payload(),
         )
         fields, _ = _parse_frontmatter(ledger.read_text(encoding="utf-8"))
         assert int(fields["remediation_added_count"]) == 0

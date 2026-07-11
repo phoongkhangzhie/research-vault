@@ -496,7 +496,7 @@ def _get_scalar(fields: dict, key: str) -> str:
     return ""
 
 
-def check_relate_presence(note_path: Path) -> RelatePresenceResult:
+def check_relate_presence(note_path: Path, *, text: str | None = None) -> RelatePresenceResult:
     """Rejects-only presence check for a relate-<key> literature note (PR-1).
 
     Verifies the mandatory-question checklist was answered — NOT a rigid
@@ -505,20 +505,31 @@ def check_relate_presence(note_path: Path) -> RelatePresenceResult:
     of the 5-move protocol, plus PR-4's role/position split).
 
     Args:
-        note_path: absolute path to the literature/<citekey>.md note.
+        note_path: absolute path to the literature/<citekey>.md note (used
+            for error messages, and to read from when ``text`` is None).
+        text: PR-A (§0.5): the two-layer literature store splits a note into
+            a central core (Move 1/3/4 intrinsic fields) + a thin per-project
+            overlay (Move 4's edges land here too, by explicit fast-follow
+            deferral — see note.check_two_layer_invariants) + role/position
+            (Move-4's split). Callers checking a two-layer note MUST pass
+            the ASSEMBLED (core+overlay merged) text here — reading
+            note_path alone would only see the overlay's thin fields and
+            false-FAIL on every core-only checklist item. When ``text`` is
+            None, falls back to reading ``note_path`` directly (single-file
+            callers / tests).
 
     Returns:
         RelatePresenceResult — .ok True iff no findings.
     """
     findings: list[str] = []
 
-    if not note_path.exists():
-        return RelatePresenceResult(findings=[f"note does not exist: {note_path}"])
-
-    try:
-        text = note_path.read_text(encoding="utf-8")
-    except OSError as e:
-        return RelatePresenceResult(findings=[f"cannot read note {note_path}: {e}"])
+    if text is None:
+        if not note_path.exists():
+            return RelatePresenceResult(findings=[f"note does not exist: {note_path}"])
+        try:
+            text = note_path.read_text(encoding="utf-8")
+        except OSError as e:
+            return RelatePresenceResult(findings=[f"cannot read note {note_path}: {e}"])
 
     fields, body = _parse_frontmatter(text)
 

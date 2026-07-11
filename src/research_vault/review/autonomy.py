@@ -662,8 +662,8 @@ def _op_sweep(
 
         cfg = config if config is not None else load_config()
         literature_dir = cfg.project_notes_dir(project) / "literature"
-        notes_index = _load_notes_index(literature_dir)
-        notes_title_index = _load_notes_title_index(literature_dir)
+        notes_index = _load_notes_index(literature_dir, literature_root=cfg.literature_root)
+        notes_title_index = _load_notes_title_index(literature_dir, literature_root=cfg.literature_root)
 
     written = write_search_hits(
         result, Path(out), notes_index=notes_index, notes_title_index=notes_title_index,
@@ -829,8 +829,8 @@ def _op_snowball(
 
         cfg = config if config is not None else load_config()
         literature_dir = cfg.project_notes_dir(project) / "literature"
-        notes_index = _load_notes_index(literature_dir)
-        notes_title_index = _load_notes_title_index(literature_dir)
+        notes_index = _load_notes_index(literature_dir, literature_root=cfg.literature_root)
+        notes_title_index = _load_notes_title_index(literature_dir, literature_root=cfg.literature_root)
 
     corpus_raw_path = write_corpus_raw(
         result, out_dir_path / "_corpus_raw.md",

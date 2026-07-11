@@ -270,7 +270,37 @@ def _note_citekey(fields: dict[str, Any], note_path: Path) -> str:
     return ck if ck else note_path.stem
 
 
-def _load_notes_index(literature_dir: Path | None) -> dict[str, str]:
+def _resolve_intrinsic_fields(
+    literature_root: Path | None, overlay_fields: dict[str, Any],
+) -> dict[str, Any]:
+    """PR-A: given a project's overlay ``fields`` (already parsed), resolve
+    its ``central:`` pointer against ``literature_root`` and merge in the
+    CENTRAL CORE's intrinsic fields (doi/arxiv_id/citekey/etc — core wins on
+    any collision). A missing pointer / absent core / ``literature_root is
+    None`` degrades to the overlay fields UNCHANGED (honest no-op, never a
+    fabricated id) — this keeps every caller below correct for both a
+    genuinely two-layer note AND a lone monolithic fixture that happens to
+    carry its own doi/arxiv_id directly (some hermetic tests do this on
+    purpose; not a violation, just a degrade path)."""
+    if literature_root is None:
+        return overlay_fields
+    central = str(overlay_fields.get("central") or "").strip()
+    if not central:
+        return overlay_fields
+    core_path = Path(literature_root) / f"{central}.md"
+    if not core_path.exists():
+        return overlay_fields
+    from .note import _parse_frontmatter
+    try:
+        core_fields, _ = _parse_frontmatter(core_path.read_text(encoding="utf-8"))
+    except OSError:
+        return overlay_fields
+    return {**overlay_fields, **core_fields}
+
+
+def _load_notes_index(
+    literature_dir: Path | None, literature_root: Path | None = None,
+) -> dict[str, str]:
     """Build a normalized-id → citekey lookup by scanning literature/*.md frontmatter.
 
     Fix #32: literature notes filed via ``rv note new literature`` are invisible to the
@@ -301,7 +331,12 @@ def _load_notes_index(literature_dir: Path | None) -> dict[str, str]:
             text = note_path.read_text(encoding="utf-8")
         except OSError:
             continue
-        fields, _ = _parse_frontmatter(text)
+        overlay_fields, _ = _parse_frontmatter(text)
+        # PR-A: doi/arxiv_id are CORE-only intrinsic fields — resolve the
+        # overlay's `central:` pointer against literature_root. Degrades to
+        # the overlay's own fields unchanged when literature_root is None
+        # or no pointer resolves (a monolithic fixture with its own doi:).
+        fields = _resolve_intrinsic_fields(literature_root, overlay_fields)
         citekey = _note_citekey(fields, note_path)
         url = fields.get("url") or None
 
@@ -422,7 +457,9 @@ def _title_fallback_match(title_norm: str, note_title: str) -> bool:
     return False
 
 
-def _load_notes_title_index(literature_dir: Path | None) -> dict[str, list[tuple[str, str]]]:
+def _load_notes_title_index(
+    literature_dir: Path | None, literature_root: Path | None = None,
+) -> dict[str, list[tuple[str, str]]]:
     """Build a first-author-family → [(citekey, normalized_title)] fallback lookup.
 
     rv-refs-corpus-fix: a small fraction of real notes carry NO extractable id
@@ -457,7 +494,8 @@ def _load_notes_title_index(literature_dir: Path | None) -> dict[str, list[tuple
             text = note_path.read_text(encoding="utf-8")
         except OSError:
             continue
-        fields, _ = _parse_frontmatter(text)
+        overlay_fields, _ = _parse_frontmatter(text)
+        fields = _resolve_intrinsic_fields(literature_root, overlay_fields)
         citekey = _note_citekey(fields, note_path)
         url = fields.get("url") or None
 
@@ -663,8 +701,8 @@ def cmd_find(args: argparse.Namespace) -> int:
         cfg.project_notes_dir(project) / "literature"
         if project else None
     )
-    notes_index = _load_notes_index(lit_dir)
-    notes_title_index = _load_notes_title_index(lit_dir)
+    notes_index = _load_notes_index(lit_dir, literature_root=(cfg.literature_root if cfg else None))
+    notes_title_index = _load_notes_title_index(lit_dir, literature_root=(cfg.literature_root if cfg else None))
     _print_candidates(
         papers, notes_index=notes_index, notes_title_index=notes_title_index,
     )
@@ -714,8 +752,8 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
         cfg.project_notes_dir(project) / "literature"
         if (cfg and project) else None
     )
-    notes_index = _load_notes_index(lit_dir)
-    notes_title_index = _load_notes_title_index(lit_dir)
+    notes_index = _load_notes_index(lit_dir, literature_root=(cfg.literature_root if cfg else None))
+    notes_title_index = _load_notes_title_index(lit_dir, literature_root=(cfg.literature_root if cfg else None))
     _print_candidates(
         papers, notes_index=notes_index, notes_title_index=notes_title_index,
     )
@@ -767,8 +805,8 @@ def cmd_references(args: argparse.Namespace) -> int:
         cfg.project_notes_dir(project) / "literature"
         if (cfg and project) else None
     )
-    notes_index = _load_notes_index(lit_dir)
-    notes_title_index = _load_notes_title_index(lit_dir)
+    notes_index = _load_notes_index(lit_dir, literature_root=(cfg.literature_root if cfg else None))
+    notes_title_index = _load_notes_title_index(lit_dir, literature_root=(cfg.literature_root if cfg else None))
     _print_candidates(
         papers, notes_index=notes_index, notes_title_index=notes_title_index,
     )
@@ -978,7 +1016,9 @@ def cmd_add(args: argparse.Namespace) -> int:
     citekey = m.group(1)
 
     external_ids = _resolve_full_external_ids(args.ident)
-    note_path = cfg.project_notes_dir(project) / "literature" / f"{citekey}.md"
+    # PR-A: the external-id set is intrinsic (core-only) — stamp the
+    # CENTRAL CORE, not the per-project overlay.
+    note_path = cfg.literature_root / f"{citekey}.md"
     if not external_ids:
         print(
             f"rv research add: no external ids resolved from {args.ident!r} — "
@@ -1022,14 +1062,17 @@ def cmd_citekey(args: argparse.Namespace) -> int:
 
     project = args.project
     try:
-        lit_dir = cfg.project_notes_dir(project) / "literature"
+        cfg.project_notes_dir(project)  # validates the project slug exists
     except KeyError as e:
         print(f"rv research citekey: {e}", file=sys.stderr)
         return 1
 
-    note_path = lit_dir / f"{args.note_id}.md"
+    # PR-A: citekey/title/authors/year are intrinsic (core-only) — the
+    # note-id shares its slug with the central core (note._cmd_new_two_layer's
+    # convention), so this resolves + stamps the CORE, not the overlay.
+    note_path = cfg.literature_root / f"{args.note_id}.md"
     try:
-        citekey = compute_and_stamp_citekey(note_path, lit_dir)
+        citekey = compute_and_stamp_citekey(note_path, cfg.literature_root)
     except FileNotFoundError as e:
         print(f"rv research citekey: {e}", file=sys.stderr)
         return 1
@@ -1155,6 +1198,14 @@ def migrate_citekeys(
 def cmd_migrate_citekeys(args: argparse.Namespace) -> int:
     """rv research migrate-citekeys <project> [--dry-run]: PR-4/K-3.
 
+    PR-A: ``citekey:`` is intrinsic (core-only) content — this migrates
+    notes in the CENTRAL STORE (``cfg.literature_root``), not a per-project
+    overlay dir. Since the store is shared across every registered project,
+    this is now effectively a corpus-wide operation regardless of which
+    ``<project>`` is passed (kept for CLI-shape stability / the migration
+    ledger's project-scoped audit trail — see ``ledger_path`` below); the
+    project argument no longer narrows WHICH notes get migrated.
+
     DECIDED K-D2: this release, run this by hand only against the ONE
     project whose corpus needs migrating (no code-level project restriction
     here — this verb is general; the *rollout* is scoped by the operator
@@ -1173,8 +1224,12 @@ def cmd_migrate_citekeys(args: argparse.Namespace) -> int:
         print(f"rv research migrate-citekeys: {e}", file=sys.stderr)
         return 1
 
+    # The migration ledger stays a PROJECT-level bookkeeping JSON (not an
+    # OKF note) — unaffected by the two-layer split (see
+    # review.ledger._citekey_migrated_count, which reads it from the same
+    # project-scoped location).
     ledger_path = lit_dir / _CITEKEY_MIGRATION_LEDGER_NAME
-    result = migrate_citekeys(lit_dir, ledger_path, dry_run=args.dry_run)
+    result = migrate_citekeys(cfg.literature_root, ledger_path, dry_run=args.dry_run)
 
     changed = result["changed"]
     unresolved = result["unresolved"]
@@ -1235,8 +1290,8 @@ def cmd_sweep(args: argparse.Namespace) -> int:
         return 1
 
     lit_dir = cfg.project_notes_dir(project) / "literature" if (cfg and project) else None
-    notes_index = _load_notes_index(lit_dir)
-    notes_title_index = _load_notes_title_index(lit_dir)
+    notes_index = _load_notes_index(lit_dir, literature_root=(cfg.literature_root if cfg else None))
+    notes_title_index = _load_notes_title_index(lit_dir, literature_root=(cfg.literature_root if cfg else None))
 
     print(
         f"\nWidth-sweep: {result.total_hits_fetched} raw hit(s) fetched, "

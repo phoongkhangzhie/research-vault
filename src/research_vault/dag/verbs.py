@@ -421,6 +421,9 @@ def _evaluate_autonomous_gate(
         # "reviews/". Best-effort only: the ledger treats a missing dir as
         # an honest gap (surfaced), never a crash.
         literature_dir_for_ledger = review_dir.parent.parent / "literature"
+        # PR-A: the central store — for the K-block's resolving-id lookup +
+        # the not-yet-distilled edge-graph check (both CORE-only content).
+        literature_root_for_ledger = load_config().literature_root
 
         def _write_ledger_final_act(
             disposition: Any,
@@ -438,6 +441,7 @@ def _evaluate_autonomous_gate(
                 _ledger.write_corpus_ledger(
                     review_dir,
                     literature_dir=literature_dir_for_ledger,
+                    literature_root=literature_root_for_ledger,
                     relevance_payload=relevance_payload_for_ledger,
                     critic_backtrack_rounds=int(
                         (run_state.meta.get("remediation_state") or {}).get("rounds_used", 0)
@@ -1423,7 +1427,8 @@ def _check_experiments_provenance_chain(note_path_str: str, notes_root: Path) ->
 
 
 def _check_relate_presence(
-    note_path_str: str, notes_root: Path, node_id: str
+    note_path_str: str, notes_root: Path, node_id: str,
+    literature_root: Path | None = None,
 ) -> list[str]:
     """Wave 0 (Reading) PR-1 rejects-only presence check — ride at complete-time.
 
@@ -1435,6 +1440,16 @@ def _check_relate_presence(
     PR-5 result_reported, Move 4/PR-2 paper_relations_sought) BLOCKs at
     complete-time, mirroring the existing OKF-type and provenance-chain gates'
     structural posture.
+
+    PR-A (§0.5): a literature note is now two-layer — ``note_path_str``
+    resolves to the per-project OVERLAY (role/position live there), while
+    Move 1/3's contribution_kind/result_reported live on the CENTRAL CORE
+    (``literature_root/<citekey>.md``). The checklist is evaluated against
+    the ASSEMBLED (core+overlay concatenated) text so it sees both layers —
+    reading the overlay alone would false-FAIL every core-only question.
+    When ``literature_root`` is None (caller doesn't have it, or the core
+    hasn't been distilled yet), degrades gracefully to overlay-only text —
+    the checklist then correctly reports the (real) missing core fields.
 
     Returns a list of finding strings (empty = OK or not a relate- node).
     """
@@ -1453,15 +1468,33 @@ def _check_relate_presence(
     except OSError:
         return []  # likewise already reported by _check_okf_note_type
 
-    from ..note import _parse_frontmatter as _pfm_relate
+    from ..note import _parse_frontmatter as _pfm_relate, _render_frontmatter as _rfm_relate
 
-    fields, _ = _pfm_relate(text)
+    fields, body = _pfm_relate(text)
     if fields.get("type", "") != "literature":
         return []
 
     from ..review.relate_check import check_relate_presence
 
-    result = check_relate_presence(note_path)
+    assembled_text = text
+    if literature_root is not None:
+        citekey = note_path.stem
+        core_path = literature_root / f"{citekey}.md"
+        if core_path.exists():
+            try:
+                core_text = core_path.read_text(encoding="utf-8")
+                core_fields, core_body = _pfm_relate(core_text)
+                # Rebuild ONE frontmatter block + concatenated body — raw
+                # concatenation would produce a SECOND "---...---" block
+                # that _parse_frontmatter (single-block parser) would treat
+                # as inert body text, silently dropping the overlay's
+                # role/position from the merged fields dict.
+                merged_fields = {**fields, **core_fields}
+                assembled_text = _rfm_relate(merged_fields) + "\n" + core_body + "\n" + body
+            except OSError:
+                pass  # degrade to overlay-only text; core-only fields correctly report missing
+
+    result = check_relate_presence(note_path, text=assembled_text)
     return result.findings
 
 
@@ -1995,7 +2028,9 @@ def cmd_complete(args: argparse.Namespace) -> int:
                 return 1
             # Wave 0 (Reading) PR-1: relate-<key> node presence-check gate —
             # rejects-only, checklist not schema (see relate_check.py docstring).
-            relate_issues = _check_relate_presence(produces["note"], _note_root, node_id)
+            relate_issues = _check_relate_presence(
+                produces["note"], _note_root, node_id, literature_root=cfg.literature_root
+            )
             if relate_issues:
                 print(
                     f"rv dag complete: relate presence check FAILED for node {node_id!r}:",
@@ -2298,7 +2333,10 @@ def cmd_approve(args: argparse.Namespace) -> int:
             _ms_type = _get_ms_type(_fields.get("manuscript_type", ""))
             if _ms_type is not None:
                 project_notes_dir = tree_root.parent.parent
-                payload = build_approve_payload(tree_root, project_notes_dir, _ms_type)
+                payload = build_approve_payload(
+                    tree_root, project_notes_dir, _ms_type,
+                    literature_root=cfg.literature_root,
+                )
                 if not payload["ok"]:
                     print(
                         "rv dag approve: approve-manuscript BLOCKED by fidelity gates:",

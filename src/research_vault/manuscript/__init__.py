@@ -315,7 +315,8 @@ def _build_phase2_manifest(
     # unchanged) — never an error.
     if ms_type.equation_sources:
         equation_ledger = _equations.extract_equation_ledger(
-            project_notes_dir, ms_type.equation_sources
+            project_notes_dir, ms_type.equation_sources,
+            literature_root=getattr(config, "literature_root", None),
         )
         tips = _equations.inject_equation_brief(
             tips, equation_ledger, ms_type.section_set, ms_type.equation_sources
@@ -893,6 +894,7 @@ def cmd_judge_emit(
             tree_root,
             notes_root=project_notes_dir,
             manuscript_slug=slug,
+            literature_root=cfg.literature_root,
         ),
     }
     return out

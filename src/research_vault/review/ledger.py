@@ -222,24 +222,30 @@ def _corpus_rows(corpus_path: Path) -> tuple[list[tuple[str, str]], list[str]]:
     return rows, gaps
 
 
-def _literature_note_for_citekey(literature_dir: Path | None, citekey: str) -> Path | None:
-    """Resolve a corpus citekey to its literature note path. Tries the
-    filename-== -citekey convention first (the common case for notes filed
-    via ``rv cite add`` / the K-stage canonical stamp), then falls back to
-    scanning ``literature/*.md`` frontmatter for a matching ``citekey:``
-    field (a note filed under a different filename slug — the same
-    divergence ``research._note_citekey`` documents)."""
-    if literature_dir is None:
+def _literature_note_for_citekey(literature_root: Path | None, citekey: str) -> Path | None:
+    """Resolve a corpus citekey to its CENTRAL-CORE note path (PR-A: the
+    two-layer store — intrinsic fields like doi/arxiv_id, and the paper->
+    paper edge graph, live on the core, not the per-project overlay; every
+    caller of this function reads intrinsic content, so it resolves against
+    ``literature_root``, not a project's ``literature/`` overlay dir).
+
+    Tries the filename-==-citekey convention first (the common case — see
+    ``note._cmd_new_two_layer``'s slug convention / the K-stage canonical
+    stamp), then falls back to scanning ``literature_root/*.md`` frontmatter
+    for a matching ``citekey:`` field (a note filed under a different
+    filename slug — the same divergence ``research._note_citekey``
+    documents)."""
+    if literature_root is None:
         return None
-    lit_dir = Path(literature_dir)
-    if not lit_dir.exists():
+    lit_root = Path(literature_root)
+    if not lit_root.exists():
         return None
 
-    direct = lit_dir / f"{citekey}.md"
+    direct = lit_root / f"{citekey}.md"
     if direct.exists():
         return direct
 
-    for note_path in sorted(lit_dir.glob("*.md")):
+    for note_path in sorted(lit_root.glob("*.md")):
         try:
             text = note_path.read_text(encoding="utf-8")
         except OSError:
@@ -333,9 +339,19 @@ def _not_yet_distilled_block(
     declared adds (via the SAME parser ``autonomy`` writes/reads them with —
     ``_parse_deviation_citekey_deltas``, charter §6) and joins them against
     the materialized edge graph (``relate_check.parse_paper_relations`` over
-    each note body). ``literature_dir is None`` -> every remediation-added
-    paper is un-resolvable, so all count as not-yet-distilled (honest, never
-    a fabricated 0).
+    each note body). PR-A note: although the paper->paper edge graph
+    (``## Related papers``) is architecturally CORE-only content, this
+    STILL resolves against ``literature_dir`` (the project's overlay dir),
+    NOT ``literature_root`` — ``incremental_relate.
+    append_bidirectional_edge`` is UNCHANGED by explicit PR-A scope-fence
+    deferral (§0.5: "rewiring edge-writes to the central core is
+    fast-follow, not this PR") and still physically writes edges to the
+    overlay location. Pointing this at literature_root before that
+    fast-follow lands would find zero edges and false-flag every paper as
+    not-yet-distilled. Revisit this resolution when the edge-write
+    rewiring fast-follow lands. ``literature_dir is None`` -> every
+    remediation-added paper is un-resolvable, so all count as
+    not-yet-distilled (honest, never a fabricated 0).
 
     Non-gating by construction: a legitimate mid-backtrack snapshot has
     un-related adds; only the caller's GO context asserts == 0. Returned as
@@ -363,13 +379,23 @@ def _not_yet_distilled_block(
     }
 
 
-def _k_block(corpus_path: Path, literature_dir: Path | None) -> dict[str, Any]:
+def _k_block(
+    corpus_path: Path,
+    literature_dir: Path | None,
+    literature_root: Path | None = None,
+) -> dict[str, Any]:
     """Assemble the K (canonical-citekey) block + the corpus counts +
     the canonical-key-map body rows.
 
     ``citekey_migrated_count``: see ``_citekey_migrated_count`` — traces to
     the real ``_citekey_migration_ledger.json`` when present; an honest
-    ``"untracked"`` sentinel (never a fabricated ``0``) when absent.
+    ``"untracked"`` sentinel (never a fabricated ``0``) when absent. That
+    ledger is a project-level bookkeeping JSON (not an OKF note), so it
+    still resolves against ``literature_dir`` (the project's overlay dir),
+    unaffected by the PR-A two-layer split.
+
+    ``resolving_ids`` (doi:/arxiv:) is CORE-only content (PR-A) — resolves
+    against ``literature_root`` (the central store).
     """
     from ..cite import CITEKEY_RE
 
@@ -386,7 +412,7 @@ def _k_block(corpus_path: Path, literature_dir: Path | None) -> dict[str, Any]:
             conformant += 1
         else:
             nonconformant += 1
-        note_path = _literature_note_for_citekey(literature_dir, citekey)
+        note_path = _literature_note_for_citekey(literature_root, citekey)
         resolving_ids = _resolving_ids_for_note(note_path) if note_path is not None else ""
         if note_path is None:
             gaps.append(f"K/key-map: no literature note found for citekey {citekey!r}.")
@@ -527,6 +553,7 @@ def write_corpus_ledger(
     *,
     review_scope: str | None = None,
     literature_dir: Path | None = None,
+    literature_root: Path | None = None,
     relevance_payload: dict[str, Any] | None = None,
     critic_backtrack_rounds: int = 0,
     halt_reason: str | None = None,
@@ -540,10 +567,15 @@ def write_corpus_ledger(
     Args:
         review_dir: the ``reviews/<scope>/`` directory.
         review_scope: defaults to ``review_dir.name``.
-        literature_dir: the project's ``literature/`` dir, for the
-            canonical-key-map's resolving-id lookup. ``None`` is an honest
-            no-op (every key-map row's resolving id(s) column is blank, a
-            surfaced gap, not a guess).
+        literature_dir: the project's ``literature/`` (overlay) dir — used
+            ONLY for the project-level citekey-migration ledger JSON
+            (``_citekey_migrated_count``), which is not an OKF note and is
+            unaffected by the PR-A two-layer split.
+        literature_root: PR-A: the CENTRAL store (``cfg.literature_root``),
+            for the canonical-key-map's resolving-id lookup + the
+            not-yet-distilled edge-graph check — both CORE-only content.
+            ``None`` is an honest no-op (every key-map row's resolving
+            id(s) column is blank, a surfaced gap, not a guess).
         relevance_payload: ``review.relevance.check_relevance_verifier``'s
             return dict, or ``None`` if the node was never wired for this
             manifest (honest no-op, not a gap).
@@ -572,7 +604,7 @@ def write_corpus_ledger(
 
     q = _q_block(protocol_path, saturation_path, gaps_path)
     p = _p_block(relevance_payload)
-    k = _k_block(corpus_path, literature_dir)
+    k = _k_block(corpus_path, literature_dir, literature_root)
     nd = _not_yet_distilled_block(deviations_path, literature_dir)
 
     search_lines, search_gaps = _render_search_plan_table(search_hits_path)

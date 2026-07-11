@@ -732,6 +732,7 @@ def build_approve_payload(
     ms_type: Any,
     *,
     judge_fn: Callable[[str], str] | None = None,
+    literature_root: Path | None = None,
 ) -> dict[str, Any]:
     """Assemble the manuscript-loop gates for ``approve-manuscript``.
 
@@ -752,6 +753,11 @@ def build_approve_payload(
         judge_fn: optional injectable LLM call for ``check_support_tally``
             (the ``(prompt: str) -> str`` shape it already accepts). Passing
             one counts as "judge configured" even absent env vars (test seam).
+        literature_root: PR-A: ``cfg.literature_root`` — the central
+            two-layer store, threaded into the hermetic bib gates
+            (citekey/authors/year/doi/arxiv_id are CORE-only content).
+            ``None`` degrades to reading the project overlay dir directly
+            (a monolithic fixture — not a violation, just a degrade path).
 
     Returns:
         ``{"ok": bool, "blocking": [...], "signals": [...], "not_run": [...]}``
@@ -777,7 +783,9 @@ def build_approve_payload(
 
     # ── 1. Hermetic references.md — deterministic, ALWAYS runs, hard BLOCK
     #      (PR-M2) ──
-    bib_result = check_citation_resolve(project_notes_dir, tree_root)
+    bib_result = check_citation_resolve(
+        project_notes_dir, tree_root, literature_root=literature_root,
+    )
     if not bib_result["ok"]:
         blocking.extend(f"[hermetic-bib] {e}" for e in bib_result["errors"])
 
@@ -793,7 +801,9 @@ def build_approve_payload(
     #      read the SAME `_report.md` source, never the render itself. ──
     from research_vault.manuscript import bib as _bib
 
-    render_result = _bib.render_numbered_manuscript(project_notes_dir, tree_root)
+    render_result = _bib.render_numbered_manuscript(
+        project_notes_dir, tree_root, literature_root=literature_root,
+    )
     if not render_result["ok"]:
         blocking.extend(f"[numbered-render] {e}" for e in render_result["errors"])
 
@@ -802,7 +812,9 @@ def build_approve_payload(
     #      no-op (nothing declared to mine, never an error). ────────────────
     equation_sources = getattr(ms_type, "equation_sources", ()) or ()
     if equation_sources:
-        ledger = _equations.extract_equation_ledger(project_notes_dir, equation_sources)
+        ledger = _equations.extract_equation_ledger(
+            project_notes_dir, equation_sources, literature_root=literature_root,
+        )
         draft_text = _read_draft_text(tree_root)
         eq_findings = _equations.check_equation_fidelity(ledger, draft_text)
         signals.extend(f"[equation-fidelity:{f['severity']}] {f['message']}" for f in eq_findings)
@@ -813,6 +825,7 @@ def build_approve_payload(
     if _judge_configured(judge_fn):
         support_result = _fidelity_gates.check_support_tally(
             tree_root, notes_root=project_notes_dir, judge_fn=judge_fn,
+            literature_root=literature_root,
         )
         # ``errors`` already carries the canary-abort message when
         # canary_aborted is True (fidelity_gates.py's own abort path) — a

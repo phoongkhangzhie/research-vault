@@ -35,9 +35,13 @@ def _cfg(tmp_path: Path, monkeypatch, project: str = "my-proj") -> Path:
 
 
 def _file_literature_note(notes_dir: Path, citekey: str) -> Path:
-    lit_dir = notes_dir / "literature"
-    lit_dir.mkdir(parents=True, exist_ok=True)
-    note = lit_dir / f"{citekey}.md"
+    """PR-A: doi/arxiv_id/pmcid/openalex/pmid/s2 are intrinsic (core-only)
+    content — file the fixture in the CENTRAL CORE (notes_dir.parent /
+    "literature", i.e. the default cfg.literature_root = notes_root/
+    literature), not the per-project overlay dir `notes_dir` points at."""
+    core_dir = notes_dir.parent / "literature"
+    core_dir.mkdir(parents=True, exist_ok=True)
+    note = core_dir / f"{citekey}.md"
     note.write_text(
         f"---\ntype: literature\ncitekey: {citekey}\ndoi: \narxiv_id: \n"
         "pmcid: \nopenalex: \npmid: \ns2: \n---\n\nBody.\n",

@@ -106,6 +106,85 @@ class TestRelatePresenceGateRide:
         ))
         assert rc == 0
 
+    def test_two_layer_split_note_passes_complete_gate(self, tmp_instance):
+        """PR-A: a genuinely TWO-LAYER note (Move 1/3 intrinsic fields on the
+        central core, role/position on the thin overlay — the shape
+        `rv note new literature` now produces) must pass the checklist via
+        the ASSEMBLED (core+overlay merged) text. A regression to reading
+        the overlay alone would false-BLOCK every core-only field."""
+        from research_vault.dag.verbs import cmd_complete
+        cfg = load_config(reload=True)
+        run_id = "test-relate-two-layer"
+        m = {
+            "run_id": run_id,
+            "project": "demo-litreview",
+            "nodes": [self._agent_node(
+                "relate-xiong2023-stepwise", {"note": "literature/xiong2023-stepwise.md"}
+            )],
+        }
+        mf = tmp_instance / "manifest.json"
+        mf.write_text(json.dumps(m), encoding="utf-8")
+        self._run_dag(mf)
+
+        # Central core — Move 1/3/4 intrinsic fields.
+        core_path = cfg.literature_root / "xiong2023-stepwise.md"
+        _write_note(core_path, {
+            "type": "literature",
+            "citekey": "xiong2023-stepwise",
+            "title": "Test Paper",
+            "contribution_kind": "theory-bound",
+            "result_reported": "no",
+            "paper_relations_sought": "no",
+        })
+        # Thin overlay — RQ-relative fields + the central: pointer.
+        overlay_path = cfg.project_notes_dir("demo-litreview") / "literature" / "xiong2023-stepwise.md"
+        _write_note(overlay_path, {
+            "type": "literature",
+            "central": "xiong2023-stepwise",
+            "title": "Test Paper",
+            "role": "theoretical",
+            "position": "This is the counter-position to the safe-exploration rebuttals.",
+        })
+
+        rc = cmd_complete(self._argns(
+            run_id=run_id, node_id="relate-xiong2023-stepwise", status="succeeded"
+        ))
+        assert rc == 0
+
+    def test_two_layer_split_note_missing_core_field_still_blocks(self, tmp_instance):
+        """The two-layer merge must not accidentally paper over a REAL gap:
+        a core missing contribution_kind still BLOCKs even with a
+        fully-answered overlay."""
+        from research_vault.dag.verbs import cmd_complete
+        cfg = load_config(reload=True)
+        run_id = "test-relate-two-layer-incomplete"
+        m = {
+            "run_id": run_id,
+            "project": "demo-litreview",
+            "nodes": [self._agent_node(
+                "relate-xiong2023-stepwise", {"note": "literature/xiong2023-stepwise.md"}
+            )],
+        }
+        mf = tmp_instance / "manifest.json"
+        mf.write_text(json.dumps(m), encoding="utf-8")
+        self._run_dag(mf)
+
+        core_path = cfg.literature_root / "xiong2023-stepwise.md"
+        _write_note(core_path, {
+            "type": "literature", "citekey": "xiong2023-stepwise", "title": "T",
+            # contribution_kind/result_reported/paper_relations_sought MISSING
+        })
+        overlay_path = cfg.project_notes_dir("demo-litreview") / "literature" / "xiong2023-stepwise.md"
+        _write_note(overlay_path, {
+            "type": "literature", "central": "xiong2023-stepwise", "title": "T",
+            "role": "theoretical", "position": "A real position statement here.",
+        })
+
+        rc = cmd_complete(self._argns(
+            run_id=run_id, node_id="relate-xiong2023-stepwise", status="succeeded"
+        ))
+        assert rc == 1
+
     def test_non_relate_node_unaffected(self, tmp_instance):
         """A non-relate- agent node producing a literature/ note (e.g. a
         hand-authored note-new node) is NOT gated by the relate presence
