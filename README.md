@@ -302,7 +302,9 @@ paths, not a re-typed summary.
   at `cfg.literature_root/<citekey>.md`; a thin per-project OVERLAY (role,
   position, concept-edges + a `central:` pointer) lives at the familiar
   `project_notes_dir/literature/<citekey>.md` — the same paper read once,
-  never re-transcribed per project.
+  never re-transcribed per project. `rv literature list <project>` reads a
+  project's overlay against the central corpus ledger (zero recompute) to show
+  which papers it draws on.
 
 ---
 
