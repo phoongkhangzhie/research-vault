@@ -317,6 +317,52 @@ def _citekey_migrated_count(
     return len(migrated_new_keys & corpus_citekeys)
 
 
+def _not_yet_distilled_block(
+    deviations_path: Path, literature_dir: Path | None,
+) -> dict[str, Any]:
+    """PR-G derivation: ``not_yet_distilled_count`` — every remediation-
+    added corpus citekey (a ``within-criteria-append`` deviation's ``added``
+    row) that has NO materialized paper->paper edge in its literature note
+    (or no literature note at all). At a clean coverage-gate GO the
+    incremental-relate loop has written a bidirectional edge for every
+    remediation-added paper, so this is 0; a paper the loop terminated on
+    before relating (HALT snapshot, or an un-distilled corpus row) surfaces
+    here as a > 0 completeness gap.
+
+    This is DERIVED (not a stored counter): it re-reads ``_deviations.md``'s
+    declared adds (via the SAME parser ``autonomy`` writes/reads them with —
+    ``_parse_deviation_citekey_deltas``, charter §6) and joins them against
+    the materialized edge graph (``relate_check.parse_paper_relations`` over
+    each note body). ``literature_dir is None`` -> every remediation-added
+    paper is un-resolvable, so all count as not-yet-distilled (honest, never
+    a fabricated 0).
+
+    Non-gating by construction: a legitimate mid-backtrack snapshot has
+    un-related adds; only the caller's GO context asserts == 0. Returned as
+    a scalar + the list of the specific un-distilled citekeys (auditable),
+    never folded into ``ledger_complete`` here.
+    """
+    from .autonomy import _parse_deviation_citekey_deltas
+    from .relate_check import parse_paper_relations
+
+    _removed, added = _parse_deviation_citekey_deltas(deviations_path)
+    not_distilled: list[str] = []
+    for citekey in sorted(added):
+        note_path = _literature_note_for_citekey(literature_dir, citekey)
+        if note_path is None:
+            not_distilled.append(citekey)
+            continue
+        _fields, body = _parse_frontmatter(note_path.read_text(encoding="utf-8"))
+        parsed = parse_paper_relations(body)
+        if not parsed.edges:
+            not_distilled.append(citekey)
+    return {
+        "remediation_added_count": len(added),
+        "not_yet_distilled_count": len(not_distilled),
+        "not_yet_distilled_citekeys": not_distilled,
+    }
+
+
 def _k_block(corpus_path: Path, literature_dir: Path | None) -> dict[str, Any]:
     """Assemble the K (canonical-citekey) block + the corpus counts +
     the canonical-key-map body rows.
@@ -522,9 +568,12 @@ def write_corpus_ledger(
     corpus_path = review_dir / "_corpus.md"
     out = out_path or (review_dir / "_corpus_ledger.md")
 
+    deviations_path = review_dir / "_deviations.md"
+
     q = _q_block(protocol_path, saturation_path, gaps_path)
     p = _p_block(relevance_payload)
     k = _k_block(corpus_path, literature_dir)
+    nd = _not_yet_distilled_block(deviations_path, literature_dir)
 
     search_lines, search_gaps = _render_search_plan_table(search_hits_path)
     saturation_lines, saturation_gaps = _render_saturation_table(saturation_path)
@@ -573,6 +622,10 @@ def write_corpus_ledger(
         _fm_line("accepted", k["accepted"]),
         _fm_line("in_corpus", k["in_corpus"]),
         _fm_line("new", k["new"]),
+        # PR-G: relate-completeness audit (derived — see _not_yet_distilled_block)
+        _fm_line("remediation_added_count", nd["remediation_added_count"]),
+        _fm_line("not_yet_distilled_count", nd["not_yet_distilled_count"]),
+        _fm_line("not_yet_distilled_citekeys", ", ".join(nd["not_yet_distilled_citekeys"])),
         "---",
         "",
         "# Corpus ledger\n",
