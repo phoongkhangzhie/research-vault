@@ -1,3 +1,32 @@
+## 2026-07-10 (coverage-allocation gate: surjective coverage, not a partition)
+
+### Done
+Fixed an over-strict check in `check_coverage_allocation_gate`
+(`manuscript/check_gates.py`), caught during the 0.3.0 validation run.
+The gate BLOCKed a citekey allocated to more than one framework bucket
+(used/clustered/deferred) as a "duplicate/contradictory allocation."
+That's wrong — the coverage contract is surjective (every corpus paper
+allocated AT LEAST once), not a bijective partition. A cross-cutting
+paper load-bearing in two branches (e.g. spanning two pipeline stages,
+or both a method-family member and a tension exemplar) must be allowed
+to appear in multiple buckets; forcing a single home suppresses good
+synthesis.
+
+### Decisions
+- Removed the "allocated twice" BLOCK entirely — `allocated` is now a
+  set (not a dict tracking "first bucket seen"), so a citekey appearing
+  in multiple bucket entries is simply recorded once, never flagged.
+- Kept the load-bearing check unchanged: any frozen-corpus citekey
+  allocated to NONE of the buckets still hard-BLOCKs — that's the real
+  no-silent-drop guard the gate exists for (the ~20/47-paper drop this
+  gate closes).
+- Updated the docstring + inline design-note comment to state the
+  contract explicitly: surjective coverage, multi-allocation legitimate,
+  zero-allocation still blocks.
+
+### Open / next
+Returns to the manuscript architect for a fit-check.
+
 ## 2026-07-10 (PR-S1 REWRITE — reversed: backward stays unbounded, honest-knob fix instead)
 
 ### Done

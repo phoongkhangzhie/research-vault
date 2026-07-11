@@ -446,9 +446,14 @@ def check_coverage_gate(
 #   - `used`:      cited in a named branch of the frozen spine,
 #   - `clustered`: folded into a named group with a stated reason,
 #   - `deferred`:  explicitly out of scope, with a stated reason.
-# A citekey allocated to none of them (or a bucket entry missing its required
-# reason/branch/group, or an entry naming a citekey absent from the corpus) is a
-# fail-closed BLOCK at `approve-framework`. Allocation is machine-checkable in
+# The contract is SURJECTIVE coverage (allocated AT LEAST once), not a
+# bijective partition — a citekey allocated to none of them (or a bucket entry
+# missing its required reason/branch/group, or an entry naming a citekey
+# absent from the corpus) is a fail-closed BLOCK at `approve-framework`. A
+# citekey allocated to MORE than one bucket is legitimate (a cross-cutting
+# paper load-bearing in multiple branches, e.g. spanning two pipeline stages,
+# or both a method-family member and a tension exemplar) — the gate never
+# blocks on multi-allocation, only on zero-allocation. Allocation is machine-checkable in
 # the note's frontmatter (the D8 mapping-list format `note._parse_frontmatter`
 # already reads — charter §6, no new grammar); fuller narrative rationale lives
 # in the note's prose body (not read by this gate).
@@ -510,8 +515,13 @@ def check_coverage_allocation_gate(
         no non-empty ``branch`` (an allocation with no anchor is unverifiable);
       - a ledger entry naming a citekey ABSENT from the frozen corpus (a
         non-corpus / phantom citekey);
-      - the SAME citekey allocated in more than one bucket (contradictory);
       - a malformed bucket entry (a bare scalar, not a ``citekey: ...`` record).
+
+    The contract is surjective coverage (every corpus paper allocated to AT
+    LEAST one bucket), not a bijective partition — a citekey MAY appear in
+    multiple buckets (cross-cutting: e.g. load-bearing in two pipeline
+    stages, or both a method-family member and a tension exemplar). The gate
+    never blocks on multi-allocation, only on zero-allocation.
 
     Honest no-op (never a BLOCK for absence, mirroring the ``doi``/``corpus_hash``
     precedent): if no frozen ``_corpus.md`` exists yet, or it has zero citekeys,
@@ -571,7 +581,11 @@ def check_coverage_allocation_gate(
     fields, _ = _pfm_gates(coverage_map_path.read_text(encoding="utf-8"))
 
     # ── Walk each bucket, validating fields + collecting the allocation. ────
-    allocated: dict[str, str] = {}  # citekey -> first bucket it appeared in
+    # `allocated` is a SET (not a dict keyed by "first bucket seen") — a
+    # citekey appearing in multiple buckets is legitimate cross-cutting
+    # allocation, not a contradiction; the gate only tracks whether each
+    # corpus citekey was allocated AT LEAST once, never how many times.
+    allocated: set[str] = set()
     for bucket, required in _COVERAGE_BUCKET_REQUIRED_FIELDS.items():
         records, malformed = _coverage_records(fields.get(bucket))
         for bad in malformed:
@@ -601,16 +615,10 @@ def check_coverage_allocation_gate(
                     f"{citekey!r}, which is NOT in the frozen corpus — a non-corpus "
                     f"(phantom) citekey in the coverage ledger."
                 )
-                # A phantom key still counts as 'seen' for dup detection but is
-                # never treated as covering a real corpus paper.
-            if citekey in allocated:
-                errors.append(
-                    f"coverage-allocation BLOCK: citekey {citekey!r} is allocated "
-                    f"twice — in both {allocated[citekey]!r} and {bucket!r} "
-                    f"(a duplicate/contradictory allocation; allocate each paper once)."
-                )
-            else:
-                allocated[citekey] = bucket
+                # A phantom key is never treated as covering a real corpus
+                # paper, but it's still fine for the SAME real citekey to also
+                # appear (correctly) in another bucket — no dup tracking here.
+            allocated.add(citekey)
 
     # ── The load-bearing check: every corpus citekey allocated SOMEWHERE. ───
     unallocated = sorted(corpus_set - set(allocated))

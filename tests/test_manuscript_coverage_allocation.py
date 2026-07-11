@@ -176,18 +176,54 @@ def test_non_corpus_citekey_blocks(tmp_path: Path):
     assert any("ghost2099" in e and "non-corpus" in e.lower() for e in res["errors"])
 
 
-def test_duplicate_allocation_across_buckets_blocks(tmp_path: Path):
+def test_cross_cutting_multi_bucket_allocation_passes(tmp_path: Path):
+    # The coverage contract is SURJECTIVE (allocated >= once), not a bijective
+    # partition — a citekey load-bearing in two branches (or e.g. a
+    # method-family member AND a tension exemplar) is legitimate cross-cutting
+    # allocation, not a contradiction. This must PASS, not BLOCK.
+    corpus = tmp_path / "reviews" / "s" / "_corpus.md"
+    _write_corpus(corpus, ["a2020", "b2021"])
+    cmap = tmp_path / "_coverage-map.md"
+    _write_map(
+        cmap,
+        used=[("a2020", "br-A"), ("a2020", "br-B"), ("b2021", "br-B")],
+    )
+    res = check_coverage_allocation_gate(corpus, cmap)
+    assert res["ok"] is True, res["errors"]
+    assert res["errors"] == []
+
+
+def test_cross_cutting_across_different_buckets_passes(tmp_path: Path):
+    # Same property, but spanning two DIFFERENT buckets (used + clustered) —
+    # also legitimate: a paper can be both cited in a named branch AND folded
+    # into a cross-cutting named group.
     corpus = tmp_path / "reviews" / "s" / "_corpus.md"
     _write_corpus(corpus, ["a2020"])
     cmap = tmp_path / "_coverage-map.md"
     _write_map(
         cmap,
         used=[("a2020", "br-A")],
-        deferred=[("a2020", "also deferred?")],
+        clustered=[("a2020", "grp-tension", "also a tension exemplar")],
     )
     res = check_coverage_allocation_gate(corpus, cmap)
-    assert res["ok"] is False
-    assert any("a2020" in e and ("duplicate" in e.lower() or "twice" in e.lower()) for e in res["errors"])
+    assert res["ok"] is True, res["errors"]
+    assert res["errors"] == []
+
+
+def test_no_allocated_twice_block_remains(tmp_path: Path):
+    # Regression pin: the old "allocated twice" BLOCK text must be GONE from
+    # the gate's error vocabulary entirely — never emitted for any input.
+    corpus = tmp_path / "reviews" / "s" / "_corpus.md"
+    _write_corpus(corpus, ["a2020"])
+    cmap = tmp_path / "_coverage-map.md"
+    _write_map(
+        cmap,
+        used=[("a2020", "br-A")],
+        deferred=[("a2020", "also cross-cutting")],
+    )
+    res = check_coverage_allocation_gate(corpus, cmap)
+    assert res["ok"] is True, res["errors"]
+    assert not any("twice" in e.lower() or "duplicate" in e.lower() for e in res["errors"])
 
 
 def test_malformed_entry_missing_citekey_blocks(tmp_path: Path):
