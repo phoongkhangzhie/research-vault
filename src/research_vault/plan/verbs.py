@@ -8,7 +8,7 @@ The K-2 lint is also run automatically (NON-OPTIONAL) inside ``rv plan freeze``
 
 Subcommands:
   rv plan check <plan-note-path>
-      Run the structural shape-lint (K-2, §5K.5.5):
+      Run the structural shape-lint (K-2):
         - branch-presence: every diagnosis table row has a named conclusion +
           committed action (no empty cells, no 'fallback', no 'TBD').
         - one-component-per-ablation: 'Component manipulated:' lines must not
@@ -25,7 +25,7 @@ Subcommands:
       Useful for debugging adopter overrides and wiring the plan node's spec.
 
   rv plan freeze <run-id> <plan-note-path> [--notes-root <dir>]
-      K-3 (§5K.5.1): hash the frozen covers:-set into the DAG run state.
+      K-3: hash the frozen covers:-set into the DAG run state.
       Run immediately after ``rv dag approve <run-id> human-go-plan``.
       The K-2 shape-lint runs automatically first — freeze is
       BLOCKED if any violations are present (non-optional gate).
@@ -34,7 +34,7 @@ Subcommands:
 
   rv plan freeze-harness <run-id> <plan-note-path> --scope <main<k>|shared>
                          --harness-commit <sha> [--notes-root <dir>]
-      §5K.5.1: record the reviewed harness commit SHA(s) in
+      record the reviewed harness commit SHA(s) in
       the plan note's harness_commits: field and re-derive the K-3 hash to
       incorporate them.
       Run after each harness review gate (human-go-harness-main<k> or
@@ -266,7 +266,7 @@ def _run_tips(args: argparse.Namespace) -> int:
 
 
 def _run_freeze(args: argparse.Namespace) -> int:
-    """K-3: hash covers:-freeze-set into the DAG run state (§5K.5.1).
+    """K-3: hash covers:-freeze-set into the DAG run state.
 
     Run immediately after ``rv dag approve <run_id> human-go-plan``.
 
@@ -395,7 +395,7 @@ def _upsert_frontmatter_list_field(
 
 
 def _run_verify_freeze(args: argparse.Namespace) -> int:
-    """K-3: re-derive covers:-hash and compare to stored value (§5K.5.1).
+    """K-3: re-derive covers:-hash and compare to stored value.
 
     Fail CLOSED — exits 1 when no freeze is stored (a never-frozen
     run must NOT pass the K-3 gate silently).
@@ -447,7 +447,7 @@ def _run_verify_freeze(args: argparse.Namespace) -> int:
 
 
 def _run_freeze_harness(args: argparse.Namespace) -> int:
-    """Record reviewed harness commit SHA in plan note + re-hash (§5K.5.1).
+    """Record reviewed harness commit SHA in plan note + re-hash.
 
     Flow:
     1. Load run; FAIL-CLOSED if plan_freeze absent (requires prior rv plan freeze).

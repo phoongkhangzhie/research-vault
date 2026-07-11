@@ -1,7 +1,7 @@
-# plan-critic spec — the exact checklist dual of the plan-style seam (§5K.5.3)
+# plan-critic spec — the exact checklist dual of the plan-style seam
 
 This file is the `spec:` reference for the `plan-critic` DAG node.  It is the
-**exact dual of the `plan_tips` keys** in `plan/style.py` (§5K.4): for every
+**exact dual of the `plan_tips` keys** in `plan/style.py`: for every
 guidance item Ada's prompt asks the researcher to satisfy, this spec asks Argus
 to verify it — and to BLOCK if it is violated.
 

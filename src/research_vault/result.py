@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""result.py — rv result: predicate-assertion verb (§5K.7).
+"""result.py — rv result: predicate-assertion verb.
 
 When to use: use ``rv result assert <exp-note-path> --metric M --op OP --value V``
 to evaluate a frozen predicate against a hash-verified experiment note.
@@ -13,14 +13,14 @@ Subcommands:
       Evaluate metric M (from the results JSON at results_location) against V
       using comparison operator OP.  Ops: gt, lt, ge, le, eq, ne.
       If results_hash is set in the experiment note, the hash is verified before
-      reading the file (tamper-evident evaluation, §5K.5.4).
+      reading the file (tamper-evident evaluation).
       Exit 0 if the predicate is TRUE; exit 1 if FALSE or if an error occurs
       (file not found, metric key absent, hash mismatch).
 
       Optional logging:
         --run-id <id>     DAG run id; when given, the predicate string + SHA-256
                           hash + result + metric_actual are logged to run state
-                          in meta["predicate_log"][<node-id>] (§5K.5.4).
+                          in meta["predicate_log"][<node-id>].
         --node-id <id>    Node key in predicate_log (default: "default").
 
 Metric extraction:
@@ -41,7 +41,7 @@ import time
 from pathlib import Path
 
 from .hashing import hash_file as _hash_file  # canonical file hasher — never duplicate
-# PR-3 (D2): _parse_frontmatter + _normalize_results are the ONE canonical
+# (D2): _parse_frontmatter + _normalize_results are the ONE canonical
 # frontmatter parser + results-shim — import from note.py rather than
 # maintaining a second mirror (the previous local copy only understood flat
 # scalars and could not round-trip the new scores:/runs: lists).
@@ -205,7 +205,7 @@ def _log_to_run_state(
     *,
     state_dir: "Path | None" = None,
 ) -> str | None:
-    """Log predicate evaluation to the DAG run state meta (§5K.5.4).
+    """Log predicate evaluation to the DAG run state meta.
 
     Stores in run_state.meta["predicate_log"][node_id]:
       {predicate, predicate_hash, metric, op, value, metric_actual,
@@ -270,7 +270,7 @@ def _log_to_run_state(
 def build_parser(parent: argparse._SubParsersAction) -> argparse.ArgumentParser:
     p = parent.add_parser(
         "result",
-        help="Predicate-assertion verb for conditional DAG nodes (§5K.7). "
+        help="Predicate-assertion verb for conditional DAG nodes. "
              "Use as a watch: cmd: predicate.",
     )
     sub = p.add_subparsers(dest="result_subcommand", metavar="<subcommand>")
@@ -316,7 +316,7 @@ def build_parser(parent: argparse._SubParsersAction) -> argparse.ArgumentParser:
         metavar="<run-id>",
         help=(
             "DAG run id. When given, log the predicate + hash + result "
-            "to run state meta (§5K.5.4)."
+            "to run state meta."
         ),
     )
     assert_p.add_argument(
@@ -373,13 +373,13 @@ def _run_assert(args: argparse.Namespace) -> int:
         return 1
 
     fields, _ = _parse_frontmatter(text)
-    # PR-3 (D2): read via the shared _normalize_results shim. For 1->1 / N->1
+    # (D2): read via the shared _normalize_results shim. For 1->1 / N->1
     # (the only cardinalities `rv result assert` supports today — M>1 score
-    # selection is PR-3b, deferred) this targets the single scores[0] entry,
+    # selection is, deferred) this targets the single scores[0] entry,
     # which is unchanged behavior for every legacy flat note through the shim.
     scores = _normalize_results(fields)["scores"]
     if not scores:
-        # PR #147 followup: _normalize_results now synthesizes a legacy scores
+        # PR followup: _normalize_results now synthesizes a legacy scores
         # entry only when results_hash is SET (fixing the false-positive
         # not-yet-run check_result_provenance regression — see note.py). But
         # `rv result assert` predates that gate: it has always supported
@@ -406,7 +406,7 @@ def _run_assert(args: argparse.Namespace) -> int:
         print(
             f"rv result assert: experiment note {exp_note_path.name} has "
             f"{len(scores)} scores entries — multi-score selection (--score <slug>) "
-            f"is not yet supported (PR-3b); targeting the first entry "
+            f"is not yet supported; targeting the first entry "
             f"({scores[0].get('location', '')!r}).",
             file=sys.stderr,
         )
@@ -441,7 +441,7 @@ def _run_assert(args: argparse.Namespace) -> int:
         str(exp_note_path), metric, op, value_str, run_id, node_id,
     )
 
-    # Log to run state (§5K.5.4)
+    # Log to run state
     if run_id:
         log_err = _log_to_run_state(
             run_id, node_id, predicate_str, metric, op, value_str,

@@ -14,7 +14,7 @@ Architecture:
   - ``rv review gap-scan`` is the surface: a cheap OKF graph query over findings/,
     concepts/, mocs/, and an optional support_matcher meta dict.
   - The screen emits typed ``gaps/<id>.md`` notes (first-class OKF type,
-    §5L.8 D-GAP-1) with a ``suggested_route:`` field (§5L.14–5L.15).
+     D-GAP-1) with a ``suggested_route:`` field.
   - ``rv review gap-scope <gap-id> <scope> [--target {literature|experiment}]``
     auto-authors either a Part-1 review scope (literature, unchanged) or an
     experiment pre-registration plan (experiment, new).
@@ -24,7 +24,7 @@ Architecture:
   - ``rv status`` surfaces the OPEN gap count AND the proven-open run-candidate
     count (D-GAP-4); records are never written inline into the control bus.
 
-Four gap types (§5L.7 — attribution: type names AND identification procedure from
+Four gap types (attribution: type names AND identification procedure from
 Müller-Bloch & Kranz (2015, ICIS) six-gap framework; Miles (2017) and
 Robinson et al. (2011) as related secondary taxonomies):
   knowledge_void    — finding with support-degree < threshold (D-GAP-2)
@@ -35,13 +35,13 @@ Support-degree (D-GAP-2): count of entries in a finding's ``backed_by:`` frontma
 field (the citekeys of literature/ notes that support the finding, as authored
 by the ``relate-<key>`` Phase-2 fan-out nodes). Default threshold = 1.
 
-Closure statuses (§5L.8):
+Closure statuses:
   open              — gap detected, not yet addressed
   closed-supported  — manuscript matcher flipped [ABSENT]→[SUPPORTS]/[PARTIAL]
   closed-filled     — support-degree crossed threshold / MOC region filled
   proven-open       — targeted pass saturated without closing → candidate contribution
 
-Suggested routes (§5L.14–5L.15):
+Suggested routes:
   literature  — read-first (knowledge_void, contradictory in intro/background)
   experiment  — run-first fast-path (evaluation_void in results section)
   triage      — human decides (gaps with unknown/absent section)
@@ -69,12 +69,12 @@ from research_vault.note import _parse_frontmatter as _pfm
 # Constants
 # ---------------------------------------------------------------------------
 
-# Suggested-route tokens (§5L.14)
+# Suggested-route tokens
 ROUTE_LITERATURE = "literature"   # read-first (low-regret default)
 ROUTE_EXPERIMENT = "experiment"   # run-first fast-path (evaluation_void in results)
 ROUTE_TRIAGE = "triage"           # human decides (unknown/absent section)
 
-# Tier-B section-to-route maps (§5L.15 — case-insensitive match after lowering tex.stem)
+# Tier-B section-to-route maps (case-insensitive match after lowering tex.stem)
 # READ sections: claim is about FIELD / prior work → find the cite in lit
 _READ_SECTIONS: frozenset[str] = frozenset({
     "introduction", "related-work", "related_work", "background",
@@ -87,7 +87,7 @@ _RUN_SECTIONS: frozenset[str] = frozenset({
     "evaluation", "experiments", "experiment",
 })
 
-# Gap type tokens (§5L.7 — type names AND identification procedure from
+# Gap type tokens (type names AND identification procedure from
 # Müller-Bloch & Kranz (2015, ICIS) six-gap framework; Miles (2017) and
 # Robinson et al. (2011) are related secondary taxonomies).
 GAP_TYPE_KNOWLEDGE_VOID = "knowledge_void"
@@ -100,7 +100,7 @@ GAP_TYPES: frozenset[str] = frozenset({
     GAP_TYPE_EVALUATION_VOID,
 })
 
-# Valid closure statuses (§5L.8 + §5L.20)
+# Valid closure statuses
 # NOTE: "superseded" is INTENTIONALLY ABSENT — DEFERRED to note.cmd_check (D-CLOSE-3).
 # The vanished-anchor hygiene check belongs in the existing validation path, not here.
 GAP_STATUSES: frozenset[str] = frozenset({
@@ -115,7 +115,7 @@ GAP_STATUSES: frozenset[str] = frozenset({
 # Default support-degree threshold (D-GAP-2)
 DEFAULT_SUPPORT_THRESHOLD = 1
 
-# Seed query templates per gap type (§5L.7 — targeted frontier)
+# Seed query templates per gap type (targeted frontier)
 _SEED_QUERY_TEMPLATES: dict[str, list[str]] = {
     GAP_TYPE_KNOWLEDGE_VOID: [
         '"{concept}" recent empirical evidence',
@@ -141,7 +141,7 @@ _SEED_QUERY_TEMPLATES: dict[str, list[str]] = {
 
 @dataclass
 class GapRecord:
-    """Typed gap record (§5L.7 D-GAP-1).
+    """Typed gap record (D-GAP-1).
 
     Fields match the gaps/<id>.md frontmatter schema:
       type    — one of GAP_TYPES
@@ -172,7 +172,7 @@ class GapRecord:
 
 
 # ---------------------------------------------------------------------------
-# Router: suggest_route pure function (§5L.14–5L.15)
+# Router: suggest_route pure function
 # ---------------------------------------------------------------------------
 
 def suggest_route(gap_type: str, meta: dict[str, Any]) -> str:
@@ -182,7 +182,7 @@ def suggest_route(gap_type: str, meta: dict[str, Any]) -> str:
     ``suggested_route:`` in the gap note at scan time and used as the default
     target in ``cmd_gap_scope``.  The router SUGGESTS; the run never auto-fires.
 
-    Per-type routing map (§5L.14):
+    Per-type routing map:
       knowledge_void   → literature  (detection ≠ truth: corpus void ≠ field void)
       contradictory    → literature  (reconcile via abstraction / moderators first)
       evaluation_void  → experiment  (RUN fast-path: lit pass can only return proven-open)
@@ -205,7 +205,7 @@ def suggest_route(gap_type: str, meta: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Gap detectors (cheap OKF graph queries — §5L.7)
+# Gap detectors (cheap OKF graph queries)
 # ---------------------------------------------------------------------------
 
 
@@ -367,14 +367,14 @@ def _gap_id(gap_type: str, anchor: str, claim: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Seed query builder (per-type templates, §5L.7)
+# Seed query builder (per-type templates)
 # ---------------------------------------------------------------------------
 
 def _build_seed_queries(gap_type: str, claim: str) -> list[str]:
     """Return seed query strings for a targeted lit-review pass, per gap type.
 
     Templates are filled with key terms extracted from the claim string.
-    Targeted frontier → fast saturation (§5L.7): the queries are scoped to
+    Targeted frontier → fast saturation: the queries are scoped to
     the gap's neighborhood, not a broad survey.
     """
     # Extract the most meaningful term from the claim (first ≤4 non-stop words)
@@ -491,7 +491,7 @@ def cmd_gap_scan(
 ) -> list[GapRecord]:
     """Scan the project's OKF corpus for typed research gaps.
 
-    Runs three typed detectors (§5L.7):
+    Runs three typed detectors:
       1. Knowledge Void: findings with support-degree < threshold
       2. Contradictory Evidence: concepts with both supported_by + contradicted_by
       3. Evaluation Void: findings with effect but no comparator
@@ -522,7 +522,7 @@ def cmd_gap_scan(
         gid = _gap_id(rec.type, rec.anchor, rec.claim)
         if gid in existing:
             # Gap already recorded — idempotent-preserve guard.
-            # §5L.21(3): check for CONSERVATIVE structural reopen signals.
+            # (3): check for CONSERVATIVE structural reopen signals.
             existing_status = existing[gid]
             _check_reopen_signal(
                 rec=rec,
@@ -548,15 +548,15 @@ def _check_reopen_signal(
 ) -> None:
     """Evaluate whether a re-firing detector should trigger a 'reopened' status.
 
-    §5L.21(3) — CONSERVATIVE structural reopen (one signal):
+     (3) — CONSERVATIVE structural reopen (one signal):
 
-    Signal — contradictory re-fires on a MACHINE-CLOSED status (§5L.21 / #30):
+    Signal — contradictory re-fires on a MACHINE-CLOSED status (#30):
         The concept note re-acquired both supported_by AND contradicted_by edges.
         Pure structural (OKF graph read via _detect_contradictory) → stamp 'reopened'.
         → stamp 'reopened' + 'reopened_reason: contradictory_edges_reacquired'.
         Only machine-closed statuses trigger auto-reopen: {closed-supported, closed-filled}.
         Human-blessed states (proven-open, promoted) WARN-only — the machine must not
-        silently reverse a human decision (§5L.21 ruling: automation-authority + COPE).
+        silently reverse a human decision (ruling: automation-authority + COPE).
         A loud UserWarning is emitted for the human-blessed case so the operator is
         informed that a contribution may be built on a now-contradicted concept.
 
@@ -572,14 +572,14 @@ def _check_reopen_signal(
     is_contradictory = rec.type == GAP_TYPE_CONTRADICTORY
 
     # Signal: contradictory on a MACHINE-CLOSED status (both edges re-acquired — pure structural)
-    # §5L.21 ruling / #30: narrow to machine-closed only (closed-supported, closed-filled).
+    # ruling / #30: narrow to machine-closed only (closed-supported, closed-filled).
     # proven-open and promoted are HUMAN-BLESSED states — a machine must not silently reverse a
     # human decision (automation-authority + COPE ruling).  Those fall through to WARN-only below.
     if is_contradictory and existing_status in {"closed-supported", "closed-filled"}:
         _stamp_reopened(pnd, gid, reason="contradictory_edges_reacquired")
         return
 
-    # Human-blessed state + contradictory re-fire → WARN loudly (honest surface, §2) but
+    # Human-blessed state + contradictory re-fire → WARN loudly (honest surface) but
     # do NOT auto-reopen.  The contribution built on this concept may be an overclaim;
     # a human must evaluate the audit trail and re-open manually if warranted.
     if is_contradictory and existing_status in {"proven-open", "promoted"}:
@@ -588,7 +588,7 @@ def _check_reopen_signal(
             f"while status={existing_status!r} — a human-blessed state is NOT auto-reopened. "
             f"A contribution built on a now-contradicted concept may be an overclaim: "
             f"inspect via 'rv review gap-scan' and re-open manually if warranted "
-            f"(closed_by:/promoted_to: audit trail retained).  §5L.21 / #30.",
+            f"(closed_by:/promoted_to: audit trail retained).   #30.",
             UserWarning,
             stacklevel=4,
         )
@@ -597,7 +597,7 @@ def _check_reopen_signal(
     # Everything else → WARN, status UNCHANGED (the FP guard)
     warnings.warn(
         f"gap {gid!r} (type={rec.type!r}) re-fired but its status is "
-        f"{existing_status!r} — NOT auto-reopening (conservative posture §5L.21(3)). "
+        f"{existing_status!r} — NOT auto-reopening (conservative posture (3)). "
         f"Inspect the gap's closed_by: field and confirm manually if a reopen is warranted.",
         UserWarning,
         stacklevel=4,
@@ -607,7 +607,7 @@ def _check_reopen_signal(
 def _stamp_reopened(pnd: Path, gid: str, reason: str) -> None:
     """Stamp a gap as 'reopened' with a reason field (in-place, retains closed_by:).
 
-    §5L.21(3): reopened carries 'reopened_reason: <signal>' AND
+     (3): reopened carries 'reopened_reason: <signal>' AND
     retains 'closed_by:' as history — surface, never drop (charter §2).
     """
     gap_path = _gap_note_path(pnd, gid)
@@ -637,7 +637,7 @@ def cmd_gap_scope(
     config: Any = None,
     target: str | None = None,
 ) -> "dict[str, Any]":
-    """Auto-author a targeted scope from a gap record (§5L.7 + §5L.16).
+    """Auto-author a targeted scope from a gap record.
 
     The ``target`` parameter (``literature`` | ``experiment``) controls
     which arm is taken.  Default = the gap note's ``suggested_route:`` field (computed
@@ -652,7 +652,7 @@ def cmd_gap_scope(
         reviews/<scope>/ with the auto-authored protocol content.
       - Returns the Phase-1 manifest dict.
 
-    ``--target experiment`` (new, §5L.16):
+    ``--target experiment`` (new):
       - Mirrors the literature path move-for-move via note.cmd_new.
       - Creates experiments/<gap_id>-plan.md with plan_kind: preregistration,
         research question ← gap.claim verbatim (anti-fabrication spine),
@@ -763,7 +763,7 @@ def _cmd_gap_scope_literature(
 
     # Write _gap-context.md with the auto-authored protocol seed
     context_lines = [
-        "# Gap-context (auto-authored — §5L.7)",
+        "# Gap-context (auto-authored)",
         "",
         f"**Gap ID:** {gap_id}",
         f"**Gap type:** {gap_type}",
@@ -792,7 +792,7 @@ def _cmd_gap_scope_literature(
     context_lines.append("")
     context_lines.append(
         "Include only sources that **directly address or resolve** this gap. "
-        "The targeted scope → bounded frontier → fast saturation (§5L.7). "
+        "The targeted scope → bounded frontier → fast saturation. "
         "The review-scope agent must populate `_protocol.md` using this content."
     )
     context_lines.append("")
@@ -817,7 +817,7 @@ def _cmd_gap_scope_experiment(
     pnd: Path,
     config: Any,
 ) -> "dict[str, Any]":
-    """Experiment arm of cmd_gap_scope (§5L.16 — new, mirrors lit path).
+    """Experiment arm of cmd_gap_scope (new, mirrors lit path).
 
     Creates experiments/<gap_id>-plan.md with:
       - plan_kind: preregistration
@@ -899,7 +899,7 @@ def _cmd_gap_scope_experiment(
 
     # Write _gap-context.md adjacent to the plan note with the plan's next-step chain
     context_lines = [
-        "# Gap-context (auto-authored — §5L.16)",
+        "# Gap-context (auto-authored)",
         "",
         f"**Gap ID:** {gap_id}",
         f"**Gap type:** {gap_type}",
@@ -984,7 +984,7 @@ def _stamp_frontmatter_field(text: str, field: str, value: str) -> str:
 def _append_closes_to_note(note_path: Path, gap_id: str) -> None:
     """Append ``closes: <gap-id>`` to the closing note's frontmatter (the backward link).
 
-    Implements §5L.21 ruling 2 (W3C PROV + Gotel & Finkelstein): the failure mode
+    Implements ruling 2 (W3C PROV + Gotel & Finkelstein): the failure mode
     is the MISSING backward link — write both edges, never just the forward one.
 
     If the note file does not exist, emits a UserWarning (charter §2: surface,
@@ -998,7 +998,7 @@ def _append_closes_to_note(note_path: Path, gap_id: str) -> None:
             f"--by target {note_path!r} not found; forward closed_by: written but "
             f"backward closes: edge skipped — verify the closer ref and re-run "
             f"gap-close once the note exists, or create {note_path.name} first. "
-            f"Gap ID: {gap_id!r}  §5L.21(1) / #29.",
+            f"Gap ID: {gap_id!r} (1) / #29.",
             UserWarning,
             stacklevel=3,
         )
@@ -1016,11 +1016,11 @@ def cmd_gap_close(
     closer_ref: str | None = None,
     config: Any = None,
 ) -> Path:
-    """Stamp a gap's closure status with bidirectional provenance edge (§5L.21(1)).
+    """Stamp a gap's closure status with bidirectional provenance edge ((1)).
 
     ``status`` must be one of: closed-supported, closed-filled, proven-open.
 
-    Provenance rules (§5L.24 D-CLOSE-1):
+    Provenance rules (D-CLOSE-1):
     - ``closer_ref`` is REQUIRED for ``closed-supported`` / ``closed-filled``.
       A closed gap with no closer is un-auditable (charter §2). The closer is the
       specific that must be recorded — a literature/ note, experiments/ result, etc.
@@ -1029,12 +1029,12 @@ def cmd_gap_close(
       Providing --by for proven-open is a logic error (and would silently mislead
       the audit trail).
 
-    When ``closer_ref`` is provided, writes BOTH edges (§5L.21 ruling 2, W3C PROV +
+    When ``closer_ref`` is provided, writes BOTH edges (ruling 2, W3C PROV +
     Gotel & Finkelstein — the failure mode is the MISSING backward link):
       (a) ``closed_by: <closer_ref>`` into the GAP frontmatter (forward edge)
       (b) ``closes: <gap_id>`` appended into the CLOSING NOTE's frontmatter (back edge)
 
-    In-place, never moves/archives the gap note (§5L.21 ruling 1 — load-bearing on
+    In-place, never moves/archives the gap note (ruling 1 — load-bearing on
     the idempotent-preserve guard: moving the note breaks the _existing_gap_ids glob
     and causes the detector to re-create the gap as fresh-open, destroying closure).
 
@@ -1120,20 +1120,20 @@ def cmd_gap_promote(
     to_ref: str | None,
     config: Any = None,
 ) -> Path:
-    """Promote a proven-open gap to the 'promoted' status (§5L.21(2)).
+    """Promote a proven-open gap to the 'promoted' status ((2)).
 
     Human-only verb: proven-open → promoted. Writes ``promoted_to: <to_ref>`` in
     the gap frontmatter.
 
     Rules:
     - ``to_ref`` is REQUIRED (a promotion without a target is un-auditable — same
-      §2 logic as --by in gap-close). The target is a manuscript section or claim
+       logic as --by in gap-close). The target is a manuscript section or claim
       reference (e.g. 'manuscript/contributions', 'manuscript/future-work').
     - The gap MUST be in ``proven-open`` status. Promoting an open/closed/reopened
       gap is an error — the human must first saturate a targeted pass to confirm
       the gap is a candidate contribution before citing it in the manuscript.
 
-    The honesty backstop (zero new mechanism — §5L.21(2)):
+    The honesty backstop (zero new mechanism (2)):
     A contribution claim written from a promoted gap is ultimately a drafted manuscript
     sentence that round-trips through the support-matcher. If the significance
     is asserted without backing, the matcher returns [ABSENT]. The honesty backstop
@@ -1255,7 +1255,7 @@ def open_gap_count(project: str, *, config: Any = None) -> int:
 
 
 def proven_open_count(project: str, *, config: Any = None) -> int:
-    """Return the count of proven-open gaps for a project (§5L.16).
+    """Return the count of proven-open gaps for a project.
 
     A proven-open gap is a first-class run-candidate: the targeted lit pass
     saturated without closing the gap, confirming it is a candidate contribution.

@@ -34,7 +34,7 @@ Retry fields:
                  Retained on retry-reset AND on terminal exhaustion (D-RETRY-7 = both).
                  Gives the downstream human diagnostician the full failure trajectory.
   NOTE: the walker (compute_frontier) reads NONE of these fields — they are part of
-  node_states (the pure walker input) but the walker is byte-for-byte unchanged (§5I.1).
+  node_states (the pure walker input) but the walker is byte-for-byte unchanged.
 
 Valid statuses:
   pending      — not yet started

@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/verbs.py — rv review subcommand dispatcher (§5L).
+"""review/verbs.py — rv review subcommand dispatcher.
 
 When to use: use ``rv review new <project> <scope> --question '...'`` to start a
 pre-registered, saturation-gated literature review.  Phase-2 (the ``relate-*`` fan-out)
 is HARD-REMOVED as a hand-run verb — it auto-emits when ``coverage-gate`` GOes (D1,
 verb consolidation).  ``rv review list`` enumerates all reviews for a project.
 ``rv review gap-scan`` detects typed research gaps from the OKF corpus and/or a
-manuscript critic report (§5L.7, the loop-closer).  ``rv review gap-scope`` (or the
+manuscript critic report (the loop-closer).  ``rv review gap-scope`` (or the
 alias ``gap-route``) auto-authors the remedy scope: literature (Part-1 review) OR
 experiment (pre-registration plan), routed by error-asymmetry.
 
@@ -23,11 +23,11 @@ Subcommands:
           → review-relevance-verify (cold agent, canary-verified re-check)
           → coverage-gate (auto-resolved).
       ``review-scope`` MUST file a ``_protocol.md`` with a non-empty ``counter-position``
-      field (L-2 gate, §5L.3) — ``review-search`` is gated on the protocol artifact.
+      field (L-2 gate) — ``review-search`` is gated on the protocol artifact.
       ``review-snowball`` runs an internal saturation loop (both forward + backward
       citation directions) and produces ``_corpus_raw.md`` + ``_saturation.md``.
       The relevance gate (design 2026-07-10-trustworthy-curation-relevance-gate-design.md
-      §3c/§3d) mechanically screens + a cold agent re-verifies every ``[NEW]`` paper for
+      ) mechanically screens + a cold agent re-verifies every ``[NEW]`` paper for
       off-domain contamination before the expensive Phase-2 fan-out: below
       ``OFF_DOMAIN_HALT_THRESHOLD`` (0.30) it auto-prunes + declares and the run
       proceeds; at/above threshold it HALT-DECLAREs at ``coverage-gate``.
@@ -69,7 +69,7 @@ Subcommands (the gap-driven pass):
 
   rv review <project> gap-list [--status <status>]
       List gap records for the project, optionally filtered by status.
-      ``--status proven-open`` = the run-candidate queue (§5L.16).
+      ``--status proven-open`` = the run-candidate queue.
       ``--status reopened`` = gaps that re-entered open-routing via structural signal.
       ``--status promoted`` = proven-open gaps promoted to manuscript contribution candidate.
 
@@ -81,7 +81,7 @@ Subcommands (the gap-driven pass):
       (nothing closed it — that's the point). --by writes bidirectional edges:
         closed_by: <note-ref> in the gap FM + closes: <gap-id> in the closing note FM.
       Anti-pattern: do NOT gap-close a closed-* gap without --by — a closer-less closure
-      is un-auditable and breaks the provenance chain (§5L.21(1)).
+      is un-auditable and breaks the provenance chain ((1)).
 
   rv review <project> gap-promote <gap-id> --to <ref>
       Promote a proven-open gap to 'promoted' status (human-only).
@@ -101,7 +101,7 @@ or ``gap-route`` (operator confirmed: no auto-fire, D-GAP-4).
 
 Anti-pattern: do NOT hand-decide read-vs-run and hand-spin a lit pass or a plan —
 run ``rv review gap-scope <project> <gap-id> <scope>``; it routes by error-asymmetry
-and auto-authors the remedy scope (§5L.17 when-to-use).
+and auto-authors the remedy scope (when-to-use).
 
 Stdlib only.
 """
@@ -121,7 +121,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
 
     When to use: use ``rv review new <project> <scope> --question '...'`` to scaffold
     a pre-registered, saturation-gated literature review with protocol-freeze,
-    internal saturation loop, and coverage-critic gates (§5L.1).
+    internal saturation loop, and coverage-critic gates.
 
     Anti-pattern: do NOT hand-collect papers without ``rv review new`` — the hand-run
     path has no protocol-freeze (anti-fishing), no saturation curve, and no rejects-only
@@ -153,7 +153,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         "new",
         help=(
             "Create a review OKF note + reviews/<scope>/ dir + Phase-1 DAG manifest. "
-            "Scaffolds the §5L.1 DAG: review-scope → [HG:approve-protocol] → "
+            "Scaffolds the DAG: review-scope → [HG:approve-protocol] → "
             "review-search → review-screen → review-snowball → review-relevance-screen "
             "→ review-curate → review-relevance-verify-prep → review-relevance-verify "
             "→ coverage-gate (auto-resolved)."
@@ -177,7 +177,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     # ── run (D2, verb consolidation) ───────────────────────────────────────
     # The one-call autonomous-loop kick: fuses `review new` + `dag run`.
     # Starts the run; does NOT block until done (the hub fans out agent
-    # nodes, §1.9) — same non-blocking contract as `dag run`.
+    # nodes) — same non-blocking contract as `dag run`.
     run_p = sub.add_parser(
         "run",
         help=(
@@ -208,7 +208,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
 
     # ── expand — D1 HARD-REMOVED (verb consolidation) ─────────────────────
     # Collapsed into the autonomous Phase-1->2 transition: once coverage-gate
-    # GOes (§1.6), the runner emits Phase-2 itself (internal call to
+    # GOes, the runner emits Phase-2 itself (internal call to
     # review.cmd_expand, kept importable). No verb to choose by hand.
     from ..cli_removed_verbs import add_removed_verb_stub
     add_removed_verb_stub(
@@ -263,12 +263,12 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help="Print only this tip key. Omit to print all keys.",
     )
 
-    # ── judge-emit / judge-ingest (PR-F: counter-facet cold fan-out) ──────────
+    # ── judge-emit / judge-ingest (counter-facet cold fan-out) ──────────
     cf_emit_p = sub.add_parser(
         "judge-emit",
         help=(
             "Emit the counter-facet STRENGTH cold-agent-judge fan-out task set "
-            "(PR-F). Writes reviews/<scope>/judge/counter-facet/. The hub fans "
+            ". Writes reviews/<scope>/judge/counter-facet/. The hub fans "
             "out cold judges over it; the direct-API judge path was deleted."
         ),
     )
@@ -277,7 +277,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     cf_ingest_p = sub.add_parser(
         "judge-ingest",
         help=(
-            "Ingest the counter-facet fan-out verdicts (PR-F) — a diagnostic "
+            "Ingest the counter-facet fan-out verdicts — a diagnostic "
             "surface; approve-protocol is the actual gate. HALT-DECLARE on a "
             "missing/incomplete fan-out; BLOCK on a straw-man/canary abort."
         ),
@@ -288,7 +288,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_scan_p = sub.add_parser(
         "gap-scan",
         help=(
-            "Detect typed research gaps from the OKF corpus (§5L.7). "
+            "Detect typed research gaps from the OKF corpus. "
             "Rejects-only screen — PROPOSES gaps, never auto-fires a pass. "
             "Surfaces a COUNT; run `rv review gap-scope` to author a targeted review."
         ),
@@ -307,7 +307,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_scope_p = sub.add_parser(
         "gap-scope",
         help=(
-            "Auto-author a targeted scope from a gap record (§5L.7, §5L.16). "
+            "Auto-author a targeted scope from a gap record. "
             "--target literature: Part-1 review scope (default). "
             "--target experiment: pre-registration plan. "
             "Default target = gap.suggested_route (computed at gap-scan time)."
@@ -335,7 +335,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         ),
     )
 
-    # ── gap-route (alias for gap-scope — §5L.17 discoverability) ──
+    # ── gap-route (alias for gap-scope discoverability) ──
     gap_route_p = sub.add_parser(
         "gap-route",
         help=(
@@ -366,7 +366,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_list_p = sub.add_parser(
         "gap-list",
         help=(
-            "List gap records for the project (§5L.16 + §5L.20). "
+            "List gap records for the project. "
             "--status proven-open shows the run-candidate queue; "
             "--status promoted shows promoted contribution candidates; "
             "--status reopened shows gaps that re-entered open-routing."
@@ -389,7 +389,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_close_p = sub.add_parser(
         "gap-close",
         help=(
-            "Stamp a gap's closure status with provenance edge (§5L.8 + §5L.21(1)). "
+            "Stamp a gap's closure status with provenance edge ((1)). "
             "--by is REQUIRED for closed-supported/closed-filled (charter §2); "
             "REJECTED for proven-open (nothing closed it). "
             "proven-open = targeted pass saturated without closing → candidate contribution."
@@ -427,7 +427,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     gap_promote_p = sub.add_parser(
         "gap-promote",
         help=(
-            "§5L.21(2): promote a proven-open gap to 'promoted' status (human-only). "
+            " (2): promote a proven-open gap to 'promoted' status (human-only). "
             "proven-open → promoted; writes promoted_to: <ref> in the gap FM. "
             "Requires --to <manuscript-section/claim>. "
             "Anti-pattern: do NOT hand-write a contribution from a proven-open gap — "
@@ -500,7 +500,7 @@ def run(args: argparse.Namespace) -> int:
     elif subcommand == "gap-scan":
         return _run_gap_scan(args)
     elif subcommand in ("gap-scope", "gap-route"):
-        # gap-route is a thin alias for gap-scope (§5L.17 discoverability)
+        # gap-route is a thin alias for gap-scope (discoverability)
         return _run_gap_scope(args)
     elif subcommand == "gap-list":
         return _run_gap_list(args)
@@ -731,7 +731,7 @@ def _run_tips(args: argparse.Namespace) -> int:
 
 
 def _run_cf_judge_emit(args: argparse.Namespace) -> int:
-    """Emit the counter-facet strength cold fan-out task set (PR-F)."""
+    """Emit the counter-facet strength cold fan-out task set."""
     from research_vault.config import load_config
     from research_vault.review import cmd_counter_facet_emit
 
@@ -756,7 +756,7 @@ def _run_cf_judge_emit(args: argparse.Namespace) -> int:
 
 
 def _run_cf_judge_ingest(args: argparse.Namespace) -> int:
-    """Ingest the counter-facet fan-out verdicts (PR-F, diagnostic surface)."""
+    """Ingest the counter-facet fan-out verdicts (diagnostic surface)."""
     from research_vault.config import load_config
     from research_vault.review import cmd_counter_facet_ingest
 
@@ -777,7 +777,7 @@ def _run_cf_judge_ingest(args: argparse.Namespace) -> int:
 
 
 def _run_gap_scan(args: argparse.Namespace) -> int:
-    """Run the gap-scan screen (§5L.7)."""
+    """Run the gap-scan screen."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_scan
 
@@ -811,7 +811,7 @@ def _run_gap_scan(args: argparse.Namespace) -> int:
 
 
 def _run_gap_scope(args: argparse.Namespace) -> int:
-    """Auto-author a targeted scope from a gap record (§5L.7 + §5L.16).
+    """Auto-author a targeted scope from a gap record.
 
     gap-route is a thin alias — both call this function.
     """
@@ -869,7 +869,7 @@ def _run_gap_scope(args: argparse.Namespace) -> int:
 
 
 def _run_gap_list(args: argparse.Namespace) -> int:
-    """List gap records for the project (§5L.16 run-candidate queue)."""
+    """List gap records for the project (run-candidate queue)."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_list
 
@@ -908,7 +908,7 @@ def _run_gap_list(args: argparse.Namespace) -> int:
 
 
 def _run_gap_close(args: argparse.Namespace) -> int:
-    """Stamp a gap's closure status with provenance edge (§5L.8 + §5L.21(1))."""
+    """Stamp a gap's closure status with provenance edge ((1))."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_close
 
@@ -935,7 +935,7 @@ def _run_gap_close(args: argparse.Namespace) -> int:
             print(
                 f"rv review gap-close: closed_by: {closer_ref!r} written to gap FM "
                 f"(forward edge) + closes: {args.gap_id!r} written to closing note FM "
-                f"(backward link — §5L.21 ruling 2, W3C PROV)."
+                f"(backward link ruling 2, W3C PROV)."
             )
         if args.status == "proven-open":
             print(
@@ -996,7 +996,7 @@ def _run_coverage(args: argparse.Namespace) -> int:
 
 
 def _run_relations(args: argparse.Namespace) -> int:
-    """Report the corpus-wide paper->paper typed-edge listing (PR-2)."""
+    """Report the corpus-wide paper->paper typed-edge listing."""
     from research_vault.config import load_config
     from research_vault.review import relations_report
 
@@ -1051,7 +1051,7 @@ def _run_relations(args: argparse.Namespace) -> int:
 
 
 def _run_gap_promote(args: argparse.Namespace) -> int:
-    """Promote a proven-open gap to 'promoted' status (§5L.21(2), human-only)."""
+    """Promote a proven-open gap to 'promoted' status ((2), human-only)."""
     from research_vault.config import load_config
     from research_vault.review.gap_scan import cmd_gap_promote
 

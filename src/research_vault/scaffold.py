@@ -146,7 +146,7 @@ USER_OWNED_NEVER_TOUCH: frozenset[str] = frozenset({
     "figures",
     "manuscripts",
     "code",
-    # PR-CC-4 (code-conventions §5.1): the releasability stubs are scaffolded
+    # (code-conventions): the releasability stubs are scaffolded
     # ONCE at `rv project new` time, then user-owned forever — `rv update`
     # (were it ever extended to walk project repos) must never regenerate a
     # filled-in CITATION.cff / LICENSE. Future-proofing the collision guard,
@@ -548,7 +548,7 @@ def scaffold_project_dirs(source_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Releasability stubs — CITATION.cff + LICENSE (PR-CC-4, code-conventions §5.1)
+# Releasability stubs — CITATION.cff + LICENSE (code-conventions)
 # ---------------------------------------------------------------------------
 
 #: Minimal, valid Citation File Format stub (schema v1.2.0). Carries every
@@ -572,15 +572,15 @@ date-released: "TODO"
 """
 
 #: LICENSE placeholder. Deliberately does NOT pick an OSI license — charter
-#: §1 (never fabricate a specific) forbids guessing; the SPDX choice is the
-#: human's to make (doctrine §2.6, CHECK-8c: [DOC] which license).
+#: (never fabricate a specific) forbids guessing; the SPDX choice is the
+#: human's to make (doctrine, CHECK-8c: [DOC] which license).
 _LICENSE_TEMPLATE = """\
 LICENSE — placeholder, no license chosen yet.
 
 This project has no license yet. Choose an OSI-approved license and its
 SPDX identifier (e.g. MIT, Apache-2.0, BSD-3-Clause, GPL-3.0-only), then
 replace this file with the full license text — see doctrine/code-conventions.md
-§2.6 (Releasable from day one). Until a license is chosen, this software is
+ (Releasable from day one). Until a license is chosen, this software is
 NOT open source and default copyright applies.
 """
 
@@ -599,7 +599,7 @@ def scaffold_release_stubs(source_path: Path, *, slug: str) -> None:
     overwritten — matching ``scaffold_project_dirs``'s idempotency contract.
     Both files are in ``USER_OWNED_NEVER_TOUCH`` so a (future) project-repo-
     walking ``rv update`` can never clobber a filled-in license/citation
-    either. See ``doctrine/code-conventions.md`` §2.6 / PR-CC-4.
+    either. See ``doctrine/code-conventions.md`` §2.6.
     """
     for rel, template in _RELEASE_STUB_FILES:
         dst = source_path / rel

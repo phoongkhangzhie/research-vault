@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""gates/canary_passages.py — PR-F: the calibrated board-judge canary
+"""gates/canary_passages.py: the calibrated board-judge canary
 passages, RELOCATED here (out of ``manuscript/review_board.py``) so the
 board's cold-fanout canary bank keeps working after the direct-API judge
 path is deleted.
 
-WHY THIS MODULE EXISTS (deletion-blast-radius, PR-F "RELOCATE FIRST"):
+WHY THIS MODULE EXISTS (deletion-blast-radius, "RELOCATE FIRST"):
   ``gates/board_seam.py`` (a ``gates/`` module) imported the 3 calibrated
   review-board canary passages from ``manuscript/review_board.py`` (a
   ``manuscript/`` module) — a LAYERING INVERSION (``manuscript`` imports
-  ``gates``, never the reverse). PR-F deletes ``review_board``'s direct-API
+  ``gates``, never the reverse). This deletes ``review_board``'s direct-API
   judge default, so the passages move DOWN to ``gates/`` where both the
   board seam (``gates/``) and ``review_board`` (``manuscript/``) can import
   them in the correct dependency direction.
@@ -18,7 +18,7 @@ WHAT'S HERE:
      annotated-bib) + their unique markers — verbatim from ``review_board``.
      ``review_board`` re-imports them so its own canary scaffold + the tests
      that reference ``rb._CANARY_STRONG_MARKER`` etc. keep resolving.
-  2. PR-F ★ PER-AXIS canaries — a calibrated rejects-only FAIL probe for
+  2. ★ PER-AXIS canaries — a calibrated rejects-only FAIL probe for
      EACH of the 6 board axes (DEPTH / WIDTH / SYNTH / SELFCONT / ADVERS /
      INSTRUCT). In the per-axis cold fanout every lens goes to a SEPARATE
      fresh subagent, so a single-axis (SYNTH-only) canary certifies only ONE
@@ -36,7 +36,6 @@ Pure data + a small spec — stdlib only, no ``manuscript`` import (keeps the
 ``gates/`` layer clean). The board seam renders each probe through the real
 per-axis rubric (``board_lenses._render_rubric``) so the probe genuinely
 exercises that axis's judge.
-sr: PR-F
 """
 from __future__ import annotations
 
@@ -44,7 +43,7 @@ from typing import Any
 
 # ---------------------------------------------------------------------------
 # The 3 ORIGINAL calibrated review-board passages (relocated verbatim from
-# manuscript/review_board.py; PR-M8, design §11.3). Unique markers let a
+# manuscript/review_board.py). Unique markers let a
 # test mock dispatch on which passage it was handed.
 # ---------------------------------------------------------------------------
 
@@ -83,7 +82,7 @@ taxonomy, just a list. Every claim is stated without a specific citation, and
 more research is clearly needed in this area.
 """
 
-# ★ The MANDATORY annotated-bibliography canary (D-SV-D, design §11.3(c)):
+# ★ The MANDATORY annotated-bibliography canary (D-SV-D, (c)):
 # a literal per-paper summary list with NO framework and NO cross-paper
 # synthesis -- the #1 survey failure mode this whole capability exists to
 # catch. Deliberately well-behaved on the FLOOR axes (each paper's summary IS
@@ -103,7 +102,7 @@ organize them, and no claim spans more than one source.
 
 
 # ---------------------------------------------------------------------------
-# PR-F ★ PER-AXIS FAIL probes — one deliberate, unambiguous per-axis failure
+# ★ PER-AXIS FAIL probes — one deliberate, unambiguous per-axis failure
 # so EACH of the 6 cold judges is canary-verified (not just SYNTH).
 # ---------------------------------------------------------------------------
 

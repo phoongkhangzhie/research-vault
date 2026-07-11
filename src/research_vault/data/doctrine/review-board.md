@@ -45,9 +45,9 @@ Each survivor, atomic:
 Any PR that introduces or modifies an experiment harness **must pass the checklist in
 [harness-contract.md](harness-contract.md) before it can merge.** The checklist covers:
 
-- **Mock/live resume isolation (§1)** — separate output directories, `run_mode`-keyed
+- **Mock/live resume isolation ** — separate output directories, `run_mode`-keyed
   resume records, loud abort when a `--live` run encounters a mock-tagged record.
-- **Experiment-scoping (§2)** — `run --exp <exp>` filters to only that experiment's arms;
+- **Experiment-scoping ** — `run --exp <exp>` filters to only that experiment's arms;
   suspiciously-complete sanity check halts before over-dispatching.
 
 These checklist items are **non-skippable**; a reviewer who sees a harness PR without the
@@ -89,7 +89,7 @@ extraction is incomplete and the PR is **needs-work** regardless of how clean th
 (Grounded in PR #96: `resolve_produces_paths` docstring claimed SSOT parity with
 `_check_project_scoped_note`; the AST test in `test_dag_brief.py::TestSSOT` is the mechanized guard.)
 
-## Reviewer technique — PR-diff base (three-dot, not two-dot)
+## Reviewer technique base (three-dot, not two-dot)
 
 When examining what a PR changes, always diff against the **merge base**, not the current tip of
 the target branch:

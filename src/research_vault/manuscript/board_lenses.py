@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/board_lenses.py — PR-E: the 6 board-lens specs, lens
+"""manuscript/board_lenses.py: the 6 board-lens specs, lens
 rubrics, the uniform finding schema, and the per-lens finding caps +
 sub-budgets.
 
-Design: docs/superpowers/specs/2026-07-08-autonomous-board-design.md §1
-(the lens table), §2 (the finding schema); PR-E splits the old fused
+(the lens table), (the finding schema); splits the old fused
 CONTENT axis into DEPTH / WIDTH / SYNTH and renames FRAMEWORK -> INSTRUCT.
 
 The 6 lenses are ORTHOGONAL quality lenses on the holistic-quality floor —
@@ -31,17 +30,16 @@ Finding schema (uniform across all 6 lenses, decision #5):
     {finding_id, severity: critical|major|minor, location, issue,
      evidence, recommendation}
 No ``old_text``/``new_text`` — the judge locates + cites; the revise step
-(PR-B4) words the change.
+words the change.
 
 Stdlib only. Hermetic — no live LLM call anywhere in this module.
-sr: PR-E
 """
 from __future__ import annotations
 
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Axes + lenses (PR-E: 6 lenses — CONTENT split into DEPTH/WIDTH/SYNTH,
+# Axes + lenses (6 lenses — CONTENT split into DEPTH/WIDTH/SYNTH,
 # FRAMEWORK renamed INSTRUCT)
 # ---------------------------------------------------------------------------
 
@@ -66,7 +64,7 @@ _SEVERITY_RANK_UNKNOWN = 3  # an unrecognized severity sorts LAST — never crow
 
 
 # ---------------------------------------------------------------------------
-# Finding caps + sub-budgets (PR-E caps table)
+# Finding caps + sub-budgets (caps table)
 # ---------------------------------------------------------------------------
 
 FINDING_CAPS: dict[str, int] = {
@@ -84,7 +82,7 @@ FINDING_CAPS: dict[str, int] = {
 # (never crowded out by a sub-budgeted class, since the default bucket has
 # no cap of its own beyond the overall finding_cap).
 #
-# PR-E moved the sub-budgets to their new owning lenses: bloat/redundancy is
+# moved the sub-budgets to their new owning lenses: bloat/redundancy is
 # now a SYNTH concern (it owns the argument's economy), structural stays with
 # INSTRUCT (the frozen-spine adherence lens). Prescriptive-specificity is NOT
 # a sub-budget — it is DEPTH's primary substance signal.
@@ -99,7 +97,7 @@ SUB_BUDGETS: dict[str, dict[str, int]] = {
 
 
 def cap_and_prioritize_findings(findings: list[dict[str, Any]], axis: str) -> list[dict[str, Any]]:
-    """Cap + prioritize a lens's findings per §2's discipline.
+    """Cap + prioritize a lens's findings per discipline.
 
     - Sort ``critical > major > minor`` (unknown severities sort last,
       never ahead of a recognized one).

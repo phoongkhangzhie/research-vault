@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/base.py — the SourceAdapter protocol + the normalized PaperHit record.
 
-NG-1 (breadth-then-depth, §4.1). One narrow interface every source-adapter
+NG-1 (breadth-then-depth). One narrow interface every source-adapter
 implements; a normalized hit record so cross-source dedup/ranking/discounting
 (NG-2/NG-3/NG-9) never has to branch on which source produced a paper.
 
@@ -9,7 +9,7 @@ implements; a normalized hit record so cross-source dedup/ranking/discounting
 cannot perform (e.g. arXiv/PubMed have no forward-citation graph) — the width
 sweep and the depth snowball both treat it as "skip this adapter for this op",
 never a crash, never a silent empty list masquerading as a real zero (charter
-§2 — surface, never silently drop; the caller can tell "not supported" apart
+ surface, never silently drop; the caller can tell "not supported" apart
 from "supported, zero results").
 """
 from __future__ import annotations

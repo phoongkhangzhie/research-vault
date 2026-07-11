@@ -375,7 +375,7 @@ def _build_attention(project: str, cfg: Config) -> list[str]:
     except Exception:
         pass
 
-    # --- Open gap count (§5L.7 D-GAP-4) ---
+    # --- Open gap count (D-GAP-4) ---
     # Surfaces the COUNT only — never inlines gap records into the control bus.
     # A non-zero count is a prompt to run `rv review gap-scope` + human-go.
     try:
@@ -391,7 +391,7 @@ def _build_attention(project: str, cfg: Config) -> list[str]:
     except Exception:
         pass
 
-    # --- Proven-open run-candidate count (§5L.16) ---
+    # --- Proven-open run-candidate count ---
     # Surfaces the COUNT only — proven-open gaps are run-candidates that survived
     # the read cascade without closing. A non-zero count is a prompt to author
     # an experiment via `rv review gap-scope --target experiment` (human-go required).

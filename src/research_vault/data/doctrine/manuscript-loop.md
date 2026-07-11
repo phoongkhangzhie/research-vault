@@ -37,7 +37,7 @@ the capability can run it end-to-end from this section alone.**
 ### 1. Scaffold — `rv manuscript <project> new <slug> --type lit-review`
 
 Creates the per-manuscript folder and, because `lit-review` HAS a Phase-1 (the
-framework-selection sub-loop, design §5), a Phase-1 DAG manifest:
+framework-selection sub-loop), a Phase-1 DAG manifest:
 
 ```
 manuscripts/<slug>/
@@ -68,7 +68,7 @@ scope ─► framework-lens-<L1> ┐
   independently from the MOCs — no node sees another lens's proposal (anti-anchoring).
 - **`framework-synthesize`** reads every lens candidate and **select-and-graft**s them into
   ONE spine (`spine_shape` + `branches`) written into `_manuscript.md` — never a naive merge.
-  **Full-corpus coverage contract (PR-A).** Committing the spine also allocates the whole
+  **Full-corpus coverage contract.** Committing the spine also allocates the whole
   frozen corpus to it: `framework-synthesize` writes `_coverage-map.md` placing **every**
   `reviews/<slug>/_corpus.md` citekey into `used` (a named branch), `clustered` (a named
   group + reason), or `deferred` (a reason).
@@ -95,7 +95,7 @@ resolves on its own once the upstream nodes land (`rv dag tick` advances past it
 Emits the Phase-2 draft+review manifest generically from the type's `section_set` (the old
 `rv manuscript <project> expand <slug>` verb was collapsed into this autonomous emission —
 it no longer exists as a hand-run step). For
-`lit-review`, the 9-row survey section table (design §3): abstract (drafted last), introduction,
+`lit-review`, the 9-row survey section table: abstract (drafted last), introduction,
 PRISMA scope & method (mechanical), the organizing framework/taxonomy (human-shaped, drafted
 from the frozen spine), thematic sections (one node covering all N framework branches — see
 "Known limitations"), cross-cutting critical analysis, open problems, conclusion, and
@@ -119,7 +119,7 @@ Every draft/revise round runs, regardless of judge availability:
   marked-critical equation** (a deliberate divergence from the design doc's own BLOCK
   recommendation for marked-critical equations — the resolved operator call was SIGNAL for
   both marked-critical and unmarked; see "Known limitations").
-- **Support-matcher** (the cold-agent-judge gate, PR-F) — every synthesized claim traces to a
+- **Support-matcher** (the cold-agent-judge gate) — every synthesized claim traces to a
   substantiating `literature/`/`concepts/` note (4-verdict `[SUPPORTS|PARTIAL|CONTRADICTS|
   ABSENT]`, disconfirm-first, verbatim-span-or-BLOCK). There is **no direct-API judge path** —
   `rv manuscript <project> judge-emit <slug>` writes the fan-out task set (rv calls no LLM
@@ -136,7 +136,7 @@ Every draft/revise round runs, regardless of judge availability:
 
 ### 5. Review — the 6-lens review board (`rv manuscript <project> board-emit <slug>`)
 
-The **N-round (default 2, hardcap 3) cold-agent-judge board** (design §2, PR-E/PR-D2): each
+The **N-round (default 2, hardcap 3) cold-agent-judge board**: each
 round, 6 FRESH independent lens judges — DEPTH, WIDTH, SYNTH, SELFCONT, ADVERS,
 INSTRUCT — each score their axis with a uniform finding schema
 (`{finding_id, severity, location, issue, evidence, recommendation}`), no `old_text`/`new_text`
@@ -180,7 +180,7 @@ network call reachable from the compile path.
 
 ## Known limitations (surfaced honestly — accumulated across the build wave)
 
-1. **Single-thematic-node v1.** Design §3's "N thematic sections" (one per frozen framework
+1. **Single-thematic-node v1.** "N thematic sections" (one per frozen framework
    branch) is represented as **one** Phase-2 section node covering all N branches, not a true
    per-branch DAG fan-out. Consequence: a branch's review-revise failure re-drafts **all**
    thematic content, not just the failing branch. True fan-out needs the type-generic core's
@@ -213,7 +213,7 @@ network call reachable from the compile path.
    as `missing_justifications` audit metadata on the reviewer-node result — but an unjustified
    score is **not** zeroed or auto-rejected. It is visible, never silently accepted, but the
    human reads the audit trail rather than the machine enforcing it.
-6. **`--reframe` is not yet a wired CLI flag.** Design §5.1's reframe-the-spine escalation
+6. **`--reframe` is not yet a wired CLI flag.** Reframe-the-spine escalation
    (when the framework critic judges the spine incoherent across ≥2 consecutive rounds) builds
    and surfaces a real escalation payload — misfits + candidate reframes — in the review
    output. But a `--reframe <prior-slug>` flag on `rv manuscript new` (re-entering Phase-1 with

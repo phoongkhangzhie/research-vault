@@ -41,6 +41,6 @@ reasoning-time context — exactly the gap smith2024 (below) targets.
 ## Related papers
 
 <!-- Bidirectional physical write — see the sibling edge in smith2024.md's -->
-<!-- "## Related papers" section (§0(c)2: shipped 0.3.0 writes both sides). -->
+<!-- "## Related papers" section ((c)2: shipped 0.3.0 writes both sides). -->
 - [EXTENDS] [smith2024](/literature/smith2024.md) — smith2024 extends this
   paper's static index with an interleaved retrieval-reasoning loop.

@@ -25,10 +25,10 @@ Commands:
     --dry-run                     preview without writing
   rv research citekey <project> <note-id>
                                    compute + stamp the canonical citekey (K-D1)
-                                   into a filed literature note (PR-4/K-2)
+                                   into a filed literature note
   rv research migrate-citekeys <project> [--dry-run]
                                    one-shot: stamp canonical citekeys into every
-                                   absent/non-conformant literature note (PR-4/K-3)
+                                   absent/non-conformant literature note
 
   D1 (verb consolidation) HARD-REMOVED ``sweep``/``cited-by``/``references`` —
   they collapsed into the review-loop DAG's ``sweep``/``snowball`` tool
@@ -273,7 +273,7 @@ def _note_citekey(fields: dict[str, Any], note_path: Path) -> str:
 def _resolve_intrinsic_fields(
     literature_root: Path | None, overlay_fields: dict[str, Any],
 ) -> dict[str, Any]:
-    """PR-A: given a project's overlay ``fields`` (already parsed), resolve
+    """given a project's overlay ``fields`` (already parsed), resolve
     its ``central:`` pointer against ``literature_root`` and merge in the
     CENTRAL CORE's intrinsic fields (doi/arxiv_id/citekey/etc — core wins on
     any collision). A missing pointer / absent core / ``literature_root is
@@ -332,7 +332,7 @@ def _load_notes_index(
         except OSError:
             continue
         overlay_fields, _ = _parse_frontmatter(text)
-        # PR-A: doi/arxiv_id are CORE-only intrinsic fields — resolve the
+        # doi/arxiv_id are CORE-only intrinsic fields — resolve the
         # overlay's `central:` pointer against literature_root. Degrades to
         # the overlay's own fields unchanged when literature_root is None
         # or no pointer resolves (a monolithic fixture with its own doi:).
@@ -352,7 +352,7 @@ def _load_notes_index(
 
 
 # ---------------------------------------------------------------------------
-# PR-4/K-2/K-3 — canonical citekey computation + stamping (Zotero-free path)
+#  canonical citekey computation + stamping (Zotero-free path)
 # ---------------------------------------------------------------------------
 
 def _all_note_citekeys(literature_dir: Path, exclude: Path | None = None) -> set[str]:
@@ -392,7 +392,7 @@ def compute_and_stamp_citekey(note_path: Path, literature_dir: Path) -> str:
     frontmatter (``title``/``authors``/``year``) and stamp it into
     ``citekey:``.
 
-    This is the review-loop hook (PR-4/K-2): the relate-<key> subagent calls
+    This is the review-loop hook: the relate-<key> subagent calls
     ``rv research citekey <project> <id>`` once it has filled in title/
     authors/year (per the 5-move reading protocol) — the canonical
     familyShorttitleYear key (K-D1) is computed here rather than left to the
@@ -1016,7 +1016,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     citekey = m.group(1)
 
     external_ids = _resolve_full_external_ids(args.ident)
-    # PR-A: the external-id set is intrinsic (core-only) — stamp the
+    # the external-id set is intrinsic (core-only) — stamp the
     # CENTRAL CORE, not the per-project overlay.
     note_path = cfg.literature_root / f"{citekey}.md"
     if not external_ids:
@@ -1041,7 +1041,7 @@ _CITEKEY_MIGRATION_LEDGER_NAME = "_citekey_migration_ledger.json"
 
 
 def cmd_citekey(args: argparse.Namespace) -> int:
-    """rv research citekey <project> <note-id>: PR-4/K-2.
+    """rv research citekey <project> <note-id>:.
 
     Compute + stamp the canonical familyShorttitleYear citekey (K-D1) into a
     filed literature note, from that note's OWN title/authors/year
@@ -1067,7 +1067,7 @@ def cmd_citekey(args: argparse.Namespace) -> int:
         print(f"rv research citekey: {e}", file=sys.stderr)
         return 1
 
-    # PR-A: citekey/title/authors/year are intrinsic (core-only) — the
+    # citekey/title/authors/year are intrinsic (core-only) — the
     # note-id shares its slug with the central core (note._cmd_new_two_layer's
     # convention), so this resolves + stamps the CORE, not the overlay.
     note_path = cfg.literature_root / f"{args.note_id}.md"
@@ -1097,7 +1097,7 @@ def migrate_citekeys(
     *,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """PR-4/K-3: one-shot maintenance pass — stamp a canonical citekey into
+    """one-shot maintenance pass — stamp a canonical citekey into
     every literature note whose ``citekey:`` is absent or non-conformant.
 
     NEVER renames files (a rename would break ``reads:``/edge pointers into
@@ -1196,9 +1196,9 @@ def migrate_citekeys(
 
 
 def cmd_migrate_citekeys(args: argparse.Namespace) -> int:
-    """rv research migrate-citekeys <project> [--dry-run]: PR-4/K-3.
+    """rv research migrate-citekeys <project> [--dry-run]:.
 
-    PR-A: ``citekey:`` is intrinsic (core-only) content — this migrates
+    ``citekey:`` is intrinsic (core-only) content — this migrates
     notes in the CENTRAL STORE (``cfg.literature_root``), not a per-project
     overlay dir. Since the store is shared across every registered project,
     this is now effectively a corpus-wide operation regardless of which
@@ -1255,7 +1255,7 @@ def cmd_sweep(args: argparse.Namespace) -> int:
     matrix + sources.
 
     Reads (never widens) the angle matrix + sources frozen at
-    `approve-protocol` (anti-fishing, §4.2) — this command has no write path
+    `approve-protocol` (anti-fishing) — this command has no write path
     back to `_protocol.md`. Runs the cross-product (angle x source) fetch
     concurrently under the fetch budget, then composes: cross-source dedup
     (NG-2) -> derivative-of overlap discounting (NG-9) -> the 6-dim utility
@@ -1456,13 +1456,13 @@ def build_parser(
         redirect="rv dag run <phase1-manifest> (the review-search node runs the width-sweep automatically)",
     )
 
-    # fulltext — OA-first full-text enrichment (tier 1, read-time; §8.6 of
+    # fulltext — OA-first full-text enrichment (tier 1, read-time; of
     # the design doc). Delegates to fulltext.py — kept out of this already-
     # large module.
     from .fulltext import build_parser as _build_fulltext_parser
     _build_fulltext_parser(sub)
 
-    # citekey — PR-4/K-2: compute + stamp the canonical citekey into a
+    # citekey: compute + stamp the canonical citekey into a
     # filed literature note (Zotero-free, review-loop path).
     citekey_p = sub.add_parser(
         "citekey",
@@ -1479,7 +1479,7 @@ def build_parser(
         "note_id", help="The literature note's filename stem (literature/<note_id>.md).",
     )
 
-    # migrate-citekeys — PR-4/K-3: one-shot maintenance pass over a
+    # migrate-citekeys: one-shot maintenance pass over a
     # project's literature/ notes (DECIDED K-D2: one project only this
     # release — the verb itself is general; only the rollout is scoped).
     migrate_p = sub.add_parser(

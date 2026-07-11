@@ -6,7 +6,7 @@ Modules:
   check   — shape-lint: branch-presence + one-component-per-ablation (K-2).
   verbs   — rv plan subcommand dispatcher.
 
-note.py-FREE by design (§5K.10): plan fields (plan_kind / covers / plan_role /
+note.py-FREE by design: plan fields (plan_kind / covers / plan_role /
 supports_main / stance) are agent-authored note CONTENT — they are NOT injected
 via cmd_new templates and this module does NOT touch note.py.
 """

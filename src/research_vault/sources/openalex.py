@@ -4,11 +4,11 @@
 OpenAlex exposes both directions of the citation graph (``cited_by_api_url``
 for forward citations; the work's own ``referenced_works`` for backward), so
 — alongside Semantic Scholar — it can also anchor depth snowballing, not just
-breadth search (§4.1: "the citation graph stays Semantic-Scholar/OpenAlex-
+breadth search ("the citation graph stays Semantic-Scholar/OpenAlex-
 anchored").
 
 Stdlib only (``urllib.request`` + ``json``) — no forced third-party
-dependency (§11).
+dependency.
 """
 from __future__ import annotations
 

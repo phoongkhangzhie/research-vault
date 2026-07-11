@@ -130,15 +130,15 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
-# PR-2 D-7: empty-counter-facet structural gate — mirrors check_protocol_gate
+# D-7: empty-counter-facet structural gate — mirrors check_protocol_gate
 # above (the free-text `counter-position` field), one level more mechanical:
 # a facet declared with a THESIS query but no frozen COUNTER-side query is a
-# protocol defect, caught BEFORE any search executes (design §4,
+# protocol defect, caught BEFORE any search executes (
 # "Structural gate at approve-protocol").
 # ---------------------------------------------------------------------------
 
 def check_counter_facet_gate(protocol_path: Path) -> tuple[bool, str]:
-    """PR-2 D-7: BLOCK when a nested ``seed_queries`` facet (the D-3
+    """ D-7: BLOCK when a nested ``seed_queries`` facet (the D-3
     thesis/counter schema) has one or more THESIS queries but ZERO frozen
     COUNTER-side queries.
 
@@ -302,7 +302,7 @@ _COVERAGE_CRITIC_VERDICT_VOCAB = frozenset({"PASS", "BLOCK"})
 # frontmatter ``verdict:`` field.
 _COVERAGE_CRITIC_BULLET_RE = re.compile(r"^\s*-\s+(.+?)\s*$")
 
-# PR-3 D-5a: a BLOCK reason bullet is classified as backtrack-eligible iff
+# D-5a: a BLOCK reason bullet is classified as backtrack-eligible iff
 # it starts with this literal prefix (case-insensitive) — deliberately
 # NARROWER than the whole axis-4 "COUNTER-POSITION" umbrella. The
 # pre-existing hard-block bullets (``COUNTER-POSITION ABSENT`` — the
@@ -350,7 +350,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
     field with a fixed 2-value vocab has no such evasion surface.
 
     - Missing artifact -> ``not_run`` (a floor gate that never ran must
-      never look like a pass, §1.2 priority 2 / explore-rl #3).
+      never look like a pass, priority 2 / explore-rl #3).
     - ``verdict`` field absent, empty, or any value other than exactly
       ``PASS``/``BLOCK`` (case-normalized) -> ``not_run`` (fail-closed;
       HALT-DECLARE upstream, never a silent GO). This is the anti-evasion
@@ -363,7 +363,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
       generic blocking reason (never a BLOCK verdict silently downgraded to
       a pass because no bullets were parsed).
 
-    Also returns two PR-3 (D-5a) keys, both consumed by
+    Also returns two (D-5a) keys, both consumed by
     ``review.remediation.resolve_coverage_critic`` (an older caller reading
     only ``blocking``/``not_run`` is unaffected — additive fields):
       - ``remediation_target_expected`` (bool): True iff ``verdict == BLOCK``
@@ -375,8 +375,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
         AND all three are non-empty; ``None`` otherwise (including the
         "expected but incomplete" fail-closed case — never guessed).
 
-    sr: PR #201 review delta (structured-verdict fix, replaces prose
-    scanning entirely) — 2026-07-09; PR-3 D-5a (remediation_target) — 2026-07-10
+    scanning entirely) — 2026-07-09; D-5a (remediation_target) — 2026-07-10
     """
     if not critic_note_path.exists():
         return {
@@ -445,7 +444,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
     if not reasons:
         reasons = ["[BLOCK] verdict with no itemized reason bullets found"]
 
-    # PR-3 D-5a: classify — is this a PURE counter-position/thin-pole BLOCK
+    # D-5a: classify — is this a PURE counter-position/thin-pole BLOCK
     # (every itemized reason starts with the "counter-position" prefix)? A
     # mixed BLOCK (any axis-1/3 reason present) is NEVER eligible for the
     # autonomous pole-directed backtrack, however the reasons are itemized —
@@ -698,7 +697,7 @@ def _index_literature_notes_by_citekey(
     This allows descriptive filenames like ``zheng2023-pride-mc-selectors.md``
     while matching the corpus citekey ``zheng2023-pride`` without false-orphaning.
 
-    PR-A: ``citekey:`` is intrinsic (core-only) content — when
+    ``citekey:`` is intrinsic (core-only) content — when
     ``literature_root`` is given, resolves each overlay's ``central:``
     pointer and prefers the CORE's citekey field. ``literature_root=None``
     (or no resolvable core) degrades to the overlay's own citekey field —
@@ -854,7 +853,7 @@ def coverage_report(
 
 
 # ---------------------------------------------------------------------------
-# Wave 0 (Reading) PR-2 — paper→paper typed-edge aggregation (the "consume" seam)
+# Wave 0 (Reading)  paper→paper typed-edge aggregation (the "consume" seam)
 # ---------------------------------------------------------------------------
 
 def relations_report(
@@ -863,7 +862,7 @@ def relations_report(
     *,
     config: Config | None = None,
 ) -> dict[str, Any]:
-    """Deterministic, corpus-wide paper→paper typed-edge listing (PR-2).
+    """Deterministic, corpus-wide paper→paper typed-edge listing.
 
     This is the mechanical "consume" seam the design doc calls for: instead of
     `review-synthesize` (and `review-coverage-critic`) RE-DERIVING the
@@ -896,7 +895,6 @@ def relations_report(
 
     surface, never green-and-empty: an empty corpus returns empty lists, not None.
 
-    sr: NG-lit-review-wave0 (PR-2)
     """
     from .relate_check import parse_paper_relations
 
@@ -914,7 +912,7 @@ def relations_report(
             except OSError:
                 continue
             fields, body = _parse_frontmatter(text)
-            # PR-A: citekey is intrinsic (core-only) — prefer the resolved
+            # citekey is intrinsic (core-only) — prefer the resolved
             # central core's citekey field over the (normally-absent on a
             # thin overlay) local one; degrades to the filename stem, which
             # shares the core's slug by construction (note._cmd_new_two_layer).
@@ -993,7 +991,7 @@ def _build_phase1_manifest(
 ) -> dict[str, Any]:
     """Build the Phase-1 DAG manifest.
 
-    Phase-1 nodes (10 — PR-1, design 2026-07-10-trustworthy-curation-
+    Phase-1 nodes (10, design 2026-07-10-trustworthy-curation-
     relevance-gate-design.md, adds review-relevance-screen, review-curate's
     input rewire, review-relevance-verify-prep, and review-relevance-verify
     to the prior 7-node topology):
@@ -1198,8 +1196,8 @@ def _build_phase1_manifest(
         ],
     })
 
-    # 6. review-relevance-screen — TOOL node (PR-1, design 2026-07-10-
-    #    trustworthy-curation-relevance-gate-design.md §3d, CORE not
+    # 6. review-relevance-screen — TOOL node (design 2026-07-10-
+    #    trustworthy-curation-relevance-gate-design.md, CORE not
     #    deferred): the mechanical, deterministic relevance pre-filter over
     #    the raw snowball pool. The snowball is the ACTUAL contamination
     #    source (citation-promiscuous — a paper cites a galaxy survey for a
@@ -1252,7 +1250,7 @@ def _build_phase1_manifest(
         ],
     })
 
-    # 8. review-relevance-verify-prep — TOOL node (PR-1, design §3b): build
+    # 8. review-relevance-verify-prep — TOOL node (b): build
     #    the cold verifier's canary-seeded input from the FINAL _corpus.md.
     nodes.append({
         "id": "review-relevance-verify-prep",
@@ -1274,7 +1272,7 @@ def _build_phase1_manifest(
         ],
     })
 
-    # 9. review-relevance-verify — COLD AGENT node (PR-1, design §3b): the
+    # 9. review-relevance-verify — COLD AGENT node (b): the
     #    guarantee. A fresh subagent (no stake in review-curate's
     #    decisions) re-applies the relevance calibration to every [NEW]
     #    paper in the final corpus, canary-verified, BEFORE coverage-gate
@@ -1300,7 +1298,7 @@ def _build_phase1_manifest(
 
     # 10. coverage-gate — human-go Phase BOUNDARY (auto-resolved in practice —
     #    see _AUTONOMOUS_GATE_IDS in dag/verbs.py). Reads
-    #    review-relevance-verify's structured verdict (design §3c: below
+    #    review-relevance-verify's structured verdict (c: below
     #    ~15-20% off-domain -> auto-prune + declare, run proceeds; at/above
     #    -> HALT-DECLARE) IN FRONT OF the saturation-based disposition.
     #    Operator confirms "these are the papers" before N parallel relates dispatch.
@@ -1695,7 +1693,7 @@ def cmd_counter_facet_emit(
     *,
     config: Config | None = None,
 ) -> dict[str, Any]:
-    """Emit the counter-facet STRENGTH cold-agent-judge fan-out task set (PR-F).
+    """Emit the counter-facet STRENGTH cold-agent-judge fan-out task set.
 
     When to use: ``rv review <project> judge-emit <scope>`` — writes
     ``reviews/<scope>/judge/counter-facet/{_cf-tasks.json, _cf-canary-key.json}``.
@@ -1703,7 +1701,7 @@ def cmd_counter_facet_emit(
     tasks file and writes ``_cf-verdicts.json`` alongside it, then
     ``rv review <project> judge-ingest <scope>`` (or ``rv dag approve
     approve-protocol``) consumes the verdicts. The direct-API judge path was
-    deleted (PR-F) — this fan-out is the ONLY production counter-facet path.
+    deleted — this fan-out is the ONLY production counter-facet path.
 
     Returns ``{"counter-facet": {"tasks_doc": ..., "canary_key_doc": ...}}``.
     """
@@ -1730,7 +1728,7 @@ def cmd_counter_facet_ingest(
     *,
     config: Config | None = None,
 ) -> dict[str, Any]:
-    """Ingest the counter-facet fan-out verdicts (PR-F).
+    """Ingest the counter-facet fan-out verdicts.
 
     When to use: ``rv review <project> judge-ingest <scope>`` — reads whatever
     the hub wrote to ``reviews/<scope>/judge/counter-facet/_cf-verdicts.json``

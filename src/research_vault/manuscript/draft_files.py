@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """manuscript/draft_files.py — RD-1: single source of truth for "which files
-make up the reader-facing draft" (next-gen lit-review design §6, Wave B).
+make up the reader-facing draft" (next-gen lit-review, Wave B).
 
 Before RD-1, ``bib.py``, ``fidelity_gates.py``, and ``check_gates.py`` each
 hand-rolled a near-identical ``tree_root.rglob(...)`` glob — three call sites
@@ -11,7 +11,7 @@ The manuscript loop's ONLY render target is markdown (``_report.md`` +
 ``sections/*.md``) — LaTeX (``main.tex``/``sections/*.tex``) has been removed
 entirely (the operator's explicit call — see DEVLOG).
 
-★ PR-D2 (two-artifact rename — architect ruling): ``_report.md`` is the
+★ (two-artifact rename — architect ruling): ``_report.md`` is the
 INTERNAL ``[[citekey]]`` SOURCE — the drafter/assemble write target, read by
 every gate + the board. The underscore prefix follows rv's own leak
 convention (``_LEAK_ARTIFACT_FILENAME_RE`` in ``check_gates.py`` — an
@@ -24,8 +24,7 @@ rendered ``report.md`` (see the collision guard,
 ``test_pr_d2_source_routing_driver.py``).
 
 Stdlib only.
-sr: NG-lit-review-waveB (RD-1); LaTeX removal: see DEVLOG; two-artifact
-rename PR-D2.
+rename.
 """
 from __future__ import annotations
 
@@ -35,14 +34,14 @@ from pathlib import Path
 DRAFT_EXTENSIONS: tuple[str, ...] = (".md",)
 
 # The root-level draft file name to look for — the INTERNAL `[[citekey]]`
-# SOURCE (PR-D2). Never the rendered reader-facing `report.md` (no
+# SOURCE. Never the rendered reader-facing `report.md` (no
 # underscore) — see the module docstring's two-artifact contract.
 _ROOT_DRAFT_NAMES: tuple[str, ...] = ("_report.md",)
 
 
 def resolve_draft_files(tree_root: Path) -> list[Path]:
     """Return every file that makes up this manuscript's ``[[citekey]]``
-    SOURCE draft (PR-D2: NOT the rendered reader-facing ``report.md``).
+    SOURCE draft (NOT the rendered reader-facing ``report.md``).
 
     Args:
         tree_root: the manuscript folder (``manuscripts/<slug>/``).
@@ -52,7 +51,6 @@ def resolve_draft_files(tree_root: Path) -> list[Path]:
         filename, deterministic — never filesystem-order-flaky). Empty list
         if none of these exist yet (a fresh, undrafted manuscript).
 
-    sr: NG-lit-review-waveB (RD-1); PR-D2 (source-routing rename)
     """
     files: list[Path] = []
     for name in _ROOT_DRAFT_NAMES:

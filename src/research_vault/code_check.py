@@ -2,21 +2,19 @@
 """code_check.py — repo-plane conventions gate: `rv code check <project>`.
 
 When to use: ``rv code check <project>`` validates the CODE TREE (not a note's
-frontmatter) against the code-conventions doctrine (`data/doctrine/code-conventions.md`,
-PR-CC-6). Distinct from the note-plane `rv note <project> check` — this verb is
-about facts on the repo tree: no notebook in the library import path, an
-environment pin, no data/results duplication, science-critical tests, and
-releasability (secrets/paths, CITATION.cff, LICENSE).
-
-Design: docs/superpowers/specs/2026-07-07-code-conventions-design.md §3 (CHECK-3b,
-CHECK-5, CHECK-6a, CHECK-7, CHECK-8a/b/c) + §4 (D-CC-4, gate placement).
+frontmatter) against the code-conventions doctrine
+(`data/doctrine/code-conventions.md`). Distinct from the note-plane
+`rv note <project> check` — this verb is about facts on the repo tree: no
+notebook in the library import path, an environment pin, no data/results
+duplication, science-critical tests, and releasability (secrets/paths,
+CITATION.cff, LICENSE).
 
 Severity split mirrors `note.py::run`'s hard/warn convention exactly: a
 violation string starting with one of `_WARN_PREFIXES` degrades to a printed
 warning that does NOT flip the exit code; everything else is HARD (exit 1).
 CHECK-8a is always HARD (secrets/paths never degrade). CHECK-8b/c degrade to
 WARN in local mode but drop their prefix (become HARD) in `--release` mode —
-the release subset (§3 CHECK-8b/c: "WARN locally / HARD at release").
+the release subset (CHECK-8b/c: "WARN locally / HARD at release").
 
 Zero new walker (charter §6): CHECK-8a COMPOSES the existing
 `scripts/leakage_scan.sh --secrets-only <dir>` (dev-tree tooling, same
@@ -94,7 +92,7 @@ def check_env_pinned(repo_root: Path) -> list[str]:
 
     Scope note: this checks only the repo-tree half of CHECK-5. The note-plane
     half (`repro_env_python` is a concrete version, not a range) is out of
-    scope for this repo-plane verb — see PR-CC-5 return for the deviation.
+    scope for this repo-plane verb — see the return value for the deviation.
     """
     for name in ("uv.lock", "requirements.lock"):
         if (repo_root / name).is_file():
@@ -228,7 +226,7 @@ def check_science_critical_tests(code_dir: Path) -> list[str]:
     Heuristic: a test file under `code/tests/` importing the marked module OR
     mentioning the marked symbol name. The oracle problem (Kanewala 2014) makes
     a hard global rule misfire — this pins the *named* load-bearing set, never
-    global coverage%. Doctrine §6 / CHECK-7.
+    global coverage%. Doctrine CHECK-7.
     """
     src_dir = code_dir / "src"
     tests_dir = code_dir / "tests"

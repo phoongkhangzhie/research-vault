@@ -1,12 +1,12 @@
 # demo-research — Research Loop Example (multi-main + ablations + conditionals)
 
 A runnable demonstration of the Research Vault **research loop** DAG, upgraded
-to the full §5K.2 multi-main + ablation + conditional shape.
+to the full multi-main + ablation + conditional shape.
 
 ## What this demonstrates
 
 The `research-loop.json` manifest encodes the full pre-registration discipline
-(§5K):
+
 
 1. **Plan** (Ada/researcher) — writes the pre-registration MASTER note
    (`notes/experiments/q1-plan.md`) covering the full confirmatory set:

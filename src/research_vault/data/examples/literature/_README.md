@@ -1,7 +1,7 @@
 # literature/ — the CENTRAL two-layer literature store (example)
 
 This directory is the shared, cross-project CENTRAL STORE — `cfg.literature_root`
-(PR-A: the central two-layer literature store, §0.5 PR-A/PR-B). It sits at the
+(the central two-layer literature store). It sits at the
 **instance/hub level**, a sibling of every registered project's own notes
 directory (`demo-research/`, `demo-litreview/`), NOT inside either one.
 

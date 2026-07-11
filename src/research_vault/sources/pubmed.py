@@ -2,11 +2,11 @@
 """sources/pubmed.py — PubMedAdapter (NG-2, opt-in source per D4 — bio/medical RQs).
 
 NCBI E-utilities (esearch + esummary), stdlib ``urllib``/``json`` only — no
-forced third-party dependency (§11). PubMed exposes no citation graph via
+forced third-party dependency. PubMed exposes no citation graph via
 esummary/esearch alone (NCBI's citation-linking API is a separate, heavier
 integration) — ``cited_by``/``references`` raise ``NotSupported``, matching
 arXiv's shape; PubMed is a SEARCH-breadth source, not a depth-snowball anchor
-(the citation graph stays Semantic-Scholar/OpenAlex-anchored, §4.1).
+(the citation graph stays Semantic-Scholar/OpenAlex-anchored).
 
 Opt-in per D4: only added to a protocol's ``sources:`` list when the RQ
 warrants biomedical literature (never in the default-on 3-source set).

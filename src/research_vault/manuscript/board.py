@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/board.py — PR-B3: the re-lensed board orchestration —
-floor-on-ALL-6-axes, fanout-driven, bounded N=2/hardcap-3 unroll (PR-E:
+"""manuscript/board.py: the re-lensed board orchestration —
+floor-on-ALL-6-axes, fanout-driven, bounded N=2/hardcap-3 unroll (
 4->6 lenses — CONTENT split into DEPTH/WIDTH/SYNTH, FRAMEWORK renamed
 INSTRUCT).
 
-Design: docs/superpowers/specs/2026-07-08-autonomous-board-design.md §3/§5.1.
 
 Distinct from ``manuscript.review_board`` (the OLDER 2x3 conference-style,
 8-dim, floor-on-3-of-8 board) — this module is the NEW 6-lens cold-fanout
@@ -24,7 +23,6 @@ returning a fixture ``verdicts_doc``.
 
 Stdlib only. Hermetic in tests — ``ingest_fn`` is always injectable; no
 live LLM call is required to exercise this module.
-sr: PR-B3
 """
 from __future__ import annotations
 
@@ -162,7 +160,7 @@ def run_bounded_board(
     via call-count on ``ingest_fn``).
 
     Regression guard: never silently accept a round that regresses an axis
-    vs. the prior round — the caller (PR-B4's revise/round-2 driver) is
+    vs. the prior round — the caller (revise/round-2 driver) is
     expected to keep the better draft; this function surfaces the
     regression in the round record (``regression``), it does not itself
     revert anything (mirrors ``review_board.run_meta_review``'s split of

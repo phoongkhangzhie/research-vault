@@ -4,9 +4,9 @@ operator resolved this deliberately): shared redirect-breadcrumb stub for
 a step-verb collapsed into DAG node-execution.
 
 Design of record: docs/superpowers/specs/2026-07-08-rv-verb-consolidation.md
-§6 D1 — "Delete the 8 step-verbs from the CLI outright; they survive only as
+ D1 — "Delete the 8 step-verbs from the CLI outright; they survive only as
 importable functions the DAG node-execution calls... the surface goes fully
-clean, no deprecation aliases." §7 mandates a redirect breadcrumb so a
+clean, no deprecation aliases." mandates a redirect breadcrumb so a
 fresh Alfred doesn't keep reaching for the old verb out of habit.
 
 This is a HARD removal, not a working alias: the stub takes any args
@@ -18,7 +18,6 @@ collapsed step-verbs: sweep, cited-by, references, review-expand,
 review-coverage, review-relations, manuscript-expand, manuscript-review.
 
 Stdlib only.
-sr: D1 (verb consolidation)
 """
 from __future__ import annotations
 

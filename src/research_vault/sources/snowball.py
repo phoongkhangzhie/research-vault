@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/snowball.py — the both-direction, multi-round snowball-to-
 saturation walk (Option C hybrid — the review-loop node-kind drift fix,
-docs/superpowers/specs/2026-07-09-review-loop-nodekind-drift-fix.md §4-B).
+docs/superpowers/specs/2026-07-09-review-loop-nodekind-drift-fix.md -B).
 
 Mirrors ``sweep.py``'s shape: fetch (both directions, each round) -> dedup
 -> derivative discount -> compose. Reuses ``sources/derivative.py``
 (``mark_derivatives``/``count_independent``) and ``sources/dedup.py`` — no
 mechanism is reimplemented (charter §6).
 
-★ Known, DECLARED caveat (spec §4-B — do not let this silently vanish):
+★ Known, DECLARED caveat (spec -B — do not let this silently vanish):
 the shipped ``review_snowball_tips`` prose's stop rule is "0 new
 independent citekeys AND 0 new concept-tags" for 2 consecutive rounds.
 Concept-tags are an LLM signal with no mechanical detector, so THIS
@@ -212,7 +212,7 @@ def run_snowball_to_saturation(
             backstop.
         derivative_threshold: passed through to ``mark_derivatives``.
         per_round_limit: per-paper fetch limit each round — FORWARD
-            (``cited_by``) ONLY (PR-S1 REWRITE, 2026-07-10). Backward
+            (``cited_by``) ONLY (REWRITE, 2026-07-10). Backward
             (``references``) is intentionally UNBOUNDED per-call: a
             paper's own bibliography is the highest-precision snowball
             direction, and it exists specifically to catch unique,
@@ -288,7 +288,7 @@ def run_snowball_to_saturation(
 
     An adapter direction that raises ``NotSupported`` for a given paper id is
     skipped for that (paper, direction) this round — graceful degradation,
-    mirroring ``sweep.py``'s per-cell degrade (§10). Any OTHER exception
+    mirroring ``sweep.py``'s per-cell degrade. Any OTHER exception
     (``AdapterFetchError`` especially — a live asta 404 for one seed) is
     recorded in ``errors`` and likewise degrades only that (paper,
     direction) — it NEVER aborts the whole walk (2026-07-09 live-asta
@@ -321,7 +321,7 @@ def run_snowball_to_saturation(
 
     seed_ids = [s for s in seed_ids if s]
 
-    # Seed cap (breadth bound, §1): no PaperHit/relevance score exists yet at
+    # Seed cap (breadth bound): no PaperHit/relevance score exists yet at
     # the seed stage (bare ids off _screen.md) — the declared fallback is
     # input-order preservation, first `seed_cap` kept. Applied BEFORE the
     # checkpoint match check, so a resumed walk's `seed_ids` comparison is
@@ -424,7 +424,7 @@ def run_snowball_to_saturation(
             try:
                 # Backward is deliberately NOT bounded by per_round_limit —
                 # see the docstring above + SemanticScholarAdapter.references
-                # (PR-S1 REWRITE, 2026-07-10: recall-regressive, reverted).
+                # (REWRITE, 2026-07-10: recall-regressive, reverted).
                 bwd = adapter.references(asta_id)
             except NotSupported:
                 bwd = []
@@ -443,7 +443,7 @@ def run_snowball_to_saturation(
         deduped_round = dedup_hits(round_hits)
 
         new_this_round: list[PaperHit] = []
-        # (pid, citation_count) pairs — capped to `frontier_cap` (§2, ranked
+        # (pid, citation_count) pairs — capped to `frontier_cap` (ranked
         # citation_count desc, stable tie-break on discovery order) AFTER
         # this loop, below. Every discovered paper still lands in
         # `new_this_round`/`all_hits` regardless of the cap — capping only
@@ -462,7 +462,7 @@ def run_snowball_to_saturation(
                 new_frontier_candidates.append((pid, d.hit.citation_count))
             # Enrich the representative hit's OWN external_ids with the
             # round-level merged union BEFORE it's stored (F1 teeth
-            # followup, PR #206 review delta): `all_hits`/`new_this_round`
+            # followup, PR review delta): `all_hits`/`new_this_round`
             # only ever carry the bare `PaperHit` (never the `DedupedHit`
             # wrapper), so a merged id that lives ONLY on `d.external_ids`
             # would otherwise vanish the moment this round's dedup result is
@@ -480,7 +480,7 @@ def run_snowball_to_saturation(
             if "backward" in dirs:
                 new_bwd += 1
 
-        # Frontier cap (breadth bound, §2): sort DESC by citation_count;
+        # Frontier cap (breadth bound): sort DESC by citation_count;
         # Python's sort is stable, so ties preserve discovery order. Cap to
         # `frontier_cap` — the rest are still kept in `all_hits`/`kept`
         # above, they just don't expand the walk further.
@@ -521,7 +521,7 @@ def run_snowball_to_saturation(
             break
 
         if budget_exhausted:
-            # Total-fetch ceiling (backstop-of-backstops, §3): a bounded,
+            # Total-fetch ceiling (backstop-of-backstops): a bounded,
             # NOT-saturated corpus — distinct from both "saturated" and
             # "backstop:N-waves" so the coverage-gate whitelist fail-closes
             # on it (never mislabeled as convergence).

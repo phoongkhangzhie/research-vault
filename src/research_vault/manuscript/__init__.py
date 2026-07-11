@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript — PR-M1: the manuscript-loop TYPE-GENERIC core.
+"""manuscript: the manuscript-loop TYPE-GENERIC core.
 
 Re-instantiates the removed ``manuscript`` loop (deleted earlier — the
 craft is preserved in ``honesty-gates.md``/``review-board.md``), rebuilt with a
@@ -9,10 +9,9 @@ crew-reasoning pillar, built by the knowledge loops) into ``manuscripts/<slug>/`
 survey/review-paper specialization; a future ``type: experiment-paper`` is a
 results paper — both consume this same type-generic machinery.
 
-Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md
-(§0 TL;DR reframe, §1 type system, §2 module layout, §14 PR-M1).
+(TL;DR reframe, type system, module layout).
 
-PR-M1 scope (the type-generic core ONLY — modeled on the review loop's
+ scope (the type-generic core ONLY — modeled on the review loop's
 two-phase scaffolder pattern, review/__init__.py):
   - cmd_new:    scaffold the per-manuscript folder + (type-optional) Phase-1
                 manifest.
@@ -20,40 +19,39 @@ two-phase scaffolder pattern, review/__init__.py):
                 ``section_set`` (one node per section -> assemble ->
                 approve-manuscript (auto-resolved)).
   - cmd_review: run the 2-round x 3-reviewer adversarial review-revise board
-                (design §9, ``manuscript/review_board.py``, PR-M5).
+                (``manuscript/review_board.py``).
   - cmd_list:   list manuscript folders for a project (parity with cmd_list
                 on the sibling review/experiment loops).
 
-Explicitly OUT of scope for PR-M1 (stub/interface only here at the time;
-STATUS as of PR-M5 — M2/M3/M4/M5/M6 have since LANDED and are wired together
+Explicitly OUT of scope for (stub/interface only here at the time;
+STATUS as — M2/M3/M4/M5/M6 have since LANDED and are wired together
 by ``manuscript/check_gates.py::build_approve_payload``, called from
 ``rv dag approve`` at ``approve-manuscript`` AND re-fired every review-revise
 round via ``review_board.run_revise``):
-  the hermetic .bib build (PR-M2, landed — ``manuscript/bib.py``), the hard
-  fidelity gates (PR-M3, landed — ``manuscript/fidelity_gates.py``), the
-  equation machinery (PR-M4, landed — ``manuscript/equations.py``), the
-  review-revise board (PR-M5, landed — ``manuscript/review_board.py``, a
-  PLACEHOLDER rubric/canary — PR-M8 swaps in the researcher's calibrated versions), the
+  the hermetic .bib build (landed — ``manuscript/bib.py``), the hard
+  fidelity gates (landed — ``manuscript/fidelity_gates.py``), the
+  equation machinery (landed — ``manuscript/equations.py``), the
+  review-revise board (landed — ``manuscript/review_board.py``, a
+  PLACEHOLDER rubric/canary swaps in the researcher's calibrated versions), the
   lit-review type's real section table + framework-selection Phase-1 +
-  ``source_transform`` (PR-M6, landed — ``manuscript/types/lit_review.py``,
-  wired into this module's ``_build_phase2_manifest``), exemplars (PR-M7,
-  building in a parallel wave — not yet merged as of PR-M5), the
-  rubric/canary calibration (PR-M8, NOT YET BUILT).
+  ``source_transform`` (landed — ``manuscript/types/lit_review.py``,
+  wired into this module's ``_build_phase2_manifest``), exemplars (
+  building in a parallel wave — not yet merged), the
+  rubric/canary calibration (NOT YET BUILT).
 
-Per-manuscript folder (design §0, NOT an OKF taxonomy — too few manuscripts to
+Per-manuscript folder (NOT an OKF taxonomy — too few manuscripts to
 warrant one). Markdown is the ONLY render target — LaTeX has been removed
 entirely (the operator's explicit call — see DEVLOG):
   manuscripts/<slug>/
   ├── _manuscript.md   # control + frontmatter: manuscript_type, spine, corpus_hash, run_state
-  ├── _report.md       # RD-1/PR-D2: internal [[citekey]] SOURCE (drafter/assemble write target)
-  ├── report.md        # PR-D2: reader-facing [N]-numbered render (bib.render_numbered_manuscript)
+  ├── _report.md # RD-1: internal [[citekey]] SOURCE (drafter/assemble write target)
+  ├── report.md # reader-facing [N]-numbered render (bib.render_numbered_manuscript)
   ├── sections/*.md    # RD-1: markdown sections
-  ├── references.md    # hermetic citekey-resolution ledger (PR-M2/RD-1) — see manuscript/bib.py
-  ├── references.bib   # PR-D: hermetic BibTeX build (paired with the report.md render)
+  ├── references.md # hermetic citekey-resolution ledger — see manuscript/bib.py
+  ├── references.bib # hermetic BibTeX build (paired with the report.md render)
   └── figures/
 
 Stdlib only.
-sr: PR-M1
 """
 from __future__ import annotations
 
@@ -73,8 +71,8 @@ from research_vault.manuscript.style import (
     get_manuscript_style_preamble,
 )
 from research_vault.manuscript.types import ManuscriptType, get_type, all_type_keys
-from research_vault.manuscript import equations as _equations  # PR-M4 seam (§7)
-from research_vault.manuscript import exemplars as _exemplars  # PR-M7 seam (§8)
+from research_vault.manuscript import equations as _equations # seam
+from research_vault.manuscript import exemplars as _exemplars # seam
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +105,8 @@ def _unknown_type_error(key: str) -> ValueError:
 def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
     """Write a neutral markdown report stub to tree_root (idempotent).
 
-    RD-1 (next-gen lit-review design §6): the manuscript's reader path
-    renders MARKDOWN — ``_report.md`` (this stub — PR-D2: the internal
+    RD-1 (next-gen lit-review): the manuscript's reader path
+    renders MARKDOWN — ``_report.md`` (this stub: the internal
     ``[[citekey]]`` SOURCE, the assemble node's write target) +
     ``sections/*.md``. The reader-facing ``report.md`` (no underscore) is a
     SEPARATE artifact produced later by ``bib.render_numbered_manuscript``,
@@ -119,7 +117,7 @@ def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
     markdown-native citekey-resolution ledger, never a BibTeX file.
 
     A self-contained inline template (no package-data dependency) — the real
-    per-type template/exemplar machinery is design §8/PR-M8 territory; this
+    per-type template/exemplar machinery is territory; this
     only needs a scaffolded skeleton so the folder is genuinely scaffolded.
     """
     report_md = tree_root / "_report.md"
@@ -129,13 +127,13 @@ def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
         f"# {slug}\n\n"
         f"<!-- Manuscript: {slug}  (type: {ms_type_key}) -->\n"
         "<!-- Machine-injected results/equation data + hermetic citekey resolution:\n"
-        "     references.md is built hermetically by manuscript/bib.py (PR-M2, RD-1);\n"
+        "     references.md is built hermetically by manuscript/bib.py (RD-1);\n"
         "     pivotal equations are injected into the writer briefs by\n"
-        "     manuscript/equations.py (PR-M4) and checked every round by\n"
+        "     manuscript/equations.py and checked every round by\n"
         "     check_gates.py::build_approve_payload. -->\n\n"
         "<!-- Body sections (populated by rv dag run against the Phase-2\n"
         "     manifest) are joined here in reading order by the assemble node. -->\n"
-        "<!-- PR-D2: this file (_report.md) is the internal wikilink-citation\n"
+        "<!: this file (_report.md) is the internal wikilink-citation\n"
         "     SOURCE (citekeys as double-bracket wikilinks). The reader-facing\n"
         "     report.md (no underscore) is a SEPARATE artifact produced by\n"
         "     manuscript/bib.py::render_numbered_manuscript. -->\n"
@@ -144,7 +142,7 @@ def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase-1 manifest (type-optional — design §5 table row 1)
+# Phase-1 manifest (type-optional table row 1)
 # ---------------------------------------------------------------------------
 
 def _build_phase1_manifest(
@@ -159,13 +157,12 @@ def _build_phase1_manifest(
     """Build the Phase-1 manifest for ``ms_type``, or ``None`` (pass-through).
 
     If ``ms_type.phase1_builder`` is set, delegate to it (a type-specific
-    Phase-1 shape — e.g. lit-review's framework-selection sub-loop, design §5,
-    PR-M6). Otherwise return ``None``: the default pass-through skips Phase-1
-    entirely (design §1: "A `type` whose `phase1_builder` is the default
+    Phase-1 shape — e.g. lit-review's framework-selection sub-loop,
+    ). Otherwise return ``None``: the default pass-through skips Phase-1
+    entirely ("A `type` whose `phase1_builder` is the default
     pass-through … skips this entirely") — ``rv manuscript expand`` is the
     very next step.
 
-    sr: PR-M1
     """
     if ms_type.phase1_builder is not None:
         return ms_type.phase1_builder(
@@ -187,14 +184,14 @@ def _inject_source_transform_tips(
 ) -> dict[str, str]:
     """Wire ``ms_type.source_transform``'s output into the matching section tips.
 
-    ★ Integration-PR seam edit (mirrors PR-M4's ``inject_equation_brief``
+    ★ Integration-PR seam edit (mirrors ``inject_equation_brief``
     pattern — additive, a NEW dict returned, the input never mutated):
-    PR-M6's ``lit_review.source_transform`` was dead code — computed but
+    ``lit_review.source_transform`` was dead code — computed but
     never injected anywhere, so its briefs' "use the injected PRISMA ledger /
     comparison table" instructions dangled. This makes it real:
 
       - ``appendix-methods``   -> appended to the ``appendix-methods`` tip
-        (PR-B, gold-settled: the PRISMA ledger relocates from the removed
+        (gold-settled: the PRISMA ledger relocates from the removed
         ``prisma-scope`` body row all the way OUT of ``report.md`` — the
         tip now instructs a DEVLOG/control-note write, never a body
         section or an appendix; ``report.md`` carries no Appendix at all).
@@ -228,7 +225,7 @@ def _inject_source_transform_tips(
     if provenance_header and "assemble" in result:
         result["assemble"] = (
             result["assemble"].rstrip() + "\n\n---\n\nInjected provenance_header "
-            "(prepend verbatim atop _report.md, PR-D2):\n\n" + provenance_header
+            "(prepend verbatim atop _report.md):\n\n" + provenance_header
         )
 
     branches = transform.get("framework_branches")
@@ -264,10 +261,10 @@ def _build_phase2_manifest(
     absolute paths — Fix #34 lesson: absolute so the reads:-grounding resolver
     finds them regardless of project_root at run/tick time) + the sections/
     working dir. ``assemble`` joins the drafted sections into ``_report.md``
-    (RD-1, PR-D2: the internal ``[[citekey]]`` SOURCE — never ``report.md``,
+    (RD-1, the internal ``[[citekey]]`` SOURCE — never ``report.md``,
     which is a separate reader-facing render produced later).
-    ``approve-manuscript`` is the terminal human-go gate; the hermetic-.bib
-    (PR-M2), fidelity (PR-M3), and equation (PR-M4) gates that feed it are
+    ``approve-manuscript`` is the terminal human-go gate; the hermetic-.bib,
+    fidelity, and equation gates that feed it are
     assembled by ``manuscript/check_gates.py::build_approve_payload`` and
     wired into ``rv dag approve`` (the manuscript-integration PR).
 
@@ -284,9 +281,8 @@ def _build_phase2_manifest(
             spine (a type with no ``source_transform``, or a manuscript
             whose framework isn't frozen yet, is a correct no-op).
 
-    sr: PR-M1 (manuscript-integration: source_transform wiring, §4)
     """
-    # NG-7 (next-gen lit-review design §2): a type's custom Phase-2 builder
+    # NG-7 (next-gen lit-review): a type's custom Phase-2 builder
     # (single-pass outline -> draft -> assemble) takes over entirely when
     # present — mirrors ``_build_phase1_manifest``'s delegation exactly.
     if ms_type.phase2_builder is not None:
@@ -309,7 +305,7 @@ def _build_phase2_manifest(
     tips = get_manuscript_section_tips(ms_type, config=config)
     preamble = get_manuscript_style_preamble(config=config)
 
-    # PR-M4 (§7, seam edit — minimal + additive): inject the equation ledger
+    # (seam edit — minimal + additive): inject the equation ledger
     # into the relevant sections' briefs. A type with no equation_sources, or
     # a corpus with no pivotal equations, is a no-op (empty ledger -> tips
     # unchanged) — never an error.
@@ -322,7 +318,7 @@ def _build_phase2_manifest(
             tips, equation_ledger, ms_type.section_set, ms_type.equation_sources
         )
 
-    # Integration-PR (seam edit — minimal + additive, mirrors the PR-M4 block
+    # Integration-PR (seam edit — minimal + additive, mirrors the block
     # above): wire M6's `source_transform` (previously computed nowhere —
     # dead code). A type with no `source_transform` is a no-op (unchanged
     # tips); cmd_expand passes the frozen spine (`spine_shape`+`branches`)
@@ -338,7 +334,7 @@ def _build_phase2_manifest(
         )
         tips = _inject_source_transform_tips(tips, transform)
 
-    # PR-M7 (§8) / NG-8 (next-gen lit-review design §3, supersedes the
+    #  NG-8 (next-gen lit-review, supersedes the
     # verbatim form): embed the type's exemplar bundle into the matching
     # sections' briefs as MUST-READ POINTERS (``read <path>``), not a
     # verbatim embed and not a prose "write in a synthesis style"
@@ -378,13 +374,13 @@ def _build_phase2_manifest(
         reads = [_rel(atom) for atom in section.source_atoms] + [sections_dir_abs]
         # NG-8: wire the exemplar bundle's absolute dir into `reads:` so the
         # harness's reads-grounding resolver surfaces the pointed-at files as
-        # available context (design §3.1: "the `reads:` wiring guarantees
+        # available context ("the `reads:` wiring guarantees
         # availability; the outline citation guarantees use").
         if exemplar_bundle_dir is not None:
             reads.append(str(exemplar_bundle_dir))
         node_spec = _spec(section.brief_key or section.name)
 
-        # NG-8 (§3.3): the pre-dispatch presence assertion — a driver that
+        # NG-8: the pre-dispatch presence assertion — a driver that
         # somehow bypassed inject_exemplar_briefs for a section this bundle
         # covers fails LOUDLY here, never silently ships a voiceless brief.
         if exemplar_blocks:
@@ -404,22 +400,22 @@ def _build_phase2_manifest(
         section_ids.append(node_id)
         prev_id = node_id
 
-    # assemble — joins the drafted sections into _report.md (RD-1, PR-D2:
+    # assemble — joins the drafted sections into _report.md (RD-1,
     # the internal [[citekey]] SOURCE — never the rendered `report.md`).
     nodes.append({
         "id": "assemble",
         "type": "agent",
-        "label": "Assemble — join drafted sections into _report.md (RD-1, PR-D2)",
+        "label": "Assemble — join drafted sections into _report.md (RD-1)",
         "spec": _spec("assemble"),
         "reads": [sections_dir_abs],
         "needs": [_afterok(section_ids[-1])],
         "produces": {"_report.md": str(tree_root / "_report.md")},
     })
 
-    # approve-manuscript — terminal human-go gate. The hermetic-.bib (PR-M2),
-    # fidelity (PR-M3), and equation (PR-M4) gates are LANDED and assembled by
+    # approve-manuscript — terminal human-go gate. The hermetic-.bib,
+    # fidelity, and equation gates are LANDED and assembled by
     # check_gates.py::build_approve_payload, wired into `rv dag approve` at
-    # this node; the review-revise board (PR-M5) is NOT YET built.
+    # this node; the review-revise board is NOT YET built.
     nodes.append({
         "id": "approve-manuscript",
         "type": "human-go",
@@ -428,7 +424,7 @@ def _build_phase2_manifest(
             "manuscript/check_gates.py::build_approve_payload — hermetic .bib "
             "BLOCK, equation-fidelity SIGNAL, support-matcher BLOCK/SIGNAL "
             "behind the judge guard; the review-revise board "
-            "PR-M5 will re-fire these ahead of this gate once it lands)"
+            " will re-fire these ahead of this gate once it lands)"
         ),
         "needs": [_afterok("assemble")],
     })
@@ -459,17 +455,17 @@ def cmd_new(
 
     When to use: use ``rv manuscript <project> new <slug> --type <type>`` to
     scaffold a new manuscript. This is the ONLY path that creates the
-    per-manuscript folder convention (design §0/§12) — hand-creating
+    per-manuscript folder convention — hand-creating
     ``manuscripts/<slug>/`` skips the type registration + the DAG-driven loop.
 
     Anti-pattern: do NOT hand-write markdown sections and hand-collect
     citations from OKF piles — run this so the drafting DAG (``rv manuscript
     expand`` + ``rv dag run``) drives the section-by-section scaffold, with
-    the hermetic references build (PR-M2), fidelity gates (PR-M3), equation
-    machinery (PR-M4), and review-revise board (PR-M5) plugging into this
+    the hermetic references build, fidelity gates, equation
+    machinery, and review-revise board plugging into this
     same folder as they land.
 
-    NG-7 §2.6 (explore-rl friction #6): the manuscript slug is expected to
+    NG-7 (explore-rl friction #6): the manuscript slug is expected to
     match its underlying ``rv review`` scope id (``reviews/<slug>/_corpus.md``)
     — a silent mismatch surfaces two DAG nodes deep as an unexplained "no
     frozen corpus" from the ``scope``/``coverage-gate`` machinery. Two fixes:
@@ -489,7 +485,7 @@ def cmd_new(
             Unknown types fail loudly — see ``_unknown_type_error``.
         config: optional Config (loaded if None).
         from_review: an ``rv review`` scope id to adopt as the slug (NG-7
-            §2.6) — pre-binds the corpus by making the manuscript slug equal
+            ) — pre-binds the corpus by making the manuscript slug equal
             the review scope id, the convention every corpus-lookup keys off.
 
     Returns:
@@ -497,9 +493,8 @@ def cmd_new(
           note_path: path to ``manuscripts/<slug>/_manuscript.md``
           tree_root: path to ``manuscripts/<slug>/``
           manifest:  the Phase-1 manifest dict, or None (pass-through type —
-                     design §1: this type's Phase-1 is skipped entirely).
+                     this type's Phase-1 is skipped entirely).
 
-    sr: PR-M1; NG-lit-review-waveB (NG-7 §2.6: --from-review + warn-at-creation)
     """
     import warnings
 
@@ -523,7 +518,7 @@ def cmd_new(
         raise ValueError(
             "rv manuscript new: a slug is required — pass it directly, or "
             "pass --from-review <scope> to adopt the review scope id as the "
-            "slug (NG-7 §2.6)."
+            "slug (NG-7)."
         )
 
     ms_type = get_type(ms_type_key)
@@ -545,7 +540,7 @@ def cmd_new(
             f"(avoiding a silent overwrite of an in-progress manuscript)."
         )
 
-    # NG-7 §2.6 warn-at-creation: a slug with no matching frozen review
+    # NG-7 warn-at-creation: a slug with no matching frozen review
     # corpus is a silent landmine that surfaces two nodes deep (scope/
     # coverage-gate report "no frozen corpus" with no explanation of why).
     expected_corpus = project_notes_dir / "reviews" / slug / "_corpus.md"
@@ -573,23 +568,23 @@ def cmd_new(
         "title": slug,
         "created": _today(),
         "slug": slug,
-        "spine": "",          # filled by approve-framework (PR-M6, lit-review only)
-        "spine_shape": "",    # PR-M6: one of pipeline|evolution-arc|n-axis|coupled-taxonomies|custom
-        "branches": "",       # PR-M6: scalar list of the frozen framework's top-level branch names
-        "corpus_hash": "",    # stale-corpus guard (PR-M6)
+        "spine": "",          # filled by approve-framework (lit-review only)
+        "spine_shape": "",    # one of pipeline|evolution-arc|n-axis|coupled-taxonomies|custom
+        "branches": "",       # scalar list of the frozen framework's top-level branch names
+        "corpus_hash": "",    # stale-corpus guard
         "run_state": "",      # dag_run id, set once Phase-1/2 is emitted
-        "manuscript_location": str(tree_root / "report.md"),  # PR-D2: reader-facing render, produced later
+        "manuscript_location": str(tree_root / "report.md"),  # reader-facing render, produced later
     }
     body = (
         "\n"
-        "<!-- Manuscript control note (PR-M1) -->\n"
+        "<!-- Manuscript control note -->\n"
         f"<!-- type: {ms_type.key} -->\n"
         "<!-- Use `rv manuscript <project> expand <slug>` to emit the Phase-2 "
         "draft+review manifest. -->\n"
-        "<!-- The hermetic .bib build (PR-M2), fidelity gates (PR-M3), and equation -->\n"
-        "<!-- machinery (PR-M4) are LANDED and assembled by -->\n"
+        "<!-- The hermetic .bib build, fidelity gates, and equation -->\n"
+        "<!-- machinery are LANDED and assembled by -->\n"
         "<!-- manuscript/check_gates.py::build_approve_payload, gating -->\n"
-        "<!-- approve-manuscript. The review-revise board (PR-M5) is NOT YET -->\n"
+        "<!-- approve-manuscript. The review-revise board is NOT YET -->\n"
         "<!-- built — this note and the drafting DAG remain the durable -->\n"
         "<!-- control surface across all of them. -->\n"
         "\n"
@@ -605,7 +600,7 @@ def cmd_new(
         references_md.write_text(
             "# References\n\n"
             "<!-- references.md — hermetic build from literature/ frontmatter, -->\n"
-            "<!-- PR-M2 (landed). See manuscript/bib.py::build_references_md — -->\n"
+            "<! (landed). See manuscript/bib.py::build_references_md — -->\n"
             "<!-- re-run the manuscript bib gate to regenerate. Do NOT hand-edit -->\n"
             "<!-- citekeys here. -->\n",
             encoding="utf-8",
@@ -644,7 +639,7 @@ def cmd_expand(
 
     Anti-pattern: do NOT hand-write a Phase-2 manifest — the section_set comes
     from the registered ManuscriptType; hand-writing would drift from the
-    type's real section table as it's populated (PR-M6).
+    type's real section table as it's populated.
 
     Args:
         project: project slug.
@@ -654,7 +649,6 @@ def cmd_expand(
     Returns:
         The Phase-2 manifest dict (also saved as ``phase2-dag.json``).
 
-    sr: PR-M1
     """
     cfg = config or load_config()
     project_notes_dir = cfg.project_notes_dir(project)
@@ -700,11 +694,11 @@ def cmd_review(
     judge_fn: Any | None = None,
     canary_judge_fn: Any | None = None,
 ) -> dict[str, Any]:
-    """Drive the 2-round x 3-reviewer adversarial review-revise board (§9).
+    """Drive the 2-round x 3-reviewer adversarial review-revise board.
 
     When to use: ``rv manuscript <project> review <slug>`` runs the bounded
-    review-revise loop (``manuscript/review_board.py``, PR-M5) against the
-    manuscript's current draft. PR-F: the in-process API judge default was
+    review-revise loop (``manuscript/review_board.py``) against the
+    manuscript's current draft. The in-process API judge default was
     DELETED — a None ``judge_fn`` raises loudly (charter §2: never a silent
     no-op). Production cold-judge review runs via the 6-lens board's
     emit/ingest fan-out (``manuscript.board`` + ``gates.board_seam``), driven
@@ -716,7 +710,7 @@ def cmd_review(
         slug: manuscript identifier (same as passed to ``cmd_new``).
         config: optional Config (loaded if None).
         judge_fn: injectable reviewer judge — ``(prompt: str) -> str``.
-            REQUIRED (PR-F): None raises loudly — there is no live-API
+            REQUIRED: None raises loudly — there is no live-API
             default. Pass a mock only in tests.
         canary_judge_fn: injectable canary judge (defaults to the same judge
             as ``judge_fn`` — the mandatory canary always fires against the
@@ -726,7 +720,6 @@ def cmd_review(
         The ``run_review_board`` result dict (``cleared``, ``rounds``,
         ``not_cleared``, ``escalation``, ``honest_report``, ``meta``, ...).
 
-    sr: PR-M5
     """
     from research_vault.manuscript import review_board as _review_board
     from research_vault.manuscript.check_gates import _read_draft_text
@@ -749,7 +742,7 @@ def cmd_review(
     if ms_type is None:
         raise _unknown_type_error(ms_type_key)
 
-    # PR-F: the in-process API judge-construction block was DELETED. rv NEVER
+    # the in-process API judge-construction block was DELETED. rv NEVER
     # builds a live judge here — the production cold-judge path is the 6-lens
     # board's emit/ingest fan-out (``gates.board_seam`` + ``manuscript.board``,
     # driven out-of-band by the hub, its result consumed at
@@ -761,7 +754,7 @@ def cmd_review(
     if judge_fn is None:
         raise RuntimeError(
             "rv manuscript review: no judge_fn supplied. The in-process API "
-            "judge path was deleted (PR-F) — the production cold-judge review "
+            "judge path was deleted — the production cold-judge review "
             "runs via the 6-lens board's emit/ingest fan-out (the hub fans "
             "out fresh cold subagent-judges; the result is consumed at "
             "approve-manuscript). Pass an explicit judge_fn only in tests."
@@ -782,14 +775,14 @@ def cmd_review(
         floor_dims=review_cfg["floor_dimensions"],
         floor_value=review_cfg["floor_value"],
         judge_fn=_judge_fn,
-        judge_model="",  # PR-F: audit label only; no env-var judge-model read
+        judge_model="",  # audit label only; no env-var judge-model read
         rubric_override=ms_type.rubric,
         config=cfg,
         canary_judge_fn=_canary_judge_fn,
         revise_judge_fn=_judge_fn,
     )
 
-    # meta["manuscript_review"] logging (design §9) — stamped onto the
+    # meta["manuscript_review"] logging — stamped onto the
     # control note so the run's outcome is durable, human-auditable state,
     # not just a stdout line that scrolls away.
     _stamp_review_meta(note_path, result)
@@ -803,12 +796,11 @@ def _stamp_review_meta(note_path: Path, result: dict[str, Any]) -> None:
     Never says "approved" — records ``cleared``/``cleared_at``/the honest
     report string, appended (never overwrites prior runs' history).
 
-    PR-M8: also stamps ``judge_model`` + the set of reviewer ``prompt_hash``
+    also stamps ``judge_model`` + the set of reviewer ``prompt_hash``
     values actually used this run — audit + drift-detection provenance (the
     support-matcher convention), so a run's judge identity is
     durable state, not just a stdout line that scrolls away.
 
-    sr: PR-M5; judge_model/prompt_hash logging PR-M8
     """
     text = note_path.read_text(encoding="utf-8")
 
@@ -834,7 +826,7 @@ def _stamp_review_meta(note_path: Path, result: dict[str, Any]) -> None:
 
 
 def _judge_dir(tree_root: Path, gate: str) -> Path:
-    """``manuscripts/<slug>/judge/<gate>/`` — one dir per gate (design §1.9,
+    """``manuscripts/<slug>/judge/<gate>/`` — one dir per gate (
     NG-4's "one file per gate")."""
     return tree_root / "judge" / gate
 
@@ -846,7 +838,7 @@ def cmd_judge_emit(
     config: Config | None = None,
     gate: str = "support-matcher",
 ) -> dict[str, Any]:
-    """Emit the NG-4 cold-agent-judge fan-out task set (design §1.9,
+    """Emit the NG-4 cold-agent-judge fan-out task set (
     Phase A) — ``rv manuscript <project> judge-emit <slug>``.
 
     Writes ``manuscripts/<slug>/judge/support-matcher/_judge-tasks.json`` +
@@ -866,7 +858,6 @@ def cmd_judge_emit(
     Returns ``{"support-matcher": {...}}`` — the value is the emit
     function's own ``{"tasks_doc", "canary_key_doc"}`` return.
 
-    sr: NG-4
     """
     from research_vault.manuscript import fidelity_gates as _fg
 
@@ -907,7 +898,7 @@ def cmd_judge_ingest(
     config: Config | None = None,
     gate: str = "support-matcher",
 ) -> dict[str, Any]:
-    """Ingest ``_judge-verdicts.json`` for the NG-4 fan-out (design §1.9,
+    """Ingest ``_judge-verdicts.json`` for the NG-4 fan-out (
     Phase C) — ``rv manuscript <project> judge-ingest <slug>``.
 
     Reads whatever the hub wrote to
@@ -922,7 +913,6 @@ def cmd_judge_ingest(
 
     Returns ``{"support-matcher": {...}}``.
 
-    sr: NG-4
     """
     from research_vault.manuscript import fidelity_gates as _fg
     from research_vault.gates.judge_seam import CanaryAbortError
@@ -959,21 +949,21 @@ def cmd_board_emit(
     config: Config | None = None,
     round: int = 1,  # noqa: A002 - matches emit_board_tasks' field name
 ) -> dict[str, Any]:
-    """★ PR-D2: the 6-lens board's production emit driver — the missing
-    call site ``compute_coverage_diff`` never had (PR-F pinned the
+    """★ the 6-lens board's production emit driver — the missing
+    call site ``compute_coverage_diff`` never had (pinned the
     source-routing CONTRACT as a unit regression; this is the driver that
     actually exercises it in production).
 
     Writes ``manuscripts/<slug>/judge/board/_board-tasks.json`` +
     ``_board-canary-key.json`` (``gates.board_seam.emit_board_tasks_to_dir``,
-    design §2). rv calls NO LLM here — the hub fans cold subagent-judges out
+    ). rv calls NO LLM here — the hub fans cold subagent-judges out
     over the written tasks; run ``rv manuscript <project> board-ingest
     <slug>`` (or ``build_approve_payload``'s board consumption) once
     ``_board-verdicts.json`` lands.
 
-    ★ SOURCE-ROUTING (non-negotiable, PR-F/PR-D2): ``reader_body`` is
+    ★ SOURCE-ROUTING (non-negotiable): ``reader_body`` is
     assembled via ``check_gates._read_draft_text`` — the ``[[citekey]]``
-    SOURCE (``_report.md`` + ``sections/*.md``), NEVER PR-D's ``[N]``-
+    SOURCE (``_report.md`` + ``sections/*.md``), NEVER ``[N]``-
     numbered render (``report.md``). Feeding the render here would make
     ``WIKILINK_CITE_RE`` find zero citekeys, so ``compute_coverage_diff``
     would flag EVERY committed ``used`` paper as "missing" and
@@ -988,7 +978,7 @@ def cmd_board_emit(
         slug: manuscript identifier.
         config: optional Config (loaded if None).
         round: the board round number (default 1 — the first-round emit;
-            re-fire with a higher round number for the PR-B4 revise loop).
+            re-fire with a higher round number for the revise loop).
 
     Returns:
         ``{"tasks_doc": ..., "canary_key_doc": ..., "coverage_diff": ...}``
@@ -996,7 +986,6 @@ def cmd_board_emit(
         the WIDTH task) so a caller/test can assert on it directly without
         digging through ``tasks_doc["tasks"]``.
 
-    sr: PR-D2
     """
     from research_vault.gates.board_seam import emit_board_tasks_to_dir
     from research_vault.manuscript.check_gates import _read_draft_text, compute_coverage_diff
@@ -1044,7 +1033,6 @@ def cmd_list(
         List of {slug, manuscript_type, path, fields} dicts, one per
         manuscript folder found. Empty list when none exist yet.
 
-    sr: PR-M1
     """
     cfg = config or load_config()
     root = _manuscripts_root(project, cfg)

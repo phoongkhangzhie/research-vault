@@ -33,7 +33,7 @@ OKF_TYPES = frozenset({
     "findings",
     "mocs",
     "datasets",    # provenance note for data artifacts (points to data, never contains it)
-    "gaps",        # typed research gap record (§5L.7-5L.8); project-scoped; first-class lifecycle
+    "gaps",        # typed research gap record; project-scoped; first-class lifecycle
 })
 
 # The sole SHARED (cross-project) OKF type — lives in cfg.datasets_root.
@@ -51,8 +51,8 @@ OKF_SHARED_TYPES: frozenset[str] = frozenset({"datasets"})
 # overlay (role/position/concept-edges + a `central:` pointer) lives at
 # cfg.project_notes_dir(project)/literature/<citekey>.md — same location a
 # literature note has always lived at, now carrying only the RQ-relative
-# layer. See PR-A (2026-07-10-central-note-store-cross-project-design.md
-# §0.5 PR-A, §3.1). A third routing class — NOT membership in
+# layer. See (2026-07-10-central-note-store-cross-project-design.md
+#). A third routing class — NOT membership in
 # OKF_SHARED_TYPES, which would collapse the per-project overlay away.
 # SSOT: consumed by cmd_new/cmd_list/cmd_check's three-arm routing + the
 # note.load_literature_note resolver. Do NOT duplicate this — import from
@@ -90,7 +90,7 @@ REPRO_SENTINEL = "not-recorded-in-provenance"
 # aggregated CSV, but repro_model_id/repro_seed/etc. are not applicable (no run occurred).
 REPRO_NOT_APPLICABLE = "not-applicable"
 
-# Full ordered list of all repro_* fields (§5J.14 — 22 fields).
+# Full ordered list of all repro_* fields (22 fields).
 # Layer 1: hashed full-config artifact (tamper-evident ground truth).
 REPRO_LAYER1 = [
     "repro_config_location",   # path to <exp>.config.json (full dict(run.config) dump)
@@ -131,7 +131,7 @@ REPRO_MANUAL = [
     "repro_dataset_split",
     "repro_metric",
 ]
-# PR-CC-2 (D-CC-2 / CHECK-4b): tolerance taxonomy — declares the comparison a
+# (D-CC-2 / CHECK-4b): tolerance taxonomy — declares the comparison a
 # golden-rerun test should apply against this experiment's recorded
 # scores[].hash, so an exact-hash gate never fails-forever on a legitimately
 # nondeterministic (GPU/stochastic) pipeline. Values: exact | tol:<eps> |
@@ -144,7 +144,7 @@ REPRO_MANUAL = [
 REPRO_TOLERANCE = ["repro_determinism"]
 
 # All repro_* fields in canonical order (22 provenance-chain fields +
-# repro_determinism, the tolerance-taxonomy field added by PR-CC-2):
+# repro_determinism, the tolerance-taxonomy field added):
 REPRO_ALL_FIELDS: list[str] = (
     REPRO_LAYER1
     + REPRO_AUTO_CONFIG
@@ -158,10 +158,10 @@ REPRO_ALL_FIELDS: list[str] = (
 
 # Fields required for the lint (warn when results_hash is set but these are still sentinel):
 # All non-dataset fields (dataset linking is optional; hw deferral is acceptable).
-# repro_determinism is deliberately EXCLUDED (PR-CC-2 / CHECK-4b): it scaffolds
+# repro_determinism is deliberately EXCLUDED (CHECK-4b): it scaffolds
 # to a complete default ("exact"), not the sentinel, so it is never a
 # completeness gap the lint should flag.
-# PR-CC-1 (R1): repro_seed is PROMOTED out of this soft WARN list — a seedless
+# (R1): repro_seed is PROMOTED out of this soft WARN list — a seedless
 # claimed result is not reproducible, so it is now enforced HARD inside
 # check_provenance_chain (CHECK-1/CHECK-4a). The other repro_* fields
 # (including the Layer-1 config pair, folded again into CHECK-1 as CHECK-2)
@@ -208,7 +208,7 @@ def _parse_frontmatter(
 ) -> "tuple[dict[str, str | list[str] | list[dict[str, str]]], str]":
     """Parse YAML-like frontmatter between --- delimiters.
 
-    Handles scalar fields, YAML indented scalar-list fields, and (D8, PR-3)
+    Handles scalar fields, YAML indented scalar-list fields, and (D8)
     YAML indented mapping-list fields:
     - Scalar:  ``key: value`` → ``{"key": "value"}``
     - List:    ``key:\\n  - a\\n  - b`` → ``{"key": ["a", "b"]}``
@@ -278,7 +278,7 @@ def _parse_frontmatter(
             remainder = line[4:].strip()
             # D8: does the remainder itself look like "key: value"? If so, this
             # item opens a new mapping-list dict entry (not a plain scalar).
-            # Fix 3 (PR #147 followup): require WHITESPACE after the colon (or
+            # Fix 3 (PR followup): require WHITESPACE after the colon (or
             # end-of-string for an empty value), matching YAML flow-map
             # semantics ("key: value", not "key:value") — otherwise a
             # URL/DOI-shaped scalar-list item containing a bare colon (e.g.
@@ -347,7 +347,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
     # cross-project CENTRAL core (intrinsic paper facts, distilled once —
     # cfg.literature_root) + a thin per-project OVERLAY (role/position/
     # concept-edges + a `central:` pointer — cfg.project_notes_dir/<type>).
-    # See PR-A, §3.1-3.4. Handled as its own branch (below) — never falls
+    # See. Handled as its own branch (below) — never falls
     # through to the plain project-scoped/shared branches.
     #
     # Shared types (OKF_SHARED_TYPES) live in cfg.datasets_root, not in
@@ -400,7 +400,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
         # MANUAL fields: cross-lingual trio + eval params — fill by hand; sentinel = honest hole.
         for repro_field in REPRO_ALL_FIELDS:
             fields[repro_field] = REPRO_SENTINEL
-        # PR-CC-2 (D-CC-2 / R3): repro_determinism scaffolds to the strict safe
+        # (D-CC-2 / R3): repro_determinism scaffolds to the strict safe
         # default "exact", NOT the sentinel — a stochastic/GPU pipeline must
         # explicitly relax it. Overridden after the loop (not a REPRO_SENTINEL
         # hole, so it must not be forced to fill like the completeness fields).
@@ -453,7 +453,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
             "<!--   repro_prompt_version, repro_dataset_split, repro_metric. -->\n"
             "<!-- Anti-fabrication: use 'not-recorded-in-provenance' not blank/guessed. -->\n"
             "<!-- -->\n"
-            "<!-- repro_determinism (PR-CC-2 / D-CC-2): the tolerance taxonomy a -->\n"
+            "<!-- repro_determinism (D-CC-2): the tolerance taxonomy a -->\n"
             "<!--   golden-rerun test uses to pick its comparison. Values: -->\n"
             "<!--     exact       — bit-for-bit reproducible (default; strictest) -->\n"
             "<!--     tol:<eps>   — reproducible within a numeric epsilon, e.g. tol:1e-6 -->\n"
@@ -477,7 +477,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
 
 
 # ---------------------------------------------------------------------------
-# Two-layer literature store — write path (PR-A, §0.5 PR-A, §3.1-3.4)
+# Two-layer literature store — write path
 # ---------------------------------------------------------------------------
 
 def _literature_core_body() -> str:
@@ -538,16 +538,16 @@ def _cmd_new_two_layer(
 
     Slug/identity note: the central-core FILENAME uses the same
     note_id-or-slugify(title) convention every other OKF type uses — NOT a
-    re-derived identity precedence (PR-A item 4: use the SHIPPED
+    re-derived identity precedence (item 4: use the SHIPPED
     ``authorYearWord`` convention / ``cite.CITEKEY_RE``, don't invent a
     new one). The canonical ``citekey:`` frontmatter field is stamped
     later by ``rv research citekey`` once title/authors/year are known —
-    identical to the pre-PR-A monolithic-note behavior.
+    identical to the pre- monolithic-note behavior.
 
     If a core already exists for this slug (another project already
     distilled this paper), it is NOT overwritten or duplicated — this
     project's overlay is simply wired to point at the existing core
-    (§3.4: "distilled but not adopted" — now "distilled AND adopted").
+    ("distilled but not adopted" — now "distilled AND adopted").
     Cross-id-collision detection (same slug, DIFFERENT paper) is the
     identity-resolution work deferred to the amortization fast-follow
     (D6) — out of scope for this write path.
@@ -578,7 +578,7 @@ def _cmd_new_two_layer(
         # an S2 candidate to a filed note without requiring Zotero library.json sync.
         # Fill these in after rv note new to enable [IN-CORPUS] annotation for the note.
         #
-        # PR-4/K (§K-2): the canonical BibTeX citekey (K-D1: authorYearWord —
+        # (§K-2): the canonical BibTeX citekey (K-D1: authorYearWord —
         # familyShorttitleYear, see cite.CITEKEY_RE). The FILENAME may stay
         # an arbitrary id (arXiv id, S2 id, slug — whatever this note was
         # filed under); this field is now the ONE convention downstream
@@ -598,7 +598,7 @@ def _cmd_new_two_layer(
         core_fields["openalex"] = ""   # fill in: OpenAlex work id
         core_fields["pmid"] = ""       # fill in: PubMed id
         core_fields["s2"] = ""         # fill in: Semantic Scholar corpus id
-        # PR-L1 (§7.5): the lit-review ingestion enrichment — three OPTIONAL
+        # the lit-review ingestion enrichment — three OPTIONAL
         # fields, populated by the relate-<key> node (review/style.py
         # per_paper_relate_tips) or filled by hand. Absence is never a
         # cmd_check violation (doi/arxiv_id precedent — no gate added).
@@ -636,7 +636,7 @@ def _cmd_new_two_layer(
 # Two-layer literature store — the canonical resolver (SINGLE read seam)
 # ---------------------------------------------------------------------------
 #
-# Every literature reader routes through here (PR-A §3.4, item 6). Do NOT
+# Every literature reader routes through here (item 6). Do NOT
 # glob literature/*.md and parse frontmatter directly for intrinsic
 # (core-only) fields — that path re-introduces representation-coupling
 # the resolver exists to prevent.
@@ -737,9 +737,9 @@ def load_literature_note(cfg: Config, project: str, citekey: str) -> AssembledNo
 
 def iter_literature_notes(cfg: Config, project: str):
     """Yield an ``AssembledNote`` for every overlay this project has
-    adopted (globs the overlay dir — the per-project registry, §5/§3.3).
+    adopted (globs the overlay dir — the per-project registry).
     A core with no overlay in this project is correctly invisible here —
-    "distilled but not adopted" (§3.4), not an error.
+    "distilled but not adopted", not an error.
     """
     overlay_dir = cfg.project_notes_dir(project) / "literature"
     if not overlay_dir.exists():
@@ -749,7 +749,7 @@ def iter_literature_notes(cfg: Config, project: str):
 
 
 # ---------------------------------------------------------------------------
-# Two-layer invariant lint (PR-A §0.5 item 8 — GATING, not a nicety)
+# Two-layer invariant lint (item 8 — GATING, not a nicety)
 # ---------------------------------------------------------------------------
 #
 # Frontmatter misplacement is a hard BLOCK (unambiguous, and never touched
@@ -757,7 +757,7 @@ def iter_literature_notes(cfg: Config, project: str):
 # Body-section misplacement of '## Related papers' into the overlay is a
 # WARN: incremental_relate.append_bidirectional_edge still physically
 # writes paper->paper edges to the project's literature/<key>.md file
-# (the overlay's location) by explicit PR-A scope-fence deferral (§0.5:
+# (the overlay's location) by explicit scope-fence deferral (
 # "rewiring edge-writes to target the central core is fast-follow, not
 # this PR") — so this is a KNOWN, DOCUMENTED, currently-expected surface
 # until that fast-follow lands, not a bug this lint should hard-fail on.
@@ -786,7 +786,7 @@ _OVERLAY_ONLY_BODY_HEADING_RE = re.compile(
 
 
 def check_two_layer_invariants(core_path: Path, overlay_path: Path) -> list[str]:
-    """The invariant lint (PR-A acceptance item 3): no intrinsic field
+    """The invariant lint (acceptance item 3): no intrinsic field
     authored in an overlay, no position/role/concept-edge in a core.
 
     Returns a list of violation strings. Hard violations (frontmatter
@@ -826,7 +826,7 @@ def check_two_layer_invariants(core_path: Path, overlay_path: Path) -> list[str]
             f"section (Result/Key equations/Related papers) was found in "
             f"the overlay — expected until the incremental_relate "
             f"edge-write rewiring fast-follow retargets writes at the "
-            f"central core ({core_path}); see PR-A §0.5 scope fence."
+            f"central core ({core_path}); see scope fence."
         )
 
     if _OVERLAY_ONLY_BODY_HEADING_RE.search(core_body):
@@ -894,7 +894,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
     - (plan masters) resolves each covers: child, verifies it EXISTS at the
       experiments/ directory, and checks it has valid stance (confirmatory|
       exploratory) + valid plan_role (main|supporting_ablation|
-      conditional_ablation) — BLOCKS on any violation (§5K.7).
+      conditional_ablation) — BLOCKS on any violation.
     - (child notes) BLOCKS when plan_role is set but stance is missing; BLOCKS
       when stance=confirmatory but the note is not in any plan master's covers:
       (degrade-to-skip when no plan masters exist); BLOCKS when supports_main
@@ -918,7 +918,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
             continue
 
         # Pre-pass for experiments — collect covered_ids from all plan
-        # masters so child notes can be checked for absent-from-covers (§5K.7).
+        # masters so child notes can be checked for absent-from-covers.
         # Skipped for non-experiments types (covered_ids stays empty → no checks).
         covered_ids: set[str] = set()
         if t == "experiments":
@@ -980,7 +980,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # (empty = not yet pulled — not a violation)
                 result_issues = check_result_provenance(p)
                 violations.extend(result_issues)
-                # PR-CC-1 CHECK-1 (flagship, HARD): the provenance-chain
+                # CHECK-1 (flagship, HARD): the provenance-chain
                 # completeness gate — results_commit/repro_seed/repro_config_*
                 # (hash-verified)/dataset-link, all non-sentinel when a result
                 # is claimed. No _WARN_PREFIXES prefix: this BLOCKS (flips exit).
@@ -997,13 +997,13 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # covers: link-validation for plan master notes
                 # (plan_kind: preregistration); resolves each covers: child,
                 # checks stance ∈ {confirmatory, exploratory} and plan_role ∈
-                # {main, supporting_ablation, conditional_ablation} (§5K.7).
+                # {main, supporting_ablation, conditional_ablation}.
                 if fields.get("plan_kind") == "preregistration":
                     covers_issues = check_covers_links(p, fields, subdir)
                     violations.extend(covers_issues)
                 # child note checks — plan_role/stance presence +
                 # supports_main target existence + absent-from-covers warning
-                # (only for notes with plan_role set, §5K.7).
+                # (only for notes with plan_role set).
                 child_issues = check_plan_child_links(p, fields, subdir, covered_ids)
                 violations.extend(child_issues)
             elif t == "gaps":
@@ -1022,7 +1022,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                 # OKF_TWO_LAYER_TYPES); intrinsic checks (citekey conformance,
                 # the invariant lint) resolve the central CORE via
                 # `central:`, never read intrinsic fields off the overlay
-                # directly (PR-A §3.4 — the resolver is the single read seam).
+                # directly (the resolver is the single read seam).
                 if note_type != t:
                     violations.append(
                         f"{p}: type={note_type!r} but file is in {t!r} directory"
@@ -1044,14 +1044,14 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                         core_fields, _ = _parse_frontmatter(
                             core_path.read_text(encoding="utf-8")
                         )
-                        # PR-4/K-4: citekey conformance (DECIDED K-D2: WARN this
+                        # citekey conformance (DECIDED K-D2: WARN this
                         # release — promotion to a coverage-gate BLOCK is DEFERRED).
                         # An absent or non-conformant citekey never flips the exit
                         # code; it surfaces so a human can migrate it
                         # (`rv research migrate-citekeys`) or fill it in.
                         citekey_warnings = check_citekey_conformance(p, core_fields)
                         violations.extend(citekey_warnings)
-                        # PR-A item 8: the two-layer invariant lint — GATING
+                        # item 8: the two-layer invariant lint — GATING
                         # (BLOCK entries flip the exit code; WARN entries
                         # degrade like the other WARN classes below).
                         violations.extend(check_two_layer_invariants(core_path, p))
@@ -1127,7 +1127,7 @@ def check_gap_anchor(
 
 
 # ---------------------------------------------------------------------------
-# PR-4/K-4: citekey conformance (WARN this release — see cite.CITEKEY_RE)
+# citekey conformance (WARN this release — see cite.CITEKEY_RE)
 # ---------------------------------------------------------------------------
 
 def check_citekey_conformance(
@@ -1136,7 +1136,7 @@ def check_citekey_conformance(
 ) -> list[str]:
     """WARN when a literature note's ``citekey:`` is absent or non-conformant.
 
-    DECIDED K-D2 (PR-4): this is a WARN-only lint this release — it never
+    DECIDED K-D2: this is a WARN-only lint this release — it never
     flips ``rv note check``'s exit code. Promotion to a coverage-gate BLOCK
     is DEFERRED to a future release (once enough of the corpus has been
     migrated via ``rv research migrate-citekeys`` that a hard gate wouldn't
@@ -1175,7 +1175,7 @@ def _parse_covers_list(covers_str: str) -> list[str]:
     """Parse a flat inline YAML list string like '[a, b, c]' into Python list.
 
     Mirrors plan/freeze.py's _parse_covers_list — kept private to note.py so
-    plan/ stays note.py-free (§5K.10).  The two implementations are intentionally
+    plan/ stays note.py-free.  The two implementations are intentionally
     independent; the SSOT for the list-format contract is the OKF flat-frontmatter
     spec, not a shared function.
     """
@@ -1223,7 +1223,7 @@ def check_covers_links(
             violations.append(
                 f"{plan_note_path}: covers: child {child_id!r} not found "
                 f"at {child_path} — create the experiment note or remove it "
-                f"from covers: (§5K.7 link-validation)"
+                f"from covers: (link-validation)"
             )
             continue
 
@@ -1243,26 +1243,26 @@ def check_covers_links(
             violations.append(
                 f"{plan_note_path}: covers: child {child_id!r} is missing "
                 f"'stance' field — add stance: confirmatory or exploratory "
-                f"(§5K.1, §5K.7)"
+                f""
             )
         elif stance not in _VALID_STANCE:
             violations.append(
                 f"{plan_note_path}: covers: child {child_id!r} has "
                 f"invalid stance={stance!r} "
-                f"(expected: confirmatory or exploratory, §5K.1)"
+                f"(expected: confirmatory or exploratory)"
             )
 
         if not plan_role:
             violations.append(
                 f"{plan_note_path}: covers: child {child_id!r} is missing "
                 f"'plan_role' field "
-                f"(expected: main, supporting_ablation, or conditional_ablation, §5K.1)"
+                f"(expected: main, supporting_ablation, or conditional_ablation)"
             )
         elif plan_role not in _VALID_PLAN_ROLE:
             violations.append(
                 f"{plan_note_path}: covers: child {child_id!r} has "
                 f"invalid plan_role={plan_role!r} "
-                f"(expected: main, supporting_ablation, or conditional_ablation, §5K.1)"
+                f"(expected: main, supporting_ablation, or conditional_ablation)"
             )
 
     return violations
@@ -1283,7 +1283,7 @@ def check_plan_child_links(
     - If ``supports_main`` is set, the target note must exist
 
     The absent-from-covers check is *skipped* when covered_ids is empty (no plan
-    masters in this project) — degrade-to-skip, not degrade-to-block (§5K.7).
+    masters in this project) — degrade-to-skip, not degrade-to-block.
 
     Args:
         exp_note_path: path to the experiment note being checked.
@@ -1307,13 +1307,13 @@ def check_plan_child_links(
             violations.append(
                 f"{exp_note_path}: plan_role={plan_role!r} is set but "
                 f"'stance' field is missing — "
-                f"add stance: confirmatory or stance: exploratory (§5K.1)"
+                f"add stance: confirmatory or stance: exploratory "
             )
         elif stance == "confirmatory" and covered_ids and note_id not in covered_ids:
             violations.append(
                 f"{exp_note_path}: stance=confirmatory but {note_id!r} "
                 f"is not in any plan master's covers: list — "
-                f"add it to the plan master or check for a typo (§5K.7)"
+                f"add it to the plan master or check for a typo "
             )
 
     if supports_main:
@@ -1321,7 +1321,7 @@ def check_plan_child_links(
         if not target.exists():
             violations.append(
                 f"{exp_note_path}: supports_main={supports_main!r} target "
-                f"note not found at {target} (§5K.7)"
+                f"note not found at {target} "
             )
 
     return violations
@@ -1341,10 +1341,10 @@ def _is_local_results_path(location: str) -> bool:
 
 
 def _normalize_results(fields: "dict[str, Any]") -> "dict[str, list]":
-    """PR-3 (D2) read-shim: the ONE canonical results reader.
+    """ (D2) read-shim: the ONE canonical results reader.
 
     Returns ``{"runs": list[str], "scores": list[dict[str, str]]}`` — the
-    generalized N runs -> M scores schema (§4.2 of the CS-project-structure
+    generalized N runs -> M scores schema (of the CS-project-structure
     spec), covering every cardinality (1->1, N->1, 1->M, N->M).
 
     Folds the deprecated flat scalar fields (``results_location``,
@@ -1378,13 +1378,13 @@ def _normalize_results(fields: "dict[str, Any]") -> "dict[str, list]":
         legacy_location = (
             legacy_location.strip() if isinstance(legacy_location, str) else ""
         )
-        # Trigger on results_hash SET only (spec §4.2 D2) — NOT "either field
+        # Trigger on results_hash SET only (spec D2) — NOT "either field
         # present". A location-only legacy note (results_location filled,
         # results_hash still empty — the not-yet-run stub shape, e.g. rv's
         # shipped demo-research q1-main1-cabl-Y.md conditional-ablation note
-        # whose trigger hasn't fired) is "not yet run", matching pre-PR-3
+        # whose trigger hasn't fired) is "not yet run", matching pre-
         # behaviour: check_result_provenance skips ([]), it is not a
-        # violation. (Reviewer-caught regression, PR #147: the earlier
+        # violation. (Reviewer-caught regression, PR the earlier
         # `legacy_hash or legacy_location` superset flagged this shipped
         # not-yet-run state as "scores entry missing 'hash'".)
         if legacy_hash:
@@ -1410,7 +1410,7 @@ def check_result_provenance(exp_note_path: Path) -> list[str]:
     When to use: called by cmd_check (rv note check) to validate that every
     filled score anchor is hash-consistent.
 
-    Reworked (PR-3) to iterate ``_normalize_results(fields)["scores"]`` — the
+    Reworked to iterate ``_normalize_results(fields)["scores"]`` — the
     generalized N->M results schema — instead of a single flat
     results_location/results_hash pair:
       - Empty scores list -> not yet run -> [] (unchanged skip semantics;
@@ -1496,7 +1496,7 @@ def check_result_provenance(exp_note_path: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# PR-CC-1: provenance-chain completeness gate ★ FLAGSHIP (note-plane, HARD)
+# provenance-chain completeness gate ★ FLAGSHIP (note-plane, HARD)
 # ---------------------------------------------------------------------------
 
 def check_provenance_chain(exp_note_path: Path) -> list[str]:
@@ -1508,8 +1508,7 @@ def check_provenance_chain(exp_note_path: Path) -> list[str]:
     produces.note node whose note type is "experiments" — so a claimed result
     cannot be marked complete with a broken provenance chain.
 
-    Design: docs/superpowers/specs/2026-07-07-code-conventions-design.md
-    §3 CHECK-1/CHECK-2/CHECK-3a. Zero new field, zero new walker — every
+     CHECK-1/CHECK-2/CHECK-3a. Zero new field, zero new walker — every
     field asserted here already exists in the reproducibility schema.
 
     Rule: when _normalize_results(fields)["scores"] is non-empty (a result is
@@ -1689,7 +1688,7 @@ def check_dataset_provenance_warn(exp_note_path: Path) -> list[str]:
 
     Fires when:
       - _normalize_results(fields)["scores"] is non-empty (any score recorded
-        — PR-3 retarget: any score anchor, list form or the legacy flat-field
+         retarget: any score anchor, list form or the legacy flat-field
         shim, counts as "ran")
       - repro_dataset_id is still the sentinel (no datasets note linked)
 
@@ -1700,7 +1699,6 @@ def check_dataset_provenance_warn(exp_note_path: Path) -> list[str]:
       (b) setting repro_dataset_id: not-applicable (proxy/no-external-dataset run)
 
     Called by cmd_check alongside check_repro_sentinel_lint for experiments notes.
-    sr: F24
     """
     if not exp_note_path.exists():
         return []
@@ -1712,7 +1710,7 @@ def check_dataset_provenance_warn(exp_note_path: Path) -> list[str]:
 
     fields, _ = _parse_frontmatter(text)
 
-    # No results yet → warn does not fire (experiment not yet run). PR-3: gate
+    # No results yet → warn does not fire (experiment not yet run). Gate
     # on the normalized scores list (any score recorded), not the raw flat
     # results_hash field — this is what makes the warn fire for list-form
     # scores: too, while _normalize_results' own REPRO_SENTINEL exclusion
@@ -1749,7 +1747,7 @@ def check_repro_sentinel_lint(exp_note_path: Path) -> list[str]:
     time — when the information is still fresh and accessible.
 
     Lint fires only when:
-      - _normalize_results(fields)["scores"] is non-empty (PR-3 retarget: any
+      - _normalize_results(fields)["scores"] is non-empty (retarget: any
         score recorded, list form or the legacy flat-field shim)
       - At least one REPRO_LINT_REQUIRED field is still the sentinel
 
@@ -1880,7 +1878,7 @@ def run(args: argparse.Namespace) -> int:
             if not violations:
                 print(f"rv note check: OK — {args.project!r}")
                 return 0
-            # Separate hard violations from soft warnings (§5J.14).
+            # Separate hard violations from soft warnings.
             # Prefixes that degrade-to-warn (shown but do not flip exit code):
             #   [repro-lint] WARN: — repro-sentinel lint
             #   [gap-hygiene] WARN: — vanished anchor on open/reopened gap
@@ -1889,10 +1887,10 @@ def run(args: argparse.Namespace) -> int:
             #     states this is "SURFACE, never a BLOCK — INFO/WARN only"; it must
             #     degrade like the other two WARN classes, not hard-fail.
             #   [citekey-lint] WARN: — literature note citekey absent/non-conformant
-            #     (PR-4/K-4, DECIDED K-D2: WARN this release, BLOCK deferred).
+            #     (DECIDED K-D2: WARN this release, BLOCK deferred).
             #   [two-layer-lint] WARN: — '## Related papers' found in an
             #     overlay; expected until the incremental_relate edge-write
-            #     fast-follow lands (PR-A §0.5). Note: "[two-layer-lint]
+            #     fast-follow lands. Note: "[two-layer-lint]
             #     BLOCK:" entries do NOT match this (more specific) prefix,
             #     so they stay hard.
             _WARN_PREFIXES = (

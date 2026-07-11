@@ -329,7 +329,7 @@ def _all_citekeys(key: str, uid: int) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# PR-4/K — the ONE canonical citekey convention (K-D1: authorYearWord).
+#  the ONE canonical citekey convention (K-D1: authorYearWord).
 # ---------------------------------------------------------------------------
 # Four incompatible schemes were reaching the corpus (arXiv-id / S2-id /
 # OpenAlex-id / slug) because each ingestion path minted its own key. This is
@@ -347,7 +347,7 @@ def _all_citekeys(key: str, uid: int) -> set[str]:
 CITEKEY_RE = re.compile(r"^[a-z]+[A-Za-z]*\d{4}[a-z]?$")
 
 # Visible fail-closed sentinel for a citekey that could not be computed
-# (title/year metadata unresolved) — NEVER a guessed key (charter §1/§2).
+# (title/year metadata unresolved) — NEVER a guessed key (charter §1).
 # Mirrors the REPRO_SENTINEL convention (note.py): a loud, greppable hole,
 # never a blank field or an invented value.
 CITEKEY_SENTINEL = "CITEKEY-UNRESOLVED"

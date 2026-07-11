@@ -2,7 +2,7 @@
 """sources/annotate.py — corpus annotation for cross-source DedupedHits (NG-2).
 
 Reuses the EXISTING dedup/annotate layer's index (``research._load_notes_index``
-/ ``research._load_notes_title_index`` — §4.3 "reuse the existing dedup/
+/ ``research._load_notes_title_index``  "reuse the existing dedup/
 annotate layer") rather than a second parallel implementation; this module
 only adapts the LOOKUP KEY shape (a ``DedupedHit``'s normalized
 ``external_ids``/title) to those indices' expectations, mirroring

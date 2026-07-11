@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/equations.py — the don't-drop-the-math machinery (PR-M4).
+"""manuscript/equations.py — the don't-drop-the-math machinery.
 
-Three coordinated pieces (design §7, type-generic — applies to any
+Three coordinated pieces (type-generic — applies to any
 ``ManuscriptType`` via ``ms_type.equation_sources``, not just ``lit-review``):
 
   (c) ``extract_equation_ledger`` — a DETERMINISTIC extractor mining the
       type's ``equation_sources`` notes for pivotal equations, producing an
       **equation ledger**. Two joined data sources on a ``literature/`` note
-      (PR-L1 §7.5, the upstream coupling this module CONSUMES):
+      (the upstream coupling this module CONSUMES):
         - the body's ``## Key equations`` section — one ``### [label] Title``
           block per equation, body LaTeX verbatim underneath;
         - the frontmatter ``key_equations:`` criticality ledger (a D8
@@ -16,7 +16,7 @@ Three coordinated pieces (design §7, type-generic — applies to any
       A non-``literature`` source (e.g. ``concepts/``) has no criticality
       ledger to join — its display-math blocks (``$$…$$``, ``\\[…\\]``,
       ``\\begin{equation}…\\end{equation}``) are mined generically and marked
-      ``critical=None`` (unmarked — §7b's LLM-judge-criticality-fallback
+      ``critical=None`` (unmarked — LLM-judge-criticality-fallback
       territory; M4 ships the deterministic half, ``check_equation_fidelity``
       below degrades an unmarked equation to SIGNAL rather than guessing).
       A note with no equations anywhere is a silent, correct no-op (never an
@@ -46,13 +46,11 @@ Three coordinated pieces (design §7, type-generic — applies to any
   raise and never carry a build-failing class — only ``severity`` varies
   (``"critical"`` vs ``"unmarked"``) so the review loop can prioritize.
 
-Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md §7, §7.5.
 Recovers the removed ``results_inject.py``'s "machine-injected, never typed"
 shape (git history: 4fdb9b2^:src/research_vault/manuscript/results_inject.py)
 and extends it to equations.
 
 Stdlib only.
-sr: PR-M4
 """
 from __future__ import annotations
 
@@ -63,10 +61,10 @@ from typing import Any, Callable
 from research_vault.note import _parse_frontmatter
 
 # ---------------------------------------------------------------------------
-# Body-section extraction (literature/ structured path — PR-L1 §7.5 shape)
+# Body-section extraction (literature/ structured path shape)
 # ---------------------------------------------------------------------------
 
-# The exact shape PR-L1 authored and tested (tests/test_pr_l1_lit_ingestion.py):
+# The exact shape authored and tested (tests/test_pr_l1_lit_ingestion.py):
 # a "## Key equations" body section containing "### [label] Title" headers,
 # each followed by verbatim LaTeX up to the next header (or end of section).
 _EQ_SECTION_RE = re.compile(
@@ -76,7 +74,7 @@ _EQ_HEADER_RE = re.compile(r"^###\s+\[([^\]]+)\]\s*(.*?)\s*$", re.MULTILINE)
 _INLINE_CRITICAL_MARKER_RE = re.compile(r"\*\(critical\)\*")
 
 # Generic display-math scan (non-literature sources, e.g. concepts/) — design
-# §7c: "$$…$$", "\begin{equation}…\end{equation}" (incl. the starred form),
+# "$$…$$", "\begin{equation}…\end{equation}" (incl. the starred form),
 # "\[…\]".
 _DISPLAY_MATH_RE = re.compile(
     r"\$\$(?P<dollar>.*?)\$\$"
@@ -100,7 +98,7 @@ def _split_labeled_equation_blocks(section_text: str) -> list[dict[str, Any]]:
     inline ``*(critical)*`` annotation (human-readable documentation in the
     body) is stripped from the title and recorded separately — it is NOT the
     authority for criticality (the frontmatter ``key_equations:`` ledger is,
-    per design §7b: "join each block to its FM ``critical:`` flag"); a
+    per b: "join each block to its FM ``critical:`` flag"); a
     mismatch between the two is surfaced by the caller, never silently
     resolved by trusting the body marker.
     """
@@ -132,11 +130,11 @@ def _extract_literature_equations(
     equations; charter §2 distinguishes this from a missing-data error).
 
     ★ The join is BY LABEL, exact-match (the L1 review catch) — label uniqueness
-    within a note is assumed (the relate agent's contract, PR-L1). A
+    within a note is assumed (the relate agent's contract). A
     frontmatter entry whose label has no matching body block (or vice versa)
     is simply not joined — the entry contributes no ledger row for that
     label (never a crash; the frontmatter ledger and the body section are
-    independently optional/absent-tolerant per PR-L1).
+    independently optional/absent-tolerant).
     """
     section_text = _extract_key_equations_section(body)
     if section_text is None:
@@ -220,7 +218,7 @@ def extract_equation_ledger(
         project_notes_dir: the project's notes root (``cfg.project_notes_dir``).
         equation_sources: OKF type names to mine (e.g. from
             ``ms_type.equation_sources``).
-        literature_root: PR-A: ``cfg.literature_root``. When ``"literature"``
+        literature_root: ``cfg.literature_root``. When ``"literature"``
             is one of ``equation_sources``, ``key_equations:``/``##  Key
             equations`` are intrinsic (CORE-only) content — mine the CENTRAL
             CORE for those notes, not the project overlay dir. ``None``
@@ -234,11 +232,10 @@ def extract_equation_ledger(
         pivotal equations anywhere in the mined sources — a paper (or corpus)
         with no equations is a silent, correct no-op.
 
-    sr: PR-M4
     """
     ledger: list[dict[str, Any]] = []
     for okf_type in equation_sources:
-        # PR-A: literature notes are two-layer — key_equations/## Key
+        # literature notes are two-layer — key_equations/## Key
         # equations are CORE-only, so mine literature_root (when given)
         # instead of the project's thin overlay dir.
         if okf_type == "literature" and literature_root is not None:
@@ -268,17 +265,16 @@ def build_equation_ledger_brief_block(ledger: list[dict[str, Any]]) -> str:
     caller that appends ``""`` to a tip changes nothing (no error, no
     dangling instruction about equations that don't exist).
 
-    sr: PR-M4
     """
     if not ledger:
         return ""
 
     lines = [
-        "★ REQUIRE — pivotal equations from your source notes (design §7):",
+        "★ REQUIRE — pivotal equations from your source notes:",
         "The following equations are DATA extracted from your source notes — "
         "they are injected here VERBATIM. Where your argument turns on one of "
         "these, reproduce it as markdown display math ($$...$$) — the "
-        "gold-settled `report.md` render target (PR-B) — never "
+        "gold-settled `report.md` render target — never "
         "\\begin{equation}...\\end{equation} and never a prose paraphrase. "
         "Do NOT re-type or re-derive them from memory — copy the LaTeX "
         "below exactly (only re-wrapping the delimiters to $$...$$ if the "
@@ -308,7 +304,7 @@ def inject_equation_brief(
     When to use: called by the manuscript loop's Phase-2 scaffolder right
     after ``get_manuscript_section_tips`` builds the per-section tips dict
     (``manuscript/__init__.py``'s ``_build_phase2_manifest``) — a thin,
-    additive wiring step (design §7a: "wire this into the type's writer
+    additive wiring step (a: "wire this into the type's writer
     brief / style seam").
 
     A paper (or corpus) with no equations -> ``ledger`` is empty ->
@@ -328,7 +324,6 @@ def inject_equation_brief(
         A NEW dict (copy of ``tips``) with the ledger block appended to the
         relevant sections' tips.
 
-    sr: PR-M4
     """
     block = build_equation_ledger_brief_block(ledger)
     result = dict(tips)
@@ -418,14 +413,14 @@ def check_equation_fidelity(
     no ``judge_fn`` at all, means "absent", never "probably fine").
 
     ★ Class: EVERY finding here is a SIGNAL (surfaced to the human review
-    loop for triage), regardless of ``critical``. This design doc's own §7b
+    loop for triage), regardless of ``critical``. This design doc's own
     text recommends BLOCK for marked-critical — the operator's explicit override
     (D-MS-2) is SIGNAL-only throughout: some manuscripts genuinely have no
     equations, and a drop must never fail the build. ``severity`` still
     distinguishes ``"critical"`` (marked ``critical: true``) from
     ``"unmarked"`` (no criticality data — old note, or a non-literature
     source with no ledger to join) from ``"non-critical"`` (explicitly
-    marked ``critical: false``, still worth surfacing since design §7c calls
+    marked ``critical: false``, still worth surfacing since c calls
     an unmarked-absent display equation a SIGNAL too) so the review loop can
     prioritize triage without the gate itself ever hard-failing.
 
@@ -445,7 +440,6 @@ def check_equation_fidelity(
         ``{"note", "label", "title", "critical", "severity", "class",
         "message"}`` — ``"class"`` is always the literal string ``"SIGNAL"``.
 
-    sr: PR-M4
     """
     if not ledger:
         return []

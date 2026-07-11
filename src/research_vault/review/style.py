@@ -103,7 +103,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "in advance, the literature that would refute the coverage claim.\n\n"
         "Required `_protocol.md` fields (all REQUIRED — absence blocks search):\n"
         "  - `question`: the exact research question in one sentence.\n"
-        "  - `seed_queries`: a FACET-MATRIX (PR-2) — the established "
+        "  - `seed_queries`: a FACET-MATRIX — the established "
         "systematic-review search-strategy discipline (Cochrane Handbook "
         "ch.4 building-block method; PICO/SPIDER question-framing; PRISMA-S "
         "recording), NOT a fixed handful of angle queries. Run this "
@@ -360,7 +360,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
     ),
     "review_relevance_verify_tips": (
         "You are the COLD final-corpus relevance verifier (design "
-        "2026-07-10-trustworthy-curation-relevance-gate-design.md §3b) — a "
+        "2026-07-10-trustworthy-curation-relevance-gate-design.md) — a "
         "REJECTS-ONLY, fresh judge with no stake in `review-curate`'s "
         "decisions. A `_corpus_verify_input.md` note has been prepared for "
         "you: one row per `[NEW]` paper in the final `_corpus.md` "
@@ -410,7 +410,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "PRINCIPLED 5-MOVE READING PROTOCOL — this is the reading DISCIPLINE, "
         "not a rigid schema (the note stays free-form structured thought; only "
         "these mandatory questions must be answered).\n\n"
-        "WHY (methodology, Wave 0 — Reading, PR-1..5): a review is concept-centric, "
+        "WHY (methodology, Wave 0 — Reading): a review is concept-centric, "
         "NOT author-centric (Webster & Watson, 2002) — the concept-edges below are "
         "the paper's row in the review's concept matrix. But a strong survey is "
         "built from RELATIONSHIPS BETWEEN STUDIES, and systematic-review data "
@@ -430,7 +430,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "benchmark, survey, application. This decides which of the remaining "
         "moves matter most (a theory paper has bounds, not effect-sizes; a "
         "benchmark study has scores, not mechanisms). NOTE: `contribution_kind` "
-        "is NOT `role` (PR-4, in the required-fields list below) — do not put "
+        "is NOT `role` (in the required-fields list below) — do not put "
         "methodological/empirical/theoretical/counter-position here; those are "
         "`role` values, a different, adjacent field.\n\n"
         "  MOVE 2 — Extract the contribution precisely. Fill `claim:` with the "
@@ -522,18 +522,18 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "  - `evidence`: what evidence/result they present\n"
         "  - `contribution_kind`: Move 1 — one of mechanism/theory-bound/benchmark/survey/application\n"
         "  - `role`: a lightweight categorical tag — one of methodological / "
-        "empirical / theoretical / counter-position (PR-4: replaces the old "
+        "empirical / theoretical / counter-position (replaces the old "
         "overloaded `stance` field, which did contradictory double duty as "
         "both a one-word tag and a full synthesis paragraph). NOTE: `role` is "
         "NOT `contribution_kind` (Move 1, above) — do not put mechanism/"
         "theory-bound/benchmark/survey/application here; those are "
         "`contribution_kind` values, a different, adjacent field.\n"
         "  - `position`: a free-form narrative — how this paper relates to the "
-        "review question, in your own words (PR-4: the narrative half `stance` "
+        "review question, in your own words (the narrative half `stance` "
         "used to carry; this is where the real synthesis material lives — "
         "write as much as the paper warrants)\n"
-        "  - `result_reported`: Move 3/PR-5 — exactly `yes` or `no`\n"
-        "  - `paper_relations_sought`: Move 4/PR-2 — exactly `yes` or `no`\n"
+        "  - `result_reported`: Move 3/ exactly `yes` or `no`\n"
+        "  - `paper_relations_sought`: Move 4/ exactly `yes` or `no`\n"
         "  - `concepts`: comma-separated concepts/ or mocs/ regions this touches\n\n"
         "Verified concept-edges (Move 5, body of the note, under a `## Concept "
         "edges` heading — this canonical heading name, same OKF markdown-link "
@@ -570,7 +570,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "fulltext` again (it re-reads the cache, no re-fetch) so it stamps "
         "`read_basis`/`full_text_provider`/`oa_status`/`full_text_url` into "
         "the note's frontmatter — never leave `read_basis` unstamped.\n\n"
-        "A paper is more than prose (§7.5 LEAN — record what you see, never "
+        "A paper is more than prose (LEAN — record what you see, never "
         "fetch or download it — applies to ARTIFACTS: repo/checkpoint/"
         "dataset. The paper's own body is the EXCEPTION as of tier 1: its "
         "full text IS fetched, per the reading-input paragraph above). While "
@@ -641,7 +641,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "matrix made durable — concepts are the rows, papers the cells. If your "
         "synthesis reads as a sequence of paper summaries, you have transcribed the "
         "corpus, not synthesized it.\n\n"
-        "★ TRAVERSE, DON'T RE-DERIVE (Wave 0 — Reading, PR-2): the relate-<key> "
+        "★ TRAVERSE, DON'T RE-DERIVE (Wave 0 — Reading): the relate-<key> "
         "fan-out already discovered and TYPED the paper→paper comparative "
         "relations (reciprocal/refutational/line-of-argument) — read them "
         "directly, VERBATIM, from each `literature/<key>.md` note's "
@@ -724,7 +724,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "counter queries harder, it cannot guess which pole from prose alone.\n"
         "   A `counter-position` that was declared but not actively sought is fishing "
         "in reverse — a confirming-only review dressed as balanced.\n\n"
-        "STRUCTURED `remediation_target` (PR-3, `COUNTER-POSITION THIN-POLE` "
+        "STRUCTURED `remediation_target` (`COUNTER-POSITION THIN-POLE` "
         "BLOCK ONLY): when — and ONLY when — every `[BLOCK]` reason you are "
         "about to itemize starts with the EXACT prefix `COUNTER-POSITION "
         "THIN-POLE` — i.e. NOT `COUNTER-POSITION ABSENT`/`NOT SOUGHT` "
@@ -933,7 +933,7 @@ def get_remediation_max_rounds(config: Any = None) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Critic-backtrack round-cap config seam (PR-3, D-5a) — SEPARATE from
+# Critic-backtrack round-cap config seam (D-5a) — SEPARATE from
 # `remediation_max_rounds` above: a critic backtrack round re-pays the
 # (full-distill + incremental-relate) delta for the papers it finds, which
 # is a materially different cost than a saturation-remediation round's

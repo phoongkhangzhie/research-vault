@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/types/lit_review.py — the ``lit-review`` ManuscriptType (PR-M6).
+"""manuscript/types/lit_review.py — the ``lit-review`` ManuscriptType.
 
-Fills the PR-M1 stub with the survey's real machinery (design §3-§5):
-  - the real 9-row section-set (§3), abstract drafted LAST (assembly class
+Fills the stub with the survey's real machinery:
+  - the real 9-row section-set, abstract drafted LAST (assembly class
     "S (last)" — it must be a subset of the body, so it needs the body first).
-  - the framework-selection Phase-1 (§5, extended by the framework-gate-
+  - the framework-selection Phase-1 (extended by the framework-gate-
     autonomy design, option A, 2026-07-09): scope -> N cold, independent
     ``framework-lens-<lens>`` candidates (each a real FRAMEWORK_SHAPES
     archetype) -> ``framework-synthesize`` (select-and-graft, never a naive
@@ -12,27 +12,25 @@ Fills the PR-M1 stub with the survey's real machinery (design §3-§5):
     fail-closed, canary-verified) -> approve-framework (auto-resolved), a
     corpus-hash stamp (injected, never agent-computed), and the
     ``check_framework_gate`` structural BLOCK on an empty spine.
-  - the OKF -> survey ``source_transform`` (§4): a deterministic PRISMA-ledger
+  - the OKF -> survey ``source_transform``: a deterministic PRISMA-ledger
     renderer + comparison-table-row assembler, siblings to
     ``review.coverage_report`` — mechanical, zero-hallucination.
-  - the §3.1 structurally-binding thematic-section brief contract.
-  - the reframe-escalation payload builder (§5.1) — PROPOSES a reframe,
+  - the structurally-binding thematic-section brief contract.
+  - the reframe-escalation payload builder — PROPOSES a reframe,
     never auto-applies one (the human commits via ``rv manuscript new
-    --reframe``, a future CLI wiring — out of scope here, PR-M8/CLI-follow-on).
+    --reframe``, a future CLI wiring — out of scope here).
 
 Explicitly OUT of scope here (type-generic core / other PRs):
-  - the hermetic ``.bib`` build (PR-M2) and the equation-fidelity gate (PR-M4)
+  - the hermetic ``.bib`` build and the equation-fidelity gate
     — this module's ``equation_sources``/comparison-table rows are DATA those
     gates will consume once they land; nothing here re-implements them.
-  - the review-revise board (PR-M5) and the rubric/canaries (PR-M8) — the
+  - the review-revise board and the rubric/canaries — the
     reframe-escalation payload builder here is a pure, standalone function so
-    PR-M5 can call it once the board exists; it does not itself run a round.
-  - the exemplar few-shot loader (PR-M7/M8) — the brief contract below notes
+     can call it once the board exists; it does not itself run a round.
+  - the exemplar few-shot loader — the brief contract below notes
     where the excerpts will be embedded; the loader/injector is not built here.
 
-Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md §3-§5.
 
-sr: PR-M6
 """
 from __future__ import annotations
 
@@ -47,7 +45,7 @@ from research_vault.note import _parse_frontmatter
 from . import ManuscriptType, SectionSpec, register_type
 
 # ---------------------------------------------------------------------------
-# §5 — the 4 candidate organizing-framework shapes (proposed, never forced)
+#  the 4 candidate organizing-framework shapes (proposed, never forced)
 # ---------------------------------------------------------------------------
 
 FRAMEWORK_SHAPES: tuple[dict[str, str], ...] = (
@@ -99,13 +97,12 @@ def render_framework_candidates_menu() -> str:
     in which MOC(s)/branches/misfits apply for THIS corpus. Proposes a menu,
     never a verdict (the human, not the machine, discovers the framework).
 
-    sr: PR-M6
     """
     lines = [
         "Propose ALL FOUR candidate organizing-framework shapes below, defended "
         "from this project's `mocs/` (+ concepts/gaps) — NEVER commit to one; "
         "write a `_framework-candidates.md` menu for the human to pick/shape/nest/"
-        "go-custom from (design §5, D2). You MAY additionally propose a NESTED "
+        "go-custom from (D2). You MAY additionally propose a NESTED "
         "composition (a dominant top-level spine encapsulating smaller MOC-spines "
         "— D5's 'bigger spine').\n",
     ]
@@ -133,7 +130,7 @@ _VALID_SHAPE_KEYS: frozenset[str] = frozenset(s["key"] for s in FRAMEWORK_SHAPES
 
 
 # ---------------------------------------------------------------------------
-# §5 (framework-gate-autonomy design, option A) — the N-lens ensemble
+# (framework-gate-autonomy design, option A) — the N-lens ensemble
 # ---------------------------------------------------------------------------
 # Each lens is an organizing PRINCIPLE (the axis a corpus could be sliced
 # on); each FRAMEWORK_SHAPES entry is a structural FORM. They are orthogonal
@@ -248,7 +245,7 @@ def render_lens_candidate_brief(lens_key: str, natural_shape_key: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# §5 — check_framework_gate (structural BLOCK, wired into `rv dag approve`)
+#  check_framework_gate (structural BLOCK, wired into `rv dag approve`)
 # ---------------------------------------------------------------------------
 
 def check_framework_gate(manuscript_note_path: Path) -> tuple[bool, str]:
@@ -257,7 +254,7 @@ def check_framework_gate(manuscript_note_path: Path) -> tuple[bool, str]:
 
     Mirrors ``review.check_protocol_gate``'s shape (native rv enforcement, not
     prose-only convention) — wired into ``rv dag approve`` at the
-    ``approve-framework`` node (design §5: "Framework choice is a human
+    ``approve-framework`` node ("Framework choice is a human
     commitment (D5)").
 
     Args:
@@ -267,7 +264,6 @@ def check_framework_gate(manuscript_note_path: Path) -> tuple[bool, str]:
         (ok, message) — ok is False when the file is missing, or either
         ``spine_shape`` or ``branches`` is absent/empty/whitespace-only.
 
-    sr: PR-M6
     """
     if not manuscript_note_path.exists():
         return False, (
@@ -291,7 +287,7 @@ def check_framework_gate(manuscript_note_path: Path) -> tuple[bool, str]:
             f"rv dag approve: framework gate BLOCKED — {manuscript_note_path} "
             f"has an empty or missing 'spine_shape' and/or 'branches' "
             f"frontmatter field.\n"
-            f"Design §5 (D5): framework choice is a human commitment — the "
+            f" (D5): framework choice is a human commitment — the "
             f"organizing framework cannot be reliably discovered by the "
             f"machine. Fix: edit {manuscript_note_path.name} to add a "
             f"non-empty 'spine_shape: <one of pipeline|evolution-arc|n-axis|"
@@ -313,7 +309,7 @@ def render_coverage_map_instructions(
     corpus_citekeys: list[str],
     coverage_map_path: str = "_coverage-map.md",
 ) -> str:
-    """Render the ``_coverage-map.md`` authoring contract (PR-A) for the
+    """Render the ``_coverage-map.md`` authoring contract for the
     ``framework-synthesize`` brief.
 
     Committing a spine is the same act as allocating the corpus to it: every
@@ -324,7 +320,6 @@ def render_coverage_map_instructions(
     omit a key). ``check_coverage_allocation_gate`` fail-closed BLOCKs at
     ``approve-framework`` on any unallocated / reasonless / non-corpus citekey.
 
-    sr: PR-A
     """
     if corpus_citekeys:
         key_block = "\n".join(f"    - {ck}" for ck in sorted(corpus_citekeys))
@@ -339,7 +334,7 @@ def render_coverage_map_instructions(
             "otherwise this step is a no-op until a corpus is frozen.\n\n"
         )
     return (
-        "COVERAGE MAP (PR-A — the full-corpus coverage contract, enforced "
+        "COVERAGE MAP (the full-corpus coverage contract, enforced "
         f"BEFORE any section is drafted). Write `{coverage_map_path}` allocating "
         "EVERY frozen-corpus citekey into exactly one of three buckets:\n"
         "  - `used`:      the paper is synthesized in a NAMED branch of the "
@@ -385,7 +380,7 @@ def render_synthesize_brief(
     a2): reads all N ``_framework-candidate-<lens>.md`` files, SELECTS the
     single most internally-coherent backbone, GRAFTS IN only compatible
     axes from runners-up — never a naive union/merge of two spines — and
-    (PR-A) allocates every frozen-corpus citekey to the committed spine in
+    allocates every frozen-corpus citekey to the committed spine in
     ``_coverage-map.md`` (the full-corpus coverage contract).
     """
     candidate_list = "\n".join(f"  - {lens}: {path}" for lens, path in sorted(lens_candidate_paths.items()))
@@ -572,7 +567,7 @@ def check_framework_critique_verdict(
 
 
 # ---------------------------------------------------------------------------
-# §5.1 — the reframe-escalation payload (PROPOSES, never auto-reframes)
+#  the reframe-escalation payload (PROPOSES, never auto-reframes)
 # ---------------------------------------------------------------------------
 
 def build_reframe_escalation_payload(
@@ -581,9 +576,9 @@ def build_reframe_escalation_payload(
     misfits: list[str],
     candidate_reframes: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Build the reframe-escalation payload (design §5.1, D5 — reviewer pass 2 §C.2).
+    """Build the reframe-escalation payload (D5 — reviewer pass 2 §C.2).
 
-    When the framework/taxonomy critic (PR-M8's reviewer lens) judges the
+    When the framework/taxonomy critic (reviewer lens) judges the
     spine incoherent round after round (recurring misfits: same works don't
     fit, concepts orphan, gaps won't anchor), NO section polish fixes it. This
     builds the escalation payload the meta-review attaches to the approve
@@ -592,7 +587,7 @@ def build_reframe_escalation_payload(
     ``rv manuscript new --reframe <prior-slug>`` (a future CLI wiring;
     re-entering Phase-1 with these misfits/candidates pre-loaded).
 
-    This is a pure, standalone function — PR-M5's review-revise board calls
+    This is a pure, standalone function — review-revise board calls
     it once built; it does not itself run a review round or touch any note.
 
     Args:
@@ -608,7 +603,6 @@ def build_reframe_escalation_payload(
         ``"auto-reframe"`` — there is no such action); ``escalation`` carries
         the round, misfits, and candidates for a human to read and act on.
 
-    sr: PR-M6
     """
     return {
         "cleared": False,
@@ -630,7 +624,7 @@ def build_reframe_escalation_payload(
 
 
 # ---------------------------------------------------------------------------
-# §5 — Phase-1: scope -> framework-lens-<L> xN (fan-out) -> framework-synthesize
+#  Phase-1: scope -> framework-lens-<L> xN (fan-out) -> framework-synthesize
 #      -> framework-critic -> approve-framework (auto-resolved)
 # ---------------------------------------------------------------------------
 
@@ -644,7 +638,6 @@ def _compute_corpus_hash_note(project: str, slug: str, project_notes_dir: Path) 
     agent copies verbatim — never invents). If not, say so honestly; the
     field stays empty until a real corpus is frozen.
 
-    sr: PR-M6
     """
     from research_vault.hashing import hash_file
 
@@ -672,7 +665,7 @@ def phase1_builder(
     tree_root: Path,
     config: Any = None,
 ) -> dict[str, Any]:
-    """Build the lit-review Phase-1 manifest: framework selection (design §5,
+    """Build the lit-review Phase-1 manifest: framework selection (
     extended by the framework-gate-autonomy design, option A — 2026-07-09).
 
     Topology:
@@ -714,7 +707,6 @@ def phase1_builder(
 
     Matches the ``ManuscriptType.phase1_builder`` signature (types/__init__.py).
 
-    sr: PR-M6; framework-gate-autonomy design (option A, 2026-07-09)
     """
     def _afterok(from_id: str) -> dict[str, str]:
         return {"from": from_id, "edge": "afterok"}
@@ -748,7 +740,7 @@ def phase1_builder(
                 "counts must match `rv review coverage` for the same scope, "
                 "never estimated). Then record the injected corpus hash "
                 "below verbatim in `_manuscript.md`'s `corpus_hash:` field "
-                "(the stale-corpus guard, design §4.5.5) — do not compute it "
+                "(the stale-corpus guard, .5) — do not compute it "
                 "yourself.\n\n"
                 f"{corpus_hash_note}"
             ),
@@ -815,7 +807,7 @@ def phase1_builder(
             "synthesis/critic pipeline commits `spine_shape:`+`branches:` "
             "into `_manuscript.md` (BLOCKED if either is empty, or if a "
             "machine-synthesized spine's critic verdict is missing/BLOCK/"
-            "canary-aborted — design §5 D5 + framework-gate-autonomy design)."
+            "canary-aborted D5 + framework-gate-autonomy design)."
         ),
         "needs": [_afterok("framework-critic")],
     })
@@ -830,7 +822,7 @@ def phase1_builder(
 
 
 # ---------------------------------------------------------------------------
-# §4 — the OKF -> survey source_transform (deterministic pieces)
+#  the OKF -> survey source_transform (deterministic pieces)
 # ---------------------------------------------------------------------------
 
 def _parse_deviation_blocks(deviations_path: Path) -> list[dict[str, Any]]:
@@ -899,7 +891,7 @@ def render_prisma_ledger(
     ``coverage`` is the dict shape returned by ``review.coverage_report()``
     (F16+F17: keyed by citekey; ``counts`` summary). Byte-deterministic —
     no LLM, no invented numbers; this is a sibling to ``coverage_report``
-    itself (design §4).
+    itself.
 
     Deliberately scoped — see the module-level test file's docstring for the
     grounded scoping note: when ``deviations_path`` points at a real
@@ -920,7 +912,6 @@ def render_prisma_ledger(
     Returns:
         Markdown PRISMA-style ledger.
 
-    sr: PR-M6
     """
     counts = coverage.get("counts", {}) if coverage else {}
     if not coverage or not coverage.get("corpus_citekeys"):
@@ -928,7 +919,7 @@ def render_prisma_ledger(
             "## PRISMA scope & method\n\n"
             "_No frozen corpus found for this manuscript yet — the ledger "
             "will populate once `rv review <project> expand <scope>` has run "
-            "and produced a frozen `_corpus.md` (design §5, the `reviews/` "
+            "and produced a frozen `_corpus.md` (the `reviews/` "
             "convention: manuscript slug == review scope id)._\n"
         )
 
@@ -979,11 +970,11 @@ def index_literature_rows(
 
     One dict per note, columns drawn STRICTLY from frontmatter (no LLM, no
     invented cells) — the comparison-table's mechanical data source (design
-    §4: "table rows byte-deterministic from frontmatter"). Includes the PR-L1
+    "table rows byte-deterministic from frontmatter"). Includes the
     ``repo``/``artifacts`` fields (empty string when the note predates the
     enrichment or the paper ships no code — never a fabricated value).
 
-    PR-A / FF-3 (fit-check hard gate carried onto PR-B): ``citekey``/``year``/
+     FF-3 (fit-check hard gate carried onto): ``citekey``/``year``/
     ``venue``/``repo`` are CORE-only content under the two-layer split — a
     project's ``literature/`` dir now holds thin OVERLAYS (``central:``
     pointer, ``role``/``position``), so reading overlay frontmatter alone
@@ -991,10 +982,10 @@ def index_literature_rows(
     ``literature_root`` is given, each overlay's ``central:`` pointer is
     resolved against it and the core's fields win on any collision — the
     SAME degrade-tolerant merge ``manuscript/bib.py``'s literature index
-    already uses (duplicated here, not unified — PR-A fit-check FF-1 is the
+    already uses (duplicated here, not unified fit-check FF-1 is the
     tracked follow-up for a single shared merge primitive; out of scope for
     this fix). ``literature_root=None`` degrades to reading
-    ``literature_dir`` directly — the pre-PR-A behavior, still correct for a
+    ``literature_dir`` directly — the pre- behavior, still correct for a
     legacy monolithic note that carries its own fields (and for hermetic
     tests that intentionally exercise that path).
 
@@ -1011,7 +1002,6 @@ def index_literature_rows(
         ``review._index_literature_notes_by_citekey``'s F17 convention).
         Empty list if the dir does not exist.
 
-    sr: PR-M6; PR-B (FF-3 core-only-field fix)
     """
     if not literature_dir.exists():
         return []
@@ -1048,9 +1038,9 @@ def index_literature_rows(
 
 
 def render_comparison_table(rows: list[dict[str, str]]) -> str:
-    """Render the deterministic, hermetic NUMBERED sources ledger (design §4).
+    """Render the deterministic, hermetic NUMBERED sources ledger.
 
-    PR-B (gold-settled `report.md`): retired the markdown-table + bare-
+     (gold-settled `report.md`): retired the markdown-table + bare-
     citekey format in favor of a `[N]`-numbered list — the reader-facing
     citation convention is `[N]` inline + this ledger, matched 1:1 by list
     position, never a table of citekeys the reader must cross-reference by
@@ -1067,7 +1057,6 @@ def render_comparison_table(rows: list[dict[str, str]]) -> str:
         citekey (for provenance cross-check against `literature/`) — never
         a hand-typed or invented entry.
 
-    sr: PR-M6; PR-B (citation-format retirement, gold-settled `report.md`)
     """
     if not rows:
         return (
@@ -1097,12 +1086,12 @@ def render_provenance_header() -> str:
 
     This is deliberately static boilerplate, not survey-specific data — the
     per-survey counts/funnel/saturation-stop detail lives in the project's
-    DEVLOG/control note (``render_prisma_ledger``'s output — PR-B,
+    DEVLOG/control note (``render_prisma_ledger``'s output,
     gold-settled: `report.md` carries no Appendix, so this can no longer
     point the reader at one), never fabricated here.
 
     ★ Dependency (flagged, not silently resolved): the PRISMA counts
-    (now a DEVLOG/control-note record, PR-B) are only as fresh as the
+    (now a DEVLOG/control-note record) are only as fresh as the
     frozen ``_corpus.md`` / ``coverage_report`` this reads — the known
     tool-vs-corpus count reconciliation bug (green-but-stale after a
     remediation append) is fixed by the ``rv review refresh`` verb
@@ -1110,7 +1099,6 @@ def render_provenance_header() -> str:
     must not ship as if it silently fixed that bug — it only moves WHERE
     an (already-correct-or-not) count is displayed.
 
-    sr: NG-lit-review-waveB (RD-3); PR-B (Appendix reference dropped, CR1)
     """
     return (
         "> This survey follows a pre-registered protocol — frozen inclusion/"
@@ -1129,19 +1117,19 @@ def source_transform(
     *,
     config: Config | None = None,
 ) -> dict[str, Any]:
-    """The lit-review OKF -> survey transformation (design §4).
+    """The lit-review OKF -> survey transformation.
 
     Mechanical pieces (deterministic, zero-hallucination) computed here as
     DATA for the writer briefs to consume (results-inject discipline extended
     to the survey's structural artifacts — never let the LLM type a citekey,
     a count, or a table cell):
-      - the PRISMA ledger — PR-D2: preferentially rendered from the PR-5
+      - the PRISMA ledger: preferentially rendered from the
         ``_corpus_ledger.md`` handoff (``review.ledger.render_methods_from_ledger``,
         under the ``reviews/<slug>/`` convention — manuscript slug == review
         scope id) when that artifact exists; falls back to the older
         ``render_prisma_ledger``/``review.coverage_report`` path for a
-        review that predates PR-5 (an honest degrade, not a hard failure).
-        PR-B (gold-settled): injected into the ``appendix-methods`` tip, which
+        review that predates (an honest degrade, not a hard failure).
+         (gold-settled): injected into the ``appendix-methods`` tip, which
         instructs the single drafting agent to write it to the project's
         DEVLOG/control note — NEVER a ``report.md`` section (the reader-
         facing document carries no Appendix at all, see
@@ -1157,7 +1145,7 @@ def source_transform(
         (zero-hallucination) build their own output. Closing that loop —
         an actual code-driven DEVLOG-append verb/hook, so the audit trail
         no longer depends on the agent remembering the instruction — is
-        PR-G's scope, not this wave's. This does NOT error today (the
+        scope, not this wave's. This does NOT error today (the
         instruction always reaches the agent); it is an honest, named gap,
         not a silent one.
       - the comparison-table rows (``index_literature_rows`` /
@@ -1177,18 +1165,17 @@ def source_transform(
 
     Returns:
         dict keyed by section name -> markdown/data ready for injection into
-        that section's writer brief (consumed once PR-M2's hermetic build and
+        that section's writer brief (consumed once hermetic build and
         the core's section-drafting wiring read this field — recorded here
-        now so the transform is complete per the type contract, design §1).
+        now so the transform is complete per the type contract).
 
-    sr: PR-M6; RD-3 appendix-move (NG-lit-review-waveB)
     """
     slug = tree_root.name
 
-    # ★ PR-D2 (ledger -> methods fold-in): prefer the PR-5 `_corpus_ledger.md`
+    # ★ (ledger -> methods fold-in): prefer the `_corpus_ledger.md`
     # — a single, already-consolidated, machine-readable handoff — over
     # re-deriving the PRISMA ledger from `review.coverage_report()` a
-    # second time. A review that predates PR-5 (no `_corpus_ledger.md` yet)
+    # second time. A review that predates (no `_corpus_ledger.md` yet)
     # falls back to the old coverage-report path — an honest degrade, never
     # a hard failure for pre-existing reviews.
     ledger_path = project_notes_dir / "reviews" / slug / "_corpus_ledger.md"
@@ -1208,7 +1195,7 @@ def source_transform(
         deviations_path = project_notes_dir / "reviews" / slug / "_deviations.md"
         appendix_methods = render_prisma_ledger(coverage, deviations_path=deviations_path)
 
-    # PR-B / FF-3: resolve two-layer overlays' core-only fields (year/venue/
+    #  FF-3: resolve two-layer overlays' core-only fields (year/venue/
     # repo/citekey) against the central store — never read the thin overlay
     # alone (see index_literature_rows' docstring). Only resolve against a
     # GIVEN config — never force a load_config() call here (source_transform
@@ -1240,7 +1227,7 @@ def source_transform(
 
 
 # ---------------------------------------------------------------------------
-# §3.1 — the structurally-binding thematic-section brief contract
+#  the structurally-binding thematic-section brief contract
 # ---------------------------------------------------------------------------
 
 _THEMATIC_BRIEF = (
@@ -1250,16 +1237,16 @@ _THEMATIC_BRIEF = (
     "to every thematic section:\n\n"
     "1. FORBID the per-paper paragraph. A paragraph citing exactly ONE source "
     "with no comparison is an annotated-bibliography unit, not a survey — the "
-    "review board's SYNTHESIS-VS-ENUMERATION adversary (design §11.2) flags "
+    "review board's SYNTHESIS-VS-ENUMERATION adversary flags "
     "this as a single-cite ¶ and scores it LOW on SYNTH. Never write one.\n"
     "2. REQUIRE a theme-claim + AT LEAST TWO papers compared per synthesis "
     "unit: `claim -> the >=2 papers marshalled -> the critical comparison "
     "(which wins where, and why)`. The claim comes from a `concepts/` atom; "
     "the papers from that concept's linked `literature/` notes.\n"
     "3. Relationships ('X builds on Y', 'X contradicts Y') are GROUNDED in — "
-    "but never SURFACED as — note link-fields (`role`/`position`, PR-4) and "
+    "but never SURFACED as — note link-fields (`role`/`position`) and "
     "the typed paper→paper edges a `## Related papers` section carries "
-    "(`[SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS]`, Wave 0 PR-2). Read the "
+    "(`[SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS]`, Wave 0). Read the "
     "edges and note paths directly, verbatim, from each `literature/<key>.md` "
     "note's `## Related papers` section rather than re-deriving from prose — "
     "but they are grounding INPUTS ONLY: NEVER quote the edge tag, the "
@@ -1267,18 +1254,18 @@ _THEMATIC_BRIEF = (
     "the edge into an ARGUED sentence stating WHY: 'Smith's benchmark "
     "extends Jones's protocol by adding a held-out split' — never 'Smith "
     "carries a [SUPPORTS] edge to Jones' or 'Smith supports "
-    "literature/jones2022.md'. NEVER invented. The support-matcher (PR-M3) "
-    "re-fires this (PR-B: enacted, gold-settled).\n"
+    "literature/jones2022.md'. NEVER invented. The support-matcher "
+    "re-fires this (enacted, gold-settled).\n"
     "4. Every cited claim carries a provenance pointer to its source note(s) — "
-    "the citation-fidelity floor (PR-M3, design §10).\n"
-    "5. Voice comes from few-shot REAL excerpts (design §8, PR-M7/M8), not a "
+    "the citation-fidelity floor.\n"
+    "5. Voice comes from few-shot REAL excerpts, not a "
     "prose description of 'write in a synthesis style' — once the exemplar "
     "bundle lands, imitate the MOVE the excerpts demonstrate, never the words.\n"
     "6. Reproduce PIVOTAL equations: where a claim turns on a source note's "
     "critical equation (`key_equations:` with `critical: true`), reproduce it "
     "as markdown display math (`$$...$$`), never `\\begin{equation}...\\end"
-    "{equation}` (PR-B, gold-settled `report.md` target) and never a prose "
-    "paraphrase (design §7, PR-M4).\n\n"
+    "{equation}` (gold-settled `report.md` target) and never a prose "
+    "paraphrase.\n\n"
     "Anti-pattern this brief exists to forbid: 'Smith et al. (2023) showed X. "
     "Jones et al. (2022) showed Y. Lee et al. (2021) showed Z.' — three "
     "uncompared per-paper sentences in a row. Instead: 'Claim: <theme>. Smith "
@@ -1293,8 +1280,8 @@ STYLE_BRIEFS: dict[str, str] = {
         "the topic sentence (RD-6). Do NOT lead with corpus size, search "
         "process, or a methods preamble — that record now lives in the "
         "project's DEVLOG/control note, not this reader-facing document "
-        "(PR-B, gold-settled — no Appendix in `report.md`).\n\n"
-        "RD-4 (softened, PR-B): orient the reader to the frozen "
+        "(gold-settled — no Appendix in `report.md`).\n\n"
+        "RD-4 (softened): orient the reader to the frozen "
         "`spine_shape:`/`branches:` (from `_manuscript.md`, approve-"
         "framework) — a compact table is ONE good way to do this, but is "
         "not mandatory; a 2-3 sentence naming of the branches + why this "
@@ -1324,7 +1311,7 @@ STYLE_BRIEFS: dict[str, str] = {
         "the frozen spine, drawn from real `gaps/` notes. Loose gaps not "
         "anchored to any branch are surfaced as such, never silently pasted "
         "in as if framework-derived (the review board's SYNTHESIS-VS-ENUMERATION "
-        "adversary, design §11.2, flags an unanchored gap under GAP)."
+        "adversary, flags an unanchored gap under GAP)."
     ),
     "conclusion": (
         "Restate the thesis against what the survey actually showed — no new "
@@ -1338,7 +1325,7 @@ STYLE_BRIEFS: dict[str, str] = {
         "entry. Use the injected `[N]` numbered list VERBATIM as the body "
         "of this section, in the injected order — do not renumber, "
         "reorder, or drop an entry.\n\n"
-        "PR-B (gold-settled `report.md`): cite in the body of EVERY other "
+        " (gold-settled `report.md`): cite in the body of EVERY other "
         "section with the matching `[N]` inline marker (e.g. 'Smith et al. "
         "[3] show...') — `[[citekey]]` markdown wikilinks are RETIRED from "
         "the reader path, and `\\cite{}` stays retired too (RD-1). The `[N]` "
@@ -1346,7 +1333,7 @@ STYLE_BRIEFS: dict[str, str] = {
         "here, never invent or guess a number."
     ),
     "appendix-methods": (
-        "PR-B (gold-settled `report.md`): `report.md` carries NO Appendix "
+        " (gold-settled `report.md`): `report.md` carries NO Appendix "
         "— do NOT render an 'Appendix A' section, and do NOT join this "
         "content into `report.md` at all. Instead, write the full methods/"
         "audit-trail record (inclusion/exclusion criteria, PRISMA funnel "
@@ -1365,12 +1352,12 @@ STYLE_BRIEFS: dict[str, str] = {
         "Write the abstract LAST, after every other section is drafted — it "
         "is a one-sentence thesis + framework preview and MUST be a strict "
         "subset of claims already made in the body (the support-matcher, "
-        "PR-M3, gates this: an abstract claim absent from the body is a "
+        ", gates this: an abstract claim absent from the body is a "
         "fidelity failure). Never introduce a new claim here."
     ),
     "assemble": (
         "RD-1: join the drafted sections into `_report.md` (markdown, the "
-        "internal `[[citekey]]` SOURCE — PR-D2: never write `report.md` "
+        "internal `[[citekey]]` SOURCE: never write `report.md` "
         "directly, that name is reserved for the SEPARATE `[N]`-numbered "
         "reader render produced later by the bib-render pass) in "
         "READER-FIRST reading order (RD-2): Abstract, Introduction (thesis "
@@ -1381,7 +1368,7 @@ STYLE_BRIEFS: dict[str, str] = {
         "`provenance_header` blockquote (RD-3, hash-free) as the very "
         "first lines of `_report.md`, before the Abstract. Do not reorder "
         "or drop a section.\n\n"
-        "PR-B (gold-settled): the final reader-facing document carries NO "
+        " (gold-settled): the final reader-facing document carries NO "
         "Appendix — the methods/audit-trail record (PRISMA ledger, "
         "counter-positions) is written SEPARATELY to the project's "
         "DEVLOG/control note (see the `appendix-methods` brief) and never "
@@ -1391,16 +1378,16 @@ STYLE_BRIEFS: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# §3/§6 — the survey's reader-first 8-row section-set (RD-2/RD-4)
+#  the survey's reader-first 8-row section-set (RD-2/RD-4)
 # ---------------------------------------------------------------------------
 # Chain order (this tuple) is the Phase-2 DAG's drafting order (each afterok
 # the previous) — NOT the final document order (see the "assemble" brief
-# above). Abstract is drafted LAST (assembly class "S (last)", design §3):
+# above). Abstract is drafted LAST (assembly class "S (last)"):
 # it must be a subset of the finished body, so it needs the body written
 # first. References/appendix-methods are mechanical (M) and have no prose
 # dependency, so they run right before Abstract for simplicity.
 #
-# RD-2/RD-4 (next-gen lit-review design §6): pre-Wave-B this tuple had 9 rows
+# RD-2/RD-4 (next-gen lit-review): pre-Wave-B this tuple had 9 rows
 # including `prisma-scope` and `framework` as BODY sections — a reader
 # traversed ~475 lines of methodology/framework internals before the first
 # survey sentence. Both are removed as body rows here:
@@ -1412,19 +1399,19 @@ STYLE_BRIEFS: dict[str, str] = {
 #     defense stays internal, in `_framework-candidates.md`).
 # Net: 9 -> 8 rows. `introduction` now leads on the thesis, not the corpus.
 #
-# "Thematic sections (N)" (design §3 row 5) is represented here as ONE
+# "Thematic sections (N)" (row 5) is represented here as ONE
 # section node covering all N branches (the frozen framework's top-level
 # branches are read from `_manuscript.md` at draft time — see the
 # thematic-sections brief). True per-branch DAG fan-out (a separate node per
-# branch, §3's "N derived... not a free parameter") would require the
+# branch, "N derived... not a free parameter") would require the
 # type-generic core's Phase-2 builder to accept a per-manuscript dynamic
-# section-set — that is core-level work out of PR-M6's scope (design table:
+# section-set — that is core-level work out of scope (design table:
 # "Section-set + assembly classes" is type-specific, but the FAN-OUT
 # mechanism that would read a per-manuscript N is the core's Phase-2 builder,
 # untouched here per the parallel-wave scope discipline). Documented honestly
 # as the current simplification, not silently assumed.
 #
-# PR-B (gold-settled `report.md`): `appendix-methods` is NOT a row here —
+# (gold-settled `report.md`): `appendix-methods` is NOT a row here —
 # the operator's approved gold report carries no Appendix. The PRISMA/methods
 # record it used to render (as "Appendix A") is still computed by
 # `source_transform` and still gets a `STYLE_BRIEFS["appendix-methods"]`
@@ -1489,21 +1476,21 @@ SECTION_SET: tuple[SectionSpec, ...] = (
 # now inject into ONE brief + the outline").
 # ---------------------------------------------------------------------------
 
-# The engineer's build-time number (design §2.4, D3: "start conservative,
+# The engineer's build-time number (D3: "start conservative,
 # e.g. the point where the whole draft + injected inputs approaches the
 # drafter's context budget"). Override via research_vault.toml:
 #   [manuscript_lit_review]
 #   single_pass_corpus_ceiling = 60
 _DEFAULT_SINGLE_PASS_CORPUS_CEILING = 40
 
-# RD-2's reader-first reading order (§6) — the order the consolidated draft
+# RD-2's reader-first reading order — the order the consolidated draft
 # brief presents each section's contract in, and the order `assemble` joins
 # them in `report.md`. Abstract is listed first here (reading order) even
 # though it is drafted conceptually last within the single pass (it must
 # summarize the finished body — the single-pass writer holds the whole
 # survey in view, so "drafted last" is a sequencing note inside one prompt,
 # not a separate DAG node).
-# PR-B (gold-settled `report.md`): `appendix-methods` dropped from the
+# (gold-settled `report.md`): `appendix-methods` dropped from the
 # reading order — the assembled reader document carries no Appendix (see
 # the SECTION_SET comment above; the methods record routes to the
 # project's DEVLOG/control note instead). This is also the frozen heading
@@ -1515,7 +1502,7 @@ READING_ORDER: tuple[str, ...] = (
     "open-problems", "conclusion", "references",
 )
 
-# RD-6 (design §6) + HR-craft rec 1 (§7): drafting-style rules folded into
+# RD-6 + HR-craft rec 1: drafting-style rules folded into
 # the single consolidated draft brief (was spread across the 9-node chain's
 # individual briefs pre-Wave-B).
 _RD6_STYLE_RULES = (
@@ -1536,7 +1523,7 @@ _RD6_STYLE_RULES = (
     "Z changes the regime') instead of hedging ('X, though this may "
     "differ'). A narrowed claim sharpens the thesis; a hedge dissolves it — "
     "always prefer the former.\n\n"
-    "PR-B (own-voice + per-study depth): draft in TWO PASSES within this "
+    " (own-voice + per-study depth): draft in TWO PASSES within this "
     "single pass — (1) a first pass that marshals the grounded facts "
     "(claims, comparisons, edges, numbers) into rough prose per section, "
     "then (2) a revision pass that rewrites it in YOUR OWN VOICE. Never "
@@ -1608,7 +1595,7 @@ def read_coverage_used_by_branch(coverage_map_path: Path) -> dict[str, list[str]
     ALLOCATION gate (``check_coverage_allocation_gate``) is what BLOCKs a
     missing map; this reader never raises, so a manifest still builds. This is
     the ledger the fan-out-above-ceiling path chunks the corpus by, so no
-    ``used`` paper is left to chance (PR-A coverage-safety invariant).
+    ``used`` paper is left to chance (coverage-safety invariant).
     """
     result: dict[str, list[str]] = {}
     if not coverage_map_path.exists():
@@ -1632,7 +1619,7 @@ def read_coverage_used_by_branch(coverage_map_path: Path) -> dict[str, list[str]
 
 def read_coverage_used_citekeys(coverage_map_path: Path) -> list[str]:
     """The flat, sorted list of every ``used`` citekey in ``_coverage-map.md``
-    (the coverage-safety set the outline pre-pass must anchor — PR-A). Honest
+    (the coverage-safety set the outline pre-pass must anchor). Honest
     ``[]`` when the map is absent/empty (the allocation gate owns the BLOCK)."""
     by_branch = read_coverage_used_by_branch(coverage_map_path)
     return sorted({ck for cks in by_branch.values() for ck in cks})
@@ -1644,7 +1631,7 @@ def render_relations_ledger(
     *,
     config: Any = None,
 ) -> str:
-    """PR-2's consume seam (Wave 0) for the single-pass draft brief.
+    """consume seam (Wave 0) for the single-pass draft brief.
 
     Traverses the corpus-wide paper->paper typed-edge listing
     (``review.relations_report``) — mechanical, zero-hallucination DATA the
@@ -1669,12 +1656,12 @@ def render_relations_ledger(
     if not edges:
         return (
             "_No paper->paper typed edges found yet in this corpus "
-            "(Wave 0 PR-2 — run `rv review <project> relate-check` on the "
+            "(Wave 0 run `rv review <project> relate-check` on the "
             "corpus to populate them)._\n"
         )
 
     lines = [
-        "## Paper -> paper typed edges (PR-2, Wave 0 — TRAVERSE, do not re-derive)\n",
+        "## Paper -> paper typed edges (Wave 0 — TRAVERSE, do not re-derive)\n",
         "Every claim comparing >=2 papers should ground its relation in one "
         "of these typed edges (or a note's own `role`/`position` fields), "
         "never invented:\n",
@@ -1715,7 +1702,7 @@ def check_outline_gate(
       3. at least 2 distinct ``[[citekey]]`` paper references appear overall
          ("the >=2 papers it will compare").
 
-    Plus (PR-A coverage-safety invariant) — when ``used_citekeys`` is supplied
+    Plus (coverage-safety invariant) — when ``used_citekeys`` is supplied
     (the ``used`` set from ``_coverage-map.md``):
       4. EVERY ``used`` citekey must appear as a ``[[citekey]]`` reference in
          the outline. The framework stage committed to synthesizing each
@@ -1767,7 +1754,7 @@ def check_outline_gate(
     if branches and not re.search(r"\be\d+\b", text_lower):
         issues.append(
             "outline gate: no exemplar-move citation (e.g. 'imitates e07') "
-            "found anywhere in the outline — design §3.2's enforcement hook "
+            "found anywhere in the outline — enforcement hook "
             "requires each section name the exemplar id whose move it imitates."
         )
 
@@ -1776,10 +1763,10 @@ def check_outline_gate(
         issues.append(
             f"outline gate: fewer than 2 [[citekey]] paper references found "
             f"({len(wikilinks)}) — each thematic branch must marshal >=2 "
-            f"papers to compare (design §2.2)."
+            f"papers to compare."
         )
 
-    # ── (4) PR-A coverage-safety: every `used` paper must be anchored. ──────
+    # ── (4) coverage-safety: every `used` paper must be anchored. ──────
     if used_citekeys:
         present = {w.strip() for w in wikilinks}
         missing = sorted({str(ck).strip() for ck in used_citekeys if str(ck).strip()} - present)
@@ -1798,10 +1785,10 @@ def check_outline_gate(
 
 def _build_consolidated_draft_brief(tips: dict[str, str]) -> str:
     """Consolidate the per-section tips (RD-2's reading order) into ONE
-    single-pass draft brief (design §2.2/§2.6): "the mechanical injections
+    single-pass draft brief: "the mechanical injections
     ... now inject into ONE brief + the outline".
 
-    PR-B (gold-settled ``report.md``, no Appendix): ``appendix-methods`` is
+     (gold-settled ``report.md``, no Appendix): ``appendix-methods`` is
     folded in as a DISTINCT, clearly-labeled non-report block — never a
     ``### Section: appendix-methods`` row (that heading would misleadingly
     imply it joins ``report.md`` like every other row in ``READING_ORDER``).
@@ -1816,7 +1803,7 @@ def _build_consolidated_draft_brief(tips: dict[str, str]) -> str:
     if "appendix-methods" in tips:
         parts.append(
             "### Separate artifact — DEVLOG/control-note record "
-            "(NOT a `report.md` section, PR-B)\n\n" + tips["appendix-methods"]
+            "(NOT a `report.md` section)\n\n" + tips["appendix-methods"]
         )
     parts.append(f"### Drafting-style rules\n\n{_RD6_STYLE_RULES}")
     return "\n\n---\n\n".join(parts)
@@ -1904,7 +1891,7 @@ def phase2_builder(
     sections_dir_abs = str(tree_root / "sections")
     outline_path = tree_root / "_outline.md"
 
-    # PR-A: the coverage ledger the drafting path consumes so no `used` paper
+    # the coverage ledger the drafting path consumes so no `used` paper
     # is dropped. `used_by_branch` chunks the corpus for the fan-out path;
     # `used_citekeys` is the flat coverage-safety set injected into every
     # drafter ("materially cite every one of these").
@@ -1917,7 +1904,7 @@ def phase2_builder(
             return ""
         listed = ", ".join(f"[[{ck}]]" for ck in sorted(citekeys))
         return (
-            "\n\n---\n\nCOVERAGE MANDATE (PR-A — coverage-safe, no silent drop): "
+            "\n\n---\n\nCOVERAGE MANDATE (coverage-safe, no silent drop): "
             "you MUST materially cite and synthesize EVERY one of the following "
             f"`used` papers from `_coverage-map.md` ({len(citekeys)} total) — "
             "each is committed to a named branch of the frozen spine and cannot "
@@ -1959,7 +1946,7 @@ def phase2_builder(
         "assemble",
         (
             "RD-1: join the drafted sections into `_report.md` (markdown, "
-            "the internal `[[citekey]]` SOURCE — PR-D2: never `report.md`, "
+            "the internal `[[citekey]]` SOURCE: never `report.md`, "
             "that name is reserved for the separate reader render) in "
             "READER-FIRST reading order (RD-2): " + ", ".join(READING_ORDER) + ". "
             "Prepend the injected `provenance_header` blockquote (RD-3, "
@@ -1985,7 +1972,7 @@ def phase2_builder(
     if corpus_size <= ceiling:
         # Default single-pass path (D3): one drafter holds the whole survey —
         # inject the full `used` coverage mandate so every allocated paper is
-        # materially cited (PR-A coverage-safety).
+        # materially cited (coverage-safety).
         nodes.append({
             "id": "draft",
             "type": "agent",
@@ -1996,7 +1983,7 @@ def phase2_builder(
         })
         last_draft_id = "draft"
     else:
-        # D3's fan-out-above-ceiling path — PR-A ledger-chunked so it is
+        # D3's fan-out-above-ceiling path ledger-chunked so it is
         # coverage-safe by CONSTRUCTION, never a silent lossy fallback: each
         # branch drafter is handed the EXACT `used` citekeys `_coverage-map.md`
         # allocated to ITS branch (`used_by_branch`) with a must-cite-all
@@ -2035,7 +2022,7 @@ def phase2_builder(
                 "a section declares vs. every one another section refs must "
                 "match (a fan-out drift is caught HERE, not at compile). This "
                 "check is ONLY required on this fan-out path — the default "
-                "single-pass needs no label manifest (design §2.5)."
+                "single-pass needs no label manifest."
                 + _coverage_mandate(used_citekeys)
                 + "\n\nConfirm the assembled branch drafts collectively cite "
                 "EVERY `used` paper above — a `used` paper missing from every "
@@ -2050,7 +2037,7 @@ def phase2_builder(
     nodes.append({
         "id": "assemble",
         "type": "agent",
-        "label": "Assemble — join drafted sections into _report.md (RD-1, PR-D2)",
+        "label": "Assemble — join drafted sections into _report.md (RD-1)",
         "spec": preamble.rstrip() + "\n\n---\n\n" + assemble_spec,
         "reads": [sections_dir_abs],
         "needs": [_afterok(last_draft_id)],
@@ -2083,23 +2070,23 @@ def phase2_builder(
 LIT_REVIEW = ManuscriptType(
     key="lit-review",
     section_set=SECTION_SET,
-    phase1_builder=phase1_builder,          # design §5 — framework selection
-    source_transform=source_transform,      # design §4 — OKF -> survey transform
-    equation_sources=("concepts", "literature"),  # design §7 — consumed starting PR-M4
-    style_briefs=STYLE_BRIEFS,               # design §3.1
-    exemplar_bundle="lit-review",            # PR-M8: data/exemplars/manuscript/lit-review/
-    rubric=None,                             # PR-M8: DEFAULT_LIT_REVIEW_RUBRIC (design §11.1)
-    # PR-M5 (design §11.2): the 3 fresh reviewer lenses — coverage/scope
+    phase1_builder=phase1_builder,          #  framework selection
+    source_transform=source_transform,      #  OKF -> survey transform
+    equation_sources=("concepts", "literature"),  #  consumed starting
+    style_briefs=STYLE_BRIEFS,               #
+    exemplar_bundle="lit-review",            # data/exemplars/manuscript/lit-review/
+    rubric=None,                             # DEFAULT_LIT_REVIEW_RUBRIC
+    # the 3 fresh reviewer lenses — coverage/scope
     # auditor, framework/taxonomy critic (WITH the reframe-escalation
     # trigger), synthesis-vs-enumeration adversary. PLACEHOLDER wording;
-    # PR-M8 replaces with the researcher's authored lens prose — the lens STRUCTURE
+    # replaces with the researcher's authored lens prose — the lens STRUCTURE
     # (which dims each attacks, the escalation trigger) is locked here.
     reviewer_lenses=(
         "coverage-scope-auditor",
         "framework-taxonomy-critic",
         "synthesis-vs-enumeration-adversary",
     ),
-    canaries=(),                             # PR-M8: strong / weak / annotated-bib (§11.3)
+    canaries=(),                             # strong / weak / annotated-bib
     phase2_builder=phase2_builder,          # single-pass outline->draft->assemble
 )
 

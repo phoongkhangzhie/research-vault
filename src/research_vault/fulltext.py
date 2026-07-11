@@ -7,7 +7,7 @@ while reading a paper: given the identifiers the subagent already resolved
 during search/discovery, it runs the OA fetch waterfall
 (``sources/enrich.py``), caches the result, and — if the paper's literature
 note already exists — stamps the read-basis provenance into its frontmatter
-(§5 of the design doc). All decline -> prints the abstract-only degrade
+(of the design doc). All decline -> prints the abstract-only degrade
 message and exits 0 (never an error; this is the expected, honest tier-1
 fallback, not a failure).
 
@@ -113,7 +113,7 @@ def _cache_dir_for(cfg: Config, project: str) -> Path:
 
 
 def _note_path_for(cfg: Config, project: str, citekey: str) -> Path:
-    """PR-A: the external-id set (doi/arxiv/pmid/pmcid/openalex) and the
+    """the external-id set (doi/arxiv/pmid/pmcid/openalex) and the
     read_basis/full_text_* provenance this module reads + stamps are
     intrinsic (core-only) content — resolve to the CENTRAL CORE
     (``note.literature_core_path``), not the per-project overlay. ``project``

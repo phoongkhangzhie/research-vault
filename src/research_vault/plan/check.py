@@ -6,7 +6,7 @@ never certify a good one.  The semantic completeness judgment (is the diagnosis
 table *sensible*?) stays with the plan-critic (reviewer); this lint catches what
 does NOT need an LLM.
 
-Three rules (§5K.5.5):
+Three rules:
   (a) BRANCH-PRESENCE — every diagnosis table in the plan master note has a
       named conclusion AND a committed action for every outcome row.  An empty
       cell, a "fallback" row, or a "TBD" cell is a lint FAIL.
@@ -28,7 +28,7 @@ Usage (programmatic):
 
 Usage (CLI): ``rv plan check <plan-note-path>``
 
-note.py-FREE (§5K.10): this module reads note files by path; it does NOT call
+note.py-FREE: this module reads note files by path; it does NOT call
 note.py functions and does NOT modify note.py.
 
 Stdlib only.
@@ -192,7 +192,7 @@ def _check_one_component(body: str, source: str) -> list[str]:
             violations.append(
                 f"{source}: 'Component manipulated: {value}' on line {lineno} "
                 f"lists multiple components — each supporting ablation must isolate "
-                f"EXACTLY ONE component (§5K.4, 5K.5.5)."
+                f"EXACTLY ONE component (5K.5.5)."
             )
 
     return violations

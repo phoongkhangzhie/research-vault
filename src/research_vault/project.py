@@ -544,7 +544,7 @@ def cmd_new(
         scaffold.scaffold_project_dirs(source_path)
         print(f"  created: code/ data/ results/ figures/ manuscripts/ notes/log/ under {source_path}/")
 
-        # ── STEP 4b-2: releasability stubs (PR-CC-4, code-conventions §5.1) ──
+        # ── STEP 4b-2: releasability stubs (code-conventions) ──
         # CITATION.cff + LICENSE — non-destructive; never overwrites an
         # existing/filled-in stub (see scaffold.USER_OWNED_NEVER_TOUCH).
         scaffold.scaffold_release_stubs(source_path, slug=name)
@@ -654,7 +654,7 @@ def _archive_root() -> Path:
     """Return the root directory for local-only archives (crew memory, etc.).
 
     Override via ``RV_ARCHIVE_ROOT`` (test isolation; takes priority).
-    Default: ``~/vault-archive/`` (Decision D2, 2026-07-08-rv-project-remove.md §7).
+    Default: ``~/vault-archive/`` (Decision D2, 2026-07-08-rv-project-remove.md).
     """
     env = os.environ.get("RV_ARCHIVE_ROOT")
     if env:
@@ -929,7 +929,7 @@ def cmd_edges(
 # consume (projects.json un-insert via held human-go PR, hub-clone removal,
 # deploy suppression) — rv never writes projects.json or touches a hub clone.
 #
-# THE load-bearing guard (§3.3 of the design): because GitHub preserves all
+# THE load-bearing guard (of the design): because GitHub preserves all
 # pushed work, local removal is reversible (re-clone) EXCEPT for anything not
 # yet pushed.  So before clearing worktrees or purging the local repo, we
 # enumerate uncommitted/untracked files, unpushed commits, un-pushed branches,

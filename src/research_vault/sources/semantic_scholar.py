@@ -51,7 +51,7 @@ def _authors_to_names(authors_raw: Any) -> list[str]:
 def _oa_pointer_from_item(item: dict[str, Any]) -> tuple[str | None, str | None]:
     """Extract (oa_url, oa_status) from an S2 ``openAccessPdf`` field.
 
-    OA-fulltext-enrichment: previously discarded (§1 of the design doc) —
+    OA-fulltext-enrichment: previously discarded (of the design doc) —
     ``openAccessPdf`` was never in the ``--fields`` projection at all.
     S2's ``status`` values are uppercase (GOLD/GREEN/HYBRID/BRONZE/CLOSED);
     normalize to the lowercase vocabulary ``oa_status`` uses elsewhere.
@@ -100,7 +100,7 @@ def _s2_item_to_hit(item: dict[str, Any]) -> PaperHit:
 class SemanticScholarAdapter:
     """Adapter over the asta CLI (Semantic Scholar). Supports search + both
     citation-graph directions — this is the source the depth snowball anchors
-    on (§4.1)."""
+    on."""
 
     name = "semantic-scholar"
 
@@ -196,12 +196,12 @@ class SemanticScholarAdapter:
         ``limit`` is accepted (kept for ``SourceAdapter`` Protocol parity
         with ``search``/``cited_by``, and because ``snowball.py`` calls this
         generically across whatever adapter it's given) but is a DELIBERATE
-        NO-OP here — see the PR-S1 REWRITE note below. Do not re-add a
+        NO-OP here — see the REWRITE note below. Do not re-add a
         client-side ``items[:limit]`` truncation; that was tried and
         reverted (recall-regressive, see git history for the original
-        PR-S1 commit + its revert).
+         commit + its revert).
 
-        PR-S1 REWRITE (pre-publish fit-check, 2026-07-10): an earlier
+         REWRITE (pre-publish fit-check, 2026-07-10): an earlier
         version of this fix bound backward references client-side to
         ``per_round_limit``, on the reasoning that ``asta papers get`` has
         no server-side pagination for a nested ``references.*`` projection

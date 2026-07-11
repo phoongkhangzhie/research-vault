@@ -4,10 +4,10 @@
 arXiv's public API (export.arxiv.org Atom feed) has no citation graph — a
 paper's forward/backward citations are not exposed. ``cited_by``/``references``
 raise ``NotSupported`` so callers (the width sweep) skip this adapter for
-those ops rather than reading an empty list as "zero citations" (§4.1).
+those ops rather than reading an empty list as "zero citations".
 
 Stdlib only (``urllib.request`` + the stdlib ``xml.etree`` Atom parse) — no
-forced third-party dependency (§11).
+forced third-party dependency.
 """
 from __future__ import annotations
 

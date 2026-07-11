@@ -68,7 +68,7 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
     hand-copied frozenset mirroring `note.OKF_TYPES ∪ OKF_SHARED_TYPES` guarded only by a keep-in-sync
     *comment* silently drifts when the SSOT grows — and the thing that drifts is itself a safety guard.
     Import the SSOT, or add an equality test asserting `mirror == source`. A comment is not a guard.
-- **Help and docstrings must describe what the code actually does — a false help is a §1 fabrication,
+- **Help and docstrings must describe what the code actually does — a false help is a fabrication,
   not a doc nit.** The documentation-side sibling of "a guard must fail when the thing it guards is
   broken" (above): a verb's `when_to_use`, its `--help` text, and any behaviour-claiming docstring are
   a promise to the adopter. A help string that claims a behaviour the code does not perform is a
@@ -124,7 +124,7 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   gate caught it during acceptance tests).
 - **An extracted helper is only done when the pre-existing caller uses it.** A change whose deliverable
   is "extract Phase-X as a reusable function" is incomplete if the pre-existing path still contains a
-  parallel copy of the same logic. An extracted-but-uncalled copy is a silent charter-§6 regression CI
+  parallel copy of the same logic. An extracted-but-uncalled copy is a silent charter- regression CI
   stays green through — both copies are currently correct, so no test fails — but the duplication is
   live and will diverge. This is worse when the duplicated block is a safety contract. Review fit-check
   probe: confirm the pre-existing caller now CALLS the new helper; an independent copy is a failed

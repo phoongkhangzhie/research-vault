@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/exemplars.py — the few-shot exemplar loader/injector (PR-M7, design §8).
+"""manuscript/exemplars.py — the few-shot exemplar loader/injector.
 
-**The general rv writing-agent principle (design §8, generalize to §12):** voice comes
+**The general rv writing-agent principle (generalize):** voice comes
 from few-shot REAL examples embedded in the prompt, not from a prose description of a
 style. A writer told "write in a synthesis style" enumerates; a writer shown three real
 synthesis paragraphs imitates the MOVE. This module is the type-generic mechanism; the
@@ -26,15 +26,14 @@ staging doc `docs/superpowers/specs/2026-07-07-survey-exemplar-corpus.md`):
 
 ``kind: principle`` blocks (E17/E18 in the lit-review bundle) are NOT body-prose
 exemplars — they are prompt-level RULE anchors for the writer's system preamble
-(the researcher's placement, design §8: "for the writer's system prompt, not body prose").
+(the researcher's placement, "for the writer's system prompt, not body prose").
 
 **Not a description — the real text is in the prompt.** ``inject_exemplar_briefs``
 embeds the excerpts VERBATIM as labeled few-shot blocks in the matching section's
 brief. A section brief that ships without its exemplar block fails its own test
-(teeth, design §8/PR-M7 acceptance) — see ``test_manuscript_exemplars.py``.
+(teeth, acceptance) — see ``test_manuscript_exemplars.py``.
 
 Stdlib only (``importlib.resources`` only).
-sr: PR-M7
 """
 from __future__ import annotations
 
@@ -62,7 +61,6 @@ def _parse_exemplar_file(text: str, *, filename: str) -> dict[str, Any]:
         dict with every header key (str) plus ``"verbatim"`` (the passage,
         stripped of leading/trailing blank lines; internal wording untouched).
 
-    sr: PR-M7
     """
     lines = text.splitlines()
     header: dict[str, str] = {}
@@ -104,7 +102,6 @@ def load_exemplar_bundle(bundle_key: str | None) -> list[dict[str, Any]]:
         Parsed blocks, sorted by filename (stable — the ``e01-...`` prefix
         convention keeps corpus order deterministic).
 
-    sr: PR-M7
     """
     if not bundle_key:
         return []
@@ -129,7 +126,7 @@ def load_exemplar_bundle(bundle_key: str | None) -> list[dict[str, Any]]:
         text = entry.read_text(encoding="utf-8")
         block = _parse_exemplar_file(text, filename=entry.name)
         block["_file"] = entry.name
-        # NG-8 (next-gen lit-review design §3): each block self-describes its
+        # NG-8 (next-gen lit-review): each block self-describes its
         # bundle key so downstream pointer-rendering can resolve the
         # installed bundle's absolute path (``resolve_exemplar_bundle_path``)
         # without a second parameter threaded through every caller.
@@ -141,9 +138,9 @@ def load_exemplar_bundle(bundle_key: str | None) -> list[dict[str, Any]]:
 def resolve_exemplar_bundle_path(bundle_key: str | None) -> Any:
     """Return the installed exemplar bundle's absolute filesystem directory.
 
-    NG-8 (next-gen lit-review design §3.1): "the bundle is package data, not
+    NG-8 (next-gen lit-review): "the bundle is package data, not
     a filesystem path a subagent can ``read``" — this resolver is the fix.
-    Package-path resolver (the operator's build-time recommendation, design §9):
+    Package-path resolver (the operator's build-time recommendation):
     NO copy is made — for a normal (non-zip) install, ``importlib.resources
     .files()`` already resolves to a real directory on disk; this just
     returns it as a ``pathlib.Path``.
@@ -153,7 +150,6 @@ def resolve_exemplar_bundle_path(bundle_key: str | None) -> Any:
     exemplar id/category without a live ``read`` path — never a fabricated
     path, never an error).
 
-    sr: NG-lit-review-waveB (NG-8)
     """
     if not bundle_key:
         return None
@@ -176,12 +172,12 @@ def resolve_exemplar_bundle_path(bundle_key: str | None) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Rendering — a block -> the design §8 labeled few-shot form
+# Rendering — a block -> the labeled few-shot form
 # ---------------------------------------------------------------------------
 
 
 def render_exemplar_block(block: dict[str, Any]) -> str:
-    """Render one exemplar block as a labeled few-shot block (design §8's form):
+    """Render one exemplar block as a labeled few-shot block (form):
 
         [EXEMPLAR — <category> — <source>]
         "<verbatim passage>"
@@ -193,7 +189,6 @@ def render_exemplar_block(block: dict[str, Any]) -> str:
     Returns:
         The rendered few-shot block, real excerpt text embedded verbatim.
 
-    sr: PR-M7
     """
     category = block.get("category", "")
     source = block.get("source", "")
@@ -211,7 +206,7 @@ def build_principle_anchor_block(blocks: list[dict[str, Any]]) -> str:
 
     These (E17/E18 in the lit-review bundle) are prompt-level instructions,
     NOT body-prose exemplars to imitate verbatim (the researcher's placement, design
-    §8's "for the writer's system prompt, not body prose") — rendered
+    "for the writer's system prompt, not body prose") — rendered
     differently from ``render_exemplar_block`` (no "imitate the MOVE" framing;
     stated as a rule with attribution).
 
@@ -223,7 +218,6 @@ def build_principle_anchor_block(blocks: list[dict[str, Any]]) -> str:
         a type whose bundle has no principle anchors gets no preamble
         addition, never a fabricated one).
 
-    sr: PR-M7
     """
     principles = [b for b in blocks if b.get("kind") == "principle"]
     if not principles:
@@ -241,17 +235,17 @@ def build_principle_anchor_block(blocks: list[dict[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 
 # The lit-review section keys mapped to the exemplar ``category`` buckets
-# relevant to what that section's writer must produce (design §8: "matched to
+# relevant to what that section's writer must produce ("matched to
 # the section being drafted"). A section key absent here (conclusion,
 # references, abstract, assemble) has no exemplar coverage in the
 # researcher-curated corpus (§ Coverage map) and is an honest no-op, never a
 # forced match.
 #
-# RD-4 (next-gen lit-review design §6): the standalone ``framework`` body
+# RD-4 (next-gen lit-review): the standalone ``framework`` body
 # section is deleted — its exemplar category ("framework"/"figure-caption")
 # now folds into ``introduction``, which carries the spine-at-a-glance
 # orientation table that replaced it. RD-3: ``prisma-scope`` was renamed
-# ``appendix-methods`` (same "scope-method" category). PR-B (gold-settled
+# ``appendix-methods`` (same "scope-method" category). (gold-settled
 # `report.md`): ``appendix-methods`` is no longer a `report.md`/appendix
 # body section at all — it is a DEVLOG/control-note record — but its
 # exemplar category mapping is unchanged (the DEVLOG record is still
@@ -265,7 +259,7 @@ LIT_REVIEW_SECTION_CATEGORY_MAP: dict[str, tuple[str, ...]] = {
 }
 
 
-# NG-8 (next-gen lit-review design §3): the header marker every injected
+# NG-8 (next-gen lit-review): the header marker every injected
 # pointer block carries — the presence check (``check_exemplar_pointer_presence``)
 # greps for this EXACT string, so it must never be paraphrased at the call site.
 MUST_READ_HEADER = "Must-read before drafting this section — imitate the MOVE, not the words:"
@@ -276,7 +270,7 @@ def render_exemplar_pointer(block: dict[str, Any]) -> str:
     verbatim embed.
 
     NG-8: ``inject_exemplar_briefs`` used to append the excerpt VERBATIM
-    (design §8's original form — bloated the framework brief to ~6900
+    (original form — bloated the framework brief to ~6900
     chars). NG-8 replaces that with a ``read <path>`` pointer the drafter
     actively reads, resolved via ``resolve_exemplar_bundle_path``. When the
     bundle's real filesystem path can't be resolved (e.g. a zip-packed
@@ -291,7 +285,6 @@ def render_exemplar_pointer(block: dict[str, Any]) -> str:
         A single pointer line, e.g.
         ``- read /abs/path/e07-foo.md (synthesis) — why: <one line>``.
 
-    sr: NG-lit-review-waveB (NG-8)
     """
     category = block.get("category", "")
     why = block.get("why", "")
@@ -311,14 +304,14 @@ def inject_exemplar_briefs(
 ) -> dict[str, str]:
     """Append matched exemplar MUST-READ POINTERS to each mapped section's brief.
 
-    NG-8 (next-gen lit-review design §3, supersedes the PR-M7 verbatim-embed
+    NG-8 (next-gen lit-review, supersedes the verbatim-embed
     form): rather than embedding the excerpt text, this appends a
     ``read <path>`` pointer block the drafter actively reads (enforced by
     the ``outline`` pre-pass citing the exemplar-move it imitates, NG-7).
     Keeps the header marker ``MUST_READ_HEADER`` — the presence check
     (``check_exemplar_pointer_presence``) greps for it, so a hand-rolled
     brief that drops this block is CATCHABLE, not silently invisible (design
-    §3.3 process note: "a dropped pointer is invisible").
+     process note: "a dropped pointer is invisible").
 
     When to use: called right after ``load_exemplar_bundle`` in the Phase-2
     scaffolder (mirrors ``equations.inject_equation_brief``'s seam position
@@ -340,7 +333,6 @@ def inject_exemplar_briefs(
         a category with zero matching blocks, or an empty ``blocks`` list is
         an honest no-op for that section.
 
-    sr: PR-M7 (verbatim form); NG-lit-review-waveB (NG-8: pointer form)
     """
     mapping = (
         section_category_map
@@ -371,7 +363,7 @@ def check_exemplar_pointer_presence(
     blocks: list[dict[str, Any]],
     section_category_map: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[bool, str]:
-    """NG-8's presence check — the load-bearing teeth (design §3.3).
+    """NG-8's presence check — the load-bearing teeth.
 
     A dropped VERBATIM excerpt was at least visible bloat; a dropped
     POINTER is invisible (the section still reads fine, just voiceless).
@@ -394,7 +386,6 @@ def check_exemplar_pointer_presence(
         forced match), or (b) the pointer marker is present. False + a loud
         message when coverage exists but the marker is missing.
 
-    sr: NG-lit-review-waveB (NG-8)
     """
     mapping = (
         section_category_map
@@ -415,7 +406,7 @@ def check_exemplar_pointer_presence(
             f"exemplar-pointer presence check FAILED for section {section_key!r}: "
             f"this bundle has {len(matched)} matching exemplar block(s) but the "
             f"drafted node spec carries no must-read pointer block. This is the "
-            f"'dropped pointer is invisible' failure mode (design §3.3) — likely "
+            f"'dropped pointer is invisible' failure mode — likely "
             f"a hand-rolled brief that bypassed inject_exemplar_briefs. Re-emit "
             f"via `rv dag brief`/`rv manuscript expand`, never hand-paraphrase."
         )

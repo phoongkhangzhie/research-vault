@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""gates/board_seam.py — PR-B1: the 6-lens cold-agent-judge emit/ingest
-fan-out contract for the autonomous review board (PR-E: 4->6 lenses —
+"""gates/board_seam.py: the 6-lens cold-agent-judge emit/ingest
+fan-out contract for the autonomous review board (4->6 lenses —
 CONTENT split into DEPTH/WIDTH/SYNTH, FRAMEWORK renamed INSTRUCT).
 
 Built ON ``gates.judge_seam``'s primitives (charter §6 — reuse, don't
@@ -26,13 +26,13 @@ GUARDS (undiminished vs. ``judge_seam``'s own contract — a cold
 subagent-judge can hallucinate on a 1-5 score just as easily as a fixed
 verdict string):
   - id<->id join is the contract, never prompt-text matching.
-  - Rejects-only: floor-not-average is applied one level up (PR-B3); THIS
+  - Rejects-only: floor-not-average is applied one level up; THIS
     module's job is fail-closed axis scoring, not the clear predicate.
   - Fail-closed: a missing/unparseable axis score defaults to 0 (FAILs its
     axis under any floor_value >= 1) — never a silent pass. An entirely
     missing/empty verdicts file with tasks emitted -> ``halt=True``
     (``fanout_incomplete``).
-  - Canary-verified (PR-F: PER-AXIS): one calibrated probe per axis
+  - Canary-verified (PER-AXIS): one calibrated probe per axis
     (``canary_passages.BOARD_AXIS_CANARIES``) — incl. a WIDTH dropped-cluster
     FAIL and a DEPTH bare-assertion FAIL — re-emitted UNMARKED, interleaved
     among the 6 real lens tasks so EACH of the 6 cold judges is verified (a
@@ -46,9 +46,7 @@ verdict string):
     ``interleave_with_canaries``; a partial verdicts file surfaces
     ``missing_ids`` for a targeted re-fan.
 
-Design: docs/superpowers/specs/2026-07-08-autonomous-board-design.md §2.
 Stdlib only. Hermetic in tests — no live LLM call anywhere in this module.
-sr: PR-B1
 """
 from __future__ import annotations
 
@@ -67,7 +65,7 @@ _DEFAULT_FLOOR_VALUE: int = board_lenses._DEFAULT_FLOOR_VALUE
 
 
 # ---------------------------------------------------------------------------
-# The calibrated canary probes (PR-F: PER-AXIS, not SYNTH-only).
+# The calibrated canary probes (PER-AXIS, not SYNTH-only).
 #
 # In the per-axis cold fanout EACH lens goes to a SEPARATE fresh subagent —
 # so a single-axis (SYNTH-only) canary certifies only ONE judge; a
@@ -171,7 +169,7 @@ def emit_board_tasks(
     floor_value: int = _DEFAULT_FLOOR_VALUE,
 ) -> dict[str, Any]:
     """Build ``_board-tasks.json`` + the private ``_board-canary-key.json``
-    (design §2). The 6 real lens tasks (depth / width / synthesis /
+    The 6 real lens tasks (depth / width / synthesis /
     self-containment / adversarial / instruction-following) + the 3
     interleaved unmarked canary probes.
 
@@ -185,7 +183,6 @@ def emit_board_tasks(
     ``contradiction_map``; only INSTRUCT carries ``heading_diff``/
     ``frozen_order`` — the anti-anchoring per-lens scoping.
 
-    sr: PR-B1 (PR-E: 6 lenses + WIDTH coverage_diff)
     """
     real_tasks = board_lenses.build_lens_tasks(
         draft_text,
@@ -286,7 +283,6 @@ def ingest_board_verdicts(
     untrustworthy judge invalidates everything else; ``CanaryAbortError``
     propagates to the caller (never swallowed).
 
-    sr: PR-B1
     """
     tasks = tasks_doc.get("tasks", [])
     canaries = (canary_key_doc or {}).get("canaries", {})
@@ -308,7 +304,7 @@ def ingest_board_verdicts(
             "halt_reason": (
                 "board-fanout HALT: _board-verdicts.json is missing or "
                 "empty while real lens tasks were emitted — the holistic-"
-                "quality floor was never checked (§1.8 floor-gate NOT RUN). "
+                "quality floor was never checked (floor-gate NOT RUN). "
                 "This is NOT a pass."
             ),
             "missing_ids": [t["id"] for t in real_tasks],
