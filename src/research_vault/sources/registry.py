@@ -3,7 +3,7 @@
 
 ``DEFAULT_SOURCES`` is the operator's D4 default-on set: semantic-scholar + arxiv +
 openalex. PubMed and web are opt-in — a protocol adds them to its ``sources:``
-field explicitly (§4.2). A ``sources:`` value not in ``ADAPTER_NAMES`` is a
+field explicitly. A ``sources:`` value not in ``ADAPTER_NAMES`` is a
 protocol error, surfaced loudly (never silently dropped).
 """
 from __future__ import annotations

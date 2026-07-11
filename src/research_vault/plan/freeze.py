@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""plan/freeze.py — K-3 covers:-freeze-set hash (§5K.5.1).
+"""plan/freeze.py — K-3 covers:-freeze-set hash.
 
-PURPOSE (§5K.5.1 K-3 FIX)
+PURPOSE (K-3 FIX)
   A git commit at the human-go-plan gate is a convention, not a structural
   tamper-record — it can be amended, skipped, or the repo may not commit at
   gate time.  Instead, this module hashes the frozen `covers:` set (the sorted
@@ -79,7 +79,7 @@ PUBLIC API
       The error message distinguishes a retry-ceiling drift (covers block
         matches but retries block differs) from a covers-set edit.
 
-note.py-FREE (§5K.10): reads notes by path/frontmatter; does NOT import note.py.
+note.py-FREE: reads notes by path/frontmatter; does NOT import note.py.
 Stdlib only.
 """
 from __future__ import annotations

@@ -16,8 +16,8 @@ that make breadth safe and useful:
   - ``sweep``       — the parallel (angle × source) width-sweep orchestrator
                       that ``rv research sweep`` drives (NG-3).
 
-Design authority: the next-gen lit-review loop design doc, §4 (breadth-then-
-depth) + §7 (HR-craft folds). Adapters are stdlib-HTTP or subprocess-shelled
+Design authority: the next-gen lit-review loop design doc, (breadth-then-
+depth)  (HR-craft folds). Adapters are stdlib-HTTP or subprocess-shelled
 (asta) — no forced third-party dependency (charter §6 reuse-over-create).
 """
 from __future__ import annotations

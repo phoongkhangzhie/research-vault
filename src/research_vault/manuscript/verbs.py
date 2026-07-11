@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/verbs.py — rv manuscript subcommand dispatcher (PR-M1, type-generic core).
+"""manuscript/verbs.py — rv manuscript subcommand dispatcher (type-generic core).
 
 When to use: use ``rv manuscript <project> new <slug> --type <type>`` to scaffold
-a per-manuscript folder (design §0/§12: NOT an OKF taxonomy — a per-manuscript
+a per-manuscript folder (NOT an OKF taxonomy — a per-manuscript
 ``manuscripts/<slug>/{_manuscript.md, report.md, sections/, references.md, figures/}``
 folder). The Phase-2 draft manifest (from the registered type's section table)
 is emitted AUTONOMOUSLY when ``approve-framework`` GOes — ``rv manuscript
 <project> expand`` is HARD-REMOVED (D1, verb consolidation), a no-op stub only.
-The 6-lens review board (design §2, PR-E/PR-D2) runs via cold-agent-judge
+The 6-lens review board runs via cold-agent-judge
 fan-out: ``rv manuscript <project> board-emit <slug>`` writes the task set (rv
 calls no LLM), the hub fans cold subagent judges out over it, and ``rv dag
 approve`` ingests the verdicts for the actual gate decision — ``rv manuscript
@@ -19,12 +19,11 @@ Phase-1/2 DAG manifests.
 
 Anti-pattern: do NOT hand-write markdown sections and hand-collect citations
 from OKF piles — run ``rv manuscript new`` so the per-manuscript folder carries the
-type-generic scaffold; the hermetic references build (PR-M2), the fidelity gates
-(PR-M3), the equation machinery (PR-M4), and the review-revise board (PR-M5)
+type-generic scaffold; the hermetic references build, the fidelity gates,
+the equation machinery, and the review-revise board
 all plug into this same folder.
 
 Stdlib only.
-sr: PR-M1
 """
 from __future__ import annotations
 
@@ -42,16 +41,15 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
 
     When to use: use ``rv manuscript <project> new <slug> --type <type>`` to
     scaffold a per-manuscript folder + (type-optional) Phase-1 manifest
-    (PR-M1, design §1/§2).
+
 
     Anti-pattern: do NOT hand-write markdown sections and hand-type citations/numbers —
     ``rv manuscript new`` is the only path that registers the manuscript's
-    TYPE, which every downstream gate (PR-M2/M3/M4/M5) keys off of.
+    TYPE, which every downstream gate keys off of.
 
-    sr: PR-M1
     """
     desc = (
-        "Type-generic manuscript loop (PR-M1). ``rv manuscript new`` is the ONLY "
+        "Type-generic manuscript loop. ``rv manuscript new`` is the ONLY "
         "path that creates the per-manuscript folder convention.\n"
         "Drive Phase-1 with: rv dag run manuscripts/<slug>/phase1-dag.json\n"
         "The Phase-2 manifest (manuscripts/<slug>/phase2-dag.json) emits "
@@ -86,7 +84,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         default=None,
         help=(
             "Manuscript identifier slug (e.g. 'survey-llm-eval'). Optional "
-            "when --from-review is given (adopted from it, NG-7 §2.6)."
+            "when --from-review is given (adopted from it, NG-7)."
         ),
     )
     new_p.add_argument(
@@ -103,7 +101,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         metavar="<scope>",
         default=None,
         help=(
-            "An `rv review` scope id to adopt as the slug (NG-7 §2.6) — "
+            "An `rv review` scope id to adopt as the slug (NG-7) — "
             "pre-binds the corpus by making the manuscript slug equal the "
             "review scope id, the convention every corpus-lookup keys off. "
             "An explicit <slug> that differs from this is warned, not "
@@ -141,11 +139,11 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help="List manuscript folders for the project.",
     )
 
-    # ── judge-emit (NG-4, design §1.9) ───────────────────────────────────────
+    # ── judge-emit (NG-4) ───────────────────────────────────────
     judge_emit_p = sub.add_parser(
         "judge-emit",
         help=(
-            "Emit the cold-agent-judge fan-out task set(s) (design §1.9, "
+            "Emit the cold-agent-judge fan-out task set(s) ("
             "Phase A) — writes judge/<gate>/_judge-tasks.json + "
             "_judge-canary-key.json. rv calls no LLM here; the hub fans "
             "cold subagent-judges out over the written tasks."
@@ -162,11 +160,11 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         ),
     )
 
-    # ── judge-ingest (NG-4, design §1.9) ─────────────────────────────────────
+    # ── judge-ingest (NG-4) ─────────────────────────────────────
     judge_ingest_p = sub.add_parser(
         "judge-ingest",
         help=(
-            "Ingest the hub-fanned-out cold-judge verdicts (design §1.9, "
+            "Ingest the hub-fanned-out cold-judge verdicts ("
             "Phase C) from judge/<gate>/_judge-verdicts.json — id-join, "
             "canary-verify, fail-closed assembly. Diagnostic surface; "
             "`rv dag approve` re-ingests for the actual gate decision."
@@ -183,16 +181,16 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         ),
     )
 
-    # ── board-emit (PR-D2, design §2) ────────────────────────────────────────
+    # ── board-emit ────────────────────────────────────────
     board_emit_p = sub.add_parser(
         "board-emit",
         help=(
             "Emit the 6-lens review-board cold-agent-judge fan-out task set "
-            "(design §2) — writes judge/board/_board-tasks.json + "
+            "— writes judge/board/_board-tasks.json + "
             "_board-canary-key.json. rv calls no LLM here; the hub fans "
             "cold subagent-judges out over the written tasks. Assembles the "
             "WIDTH lens's coverage_diff from the [[citekey]] SOURCE "
-            "(_report.md), never the [N]-numbered render (PR-D2)."
+            "(_report.md), never the [N]-numbered render."
         ),
     )
     board_emit_p.add_argument("slug", metavar="<slug>", help="Manuscript identifier.")
@@ -369,7 +367,7 @@ def _run_list(args: argparse.Namespace) -> int:
 
 
 def _run_judge_emit(args: argparse.Namespace) -> int:
-    """Emit the NG-4 cold-agent-judge fan-out task set(s) (design §1.9)."""
+    """Emit the NG-4 cold-agent-judge fan-out task set(s)."""
     from research_vault.config import load_config
     from research_vault.manuscript import cmd_judge_emit
 
@@ -419,7 +417,7 @@ def _run_judge_emit(args: argparse.Namespace) -> int:
 
 
 def _run_judge_ingest(args: argparse.Namespace) -> int:
-    """Ingest the hub-fanned-out cold-judge verdicts (design §1.9)."""
+    """Ingest the hub-fanned-out cold-judge verdicts."""
     from research_vault.config import load_config
     from research_vault.manuscript import cmd_judge_ingest
 
@@ -470,7 +468,7 @@ def _run_judge_ingest(args: argparse.Namespace) -> int:
 
 
 def _run_board_emit(args: argparse.Namespace) -> int:
-    """Emit the 6-lens review-board cold-agent-judge fan-out task set (PR-D2)."""
+    """Emit the 6-lens review-board cold-agent-judge fan-out task set."""
     from research_vault.config import load_config
     from research_vault.manuscript import cmd_board_emit
 

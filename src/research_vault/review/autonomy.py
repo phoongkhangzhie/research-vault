@@ -8,7 +8,7 @@ the plan/scope gate before search) is a human gate. Every downstream gate —
 ``approve-review`` — resolves AUTONOMOUSLY through the gate-policy engine
 below, and an auto-resolved decision is FINAL THE MOMENT IT RESOLVES: no
 ``provisional`` stamp, no async-veto window, no user-facing
-provisional/confirmed bookkeeping. The §1.7 async-veto window
+provisional/confirmed bookkeeping. The async-veto window
 (``VetoWindow``/``open_veto_window``/``cast_veto``/
 ``clear_provisional_if_elapsed``/``check_declare_final_gate``) and the
 ``rv dag veto`` CLI surface it backed were REMOVED for this reason — see
@@ -17,7 +17,7 @@ DEVLOG.md. This module is the single-sourced home (mirrors
 reuse-over-create) for TWO things that were previously a human keypress at
 ``rv dag approve``:
 
-  1. **The gate-policy engine** (§1.2) — ``classify_disposition`` maps any
+  1. **The gate-policy engine** — ``classify_disposition`` maps any
      mechanical-gate outcome to exactly ONE of GO / GO-WITH-RESIDUE / REVISE /
      HALT-DECLARE, by FAILURE CLASS. Adapters (``evaluation_from_*``) turn the
      existing gate payload shapes (``check_gates.build_approve_payload``,
@@ -25,7 +25,7 @@ reuse-over-create) for TWO things that were previously a human keypress at
      ``check_saturation_backstop``) into the normalized ``GateEvaluation``
      input, so no existing gate is reimplemented — only consumed.
 
-  2. **The deviation log** (§1.5, D2) — ``record_deviation`` writes the
+  2. **The deviation log** (D2) — ``record_deviation`` writes the
      DECLARED v(k)->v(k+1) transparency block; ``check_undeclared_deviation``
      is the REPURPOSED denominator-shrink BLOCK: a corpus delta from the
      frozen baseline is a BLOCK unless every citekey delta is declared,
@@ -48,7 +48,6 @@ Stdlib only (+ intra-package imports). Hermetic in tests — no live LLM/network
 call is required to exercise the disposition/deviation logic; the op
 registry's network-touching ops are exercised via injected fakes in tests.
 
-sr: D4 (verb consolidation)
 """
 from __future__ import annotations
 
@@ -67,7 +66,7 @@ from research_vault.research import (
 )
 
 # ---------------------------------------------------------------------------
-# 1. Dispositions — the gate-policy engine (§1.2)
+# 1. Dispositions — the gate-policy engine
 # ---------------------------------------------------------------------------
 
 GO = "GO"
@@ -82,7 +81,7 @@ HALT_DECLARE = "HALT-DECLARE"
 # disposition specifically. `dag/verbs.py` is the sole consumer that acts on
 # it (dispatches one bounded remediation round, `review.remediation`).
 REMEDIATE = "REMEDIATE"
-# An approve-review-only disposition (PR-3, D-5a) — a PURE counter-position/
+# An approve-review-only disposition (D-5a) — a PURE counter-position/
 # thin-pole critic BLOCK (``remediation_target_expected`` on the
 # ``check_coverage_critic_verdict`` payload), a valid ``remediation_target``
 # naming the exact pole, and backtrack budget remaining. Never returned by
@@ -133,7 +132,7 @@ class DispositionResult:
 @dataclasses.dataclass
 class GateEvaluation:
     """Normalized input to ``classify_disposition`` — the four failure
-    classes from design §1.2's table, reduced to four independent signals.
+    classes from table, reduced to four independent signals.
     Build one of these via an ``evaluation_from_*`` adapter; never hand-roll
     one against a gate's raw payload shape (that duplicates the adapter).
     """
@@ -240,7 +239,7 @@ def evaluation_from_board(
     exhausted" from the outer gate-policy engine's point of view; there is
     no further external revise to dispatch.
 
-    ★ PR-B5 (decision #6): a
+    ★ (decision #6): a
     board quality shortfall (CONTENT/SELFCONT/ADVERS/FRAMEWORK axis not
     cleared after the bounded revise rounds) is deliberately NOT the same
     failure class as an integrity BLOCK (bib/support). "The output IS the
@@ -298,7 +297,7 @@ def classify_coverage_gate(
     coverage_gaps_path: Path | None = None,
     source_coverage_info: dict[str, Any] | None = None,
 ) -> DispositionResult:
-    """§1.6: the coverage-gate disposition, keyed to the EXACT shipped
+    """the coverage-gate disposition, keyed to the EXACT shipped
     0.2.4+ ``_saturation.md`` ``stop_reason:`` contract
     (``review.check_saturation_backstop``'s return shape).
 
@@ -439,7 +438,7 @@ def classify_coverage_gate_with_deviation_check(
 
 def _parse_corpus_citekeys_helper(corpus_path: Path) -> list[str]:
     """Thin call-through to ``review._parse_corpus_citekeys`` (reuse, charter
-    §6) — a lazy import avoids a module-level circular import (``review``'s
+    ) — a lazy import avoids a module-level circular import (``review``'s
     package ``__init__`` imports from other review submodules; autonomy.py
     is itself imported by ``review/verbs.py`` and ``dag/verbs.py``).
     """
@@ -449,7 +448,7 @@ def _parse_corpus_citekeys_helper(corpus_path: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 2. The deviation log (§1.5, D2) — the transparency contract + repurposed BLOCK
+# 2. The deviation log (D2) — the transparency contract + repurposed BLOCK
 # ---------------------------------------------------------------------------
 
 # The two recognized `kind` values. `within-criteria-append`
@@ -478,7 +477,7 @@ def record_deviation(
     now: datetime.datetime | None = None,
 ) -> str:
     """Append a DECLARED ``v(k)->v(k+1)`` deviation block to
-    ``_deviations.md`` (§1.5 requirement 1). Never a silent edit — every
+    ``_deviations.md`` (requirement 1). Never a silent edit — every
     criteria/membership change goes through this function or it is
     undeclared (and will trip ``check_undeclared_deviation``'s BLOCK).
 
@@ -494,7 +493,7 @@ def record_deviation(
       - ``None`` — no invariant enforced (generic/legacy deviation).
 
     Returns the appended block (for the caller to also push into the
-    ``⟦RETURN⟧``/control-bus surface, per §1.5's auditability-teeth
+    ``⟦RETURN⟧``/control-bus surface, per auditability-teeth
     requirement — pushed, not merely written).
     """
     now = now or datetime.datetime.now(tz=datetime.timezone.utc)
@@ -530,7 +529,7 @@ def record_deviation(
         text = (
             "# Deviation log\n\n"
             "Every scope/membership revision under D2's transparency "
-            "contract (§1.5): DECLARED, PRISMA-integrated, reproducible, "
+            "contract: DECLARED, PRISMA-integrated, reproducible, "
             "and final the moment it is recorded here (single-human-gate "
             "design, 2026-07-09 — no async-veto window).\n"
         )
@@ -567,7 +566,7 @@ def check_undeclared_deviation(
     current_citekeys: set[str] | list[str],
     deviations_path: Path,
 ) -> tuple[bool, str]:
-    """The REPURPOSED denominator-shrink BLOCK (§1.5, D2's mechanical
+    """The REPURPOSED denominator-shrink BLOCK (D2's mechanical
     teeth).
 
     Under D2, ALL scope/membership revisions are auto — this BLOCK no
@@ -597,7 +596,7 @@ def check_undeclared_deviation(
             f"criteria change must be DECLARED in {deviations_path} "
             "(pre/post criteria + citekey deltas + rationale) via "
             "record_deviation() before proceeding — D2's mechanical "
-            "transparency contract (§1.5). A silent corpus edit is not "
+            "transparency contract. A silent corpus edit is not "
             "permitted even though scope revisions are auto."
         )
     return True, (
@@ -612,7 +611,7 @@ def check_undeclared_deviation(
 #
 # Every entry is a thin call-through — NO op is reimplemented here. This is
 # the natural single-sourced home for the op registry (it already single-
-# sources gate dispositions; §3.3 of the consolidation doc says it can
+# sources gate dispositions; of the consolidation doc says it can
 # single-source op-dispatch too). A DAG "type": "tool" node carries
 # {"op": "<name>", "args": {...}}; the runner (dag/verbs.py's
 # _auto_execute_tool_nodes) looks the op up here and calls it IN-PROCESS —
@@ -638,7 +637,7 @@ def _op_sweep(
     ``SweepResult`` (back-compat for any caller that doesn't want the
     artifact written, e.g. a unit test exercising the op in isolation).
 
-    ``angle_keys``/``sources_override`` (PR-3, D-5a): pass-through to
+    ``angle_keys``/``sources_override`` (D-5a): pass-through to
     ``run_sweep_from_protocol`` — the pole-directed critic-backtrack round
     (``review.remediation.run_directed_remediation_round``) restricts the
     sweep to one facet's frozen counter-queries and widens to every
@@ -764,7 +763,7 @@ def _op_snowball(
     screen note's own prose PRISMA exclusion audit trail lives freely above
     it; see ``review/style.py``'s ``review_screen_tips``).
 
-    ``seed_ids`` (PR-3, D-5a): an EXPLICIT seed-id list, bypassing the
+    ``seed_ids`` (D-5a): an EXPLICIT seed-id list, bypassing the
     ``_screen.md`` file entirely — the pole-directed critic-backtrack round
     (``review.remediation.run_directed_remediation_round``) has no
     ``_screen.md`` of its own (there is no screen step in a backtrack
@@ -851,8 +850,8 @@ def _op_relevance_screen(
     out: str,
     **_: Any,
 ) -> Any:
-    """The ``relevance_screen`` tool op (PR-1, design 2026-07-10-trustworthy-
-    curation-relevance-gate-design.md §3d) — the mechanical snowball-screen
+    """The ``relevance_screen`` tool op (design 2026-07-10-trustworthy-
+    curation-relevance-gate-design.md) — the mechanical snowball-screen
     gate between ``review-snowball`` and ``review-curate``. Thin call-
     through to ``review.relevance.screen_corpus_raw`` (charter §6 — no
     mechanism reimplemented here).
@@ -870,7 +869,7 @@ def _op_relevance_verify_prep(
     out: str,
     **_: Any,
 ) -> Any:
-    """The ``relevance_verify_prep`` tool op (PR-1, design §3b) — builds the
+    """The ``relevance_verify_prep`` tool op (b) — builds the
     cold verifier's canary-seeded input artifact from the final
     ``_corpus.md``. Thin call-through to
     ``review.relevance.build_verify_input``.

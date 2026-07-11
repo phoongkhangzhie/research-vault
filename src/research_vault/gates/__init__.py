@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""gates — shared LLM-judged research-integrity gates for Research Vault (PR-M3).
+"""gates — shared LLM-judged research-integrity gates for Research Vault.
 
 ★ SHAREABLE LOCATION (D-SV-0). The removed ``manuscript/support_matcher.py``
 (deleted during a manuscript-loop refactor) is re-instantiated HERE — a top-level
@@ -29,6 +29,5 @@ stdlib-only, judge_fn-injectable (mockable in tests, no live LLM call
 required), and fail-closed by construction (a parse failure, a missing
 field, or a judge exception never certifies — it BLOCKs).
 
-sr: PR-M3
 """
 from __future__ import annotations

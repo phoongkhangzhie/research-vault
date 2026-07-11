@@ -282,7 +282,7 @@ class Config:
         else:
             self.datasets_root = self.notes_root / "datasets"
         # literature_root — the central, cross-project two-layer literature
-        # store (PR-A, §0.5). Mirrors datasets_root exactly: default
+        # store. Mirrors datasets_root exactly: default
         # notes_root/literature (hub/instance level, sibling of
         # datasets_root); override in research_vault.toml:
         # literature_root = "/shared/literature". This is the store's ONE

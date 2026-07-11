@@ -201,7 +201,7 @@ class ModelClient:
         one DE-DUPED event, so the target is ``events >= completions``; the loop is a
         no-op when nothing is pending (``completions == 0``) or already caught up. A
         genuinely un-observed call (callback never fires) waits the full bound, then
-        ``assert_observed`` reports the failure — the correct loud direction (§2).
+        ``assert_observed`` reports the failure — the correct loud direction.
         """
         if timeout_s is None:
             timeout_s = self._flush_timeout_s

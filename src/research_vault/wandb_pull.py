@@ -280,7 +280,7 @@ def _resolve_repro_hw(cfg: Config) -> str:
 
     Returns the active backend name if the manifest file exists and specifies
     a non-empty active list, otherwise the REPRO_SENTINEL.
-    Defers entirely to the manifest — never re-probes hardware. (§5J.14)
+    Defers entirely to the manifest — never re-probes hardware.
     """
     try:
         from .compute import _load_manifest, _manifest_path
@@ -302,7 +302,7 @@ def _resolve_repro_dataset(
 
     Returns (repro_dataset_id, repro_dataset_hash).  If the note is not found
     or is missing the hash field, returns (REPRO_SENTINEL, REPRO_SENTINEL).
-    Never re-enters data — links the existing note only. (§5J.14)
+    Never re-enters data — links the existing note only.
     """
     dataset_note = cfg.datasets_root / f"{dataset_id}.md"
     if not dataset_note.exists():

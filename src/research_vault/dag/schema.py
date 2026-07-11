@@ -459,7 +459,7 @@ def _validate_no_reads_on_human_go(nid: str, node: dict, *, kind: str = "human-g
 
 
 def _validate_max_retries(nid: str, node: dict) -> None:
-    """Validate max_retries on an agent node (§5I.4).
+    """Validate max_retries on an agent node.
 
     - OPTIONAL; absent means default 0 (first failure is terminal — backward-compat).
     - Must be an int (not float, not str): non-int → ManifestError.
@@ -528,7 +528,7 @@ def _validate_no_max_retries_on_human_go(nid: str, node: dict, *, kind: str = "h
 
 
 def _validate_retry_diagnosis_tips(nid: str, node: dict) -> None:
-    """Validate retry_diagnosis_tips on an agent node (§5I, D-RETRY-8).
+    """Validate retry_diagnosis_tips on an agent node (D-RETRY-8).
 
     - OPTIONAL; absent → only the standing RETRY_DIAGNOSIS_DIRECTIVE is used.
     - When present: must be a str, or a list where every element is a str.

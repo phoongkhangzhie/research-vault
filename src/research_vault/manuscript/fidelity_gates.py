@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""fidelity_gates.py — manuscript-loop THIN ADAPTER over the shared gates (PR-M3).
+"""fidelity_gates.py — manuscript-loop THIN ADAPTER over the shared gates.
 
-The hard fidelity gate re-instantiated at PR-M3 — the claim->source
+The hard fidelity gate re-instantiated — the claim->source
 support-matcher — lives in the SHAREABLE ``research_vault.gates`` package
 (D-SV-0), not here. This module is the manuscript-loop's own thin,
 additive wiring on top of it:
@@ -15,7 +15,7 @@ additive wiring on top of it:
       whole tally aborts loudly rather than emit false-BLOCKs.
 
 The function returns a plain dict (not a dataclass) — the same shape the
-design's §10 hard-fidelity-gate section expects the ``approve-manuscript``
+design's hard-fidelity-gate section expects the ``approve-manuscript``
 payload assembler to consume: ``errors`` (BLOCK-level strings), ``warnings``
 (WARN-level strings), ``honest_report`` (never says "verified"), and
 ``canary_aborted``. Consumed by ``manuscript/check_gates.py::build_approve_payload``
@@ -29,7 +29,6 @@ the 2x3 review board's coherence axis + RD-6's hard term-definition gate.
 The operator's call; see DEVLOG. The cold-agent-judge fan-out seam (NG-4) below
 is now support-matcher-ONLY.)
 
-Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md §10.
 Doctrine: data/doctrine/honesty-gates.md, data/doctrine/review-board.md.
 
 SCOPE — additive, minimal shared-seam edit at the time this file was written:
@@ -39,7 +38,6 @@ SCOPE — additive, minimal shared-seam edit at the time this file was written:
 
 Stdlib only. Hermetic in tests (judge_fn is always injectable — no live LLM
 call required to exercise this module).
-sr: PR-M3
 """
 from __future__ import annotations
 
@@ -53,7 +51,7 @@ from typing import Any, Callable
 from research_vault.gates.support_matcher import match_support
 from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE as _WIKILINK_CITE_RE
 
-# PR-F: the judge-model env read was DELETED — no rv code reads a judge-model
+# the judge-model env read was DELETED — no rv code reads a judge-model
 # env var to run a judge. ``judge_model`` is a pass-through audit label only,
 # defaulting to "". Production support-matching runs via the emit/ingest cold
 # fan-out (``emit_support_tasks`` / ``ingest_support_verdicts`` below); the
@@ -81,7 +79,7 @@ def _collect_support_items(draft_files: "list[Path]") -> list[tuple[str, str, st
 
     Shared by BOTH judge paths (charter §6: single source, not two
     independently-drifting copies): the inline judge loop
-    (``check_support_tally`` — PR-F: test-injected ``judge_fn`` only, no live
+    (``check_support_tally``: test-injected ``judge_fn`` only, no live
     API default) and the cold-fanout emit path
     (``emit_support_tasks``, NG-4) call this identically so the two paths
     see the EXACT same set of (claim, citekey) pairs for a given draft.
@@ -111,7 +109,7 @@ def _resolve_cited_note_path(
     citekey: str, notes_root: Path, literature_root: Path | None = None,
 ) -> Path:
     """Resolve the note path a citekey's structured fields (``## Result``
-    etc, all intrinsic/CORE-only content per PR-A) should be read from.
+    etc, all intrinsic/CORE-only content) should be read from.
 
     Resolution order:
       1. ``literature_root/<citekey>.md`` (the CENTRAL CORE) — when given
@@ -307,7 +305,7 @@ def check_support_tally(
 
 
 # ---------------------------------------------------------------------------
-# NG-4 — support-matcher cold-agent-judge fan-out (design §1.9, PRIMARY path)
+# NG-4 — support-matcher cold-agent-judge fan-out (PRIMARY path)
 #
 # emit_support_tasks / ingest_support_verdicts replace the inline
 # ``judge_fn(prompt)`` call above with the emit-tasks -> hub-fanout ->
@@ -323,7 +321,7 @@ def _compute_citation_set_hash(items: "list[tuple[str, str, str]]") -> str:
     """Deterministic hash of the draft's citation universe (the exact
     (sentence, citekey, section) triples ``_collect_support_items``
     extracts) — stamped into ``tasks_doc`` at emit time and recomputed at
-    ingest time (PR #180 Finding C: draft<->tasks binding).
+    ingest time (PR Finding C: draft<->tasks binding).
 
     A citation added to (or removed from) the draft AFTER emit changes
     this hash — ``ingest_support_verdicts`` HALTs on a mismatch rather
@@ -344,7 +342,7 @@ _SUPPORT_VERDICT_VOCAB: frozenset[str] = frozenset(
 # doc). Never a certifying value.
 _SUPPORT_FAIL_CLOSED_DEFAULT = "ABSENT"
 
-# NOTE on the design spec's JSON example vs. this vocab: design §1.9's NG-4
+# NOTE on the design spec's JSON example vs. this vocab: NG-4
 # contract JSON literal shows ``"verdict": "SUPPORTED"`` — but the brief
 # explicitly says the vocab must MATCH THE EXISTING EXTRACTOR, and
 # ``gates.support_matcher._extract_support_verdict`` (the live code, the
@@ -383,9 +381,9 @@ def _support_canary_bank() -> list[tuple[dict[str, str], str]]:
 
     Returns (task_fields_without_id, expected_verdict) pairs. ``kind`` and
     the claim/citekey/source shape are IDENTICAL to a real task — no field
-    marks these as canaries (design §1.9: "canaries carry NO marker").
+    marks these as canaries ("canaries carry NO marker").
 
-    PR #180 BLOCK fix: the citekeys here are deliberately ordinary
+    PR BLOCK fix: the citekeys here are deliberately ordinary
     bibtex-style slugs (``smith2019`` etc.), indistinguishable from a real
     task's citekey. The ORIGINAL bank used self-labeling citekeys
     (``canary-known-supported``/``-absent``/``-contradicts``) — a cold
@@ -456,7 +454,7 @@ def emit_support_tasks(
     literature_root: Path | None = None,
 ) -> dict[str, Any]:
     r"""Emit ``_judge-tasks.json`` + ``_judge-canary-key.json`` for the
-    support-matcher cold-agent-judge fan-out (design §1.9, Phase A).
+    support-matcher cold-agent-judge fan-out (Phase A).
 
     Walks every draft file exactly as ``check_support_tally`` does (shares
     ``_collect_support_items`` — same items, same order, never drifts from
@@ -491,7 +489,7 @@ def emit_support_tasks(
         ``{"tasks_doc": {...}, "canary_key_doc": {...}, "skipped_non_corpus":
         [...]}`` — write the first two with ``gates.judge_seam.write_json``
         (the canary_key_doc goes to a location the hub/judges never read,
-        per design §1.9). ``skipped_non_corpus`` is the sorted, deduped
+        ). ``skipped_non_corpus`` is the sorted, deduped
         list of citekeys the draft cited that are NOT in the frozen review
         corpus (concept-slug wikilinks etc.) — surfaced so the caller can
         report them, never a silent drop (empty when no frozen
@@ -501,7 +499,6 @@ def emit_support_tasks(
     A draft with zero [[citekey]] pairs is a correct, honest no-op: both docs
     carry an empty ``tasks``/``canaries`` collection, never fabricated.
 
-    sr: NG-4
     """
     from research_vault.manuscript.draft_files import resolve_draft_files
     from research_vault.gates import judge_seam
@@ -611,19 +608,19 @@ def ingest_support_verdicts(
     current_citation_set_hash: str | None = None,
 ) -> dict[str, Any]:
     r"""Ingest ``_judge-verdicts.json`` for the support-matcher fan-out
-    (design §1.9, Phase C) — the id-join, canary check, and fail-closed
+    (Phase C) — the id-join, canary check, and fail-closed
     assembly. Returns the SAME shape ``check_support_tally`` returns (so
     ``check_gates.build_approve_payload`` consumes both paths identically),
     plus ``halt``/``halt_reason``/``missing_ids``/``unrecognized_ids``.
 
-    Guards (design §1.2/§1.8/§1.9 — undiminished vs. the live judge path):
+    Guards (undiminished vs. the live judge path):
       - id<->id join (never prompt-text matching).
       - Canary-verified FIRST: ``gates.judge_seam.check_canaries`` raises
         ``CanaryAbortError`` on any missing/mismatched canary — callers
         MUST let this propagate (or catch it and HALT-DECLARE; do not
         swallow it and proceed).
       - Fail-closed: a verdicts file entirely missing, or present but
-        carrying ZERO verdicts while real tasks exist, is the §1.8
+        carrying ZERO verdicts while real tasks exist, is the
         "floor gate NOT RUN" case -> ``halt=True`` (never ``ok:True``).
         A PARTIAL file (some ids present, some missing) is NOT a halt —
         each missing real-task id defaults to ABSENT (BLOCK, the
@@ -632,7 +629,7 @@ def ingest_support_verdicts(
       - Fixed vocab: an unrecognized verdict string also fail-closed
         defaults to ABSENT, surfaced in ``unrecognized_ids`` — never
         silently coerced or ignored.
-      - Draft<->tasks binding (PR #180 Finding C): when
+      - Draft<->tasks binding (PR Finding C): when
         ``current_citation_set_hash`` is supplied and ``tasks_doc`` carries
         a ``citation_set_hash`` stamp that does NOT match it, the tasks
         file is STALE — the draft changed (a citation was added, removed,
@@ -647,7 +644,6 @@ def ingest_support_verdicts(
     A zero-task ``tasks_doc`` (the draft had no [[citekey]] pairs) is an honest
     no-op — no halt, zero everything.
 
-    sr: NG-4
     """
     from research_vault.gates import judge_seam
 
@@ -706,7 +702,7 @@ def ingest_support_verdicts(
             "errors": [
                 "support-matcher judge-fanout HALT: _judge-verdicts.json is "
                 "missing or empty while real tasks were emitted — the "
-                "citation-fidelity FLOOR was never checked (§1.8 floor-gate "
+                "citation-fidelity FLOOR was never checked (floor-gate "
                 "NOT RUN). This is NOT a pass."
             ],
             "warnings": [],
@@ -791,7 +787,7 @@ def emit_support_tasks_to_dir(judge_dir: Path, tree_root: Path, **kwargs: Any) -
     """Convenience wrapper: emit + write both artifacts under ``judge_dir``.
 
     ``judge_dir`` is typically ``tree_root / "judge" / "support-matcher"``
-    (one directory per gate, per design §1.9's "one file per gate").
+    (one directory per gate, per "one file per gate").
     """
     from research_vault.gates import judge_seam
 
@@ -809,7 +805,7 @@ def ingest_support_verdicts_from_dir(
     ``_judge-tasks.json`` itself is absent — nothing was ever emitted) an
     honest zero-task no-op, mirroring the empty-tasks_doc case.
 
-    Recomputes the CURRENT draft's citation-set hash (PR #180 Finding C)
+    Recomputes the CURRENT draft's citation-set hash (PR Finding C)
     and passes it to ``ingest_support_verdicts`` so a draft that changed
     since emit HALTs rather than silently trusting stale tasks — this is
     the one caller with live filesystem access to do so.

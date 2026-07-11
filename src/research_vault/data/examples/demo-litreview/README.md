@@ -56,13 +56,13 @@ A `relate-<key>` node CANNOT succeed (via `rv dag complete`) unless its
 `produces: {note: "literature/<key>.md"}` note exists with the correct `type:
 literature` frontmatter AND answers the mandatory reading-discipline checklist
 (`contribution_kind`, `role`, `position`, `result_reported`,
-`paper_relations_sought` — Wave 0 Reading PR-1/PR-2/PR-4/PR-5). This means:
+`paper_relations_sought` — Wave 0 Reading). This means:
 **every in-scope paper gets a genuinely-read literature note before synthesis
 begins.**
 
-## The central two-layer literature store (PR-A/PR-B)
+## The central two-layer literature store
 
-`literature/<key>.md` is now **two layers** (PR-A, §0.5 PR-A/PR-B — the
+`literature/<key>.md` is now **two layers** (the
 storage contract settled at 0.3.0 publish): a cross-project CENTRAL CORE
 (intrinsic paper facts — ids, `contribution_kind`, `## Result`, the
 paper->paper edge graph), distilled ONCE at `../literature/<citekey>.md`
@@ -126,8 +126,8 @@ rv dag approve lit-review-loop-topic approve-review
 
 | Node | Produces | Directory |
 |------|----------|-----------|
-| relate-smith2024 | literature note (core + overlay, PR-A two-layer) | `../literature/` (core) + `notes/literature/` (overlay) |
-| relate-jones2023 | literature note (core + overlay, PR-A two-layer) | `../literature/` (core) + `notes/literature/` (overlay) |
+| relate-smith2024 | literature note (core + overlay, two-layer) | `../literature/` (core) + `notes/literature/` (overlay) |
+| relate-jones2023 | literature note (core + overlay, two-layer) | `../literature/` (core) + `notes/literature/` (overlay) |
 | review-synthesize | concepts (soft) | `notes/concepts/` |
 | review-synthesize | MOC links (soft) | `notes/mocs/` |
 

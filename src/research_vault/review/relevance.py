@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/relevance.py — the trustworthy-curation relevance gate (PR-1).
+"""review/relevance.py — the trustworthy-curation relevance gate.
 
 Design of record: docs/superpowers/specs/2026-07-10-trustworthy-curation-
 relevance-gate-design.md (internal doctrine, does not ship). Root cause: a
@@ -10,7 +10,7 @@ the expensive fan-out. This module is the precision floor: relevance is a
 fail-closed GATE (never a 7th ranking dimension — ``sources/ranker.py``
 stays unchanged and only orders relevant survivors).
 
-Calibration (design §4 — high precision, recall-preserving):
+Calibration (high precision, recall-preserving):
   - reject = high-confidence OFF-DOMAIN only (zero topical-vocabulary
     overlap with the frozen criteria) — an unambiguous wrong-field paper.
   - keep = anything topically plausible, INCLUDING boundary/disconfirming
@@ -58,7 +58,7 @@ VALID_VERDICTS: frozenset[str] = frozenset({IN, OFF_DOMAIN, UNCERTAIN})
 
 # A candidate whose combined title+abstract is shorter than this many words
 # cannot be judged with high confidence either way — UNCERTAIN (keep+flag),
-# never OFF_DOMAIN. This is the "fail toward keep" floor (design §4).
+# never OFF_DOMAIN. This is the "fail toward keep" floor.
 _MIN_WORDS_FOR_CONFIDENT_JUDGMENT = 8
 
 # Generic English stopwords + academic-boilerplate words that carry no
@@ -127,7 +127,7 @@ def relevance_gate(
             MANDATORY protection: any candidate whose text overlaps this
             field's vocabulary is treated as a defined in-scope contrast
             anchor and is NEVER rejected, regardless of domain-vocabulary
-            overlap (design §4's recall-protection test).
+            overlap (recall-protection test).
 
     Returns:
         ``OFF_DOMAIN`` only when the candidate has ENOUGH substance to
@@ -154,7 +154,7 @@ def relevance_gate(
 
     tokens = _tokenize(text)
 
-    # Disconfirming protection (mandatory, design §4): a named contrast
+    # Disconfirming protection (mandatory): a named contrast
     # anchor is DEFINED in-scope — checked BEFORE the domain-vocabulary
     # reject path, so it can never be stripped by the relevance gate.
     cp_vocab = _tokenize(str(counter_position or ""))
@@ -211,7 +211,7 @@ def parse_protocol_criteria(protocol_path: Path) -> tuple[dict[str, Any], str]:
 
 
 # ---------------------------------------------------------------------------
-# 3. Snowball-screen (§3d, CORE) — the mechanical corpus_raw.md pre-filter
+# 3. Snowball-screen (CORE) — the mechanical corpus_raw.md pre-filter
 # ---------------------------------------------------------------------------
 
 def parse_corpus_raw_rows(text: str) -> list[dict[str, str]]:
@@ -270,7 +270,7 @@ def screen_corpus_raw(
     out_path: Path,
 ) -> dict[str, Any]:
     """The ``relevance_screen`` TOOL op: the deterministic snowball-screen
-    gate between ``review-snowball`` and ``review-curate`` (design §3d,
+    gate between ``review-snowball`` and ``review-curate`` (d,
     CORE — not deferred, because the snowball is the actual contamination
     source: citation-promiscuous, query-scoping can't help it).
 
@@ -345,7 +345,7 @@ def screen_corpus_raw(
 
 
 # ---------------------------------------------------------------------------
-# 4. Final-corpus cold verifier (§3b) — canary probes + verdict table
+# 4. Final-corpus cold verifier — canary probes + verdict table
 # ---------------------------------------------------------------------------
 
 # Fixed, well-known citekeys for the two unmarked canary rows the prep step
@@ -381,7 +381,7 @@ def build_canary_rows(criteria: dict[str, Any]) -> list[dict[str, str]]:
     guaranteed topical overlap by construction, so it is domain-agnostic:
     it works for whatever the live review's actual topic is, not a
     hardcoded example. The off-domain canary is a fixed astronomy abstract
-    (see design §1 — this is the real contamination class from the
+    (see this is the real contamination class from the
     grounding e2e run) that shares no plausible vocabulary with a social-
     science/ML/behavioral review's criteria.
     """
@@ -446,7 +446,7 @@ def build_verify_input(
 ) -> dict[str, Any]:
     """The ``relevance_verify_prep`` TOOL op: build the cold verifier's
     input artifact — every ``[NEW]`` row of the final ``_corpus.md`` PLUS
-    the two unmarked canary rows (design §3b — canary-verified).
+    the two unmarked canary rows (b — canary-verified).
 
     Returns ``{"real_citekeys": [...], "canary_citekeys": [...]}`` (the
     canary citekeys are always the two fixed constants — returned here only
@@ -595,7 +595,7 @@ def check_relevance_verifier(verifier_path: Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 5. Disposition (§3c) — coverage-gate reads this
+# 5. Disposition — coverage-gate reads this
 # ---------------------------------------------------------------------------
 
 # Below the threshold -> auto-prune + declare residue; at/above it -> HALT-DECLARE
@@ -611,7 +611,7 @@ def classify_relevance_verdict(
     *,
     threshold: float = OFF_DOMAIN_HALT_THRESHOLD,
 ) -> Any:
-    """The coverage-gate relevance disposition (design §3c).
+    """The coverage-gate relevance disposition (c).
 
     Args:
         payload: ``check_relevance_verifier``'s return dict.
@@ -626,7 +626,7 @@ def classify_relevance_verdict(
             (a floor gate that never ran, or wrote nothing usable, must
             never look like a pass — never silent-GO).
           - ``canary_aborted`` True -> HALT-DECLARE (untrustworthy judge).
-          - off-domain fraction >= threshold -> HALT-DECLARE (design §3c:
+          - off-domain fraction >= threshold -> HALT-DECLARE (c:
             "this is a signal that curate/search is fundamentally broken,
             not a trim" — the corpus is NOT auto-pruned in this branch).
           - 0 < fraction < threshold -> GO-WITH-RESIDUE, with
@@ -747,7 +747,7 @@ def prune_off_domain_from_corpus(
         "# Relevance-gate residue\n\n"
         "Papers auto-pruned by the cold final-corpus relevance verifier "
         "(design 2026-07-10-trustworthy-curation-relevance-gate-design.md "
-        "§3c) — verified OFF-DOMAIN, below the HALT threshold, so the run "
+        ") — verified OFF-DOMAIN, below the HALT threshold, so the run "
         "proceeds with these papers removed from the corpus rather than "
         "halting for human review.\n\n"
     )

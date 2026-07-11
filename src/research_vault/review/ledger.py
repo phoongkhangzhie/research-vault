@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/ledger.py — PR-5: the additive, single-writer ``_corpus_ledger.md``
+"""review/ledger.py: the additive, single-writer ``_corpus_ledger.md``
 assembler (the fourth handoff property: LEDGERED).
 
-Design of record: PR-5 dispatch brief (2026-07-10), building on the
+Design of record: dispatch brief (2026-07-10), building on the
 handoff-contract properties COMPLETE / CLEAN / CANONICALLY-KEYED /
 LEDGERED. Provenance for a completed review is currently scattered across
 ``_search_hits.md``, ``_saturation.md``, ``_coverage-gaps.md``, the
@@ -14,7 +14,7 @@ and reader-facing methods sections consume a single, verifiable record.
 ASSEMBLER that only READS the existing durable artifacts already written by
 the Q/P/K stages — it never retires or mutates them. Re-running
 ``write_corpus_ledger`` is idempotent (byte-identical output for an
-unchanged source state) and safe to call repeatedly (e.g. after a PR-3
+unchanged source state) and safe to call repeatedly (e.g. after a
 backtrack round appends new rows) because every source it reads is
 append-only by convention.
 
@@ -30,7 +30,7 @@ was missing/malformed>`` line in that section AND flips the top-level
 ``ledger_complete`` scalar to ``false`` — never a silently-partial ledger
 that reads as complete.
 
-Stdlib only (+ intra-package imports). sr: PR-5 (pre-publish #55 blocker)
+Stdlib only (+ intra-package imports). (pre-publish #55 blocker)
 """
 from __future__ import annotations
 
@@ -133,7 +133,7 @@ def _p_block(relevance_payload: dict[str, Any] | None) -> dict[str, Any]:
     return-shape payload (reused directly — see ``review.relevance``).
 
     ``relevance_payload is None`` is an honest "this manifest never wired
-    review-relevance-verify" no-op (a pre-PR-1 manifest) — NOT a gap; see
+    review-relevance-verify" no-op (a pre- manifest) — NOT a gap; see
     ``dag/verbs.py``'s own optional-collaborator handling of the same node.
     """
     from .relevance import classify_relevance_verdict, OFF_DOMAIN, UNCERTAIN
@@ -223,7 +223,7 @@ def _corpus_rows(corpus_path: Path) -> tuple[list[tuple[str, str]], list[str]]:
 
 
 def _literature_note_for_citekey(literature_root: Path | None, citekey: str) -> Path | None:
-    """Resolve a corpus citekey to its CENTRAL-CORE note path (PR-A: the
+    """Resolve a corpus citekey to its CENTRAL-CORE note path (the
     two-layer store — intrinsic fields like doi/arxiv_id, and the paper->
     paper edge graph, live on the core, not the per-project overlay; every
     caller of this function reads intrinsic content, so it resolves against
@@ -281,7 +281,7 @@ def _resolving_ids_for_note(note_path: Path) -> str:
 def _citekey_migrated_count(
     literature_dir: Path | None, corpus_citekeys: set[str],
 ) -> int | str:
-    """PR-5 fix-round (CHANGE 2): ``rv research migrate-citekeys`` (K-3)
+    """ fix-round (CHANGE 2): ``rv research migrate-citekeys`` (K-3)
     DOES record a per-project, append-only provenance artifact —
     ``literature/_citekey_migration_ledger.json`` (``research.py``'s
     ``_CITEKEY_MIGRATION_LEDGER_NAME``) — so a bare ``0`` here would be a
@@ -296,7 +296,7 @@ def _citekey_migrated_count(
     the literal string ``"untracked"`` — an honest sentinel, never a
     fabricated count. This mirrors ``_p_block``'s honest-no-op pattern for
     an optional pass that was never wired/run; it does NOT feed into the
-    ledger's ``_gaps`` list (non-gating, per PR-5 fix-round dispatch) —
+    ledger's ``_gaps`` list (non-gating, per fix-round dispatch) —
     "migrate-citekeys was never run for this project" is not itself an
     incompleteness of THIS review's ledger.
     """
@@ -326,7 +326,7 @@ def _citekey_migrated_count(
 def _not_yet_distilled_block(
     deviations_path: Path, literature_dir: Path | None,
 ) -> dict[str, Any]:
-    """PR-G derivation: ``not_yet_distilled_count`` — every remediation-
+    """ derivation: ``not_yet_distilled_count`` — every remediation-
     added corpus citekey (a ``within-criteria-append`` deviation's ``added``
     row) that has NO materialized paper->paper edge in its literature note
     (or no literature note at all). At a clean coverage-gate GO the
@@ -339,12 +339,12 @@ def _not_yet_distilled_block(
     declared adds (via the SAME parser ``autonomy`` writes/reads them with —
     ``_parse_deviation_citekey_deltas``, charter §6) and joins them against
     the materialized edge graph (``relate_check.parse_paper_relations`` over
-    each note body). PR-A note: although the paper->paper edge graph
+    each note body). Note: although the paper->paper edge graph
     (``## Related papers``) is architecturally CORE-only content, this
     STILL resolves against ``literature_dir`` (the project's overlay dir),
     NOT ``literature_root`` — ``incremental_relate.
-    append_bidirectional_edge`` is UNCHANGED by explicit PR-A scope-fence
-    deferral (§0.5: "rewiring edge-writes to the central core is
+    append_bidirectional_edge`` is UNCHANGED by explicit scope-fence
+    deferral ("rewiring edge-writes to the central core is
     fast-follow, not this PR") and still physically writes edges to the
     overlay location. Pointing this at literature_root before that
     fast-follow lands would find zero edges and false-flag every paper as
@@ -392,9 +392,9 @@ def _k_block(
     ``"untracked"`` sentinel (never a fabricated ``0``) when absent. That
     ledger is a project-level bookkeeping JSON (not an OKF note), so it
     still resolves against ``literature_dir`` (the project's overlay dir),
-    unaffected by the PR-A two-layer split.
+    unaffected by the two-layer split.
 
-    ``resolving_ids`` (doi:/arxiv:) is CORE-only content (PR-A) — resolves
+    ``resolving_ids`` (doi:/arxiv:) is CORE-only content — resolves
     against ``literature_root`` (the central store).
     """
     from ..cite import CITEKEY_RE
@@ -570,8 +570,8 @@ def write_corpus_ledger(
         literature_dir: the project's ``literature/`` (overlay) dir — used
             ONLY for the project-level citekey-migration ledger JSON
             (``_citekey_migrated_count``), which is not an OKF note and is
-            unaffected by the PR-A two-layer split.
-        literature_root: PR-A: the CENTRAL store (``cfg.literature_root``),
+            unaffected by the two-layer split.
+        literature_root: the CENTRAL store (``cfg.literature_root``),
             for the canonical-key-map's resolving-id lookup + the
             not-yet-distilled edge-graph check — both CORE-only content.
             ``None`` is an honest no-op (every key-map row's resolving
@@ -654,7 +654,7 @@ def write_corpus_ledger(
         _fm_line("accepted", k["accepted"]),
         _fm_line("in_corpus", k["in_corpus"]),
         _fm_line("new", k["new"]),
-        # PR-G: relate-completeness audit (derived — see _not_yet_distilled_block)
+        # relate-completeness audit (derived — see _not_yet_distilled_block)
         _fm_line("remediation_added_count", nd["remediation_added_count"]),
         _fm_line("not_yet_distilled_count", nd["not_yet_distilled_count"]),
         _fm_line("not_yet_distilled_citekeys", ", ".join(nd["not_yet_distilled_citekeys"])),
@@ -684,20 +684,20 @@ def write_corpus_ledger(
 
 
 # ---------------------------------------------------------------------------
-# PR-D2 (methods relocation): render the reader-facing PRISMA-style methods
+# (methods relocation): render the reader-facing PRISMA-style methods
 # write-up by CONSUMING _corpus_ledger.md — never re-deriving a number the
 # ledger already computed.
 # ---------------------------------------------------------------------------
 
 def render_methods_from_ledger(ledger_path: Path) -> str:
     """Render the PRISMA-style methods flow from ``_corpus_ledger.md``
-    (PR-5) — frontmatter scalars for the count/search/saturation summary,
+    — frontmatter scalars for the count/search/saturation summary,
     the body's already-rendered tables (search plan, saturation, relevance,
     canonical-key map) verbatim.
 
     Every number here traces to the ledger — this function parses, it never
     recomputes a count (charter §1: never fabricate; the ledger is the
-    single source of truth PR-5 built for exactly this consumer). Per the
+    single source of truth built for exactly this consumer). Per the
     gold-settled decision (no Appendix in the reader-facing document), this
     output is written to the project's DEVLOG/control note, NEVER joined
     into ``_report.md``/``report.md`` — the caller (``source_transform``'s
@@ -713,13 +713,12 @@ def render_methods_from_ledger(ledger_path: Path) -> str:
         ``write_corpus_ledger`` is called; a ledger that hasn't landed yet
         means the review hasn't reached that gate.
 
-    sr: PR-D2 (ledger -> methods fold-in, forward-carry from PR-5)
     """
     if not ledger_path.exists():
         return (
             "## PRISMA scope & method\n\n"
             "_No `_corpus_ledger.md` found for this manuscript yet — it is "
-            "written by the review's coverage-gate (PR-5); run "
+            "written by the review's coverage-gate; run "
             "`rv review <project> expand <scope>` through to that gate "
             "first._\n"
         )

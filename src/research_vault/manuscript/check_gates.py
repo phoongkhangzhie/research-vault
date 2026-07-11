@@ -4,7 +4,7 @@ gates the parallel wave (M2/M3/M4/M6) built but never wired together.
 
 ``build_approve_payload`` is the single entry point ``rv dag approve`` calls at
 the ``approve-manuscript`` node (mirrors ``check_framework_gate``'s wiring at
-``approve-framework``, PR-M6) — and the future PR-M5 per-round review-revise
+``approve-framework``) — and the future per-round review-revise
 re-fire is designed to import THIS function rather than duplicate the gate
 assembly (single-sourced, per the integration-PR brief).
 
@@ -14,13 +14,13 @@ judge-guard policy (the resolved call carried in the dispatching brief — see
 explicit operator override on a design doc's own recommendation is followed,
 and the divergence is documented, not silently applied):
 
-  - ``check_citation_resolve`` (``manuscript/bib.py``, PR-M2)     -> hard BLOCK,
+  - ``check_citation_resolve`` (``manuscript/bib.py``)     -> hard BLOCK,
     deterministic, ALWAYS runs (no judge dependency at all).
-  - ``check_equation_fidelity`` (``manuscript/equations.py``, PR-M4) -> SIGNAL
+  - ``check_equation_fidelity`` (``manuscript/equations.py``) -> SIGNAL
     ONLY (D-MS-2 — never BLOCK, even marked-critical). Deterministic; ALWAYS
     runs (no judge dependency — the LLM-judge fallback inside the gate itself
     is a separate, optional refinement not wired here).
-  - ``check_support_tally`` (``manuscript/fidelity_gates.py``, PR-M3) -> BLOCK
+  - ``check_support_tally`` (``manuscript/fidelity_gates.py``) -> BLOCK
     on ``[ABSENT]``/``[CONTRADICTS]`` (the citation-fidelity FLOOR) — BEHIND
     the judge guard. Support-matcher is the ONE judge-gated LLM check now
     (the former ``check_cold_read_tally`` self-containment critic was
@@ -29,7 +29,7 @@ and the divergence is documented, not silently applied):
     term-definition gate. The operator's call; see DEVLOG).
 
 **The judge guard** (design doctrine: ``honesty-gates.md`` fail-closed
-discipline, applied honestly in the OTHER direction here). PR-F: the env-var
+discipline, applied honestly in the OTHER direction here). The env-var
 half of the guard was DELETED — the inline LLM gate runs ONLY when an
 explicit ``judge_fn`` is injected (tests). In PRODUCTION ``judge_fn`` is
 always None, so the gate routes to the cold-agent-judge emit/ingest fan-out
@@ -41,26 +41,24 @@ gates: a manuscript with no fan-out emitted can still reach
 ``approve-manuscript`` on the deterministic bib gate alone, but the human
 sees, unmistakably, that the citation-fidelity floor was never checked.
 
-The coverage gate (design §10 gate-4) LANDS HERE at PR-M5 — deterministic,
+The coverage gate (gate-4) LANDS HERE — deterministic,
 ALWAYS runs, hard BLOCK. ``check_coverage_gate`` re-derives the frozen
 corpus's citekey set from ``reviews/<slug>/_corpus.md`` (the same
 ``review._parse_corpus_citekeys`` source-of-truth ``review.coverage_report()``
 uses) and BLOCKs on either (a) the stamped ``corpus_hash`` no longer matching
 the frozen ``_corpus.md`` bytes (the corpus mutated since the Phase-1 freeze
-— the stale-corpus guard, design §4.5.5), or (b) the draft's own rendered
+— the stale-corpus guard, .5), or (b) the draft's own rendered
 PRISMA-ledger corpus count reading SMALLER than the true frozen corpus count
-(a revise that narrows scope to shrink the denominator, design §10 gate-4's
+(a revise that narrows scope to shrink the denominator, gate-4's
 literal example). A manuscript with no ``corpus_hash`` stamped yet (no
 frozen corpus to check against — a type with no Phase-1, or a lit-review
 whose framework isn't approved yet) is a correct, honest no-op — never a
 BLOCK for absence, mirroring the ``doi``/``arxiv_id`` precedent elsewhere.
 
-Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md §9-§10.
 Doctrine: data/doctrine/honesty-gates.md.
 
 Stdlib only. Hermetic in tests — the judge guard means a bare call with no
 env vars and no judge_fn never reaches out to a live LLM.
-sr: manuscript-integration (post PR-M2/M3/M4/M6)
 """
 from __future__ import annotations
 
@@ -82,7 +80,7 @@ from research_vault.review import _parse_corpus_citekeys
 def _judge_configured(judge_fn: Callable[[str], str] | None) -> bool:
     """True iff an explicit ``judge_fn`` was injected (the test seam).
 
-    PR-F: the env-var half (a judge-model + API-key read) was DELETED — no rv
+    the env-var half (a judge-model + API-key read) was DELETED — no rv
     code reads an env var to decide a judge is "configured" for a live API
     call. In production ``judge_fn`` is always None and this returns False, so
     ``build_approve_payload`` routes to the cold-agent-judge emit/ingest
@@ -96,15 +94,15 @@ def _judge_configured(judge_fn: Callable[[str], str] | None) -> bool:
 # ---------------------------------------------------------------------------
 # Draft-text assembly (shared by the equation gate — the whole draft, not
 # just one section — the same report.md+sections resolution pattern used
-# elsewhere in this loop, PR-M3).
+# elsewhere in this loop).
 # ---------------------------------------------------------------------------
 
 def _read_draft_text(tree_root: Path) -> str:
     """Join every draft file (``_report.md`` + ``sections/*.md`` — see
     ``draft_files.py``) into one draft-text blob.
 
-    PR-D2: this is always the internal ``[[citekey]]`` SOURCE
-    (``draft_files.resolve_draft_files``), never PR-D's rendered
+    this is always the internal ``[[citekey]]`` SOURCE
+    (``draft_files.resolve_draft_files``), never rendered
     reader-facing ``report.md`` — every gate that calls this (equation
     fidelity, citation-resolve via ``bib.py``, reader-hygiene, the board's
     ``coverage_diff``) reads the SOURCE, which is a strict superset of the
@@ -126,7 +124,7 @@ def _read_draft_text(tree_root: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# check_reader_hygiene — RD-5, next-gen lit-review design §6 (deterministic,
+# check_reader_hygiene — RD-5, next-gen lit-review (deterministic,
 # ALWAYS runs, hard BLOCK, no judge dependency — the presentation program's
 # most transferable HR mechanic, rv's biggest packaging gap before this PR).
 # ---------------------------------------------------------------------------
@@ -143,7 +141,7 @@ _LEAK_SHA256_RE = re.compile(r"\bsha256:[0-9a-fA-F]+\b")
 _LEAK_ARTIFACT_FILENAME_RE = re.compile(r"\b_[a-z][a-z-]*\.md\b")
 # Literal bracketed epistemic edge tags (review/relate paper<->paper and
 # paper<->concept edges, e.g. `[SUPPORTS] concepts/x.md — reason`) — these
-# are OKF-internal relation vocabulary, never reader-facing prose (PR-C,
+# are OKF-internal relation vocabulary, never reader-facing prose (
 # hub bake-off: missed class 1/3, a downstream project's manuscript).
 _LEAK_EDGE_TAG_RE = re.compile(r"\[(?:SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS)\]")
 # OKF note-path fragments (a path SEGMENT shape, `word/...` — NOT the bare
@@ -151,13 +149,13 @@ _LEAK_EDGE_TAG_RE = re.compile(r"\[(?:SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS)\]")
 # ordinary English and must never trip this; only the literal path-fragment
 # shape (the word immediately followed by a slash and more path characters)
 # does. Distinct from _LEAK_ARTIFACT_FILENAME_RE, which only matches
-# underscore-prefixed control filenames, not OKF note-tree paths (PR-C,
+# underscore-prefixed control filenames, not OKF note-tree paths (
 # missed class 2/3).
 _LEAK_OKF_PATH_RE = re.compile(
     r"\b(?:concepts|literature|mocs|gaps|reviews)/[\w.\-]+"
 )
 # The literal reader-facing label "source notes:" — an internal
-# provenance/control heading, never reader prose (PR-C, missed class 3/3).
+# provenance/control heading, never reader prose (missed class 3/3).
 _LEAK_SOURCE_NOTES_LABEL_RE = re.compile(r"(?i)\bsource notes:")
 # Tool/verb/node-vocabulary tokens leaking loop internals into reader prose.
 _LEAK_TOOL_TOKENS: tuple[str, ...] = (
@@ -198,7 +196,6 @@ def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
     Returns:
         {"ok": bool, "errors": list[str]} — ok is False iff errors is non-empty.
 
-    sr: NG-lit-review-waveB (RD-5)
     """
     errors: list[str] = []
 
@@ -252,12 +249,12 @@ def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# check_heading_order — HR-craft rec 5 (design §7), NG-7's structural-mirror
+# check_heading_order — HR-craft rec 5, NG-7's structural-mirror
 # H2-order diff (deterministic, ALWAYS runs, SIGNAL only — no judge dependency)
 # ---------------------------------------------------------------------------
 
 def check_heading_order(draft_text: str, expected_order: "list[str] | tuple[str, ...]") -> dict[str, Any]:
-    """HR-craft rec 5 (design §7): a deterministic H2-heading-order diff.
+    """HR-craft rec 5: a deterministic H2-heading-order diff.
 
     HR's instruction-critic diffs the draft's ordered H2 list element-wise
     against a frozen heading contract; NG-7's single-pass outline already
@@ -283,7 +280,6 @@ def check_heading_order(draft_text: str, expected_order: "list[str] | tuple[str,
         order (filtered to the expected set) matches the expected order, or
         when fewer than 2 matching headings are found (nothing to compare).
 
-    sr: NG-lit-review-waveB (NG-7, HR-craft rec 5)
     """
     import re
 
@@ -320,7 +316,7 @@ def check_heading_order(draft_text: str, expected_order: "list[str] | tuple[str,
 
 
 # ---------------------------------------------------------------------------
-# check_coverage_gate — design §10 gate-4, PR-M5's scope (deterministic,
+# check_coverage_gate gate-4, scope (deterministic,
 # ALWAYS runs, hard BLOCK — no judge dependency)
 # ---------------------------------------------------------------------------
 
@@ -337,10 +333,10 @@ def check_coverage_gate(
     project_notes_dir: Path,
     tree_root: Path,
 ) -> dict[str, Any]:
-    """Re-run the coverage check on the revised corpus (design §10 gate-4).
+    """Re-run the coverage check on the revised corpus (gate-4).
 
     When to use: called by ``build_approve_payload`` every time it assembles
-    the gate payload — including PR-M5's per-round re-fire (same function,
+    the gate payload — including per-round re-fire (same function,
     single-sourced, never duplicated). Deterministic, no LLM, ALWAYS runs.
 
     Convention (shared with ``manuscript.types.lit_review._compute_corpus_hash_note``):
@@ -350,11 +346,11 @@ def check_coverage_gate(
     BLOCKs on:
       (a) ``corpus_hash`` stamped in ``_manuscript.md`` no longer matches the
           hash of the frozen ``_corpus.md`` on disk (the corpus mutated since
-          the Phase-1 freeze — the stale-corpus guard, design §4.5.5), or the
+          the Phase-1 freeze — the stale-corpus guard, .5), or the
           stamped hash points at a ``_corpus.md`` that no longer exists.
       (b) the draft's own rendered PRISMA-ledger corpus-count line states a
           SMALLER corpus than the true frozen corpus (a revise narrowing
-          scope to shrink the denominator, design §10 gate-4's literal
+          scope to shrink the denominator, gate-4's literal
           example).
 
     A manuscript with no ``corpus_hash`` stamped yet is a correct, honest
@@ -368,7 +364,6 @@ def check_coverage_gate(
     Returns:
         ``{"ok": bool, "errors": [...], "warnings": [...]}``.
 
-    sr: PR-M5
     """
     from research_vault.hashing import hash_file
 
@@ -406,7 +401,7 @@ def check_coverage_gate(
             f"coverage-gate BLOCK: _corpus.md has changed since the Phase-1 "
             f"freeze (stamped corpus_hash {stamped_hash[:16]}... != current "
             f"{current_hash[:16]}...) — the stale-corpus guard (design "
-            f"§4.5.5). Re-freeze the corpus_hash deliberately if this "
+            f"). Re-freeze the corpus_hash deliberately if this "
             f"corpus growth/narrowing is intentional."
         )
         return {"ok": False, "errors": errors, "warnings": warnings}
@@ -423,7 +418,7 @@ def check_coverage_gate(
                 f"coverage-gate BLOCK: the draft's PRISMA ledger states "
                 f"{stated_count} corpus citekeys but the frozen corpus has "
                 f"{true_count} — a revise appears to have narrowed scope to "
-                f"shrink the denominator (design §10 gate-4)."
+                f"shrink the denominator (gate-4)."
             )
             return {"ok": False, "errors": errors, "warnings": warnings}
 
@@ -431,7 +426,7 @@ def check_coverage_gate(
 
 
 # ---------------------------------------------------------------------------
-# check_coverage_allocation_gate — PR-A: the full-corpus coverage CONTRACT,
+# check_coverage_allocation_gate: the full-corpus coverage CONTRACT,
 # enforced at the framework stage BEFORE any section is drafted
 # (deterministic, ALWAYS runs, hard BLOCK — no judge dependency).
 # ---------------------------------------------------------------------------
@@ -499,7 +494,7 @@ def check_coverage_allocation_gate(
     corpus_path: Path,
     coverage_map_path: Path,
 ) -> dict[str, Any]:
-    """The full-corpus coverage-allocation contract (PR-A) — deterministic,
+    """The full-corpus coverage-allocation contract — deterministic,
     fail-closed, no judge dependency.
 
     When to use: folded into ``approve-framework``'s autonomous evaluation
@@ -540,7 +535,6 @@ def check_coverage_allocation_gate(
         ``{"ok": bool, "errors": list[str]}`` — ok is False iff errors is
         non-empty.
 
-    sr: PR-A
     """
     from research_vault.review import CorpusSchemaError
 
@@ -574,7 +568,7 @@ def check_coverage_allocation_gate(
                 f"{coverage_map_path} — every corpus paper must be allocated to a "
                 f"branch (used), a named group (clustered), or explicitly deferred "
                 f"BEFORE any section is drafted. framework-synthesize must produce "
-                f"this ledger (design §5 / PR-A)."
+                f"this ledger."
             ],
         }
 
@@ -635,7 +629,7 @@ def check_coverage_allocation_gate(
 
 
 # ---------------------------------------------------------------------------
-# compute_coverage_diff — PR-E: the WIDTH lens's mechanical ground truth.
+# compute_coverage_diff: the WIDTH lens's mechanical ground truth.
 # ---------------------------------------------------------------------------
 #
 # Mirror of ``check_heading_order``'s role for the INSTRUCT lens: a
@@ -667,10 +661,10 @@ def compute_coverage_diff(coverage_map_path: Path, reader_body: str) -> dict[str
     nothing committed to drop). ``missing`` is the load-bearing field handed
     to the WIDTH judge as ``coverage_diff``.
 
-    ★ PR-F/PR-D2 SOURCE-ROUTING (fit-check): ``reader_body`` MUST be the
+    ★ SOURCE-ROUTING (fit-check): ``reader_body`` MUST be the
     ``[[citekey]]`` SOURCE body — the assembled ``_report.md`` + ``sections/*.md``
     from ``draft_files.resolve_draft_files`` (or ``_read_draft_text``). It must
-    NEVER be PR-D's ``[N]``-numbered render (``report.md``, PR-D2's rename of
+    NEVER be ``[N]``-numbered render (``report.md``, rename of
     the former ``report.rendered.md``): that render has already converted
     every ``[[citekey]]`` to ``[N]``, so ``WIKILINK_CITE_RE`` finds ZERO
     citekeys in it — the diff would then flag EVERY used paper as "missing"
@@ -681,7 +675,6 @@ def compute_coverage_diff(coverage_map_path: Path, reader_body: str) -> dict[str
     ``test_pr_d2_source_routing_driver.py`` at the driver level) pins this
     contract.
 
-    sr: PR-E; source-routing guardrail PR-F; driver PR-D2
     """
     from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE
 
@@ -703,7 +696,7 @@ def compute_coverage_diff(coverage_map_path: Path, reader_body: str) -> dict[str
 
 
 # ---------------------------------------------------------------------------
-# _cold_fanout_dirs_present — NG-4 detector (design §1.9)
+# _cold_fanout_dirs_present — NG-4 detector
 # ---------------------------------------------------------------------------
 
 def _cold_fanout_dirs_present(tree_root: Path) -> bool:
@@ -739,7 +732,7 @@ def build_approve_payload(
     When to use: called by ``rv dag approve`` at the ``approve-manuscript``
     human-go node (wired in ``dag/verbs.py::cmd_approve``, mirroring
     ``check_framework_gate``'s wiring at ``approve-framework``). ★ Also the
-    single-sourced import point for PR-M5's per-round re-fire — do NOT
+    single-sourced import point for per-round re-fire — do NOT
     duplicate this gate-assembly logic in the review-revise board; call this.
 
     Args:
@@ -753,7 +746,7 @@ def build_approve_payload(
         judge_fn: optional injectable LLM call for ``check_support_tally``
             (the ``(prompt: str) -> str`` shape it already accepts). Passing
             one counts as "judge configured" even absent env vars (test seam).
-        literature_root: PR-A: ``cfg.literature_root`` — the central
+        literature_root: ``cfg.literature_root`` — the central
             two-layer store, threaded into the hermetic bib gates
             (citekey/authors/year/doi/arxiv_id are CORE-only content).
             ``None`` degrades to reading the project overlay dir directly
@@ -763,9 +756,8 @@ def build_approve_payload(
         ``{"ok": bool, "blocking": [...], "signals": [...], "not_run": [...]}``
         — ``ok`` is False iff ``blocking`` is non-empty. Every string in every
         list is prefixed with its originating gate in brackets, so a human
-        (or PR-M5's meta-review) can triage by source at a glance.
+        (or meta-review) can triage by source at a glance.
 
-    sr: manuscript-integration
     """
     blocking: list[str] = []
     signals: list[str] = []
@@ -782,14 +774,14 @@ def build_approve_payload(
     canary_aborted = False
 
     # ── 1. Hermetic references.md — deterministic, ALWAYS runs, hard BLOCK
-    #      (PR-M2) ──
+    #      ──
     bib_result = check_citation_resolve(
         project_notes_dir, tree_root, literature_root=literature_root,
     )
     if not bib_result["ok"]:
         blocking.extend(f"[hermetic-bib] {e}" for e in bib_result["errors"])
 
-    # ── 1b. Numbered render (PR-D + PR-D2) — deterministic, ALWAYS runs,
+    # ── 1b. Numbered render — deterministic, ALWAYS runs,
     #      hard BLOCK. Converts `_report.md` (the `[[citekey]]` SOURCE this
     #      node's caller — the assemble node — just wrote) into the
     #      reader-facing `report.md` (`[N]` inline + `## Sources`) +
@@ -808,7 +800,7 @@ def build_approve_payload(
         blocking.extend(f"[numbered-render] {e}" for e in render_result["errors"])
 
     # ── 2. Equation-fidelity — deterministic, ALWAYS runs, SIGNAL only,
-    #      D-MS-2 (PR-M4). A type with no equation_sources is a correct
+    #      D-MS-2. A type with no equation_sources is a correct
     #      no-op (nothing declared to mine, never an error). ────────────────
     equation_sources = getattr(ms_type, "equation_sources", ()) or ()
     if equation_sources:
@@ -819,7 +811,7 @@ def build_approve_payload(
         eq_findings = _equations.check_equation_fidelity(ledger, draft_text)
         signals.extend(f"[equation-fidelity:{f['severity']}] {f['message']}" for f in eq_findings)
 
-    # ── 3. The LLM gate — BEHIND the judge guard (PR-M3). ────────────────────
+    # ── 3. The LLM gate — BEHIND the judge guard. ────────────────────
     #      Support-matcher is the ONE judge-gated gate now (the former
     #      cold-read self-containment critic was removed; see DEVLOG).
     if _judge_configured(judge_fn):
@@ -838,7 +830,7 @@ def build_approve_payload(
         else:
             signals.extend(f"[support-matcher:PARTIAL] {w}" for w in support_result["warnings"])
     elif _cold_fanout_dirs_present(tree_root):
-        # NG-4 (design §1.9, PRIMARY path): no live judge_fn/env, but a
+        # NG-4 (PRIMARY path): no live judge_fn/env, but a
         # hub-orchestrated cold-agent-judge fan-out was emitted for this
         # manuscript (``judge/support-matcher/_judge-tasks.json`` present)
         # — ingest whatever verdicts landed instead of falling into the
@@ -848,7 +840,7 @@ def build_approve_payload(
         # soft not_run — unlike "nothing was ever attempted," a task set
         # was emitted and something SHOULD have come back; treat that
         # gap the same way the live path treats a canary abort: cannot
-        # self-certify -> cannot proceed (design §1.2's HALT-DECLARE
+        # self-certify -> cannot proceed (HALT-DECLARE
         # policy for both "untrustworthy signal" and "floor gate NOT RUN").
         from research_vault.gates.judge_seam import CanaryAbortError
 
@@ -865,7 +857,7 @@ def build_approve_payload(
             canary_aborted = True
             blocking.extend(f"[support-matcher] {e}" for e in support_result["errors"])
         elif support_result.get("halt"):
-            # NG-4b: an incomplete/missing judge-fanout is the §1.2 "floor
+            # NG-4b: an incomplete/missing judge-fanout is the "floor
             # gate NOT RUN" failure class, NOT a fixable BLOCK — it belongs
             # in `not_run` (-> HALT-DECLARE, priority 2) so the gate-policy
             # engine never dispatches a bounded auto-revise against a floor
@@ -887,14 +879,14 @@ def build_approve_payload(
             "manuscript), and no test judge_fn was supplied. This is NOT a "
             "pass: the citation-fidelity FLOOR (support-matcher) has NOT been "
             "checked on this manuscript. Emit a judge-fanout task set "
-            "(`rv manuscript judge-emit`, design §1.9), let the hub fan out "
+            "(`rv manuscript judge-emit`), let the hub fan out "
             "the cold judges, and re-run `rv dag approve` before trusting "
-            "this manuscript's citation fidelity. (PR-F: the in-process API "
+            "this manuscript's citation fidelity. (the in-process API "
             "judge path was deleted — the fan-out is the only production path.)"
         )
 
-    # ── 5. The coverage gate (design §10 gate-4) — deterministic, ALWAYS
-    #      runs, hard BLOCK (PR-M5). No judge dependency at all — the
+    # ── 5. The coverage gate (gate-4) — deterministic, ALWAYS
+    #      runs, hard BLOCK. No judge dependency at all — the
     #      integration PR deferred this into not_run; wired for real here. ──
     coverage_result = check_coverage_gate(project_notes_dir, tree_root)
     blocking.extend(f"[coverage-gate] {e}" for e in coverage_result["errors"])

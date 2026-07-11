@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/ranker.py — the 6-dim utility score + the saturation-paired floor
-(NG-3, HR-craft rec 2, §7.2).
+(NG-3, HR-craft rec 2).
 
 HR's Authority/Novelty/Stance-diversity/Coverage/Redundancy/Freshness rubric
 (0-3 each) turns "core vs boundary" into a number the width-sweep can budget
@@ -101,7 +101,7 @@ def rank_and_select(
 ) -> list[DedupedHit]:
     """Rank deduped hits by utility and select under ``budget``.
 
-    ★ The floor never caps a boundary item (the reviewer's guard, §7.2): any hit whose
+    ★ The floor never caps a boundary item (the reviewer's guard): any hit whose
     ``source_count < floor`` is stamped ``below_floor=True`` on its
     ``PaperHit`` and is ALWAYS included in the return, regardless of budget.
     Budget governs ordering/inclusion only among hits that already meet the

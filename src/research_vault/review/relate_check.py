@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/relate_check.py — PR-1/PR-2/PR-4/PR-5 relate presence check (Wave 0).
+"""review/relate_check.py relate presence check (Wave 0).
 
-Design: docs/superpowers/specs/2026-07-08-next-gen-lit-review-loop-design.md §5,
 docs/superpowers/specs/2026-07-08-okf-sufficiency-and-paper-reading.md.
 
 WHAT THIS IS
@@ -21,14 +20,14 @@ THE 5 MOVES → what is checked
   1. Orient/classify   → frontmatter `contribution_kind` in CONTRIBUTION_KINDS.
   2. Exact-arrow        → unchecked here (free-form `claim`/`method` fields —
                            quality of the arrow is not mechanically checkable).
-  3. Result-with-magnitude → frontmatter `result_reported: yes|no` (PR-5,
+  3. Result-with-magnitude → frontmatter `result_reported: yes|no` (
                            mandatory whitelist answer) + when `yes`, a non-empty
                            body `## Result` section.
-  4. Relate to corpus   → frontmatter `paper_relations_sought: yes|no` (PR-2,
+  4. Relate to corpus → frontmatter `paper_relations_sought: yes|no` (
                            mandatory whitelist answer) + when `yes`, a canonical
                            `## Related papers` heading present + ≥1 typed edge
                            found anywhere in the body (full-body scan).
-  5. Concept edges       → mandatory gating unchanged this wave (PR-3 deferred
+  5. Concept edges → mandatory gating unchanged this wave (deferred
                            to ride NG-6a's refresh verb), but the edge FORMAT
                            was migrated to OKF markdown links alongside paper
                            edges (Defect #70), and `parse_concept_edges` now
@@ -44,10 +43,10 @@ that strength; the strongest permissible tag at that retrieval tier is
 `[PARTIAL]`. Fail-closed: an absent/unstamped `read_basis` is treated as
 NOT full-text — never a free pass to claim full strength by omission.
 
-PR-4 (role/position split) is checked alongside: `role` must be one of
+ (role/position split) is checked alongside: `role` must be one of
 ROLE_TYPES; `position` must be present and non-trivial.
 
-WHY WHITELIST, NEVER BLACKLIST (engineer memory, PR #175 delta)
+WHY WHITELIST, NEVER BLACKLIST (engineer memory, PR delta)
 =================================================================
 `result_reported` / `paper_relations_sought` are agent-stamped free-ish
 fields.  The presence check accepts EXACTLY `"yes"` / `"no"` (case/whitespace
@@ -56,7 +55,7 @@ This is deliberate: a blacklist of "known bad" spellings cannot enumerate
 every way an agent might dodge the question; a whitelist of the one/two
 known-good spellings closes that hole structurally.
 
-THE OVER-RIGIDITY GUARD (PR-2's "require tag+target, keep substance in prose")
+THE OVER-RIGIDITY GUARD ("require tag+target, keep substance in prose")
 ================================================================================
 A paper→paper edge line MUST carry a typed tag + target citekey (mechanical)
 AND a non-trivial reasoning clause (mechanical: minimum length) — but the
@@ -65,7 +64,7 @@ rejected (too thin); the reasoning's quality is left entirely to the
 subagent's judgment (never over-rigidified).
 
 THE `[TAG]` IS AUTHORITATIVE, `(kind)` IS AN OPTIONAL MIRROR (architect review,
-PR #178 delta)
+PR delta)
 ================================================================================
 The bracket TAG (`[SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS]`) is required
 and derives the Noblit & Hare relation kind mechanically (SUPPORTS→reciprocal,
@@ -95,7 +94,7 @@ bracket that is not a plausible relation-tag attempt (e.g. `[TODO]`,
 `[1]`), is legitimate prose and is never flagged — see
 `_looks_like_tag_attempt`, the false-positive-free signal that separates a
 broken edge attempt from prose once scanning is no longer header-scoped
-(coordinator clarification, PR #178 delta 2, extended for full-body scan).
+(coordinator clarification, PR delta 2, extended for full-body scan).
 
 DEFECT #70 — FULL-BODY SCAN, NOT HEADER-SCOPED
 ================================================================================
@@ -120,7 +119,6 @@ now accepts+requires the markdown-link form for BOTH paper→paper and
 paper→concept edges, aligning rv to OKF rather than the reverse.
 
 Stdlib only.
-sr: NG-lit-review-wave0 (PR-1, PR-2, PR-4, PR-5); Defects #69/#70/#71
 """
 from __future__ import annotations
 
@@ -148,7 +146,7 @@ ROLE_TYPES: frozenset[str] = frozenset({
 # Noblit & Hare's three inter-study relation types (meta-ethnography step 4),
 # mapped onto rv's existing [SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS] bracket
 # convention. reciprocal≈SUPPORTS, refutational≈CONTRADICTS, line-of-argument
-# ≈PARTIAL/EXTENDS (per the design doc §5, PR-2).
+# ≈PARTIAL/EXTENDS (per the design doc).
 RELATION_TYPES: frozenset[str] = frozenset({
     "reciprocal", "refutational", "line-of-argument",
 })
@@ -308,7 +306,7 @@ _BRACKET_PROBE_RE = re.compile(r"^-\s*\[([^\]]*)\]")
 #   - [SUPPORTS] [Baltaji 2024](/literature/baltaji2024.md) — <reason>
 #   - [SUPPORTS] [WEIRD default](/concepts/western-consensus-default.md) — <reason>
 # The trailing `(reciprocal|refutational|line-of-argument)` mirror is
-# OPTIONAL (architect review, PR #178 delta) and only meaningful for
+# OPTIONAL (architect review, PR delta) and only meaningful for
 # paper→paper edges — a concept edge has no Noblit & Hare kind mapping.
 _EDGE_LINE_RE = re.compile(
     r"^-\s*\[(SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS)\]\s+"
@@ -443,7 +441,7 @@ def _scan_edge_lines(
 
 
 def parse_paper_relations(body: str) -> ParsedRelations:
-    """Parse PR-2 paper→paper typed edges from a note body (full-body scan
+    """Parse paper→paper typed edges from a note body (full-body scan
     — Defect #70; see ``_scan_edge_lines``).
 
     Each edge dict: {"tag", "target", "reason", "type", "kind_mismatch"}.
@@ -497,17 +495,17 @@ def _get_scalar(fields: dict, key: str) -> str:
 
 
 def check_relate_presence(note_path: Path, *, text: str | None = None) -> RelatePresenceResult:
-    """Rejects-only presence check for a relate-<key> literature note (PR-1).
+    """Rejects-only presence check for a relate-<key> literature note.
 
     Verifies the mandatory-question checklist was answered — NOT a rigid
     frontmatter schema; a note that answers every question in unconventional
     prose still passes. Missing/malformed answers are cheap FAILs (Move 1/3/4
-    of the 5-move protocol, plus PR-4's role/position split).
+    of the 5-move protocol, plus role/position split).
 
     Args:
         note_path: absolute path to the literature/<citekey>.md note (used
             for error messages, and to read from when ``text`` is None).
-        text: PR-A (§0.5): the two-layer literature store splits a note into
+        text: the two-layer literature store splits a note into
             a central core (Move 1/3/4 intrinsic fields) + a thin per-project
             overlay (Move 4's edges land here too, by explicit fast-follow
             deferral — see note.check_two_layer_invariants) + role/position
@@ -552,12 +550,12 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
             )
         )
 
-    # ── PR-4: role + position (split of the old overloaded 'stance') ──────
+    # ── role + position (split of the old overloaded 'stance') ──────
     role = _get_scalar(fields, "role").lower()
     if not role:
         findings.append(
             _run_together_hint(fields, "role")
-            or f"missing 'role' (PR-4 — categorical tag; one of {sorted(ROLE_TYPES)})"
+            or f"missing 'role' (categorical tag; one of {sorted(ROLE_TYPES)})"
         )
     elif role not in ROLE_TYPES:
         findings.append(
@@ -570,7 +568,7 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
         findings.append(
             _run_together_hint(fields, "position")
             or (
-                "missing 'position' (PR-4 — free-form narrative; how this paper "
+                "missing 'position' (free-form narrative; how this paper "
                 "relates to the review question, in the subagent's own words)"
             )
         )
@@ -583,13 +581,13 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
             )
         )
 
-    # ── Move 3 / PR-5: result-with-magnitude, mandatory whitelist answer ──
+    # ── Move 3: result-with-magnitude, mandatory whitelist answer ──
     result_reported = _get_scalar(fields, "result_reported").lower()
     if not result_reported:
         findings.append(
             _run_together_hint(fields, "result_reported")
             or (
-                "missing 'result_reported' (Move 3 / PR-5 — mandatory: 'yes' if "
+                "missing 'result_reported' (Move 3 /  mandatory: 'yes' if "
                 "the paper reports a quantitative result, else 'no')"
             )
         )
@@ -621,13 +619,13 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
     parsed_relations = parse_paper_relations(body)
     parsed_concepts = parse_concept_edges(body)
 
-    # ── Move 4 / PR-2: paper→paper relations, mandatory whitelist answer ──
+    # ── Move 4: paper→paper relations, mandatory whitelist answer ──
     relations_sought = _get_scalar(fields, "paper_relations_sought").lower()
     if not relations_sought:
         findings.append(
             _run_together_hint(fields, "paper_relations_sought")
             or (
-                "missing 'paper_relations_sought' (Move 4 / PR-2 — mandatory: "
+                "missing 'paper_relations_sought' (Move 4 /  mandatory: "
                 "'yes' if this paper bears on any corpus paper, else 'no' after "
                 "having checked)"
             )
@@ -669,7 +667,7 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
                 f"paper→paper edge to {edge['target']!r} carries a bare "
                 "tag with no real reasoning — a relation reduced to a "
                 "tag with no substance is as thin as no relation "
-                "(the over-rigidity guard, §5 caveat)"
+                "(the over-rigidity guard, caveat)"
             )
 
     # Architect review (the load-bearing fix): a malformed edge-shaped line

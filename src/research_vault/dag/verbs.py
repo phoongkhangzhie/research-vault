@@ -257,7 +257,7 @@ _AUTONOMOUS_GATE_IDS = frozenset({
 
 _TOOL_AUTO_EXEC_MAX_PASSES = 100  # bounded loop guard — never spin forever
 
-# PR-3b fix (Shape B): a defence-in-depth backstop on the approve-review
+# fix (Shape B): a defence-in-depth backstop on the approve-review
 # incremental-relate round-stepping loop — distinct from
 # ``review.style.get_critic_backtrack_max_rounds`` (which bounds ROUNDS
 # specifically); this bounds the outer resolve<->round<->relate-fanout loop
@@ -416,12 +416,12 @@ def _evaluate_autonomous_gate(
         corpus_path = review_dir / "_corpus.md"
         protocol_path = review_dir / "_protocol.md"
         deviations_path = review_dir / "_deviations.md"
-        # PR-5: project_notes_dir/reviews/<scope> is the review_dir's shape
+        # project_notes_dir/reviews/<scope> is the review_dir's shape
         # (review._review_artifact_dir) — literature/ lives one level above
         # "reviews/". Best-effort only: the ledger treats a missing dir as
         # an honest gap (surfaced), never a crash.
         literature_dir_for_ledger = review_dir.parent.parent / "literature"
-        # PR-A: the central store — for the K-block's resolving-id lookup +
+        # the central store — for the K-block's resolving-id lookup +
         # the not-yet-distilled edge-graph check (both CORE-only content).
         literature_root_for_ledger = load_config().literature_root
 
@@ -429,7 +429,7 @@ def _evaluate_autonomous_gate(
             disposition: Any,
             relevance_payload_for_ledger: dict[str, Any] | None,
         ) -> Any:
-            """PR-5: the coverage-gate node's FINAL act — assemble
+            """the coverage-gate node's FINAL act — assemble
             ``_corpus_ledger.md`` from the durable artifacts this branch
             already read, regardless of which disposition is being
             returned. On HALT-DECLARE, still write a snapshot with
@@ -483,8 +483,8 @@ def _evaluate_autonomous_gate(
             if isinstance(search_hits_produces, dict):
                 search_hits_path = search_hits_produces.get("_search_hits.md")
 
-        # Relevance-verify (PR-1, design 2026-07-10-trustworthy-curation-
-        # relevance-gate-design.md §3c) — evaluated BEFORE the corpus_freeze
+        # Relevance-verify (design 2026-07-10-trustworthy-curation-
+        # relevance-gate-design.md) — evaluated BEFORE the corpus_freeze
         # stamp/deviation check below, so any auto-prune this performs is
         # folded into the VERY FIRST frozen baseline (never flagged as an
         # undeclared deviation against its own pruning on a later
@@ -493,7 +493,7 @@ def _evaluate_autonomous_gate(
         #
         # Optional-collaborator pattern (mirrors approve-manuscript's
         # board-result handling, above): a manifest that never wired
-        # ``review-relevance-verify`` (a pre-PR-1 manifest, or a minimal
+        # ``review-relevance-verify`` (a pre- manifest, or a minimal
         # hand-built test manifest exercising the saturation disposition in
         # isolation) is an honest no-op — proceed exactly as before this
         # feature, never a forced HALT for a node that was never supposed
@@ -538,7 +538,7 @@ def _evaluate_autonomous_gate(
             # Stamp the explicit, versioned corpus_freeze baseline
             # (idempotent — a no-op after the first stamp). Reuses/mirrors
             # the SAME "frozen at coverage-gate's first evaluation" timing
-            # #185's frozen_corpus_citekeys already uses (no corpus exists
+            # frozen_corpus_citekeys already uses (no corpus exists
             # earlier in the shipped Phase-1 DAG); kept IN SYNC with
             # frozen_corpus_citekeys, never a second, drifting baseline.
             _corpus_freeze.stamp_corpus_freeze(
@@ -580,7 +580,7 @@ def _evaluate_autonomous_gate(
                     coverage_gaps_path=gaps_path,
                 )
 
-            # Fold in the relevance-verify residue (PR-1): most-severe-wins,
+            # Fold in the relevance-verify residue: most-severe-wins,
             # same pattern approve-framework/approve-manuscript already use
             # to combine a structural disposition with a second, orthogonal
             # gate's disposition. By construction relevance_result here is
@@ -620,7 +620,7 @@ def _evaluate_autonomous_gate(
             _autonomy.REVISE: 1, _autonomy.GO: 0,
         }
 
-        # PR-A: the full-corpus coverage-allocation contract, folded
+        # the full-corpus coverage-allocation contract, folded
         # most-severe-wins (no second disposition grammar — the SAME
         # structural-payload adapter the framework-critic uses). This applies
         # to ANY spine (machine OR human): the corpus must be fully allocated
@@ -673,7 +673,7 @@ def _evaluate_autonomous_gate(
 
         if not critic_ref:
             # A machine-synthesized spine with no framework-critic producer
-            # upstream is the §1.2 priority-2 "floor gate NOT RUN" failure
+            # upstream is the priority-2 "floor gate NOT RUN" failure
             # class — fail-closed HALT, never a silent GO on an un-critiqued
             # auto-synthesized spine.
             return _autonomy.DispositionResult(
@@ -727,8 +727,8 @@ def _evaluate_autonomous_gate(
             _autonomy.evaluation_from_structural_payload(_payload)
         )
 
-        # ★ PR-B5: fold in the holistic-quality review board (design
-        # 2026-07-08-autonomous-board-design.md §5.2) — a SEPARATE failure
+        # ★ fold in the holistic-quality review board (design
+        # 2026-07-08-autonomous-board-design.md) — a SEPARATE failure
         # class from the mechanical integrity floors above. A missing
         # board-result artifact means the board was never driven for this
         # manuscript (an out-of-band, hub-orchestrated multi-round fanout
@@ -755,7 +755,7 @@ def _evaluate_autonomous_gate(
         )
         if _board_result.get("halt") and not _board_canary_aborted:
             # An incomplete board fanout (missing/empty verdicts while
-            # tasks were emitted) is the same §1.2 "floor gate NOT RUN"
+            # tasks were emitted) is the same "floor gate NOT RUN"
             # failure class as the support-matcher's — HALT, never a
             # fabricated GO-WITH-RESIDUE from a board that never actually
             # finished scoring.
@@ -783,10 +783,10 @@ def _evaluate_autonomous_gate(
         # never scanned) — SAME structural-payload adapter approve-framework
         # already uses (no new disposition path).
         #
-        # PR-3 (D-5a): extended further, mirroring the coverage-gate branch
+        # (D-5a): extended further, mirroring the coverage-gate branch
         # above — ``review.remediation.resolve_coverage_critic`` may upgrade
         # a REVISE (from a PURE counter-position/thin-pole BLOCK) to
-        # CRITIC_BACKTRACK. PR-3b fix (Shape B): the round-stepping loop is
+        # CRITIC_BACKTRACK. fix (Shape B): the round-stepping loop is
         # driven HERE (not via ``review.remediation.run_bounded_critic_
         # backtrack``, which assumed a synchronous in-process relate_fn) —
         # each round's newly-found counter-papers' relate judgment goes
@@ -826,17 +826,17 @@ def _evaluate_autonomous_gate(
             remediation_state=run_state.meta.get("critic_backtrack_state"),
         )
         if disposition.disposition == _autonomy.CRITIC_BACKTRACK:
-            # PR-3b fix (Shape B): the newly-found counter-papers' relate
+            # fix (Shape B): the newly-found counter-papers' relate
             # judgment (does paper A relate to paper B) is a JUDGE, so it
             # routes the CC harness cold emit/ingest fan-out — never a
-            # synchronous in-process LLM call (PR-3b's original
+            # synchronous in-process LLM call (original
             # ``_default_relate_fn`` called ``gates._llm`` directly,
-            # doctrine-violating; PR-F deleted that path wholesale).
+            # doctrine-violating; deleted that path wholesale).
             #
             # The fan-out is async + two-phase, so it CANNOT live inside a
             # single synchronous in-process loop assuming a synchronous
             # ``relate_fn`` that drives the whole resolve->round->re-resolve
-            # cycle to completion in one call (PR-3b removed exactly that
+            # cycle to completion in one call (removed exactly that
             # shell — ``review.remediation.run_bounded_critic_backtrack`` —
             # once this DAG-level round-stepping replaced it).
             # This DAG layer instead drives round-stepping itself, pausing
@@ -1012,7 +1012,7 @@ def _evaluate_autonomous_gate(
 def _derive_project_and_id(manifest: dict[str, Any], *, prefix: str, suffix: str) -> tuple[str, str] | None:
     """Derive ``(project, scope_or_slug)`` from a Phase-1 manifest's
     ``run_id``/``project`` fields (``review-<scope>-phase1`` /
-    ``manuscript-<slug>-phase1``, the PR-M1 naming convention — see
+    ``manuscript-<slug>-phase1``, the naming convention — see
     ``review._build_phase1_manifest`` / ``manuscript.types.lit_review.phase1_builder``).
 
     Returns ``None`` if the manifest doesn't carry the expected shape
@@ -1221,7 +1221,7 @@ def _emit_next_phase(
                         child_manifest = _phase1_manifest
                         child_manifest_path = phase1_path
                     else:
-                        # A pass-through type (no Phase-1 at all, design §1) —
+                        # A pass-through type (no Phase-1 at all) —
                         # the only correct case where going straight to
                         # Phase-2 is honest, not a bypass.
                         child_manifest = _manuscript.cmd_expand(project, scope_id, config=cfg)
@@ -1239,7 +1239,7 @@ def _emit_next_phase(
                     child_manifest_path = tree_root / "phase1-dag.json"
                 else:
                     # Defensive pass-through (lit-review always has a real
-                    # Phase-1 today, design §5) — a future type registered
+                    # Phase-1 today) — a future type registered
                     # under this same node_id branch with no Phase-1 still
                     # advances correctly.
                     child_manifest = _manuscript.cmd_expand(project, scope_id, config=cfg)
@@ -1390,7 +1390,7 @@ def _check_okf_note_type(note_path_str: str, notes_root: Path) -> list[str]:
 
 
 def _check_experiments_provenance_chain(note_path_str: str, notes_root: Path) -> list[str]:
-    """PR-CC-1 CHECK-1: ride the provenance-chain completeness gate at complete-time.
+    """ CHECK-1: ride the provenance-chain completeness gate at complete-time.
 
     Called AFTER _check_okf_note_type has already confirmed type:dir match, for
     any produces.note / produces.result target. Only fires when the note's
@@ -1430,18 +1430,18 @@ def _check_relate_presence(
     note_path_str: str, notes_root: Path, node_id: str,
     literature_root: Path | None = None,
 ) -> list[str]:
-    """Wave 0 (Reading) PR-1 rejects-only presence check — ride at complete-time.
+    """Wave 0 (Reading) rejects-only presence check — ride at complete-time.
 
     Only fires for a ``relate-<key>`` node completing a ``literature``-type
     note (the review loop's Phase-2 fan-out, ``review/__init__.py``
     ``_build_phase2_manifest``). Fixes the READING DISCIPLINE, never the note
-    SCHEMA (flexible-not-rigid, design doc §5) — a note missing a mandatory
-    checklist answer (Move 1 contribution_kind, PR-4 role/position, Move 3/
-    PR-5 result_reported, Move 4/PR-2 paper_relations_sought) BLOCKs at
+    SCHEMA (flexible-not-rigid, design doc) — a note missing a mandatory
+    checklist answer (Move 1 contribution_kind, role/position, Move 3/
+     result_reported, Move 4 paper_relations_sought) BLOCKs at
     complete-time, mirroring the existing OKF-type and provenance-chain gates'
     structural posture.
 
-    PR-A (§0.5): a literature note is now two-layer — ``note_path_str``
+    a literature note is now two-layer — ``note_path_str``
     resolves to the per-project OVERLAY (role/position live there), while
     Move 1/3's contribution_kind/result_reported live on the CENTRAL CORE
     (``literature_root/<citekey>.md``). The checklist is evaluated against
@@ -1957,7 +1957,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                 read_coverage_used_citekeys,
             )
 
-            # PR-A coverage-safety: the outline must anchor every `used` paper
+            # coverage-safety: the outline must anchor every `used` paper
             # allocated in `_coverage-map.md` (beside `_manuscript.md`) — a
             # `used` paper unanchored at the outline is about to be dropped in
             # the draft. Absent/empty map -> [] (the allocation gate owns that
@@ -2009,7 +2009,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                     print(f"  {issue}", file=sys.stderr)
                 print("  Fix: ensure the note's type: frontmatter matches its parent directory.", file=sys.stderr)
                 return 1
-            # PR-CC-1 CHECK-1 (flagship, HARD): ride the provenance-chain
+            # CHECK-1 (flagship, HARD): ride the provenance-chain
             # completeness gate — only fires for experiments-type notes with a
             # claimed result whose chain is incomplete.
             chain_issues = _check_experiments_provenance_chain(produces["note"], _note_root)
@@ -2022,11 +2022,11 @@ def cmd_complete(args: argparse.Namespace) -> int:
                     print(f"  {issue}", file=sys.stderr)
                 print(
                     "  Fix: fill results_commit/repro_seed/repro_config_*/dataset-link "
-                    "(CHECK-1, docs/superpowers/specs/2026-07-07-code-conventions-design.md §3).",
+                    "(CHECK-1, docs/superpowers/specs/2026-07-07-code-conventions-design.md).",
                     file=sys.stderr,
                 )
                 return 1
-            # Wave 0 (Reading) PR-1: relate-<key> node presence-check gate —
+            # Wave 0 (Reading) relate-<key> node presence-check gate —
             # rejects-only, checklist not schema (see relate_check.py docstring).
             relate_issues = _check_relate_presence(
                 produces["note"], _note_root, node_id, literature_root=cfg.literature_root
@@ -2041,7 +2041,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                 print(
                     "  Fix: answer the missing mandatory checklist question(s) — "
                     "this is a reading-DISCIPLINE check (docs/superpowers/specs/"
-                    "2026-07-08-okf-sufficiency-and-paper-reading.md §3-4), not a "
+                    "2026-07-08-okf-sufficiency-and-paper-reading.md), not a "
                     "rigid schema; the note body/structure stays free-form.",
                     file=sys.stderr,
                 )
@@ -2092,7 +2092,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                         file=sys.stderr,
                     )
                     return 1
-                # PR-CC-1 CHECK-1 (flagship, HARD): ride the provenance-chain
+                # CHECK-1 (flagship, HARD): ride the provenance-chain
                 # completeness gate for project-scoped produces (produces.result).
                 # Resolve to an ABSOLUTE path via the SAME primitive the type
                 # check used, so notes_root is a no-op (absolute path short-circuits).
@@ -2108,7 +2108,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                         print(f"  {issue}", file=sys.stderr)
                     print(
                         "  Fix: fill results_commit/repro_seed/repro_config_*/dataset-link "
-                        "(CHECK-1, docs/superpowers/specs/2026-07-07-code-conventions-design.md §3).",
+                        "(CHECK-1, docs/superpowers/specs/2026-07-07-code-conventions-design.md).",
                         file=sys.stderr,
                     )
                     return 1
@@ -2222,7 +2222,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 print(msg, file=sys.stderr)
                 return 1
 
-            # PR-2 D-7: a declared thesis facet with no frozen counter-side
+            # D-7: a declared thesis facet with no frozen counter-side
             # query is a protocol defect — hard BLOCK, same convention as
             # the check_protocol_gate empty-counter-position field above.
             ok, msg = check_counter_facet_gate(Path(protocol_ref))
@@ -2230,13 +2230,13 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 print(msg, file=sys.stderr)
                 return 1
 
-            # PR-2 D-6 / PR-F: cold, rejects-only, canary-verified
+            # D-6: cold, rejects-only, canary-verified
             # counter-facet STRENGTH guard — existence (D-7) != strength; a
-            # thesis-biased generator can satisfy D-7 with a straw-man. PR-F:
+            # thesis-biased generator can satisfy D-7 with a straw-man.
             # the direct-API judge path was deleted; the strength judge runs
             # via the cold emit/ingest fan-out. Unified HALT (deliverable #3):
             # no fan-out / no verdicts / incomplete fan-out -> HALT-DECLARE
-            # (supersedes the old #227 SIGNAL — a relied-on cold gate that
+            # (supersedes the old SIGNAL — a relied-on cold gate that
             # cannot run HALTs). The structural, judge-INDEPENDENT guard still
             # runs synchronously and hard-BLOCKs garbage `seed_queries:`.
             from ..review.counter_facet_guard import (
@@ -2287,7 +2287,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 for nr in struct["not_run"]:
                     print(f"rv dag approve: approve-protocol HALT-DECLARE: {nr}", file=sys.stderr)
 
-            # PR-2 D-1: the derived 40-100 distinct-query band is a SIGNAL,
+            # D-1: the derived 40-100 distinct-query band is a SIGNAL,
             # never a BLOCK (the generator's derived count is a target, not
             # an exact requirement) — always printed so the human sees it at
             # the gate (charter §2: surface, never silently drop).
@@ -2298,8 +2298,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 if not in_band:
                     print(f"rv dag approve: approve-protocol SIGNAL: {band_msg}", file=sys.stderr)
 
-    # PR-M6: the lit-review manuscript type's framework-selection Phase-1 gate
-    # (design §5, D5) — mirrors the L-2 gate above. ``approve-framework`` may
+    # the lit-review manuscript type's framework-selection Phase-1 gate
+    # (D5) — mirrors the L-2 gate above. ``approve-framework`` may
     # not be approved unless the manuscript's ``_manuscript.md`` (sibling to
     # this Phase-1 manifest, at ``manifest_path.parent``) carries a non-empty
     # ``spine_shape``+``branches``. Only the lit-review type registers a
@@ -2354,7 +2354,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 for n in payload["not_run"]:
                     print(f"rv dag approve: approve-manuscript NOT RUN: {n}", file=sys.stderr)
             else:
-                # PR-M5 fix (integration-reviewer followup, charter §2): an
+                # fix (integration-reviewer followup, charter §2): an
                 # unregistered/malformed ``manuscript_type`` used to fall
                 # through this ``if`` silently — no gates ran, nothing was
                 # printed, and the human-go gate would pass with ZERO
@@ -2458,7 +2458,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                         file=sys.stderr,
                     )
             elif info["exists"] and info["stop_reason"].strip().lower() != "saturated":
-                # WHITELIST, not a blacklist (independent reviewer's PR #175 delta):
+                # WHITELIST, not a blacklist (independent reviewer's PR delta):
                 # ``stop_reason`` is agent-stamped free prose — a blacklist that
                 # only recognizes the literal ``backstop:`` prefix fails OPEN on
                 # every other spelling (``backstop-3-waves``, ``backstop after

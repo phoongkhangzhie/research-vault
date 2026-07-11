@@ -3,7 +3,7 @@
 ``corpus_freeze`` baseline + the fail-closed ``rv review refresh`` re-freeze.
 
 Design of record: docs/superpowers/specs/2026-07-08-ng6a-refresh-autonomous-remediation.md
-(§1, §2, §3). Builds ON the #185 baseline (``frozen_corpus_citekeys`` in
+Builds ON the baseline (``frozen_corpus_citekeys`` in
 ``run_state.meta``, ``review.autonomy.classify_coverage_gate_with_deviation_check``,
 ``check_undeclared_deviation``) — does NOT re-implement it.
 
@@ -11,7 +11,7 @@ The freeze precedent mirrored here is ``plan/freeze.py`` (a hash + resolution
 pin stored in ``run_state.meta``, re-verified fail-closed at the gate) —
 charter §6 reuse-over-create; a sibling module for the corpus, same shape.
 
-``corpus_freeze`` (this module) and ``frozen_corpus_citekeys`` (#185,
+``corpus_freeze`` (this module) and ``frozen_corpus_citekeys`` (
 ``review.autonomy``) are kept IN SYNC deliberately, not merged into one
 field: ``frozen_corpus_citekeys`` remains the flat SSOT the already-wired D2
 BLOCK (``classify_coverage_gate_with_deviation_check``) reads/writes — that
@@ -42,11 +42,11 @@ class RefreshBlocked(Exception):
     """Raised (never silently swallowed) when ``refresh`` cannot proceed —
     an absent baseline, an undeclared criteria change, or an undeclared
     corpus delta. Refresh can only ACCEPT or REJECT a re-freeze, never
-    silently proceed with a partial/degraded one (§2, fail-closed order)."""
+    silently proceed with a partial/degraded one (fail-closed order)."""
 
 
 # ---------------------------------------------------------------------------
-# Criteria-hash canonicalization (§1, the anti-fishing pin)
+# Criteria-hash canonicalization (the anti-fishing pin)
 # ---------------------------------------------------------------------------
 
 def _norm_criteria_value(v: Any) -> str:
@@ -65,7 +65,7 @@ def canonicalize_criteria(protocol_text: str) -> str:
     (``question``, ``inclusion``, ``exclusion``, ``coverage_claim``) and
     ``sources.sweep.parse_angle_matrix``/``parse_sources`` for the nested
     ``seed_queries:`` angle matrix + the ``sources:`` inline list (charter
-    §6 — reuse the SAME parsers the width-sweep itself reads the frozen
+     reuse the SAME parsers the width-sweep itself reads the frozen
     protocol with, never a second hand-rolled parse of the same fields).
     """
     fields, _ = _parse_frontmatter(protocol_text)
@@ -112,7 +112,7 @@ def _parse_corpus_citekeys_safe(corpus_path: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# The explicit, versioned corpus_freeze baseline (§1)
+# The explicit, versioned corpus_freeze baseline
 # ---------------------------------------------------------------------------
 
 def stamp_corpus_freeze(
@@ -123,7 +123,7 @@ def stamp_corpus_freeze(
     now: float | None = None,
 ) -> dict[str, Any]:
     """Idempotent: write ``run_state_meta["corpus_freeze"]`` v1 the FIRST
-    time this is called for a given run (mirrors #185's
+    time this is called for a given run (mirrors
     ``frozen_corpus_citekeys`` first-stamp semantics). A later call is a
     correct no-op that returns the EXISTING freeze unchanged — re-freezing
     is exclusively ``refresh``'s job (fail-closed, declared-delta-only).
@@ -151,7 +151,7 @@ def stamp_corpus_freeze(
 
 
 # ---------------------------------------------------------------------------
-# rv review refresh — the fail-closed re-freeze (§2)
+# rv review refresh — the fail-closed re-freeze
 # ---------------------------------------------------------------------------
 
 _KIND_LINE_RE = re.compile(r"^\*\*Kind:\*\*\s*(.*)$", re.MULTILINE)
@@ -181,7 +181,7 @@ def refresh(
     deviations_path: Path,
     now: float | None = None,
 ) -> dict[str, Any]:
-    """Fail-closed re-freeze (§2). Every step can only REJECT
+    """Fail-closed re-freeze. Every step can only REJECT
     (``RefreshBlocked``) — refresh never launders an undeclared mutation or
     a criteria edit into a fresh hash.
 
@@ -204,7 +204,7 @@ def refresh(
     Raises ``RefreshBlocked`` on any reject.
     Never touches ``_manuscript.md`` — refresh is review-scoped only; the
     manuscript's own stale-corpus guard (``manuscript.check_gates.check_coverage_gate``)
-    re-binds on its own next run (§2's cascade note).
+    re-binds on its own next run (cascade note).
     """
     from .autonomy import check_undeclared_deviation
 

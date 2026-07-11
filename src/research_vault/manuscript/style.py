@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/style.py — the manuscript-loop style seam (PR-M1, type-generic).
+"""manuscript/style.py — the manuscript-loop style seam (type-generic).
 
-Mirrors ``review/style.py``'s tips-seam pattern (design §2's module layout: the
-style seam = per-type section briefs + exemplar injection, §3.1/§8). For PR-M1
+Mirrors ``review/style.py``'s tips-seam pattern (module layout: the
+style seam = per-type section briefs + exemplar injection).
 the payload is deliberately thin: a generic preamble + per-section tips sourced
 from the active ``ManuscriptType``'s ``style_briefs`` dict, falling back to a
 generic placeholder tip for any ``section_set`` entry with no brief authored
-yet (honest — a type's real briefs land in PR-M3/M6; the seam itself is the
+yet (honest — a type's real briefs land; the seam itself is the
 type-generic machinery built now).
 
 Adopters override via ``[manuscript_style]`` in ``research_vault.toml`` —
@@ -14,7 +14,6 @@ Adopters override via ``[manuscript_style]`` in ``research_vault.toml`` —
 for the review loop.
 
 Stdlib only.
-sr: PR-M1
 """
 from __future__ import annotations
 
@@ -29,12 +28,12 @@ if TYPE_CHECKING:
 
 _DEFAULT_PREAMBLE: str = (
     "You are drafting a section of a manuscript in the Research Vault manuscript "
-    "loop (type-generic core, PR-M1).\n"
+    "loop (type-generic core).\n"
     "Anti-fabrication spine: numbers, citations, table cells, and pivotal equations "
-    "are DATA — injected by the machine (hermetic references.md build in PR-M2, results/equation "
-    "injection in PR-M2/PR-M4), never typed by you. Claims and comparisons are "
+    "are DATA — injected by the machine (hermetic references.md build, results/equation "
+    "injection), never typed by you. Claims and comparisons are "
     "PROSE you synthesize, gated against their source notes (the fidelity gates, "
-    "PR-M3)."
+    ")."
 )
 
 
@@ -48,7 +47,6 @@ def get_manuscript_style_preamble(config: Any = None) -> str:
     Returns:
         The preamble string injected before every node's spec.
 
-    sr: PR-M1
     """
     if config is not None:
         raw = getattr(config, "_raw", {})
@@ -69,7 +67,7 @@ def get_manuscript_section_tips(
     Defaults to the type descriptor's ``style_briefs``; falls back to a
     generic "write section <name>" placeholder for any ``section_set`` entry
     with no brief yet — an honest placeholder, never a fabricated brief
-    (populated per-section in PR-M3/M6).
+    (populated per-section).
 
     Adopter override: ``[manuscript_style]`` section, keyed by section name
     (the ``preamble`` key is reserved and skipped here).
@@ -82,7 +80,6 @@ def get_manuscript_section_tips(
         dict with a key for every ``ms_type.section_set`` entry, plus any
         extra keys already present in ``ms_type.style_briefs``.
 
-    sr: PR-M1
     """
     tips: dict[str, str] = dict(ms_type.style_briefs or {})
     for section in ms_type.section_set:

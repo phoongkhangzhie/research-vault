@@ -262,13 +262,13 @@ LOOP_CATALOG: list[LoopEntry] = [
         ),
     ),
 
-    # PR-M1: the type-generic manuscript loop, re-instantiated with a type system.
+    # the type-generic manuscript loop, re-instantiated with a type system.
     # Gate grounded in manuscript/__init__.py _build_phase2_manifest (approve-manuscript,
     # the terminal node emitted for every registered type — see TestCatalogGrounding).
     # A type's own Phase-1 is type-optional (``phase1_builder=None`` = pass-through,
-    # e.g. a future ``experiment-paper``). PR-M6 fills the FIRST-SHIPPED type's real
-    # Phase-1 (lit-review's framework-selection sub-loop, design §5): its
-    # ``approve-framework`` gate is grounded here too, per design §2 ("Catalog: add a
+    # e.g. a future ``experiment-paper``). This fills the FIRST-SHIPPED type's
+    # real Phase-1 (lit-review's framework-selection sub-loop): its
+    # ``approve-framework`` gate is grounded here too, per ("Catalog: add a
     # manuscript LoopEntry whose human_go_gates reflect the first-shipped type's
     # manifest (lit-review: approve-framework, approve-manuscript)").
     LoopEntry(
@@ -280,7 +280,7 @@ LOOP_CATALOG: list[LoopEntry] = [
                 node_id="approve-framework",
                 label=(
                     "lit-review Phase-1 gate: approve the organizing framework "
-                    "(spine_shape + branches frozen into _manuscript.md — design §5, "
+                    "(spine_shape + branches frozen into _manuscript.md, "
                     "D5; type-specific, only for types with a framework Phase-1)"
                 ),
                 freeze_action=None,
@@ -289,8 +289,8 @@ LOOP_CATALOG: list[LoopEntry] = [
             LoopGate(
                 node_id="approve-manuscript",
                 label=(
-                    "Approve manuscript draft (structural/fidelity gates PR-M2/M3, "
-                    "equation gate PR-M4, and the review-revise board PR-M5 plug in "
+                    "Approve manuscript draft (structural/fidelity gates, "
+                    "equation gate, and the review-revise board plug in "
                     "ahead of this gate as they land)"
                 ),
                 freeze_action=None,

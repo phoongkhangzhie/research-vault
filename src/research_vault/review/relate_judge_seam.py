@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/relate_judge_seam.py — PR-3b fix (Shape B): the harness
+"""review/relate_judge_seam.py fix (Shape B): the harness
 emit/ingest cold-judge fan-out for incremental-relate's paper<->paper edge
 judgment.
 
-**Diagnosis this closes.** PR-3b's shipped default (``remediation.
+**Diagnosis this closes.** The shipped default (``remediation.
 _default_relate_fn``) called the deleted direct-API judge helper in
-``gates/_llm.py`` — a doctrine-violating direct-API judge path (PR-F
+``gates/_llm.py`` — a doctrine-violating direct-API judge path (
 deleted that module entirely and added a grep-guard forbidding it). The
 RELATE judgment (does
 paper A relate to paper B; edge-type/strength) IS a judge, so per rv
@@ -39,7 +39,7 @@ generation mechanism, no algorithm change.
 **Built on ``gates.judge_seam``** — the SAME low-level primitives
 (``interleave_with_canaries``, ``check_canaries``, ``fail_closed_fill``,
 ``fanout_incomplete``, ``read_json_or_none``, ``write_json``) that
-``counter_facet_guard.py`` / ``support_matcher.py`` already use (PR-F).
+``counter_facet_guard.py`` / ``support_matcher.py`` already use.
 No new injection convention, no new schema machinery — same shape, a new
 verdict vocabulary (paper<->paper relation tags rather than STRONG/STRAWMAN).
 
@@ -61,7 +61,6 @@ THE THREE ARTIFACTS (mirrors judge_seam's NG-4 contract, relate-scoped):
   _relate-verdicts.json    (cold judges/hub -> rv)
 
 Stdlib only (+ intra-package imports).
-sr: PR-3b fix (Shape B)
 """
 from __future__ import annotations
 
@@ -297,7 +296,7 @@ def ingest_relate_verdicts(
       - Empty real-task set -> honest no-op (``ok=True``, both dicts empty).
       - Missing/empty verdicts while real tasks exist -> HALT (fail-closed,
         the fan-out never completed) — mirrors ``counter_facet_guard``'s
-        unified-HALT posture (PR-F), NOT a silent "no edges" pass.
+        unified-HALT posture, NOT a silent "no edges" pass.
     """
     tasks = tasks_doc.get("tasks", []) or []
     canaries = (canary_key_doc or {}).get("canaries", {})

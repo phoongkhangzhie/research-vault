@@ -112,8 +112,8 @@ _VERB_REGISTRY: dict[str, dict] = {
         "when_to_use": (
             "When you need to see which papers a project has ADOPTED into its "
             "corpus — `rv literature list <project>` globs the project's "
-            "literature/ overlay dir (the per-project registry — PR-A's "
-            "two-layer store, §0.5 PR-B) and enriches each entry via the "
+            "literature/ overlay dir (the per-project registry — "
+            "two-layer store) and enriches each entry via the "
             "project's already-written `_corpus_ledger.md` (resolving ids, "
             "citekey-conformance) — ZERO recomputation. "
             "Anti-pattern: do NOT hand-glob literature/*.md and eyeball "
@@ -257,7 +257,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "returns immediately — no sleep-looping. Primitive that the DAG afterok composes."
         ),
     },
-    # --- code-conventions (PR-CC-5) ---
+    # --- code-conventions ---
     "code": {
         "module": "research_vault.code_check",
         "when_to_use": (
@@ -556,11 +556,11 @@ _VERB_REGISTRY: dict[str, dict] = {
         "when_to_use": (
             "When you need to assert a numeric predicate holds against a hash-verified "
             "experiment note's results — for the conditional-ablation watch:cmd: trigger "
-            "in a pre-registered DAG (§5K.7). "
+            "in a pre-registered DAG. "
             "Use: rv result assert <experiments/<id>.md> --metric M --op gt --value V. "
             "Exit 0 = predicate TRUE (conditional fires); exit 1 = FALSE or error. "
             "Optional: --run-id / --node-id logs the predicate string + SHA-256 hash + "
-            "evaluated result into DAG run state meta (§5K.5.4 tamper-evident audit). "
+            "evaluated result into DAG run state meta (tamper-evident audit). "
             "Anti-pattern: do NOT hand-read results files and hard-code a threshold in "
             "a shell one-liner — use rv result assert so the predicate is hash-verified "
             "against the recorded results_hash and logged to run state for reproducibility."
@@ -609,7 +609,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "auto-prunes and the run proceeds, at/above it HALT-DECLAREs), and "
             "coverage-critic gates. "
             "The `review-scope` node MUST file a `_protocol.md` with a non-empty "
-            "`counter-position` field (L-2 gate, §5L.3) — the anti-fishing structural "
+            "`counter-position` field (L-2 gate) — the anti-fishing structural "
             "obligation, MECHANICALLY ENFORCED at `rv dag approve <run_id> "
             "approve-protocol`: an empty/missing `counter-position` field REFUSES the "
             "approval (nonzero exit, node stays `awaiting-go`, no state mutation) — "
@@ -624,12 +624,12 @@ _VERB_REGISTRY: dict[str, dict] = {
             "`rv dag run reviews/<scope>/phase2-dag.json`. "
             "Use `rv review <project> list` to enumerate all reviews. "
             "Use `rv review <project> tips [--key <key>]` to inspect the review_tips seam. "
-            "Gap-driven pass (§5L.7): use `rv review <project> gap-scan` to "
+            "Gap-driven pass: use `rv review <project> gap-scan` to "
             "detect typed research gaps (knowledge_void, contradictory, evaluation_void) "
             "from the OKF corpus. "
             "Each gap note gets a suggested_route: field (literature|experiment|triage). "
             "This is a rejects-only SCREEN — it PROPOSES gaps, never auto-fires a review. "
-            "Gap-driven routing (§5L.14–5L.16): use `rv review <project> gap-scope <gap-id> <scope>` "
+            "Gap-driven routing (L.16): use `rv review <project> gap-scope <gap-id> <scope>` "
             "(or the alias `gap-route`) to auto-author the remedy scope by error-asymmetry. "
             "--target literature (default): auto-authors a Part-1 review scope. "
             "--target experiment: auto-authors a pre-registration plan "
@@ -638,7 +638,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "--status proven-open is the run-candidate queue. "
             "Use `rv review <project> gap-close <gap-id> --status proven-open` to stamp "
             "a proven-open gap (targeted pass saturated without closing → run-candidate). "
-            "Gap closure (§5L.19–5L.24): use `rv review <project> gap-close <gap-id> "
+            "Gap closure (L.24): use `rv review <project> gap-close <gap-id> "
             "--by <note-ref> --status <status>` to record the bidirectional provenance "
             "edge — --by is REQUIRED for closed-supported/closed-filled (charter §2: a "
             "closed gap with no closer is un-auditable); --by is REJECTED for proven-open. "
@@ -662,10 +662,10 @@ _VERB_REGISTRY: dict[str, dict] = {
             "error-asymmetry (Chalmers & Glasziou avoidable-waste) and auto-authors the scope. "
             "Anti-pattern: do NOT call `rv research` stdout and scrape it for saturation "
             "counts — import `_corpus_annotation` from "
-            "`research_vault.research` directly (the corpus-helper import rule, §5L.11)."
+            "`research_vault.research` directly (the corpus-helper import rule)."
         ),
     },
-    # --- the manuscript loop (PR-M0..M8, the type-generic core + the lit-review type) ---
+    # --- the manuscript loop (the type-generic core + the lit-review type) ---
     "manuscript": {
         "module": "research_vault.manuscript.verbs",
         "when_to_use": (
@@ -678,7 +678,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "walkthrough + known limitations. "
             "Use `rv manuscript <project> new <slug> --type <type>` to scaffold the "
             "per-manuscript folder (manuscripts/<slug>/{_manuscript.md, report.md, "
-            "sections/, references.md, figures/} — NOT an OKF taxonomy, design §0/§12) "
+            "sections/, references.md, figures/} — NOT an OKF taxonomy) "
             "and, for a type with a Phase-1 (lit-review does), its Phase-1 manifest. "
             "`--type lit-review` is the survey/review-paper specialization: its "
             "Phase-1 is the framework-selection sub-loop, AUTONOMOUS (scope -> "
@@ -703,7 +703,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Sections are built from injected data (numbers, "
             "citations, table rows, pivotal equations) never hand-typed by the "
             "writer — the results_inject.py discipline extended to equations. "
-            "The **6-lens review board** (design §2, PR-E/PR-D2) runs as a "
+            "The **6-lens review board** runs as a "
             "cold-agent-judge fan-out, never a direct API call: "
             "`rv manuscript <project> board-emit <slug>` writes the task set "
             "(rv calls no LLM), the hub fans 6 FRESH independent lens judges "
@@ -727,7 +727,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Anti-pattern: do NOT treat a `review cleared: true` verdict as the final "
             "word — the human always makes the actual `approve-manuscript` call; "
             "clearing the board is necessary, never sufficient. "
-            "Known limitation: `--reframe` (design §5.1's reframe-the-spine escalation "
+            "Known limitation: `--reframe` (reframe-the-spine escalation "
             "re-entry) is NOT yet a wired CLI flag — the review board surfaces the "
             "escalation message + candidate reframes, but a human re-scaffolds "
             "manually today via a fresh `rv manuscript new <new-slug> --type "
@@ -765,7 +765,7 @@ def _first_sentence(text: str) -> str:
     """Return the first sentence of text.
 
     A sentence ends at '.', '!', or '?' only when followed by whitespace or
-    end-of-string — not inside file paths (.md), section refs (§5K.7), or
+    end-of-string — not inside file paths (.md), section refs, or
     parenthetical abbreviations.
     """
     import re as _re

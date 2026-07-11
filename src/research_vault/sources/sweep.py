@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""sources/sweep.py — the parallel width-sweep orchestrator (NG-3, §4.2/§4.3).
+"""sources/sweep.py — the parallel width-sweep orchestrator (NG-3).
 
 Reads the FROZEN angle matrix + sources list from ``_protocol.md`` (frozen at
 ``approve-protocol`` — a mid-run change to either is a criteria deviation,
@@ -13,7 +13,7 @@ adapter)`` concurrently under the fetch budget, then composes:
 
 An adapter that fails or raises ``NotSupported`` for a given op is skipped
 for that (angle, source) cell — never treated as a fatal sweep failure
-(graceful degradation, §10 risk: "an adapter down must degrade gracefully").
+(graceful degradation, risk: "an adapter down must degrade gracefully").
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from .derivative import count_independent, mark_derivatives
 from .ranker import UtilityScore, rank_and_select, score_hit
 from .registry import DEFAULT_SOURCES, get_adapter
 
-DEFAULT_FETCH_BUDGET = 100  # PR-2 D-1: HR's diminishing-returns cap (~100 planned
+DEFAULT_FETCH_BUDGET = 100 # D-1: HR's diminishing-returns cap (~100 planned
 # searches); raised from 65 now that the facet-matrix generator (see
 # `parse_angle_matrix`/`group_facet_stances` below) derives ~40-100 queries
 # per protocol instead of the old fixed 5-angle set — the old 65 cap would
@@ -68,7 +68,7 @@ def parse_angle_matrix(protocol_text: str) -> dict[str, str]:
     Two shapes, mixable in the SAME protocol (a to-be-migrated protocol is
     never forced to rewrite every angle in one pass):
 
-    **Legacy scalar** (pre-PR-2, one query per angle)::
+    **Legacy scalar** (pre-, one query per angle)::
 
         seed_queries:
           by-method:     "<query>"
@@ -76,7 +76,7 @@ def parse_angle_matrix(protocol_text: str) -> dict[str, str]:
 
     Returned unchanged: ``{"by-method": "<query>", "by-outcome": "<query>"}``.
 
-    **Nested stance-tagged facet** (PR-2, D-3 — the facet-matrix generator's
+    **Nested stance-tagged facet** (D-3 — the facet-matrix generator's
     output; the researcher's Step-C counter-position facets as a first-class class)::
 
         seed_queries:
@@ -209,7 +209,7 @@ def group_facet_stances(angle_matrix: dict[str, str]) -> dict[str, dict[str, lis
 def seed_queries_declared_but_unparsed(protocol_text: str) -> bool:
     """True iff the protocol declares a ``seed_queries:`` key at all, but
     ``parse_angle_matrix`` yields ZERO usable queries (architect fit-check
-    finding on PR-2, judge-independent fail-open): a malformed/mis-indented
+    finding, judge-independent fail-open): a malformed/mis-indented
     nested block, or an otherwise-garbage ``seed_queries:`` value, can
     silently collapse to ``{}`` — and an empty facet-iteration loop at
     ``approve-protocol`` then looks IDENTICAL to "this protocol has no
@@ -247,7 +247,7 @@ def seed_queries_declared_but_unparsed(protocol_text: str) -> bool:
 # Query-time near-dup filter (D-4) + post-dedup distinct-query count/band
 # (D-1, friction iii): a semantic (asta/S2) backend collapses near-literal
 # combinatorial restatements to one NL query, so the 40-100 breadth
-# assertion (§3D) must hold on the POST-dedup distinct count, never the raw
+# assertion must hold on the POST-dedup distinct count, never the raw
 # enumerated-cell count — the pairwise C(facets,2) combinatorics can
 # overstate distinct coverage on paper.
 # ---------------------------------------------------------------------------
@@ -365,7 +365,7 @@ def _fetch_cell(
     success. Every other exception (timeout, connection error, 5xx, ...) is
     treated as transient and retried up to ``retry_attempts`` times; only
     after the LAST attempt still fails does the cell record ``error`` and
-    degrade to zero hits (§10 graceful degradation — unchanged contract,
+    degrade to zero hits (graceful degradation — unchanged contract,
     just no longer on the FIRST transient blip).
     """
     try:
@@ -414,7 +414,7 @@ def run_width_sweep(
     angle-then-source enumeration order (order-preserving, so dedup's
     "first-seen wins as representative" stays deterministic across runs).
     A cell with ``error`` set contributes zero hits — the sweep degrades
-    gracefully per adapter/pair, never fails wholesale (§10) — but only
+    gracefully per adapter/pair, never fails wholesale — but only
     after ``_fetch_cell``'s bounded retry-with-backoff has exhausted its
     attempts on a transient failure. ``sleep_fn`` is test-injectable (never
     real ``time.sleep`` in a hermetic test).
@@ -462,7 +462,7 @@ def run_width_sweep(
 # returned zero hits, across ALL angles) looks near-identical to a healthy,
 # genuinely-thin sweep at the coverage-gate — nothing in the composed result
 # previously distinguished "this source never actually answered" from "this
-# source answered honestly with few/no hits". §10's per-cell graceful
+# source answered honestly with few/no hits". per-cell graceful
 # degradation is right at the CELL level; it must not silently compose up
 # into "the whole source is dark and nobody noticed".
 # ---------------------------------------------------------------------------
@@ -577,7 +577,7 @@ def run_sweep_from_protocol(
     """End-to-end: read the frozen ``_protocol.md``, parse the angle matrix +
     sources, run the parallel width-sweep, compose the ranked/deduped result.
 
-    ``angle_keys`` (PR-3, critic-backtrack D-5a): restrict the sweep to a
+    ``angle_keys`` (critic-backtrack D-5a): restrict the sweep to a
     SUBSET of the FROZEN angle matrix's own keys — an exact flattened key
     (``"by-temporal.counter.0"``) or a prefix (``"by-temporal.counter"``,
     matched via ``key == prefix or key.startswith(prefix + ".")``). This
@@ -586,7 +586,7 @@ def run_sweep_from_protocol(
     swept this call. ``None`` (default) sweeps the full matrix, unchanged
     behavior.
 
-    ``sources_override`` (PR-3, D-5a): sweep against this explicit source
+    ``sources_override`` (D-5a): sweep against this explicit source
     list instead of the protocol's declared ``sources:`` — e.g. "all
     registered sources" for a backtrack round that intensifies beyond the
     protocol's normal default-on subset. ``None`` (default) uses
@@ -619,7 +619,7 @@ def run_sweep_from_protocol(
 
 
 # ---------------------------------------------------------------------------
-# _search_hits.md rendering (review-loop-nodekind-drift-fix §4-A)
+# _search_hits.md rendering (review-loop-nodekind-drift-fix -A)
 # ---------------------------------------------------------------------------
 
 def _paper_id_of_hit(external_ids: dict[str, str]) -> str | None:
@@ -694,7 +694,7 @@ def _evidence_snippet(hit: PaperHit, *, max_chars: int = 800) -> str:
     is a display-cap change only (the full abstract is already fetched onto
     ``hit.abstract``; nothing here re-fetches). Feeds both the sweep writer
     (``write_search_hits``) and the snowball raw-pool writer
-    (``write_corpus_raw``, via #215's reuse of this helper)."""
+    (``write_corpus_raw``, via reuse of this helper)."""
     text = (hit.abstract or "").strip()
     if not text and isinstance(hit.raw, dict):
         tldr = hit.raw.get("tldr")
@@ -714,7 +714,7 @@ def write_search_hits(
     notes_index: dict[str, str] | None = None,
     notes_title_index: dict[str, list[tuple[str, str]]] | None = None,
 ) -> Path:
-    """Render the width-sweep result to ``_search_hits.md`` (Option C §4-A).
+    """Render the width-sweep result to ``_search_hits.md`` (Option C -A).
 
     Per-``(angle,source)`` cell counts (including degraded/errored cells),
     the ranked deduped kept set with ``[NEW]``/``[IN-CORPUS:<citekey>]``

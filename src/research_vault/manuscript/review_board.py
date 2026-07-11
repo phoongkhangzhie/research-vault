@@ -1,21 +1,20 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/review_board.py — PR-M5: the bounded-unroll review-revise loop
+"""manuscript/review_board.py: the bounded-unroll review-revise loop
 MACHINERY (2 rounds x 3 conference-style reviewers).
 
 Re-instantiates the removed ``manuscript/review_board.py`` craft (deleted
 earlier, ``git show 4fdb9b2^:src/research_vault/manuscript/review_board.py``
 — the prior design-of-record), rebuilt against the NEW lit-review
-rubric's 8-dimensioned score set (design §11.1) instead of the old 7-dim
+rubric's 8-dimensioned score set instead of the old 7-dim
 generic venue rubric — same bounded-unroll / floor-not-average / canary /
 skip-once-cleared CONTROL-FLOW, new DIMENSIONS.
 
-Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md §9-§11.
 Doctrine: data/doctrine/honesty-gates.md, data/doctrine/review-board.md.
 
-SCOPE (the operator's locked decision, carried in the PR-M5 dispatch brief):
+SCOPE (the operator's locked decision, carried in the dispatch brief):
   - **2 rounds x 3 fresh independent reviewers per round**, conference-style.
   - **Floor-not-average aggregation** across the 3 reviewers on the FLOOR axes
-    (design §11.1: dims 1/2/7 -- SCOPE, REPRO, CITE). MIN-across-3, never mean.
+    (dims 1/2/7 -- SCOPE, REPRO, CITE). MIN-across-3, never mean.
   - **A revise step between rounds** -- redrafts failing sections (an agent
     action in the real DAG; this module records the rebuttal + RE-FIRES the
     gates), regression guard (never accept a round that regresses a floor
@@ -25,9 +24,9 @@ SCOPE (the operator's locked decision, carried in the PR-M5 dispatch brief):
   - **Honest failure** if it can't clear after round N -- a first-class
     NOT-CLEARED payload (persistent-weakness statement), never a silent pass,
     never an infinite loop.
-  - **The 3 reviewer lenses (design §11.2)**: coverage & scope auditor (dims
+  - **The 3 reviewer lenses **: coverage & scope auditor (dims
     1-2) -- framework/taxonomy critic (dim 3, WITH the reframe-escalation
-    trigger, §5.1) -- synthesis-vs-enumeration adversary (dims 4-6, 8).
+    trigger) -- synthesis-vs-enumeration adversary (dims 4-6, 8).
     Reviewers are disconfirm-first and NEVER receive the manuscript's thesis
     (anti-anchoring -- the same discipline as M3's honesty gates): the judge
     prompt carries ONLY the rendered draft text + the rubric + the lens.
@@ -38,15 +37,15 @@ SCOPE (the operator's locked decision, carried in the PR-M5 dispatch brief):
     was removed -- SIGNAL-only, non-actionable under hands-off autonomy,
     redundant with this board's own SYNTH/GAP dims + RD-6. The operator's call,
     see DEVLOG.)
-  - **PR-M8 (this pass): the researcher's calibrated ``DEFAULT_LIT_REVIEW_RUBRIC``**
-    (design §11.1, methodology doc §A.2) replaces the PR-M5 mock rubric via
+  - ** (this pass): the researcher's calibrated ``DEFAULT_LIT_REVIEW_RUBRIC``**
+    (methodology doc §A.2) replaces the mock rubric via
     the SAME override seam (``ms_type.rubric`` / ``[manuscript_review].rubric``)
     -- zero control-flow change, only the rubric TEXT + the canary bounds/
     passages were swapped. See ``DEFAULT_LIT_REVIEW_RUBRIC``,
     ``run_canary_scaffold``'s calibrated probes, and the multi-round
     reframe-escalation recurrence gate (below) for the specifics.
 
-DIMENSIONED-SCORE BRACKET (NEW -- design §11.1's 8 dims; does NOT overload the
+DIMENSIONED-SCORE BRACKET (NEW -- 8 dims; does NOT overload the
 support-matcher's 4-verdict extractor or control.py's [PASS]/[BLOCK]
 extractor):
   [SCOPE:d] [REPRO:d] [FRAME:d] [SYNTH:d] [COMPARE:d] [GAP:d] [CITE:d] [BIAS:d]
@@ -54,7 +53,7 @@ extractor):
   cannot be parsed, or a dim entirely missing from the response, defaults to
   0 -- FAIL-CLOSED, never a silent pass.
 
-FLOOR AXES (design §11.1): {SCOPE, REPRO} (the coverage/search-reproducibility
+FLOOR AXES: {SCOPE, REPRO} (the coverage/search-reproducibility
 axis, dims 1+2) and {CITE} (the citation-fidelity axis, dim 7). Cleared iff
 MIN-across-3-reviewers(score) >= floor_value on EVERY floor dim. FRAME (dim 3)
 is SURFACE (D-SV-C -- subjective + gameable, human owns the spine); SYNTH/GAP
@@ -65,7 +64,6 @@ bind the clear predicate.
 
 Stdlib only. Hermetic in tests -- judge_fn is always injectable; no live LLM
 call is required to exercise this module.
-sr: PR-M5 (mirrors the removed prior review-board craft)
 """
 from __future__ import annotations
 
@@ -74,7 +72,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
-# PR-F: the 3 calibrated canary passages + their markers were RELOCATED to
+# the 3 calibrated canary passages + their markers were RELOCATED to
 # ``gates/canary_passages.py`` (deletion-blast-radius: ``gates/board_seam.py``
 # imported them from here, a manuscript<-gates layering inversion). Re-import
 # them so this module's own canary scaffold + the tests that reference
@@ -103,7 +101,6 @@ class CanaryAbortError(RuntimeError):
     round's scores untrustworthy -- ABORT rather than surface fabricated
     confidence.
 
-    sr: PR-M5 (design §11.3, D-SV-D mandatory)
     """
 
 
@@ -111,17 +108,17 @@ class CanaryAbortError(RuntimeError):
 # Constants
 # ---------------------------------------------------------------------------
 
-# PR-F: the direct-API judge default was DELETED — this module NEVER
+# the direct-API judge default was DELETED — this module NEVER
 # constructs an in-process judge; ``run_review_board`` requires an injected
 # ``judge_fn`` and raises loudly when it is None (production review runs via
 # the 6-lens board's emit/ingest cold fanout). No judge-model env var is read.
 
-# All 8 review dimensions, in the design §11.1 table's order.
+# All 8 review dimensions, in the table's order.
 _ALL_DIMS: tuple[str, ...] = (
     "SCOPE", "REPRO", "FRAME", "SYNTH", "COMPARE", "GAP", "CITE", "BIAS",
 )
 
-# The two FLOOR axes (design §11.1): citation-fidelity (CITE) and
+# The two FLOOR axes: citation-fidelity (CITE) and
 # coverage/search-reproducibility (SCOPE + REPRO). Config seam accepts either
 # the dim codes directly, or the design's literal axis names (expanded below).
 _DEFAULT_FLOOR_DIMS: list[str] = ["SCOPE", "REPRO", "CITE"]
@@ -132,7 +129,7 @@ _MAX_ROUNDS_HARDCAP: int = 3             # never > 3, whatever config asks for
 _DEFAULT_REVIEWERS_PER_ROUND: int = 3    # K -- the operator's locked decision
 _MIN_REVIEWERS_PER_ROUND: int = 2
 
-# design §9's literal axis-name aliases -> the dim codes they expand to.
+# literal axis-name aliases -> the dim codes they expand to.
 _FLOOR_AXIS_ALIASES: dict[str, list[str]] = {
     "citation_fidelity": ["CITE"],
     "coverage_reproducibility": ["SCOPE", "REPRO"],
@@ -170,7 +167,7 @@ def _normalize_floor_dims(raw: Any) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Dimensioned-score bracket extractor (NEW -- 8-dim, design §11.1)
+# Dimensioned-score bracket extractor (NEW -- 8-dim)
 # ---------------------------------------------------------------------------
 
 _REVIEW_SCORE_RE = re.compile(
@@ -191,7 +188,6 @@ def _extract_review_scores(text: str) -> dict[str, int] | None:
     FAIL-CLOSED: a caller must default an absent/unparseable dim to 0 --
     never treat a missing score as a passing one.
 
-    sr: PR-M5
     """
     scores: dict[str, int] = {}
     for m in _REVIEW_SCORE_RE.finditer(text):
@@ -217,7 +213,6 @@ def _extract_frame_escalation_fields(text: str) -> dict[str, list[str]]:
     doesn't carry these lines simply contributes nothing to the escalation
     payload -- surfaced as an honest empty, not fabricated).
 
-    sr: PR-M5 (design §5.1 -- the reframe-the-spine escalation)
     """
 
     def _parse_line(label: str) -> list[str]:
@@ -252,7 +247,7 @@ def _extract_review_scores_and_justifications(
 ) -> tuple[dict[str, int] | None, dict[str, str]]:
     """Extract dimensioned scores AND their per-line justification text.
 
-    ARR fail-closed rule (methodology doc §B.1, design §11.1's
+    ARR fail-closed rule (methodology doc §B.1,
     justify-each-score requirement): a dim whose bracket has NO trailing
     justification text on its line is NOT trustworthy as a real reviewer
     judgment -- the caller (``run_reviewer_node``) flags that dim in
@@ -268,7 +263,6 @@ def _extract_review_scores_and_justifications(
     Returns ``(None, {})`` on complete parse failure (no scored-line tokens
     found at all) -- same contract as ``_extract_review_scores``.
 
-    sr: PR-M8 (design §11.1, methodology doc §A.2 justify-each-score/ARR)
     """
     scores: dict[str, int] = {}
     justifications: dict[str, str] = {}
@@ -297,7 +291,7 @@ def _evaluate_threshold(
     """Evaluate the floor predicate across K reviewers.
 
     Aggregation = MIN-across-reviewers (the worst reviewer gates, never the
-    mean -- design §9.1: "NOT reviewers happy overall"). A missing dim in a
+    mean: "NOT reviewers happy overall"). A missing dim in a
     reviewer's score dict defaults to 0 (fail-closed).
 
     cleared <=> for every dim in floor_dims: min(scores_per_reviewer[dim]) >= floor_value.
@@ -330,23 +324,23 @@ def _evaluate_threshold(
 
 
 # ---------------------------------------------------------------------------
-# DEFAULT_LIT_REVIEW_RUBRIC -- the researcher's calibrated 8-dim rubric (PR-M8)
+# DEFAULT_LIT_REVIEW_RUBRIC -- the researcher's calibrated 8-dim rubric
 # ---------------------------------------------------------------------------
 
-# ★ CALIBRATED (PR-M8, design §11.1, methodology doc §A.2). Replaces PR-M5's
+# ★ CALIBRATED (methodology doc §A.2). Replaces
 # ``PLACEHOLDER_REVIEW_RUBRIC`` via the SAME override seam (``ms_type.rubric``
 # / ``[manuscript_review].rubric``, ``get_review_rubric`` below) -- ZERO
 # control-flow change in this module, only the rubric TEXT changed. Distilled
 # from five grounded appraisal instruments (AMSTAR-2, ROBIS, PRISMA-2020,
 # SANRA, CSUR reviewer criteria) + Nickerson's taxonomy ending-conditions --
 # see ``~/research-vault/REFERENCES.md`` for the anchors (already appended,
-# PR-M7). The gate-class table matches design §11.1 exactly:
+#). The gate-class table matches exactly:
 #   FLOOR   {SCOPE, REPRO, CITE}     -- provenance-bound, MIN-across-3, autogates.
 #   SIGNAL  {SYNTH, GAP}             -- weak-flags feed worst-findings;
 #                                       never autogate on their own.
 #   SURFACE {FRAME, COMPARE, BIAS}   -- human-judgment; scored + justified +
 #                                       shown, never autogate. FRAME's escalation
-#                                       path (§5.1) is its own human-go route.
+#                                       path is its own human-go route.
 DEFAULT_LIT_REVIEW_RUBRIC: str = """\
 You are an adversarial peer reviewer for a literature-review survey manuscript
 (methodology grounded in AMSTAR-2, ROBIS, PRISMA-2020, SANRA, CSUR reviewer
@@ -440,9 +434,8 @@ def get_review_rubric(
 
     Priority: ``override`` arg (e.g. ``ms_type.rubric``) > ``[manuscript_review]
     rubric`` in config > ``DEFAULT_LIT_REVIEW_RUBRIC`` (the researcher's
-    calibrated rubric, PR-M8).
+    calibrated rubric).
 
-    sr: PR-M5, calibrated PR-M8
     """
     if override is not None and str(override).strip():
         return override
@@ -457,15 +450,15 @@ def get_review_rubric(
 
 
 # ---------------------------------------------------------------------------
-# Canary scaffold -- calibrated bounds + passages (PR-M8, design §11.3, D-SV-D)
+# Canary scaffold -- calibrated bounds + passages (D-SV-D)
 # ---------------------------------------------------------------------------
 #
-# PR-F: the 3 calibrated passages + their markers now live in
+# the 3 calibrated passages + their markers now live in
 # ``gates/canary_passages.py`` (imported at the top of this module) — the
 # names ``_CANARY_STRONG_PASSAGE`` / ``_CANARY_STRONG_MARKER`` etc. resolve
 # unchanged for this module's scaffold and its tests.
 
-# Bounds calibrated to floor_value (design §11.3):
+# Bounds calibrated to floor_value:
 #   strong probe: SCOPE/REPRO/CITE must be >= floor + 1
 #   weak probe:   SCOPE/REPRO/CITE must be <= floor - 1
 #   annotated-bib probe: SYNTH (the synthesis-vs-enumeration dim) must be
@@ -507,12 +500,11 @@ def run_canary_scaffold(
         "prompt_hashes": {"strong": ..., "weak": ..., "annotated_bib": ...}}``
         -- only when all three probes are in bounds. ``prompt_hashes`` are
         sha256[:16] of the exact prompt sent for each probe (audit + drift
-        detection, PR-M8).
+        detection).
 
     Raises:
         CanaryAbortError: if any probe is out of bounds.
 
-    sr: PR-M5 (design §11.3, D-SV-D mandatory); calibrated PR-M8
     """
     if not rubric or "{PDF_TEXT}" not in rubric:
         return {
@@ -582,7 +574,7 @@ def run_canary_scaffold(
             f"review-board canary: judge is BLIND to the #1 survey failure -- a "
             f"literal, per-paper annotated bibliography with NO cross-paper "
             f"synthesis scored SYNTH={ab_synth} (>= floor {floor_value}); it must "
-            f"NOT clear (design §11.3(c), D-SV-D mandatory). ABORTING round. "
+            f"NOT clear ((c), D-SV-D mandatory). ABORTING round. "
             f"[judge_model={judge_model or 'unset'} prompt_hash={ab_hash}]"
         )
 
@@ -605,19 +597,19 @@ def run_canary_scaffold(
 
 
 # ---------------------------------------------------------------------------
-# The three reviewer lenses (design §11.2)
+# The three reviewer lenses
 # ---------------------------------------------------------------------------
 
-# ★ PLACEHOLDER lens text -- PR-M8 replaces with the researcher's authored lens prose
-# (design §14 PR-M8: "the 3 fresh reviewer lens specs"). The STRUCTURE (which
+# ★ PLACEHOLDER lens text replaces with the researcher's authored lens prose
+# ("the 3 fresh reviewer lens specs"). The STRUCTURE (which
 # dims each lens attacks, the reframe-escalation trigger on the framework
-# lens) was locked at PR-M5 and is unchanged. The WORDING below is PR-M8's
-# calibrated version (design §11.2, methodology doc §B.3) -- grounded in the
+# lens) was locked at and is unchanged. The WORDING below is
+# calibrated version (methodology doc §B.3) -- grounded in the
 # same instruments as the rubric (AMSTAR-2/ROBIS for the auditor, Nickerson
 # for the framework critic, SANRA/CSUR for the synthesis adversary) and
 # carrying the ARR justify-each-score reminder each lens shares.
 _LENS_COVERAGE_AUDITOR: str = (
-    "You are the COVERAGE & SCOPE AUDITOR (design §11.2, lens 1 of 3; grounded "
+    "You are the COVERAGE & SCOPE AUDITOR (lens 1 of 3; grounded "
     "in AMSTAR-2 items #2/#4 and ROBIS domains 1-2). Attack SCOPE and REPRO "
     "first: is seminal / high-degree work in this area missing from the "
     "corpus? Is the search/selection boundary honestly stated, or "
@@ -632,7 +624,7 @@ _LENS_COVERAGE_AUDITOR: str = (
 )
 
 _LENS_FRAMEWORK_CRITIC: str = (
-    "You are the FRAMEWORK / TAXONOMY CRITIC (design §11.2, lens 2 of 3; "
+    "You are the FRAMEWORK / TAXONOMY CRITIC (lens 2 of 3; "
     "grounded in Nickerson et al. 2013's taxonomy ending-conditions). Attack "
     "FRAME: is the framework internally consistent, mutually exclusive, and "
     "collectively exhaustive over the corpus as the draft presents it -- "
@@ -646,14 +638,14 @@ _LENS_FRAMEWORK_CRITIC: str = (
     "  REFRAME_CANDIDATES: <comma-separated list of candidate encapsulating "
     "reframes that would resolve them, or 'none' if you see none>\n"
     "This is a PROPOSAL, never a commitment -- the human owns the spine "
-    "(design §5.1); the loop only escalates a reframe if this same recurring "
+    "; the loop only escalates a reframe if this same recurring "
     "misfit pattern survives across multiple review rounds, not a single "
     "round's finding. Score all eight dimensions as usual, with a located "
     "justification for each."
 )
 
 _LENS_SYNTHESIS_ADVERSARY: str = (
-    "You are the SYNTHESIS-VS-ENUMERATION ADVERSARY (design §11.2, lens 3 of "
+    "You are the SYNTHESIS-VS-ENUMERATION ADVERSARY (lens 3 of "
     "3; grounded in SANRA and the CSUR 'not a core dump' reviewer criterion). "
     "Attack SYNTH, COMPARE, GAP, and BIAS: does the draft marshal claims "
     "across MULTIPLE papers under a stated theme and compare them critically, "
@@ -680,7 +672,6 @@ def get_reviewer_lens_spec(k: int, K: int) -> str:
     critic, k=3 -> synthesis adversary. K != 3 cycles through the same three
     lenses in order (an adopter override to K is honored, not rejected).
 
-    sr: PR-M5 (design §11.2)
     """
     idx = (k - 1) % len(_LENS_ORDER)
     return _LENS_ORDER[idx]
@@ -716,7 +707,7 @@ def run_reviewer_node(
 ) -> dict[str, Any]:
     """Run one FRESH, independent reviewer agent for round ``round_num``.
 
-    Node-level skip short-circuit (§5J.17.2 pattern, re-instantiated): if
+    Node-level skip short-circuit (pattern, re-instantiated): if
     ``run_state_meta["manuscript_review"]["cleared_at"]`` is already set (a
     prior round cleared), returns immediately -- NO judge call, NO score
     extraction. Proves round-2 reviewers never fire once round 1 clears.
@@ -725,7 +716,6 @@ def run_reviewer_node(
     lens, and the rubric -- no prior-round reviews, no rebuttal, no thesis
     parameter exists for a caller to (accidentally or not) wire in.
 
-    sr: PR-M5
     """
     node_id = f"reviewer-{round_num}-{lens_num}"
 
@@ -749,7 +739,7 @@ def run_reviewer_node(
     rubric = get_review_rubric(override=rubric_override, config=config)
     lens_spec = get_reviewer_lens_spec(lens_num, K)
     prompt = _build_reviewer_prompt(draft_text, rubric, lens_spec)
-    # PR-M8: log judge_model + prompt_hash (audit + drift detection, the
+    # log judge_model + prompt_hash (audit + drift detection, the
     # support-matcher convention -- sha256 hex[:16] of the prompt actually
     # sent, computed BEFORE the judge call).
     prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
@@ -761,7 +751,7 @@ def run_reviewer_node(
     else:
         scores = {dim: extracted.get(dim, 0) for dim in _ALL_DIMS}
 
-    # PR-M8: ARR (justify-each-score) visibility -- best-effort per-dim
+    # ARR (justify-each-score) visibility -- best-effort per-dim
     # justification lookup, SURFACED (charter §2), never silently dropped.
     # Score numbers still come from the proven ``_extract_review_scores``
     # extractor above; this is additional audit metadata, not a re-gate.
@@ -808,17 +798,17 @@ def run_meta_review(
 ) -> dict[str, Any]:
     """Aggregate K reviewer results by MIN, evaluate the floor predicate.
 
-    Floor-not-average (design §9.1): ``cleared`` binds ONLY the floor dims
+    Floor-not-average: ``cleared`` binds ONLY the floor dims
     (SCOPE, REPRO, CITE by default) via MIN-across-reviewers -- SURFACE dims
     (FRAME, COMPARE, BIAS) and SIGNAL dims (SYNTH, GAP) are recorded and
     surfaced but NEVER gate the clear predicate.
 
-    Regression guard (design §9.1, the researcher's pass-2 Self-Refine caveat): if
+    Regression guard (the researcher's pass-2 Self-Refine caveat): if
     ``prior_floor_results`` is given, flags any floor dim whose min_score
     DROPPED versus the prior round -- never silently accepted.
 
-    Reframe escalation (design §5.1) -- ★ PR-M8 TIGHTENING: MULTI-ROUND
-    RECURRENCE, not a single round's low FRAME score. Design §5.1's literal
+    Reframe escalation -- ★ TIGHTENING: MULTI-ROUND
+    RECURRENCE, not a single round's low FRAME score. literal
     wording is "recurring misfit ... round after round" -- a single round's
     weak FRAME finding is surfaced as a WATCHING note (in ``meta_review`` /
     ``worst_findings``) but the formal ``escalation`` payload is only built
@@ -831,7 +821,6 @@ def run_meta_review(
     fine) resets the streak -- "round after round" means consecutive, not
     merely cumulative.
 
-    sr: PR-M5; multi-round recurrence tightening PR-M8 (design §5.1)
     """
     node_id = f"meta-review-{round_num}"
     _floor_dims = floor_dims if floor_dims is not None else list(_DEFAULT_FLOOR_DIMS)
@@ -908,7 +897,7 @@ def run_meta_review(
             f"keeping the better (prior) draft per the regression guard."
         )
 
-    # --- PR-165 fix 1: propagate per-reviewer missing_justifications (ARR) --
+    # - fix 1: propagate per-reviewer missing_justifications (ARR) --
     # ``run_reviewer_node`` computes ``missing_justifications`` per reviewer
     # but this function never read it -- surfaced to the machine, silently
     # dropped before the human (a green-and-empty, charter Sec 2). Aggregate
@@ -933,11 +922,11 @@ def run_meta_review(
             if dim in _floor_dims and line not in worst_findings:
                 worst_findings.append(line)
 
-    # --- Reframe escalation (design §5.1) -- ★ PR-M8 MULTI-ROUND RECURRENCE
-    # (tightened from PR-M5's single-round FRAME<floor trigger). A single low
+    # --- Reframe escalation -- ★ MULTI-ROUND RECURRENCE
+    # (tightened from single-round FRAME<floor trigger). A single low
     # round is recorded as a "watching" note; the formal escalation payload
     # only builds once the SAME weak-FRAME-with-misfits condition has held in
-    # >= 2 CONSECUTIVE rounds -- design §5.1's literal wording, "recurring
+    # >= 2 CONSECUTIVE rounds -- literal wording, "recurring
     # misfit ... round after round".
     escalation: dict[str, Any] | None = None
     frame_min = min((r["scores"].get("FRAME", 0) for r in active_results), default=0)
@@ -991,7 +980,7 @@ def run_meta_review(
                 f"misfits = {misfits or '(unspecified)'}; candidate "
                 f"encapsulating reframes = {reframe_candidates or '(none proposed)'}. "
                 f"The machine PROPOSES only -- the human commits the new spine "
-                f"via `rv manuscript new --reframe <prior>` (design §5.1)."
+                f"via `rv manuscript new --reframe <prior>`."
             ),
         }
     elif frame_low_this_round:
@@ -1000,7 +989,7 @@ def run_meta_review(
         watching_note = (
             f"[Round {round_num}] FRAME flagged weak (min score {frame_min} < "
             f"{floor_value}); watching for recurrence before escalating "
-            f"reframe-the-spine (design §5.1 requires >= 2 consecutive rounds)."
+            f"reframe-the-spine (requires >= 2 consecutive rounds)."
         )
         meta_review_text += " " + watching_note
         if watching_note not in worst_findings:
@@ -1048,7 +1037,7 @@ def run_revise(
     equation + coverage gates via ``check_gates.build_approve_payload``.
 
     ★ Single-sourced -- this function imports and calls
-    ``manuscript.check_gates.build_approve_payload`` (the assembler PR-M5
+    ``manuscript.check_gates.build_approve_payload`` (the assembler
     was explicitly told NOT to duplicate). The actual section redrafting is
     an agent action performed by the real DAG's ``revise-r`` node OUTSIDE
     this pure function (mirrors the removed module's own boundary: it never
@@ -1059,7 +1048,6 @@ def run_revise(
     NEVER a verdict (crew-cannot-self-approve: the author cannot accept
     their own paper).
 
-    sr: PR-M5
     """
     node_id = f"revise-{round_num}"
 
@@ -1151,16 +1139,15 @@ def run_review_board(
                        + revise (gate re-fire) records
         not_cleared:   dict | None -- the first-class NOT-CLEARED payload
         escalation:    dict | None -- the LATEST reframe-escalation payload
-                       seen across all rounds (surface-not-auto, §5.1)
+                       seen across all rounds (surface-not-auto)
         honest_report: str -- never says "approved"; says "cleared at r" or
                        "NOT cleared"
         meta:          RunState.meta["manuscript_review"] dict
 
-    sr: PR-M5
     """
     if judge_fn is None:
         raise RuntimeError(
-            "run_review_board: judge_fn is required. PR-F: the in-process API "
+            "run_review_board: judge_fn is required. The in-process API "
             "judge default was deleted — production cold-judge review runs via "
             "the 6-lens board's emit/ingest fan-out (manuscript.board + "
             "gates.board_seam); in tests, pass a mock judge_fn."
@@ -1320,7 +1307,7 @@ def run_review_board(
 
 
 # ---------------------------------------------------------------------------
-# [manuscript_review] config seam (design §9)
+# [manuscript_review] config seam
 # ---------------------------------------------------------------------------
 
 def get_review_config(config: Any | None = None) -> dict[str, Any]:
@@ -1330,7 +1317,6 @@ def get_review_config(config: Any | None = None) -> dict[str, Any]:
     min 2 enforced. ``floor_dimensions``: expanded via ``_normalize_floor_dims``
     (accepts either the design's literal axis names or dim codes directly).
 
-    sr: PR-M5 (design §9's config seam)
     """
     raw_cfg: dict[str, Any] = {}
     if config is not None:

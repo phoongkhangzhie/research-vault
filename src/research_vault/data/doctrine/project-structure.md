@@ -260,5 +260,5 @@ a loop's DAG carries.
 Register and stand-down are lifecycle **primitives**, not loop nodes — no DAG manifest
 ever calls them, and they are never collapsed by the verb-consolidation program (D1..D5)
 the way `sweep`/`coverage`/`expand`/etc. are. They are the KEEP-bucket peers of `research
-find`/`research add`/`note check` (verb-consolidation §4.3): atomic ops Alfred or a human
+find`/`research add`/`note check` (verb-consolidation): atomic ops Alfred or a human
 calls directly, outside any loop's frontier.

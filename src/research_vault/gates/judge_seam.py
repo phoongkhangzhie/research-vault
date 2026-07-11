@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """judge_seam.py — NG-4: the emit-tasks / ingest-verdicts contract for the
-cold-agent-judge fan-out (design §1.9, the PRIMARY judge-orchestration path).
+cold-agent-judge fan-out (the PRIMARY judge-orchestration path).
 
 The whole framework already runs on the Claude Code harness, so the fidelity
 judge (support-matcher — the citation-fidelity floor) is harness-orchestrated
@@ -15,14 +15,14 @@ that originally shared this seam was removed — SIGNAL-only, non-actionable
 under hands-off autonomy, redundant with the review board + RD-6. The
 operator's call; see DEVLOG.)
 
-THE THREE ARTIFACTS (design §1.9's NG-4 contract):
+THE THREE ARTIFACTS (NG-4 contract):
   _judge-tasks.json       (rv -> hub -> cold judges; PUBLIC — canaries carry
                            NO marker distinguishing them from real tasks)
   _judge-canary-key.json  (rv-PRIVATE, NEVER emitted to hub/judge — task_id
                            -> expected verdict)
   _judge-verdicts.json    (cold judges/hub -> rv; verdicts keyed by task_id)
 
-GUARDS THIS MODULE ENFORCES (design §1.2/§1.8/§1.9 — undiminished vs. the
+GUARDS THIS MODULE ENFORCES (undiminished vs. the
 live API-judge path; a cold subagent-judge can hallucinate too):
   - id<->id join is the contract, never prompt-text matching (fragile
     across re-emits).
@@ -31,7 +31,7 @@ live API-judge path; a cold subagent-judge can hallucinate too):
   - Fail-closed: a task present in the tasks file but missing/unparseable
     in the verdicts file defaults to the gate's fail-closed (reject) value
     — never a silent pass. An entirely-missing (or effectively-empty)
-    verdicts file is the §1.8 "floor gate NOT RUN" case -> HALT (the
+    verdicts file is the "floor gate NOT RUN" case -> HALT (the
     caller declares HALT-DECLARE; this module signals it via
     ``halt``/``halt_reason``, never by raising for that specific case —
     HALT is a disposition a caller must see and act on, not an exception
@@ -39,7 +39,7 @@ live API-judge path; a cold subagent-judge can hallucinate too):
   - Canary-verified: an out-of-bounds (missing or mismatched) canary
     verdict raises ``CanaryAbortError`` — the "is the judge actually
     working" check on this no-API-key path (replaces the liveness-ping,
-    §1.8). A canary is missing-counts-as-failed (fail-closed applies to
+    ). A canary is missing-counts-as-failed (fail-closed applies to
     canaries too — a judge that silently dropped the canary is exactly as
     untrustworthy as one that answered it wrong).
   - Idempotent + resumable: re-emitting is deterministic given the same
@@ -47,9 +47,7 @@ live API-judge path; a cold subagent-judge can hallucinate too):
     completed by re-fanning-out only the missing ids (surfaced via
     ``missing_ids`` on the ingest result — never silently patched over).
 
-Design: docs/superpowers/specs/2026-07-08-next-gen-lit-review-loop-design.md §1.9.
 Stdlib only.
-sr: NG-4
 """
 from __future__ import annotations
 
@@ -59,7 +57,7 @@ from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Schema constants (the NG-4 contract — exact names from design §1.9)
+# Schema constants (the NG-4 contract — exact names)
 # ---------------------------------------------------------------------------
 
 TASKS_SCHEMA = "rv-judge-tasks/v1"
@@ -73,7 +71,7 @@ class CanaryAbortError(RuntimeError):
     Either the fan-out judge missed the canary entirely (fail-closed:
     missing counts as failed) or answered it with a verdict that does not
     match the private canary key. Either way the whole batch's real
-    verdicts are untrustworthy — abort loudly (design §1.2's "untrustworthy
+    verdicts are untrustworthy — abort loudly ("untrustworthy
     signal" policy: HALT-DECLARE, fail-closed, never auto-retry the same
     broken judge).
 
@@ -102,7 +100,7 @@ def now_iso() -> str:
 def read_json_or_none(path: Path) -> dict[str, Any] | None:
     """Read a JSON file; return None if absent, unreadable, or malformed.
 
-    Never raises — an absent/corrupt verdicts file is the §1.8 "floor gate
+    Never raises — an absent/corrupt verdicts file is the "floor gate
     NOT RUN" case, which callers must treat as HALT, not as a crash.
     """
     if not path.exists():
@@ -284,7 +282,7 @@ def fail_closed_fill(
 
 
 def fanout_incomplete(tasks_doc: dict[str, Any] | None, verdicts_doc: dict[str, Any] | None) -> bool:
-    """True iff the fan-out effectively never ran (the §1.8 floor-gate
+    """True iff the fan-out effectively never ran (the floor-gate
     NOT-RUN case) — the verdicts file is absent, unreadable, or empty while
     the tasks file declares at least one real task.
 

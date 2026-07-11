@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""bib.py — PR-M2: hermetic reference-list build + citation-resolve gate (design §6, D-SV-A).
+"""bib.py: hermetic reference-list build + citation-resolve gate (D-SV-A).
 
 Re-instantiates the removed ``manuscript/bib.py`` (deleted earlier),
 adapted to the type-generic manuscript loop's D-SV-A contract, and later
@@ -8,7 +8,7 @@ see DEVLOG). The manuscript loop's citation convention is now
 markdown-only: a ``[[citekey]]`` wikilink in the draft prose (RD-1),
 resolved against a markdown-native ``references.md`` ledger.
 
-The hermetic gate confirms BOTH, at build time (design §6):
+The hermetic gate confirms BOTH, at build time:
   1. Every ``[[citekey]]`` wikilink in the draft resolves to a real
      ``literature/`` note (citekey: field, F17 filename-stem fallback) — a
      dangling wikilink is flagged (non-empty errors), never silently
@@ -24,10 +24,8 @@ carries just ``title``/``doi``/``arxiv_id`` — see ``note.py``'s ``cmd_new``;
 ``authors``/``year``/``venue`` are read if a note happens to carry them, by
 hand or a future enrichment, never invented here).
 
-Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md (§6, §14 PR-M2).
 
 Stdlib only.
-sr: PR-M2; LaTeX removal — see DEVLOG.
 """
 from __future__ import annotations
 
@@ -80,7 +78,7 @@ def _load_literature_bib_index(
     ``manuscript/bib.py`` stays a leaf module with a single dependency
     (``note.py``) — no cross-loop coupling for a 6-line convention.
 
-    PR-A: citekey/authors/year/venue/doi/arxiv_id (everything a reference
+    citekey/authors/year/venue/doi/arxiv_id (everything a reference
     entry renders) are intrinsic — CORE-only content. Iterating
     ``literature_dir`` (the project's overlay) still defines the ADOPTED set
     (this manuscript can only cite what its own project's corpus contains),
@@ -165,13 +163,13 @@ def _fields_to_reference_entry(citekey: str, fields: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# build_references_md — the hermetic reference-list build (design §6, part 1)
+# build_references_md — the hermetic reference-list build (part 1)
 # ---------------------------------------------------------------------------
 
 _HEADER = (
     "# References\n\n"
     "<!-- references.md — hermetic build from literature/ frontmatter "
-    "(rv manuscript, PR-M2). -->\n"
+    "(rv manuscript). -->\n"
     "<!-- Closed bibliography: only [[citekey]]-referenced keys appear. -->\n"
     "<!-- Do NOT hand-edit citekeys — the build is deterministic; re-run the -->\n"
     "<!-- manuscript bib gate to regenerate. -->\n"
@@ -188,7 +186,7 @@ def build_references_md(
 ) -> tuple[list[str], Path]:
     """Build ``tree_root/references.md`` from ``literature/`` frontmatter.
 
-    Hermetic (design §6, D-SV-A): reads only local files (``literature/*.md``
+    Hermetic (D-SV-A): reads only local files (``literature/*.md``
     frontmatter + the manuscript's markdown draft files) — no network, no
     Zotero API call is reachable from this path (see ``TestHermeticNoNetwork``).
 
@@ -242,18 +240,18 @@ def build_references_md(
 
 
 # ---------------------------------------------------------------------------
-# check_citation_resolve — the citation-resolve gate (design §6, part 2)
+# check_citation_resolve — the citation-resolve gate (part 2)
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# PR-D — mechanical [[citekey]] -> [N] render + hermetic numbered
+#  mechanical [[citekey]] -> [N] render + hermetic numbered
 # "## Sources" + references.bib (design D-4).
 #
 # The drafter keeps the stable, content-addressable [[citekey]] token in
-# sections/*.md and _report.md (RD-1, PR-M2, unchanged above) — this is a
+# sections/*.md and _report.md (RD-1, unchanged above) — this is a
 # SEPARATE render pass that never mutates those draft files. It reads the
 # same draft files + literature/ frontmatter, and writes NEW artifacts:
-#   - tree_root/report.md      — PR-D2 (architect ruling, two-artifact
+#   - tree_root/report.md (architect ruling, two-artifact
 #     rename): the READER-FACING [N]-numbered body + a "## Sources" section
 #     (the gold shape). No underscore prefix — this is the one file a
 #     reader ever sees; `_report.md` (source) is internal (rv's own
@@ -501,7 +499,7 @@ def _fields_to_bibtex_entry(citekey: str, fields: dict[str, Any]) -> str:
 
 _BIB_HEADER = (
     "% references.bib — hermetic BibTeX build from literature/ frontmatter\n"
-    "% (rv manuscript, PR-D). Do NOT hand-edit — re-run the numbered render\n"
+    "% (rv manuscript). Do NOT hand-edit — re-run the numbered render\n"
     "% to regenerate. NO live Zotero/network call is made to produce this\n"
     "% file (mirrors references.md's D-SV-A hermetic contract).\n"
 )
@@ -557,15 +555,15 @@ def render_numbered_manuscript(
 ) -> dict[str, Any]:
     """The full D-4 render: mechanical ``[[citekey]] -> [N]`` conversion of
     the reader-facing draft + a hermetic numbered ``## Sources`` section +
-    ``references.bib`` — the PR-D deliverable.
+    ``references.bib`` — the deliverable.
 
     Never mutates the drafted ``_report.md``/``sections/*.md`` (they keep
     their stable ``[[citekey]]`` tokens, D-4a) — writes two NEW artifacts:
-    ``tree_root/report.md`` (PR-D2: the reader-facing numbered body +
+    ``tree_root/report.md`` (the reader-facing numbered body +
     Sources — no underscore, the one file a reader ever sees) and
     ``tree_root/references.bib``.
 
-    Fail-closed (charter §2/§1): a blank/``CITEKEY-UNRESOLVED`` citekey
+    Fail-closed (charter §2): a blank/``CITEKEY-UNRESOLVED`` citekey
     (D-4e) or any residual ``[[citekey]]`` left after conversion (D-4d) is a
     hard BLOCK — ``ok: False`` with the offending claim/key named in
     ``errors``, never a silently half-converted body.
@@ -577,7 +575,7 @@ def render_numbered_manuscript(
           "numbering": dict[str, int],          # citekey -> N
           "sources_md": str,                    # the "## Sources" block
           "rendered_bodies": dict[str, str],    # draft path (str) -> converted text
-          "rendered_report_path": Path,          # tree_root/report.md (PR-D2)
+          "rendered_report_path": Path,          # tree_root/report.md
           "bib_path": Path,                      # tree_root/references.bib
         }
     """
@@ -613,7 +611,7 @@ def render_numbered_manuscript(
 
     sources_md = build_sources_section(numbering, matched)
 
-    # PR-D2: reader-facing render target — no underscore (see module
+    # reader-facing render target — no underscore (see module
     # docstring's two-artifact contract). `resolve_draft_files` never
     # returns a path named exactly "report.md", so this write can never
     # feed back into itself as a SOURCE on a subsequent render.

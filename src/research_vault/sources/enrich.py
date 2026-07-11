@@ -4,16 +4,16 @@
 
 Full text is a SECOND-STAGE enrichment on a ``PaperHit`` (abstract -> full
 body), kept separate from the sweep so selection stays fast/cheap and cost
-stays bounded to the papers actually read (§2 of the design doc — this is
+stays bounded to the papers actually read (of the design doc — this is
 read-time enrichment, called per-paper at the relate boundary, never at
 sweep time).
 
 ``FetchProvider`` mirrors HR's ``WebProvider`` (``~/framework-bench/
 hyperresearch/src/hyperresearch/web/base.py``) minus authentication — tier 2
 (authenticated paywall crawl) is explicitly OUT of scope; this module only
-designs the socket a future ``AuthedCrawlProvider`` would plug into (§2.3).
+designs the socket a future ``AuthedCrawlProvider`` would plug into.
 
-Provider ordering is stdlib-first (§2.4) — PMC (JATS XML, stdlib
+Provider ordering is stdlib-first — PMC (JATS XML, stdlib
 ``xml.etree``) and much of Unpaywall/OpenAlex (HTML landing pages) need no
 PDF parser; ``pymupdf`` (core dep, see LICENSE/pyproject — the relicense
 prerequisite) is the LAST resort, not the hot path.
@@ -21,7 +21,7 @@ prerequisite) is the LAST resort, not the hot path.
 Full text is NOT a PaperHit field (too large — 100 KB-1 MB per paper, would
 bloat every dedup/rank/serialize path). It lives in the file cache
 (``notes/literature/.fulltext/<identity-sha>.{txt,json}``, gitignored) and,
-once read, the note's frontmatter provenance (§5 — read_basis/
+once read, the note's frontmatter provenance (read_basis/
 full_text_provider/oa_status/full_text_url).
 """
 from __future__ import annotations
@@ -46,7 +46,7 @@ _USER_AGENT = "research-vault-oa-fetch/1.0"
 
 @dataclass
 class FetchResult:
-    """A materialized full-text body + its provenance (§7 — tier 1 is the
+    """A materialized full-text body + its provenance (tier 1 is the
     CLEAN tier: every provider here is re-fetchable by any third party from
     ``url`` alone, no auth, no subscription)."""
 
@@ -93,7 +93,7 @@ def _http_get_json(url: str, *, timeout: int = 20) -> dict[str, Any]:
 # Every provider's output passes through this before becoming a FetchResult
 # with text — a login-wall or bot-check page means "not actually OA" for
 # tier 1: decline that provider, fall through, record oa_status: closed if
-# all decline (§2.3).
+# all decline.
 # ---------------------------------------------------------------------------
 
 _BOT_SIGNALS = (
@@ -152,8 +152,8 @@ def screen_fetch(text: str, *, url: str = "") -> str | None:
 # ---------------------------------------------------------------------------
 
 def _pdf_bytes_to_text(pdf_bytes: bytes) -> str:
-    """Extract plain text from PDF bytes via pymupdf (core dep, §3 — the
-    relicense prerequisite). Last-resort text path (§2.4 stdlib-first
+    """Extract plain text from PDF bytes via pymupdf (core dep,  the
+    relicense prerequisite). Last-resort text path (stdlib-first
     ordering); most tier-1 fetches never reach here."""
     import pymupdf  # local import: keeps the module importable even if the
     # dependency graph shifts later; pymupdf itself is core as of 0.3.0.
@@ -242,7 +242,7 @@ def _fetch_generic(provider_name: str, url: str, *, oa_status: str) -> FetchResu
 
 # ---------------------------------------------------------------------------
 # Provider 1 — PMC (PMID/PMCID -> EuropePMC OA full-text JATS XML). No PDF
-# dep — stdlib xml.etree, exactly like arxiv.py's Atom parse (§2.4 #1).
+# dep — stdlib xml.etree, exactly like arxiv.py's Atom parse (#1).
 # ---------------------------------------------------------------------------
 
 _EUROPEPMC_FULLTEXT = "https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML"
@@ -319,7 +319,7 @@ class S2OAProvider:
 
 # ---------------------------------------------------------------------------
 # Provider 3 — Unpaywall (DOI -> best_oa_location). Requires a contact email
-# (their API terms — config, not a credential, §2.4 #3); absent -> self-skip.
+# (their API terms — config, not a credential, #3); absent -> self-skip.
 # ---------------------------------------------------------------------------
 
 _UNPAYWALL_API = "https://api.unpaywall.org/v2/{doi}"
@@ -392,9 +392,9 @@ class ArxivPDFProvider:
 
 
 # ---------------------------------------------------------------------------
-# Ordered registry (§2.4 — stdlib-first: PDF is the last resort, not the hot
+# Ordered registry (stdlib-first: PDF is the last resort, not the hot
 # path). Appending a future tier-2 AuthedCrawlProvider here is the entire
-# integration (§2.3 — the seam accommodates it without rework).
+# integration (the seam accommodates it without rework).
 # ---------------------------------------------------------------------------
 
 def default_fetch_providers(*, unpaywall_email: str = "") -> list[FetchProvider]:
@@ -411,7 +411,7 @@ def providers_from_config(cfg: Any) -> list[FetchProvider]:
     """Build the ordered provider registry from a ``Config``'s ``[fulltext]``
     block. ``unpaywall_email`` absent -> UnpaywallProvider.can_handle always
     False (self-skip), never a crash — surfaced by the caller's run log, not
-    silently (§2.4)."""
+    silently."""
     email = ""
     if cfg is not None:
         email = (getattr(cfg, "fulltext", {}) or {}).get("unpaywall_email", "") or ""
@@ -420,8 +420,8 @@ def providers_from_config(cfg: Any) -> list[FetchProvider]:
 
 # ---------------------------------------------------------------------------
 # File cache — notes/literature/.fulltext/<identity-sha>.{txt,json},
-# gitignored, identity-keyed (reuses dedup.identity_key, §6 reuse). Disposable:
-# deleting the dir costs only re-fetch time, never provenance (§6).
+# gitignored, identity-keyed (reuses dedup.identity_key, reuse). Disposable:
+# deleting the dir costs only re-fetch time, never provenance.
 # ---------------------------------------------------------------------------
 
 def _cache_paths(cache_dir: Path, hit: PaperHit) -> tuple[Path, Path]:
@@ -484,10 +484,10 @@ def enrich_hit(
 
     First non-``None``, non-junk result wins — the rest are the fallback
     chain. All decline / all junk -> ``None`` (caller degrades to abstract,
-    §5: exactly today's behavior, no regression).
+    exactly today's behavior, no regression).
 
     Cache-backed when *cache_dir* is given: a hit that resolves to a cache
-    entry (identity-keyed, §6) is returned WITHOUT re-fetching or re-trying
+    entry (identity-keyed) is returned WITHOUT re-fetching or re-trying
     providers.
     """
     if cache_dir is not None:

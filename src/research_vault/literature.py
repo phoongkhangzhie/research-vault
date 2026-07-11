@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """literature.py — `rv literature list <project>`: the per-project two-layer
-literature registry (PR-B, pre-publish #68 storage contract).
+literature registry (pre-publish #68 storage contract).
 
 Design of record: docs/superpowers/specs/2026-07-10-central-note-store-
-cross-project-design.md §0.5 PR-B (the architect, 2026-07-10).
+cross-project-design.md (the architect, 2026-07-10).
 
 **Registry = a thin pointer, NOT a new artifact.** Per-project corpus
 membership is exactly the set of overlay files under
 ``project_notes_dir(project)/literature/`` — the resolver's own
 ``note.iter_literature_notes`` already treats this dir as the per-project
-registry (filesystem-is-registry, §3.3/§5). This module globs it and
+registry (filesystem-is-registry). This module globs it and
 enriches each entry via the project's ALREADY-WRITTEN ``_corpus_ledger.md``
-(``review/ledger.py``, PR-5) — it never recomputes or re-stores any of the
+(``review/ledger.py``) — it never recomputes or re-stores any of the
 ledger's provenance (the canonical-key map, resolving ids, accepted/
 in_corpus/new counts).
 
@@ -27,7 +27,7 @@ artifact someone else computed and wrote to disk.
 
 The ``state_dir/literature_index.json`` cache (citekey -> ids/title/
 adopting-projects, for fast cross-project enumeration + the knowledge
-layer) is explicitly OUT of scope here — fast-follow (§0.5 PR-B).
+layer) is explicitly OUT of scope here — fast-follow.
 
 Stdlib only (+ intra-package imports).
 """
@@ -93,7 +93,7 @@ def _parse_key_map_table(ledger_text: str) -> dict[str, tuple[str, bool]]:
 
 def cmd_list(project: str, *, config: Config | None = None) -> list[dict[str, Any]]:
     """Enumerate this project's adopted literature — the overlay dir, which
-    IS the per-project registry (§3.3/§5) — enriched via any
+    IS the per-project registry — enriched via any
     ``_corpus_ledger.md`` this project has already produced.
 
     Returns one dict per adopted paper (overlay file):
@@ -180,7 +180,7 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     ids + conformance verdict recorded the last time a review's
     `_corpus_ledger.md` was written for this project. Anti-pattern: do NOT
     hand-glob `literature/*.md` and eyeball frontmatter — the overlay alone
-    is thin (no ids, no conformance) by design (PR-A two-layer split); this
+    is thin (no ids, no conformance) by design (two-layer split); this
     verb resolves through the core + the ledger for you.
     """
     desc = "The per-project two-layer literature registry (adopted papers, ledger-enriched)."

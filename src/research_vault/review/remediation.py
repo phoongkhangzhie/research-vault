@@ -3,27 +3,27 @@
 coverage-gap remediation loop.
 
 Design of record: docs/superpowers/specs/2026-07-08-ng6a-refresh-autonomous-remediation.md
-(§4, §5). Extends the coverage-gate disposition (``review.autonomy.classify_coverage_gate``,
-already wired into ``dag/verbs.py`` via #185's
+Extends the coverage-gate disposition (``review.autonomy.classify_coverage_gate``,
+already wired into ``dag/verbs.py`` via
 ``classify_coverage_gate_with_deviation_check``) with a REMEDIATE decision —
-gated on backstop (frontier open), never on genuine saturation (§4.1's
+gated on backstop (frontier open), never on genuine saturation (
 composition rule: a corpus that hit the primary 2-consecutive-zero rule is
 exhausted, more waves find nothing; a gap under real saturation needs a
 criteria change, which is a human decision, never auto-remediation).
 
-The anti-fishing spine (§5) is mechanical on three independent layers, ALL
+The anti-fishing spine is mechanical on three independent layers, ALL
 enforced by this module's construction, not by convention:
   1. Source restriction — ``run_remediation_round`` invokes ONLY frozen-
      protocol-keyed deterministic tool-ops (``review.autonomy.run_tool_op``,
      "sweep"). There is no code path here to inject a new seed or source.
   2. Criteria-hash pin — every round ends with ``corpus_freeze.refresh``,
-     which re-verifies the criteria hash is unchanged (§2 step 3).
+     which re-verifies the criteria hash is unchanged (step 3).
   3. Declared-denominator BLOCK — every round's append is declared via
      ``record_deviation(..., kind="within-criteria-append")``, whose
      invariant (``pre==post`` criteria, ``removed==[]``) means this loop
      structurally cannot self-author a criteria change or a removal.
 
-Termination (§4.3, three independent bounds — any ONE alone guarantees the
+Termination (three independent bounds — any ONE alone guarantees the
 loop cannot run forever):
   1. Zero-new saturation — a round that appends nothing stops immediately.
   2. Remediation-round cap (``review.style.get_remediation_max_rounds``).
@@ -63,7 +63,7 @@ _OUTER_LOOP_GUARD = 10
 
 
 # ---------------------------------------------------------------------------
-# The REMEDIATE decision (§4.1) — pure, unit-testable
+# The REMEDIATE decision — pure, unit-testable
 # ---------------------------------------------------------------------------
 
 def resolve_coverage_gate(
@@ -74,7 +74,7 @@ def resolve_coverage_gate(
     max_rounds: int | None = None,
 ) -> DispositionResult:
     """Extend a ``classify_coverage_gate``-shaped ``base`` disposition with
-    the REMEDIATE decision (§4.1's composition table).
+    the REMEDIATE decision (composition table).
 
     - HALT-DECLARE / GO -> unchanged (nothing to remediate: either fatally
       malformed, or already fully saturated-and-clean).
@@ -131,7 +131,7 @@ def resolve_coverage_gate(
 
 
 # ---------------------------------------------------------------------------
-# One bounded remediation round (§4.2) — all reuse, no new discovery machinery
+# One bounded remediation round — all reuse, no new discovery machinery
 # ---------------------------------------------------------------------------
 
 def _norm_title(title: str) -> str:
@@ -178,8 +178,8 @@ def _append_new_corpus_rows(
     existing_citekeys: set[str],
 ) -> list[str]:
     """Dedup ``hits`` against the existing corpus (by normalized title,
-    corpus-file-local — §4.2 step 2) and append ``[NEW]`` rows in the
-    recognized schema (NG-6a §3's one recognized row shape). Returns the
+    corpus-file-local step 2) and append ``[NEW]`` rows in the
+    recognized schema (NG-6a one recognized row shape). Returns the
     sorted list of newly-added citekeys."""
     existing_titles = _parse_corpus_row_titles(corpus_path)
     seen_this_round: set[str] = set()
@@ -233,13 +233,13 @@ def run_remediation_round(
     tool_op_fn: Callable[..., Any] | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
-    """Execute ONE bounded remediation round (§4.2, steps 1-4). Mutates
+    """Execute ONE bounded remediation round (steps 1-4). Mutates
     ``run_state_meta`` in place: ``remediation_state`` (rounds_used,
     last_wave_added_count), and — on a non-empty round —
     ``corpus_freeze``/``frozen_corpus_citekeys`` via ``corpus_freeze.refresh``.
 
     Returns a summary dict: ``{"round": int, "added": [...], "stopped": str | None}``.
-    ``stopped == "zero-new"`` means the round found nothing (bound 1, §4.3) —
+    ``stopped == "zero-new"`` means the round found nothing (bound 1) —
     the caller's disposition-resolution loop will see
     ``last_wave_added_count == 0`` on its next ``resolve_coverage_gate`` call
     and correctly decline to REMEDIATE again.
@@ -250,7 +250,7 @@ def run_remediation_round(
     ``monkeypatch.setattr(review.remediation, "run_tool_op", fake)`` works
     even though ``dag/verbs.py``'s real wiring never passes ``tool_op_fn``
     explicitly). Mirrors the existing op-registry's own test seams (charter
-    §6).
+    ).
     """
     if tool_op_fn is None:
         tool_op_fn = run_tool_op
@@ -270,7 +270,7 @@ def run_remediation_round(
     existing_citekeys = set(_parse_corpus_citekeys(corpus_path))
 
     # 1. Search more, within frozen criteria — deterministic tool-op only,
-    #    frozen-protocol-keyed (§5 layer 1: no agent node, no new seeds).
+    #    frozen-protocol-keyed (layer 1: no agent node, no new seeds).
     hits: list[Any] = []
     try:
         sweep_result = tool_op_fn("sweep", protocol=str(protocol_path))
@@ -282,7 +282,7 @@ def run_remediation_round(
         # a HALT-DECLARE-worthy integrity failure).
         hits = []
 
-    # 2. Dedup + annotate + append (§4.2 step 2).
+    # 2. Dedup + annotate + append (step 2).
     added = _append_new_corpus_rows(corpus_path, hits, existing_citekeys)
 
     rs_state["rounds_used"] = int(rs_state.get("rounds_used", 0)) + 1
@@ -291,7 +291,7 @@ def run_remediation_round(
     if not added:
         return {"round": rs_state["rounds_used"], "added": [], "stopped": "zero-new"}
 
-    # 3. Declare the denominator growth (§4.2 step 3, §5 layer 2/3). The
+    # 3. Declare the denominator growth (step 3, layer 2/3). The
     #    criteria snapshot is the SAME string for pre/post — trivially
     #    satisfies the within-criteria-append invariant (this loop cannot
     #    author a criteria edit; it never even constructs two different
@@ -313,7 +313,7 @@ def run_remediation_round(
     )
 
     # 4. Refresh — bumps corpus_freeze + keeps frozen_corpus_citekeys in
-    #    sync (§2), so the next coverage-gate evaluation reads the
+    #    sync, so the next coverage-gate evaluation reads the
     #    refreshed set instead of re-tripping the undeclared-delta BLOCK.
     refresh(
         run_state_meta,
@@ -327,7 +327,7 @@ def run_remediation_round(
 
 
 # ---------------------------------------------------------------------------
-# The bounded outer loop (§4.4 wiring target: dag/verbs.py's coverage-gate
+# The bounded outer loop (wiring target: dag/verbs.py's coverage-gate
 # --auto branch calls this once `resolve_coverage_gate` first returns
 # REMEDIATE)
 # ---------------------------------------------------------------------------
@@ -346,7 +346,7 @@ def run_bounded_remediation(
     max_rounds: int | None = None,
 ) -> DispositionResult:
     """Drive the resolve -> remediate -> re-resolve cycle to a non-REMEDIATE
-    disposition (§4.3, §4.4). Every iteration runs exactly one bounded
+    disposition. Every iteration runs exactly one bounded
     round; the loop terminates the moment ``resolve_coverage_gate`` stops
     returning REMEDIATE (zero-new, round-cap, or non-backstop/HALT).
 
@@ -356,7 +356,7 @@ def run_bounded_remediation(
 
     ``_OUTER_LOOP_GUARD`` is a defence-in-depth backstop, not the primary
     bound — the primary bound is ``remediation_state["rounds_used"]`` vs
-    ``max_rounds`` inside ``resolve_coverage_gate`` itself (§4.3 bound 2).
+    ``max_rounds`` inside ``resolve_coverage_gate`` itself (bound 2).
     """
     if tool_op_fn is None:
         tool_op_fn = run_tool_op
@@ -393,7 +393,7 @@ def run_bounded_remediation(
 
     # Unreachable under a correctly-configured max_rounds (bound 2 always
     # fires first) — fail-closed rather than silently looping forever if it
-    # somehow is reached (a defence-in-depth backstop, §4.3).
+    # somehow is reached (a defence-in-depth backstop).
     return DispositionResult(
         HALT_DECLARE,
         "remediation outer-loop guard exhausted — this should be "
@@ -404,7 +404,7 @@ def run_bounded_remediation(
 
 
 # ---------------------------------------------------------------------------
-# PR-3 D-5a: the critic-BLOCK -> bounded, pole-directed backtrack
+# D-5a: the critic-BLOCK -> bounded, pole-directed backtrack
 #
 # Wires the previously un-wired approve-review REVISE path: a PURE
 # counter-position/thin-pole critic BLOCK (review.check_coverage_critic_
@@ -614,17 +614,17 @@ _RELAXED_PER_CELL_LIMIT = 40  # a backtrack round intensifies vs. the sweep op's
 
 
 # ---------------------------------------------------------------------------
-# PR-3b fix (Shape B): wiring the backtrack's newly-found counter-papers
-# through PR-3's ``review.incremental_relate`` module (D-5b) — previously
+# fix (Shape B): wiring the backtrack's newly-found counter-papers
+# through ``review.incremental_relate`` module (D-5b) — previously
 # built + unit-tested but UNREACHED from the running loop (zero references
 # from dag/verbs.py). This section owns ONLY the plumbing: filtering
 # ``added`` citekeys to those with an already-distilled
 # ``literature/<citekey>.md`` note (``run_incremental_relate``'s own caller
 # contract).
 #
-# The direct-API judge defaults PR-3b originally shipped here
+# The direct-API judge defaults originally shipped here
 # (``_default_relate_fn`` calling the deleted ``gates/_llm.py`` helper)
-# were doctrine-violating (PR-F deleted the direct-API judge path
+# were doctrine-violating (deleted the direct-API judge path
 # wholesale) and are DELETED, not patched. This module NEVER self-judges —
 # ``relate_fn``/``escalate_relate_fn`` must be an already-resolved,
 # synchronous callable (a dict-lookup over harness cold-judge fan-out
@@ -662,7 +662,7 @@ def run_incremental_relate_for_new_citekeys(
     distilled) never even reaches the requirement (``run_incremental_relate``
     is only called when ``ready`` is non-empty); a caller WITH something to
     relate but ``relate_fn=None`` gets ``run_incremental_relate``'s own
-    fail-closed ``RuntimeError`` (this module never self-judges — PR-3b fix,
+    fail-closed ``RuntimeError`` (this module never self-judges fix,
     Shape B).
 
     Returns ``{"result": IncrementalRelateResult | None, "not_yet_distilled":
@@ -705,14 +705,14 @@ def run_directed_remediation_round(
     registered source (not just the protocol's declared subset) and a
     relaxed per-cell fetch limit, then re-seeds a snowball citation-chase
     from whatever thin counter-hits the harder sweep turns up. Mirrors
-    ``run_remediation_round``'s anti-fishing spine exactly (§5, same three
+    ``run_remediation_round``'s anti-fishing spine exactly (same three
     layers): ONLY the frozen-protocol-keyed ``sweep``/``snowball`` tool ops
     are invoked; ``pole`` SELECTS an existing angle-matrix key
     (``<pole>.counter.N`` — the facet's ALREADY-frozen counter queries), it
     never authors a new one — there is no code path here that can inject a
     new query.
 
-    PR-3b: on a non-empty round, the newly-added counter-papers are ALSO
+    on a non-empty round, the newly-added counter-papers are ALSO
     flowed through ``run_incremental_relate_for_new_citekeys`` (concept-
     graph-blocked candidate generation, bidirectional edge write, island
     escalation — see that function + ``incremental_relate.py``). This is
@@ -746,7 +746,7 @@ def run_directed_remediation_round(
 
     # 1. Re-sweep the named pole's frozen counter queries, HARDER (all
     #    sources, relaxed per-cell limit) — frozen-protocol-keyed, no new
-    #    query injected (§5 layer 1).
+    #    query injected (layer 1).
     hits: list[Any] = []
     seed_ids: list[str] = []
     try:
@@ -769,7 +769,7 @@ def run_directed_remediation_round(
     # 2. Re-seed a snowball citation-chase from those thin counter-hits — a
     #    direct-query result this thin often sits one citation-hop from the
     #    real refuting sub-literature. Reuses the SAME `snowball` op
-    #    unchanged (via its `seed_ids` bypass, §5 layer 1 — still only the
+    #    unchanged (via its `seed_ids` bypass, layer 1 — still only the
     #    frozen-protocol-keyed ops, no new discovery mechanism).
     if seed_ids:
         try:
@@ -791,7 +791,7 @@ def run_directed_remediation_round(
 
     # 4. Declare the denominator growth — SAME within-criteria-append kind
     #    as the saturation-remediation loop; a frozen-facet re-sweep+
-    #    snowball never authors a criteria edit (§5 layers 2/3).
+    #    snowball never authors a criteria edit (layers 2/3).
     criteria_snapshot = hash_criteria_bytes(protocol_path)
     record_deviation(
         deviations_path,
@@ -815,7 +815,7 @@ def run_directed_remediation_round(
         deviations_path=deviations_path, now=now,
     )
 
-    # PR-3b: flow the newly-found counter-papers through the concept-graph
+    # flow the newly-found counter-papers through the concept-graph
     # -blocked incremental relate (never re-fans-out over the whole corpus,
     # never re-relates the existing baseline — ``existing_citekeys`` here is
     # the baseline BEFORE this round's additions, matching "against already-

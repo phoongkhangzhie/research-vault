@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/incremental_relate.py — PR-3 D-5b: incremental, concept-graph-
+"""review/incremental_relate.py D-5b: incremental, concept-graph-
 blocked relate for a batch of newly-appended (counter-)papers.
 
 WHY THIS EXISTS
@@ -8,7 +8,7 @@ A naive "relate every newcomer against the whole corpus" step is `new x N`
 — fine at N=20, ruinous at N=2000. This module is the MECHANICAL half of
 the incremental-relate move: it never re-full-distills or re-relates the
 EXISTING corpus, and it never checks a new paper against every existing
-paper — only against those already sharing >=1 CONCEPT (the post-#221
+paper — only against those already sharing >=1 CONCEPT (the post-
 concept graph: each literature note's own OKF ``## Concept edges``
 section is the join key). Candidate generation is therefore
 sub-quadratic by construction — cost tracks the new paper's concept
@@ -46,7 +46,6 @@ candidate generation + bidirectional write MECHANISM only, taking
 injection convention invented).
 
 Stdlib only.
-sr: PR-3 (D-5b)
 """
 from __future__ import annotations
 
@@ -198,7 +197,7 @@ def run_incremental_relate(
     island paper (never fans out to any other newcomer, even in the same
     batch).
 
-    ``relate_fn=None`` raises ``RuntimeError`` — fail-closed (PR-3b fix,
+    ``relate_fn=None`` raises ``RuntimeError`` — fail-closed (fix,
     Shape B). This module NEVER self-judges: the judgment callable must
     already be resolved (a synchronous dict-lookup over harness-ingested
     verdicts, injected by the caller — see ``review.relate_judge_seam`` /

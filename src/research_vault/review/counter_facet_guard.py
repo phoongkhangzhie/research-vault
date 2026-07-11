@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/counter_facet_guard.py — PR-2 D-6 / PR-F: the cold, rejects-only,
+"""review/counter_facet_guard.py D-6: the cold, rejects-only,
 canary-verified guard on the Step-C counter-facet EXTRACTION output.
 
 **Why this exists (not just D-7's existence check).** D-7
@@ -8,7 +8,7 @@ frozen ``counter:`` query list is present for every ``thesis:`` facet. It
 does NOT prove the counter-facet is STRONG. A thesis-biased generator can
 satisfy D-7 with a straw-man ("does X never happen?") instead of the real
 refuting sub-literature (the researcher's Q2 in the search-breadth design; the design
-doc's §7 bake-off explicitly routes a straw-man-generator FAIL here). D-7
+doc's bake-off explicitly routes a straw-man-generator FAIL here). D-7
 is the floor; this module is the ceiling.
 
 **The trustworthy-verdict shape** (engineer memory: "Trustworthy LLM-verdict
@@ -21,9 +21,9 @@ shape" — recurred in this codebase: board reviewers, cold-judge, support-match
     (many genuinely-strong facets will simply never be flagged); only a
     non-STRONG verdict is actionable (BLOCK). The guard's job is to catch
     the bad case, not to bless the good one.
-  - **FAIL-CLOSED / UNIFIED HALT (PR-F)** — no judge / no verdicts /
+  - **FAIL-CLOSED / UNIFIED HALT ** — no judge / no verdicts /
     incomplete fanout -> **HALT-DECLARE** (never a silent pass, and no
-    longer the old SIGNAL). This supersedes the #226-HALT-vs-#227-SIGNAL
+    longer the old SIGNAL). This supersedes the -HALT-vs- -SIGNAL
     split with the board + support-matcher's single rule: a relied-on cold
     gate that cannot run HALTs. An unparseable verdict -> treated as
     REJECTED (STRAWMAN, the fail-closed value).
@@ -33,7 +33,7 @@ shape" — recurred in this codebase: board reviewers, cold-judge, support-match
     distinguishable, never title-obvious. If either canary misclassifies,
     the guard ABORTS loudly (``CanaryAbortError``).
 
-**PR-F — the direct-API judge path is DELETED.** The production judge path is
+**The direct-API judge path is DELETED.** The production judge path is
 the cold-agent-judge **emit/ingest fan-out** (``emit_counter_facet_tasks`` /
 ``ingest_counter_facet_verdicts``, built on ``gates.judge_seam`` — the SAME
 shape as the support-matcher). rv reads NO judge-model / API-key env var to
@@ -46,7 +46,6 @@ already BLOCKs the empty case — nothing to judge there).
 
 Stdlib only. Hermetic in tests (``judge_fn`` injectable; the emit/ingest
 functions never call an LLM at all).
-sr: PR-2 (D-6); PR-F (emit/ingest + unified HALT, direct-API path deleted)
 """
 from __future__ import annotations
 
@@ -105,7 +104,7 @@ def _extract_counter_facet_verdict(response: str) -> str | None:
 
 def _counter_facet_canary_bank() -> list[tuple[list[str], str]]:
     """(counter_facet_queries, expected_verdict) — SUBSTANCE-ONLY
-    distinguishable (the PR-1 fit-check's ★ rule): both probes are drawn
+    distinguishable (the fit-check's ★ rule): both probes are drawn
     from the SAME general domain (misinformation-correction research), so a
     title/topic-only judge cannot tell them apart by subject matter — only
     by whether the queries actually name a specific refuting mechanism
@@ -132,7 +131,7 @@ def _counter_facet_canary_bank() -> list[tuple[list[str], str]]:
 
 
 # ---------------------------------------------------------------------------
-# PR-F — the cold-agent-judge emit/ingest fan-out (the PRODUCTION path)
+#  the cold-agent-judge emit/ingest fan-out (the PRODUCTION path)
 # ---------------------------------------------------------------------------
 
 def _collect_counter_facets(protocol_text: str) -> list[tuple[str, list[str]]]:
@@ -156,7 +155,7 @@ def emit_counter_facet_tasks(
     protocol_text: str, *, scope: str = "",
 ) -> dict[str, Any]:
     """Emit ``_cf-tasks.json`` + ``_cf-canary-key.json`` for the counter-facet
-    strength cold-agent-judge fan-out (PR-F, same shape as the support-matcher).
+    strength cold-agent-judge fan-out (same shape as the support-matcher).
 
     One real task per facet with a non-empty counter list, plus the 2
     interleaved unmarked canary probes. rv calls NO LLM here — the hub fans
@@ -347,7 +346,7 @@ def check_counter_facet_strength(
     - Structural (judge-INDEPENDENT): a malformed ``seed_queries:`` block that
       parses to ZERO usable queries is a hard BLOCK (an empty facet-iteration
       loop must never look identical to "nothing to judge").
-    - PR-F UNIFIED HALT: ``judge_fn is None`` -> ``halt=True`` (production runs
+    - UNIFIED HALT: ``judge_fn is None`` -> ``halt=True`` (production runs
       via the emit/ingest fan-out; the DAG approve-protocol gate ingests that,
       or HALT-DECLAREs when no fan-out was emitted). This is NOT the old
       SIGNAL — a relied-on cold gate that cannot run HALTs.
@@ -377,14 +376,14 @@ def check_counter_facet_strength(
             "halt_reason": "",
         }
 
-    # PR-F unified HALT: no judge -> HALT-DECLARE (never the old SIGNAL).
+    # unified HALT: no judge -> HALT-DECLARE (never the old SIGNAL).
     if judge_fn is None:
         return {
             "ok": False,
             "blocking": [],
             "not_run": [
                 "counter-facet strength guard (D-6) HALT-DECLARE: no judge. "
-                "The direct-API judge path was deleted (PR-F) — this cold "
+                "The direct-API judge path was deleted — this cold "
                 "guard runs via the emit/ingest fan-out. Emit the "
                 "counter-facet task set and let the hub fan out the cold "
                 "judges before approving the protocol. Counter-facets were "

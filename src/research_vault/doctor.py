@@ -838,7 +838,7 @@ def _probe_remote_pbs(host: str, backend_name: str) -> dict[str, Any]:
         "raw_output": (result.stdout or "")[:1000],
         # PBS permission probe seam — qstat -Qf / qmgr acl_users: not yet implemented.
         # PBS clusters get inventory-only proposals. Fill this seam to enable full
-        # permissions-aware proposals for PBS (SLURM-first per §5DOC boundary).
+        # permissions-aware proposals for PBS (SLURM-first per OC boundary).
         "permissions": {
             "available": False,
             "reason": "PBS permission probe: not yet implemented",

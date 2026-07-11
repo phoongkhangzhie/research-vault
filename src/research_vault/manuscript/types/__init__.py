@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/types — the ManuscriptType descriptor registry (PR-M1).
+"""manuscript/types — the ManuscriptType descriptor registry.
 
 The type-generic manuscript-loop core (``manuscript/__init__.py``) is machinery
 consuming a per-type descriptor: a type supplies everything that VARIES
@@ -10,19 +10,17 @@ convention, the review-revise loop, the hard fidelity gates, the hermetic
 ``.bib`` build). Mirrors how ``dag/catalog.py`` registers loops as ``LoopEntry``
 descriptors — same "descriptor consumed by generic machinery" shape.
 
-Design: docs/superpowers/specs/2026-07-07-survey-capability-design.md §1.
 
-Only ``lit-review`` is registered in PR-M1 — as an interface-conforming STUB
+Only ``lit-review`` is registered — as an interface-conforming STUB
 (``section_set`` carries one placeholder section so the scaffolder + Phase-2
-fan-out are exercisable end-to-end today). The real 9-row survey section table
-(§3), the framework-selection ``phase1_builder`` (§5), the ``source_transform``
-(§4), the ``style_briefs`` (§3.1), the exemplar bundle (§8), and the rubric +
-reviewer lenses + canaries (§11) land in PR-M3/M5/M6/M8. A future
+fan-out are exercisable end-to-end today). The real 9-row survey section table,
+the framework-selection ``phase1_builder``, the ``source_transform``,
+the ``style_briefs``, the exemplar bundle, and the rubric +
+reviewer lenses + canaries land. A future
 ``experiment-paper`` type is NOT built here — this registry is the contract it
-will implement (design §1 table, last row).
+will implement (table, last row).
 
 Stdlib only.
-sr: PR-M1
 """
 from __future__ import annotations
 
@@ -31,25 +29,25 @@ from typing import Any, Callable
 
 
 # ---------------------------------------------------------------------------
-# SectionSpec — one row of a type's section-set (design §3)
+# SectionSpec — one row of a type's section-set
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class SectionSpec:
-    """One section in a ``ManuscriptType``'s ``section_set`` (design §3/§4).
+    """One section in a ``ManuscriptType``'s ``section_set``.
 
     Attributes:
         name: section key — used as the Phase-2 DAG node id AND the
             ``sections/<name>.md`` stem.
         assembly_class: ``"M"`` (mechanical/deterministic) | ``"S"``
             (synthesized, LLM-scaffolded + gated) | ``"H"`` (human-led). See
-            design §3's table header for the class legend.
+            table header for the class legend.
         source_atoms: OKF type names this section reads (e.g.
             ``("literature", "concepts")``) — becomes the node's ``reads:``.
         brief_key: style-seam tip key for this section. Empty string means
             "use ``name`` as the tip key" (the style seam falls back to a
             generic placeholder tip when no brief has been authored yet —
-            honest for a type whose briefs haven't landed, §3.1/PR-M6).
+            honest for a type whose briefs haven't landed).
     """
 
     name: str
@@ -59,47 +57,47 @@ class SectionSpec:
 
 
 # ---------------------------------------------------------------------------
-# ManuscriptType — the type descriptor (design §1's table, as a dataclass)
+# ManuscriptType — the type descriptor (table, as a dataclass)
 # ---------------------------------------------------------------------------
 
 @dataclass
 class ManuscriptType:
-    """A manuscript type descriptor — the type-generic seam (design §1).
+    """A manuscript type descriptor — the type-generic seam.
 
     Attributes:
         key: stable slug (``"lit-review"``; future: ``"experiment-paper"``).
         section_set: ordered ``SectionSpec`` tuple — the type's section table
-            (design §3). Drives the Phase-2 fan-out generically.
+            Drives the Phase-2 fan-out generically.
         phase1_builder: optional callable building a CUSTOM Phase-1 manifest
-            (e.g. lit-review's framework-selection sub-loop, design §5,
-            PR-M6). Signature: ``(project, slug, project_notes_dir, tree_root,
+            (e.g. lit-review's framework-selection sub-loop,
+            ). Signature: ``(project, slug, project_notes_dir, tree_root,
             config) -> dict[str, Any]`` (a DAG manifest dict). ``None`` = the
             core's default PASS-THROUGH — the type has no framework/
             human-owned-shape step; ``rv manuscript new`` scaffolds the folder
             only and ``rv manuscript expand`` goes straight to Phase-2
-            (design §1: "A `type` whose `phase1_builder` is the default
+            ("A `type` whose `phase1_builder` is the default
             pass-through … skips this entirely").
         source_transform: optional OKF-atoms -> section-inputs callable
-            (design §4). ``None`` in PR-M1 — populated per-type when the
-            transform is built (PR-M6 for lit-review).
+            ``None`` — populated per-type when the
+            transform is built (for lit-review).
         equation_sources: OKF type names the equation extractor mines
-            (design §7). Consumed starting PR-M4; recorded here now so the
+            Consumed starting; recorded here now so the
             type contract is complete.
-        style_briefs: section-name -> brief string (design §3.1's
-            structurally-binding contract). Empty in PR-M1 — the style seam
+        style_briefs: section-name -> brief string (
+            structurally-binding contract). Empty — the style seam
             (``manuscript/style.py``) falls back to a generic placeholder tip
-            per section until a type's briefs are authored (PR-M3/M6).
+            per section until a type's briefs are authored.
         exemplar_bundle: key into ``data/exemplars/manuscript/<key>/``
-            (design §8, PR-M8). Recorded now; the loader ships in PR-M8.
-        rubric: rubric identifier/string (design §11, PR-M8).
-        reviewer_lenses: reviewer lens specs (design §11.2, PR-M5).
-        canaries: canary probe identifiers (design §11.3, PR-M8).
+            Recorded now; the loader ships.
+        rubric: rubric identifier/string.
+        reviewer_lenses: reviewer lens specs.
+        canaries: canary probe identifiers.
         phase2_builder: optional callable building a CUSTOM Phase-2 manifest
-            (NG-7, next-gen lit-review design §2: single-pass
+            (NG-7, next-gen lit-review single-pass
             outline -> draft -> assemble, replacing the type-generic
             per-section chain). Mirrors ``phase1_builder``'s already-
             established override shape exactly (reuse-over-create, charter
-            §6). Signature: ``(project, slug, project_notes_dir, tree_root,
+            ). Signature: ``(project, slug, project_notes_dir, tree_root,
             *, manuscript_fields, config) -> dict[str, Any]`` (a DAG manifest
             dict). ``None`` = the core's default section_set chain
             (``_build_phase2_manifest``) — a type with no Phase-2 override

@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/board_ledger.py — PR-B4: the reconciliation ledger + the
+"""manuscript/board_ledger.py: the reconciliation ledger + the
 review -> recommend -> act -> reconcile handshake.
 
-Design: docs/superpowers/specs/2026-07-08-autonomous-board-design.md §4.
 
 ★ The mechanical heart of decision #5: the board does not merely score —
 it drives a surgical, TRACKED revise in which no recommendation is
@@ -25,7 +24,7 @@ the run cannot proceed to declare-final.
 
 ★ REVISE_AGENT_BRIEF carries, VERBATIM, the two load-bearing craft rules
 folded in from HR (docs/superpowers/specs/2026-07-08-hr-review-critic-lessons.md
-§3): integrate-by-scoping (never append-as-caveat) and reject-not-force-fit
+): integrate-by-scoping (never append-as-caveat) and reject-not-force-fit
 (an oversize finding escalates, it is never retyped as a paragraph-scale
 block). The revise agent this brief is dispatched to is
 ``[Read, Edit]``-locked at the HARNESS level (no Write, no Bash) — the
@@ -36,7 +35,6 @@ to a doer-class agent's SCOPE rather than its role).
 Stdlib only. Hermetic — every function here is pure data manipulation; the
 actual revise/verify judgment is an external agent action this module only
 tracks the bookkeeping for.
-sr: PR-B4
 """
 from __future__ import annotations
 
@@ -60,7 +58,7 @@ _TERMINAL_STATUSES: frozenset[str] = frozenset({VERIFIED, REJECTED, ESCALATED, U
 class LedgerReconcileError(RuntimeError):
     """Raised by ``reconcile_round1`` when one or more ledger rows are
     still ``PENDING`` after the revise step — the no-silent-drop guarantee
-    (§4.2: "a row left PENDING -> the reconcile FAILs loudly -> the run
+    ("a row left PENDING -> the reconcile FAILs loudly -> the run
     cannot proceed to declare-final"). A HALT-class defect, never a
     warning that could be swallowed and proceeded past.
     """
@@ -77,7 +75,7 @@ def _normalize_location(location: str) -> str:
 def build_ledger(findings_by_axis: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
     """Merge every axis's capped findings into one PRE-STUBBED ledger.
 
-    Dedupe rule (§4.1, mirrors ``review_board``'s merge discipline): two
+    Dedupe rule (mirrors ``review_board``'s merge discipline): two
     axes flagging the SAME location (normalized: collapsed whitespace,
     case-insensitive) merge into ONE row — the higher-severity finding
     wins, and every contributing axis is recorded in ``axes`` (never
@@ -202,7 +200,7 @@ def apply_revise_outcome(
 
 
 def reconcile_round1(ledger: list[dict[str, Any]]) -> dict[str, Any]:
-    """The no-silent-drop mechanical check (§4.2): every row MUST have a
+    """The no-silent-drop mechanical check: every row MUST have a
     non-null ``revise_outcome`` after the revise step.
 
     Raises ``LedgerReconcileError`` (HALT-class) if any row is still
@@ -232,7 +230,7 @@ def reconcile_round1(ledger: list[dict[str, Any]]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def build_verification_tasks(ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """One targeted verification task per ADDRESSED row (§4.3(1)) — "does
+    """One targeted verification task per ADDRESSED row ((1)) — "does
     the draft now satisfy this specific recommendation?" REJECTED/
     ESCALATED rows are already terminal and need no verification.
     """
@@ -278,7 +276,7 @@ def ledger_fully_terminal(ledger: list[dict[str, Any]]) -> bool:
 
 
 def round2_clears(floor_round2: dict[str, Any], ledger: list[dict[str, Any]]) -> dict[str, Any]:
-    """Round-2 clears iff (§4.3): (a) all 4 axes >= floor in the fresh
+    """Round-2 clears iff: (a) all 4 axes >= floor in the fresh
     round-2 board floor-vote, AND (b) every ADDRESSED row is VERIFIED (no
     UNRESOLVED survivor), AND (c) no regression vs round-1 (the caller
     supplies this via ``floor_round2`` having already been produced by

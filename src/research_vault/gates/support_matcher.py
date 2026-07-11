@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """support_matcher.py — claim→source support-matcher.
 
-SHAREABLE LOCATION (D-SV-0, PR-M3): lives in research_vault.gates — a
+SHAREABLE LOCATION (D-SV-0): lives in research_vault.gates — a
 top-level shared module, NOT under manuscript/. Re-instantiated from the
 preserved craft in data/doctrine/honesty-gates.md (the module was removed
 during a manuscript-loop refactor; the craft survived the removal). The manuscript loop is
@@ -47,7 +47,7 @@ Anti-positivity moves (baked into the rubric and enforced in build_prompt):
 RUBRIC SEAM
 ===========
 The researcher-authored adversarial rubric ships as DEFAULT_SUPPORT_RUBRIC — the seam
-default, exactly like per_section_tips in style.py (§5J.13-D).
+default, exactly like per_section_tips in style.py (D).
 
   - get_support_rubric(override=None, config=None) — returns the active rubric.
   - The config key is [manuscript_support] in research_vault.toml.
@@ -59,7 +59,7 @@ default, exactly like per_section_tips in style.py (§5J.13-D).
 LLM JUDGE CALL
 ==============
 The judge is injectable (judge_fn parameter) so tests can mock it hermetically.
-PR-F: there is NO in-process API judge default. The PRODUCTION path is the
+there is NO in-process API judge default. The PRODUCTION path is the
 cold-agent-judge emit/ingest fan-out (``emit_support_tasks`` /
 ``ingest_support_verdicts`` in ``manuscript/fidelity_gates.py``) — rv NEVER
 reaches the Anthropic Messages endpoint itself for a judge.
@@ -89,7 +89,7 @@ from typing import Any, Callable
 # Constants
 # ---------------------------------------------------------------------------
 
-# PR-F: the direct-API judge default (a judge-model env read + an in-process
+# the direct-API judge default (a judge-model env read + an in-process
 # ``_default_judge_fn`` that hit the Anthropic Messages endpoint) was DELETED.
 # The production judge path is the cold-agent-judge emit/ingest fan-out; rv
 # reads no judge-model / API-key env var to run a judge. ``judge_model`` is a
@@ -115,7 +115,7 @@ _CONFIRMATORY_VERBS: frozenset[str] = frozenset({
 
 # ---------------------------------------------------------------------------
 # Bracket extractor — 4-verdict support-matcher (NEW — does NOT overload
-# control.py's [PASS]/[BLOCK] extractor, by design per §5J.13-A (3))
+# control.py's [PASS]/[BLOCK] extractor, by design per -A (3))
 # ---------------------------------------------------------------------------
 
 _SUPPORT_TOKEN_RE = re.compile(
@@ -134,7 +134,7 @@ def _extract_support_verdict(verdict_val: str) -> str | None:
     This prevents prose narrative from false-triggering the gate.
 
     Mirrors control.py:_extract_gate_verdict for [PASS]/[BLOCK] but is a NEW
-    4-verdict extractor scoped exclusively to the support-matcher (§5J.13-A (3)).
+    4-verdict extractor scoped exclusively to the support-matcher (A (3)).
     """
     m = _SUPPORT_TOKEN_RE.match(verdict_val.strip())
     return m.group(1).upper() if m else None
@@ -144,7 +144,7 @@ def _extract_support_verdict(verdict_val: str) -> str | None:
 # Rubric seam
 # ---------------------------------------------------------------------------
 
-# Researcher-authored default rubric — the seam default (researcher, §5J.13-D).
+# Researcher-authored default rubric — the seam default (researcher, -D).
 # Mirrors the get_style_preamble() pattern in style.py.
 #
 # Runtime slots filled by _build_judge_prompt before the judge call:
@@ -396,7 +396,7 @@ def _read_note_structured_fields(note_path: Path) -> dict[str, str]:
     span instead of abstract-level vagueness — the judge gets better
     evidence to adjudicate against, with its adversarial, abstract-blind
     contract fully intact. See design 2026-07-08-oa-fulltext-enrichment.md
-    §4.2 for the exact chain.
+     for the exact chain.
     """
     if not note_path.exists():
         return {}
@@ -636,7 +636,7 @@ def _parse_judge_response(raw: str) -> tuple[str, str | None, str, str]:
 # ---------------------------------------------------------------------------
 # Core public callable — match_support()
 #
-# PR-F: the in-process ``_default_judge_fn`` (a direct Anthropic Messages
+# the in-process ``_default_judge_fn`` (a direct Anthropic Messages
 # call) was DELETED. Production support-matching runs via the cold-agent-judge
 # emit/ingest fan-out (``fidelity_gates.emit_support_tasks`` /
 # ``ingest_support_verdicts``); ``match_support`` is used inline only with a
@@ -670,7 +670,7 @@ def match_support(
         rubric_override: optional complete rubric replacement (the researcher rubric drops in here).
         config:          optional Config for rubric lookup via [manuscript_support].
         judge_fn:        injectable LLM call (prompt: str) -> str. REQUIRED —
-                         PR-F deleted the in-process API default; None raises
+                          deleted the in-process API default; None raises
                          loudly (production runs via the emit/ingest cold
                          fan-out). Pass a mock in tests.
         judge_model:     the model-id to log (D-MS-4 resolved: Opus-tier).
@@ -717,14 +717,14 @@ def match_support(
             section=section,
         )
 
-    # Call the judge. PR-F: there is NO in-process API judge default — a
+    # Call the judge. There is NO in-process API judge default — a
     # judge_fn=None call is a wiring error (production runs via the
     # emit/ingest cold fan-out), so fail loudly rather than silently reach
     # for a deleted live-API default.
     if judge_fn is None:
         raise RuntimeError(
             "match_support: no judge_fn supplied. The direct-API judge path "
-            "was deleted (PR-F) — production support-matching runs via the "
+            "was deleted — production support-matching runs via the "
             "cold-agent-judge emit/ingest fan-out "
             "(fidelity_gates.emit_support_tasks / ingest_support_verdicts). "
             "Pass an explicit judge_fn only in tests."

@@ -198,7 +198,7 @@ Component manipulated: [name the single component].
 # ---------------------------------------------------------------------------
 
 def _harness_engineer_spec(main_id: str, k: int, exp_id: str) -> str:
-    """Brief-grade spec for the harness engineer node (§5K spec).
+    """Brief-grade spec for the harness engineer node (spec).
 
     Enumerates harness-contract.md §1 constraints as build requirements.
     """
@@ -239,10 +239,10 @@ def _harness_reviewer_spec(main_id: str, k: int) -> str:
     return (
         f"Review the harness for Main {k} ({main_id}) AGAINST harness-contract.md.\n\n"
         f"Verify (see reads: for the full contract):\n"
-        f"  §1 a–c: the mandatory mock-vs-live resume-isolation test exists and "
+        f" a–c: the mandatory mock-vs-live resume-isolation test exists and "
         f"passes — confirm (a) mock/live dirs distinct, (b) live makes real calls, "
         f"(c) mock-tagged record in live resume set → abort + message.\n"
-        f"  §2: --exp filter restricts to experiment's arms only; suspiciously-"
+        f"  --exp filter restricts to experiment's arms only; suspiciously-"
         f"complete guard fires at 95% threshold.\n\n"
         f"Return verdict and the reviewed commit SHA, then:\n"
         f"  rv dag complete <run_id> {main_id}-harness-review"
@@ -363,7 +363,7 @@ def _build_experiment_manifest(
                 f"  - --live fails loud on mock-tagged records.\n"
                 f"  - --exp flag filters to only that experiment's arms.\n"
                 f"  - Suspiciously-complete halt at 95% threshold.\n\n"
-                f"MANDATORY test: mock-vs-live resume-isolation test (§1 a-c).\n\n"
+                f"MANDATORY test: mock-vs-live resume-isolation test (a-c).\n\n"
                 f"Commit-as-you-go. Return harness commit SHA in ⟦RETURN⟧.provenance, then:\n"
                 f"  rv dag complete <run_id> shared-harness"
             ),
@@ -380,8 +380,8 @@ def _build_experiment_manifest(
             "role": "reviewer",
             "spec": (
                 f"Review the shared harness AGAINST harness-contract.md.\n\n"
-                f"Verify §1 a–c: mandatory mock-vs-live resume-isolation test exists and "
-                f"passes. Verify §2: --exp filter + suspiciously-complete guard.\n\n"
+                f"Verify a–c: mandatory mock-vs-live resume-isolation test exists and "
+                f"passes. Verify --exp filter + suspiciously-complete guard.\n\n"
                 f"Return verdict and the reviewed commit SHA, then:\n"
                 f"  rv dag complete <run_id> shared-harness-review"
             ),
