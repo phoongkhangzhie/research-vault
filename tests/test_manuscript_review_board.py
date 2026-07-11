@@ -678,7 +678,15 @@ class TestRunReviewBoard:
         assert result["escalation"] is not None
         assert result["escalation"]["recurring_rounds"] == [1, 2]
         assert result["escalation"]["candidate_reframes"] == ["axis-based reframe", "axis-based reframe"]
-        assert before == after  # nothing was written to the tree by this call
+        # PR-D2: run_revise's gate re-fire (build_approve_payload) now ALSO
+        # drives the numbered render (mirrors references.md's own
+        # already-existing regenerate-every-call behavior) — report.md +
+        # references.bib are its expected mechanical output, not a mutation
+        # of the manuscript's SUBSTANCE (no section content, no spine, no
+        # type registry entry changes). Assert no OTHER file appears.
+        expected_new = {"report.md", "references.bib"}
+        assert set(after) - set(before) <= expected_new
+        assert set(before) - set(after) == set()  # nothing REMOVED either
 
     def test_requires_judge_fn(self, tmp_path):
         from research_vault.manuscript.types import get_type

@@ -45,9 +45,11 @@ warrant one). Markdown is the ONLY render target — LaTeX has been removed
 entirely (the operator's explicit call — see DEVLOG):
   manuscripts/<slug>/
   ├── _manuscript.md   # control + frontmatter: manuscript_type, spine, corpus_hash, run_state
-  ├── report.md        # RD-1: markdown reader path
+  ├── _report.md       # RD-1/PR-D2: internal [[citekey]] SOURCE (drafter/assemble write target)
+  ├── report.md        # PR-D2: reader-facing [N]-numbered render (bib.render_numbered_manuscript)
   ├── sections/*.md    # RD-1: markdown sections
   ├── references.md    # hermetic citekey-resolution ledger (PR-M2/RD-1) — see manuscript/bib.py
+  ├── references.bib   # PR-D: hermetic BibTeX build (paired with the report.md render)
   └── figures/
 
 Stdlib only.
@@ -106,18 +108,21 @@ def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
     """Write a neutral markdown report stub to tree_root (idempotent).
 
     RD-1 (next-gen lit-review design §6): the manuscript's reader path
-    renders MARKDOWN — ``report.md`` (this stub) + ``sections/*.md``. LaTeX
-    (``main.tex``/tex-macro injection) has been removed entirely as a render
-    target. Citations use the ``[[citekey]]`` wikilink form (see
-    ``manuscript/bib.py``'s ``_WIKILINK_CITE_RE``); ``references.md`` is the
-    hermetic-bib gate's artifact — a markdown-native citekey-resolution
-    ledger, never a BibTeX file.
+    renders MARKDOWN — ``_report.md`` (this stub — PR-D2: the internal
+    ``[[citekey]]`` SOURCE, the assemble node's write target) +
+    ``sections/*.md``. The reader-facing ``report.md`` (no underscore) is a
+    SEPARATE artifact produced later by ``bib.render_numbered_manuscript``,
+    never scaffolded here. LaTeX (``main.tex``/tex-macro injection) has been
+    removed entirely as a render target. Citations use the ``[[citekey]]``
+    wikilink form (see ``manuscript/bib.py``'s ``_WIKILINK_CITE_RE``);
+    ``references.md`` is the hermetic-bib gate's artifact — a
+    markdown-native citekey-resolution ledger, never a BibTeX file.
 
     A self-contained inline template (no package-data dependency) — the real
     per-type template/exemplar machinery is design §8/PR-M8 territory; this
     only needs a scaffolded skeleton so the folder is genuinely scaffolded.
     """
-    report_md = tree_root / "report.md"
+    report_md = tree_root / "_report.md"
     if report_md.exists():
         return  # idempotent — never overwrite an existing draft
     content = (
@@ -130,6 +135,10 @@ def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
         "     check_gates.py::build_approve_payload. -->\n\n"
         "<!-- Body sections (populated by rv dag run against the Phase-2\n"
         "     manifest) are joined here in reading order by the assemble node. -->\n"
+        "<!-- PR-D2: this file (_report.md) is the internal wikilink-citation\n"
+        "     SOURCE (citekeys as double-bracket wikilinks). The reader-facing\n"
+        "     report.md (no underscore) is a SEPARATE artifact produced by\n"
+        "     manuscript/bib.py::render_numbered_manuscript. -->\n"
     )
     report_md.write_text(content, encoding="utf-8")
 
@@ -219,7 +228,7 @@ def _inject_source_transform_tips(
     if provenance_header and "assemble" in result:
         result["assemble"] = (
             result["assemble"].rstrip() + "\n\n---\n\nInjected provenance_header "
-            "(prepend verbatim atop report.md):\n\n" + provenance_header
+            "(prepend verbatim atop _report.md, PR-D2):\n\n" + provenance_header
         )
 
     branches = transform.get("framework_branches")
@@ -254,7 +263,9 @@ def _build_phase2_manifest(
     Each section node reads its declared ``source_atoms`` (OKF type dirs,
     absolute paths — Fix #34 lesson: absolute so the reads:-grounding resolver
     finds them regardless of project_root at run/tick time) + the sections/
-    working dir. ``assemble`` joins the drafted sections into ``report.md`` (RD-1).
+    working dir. ``assemble`` joins the drafted sections into ``_report.md``
+    (RD-1, PR-D2: the internal ``[[citekey]]`` SOURCE — never ``report.md``,
+    which is a separate reader-facing render produced later).
     ``approve-manuscript`` is the terminal human-go gate; the hermetic-.bib
     (PR-M2), fidelity (PR-M3), and equation (PR-M4) gates that feed it are
     assembled by ``manuscript/check_gates.py::build_approve_payload`` and
@@ -392,14 +403,16 @@ def _build_phase2_manifest(
         section_ids.append(node_id)
         prev_id = node_id
 
-    # assemble — joins the drafted sections into report.md (RD-1)
+    # assemble — joins the drafted sections into _report.md (RD-1, PR-D2:
+    # the internal [[citekey]] SOURCE — never the rendered `report.md`).
     nodes.append({
         "id": "assemble",
         "type": "agent",
-        "label": "Assemble — join drafted sections into report.md (RD-1)",
+        "label": "Assemble — join drafted sections into _report.md (RD-1, PR-D2)",
         "spec": _spec("assemble"),
         "reads": [sections_dir_abs],
         "needs": [_afterok(section_ids[-1])],
+        "produces": {"_report.md": str(tree_root / "_report.md")},
     })
 
     # approve-manuscript — terminal human-go gate. The hermetic-.bib (PR-M2),
@@ -564,7 +577,7 @@ def cmd_new(
         "branches": "",       # PR-M6: scalar list of the frozen framework's top-level branch names
         "corpus_hash": "",    # stale-corpus guard (PR-M6)
         "run_state": "",      # dag_run id, set once Phase-1/2 is emitted
-        "manuscript_location": str(tree_root / "report.md"),
+        "manuscript_location": str(tree_root / "report.md"),  # PR-D2: reader-facing render, produced later
     }
     body = (
         "\n"
@@ -935,6 +948,84 @@ def cmd_judge_ingest(
             "honest_report": "CANARY ABORTED",
         }
     return out
+
+
+def cmd_board_emit(
+    project: str,
+    slug: str,
+    *,
+    config: Config | None = None,
+    round: int = 1,  # noqa: A002 - matches emit_board_tasks' field name
+) -> dict[str, Any]:
+    """★ PR-D2: the 6-lens board's production emit driver — the missing
+    call site ``compute_coverage_diff`` never had (PR-F pinned the
+    source-routing CONTRACT as a unit regression; this is the driver that
+    actually exercises it in production).
+
+    Writes ``manuscripts/<slug>/judge/board/_board-tasks.json`` +
+    ``_board-canary-key.json`` (``gates.board_seam.emit_board_tasks_to_dir``,
+    design §2). rv calls NO LLM here — the hub fans cold subagent-judges out
+    over the written tasks; run ``rv manuscript <project> board-ingest
+    <slug>`` (or ``build_approve_payload``'s board consumption) once
+    ``_board-verdicts.json`` lands.
+
+    ★ SOURCE-ROUTING (non-negotiable, PR-F/PR-D2): ``reader_body`` is
+    assembled via ``check_gates._read_draft_text`` — the ``[[citekey]]``
+    SOURCE (``_report.md`` + ``sections/*.md``), NEVER PR-D's ``[N]``-
+    numbered render (``report.md``). Feeding the render here would make
+    ``WIKILINK_CITE_RE`` find zero citekeys, so ``compute_coverage_diff``
+    would flag EVERY committed ``used`` paper as "missing" and
+    false-critical the entire corpus (see ``compute_coverage_diff``'s
+    docstring). ``test_pr_d2_source_routing_driver.py`` asserts this at
+    the DRIVER level — the unit floor
+    (``test_coverage_diff_source_routing``) alone cannot catch a
+    mispointed call site.
+
+    Args:
+        project: project slug.
+        slug: manuscript identifier.
+        config: optional Config (loaded if None).
+        round: the board round number (default 1 — the first-round emit;
+            re-fire with a higher round number for the PR-B4 revise loop).
+
+    Returns:
+        ``{"tasks_doc": ..., "canary_key_doc": ..., "coverage_diff": ...}``
+        — ``coverage_diff`` is surfaced separately (not just embedded in
+        the WIDTH task) so a caller/test can assert on it directly without
+        digging through ``tasks_doc["tasks"]``.
+
+    sr: PR-D2
+    """
+    from research_vault.gates.board_seam import emit_board_tasks_to_dir
+    from research_vault.manuscript.check_gates import _read_draft_text, compute_coverage_diff
+
+    cfg = config or load_config()
+    project_notes_dir = cfg.project_notes_dir(project)
+    tree_root = _manuscript_tree_root(project, slug, cfg)
+    note_path = tree_root / "_manuscript.md"
+
+    if not note_path.exists():
+        raise FileNotFoundError(
+            f"rv manuscript board-emit: {note_path} not found. "
+            f"Run `rv manuscript {project} new {slug} --type <type>` first."
+        )
+
+    # ★ The load-bearing line: the SOURCE, never the render (see docstring).
+    reader_body = _read_draft_text(tree_root)
+
+    coverage_map_path = tree_root / "_coverage-map.md"
+    coverage_diff = compute_coverage_diff(coverage_map_path, reader_body)
+
+    judge_dir = _judge_dir(tree_root, "board")
+    emitted = emit_board_tasks_to_dir(
+        judge_dir,
+        reader_body,
+        manuscript=slug,
+        round=round,
+        coverage_diff=coverage_diff,
+    )
+    emitted["coverage_diff"] = coverage_diff
+    return emitted
 
 
 def cmd_list(

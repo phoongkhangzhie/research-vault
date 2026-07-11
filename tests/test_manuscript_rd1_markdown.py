@@ -1,14 +1,15 @@
 """test_manuscript_rd1_markdown.py — RD-1: markdown render target.
 
 Next-gen lit-review design §6, RD-1: the manuscript renders markdown
-(``report.md`` + ``sections/*.md``); citations are ``[[citekey]]`` wikilinks
-backed by a mechanical ``references.md`` list. LaTeX has been removed
-entirely (the operator's explicit call, see DEVLOG) — markdown is the ONLY
-render target and citation syntax. The load-bearing acceptance condition:
-the hermetic-references BLOCK and the support-matcher fidelity gates fire
-against markdown.
+(``_report.md`` + ``sections/*.md`` — PR-D2's internal SOURCE); citations
+are ``[[citekey]]`` wikilinks backed by a mechanical ``references.md``
+list. LaTeX has been removed entirely (the operator's explicit call, see
+DEVLOG) — markdown is the ONLY render target and citation syntax. The
+load-bearing acceptance condition: the hermetic-references BLOCK and the
+support-matcher fidelity gates fire against markdown.
 
-sr: NG-lit-review-waveB (RD-1); LaTeX removal — see DEVLOG.
+sr: NG-lit-review-waveB (RD-1); LaTeX removal — see DEVLOG; PR-D2 (two-
+artifact source rename).
 """
 from __future__ import annotations
 
@@ -40,15 +41,36 @@ def test_resolve_draft_files_empty_when_nothing_drafted(tmp_path: Path):
 
 
 def test_resolve_draft_files_finds_report_md_and_sections(tmp_path: Path):
+    """PR-D2: the SOURCE root file is `_report.md` (internal, [[citekey]]
+    tokens) — not the reader-facing rendered `report.md`."""
     tree_root = tmp_path / "manuscripts" / "survey"
     (tree_root / "sections").mkdir(parents=True)
-    (tree_root / "report.md").write_text("# Report\n", encoding="utf-8")
+    (tree_root / "_report.md").write_text("# Report\n", encoding="utf-8")
     (tree_root / "sections" / "framing.md").write_text("Framing.\n", encoding="utf-8")
     (tree_root / "sections" / "moves.md").write_text("Moves.\n", encoding="utf-8")
 
     files = resolve_draft_files(tree_root)
     names = [f.name for f in files]
-    assert names == ["report.md", "framing.md", "moves.md"]
+    assert names == ["_report.md", "framing.md", "moves.md"]
+
+
+def test_resolve_draft_files_never_returns_rendered_report_md(tmp_path: Path):
+    """PR-D2 (AC2/AC7 collision guard): a rendered `report.md` sitting
+    alongside the `_report.md` source (the normal post-render state) must
+    NEVER be returned by ``resolve_draft_files`` — a missed brief string
+    that made the drafter write to `report.md` directly would silently
+    clobber the render; this guard makes that surface loudly instead (a
+    membership assertion here, not silence)."""
+    tree_root = tmp_path / "manuscripts" / "survey"
+    tree_root.mkdir(parents=True)
+    (tree_root / "_report.md").write_text("Source [[smith2023]].\n", encoding="utf-8")
+    (tree_root / "report.md").write_text("Rendered [1].\n\n## Sources\n", encoding="utf-8")
+
+    files = resolve_draft_files(tree_root)
+    names = [f.name for f in files]
+    assert "_report.md" in names
+    assert "report.md" not in names
+    assert not any(p.name == "report.md" for p in files)
 
 
 def test_resolve_draft_files_ignores_legacy_tex(tmp_path: Path):

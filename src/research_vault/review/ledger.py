@@ -596,3 +596,94 @@ def write_corpus_ledger(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(body), encoding="utf-8")
     return out
+
+
+# ---------------------------------------------------------------------------
+# PR-D2 (methods relocation): render the reader-facing PRISMA-style methods
+# write-up by CONSUMING _corpus_ledger.md — never re-deriving a number the
+# ledger already computed.
+# ---------------------------------------------------------------------------
+
+def render_methods_from_ledger(ledger_path: Path) -> str:
+    """Render the PRISMA-style methods flow from ``_corpus_ledger.md``
+    (PR-5) — frontmatter scalars for the count/search/saturation summary,
+    the body's already-rendered tables (search plan, saturation, relevance,
+    canonical-key map) verbatim.
+
+    Every number here traces to the ledger — this function parses, it never
+    recomputes a count (charter §1: never fabricate; the ledger is the
+    single source of truth PR-5 built for exactly this consumer). Per the
+    gold-settled decision (no Appendix in the reader-facing document), this
+    output is written to the project's DEVLOG/control note, NEVER joined
+    into ``_report.md``/``report.md`` — the caller (``source_transform``'s
+    ``appendix-methods`` tip) already carries that routing instruction.
+
+    Args:
+        ledger_path: the review's ``_corpus_ledger.md`` (``reviews/<slug>/``).
+
+    Returns:
+        Markdown. An absent ledger is an honest "not available yet" no-op
+        (never a fabricated methods section) — the manuscript's methods
+        node runs downstream of the review's coverage-gate, which is where
+        ``write_corpus_ledger`` is called; a ledger that hasn't landed yet
+        means the review hasn't reached that gate.
+
+    sr: PR-D2 (ledger -> methods fold-in, forward-carry from PR-5)
+    """
+    if not ledger_path.exists():
+        return (
+            "## PRISMA scope & method\n\n"
+            "_No `_corpus_ledger.md` found for this manuscript yet — it is "
+            "written by the review's coverage-gate (PR-5); run "
+            "`rv review <project> expand <scope>` through to that gate "
+            "first._\n"
+        )
+
+    text = ledger_path.read_text(encoding="utf-8")
+    fields, body = _parse_frontmatter(text)
+
+    def _f(key: str, default: str = "") -> str:
+        return str(fields.get(key, default))
+
+    lines = ["## PRISMA scope & method\n"]
+
+    if str(fields.get("ledger_complete", "true")).strip().lower() != "true":
+        lines.append(
+            "> [LEDGER-GAP] this ledger was INCOMPLETE when generated — see "
+            "the control-note `_corpus_ledger.md` for the specific gaps.\n"
+        )
+
+    lines.append("| Category | Count |")
+    lines.append("| --- | --- |")
+    lines.append(f"| Accepted (frozen corpus) | {_f('accepted')} |")
+    lines.append(f"| In-corpus (previously known) | {_f('in_corpus')} |")
+    lines.append(f"| New | {_f('new')} |")
+    lines.append(f"| Citekey conformant | {_f('citekey_conformant_count')} |")
+    lines.append(f"| Citekey non-conformant | {_f('citekey_nonconformant_count')} |")
+    lines.append("")
+    lines.append(
+        f"Search breadth: {_f('distinct_query_count')} distinct quer"
+        f"{'y' if _f('distinct_query_count') == '1' else 'ies'} across "
+        f"angles: {_f('angles_searched')}."
+    )
+    lines.append(
+        f"Saturation stop reason: {_f('stop_reason')} "
+        f"(bounded-not-saturated: {_f('bounded_not_saturated')})."
+    )
+    if _f("open_counter_poles"):
+        lines.append(f"Open counter-poles: {_f('open_counter_poles')}.")
+    lines.append("")
+
+    # The body already carries the fully-rendered detail tables (search
+    # plan, saturation, relevance dispositions, canonical-key map, open
+    # residue) — reuse verbatim rather than re-parsing/re-rendering them a
+    # second time (charter §6).
+    body_stripped = body.strip()
+    if body_stripped.startswith("# Corpus ledger"):
+        # Drop the ledger's own H1 title — this is a subsection of the
+        # methods write-up, not a standalone document.
+        body_stripped = body_stripped.split("\n", 1)[1].lstrip() if "\n" in body_stripped else ""
+    if body_stripped:
+        lines.append(body_stripped)
+
+    return "\n".join(lines).rstrip() + "\n"

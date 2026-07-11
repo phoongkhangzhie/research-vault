@@ -179,6 +179,24 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         ),
     )
 
+    # ── board-emit (PR-D2, design §2) ────────────────────────────────────────
+    board_emit_p = sub.add_parser(
+        "board-emit",
+        help=(
+            "Emit the 6-lens review-board cold-agent-judge fan-out task set "
+            "(design §2) — writes judge/board/_board-tasks.json + "
+            "_board-canary-key.json. rv calls no LLM here; the hub fans "
+            "cold subagent-judges out over the written tasks. Assembles the "
+            "WIDTH lens's coverage_diff from the [[citekey]] SOURCE "
+            "(_report.md), never the [N]-numbered render (PR-D2)."
+        ),
+    )
+    board_emit_p.add_argument("slug", metavar="<slug>", help="Manuscript identifier.")
+    board_emit_p.add_argument(
+        "--round", type=int, default=1, metavar="<n>",
+        help="Board round number (default 1).",
+    )
+
     return p
 
 
@@ -203,6 +221,8 @@ def run(args: argparse.Namespace) -> int:
         return _run_judge_emit(args)
     elif subcommand == "judge-ingest":
         return _run_judge_ingest(args)
+    elif subcommand == "board-emit":
+        return _run_board_emit(args)
     else:
         print(
             "rv manuscript: missing subcommand. "
@@ -434,4 +454,47 @@ def _run_judge_ingest(args: argparse.Namespace) -> int:
         return 0
     except Exception as e:
         print(f"rv manuscript judge-ingest: error: {e}", file=sys.stderr)
+        return 1
+
+
+def _run_board_emit(args: argparse.Namespace) -> int:
+    """Emit the 6-lens review-board cold-agent-judge fan-out task set (PR-D2)."""
+    from research_vault.config import load_config
+    from research_vault.manuscript import cmd_board_emit
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv manuscript board-emit: config error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        result = cmd_board_emit(args.project, args.slug, config=cfg, round=args.round)
+        n_tasks = len(result["tasks_doc"].get("tasks", []))
+        n_canaries = len(result["canary_key_doc"].get("canaries", {}))
+        cov = result.get("coverage_diff", {})
+        missing = cov.get("missing", [])
+        print(
+            f"rv manuscript board-emit: wrote {n_tasks} task(s) "
+            f"({n_canaries} canary probe(s)) to "
+            f"manuscripts/{args.slug}/judge/board/_board-tasks.json"
+        )
+        if missing:
+            print(
+                f"rv manuscript board-emit: coverage_diff flags {len(missing)} "
+                f"committed 'used' paper(s) missing from the reader body: "
+                f"{missing}",
+                file=sys.stderr,
+            )
+        print(
+            "rv manuscript board-emit: hand the tasks file to the hub for "
+            "cold subagent-judge fan-out over the 6 lenses; the board result "
+            "is consumed at `rv dag approve` (approve-manuscript)."
+        )
+        return 0
+    except FileNotFoundError as e:
+        print(f"rv manuscript board-emit: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"rv manuscript board-emit: error: {e}", file=sys.stderr)
         return 1

@@ -100,8 +100,15 @@ def _judge_configured(judge_fn: Callable[[str], str] | None) -> bool:
 # ---------------------------------------------------------------------------
 
 def _read_draft_text(tree_root: Path) -> str:
-    """Join every draft file (``report.md`` + ``sections/*.md`` — see
+    """Join every draft file (``_report.md`` + ``sections/*.md`` — see
     ``draft_files.py``) into one draft-text blob.
+
+    PR-D2: this is always the internal ``[[citekey]]`` SOURCE
+    (``draft_files.resolve_draft_files``), never PR-D's rendered
+    reader-facing ``report.md`` — every gate that calls this (equation
+    fidelity, citation-resolve via ``bib.py``, reader-hygiene, the board's
+    ``coverage_diff``) reads the SOURCE, which is a strict superset of the
+    render's leak surface.
 
     Best-effort, never raises: an unreadable/missing file simply contributes
     nothing (a fresh manuscript folder with no draft yet -> empty string,
@@ -652,17 +659,21 @@ def compute_coverage_diff(coverage_map_path: Path, reader_body: str) -> dict[str
     nothing committed to drop). ``missing`` is the load-bearing field handed
     to the WIDTH judge as ``coverage_diff``.
 
-    ★ PR-F SOURCE-ROUTING (fit-check): ``reader_body`` MUST be the
-    ``[[citekey]]`` SOURCE body — the assembled ``report.md`` + ``sections/*.md``
+    ★ PR-F/PR-D2 SOURCE-ROUTING (fit-check): ``reader_body`` MUST be the
+    ``[[citekey]]`` SOURCE body — the assembled ``_report.md`` + ``sections/*.md``
     from ``draft_files.resolve_draft_files`` (or ``_read_draft_text``). It must
-    NEVER be PR-D's ``[N]``-numbered render (``report.rendered.md``): that
-    render has already converted every ``[[citekey]]`` to ``[N]``, so
-    ``WIKILINK_CITE_RE`` finds ZERO citekeys in it — the diff would then flag
-    EVERY used paper as "missing" and false-critical the entire corpus. The
-    board driver assembles ``reader_body`` from the source draft; a regression
-    test (``test_coverage_diff_source_routing``) pins this contract.
+    NEVER be PR-D's ``[N]``-numbered render (``report.md``, PR-D2's rename of
+    the former ``report.rendered.md``): that render has already converted
+    every ``[[citekey]]`` to ``[N]``, so ``WIKILINK_CITE_RE`` finds ZERO
+    citekeys in it — the diff would then flag EVERY used paper as "missing"
+    and false-critical the entire corpus. The board-emit driver
+    (``manuscript.cmd_board_emit``) assembles ``reader_body`` from the source
+    draft via ``_read_draft_text``; a regression test
+    (``test_coverage_diff_source_routing`` at the unit level,
+    ``test_pr_d2_source_routing_driver.py`` at the driver level) pins this
+    contract.
 
-    sr: PR-E; source-routing guardrail PR-F
+    sr: PR-E; source-routing guardrail PR-F; driver PR-D2
     """
     from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE
 
@@ -761,6 +772,22 @@ def build_approve_payload(
     bib_result = check_citation_resolve(project_notes_dir, tree_root)
     if not bib_result["ok"]:
         blocking.extend(f"[hermetic-bib] {e}" for e in bib_result["errors"])
+
+    # ── 1b. Numbered render (PR-D + PR-D2) — deterministic, ALWAYS runs,
+    #      hard BLOCK. Converts `_report.md` (the `[[citekey]]` SOURCE this
+    #      node's caller — the assemble node — just wrote) into the
+    #      reader-facing `report.md` (`[N]` inline + `## Sources`) +
+    #      `references.bib`. Fail-closed: a non-empty ``errors`` (residual
+    #      `[[citekey]]`, blank/sentinel token) BLOCKs — a half-converted
+    #      `report.md` is never shipped (D-4d/D-4e). Independent of
+    #      ``check_citation_resolve`` above (that gate validates
+    #      `references.md`; this one drives the numbered render) but both
+    #      read the SAME `_report.md` source, never the render itself. ──
+    from research_vault.manuscript import bib as _bib
+
+    render_result = _bib.render_numbered_manuscript(project_notes_dir, tree_root)
+    if not render_result["ok"]:
+        blocking.extend(f"[numbered-render] {e}" for e in render_result["errors"])
 
     # ── 2. Equation-fidelity — deterministic, ALWAYS runs, SIGNAL only,
     #      D-MS-2 (PR-M4). A type with no equation_sources is a correct
