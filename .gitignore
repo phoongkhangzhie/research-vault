@@ -60,3 +60,8 @@ tasks/
 # own DEVLOG.md via `rv init`/`rv project new` — this ignore is anchored to the repo
 # root only, not project-scoped DEVLOG.md files under notes/)
 /DEVLOG.md
+
+# Operator-private design specs (the same path the leak scanner guards): an empty
+# shadow of this tree can appear here from tooling — ignore it so a stray `git add .`
+# can never stage the operator's private specs. The real specs live outside this repo.
+/docs/superpowers/
