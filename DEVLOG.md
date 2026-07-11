@@ -1,3 +1,98 @@
+## 2026-07-10 (PR-S1 REWRITE — reversed: backward stays unbounded, honest-knob fix instead)
+
+### Done
+Reversed the approach below after a recall-safety fit-check from the corpus
+architect. The original fix (client-side `items[:limit]` truncation on
+`SemanticScholarAdapter.references`) was flagged RECALL-REGRESSIVE: each
+paper is fetched at most once per direction across the whole snowball walk
+(`visited_pids`), so a truncated backward reference isn't deferred to a
+later round — it is dropped from the corpus permanently. Backward-snowball
+exists specifically to catch unique, peripheral citations a paper's own
+bibliography carries; a real downstream corpus-build run relied on this
+exact unbounded behavior (888 backward hits in one round). Total walk work
+is already bounded — not per-call, but at the WALK level, by
+`fetch_budget` (hard ceiling on total asta calls) and `frontier_cap`
+(bounds how many discovered papers re-seed the next round). A per-call
+backward cap cost recall for zero work-bound benefit, since those two
+knobs already do the bounding job.
+
+### Decisions
+- Removed the `items[:limit]` truncation entirely from
+  `SemanticScholarAdapter.references` — backward references are returned
+  in FULL, always. Kept the `limit` kwarg on the method signature (for
+  `SourceAdapter` Protocol parity with `search`/`cited_by`, and because
+  `snowball.py` calls this generically across whatever adapter it's
+  given) but it is now an explicit, documented no-op for this adapter —
+  never re-add a client-side cap here without re-litigating this decision.
+- `snowball.py` no longer passes `limit=per_round_limit` to
+  `adapter.references(...)` — the call is now bare (`adapter.references(asta_id)`),
+  matching the "backward is unbounded" contract literally, not just in the
+  adapter's ignored-kwarg behavior.
+- `per_round_limit`'s docstring in `run_snowball` now states explicitly
+  that it is **FORWARD-only** (`cited_by`) — the knob no longer silently
+  implies it bounds both directions, which was the original defect this
+  whole PR-S1 line of work exists to fix (an honest-knob fix, not a
+  truncation fix).
+- Forward (`cited_by`) direction is unchanged — still delegates its bound
+  to asta's own server-side `--limit` flag.
+- Rewrote the 4 truncation-proving tests into unbounded-proving tests:
+  backward returns all N references regardless of an explicit `limit=`
+  kwarg, backward returns all N with no `limit=` passed at all (matching
+  the new bare call in `snowball.py`), the below-limit-unaffected
+  regression, and forward-still-respects-its-limit.
+- Acceptance for this rewrite: no truncation of backward references
+  anywhere; `per_round_limit` documented forward-only; full suite green;
+  CI-scoped leakage scan (`src/research_vault`, `tests --codenames-only`,
+  `DEVLOG.md`) clean; no recall regression vs. main (backward behavior now
+  matches main's pre-PR-236 unbounded behavior exactly).
+
+### Open / next
+PR #236 (`feat/pr-s1-backward-snowball-limit`) rewritten in place
+(force-pushed) and retitled to reflect the reversal — pushed via owner
+`gh` (kz-mason PAT still lacks collaborator access to this repo — known
+gap, see engineer memory), commits authored `Mason` via
+`vault identity build-env mason`. Must land BEFORE PR-G (which re-runs the
+corpus-build loop and would otherwise validate against a degraded recall
+floor). Returns to the corpus architect for a quick re-confirm that the
+recall regression it flagged is gone.
+
+## 2026-07-10 (PR-S1 — bound the backward/references snowball direction to per_round_limit) — SUPERSEDED, see rewrite entry above
+
+### Done
+Fixed a pre-publish bug caught on a front-end observation run against wired
+0.3.0: the snowball's BACKWARD direction (`SemanticScholarAdapter.references`)
+accepted a `limit` kwarg but never applied it — `asta papers get --fields
+references.*` has no server-side `--limit`/pagination for a nested
+`references.*` projection (confirmed via `asta papers get --help`), unlike
+`cited_by`'s dedicated `asta papers citations ... --limit` endpoint. So a
+seed's FULL reference list was always fetched regardless of
+`per_round_limit` (observed live: forward correctly bounded to 31 hits,
+backward returned 461 from 5 seeds — `per_round_limit` was a near-dead knob
+for the backward direction).
+
+### Decisions
+- Bound client-side: `items[:limit]`, preserving asta's as-returned order
+  (no re-ranking added). Documented in-line as a **per-round fanout
+  throttle, not a relevance filter or permanent exclusion** — references
+  beyond the cut are simply not fetched from that seed in that round; the
+  same paper can still be reached via another path (another frontier
+  paper's forward citation, another seed's reference) in this or a later
+  round, exactly as already happens today for the forward direction's
+  server-side `--limit` truncation. The downstream relevance gate +
+  `frontier_cap` reseed (`snowball.py`) still decide corpus inclusion.
+- Forward (`cited_by`) direction left untouched — it already delegates the
+  bound to asta's own `--limit` flag; added a regression test proving no
+  client-side truncation was introduced there.
+- `snowball.py` itself needed no changes: it already calls
+  `adapter.references(asta_id, limit=per_round_limit)` correctly — the bug
+  was entirely inside the adapter ignoring its own kwarg.
+
+### Open / next
+PR: `feat/pr-s1-backward-snowball-limit` off `92a02b0`, opened via owner
+`gh` (kz-mason PAT lacks collaborator access to this repo — known gap, see
+engineer memory). Returns to the corpus architect for a recall-adjacent
+fit-check per the dispatch brief.
+
 ## 2026-07-10 (PR-5 fix-round — architect fit-check: ledger bypass + fabricated count)
 
 ### Done

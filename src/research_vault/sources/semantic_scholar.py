@@ -191,6 +191,42 @@ class SemanticScholarAdapter:
             "references.abstract,references.venue"
         ),
     ) -> list[PaperHit]:
+        """Backward snowball: papers ``paper_id`` itself cites.
+
+        ``limit`` is accepted (kept for ``SourceAdapter`` Protocol parity
+        with ``search``/``cited_by``, and because ``snowball.py`` calls this
+        generically across whatever adapter it's given) but is a DELIBERATE
+        NO-OP here — see the PR-S1 REWRITE note below. Do not re-add a
+        client-side ``items[:limit]`` truncation; that was tried and
+        reverted (recall-regressive, see git history for the original
+        PR-S1 commit + its revert).
+
+        PR-S1 REWRITE (pre-publish fit-check, 2026-07-10): an earlier
+        version of this fix bound backward references client-side to
+        ``per_round_limit``, on the reasoning that ``asta papers get`` has
+        no server-side pagination for a nested ``references.*`` projection
+        (confirmed via `asta papers get --help`) so `limit` was otherwise
+        silently unused. The corpus architect flagged that as
+        RECALL-REGRESSIVE on fit-check: backward-snowball exists precisely
+        to catch UNIQUE, PERIPHERAL citations a paper's own bibliography
+        carries — unlike the forward direction (rediscoverable from many
+        citing papers), a truncated backward reference is not "delayed to
+        a later round," it is GONE for good the moment ``visited_pids``
+        marks this seed visited (each paper is fetched at most once per
+        direction across the whole walk). A real downstream project's
+        corpus-build run relied on this exact unbounded behavior (888
+        backward hits in one round). Total
+        walk work is ALREADY bounded — not by a per-call reference cap, but
+        at the WALK level by ``fetch_budget`` (hard ceiling on total calls)
+        and ``frontier_cap`` (bounds how many discovered papers re-seed the
+        next round) — see ``snowball.py``. A per-call backward cap would
+        cost recall for zero work-bound benefit, since those two knobs
+        already do the bounding job. Decision: backward stays fully
+        unbounded per-call; ``per_round_limit`` is FORWARD-only (see its
+        docstring in ``snowball.py::run_snowball``). Precision on the
+        resulting pool is the relevance gate's job downstream, not
+        truncation here.
+        """
         cmd = [
             "asta", "papers", "get", paper_id,
             "--fields", fields,

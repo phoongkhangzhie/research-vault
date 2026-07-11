@@ -335,3 +335,111 @@ def test_references_raises_adapter_fetch_error_not_systemexit(monkeypatch) -> No
         pass
     except SystemExit:
         pytest.fail("references must not raise SystemExit — it must raise AdapterFetchError")
+
+
+# ---------------------------------------------------------------------------
+# PR-S1 REWRITE (pre-publish fit-check, 2026-07-10): an earlier version of
+# this fix client-side-truncated `references()` to `limit`, reasoning that
+# `asta papers get` has no server-side `--limit`/pagination for a nested
+# `references.*` projection (unlike `cited_by`'s dedicated
+# `asta papers citations ... --limit` endpoint) so the kwarg was otherwise
+# silently unused. The corpus architect's fit-check flagged that as
+# RECALL-REGRESSIVE: backward-snowball exists to catch unique/peripheral
+# citations, each paper is fetched at most once per direction across the
+# whole walk (so a truncated reference is gone for good, not deferred), and
+# a real downstream corpus-build run relied on this exact unbounded
+# behavior (888 backward hits in one round). Total walk work is already
+# bounded at the WALK level
+# (fetch_budget / frontier_cap in snowball.py), not per-call. Decision:
+# backward stays fully unbounded per-call; these tests now pin THAT.
+# ---------------------------------------------------------------------------
+
+def _fake_references_run(n: int):
+    """Build a fake_run returning `n` distinct reference items, each
+    identifiable by a unique DOI suffix so order/truncation is verifiable."""
+    items = [
+        {**S2_PAPER, "externalIds": {"DOI": f"10.48550/ARXIV.ref-{i}"}}
+        for i in range(n)
+    ]
+
+    def fake_run(cmd, **kwargs):
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps({"references": items})
+        r.stderr = ""
+        return r
+
+    return fake_run, items
+
+
+def test_references_returns_all_regardless_of_limit_kwarg(monkeypatch) -> None:
+    """Acceptance: backward references are NEVER client-side truncated — a
+    seed with N references yields all N candidates regardless of `limit`.
+    This is the opposite of the (reverted) truncation behavior: a 50-ref
+    seed must yield 50 backward candidates even when `limit=20` is passed
+    (kept only for SourceAdapter Protocol parity — see the adapter's
+    docstring; it is a deliberate no-op here)."""
+    fake_run, items = _fake_references_run(50)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+
+    hits = adapter.references("ARXIV:1706.03762", limit=20)
+
+    assert len(hits) == 50
+    kept_dois = {h.external_ids["doi"] for h in hits}
+    expected_dois = {p["externalIds"]["DOI"] for p in items}
+    assert kept_dois == expected_dois
+
+
+def test_references_returns_all_with_no_limit_arg_at_all(monkeypatch) -> None:
+    """The real snowball caller no longer passes `limit=` at all for the
+    backward direction (see snowball.py) — confirm the bare call (default
+    kwarg) also returns everything, not just the explicit-limit-passed case
+    above."""
+    fake_run, items = _fake_references_run(10)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+
+    hits = adapter.references("ARXIV:1706.03762")
+
+    assert len(hits) == 10
+
+
+def test_references_below_limit_unaffected(monkeypatch) -> None:
+    """No behavior change when a seed has fewer references than the limit
+    (this was already true pre-fix; kept as a regression pin)."""
+    fake_run, items = _fake_references_run(3)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+
+    hits = adapter.references("ARXIV:1706.03762", limit=20)
+
+    assert len(hits) == 3
+
+
+def test_cited_by_still_respects_its_limit(monkeypatch) -> None:
+    """Regression: forward (`cited_by`) direction is untouched by this
+    rewrite — it still legitimately bounds via asta's own server-side
+    `--limit` flag. Only backward (`references`) is unbounded."""
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = json.dumps(
+            {"data": [{"citingPaper": {**S2_PAPER, "externalIds": {"DOI": f"10.1/{i}"}}} for i in range(50)]}
+        )
+        r.stderr = ""
+        return r
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    adapter = SemanticScholarAdapter()
+    hits = adapter.cited_by("ARXIV:1706.03762", limit=20)
+
+    # asta's own --limit flag is what bounds this in production (the mock
+    # here returns 50 regardless of the flag, since it's a stub — the
+    # assertion is that the flag is passed through, not client-truncated).
+    assert "--limit" in captured["cmd"]
+    assert captured["cmd"][captured["cmd"].index("--limit") + 1] == "20"
+    assert len(hits) == 50
