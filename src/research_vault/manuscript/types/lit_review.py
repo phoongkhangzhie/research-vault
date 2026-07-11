@@ -41,7 +41,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from research_vault.config import Config
+from research_vault.config import Config, load_config
 from research_vault.note import _parse_frontmatter
 
 from . import ManuscriptType, SectionSpec, register_type
@@ -972,7 +972,9 @@ def render_prisma_ledger(
     return "\n".join(lines) + "\n"
 
 
-def index_literature_rows(literature_dir: Path) -> list[dict[str, str]]:
+def index_literature_rows(
+    literature_dir: Path, *, literature_root: Path | None = None,
+) -> list[dict[str, str]]:
     """Deterministic citekey-sorted row index over ``literature/`` frontmatter.
 
     One dict per note, columns drawn STRICTLY from frontmatter (no LLM, no
@@ -981,15 +983,35 @@ def index_literature_rows(literature_dir: Path) -> list[dict[str, str]]:
     ``repo``/``artifacts`` fields (empty string when the note predates the
     enrichment or the paper ships no code — never a fabricated value).
 
+    PR-A / FF-3 (fit-check hard gate carried onto PR-B): ``citekey``/``year``/
+    ``venue``/``repo`` are CORE-only content under the two-layer split — a
+    project's ``literature/`` dir now holds thin OVERLAYS (``central:``
+    pointer, ``role``/``position``), so reading overlay frontmatter alone
+    would silently return these fields empty for every two-layer note. When
+    ``literature_root`` is given, each overlay's ``central:`` pointer is
+    resolved against it and the core's fields win on any collision — the
+    SAME degrade-tolerant merge ``manuscript/bib.py``'s literature index
+    already uses (duplicated here, not unified — PR-A fit-check FF-1 is the
+    tracked follow-up for a single shared merge primitive; out of scope for
+    this fix). ``literature_root=None`` degrades to reading
+    ``literature_dir`` directly — the pre-PR-A behavior, still correct for a
+    legacy monolithic note that carries its own fields (and for hermetic
+    tests that intentionally exercise that path).
+
     Args:
-        literature_dir: the project's ``literature/`` OKF dir.
+        literature_dir: the project's ``literature/`` OKF dir (the overlay
+            dir under the two-layer split).
+        literature_root: the central store (``cfg.literature_root``) to
+            resolve each overlay's ``central:`` pointer against. ``None``
+            is an honest degrade (see above), never an error.
 
     Returns:
-        Rows sorted by citekey (falls back to filename stem when
-        ``citekey:`` is absent — mirrors ``review._index_literature_notes_by_citekey``'s
-        F17 convention). Empty list if the dir does not exist.
+        Rows sorted by citekey (falls back to the overlay's filename stem
+        when no resolvable ``citekey:`` is found — mirrors
+        ``review._index_literature_notes_by_citekey``'s F17 convention).
+        Empty list if the dir does not exist.
 
-    sr: PR-M6
+    sr: PR-M6; PR-B (FF-3 core-only-field fix)
     """
     if not literature_dir.exists():
         return []
@@ -1000,7 +1022,19 @@ def index_literature_rows(literature_dir: Path) -> list[dict[str, str]]:
             text = note_path.read_text(encoding="utf-8")
         except OSError:
             continue
-        fields, _ = _parse_frontmatter(text)
+        overlay_fields, _ = _parse_frontmatter(text)
+        fields = dict(overlay_fields)
+        central = str(overlay_fields.get("central") or "").strip()
+        if literature_root is not None and central:
+            core_path = Path(literature_root) / f"{central}.md"
+            if core_path.exists():
+                try:
+                    core_fields, _ = _parse_frontmatter(
+                        core_path.read_text(encoding="utf-8")
+                    )
+                    fields = {**overlay_fields, **core_fields}
+                except OSError:
+                    pass
         citekey = str(fields.get("citekey", "")).strip() or note_path.stem
         rows.append({
             "citekey": citekey,
@@ -1174,7 +1208,13 @@ def source_transform(
         deviations_path = project_notes_dir / "reviews" / slug / "_deviations.md"
         appendix_methods = render_prisma_ledger(coverage, deviations_path=deviations_path)
 
-    rows = index_literature_rows(project_notes_dir / "literature")
+    # PR-B / FF-3: resolve two-layer overlays' core-only fields (year/venue/
+    # repo/citekey) against the central store — never read the thin overlay
+    # alone (see index_literature_rows' docstring).
+    _cfg = config or load_config()
+    rows = index_literature_rows(
+        project_notes_dir / "literature", literature_root=_cfg.literature_root,
+    )
 
     branches_raw = spine.get("branches", []) if spine else []
     if isinstance(branches_raw, str):

@@ -545,6 +545,70 @@ def test_index_literature_rows_sorted_and_has_repo(tmp_path):
     assert rows[0]["repo"] == ""
 
 
+# ---------------------------------------------------------------------------
+# FF-3 (PR-A fit-check, hard gate carried onto PR-B): a genuinely two-layer
+# note must not silently drop its core-only fields when a bulk glob-and-
+# parse consumer reads it. index_literature_rows globs the project's
+# OVERLAY dir directly; repo/year/venue are CORE-only content (PR-A) — an
+# overlay carries none of them. Mirrors manuscript/bib.py's ALREADY-FIXED
+# degrade-tolerant merge (`literature_root=None` degrades to legacy
+# monolithic-note behavior, exercised by the two tests above).
+# ---------------------------------------------------------------------------
+
+def test_index_literature_rows_two_layer_note_keeps_core_only_fields(tmp_path):
+    """A two-layer note (core: repo/year/venue; overlay: role/position)
+    must surface repo/year/venue through index_literature_rows when a
+    literature_root is supplied — NOT silently return them empty."""
+    literature_root = tmp_path / "central-store"
+    literature_root.mkdir()
+    (literature_root / "smith2024.md").write_text(
+        "---\ntype: literature\ncitekey: smith2024\ntitle: Smith Paper\n"
+        "year: 2024\nvenue: NeurIPS\nrepo: https://github.com/smith/paper\n"
+        "doi: 10.1234/smith2024\n---\n\n## Result\n\nfindings here.\n",
+        encoding="utf-8",
+    )
+
+    overlay_dir = tmp_path / "projects" / "demo" / "literature"
+    overlay_dir.mkdir(parents=True)
+    (overlay_dir / "smith2024.md").write_text(
+        "---\ntype: literature\ntitle: Smith Paper\ncentral: smith2024\n"
+        "role: empirical\nposition: supports our RQ\n---\n\n"
+        "## Concept edges\n\n- [links-to] [my-concept](/concepts/my-concept.md) — reason\n",
+        encoding="utf-8",
+    )
+
+    rows = index_literature_rows(overlay_dir, literature_root=literature_root)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["citekey"] == "smith2024"
+    # The load-bearing assertion: core-only fields survive the bulk read.
+    assert row["year"] == "2024"
+    assert row["venue"] == "NeurIPS"
+    assert row["repo"] == "https://github.com/smith/paper"
+
+
+def test_index_literature_rows_two_layer_note_degrades_without_literature_root(tmp_path):
+    """literature_root=None (the default) is an honest degrade — a
+    two-layer overlay read WITHOUT the core resolves to empty core-only
+    fields (not a crash, not a fabricated value); this documents the
+    degrade path rather than silently hiding it."""
+    overlay_dir = tmp_path / "projects" / "demo" / "literature"
+    overlay_dir.mkdir(parents=True)
+    (overlay_dir / "smith2024.md").write_text(
+        "---\ntype: literature\ntitle: Smith Paper\ncentral: smith2024\n"
+        "role: empirical\nposition: supports our RQ\n---\n\n"
+        "## Concept edges\n\n- [links-to] [x](/concepts/x.md) — r\n",
+        encoding="utf-8",
+    )
+    rows = index_literature_rows(overlay_dir)
+    assert len(rows) == 1
+    assert rows[0]["year"] == ""
+    assert rows[0]["venue"] == ""
+    assert rows[0]["repo"] == ""
+    # citekey falls back to the overlay's filename stem when core is unavailable.
+    assert rows[0]["citekey"] == "smith2024"
+
+
 def test_comparison_table_deterministic(tmp_path):
     rows = [
         {"citekey": "a2023", "title": "A", "year": "2023", "venue": "ACL", "repo": ""},

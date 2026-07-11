@@ -107,6 +107,21 @@ _VERB_REGISTRY: dict[str, dict] = {
             "datasets/ provenance note and afterok on it so data lineage is structural."
         ),
     },
+    "literature": {
+        "module": "research_vault.literature",
+        "when_to_use": (
+            "When you need to see which papers a project has ADOPTED into its "
+            "corpus — `rv literature list <project>` globs the project's "
+            "literature/ overlay dir (the per-project registry — PR-A's "
+            "two-layer store, §0.5 PR-B) and enriches each entry via the "
+            "project's already-written `_corpus_ledger.md` (resolving ids, "
+            "citekey-conformance) — ZERO recomputation. "
+            "Anti-pattern: do NOT hand-glob literature/*.md and eyeball "
+            "frontmatter — the overlay alone is thin by design (no ids, no "
+            "conformance verdict); use `rv literature list` so it resolves "
+            "through the central core + the ledger for you."
+        ),
+    },
     "control": {
         "module": "research_vault.control",
         "when_to_use": (
@@ -717,7 +732,7 @@ _HELP_PHASE_MAP: list[tuple[str, list[str]]] = [
     ("Manuscript",   ["manuscript"]),
     ("Gap loop",     ["__gap_loop__"]),  # review gap-* subcommands; see _GAP_LOOP_SUBCMDS
     ("Infra/git",    ["lint", "code", "mdstore", "wait-for", "plugins", "approval", "observability"]),
-    ("Coordination", ["status", "orient", "control", "task", "note", "devlog", "role", "build-agents"]),
+    ("Coordination", ["status", "orient", "control", "task", "note", "literature", "devlog", "role", "build-agents"]),
 ]
 
 # Review subcommands split for display purposes only.
