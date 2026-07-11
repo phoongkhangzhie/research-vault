@@ -39,16 +39,21 @@ confirms or flips it at `approve-protocol`. On `deliverable: manuscript`, reachi
 Lit-review topology (frozen; do not reorder):
 ```
 review-scope → [HG: approve-protocol] → review-search → review-screen →
-review-snowball → review-curate → coverage-gate → (Phase-2) relate-* →
-review-synthesize → review-coverage-critic → approve-review
+review-snowball → review-relevance-screen → review-curate →
+review-relevance-verify-prep → review-relevance-verify → coverage-gate →
+(Phase-2, auto-emitted) relate-* → review-synthesize →
+review-coverage-critic → approve-review
    → [if deliverable=manuscript] EMITS manuscript loop
 ```
 Manuscript topology:
 ```
 new --type <type> → (Phase-1: scope → framework-lens-<L> ×N (fan-out) →
-framework-synthesize → framework-critic → approve-framework) → expand →
-section(s) → assemble → approve-manuscript
+framework-synthesize → framework-critic → approve-framework, auto-resolved) →
+(Phase-2, auto-emitted) → section(s) → assemble → 6-lens board (cold fan-out) →
+approve-manuscript (auto-resolved)
 ```
+(`expand` no longer exists as a hand-run verb for either loop — Phase-2 auto-emits
+when the upstream gate GOes.)
 
 ## Bootstrap
 
@@ -64,7 +69,8 @@ Before driving anything:
      `reviews/<scope>/phase1-dag.json`.
    - manuscript (standalone, corpus already exists):
      `rv manuscript <project> new <slug> --type <type>` → writes
-     `manuscripts/<slug>/phase2-dag.json`.
+     `manuscripts/<slug>/phase1-dag.json` for a type with a Phase-1 (`lit-review`
+     does); Phase-2 (`phase2-dag.json`) auto-emits when `approve-framework` GOes.
 3. **Start the DAG run:** `rv dag run <path-to>/phase1-dag.json` — validates the
    manifest, writes run-state, prints the initial frontier.
 
@@ -105,12 +111,13 @@ structured verdicts. Never a hand-rolled `api.anthropic.com` call and never a
 warm self-judge.
 
 ```
-rv review judge-emit    <run> --gate <gate>   # write the judge-task set
+rv review <project> judge-emit    <scope>                    # write the counter-facet judge-task set
 # → spawn a fresh subagent per emitted task (cold, no thesis-anchoring)
-rv review judge-ingest  <run> --gate <gate>   # fold the structured verdicts back
+rv review <project> judge-ingest  <scope>                     # fold the structured verdicts back
+rv manuscript <project> judge-emit   <slug> [--gate support-matcher]   # support-matcher task set
+rv manuscript <project> judge-ingest <slug> [--gate support-matcher]
+rv manuscript <project> board-emit   <slug> [--round N]        # 6-lens board task set
 ```
-(`rv manuscript judge-emit / judge-ingest / board-emit` are the manuscript-side
-equivalents.)
 
 A relied-on verdict is trustworthy only when it is **cold** (fresh subagent),
 **rejects-only** (a pass never certifies — only a rejection is signal),

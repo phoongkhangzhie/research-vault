@@ -98,8 +98,9 @@ def test_no_wrong_order_review_expand_project(cfg):
     )
 
 
-def test_correct_order_present_in_coverage_gate_label(cfg):
-    """Coverage-gate label must contain the correct-order expand command."""
+def test_no_stale_expand_instruction_in_coverage_gate_label(cfg):
+    """Coverage-gate label must not instruct a hand-run 'expand' (D1: verb
+    consolidation removed it — Phase-2 auto-emits on GO)."""
     from research_vault.review import cmd_new
     _, _, manifest = cmd_new(
         "demo-research",
@@ -109,14 +110,18 @@ def test_correct_order_present_in_coverage_gate_label(cfg):
     )
     gate = next(n for n in manifest["nodes"] if n["id"] == "coverage-gate")
     label = gate.get("label", "")
-    # The correct form must be present
-    assert "rv review <project> expand <scope>" in label, (
-        f"coverage-gate label must use correct arg order; got: {label!r}"
+    # Neither arg-order variant of a hand-run expand instruction may appear.
+    assert "rv review expand <project>" not in label
+    assert "rv review <project> expand <scope>" not in label
+    # The label must instead say Phase-2 auto-emits.
+    assert "auto-emit" in label.lower(), (
+        f"coverage-gate label must state Phase-2 auto-emits; got: {label!r}"
     )
 
 
-def test_correct_order_in_note_body(cfg):
-    """OKF note body must use the correct-order expand command."""
+def test_no_stale_expand_instruction_in_note_body(cfg):
+    """OKF note body must not instruct a hand-run 'expand' (D1: verb
+    consolidation removed it — Phase-2 auto-emits on coverage-gate GO)."""
     from research_vault.review import cmd_new
     note_path, _, _ = cmd_new(
         "demo-research",
@@ -125,27 +130,25 @@ def test_correct_order_in_note_body(cfg):
         config=cfg,
     )
     body = note_path.read_text(encoding="utf-8")
-    # Wrong form absent
-    assert "rv review expand <project>" not in body, (
-        "OKF note body must not contain wrong-order 'rv review expand <project>'"
-    )
-    # Correct form present
-    assert "rv review <project> expand <scope>" in body, (
-        f"OKF note body must contain correct-order expand command; excerpt:\n{body[:500]}"
+    # Neither arg-order variant of a hand-run expand instruction may appear.
+    assert "rv review expand <project>" not in body
+    assert "rv review <project> expand <scope>" not in body
+    # The note must instead say Phase-2 auto-emits.
+    assert "auto-emit" in body.lower(), (
+        f"OKF note body must state Phase-2 auto-emits; excerpt:\n{body[:500]}"
     )
 
 
-def test_correct_order_in_parser_description(cfg):
-    """review verbs parser description must use correct arg order for expand."""
+def test_no_stale_expand_instruction_in_parser_description(cfg):
+    """review verbs parser description must not instruct a hand-run 'expand'
+    (D1: verb consolidation removed it — Phase-2 auto-emits on GO)."""
     from research_vault.review.verbs import build_parser
     p = build_parser()
     full_text = p.description or ""
-    # Wrong form absent
-    assert "review expand <project>" not in full_text, (
-        "Parser description must not contain wrong-order 'review expand <project>'"
-    )
-    # Correct form present
-    assert "rv review <project> expand <scope>" in full_text or \
-           "review <project> expand" in full_text, (
-        f"Parser description must use correct arg order; got:\n{full_text[:300]}"
+    # Neither arg-order variant of a hand-run expand instruction may appear.
+    assert "review expand <project>" not in full_text
+    assert "review <project> expand <scope>" not in full_text
+    # The description must instead say Phase-2 auto-emits.
+    assert "auto-emit" in full_text.lower(), (
+        f"Parser description must state Phase-2 auto-emits; got:\n{full_text[:300]}"
     )

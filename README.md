@@ -147,19 +147,26 @@ A pre-registered, saturation-gated review. The protocol must be approved before
 search fires (L-2 anti-fishing gate); a deterministic width-sweep (`review-search`)
 is screened by a thin agent judgment layer (`review-screen`) before the
 deterministic snowball walks forward (cited-by) and backward (references)
-(`review-snowball`), whose raw corpus is then concept-tagged and curated
-(`review-curate`); Phase-2 relate nodes fan out over every in-scope paper. On
-GO, `approve-review` auto-emits and auto-starts the manuscript loop over the
-same scope (no hand-run hand-off). OKF outputs: `literature/*.md` notes,
-`concepts/`, `mocs/`, and typed gap notes.
+(`review-snowball`). The raw corpus then passes a **relevance gate**: a
+mechanical off-domain pre-filter (`review-relevance-screen`) ahead of concept-tagging
+and curation (`review-curate`), then a **cold, canary-verified re-check**
+(`review-relevance-verify`) of every `[NEW]` paper before `coverage-gate` — below a
+30% off-domain fraction it auto-prunes and the run proceeds; at/above threshold it
+HALT-DECLAREs. On coverage-gate GO, Phase-2 relate nodes auto-emit and fan out over
+every in-scope paper (no hand-run `expand`). On `approve-review` GO,
+the manuscript loop over the same scope auto-emits and auto-starts (no hand-run
+hand-off). OKF outputs: `literature/*.md` notes, `concepts/`, `mocs/`, and typed
+gap notes.
 
 ```mermaid
 flowchart TD
     scope[review-scope] --> HG1[["[HG] approve-protocol"]]
     HG1 --> search[review-search] --> screen[review-screen] --> snowball[review-snowball]
-    snowball --> curate[review-curate]
-    curate --> GATE2[["coverage-gate (auto-resolved)"]]
-    GATE2 --> relate["relate-*\n(Phase-2 fan-out)"]
+    snowball --> relscreen[review-relevance-screen]
+    relscreen --> curate[review-curate]
+    curate --> relprep[review-relevance-verify-prep] --> relverify[review-relevance-verify]
+    relverify --> GATE2[["coverage-gate (auto-resolved)"]]
+    GATE2 -. "auto-emits" .-> relate["relate-*\n(Phase-2 fan-out)"]
     relate --> synthesize[review-synthesize] --> critic[review-coverage-critic]
     critic --> GATE3[["approve-review (auto-resolved)"]]
     GATE3 -. "auto-emits + auto-starts" .-> MS[["manuscript loop\n(new tree, slug == scope)"]]
@@ -195,9 +202,12 @@ is chosen by an ensemble — N cold, independent lens candidates (each a
 different organizing lens) are synthesized into a single backbone by select-and-graft,
 then vetted by a cold, rejects-only critic before the gate auto-commits; every
 draft/revise round re-fires hard fidelity gates (hermetic references build, citation-resolve, coverage,
-equation-fidelity) and, when a judge is configured, LLM-judged support-matcher +
-cold-read gates; a 2-round × 3-reviewer conference-style board scores FLOOR axes
-by MIN-across-3 (never average) plus a **mandatory** annotated-bibliography
+equation-fidelity) plus the cold-agent-judged support-matcher (`judge-emit` writes
+the fan-out task set, the hub fans cold subagent judges out over it, `judge-ingest`
+assembles the verdict — fail-closed, never a config-gated skip); a **6-lens
+cold-agent-judge review board** (N rounds, default 2, hardcap 3, skip-once-cleared) —
+depth, width, synthesis, self-containment, adversarial, instruction-following — scores
+FLOOR axes by MIN-across-lens (never average) plus a **mandatory** annotated-bibliography
 canary that must not clear. OKF inputs: `literature/`, `concepts/`, `mocs/`,
 `gaps/`. Output: `manuscripts/<slug>/{report.md, sections/, references.md, figures/}`
 (markdown only — no LaTeX).
@@ -216,14 +226,15 @@ flowchart TD
     L5 --> syn
     syn --> fcritic[framework-critic]
     fcritic --> GATE1[["approve-framework (auto-resolved)"]]
-    GATE1 --> sec["section(s)\n(type-generic, sequential)"] --> assemble
-    assemble --> GATE2[["approve-manuscript (auto-resolved)"]]
+    GATE1 -. "auto-emits" .-> sec["section(s)\n(type-generic, sequential)"] --> assemble
+    assemble --> board[["6-lens board\n(cold judge-fanout, N rounds)"]]
+    board --> GATE2[["approve-manuscript (auto-resolved)"]]
 ```
 
 See [doctrine/manuscript-loop.md](src/research_vault/data/doctrine/manuscript-loop.md)
-for the full walkthrough (scaffold → framework approval → expand → the 2×3
-review board → the fidelity gates → the manuscript output) and its known
-limitations.
+for the full walkthrough (scaffold → framework lens-ensemble → autonomous Phase-2
+emission → the 6-lens review board → the fidelity gates → the manuscript output)
+and its known limitations.
 
 All three loops use the same underlying machinery: a DAG walker over typed nodes,
 with a grounding manifest that binds each node to the artifacts it reads and
@@ -286,6 +297,14 @@ paths, not a re-typed summary.
 - **OKF typed notes** — 8 note types (literature, concepts, methods, experiments,
   findings, mocs, datasets, gaps). Notes are *pointers*, not embeds: a datasets
   note points to its artifact (path/URL/DOI + content hash), never contains it.
+  `literature` is **two-layer**: a cross-project CENTRAL CORE (intrinsic paper
+  facts — ids, `## Result`, `## Key equations`, `## Related papers`) lives once
+  at `cfg.literature_root/<citekey>.md`; a thin per-project OVERLAY (role,
+  position, concept-edges + a `central:` pointer) lives at the familiar
+  `project_notes_dir/literature/<citekey>.md` — the same paper read once,
+  never re-transcribed per project. `rv literature list <project>` reads a
+  project's overlay against the central corpus ledger (zero recompute) to show
+  which papers it draws on.
 
 ---
 

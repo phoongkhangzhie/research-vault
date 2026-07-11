@@ -1,3 +1,67 @@
+## 2026-07-10 (pre-publish docs accuracy audit)
+
+### Done
+Audited the shipped public docs (README.md, `src/research_vault/skills/research-pipeline/SKILL.md`,
+`src/research_vault/data/doctrine/*.md`, `src/research_vault/data/templates/QUICKSTART.md`,
+and the CLI help/discovery text in `cli.py`/`review/verbs.py`/`manuscript/verbs.py`) against
+the actual 0.3.0 code and fixed every confirmed drift:
+
+- **`rv review expand` / `rv manuscript expand` / `rv manuscript review` are
+  HARD-REMOVED** (D1, verb consolidation) — Phase-2 auto-emits on the upstream
+  gate's GO. Every doc/help surface that instructed a hand-run `expand` (README's
+  mermaid + prose, SKILL.md's topology, QUICKSTART.md, manuscript-loop.md,
+  project-structure.md, the module docstrings + `--help` description text in
+  `review/verbs.py`/`manuscript/verbs.py`, `cli.py`'s `_VERB_REGISTRY` `when_to_use`
+  strings, and the `coverage-gate` node label + scaffolded review-note template
+  printed at runtime) now says so accurately.
+- **No judge/gate uses `RV_JUDGE_MODEL`/`ANTHROPIC_API_KEY`** (PR-F deleted that
+  path) — fixed the last two shipped-doc holdouts (`manuscript-loop.md`,
+  `cli.py`'s manuscript `when_to_use`) to describe the actual cold-agent-judge
+  fan-out (`judge-emit` → hub fans cold subagents → `judge-ingest`, fail-closed).
+  `ANTHROPIC_API_KEY` stays legitimate ONLY for experiment compute.
+- **The review Phase-1 topology was missing 4 real nodes** everywhere it was
+  documented: `review-relevance-screen` (mechanical off-domain pre-filter) and
+  `review-relevance-verify-prep`/`review-relevance-verify` (cold, canary-verified
+  re-check) — the relevance gate (PR-1, `OFF_DOMAIN_HALT_THRESHOLD = 0.30`).
+  Fixed in README's mermaid, SKILL.md's topology, QUICKSTART.md, and the
+  `review/verbs.py`/`cli.py` help text.
+- **The manuscript loop's framework Phase-1 was documented as a single
+  `framework-propose` node**; the real code is a `framework-lens-<L>` ×N cold
+  fan-out → `framework-synthesize` (select-and-graft) → `framework-critic` →
+  `approve-framework` (auto-resolved). Fixed in `manuscript-loop.md`.
+- **The review board was documented as "2-round × 3-reviewer"**; the real
+  code (PR-E/PR-D2) is the **6-lens** cold-agent-judge board (depth, width,
+  synthesis, self-containment, adversarial, instruction-following), N rounds
+  (default 2, hardcap 3, skip-once-cleared), MIN-across-lens floor scoring.
+  Fixed in README, `manuscript-loop.md`, QUICKSTART.md, `cli.py`.
+- **`approve-manuscript` was documented as a human gate** ("the human makes
+  the final call") — it is `autonomous=True` in `dag/catalog.py`; fixed
+  `manuscript-loop.md`.
+- Added README's "OKF typed notes" mention of the **central two-layer
+  literature store** (PR-A, already on this base): a cross-project CENTRAL
+  CORE at `cfg.literature_root/<citekey>.md` + a thin per-project OVERLAY.
+- Updated 3 tests in `test_sr_lr_polish_s2.py` that encoded the now-stale
+  "expand must use correct arg order" contract (that verb no longer exists to
+  hand-run) — they now assert the auto-emission language is present and no
+  hand-run `expand` instruction (either arg order) survives.
+
+### Decisions
+- `rv literature list` (PR-B, landing in parallel) is NOT documented here —
+  it wasn't on this branch's base (`dbcfe13`); flagged as a follow-up rather
+  than describing a not-yet-merged interface.
+- Left internal (non-`--help`, non-docstring-surfaced) module-docstring/
+  log-prefix mentions of `rv review expand` in `review/__init__.py` (e.g. the
+  module docstring, `cmd_expand`'s own docstring, `rv review expand:` error-
+  message prefixes) unchanged — those are not shipped/public discovery
+  surfaces and touching them risked scope creep beyond the audit.
+- Crew-persona branding (Mason/Ada/Argus/Wren/Iris/Alfred + the README bios)
+  deliberately NOT scrubbed — a separate tier-2 pass owns spec-numbering.
+
+### Open / next
+- `rv literature list` docs follow-up once PR-B lands.
+- The internal `review/__init__.py` prose noted above could use a pass too,
+  but it's not user-facing.
+
 ## 2026-07-10 (support-matcher NG-4 emit: skip non-corpus keys, larger batches)
 
 ### Done

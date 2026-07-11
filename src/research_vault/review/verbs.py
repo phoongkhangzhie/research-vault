@@ -2,12 +2,13 @@
 """review/verbs.py — rv review subcommand dispatcher (§5L).
 
 When to use: use ``rv review new <project> <scope> --question '...'`` to start a
-pre-registered, saturation-gated literature review.  ``rv review expand`` emits the
-Phase-2 fan-out after the coverage-gate human-go.  ``rv review list`` enumerates
-all reviews for a project.  ``rv review gap-scan`` detects typed research gaps from
-the OKF corpus and/or a manuscript critic report (§5L.7, the loop-closer).
-``rv review gap-scope`` (or the alias ``gap-route``) auto-authors the remedy scope:
-literature (Part-1 review) OR experiment (pre-registration plan), routed by error-asymmetry.
+pre-registered, saturation-gated literature review.  Phase-2 (the ``relate-*`` fan-out)
+is HARD-REMOVED as a hand-run verb — it auto-emits when ``coverage-gate`` GOes (D1,
+verb consolidation).  ``rv review list`` enumerates all reviews for a project.
+``rv review gap-scan`` detects typed research gaps from the OKF corpus and/or a
+manuscript critic report (§5L.7, the loop-closer).  ``rv review gap-scope`` (or the
+alias ``gap-route``) auto-authors the remedy scope: literature (Part-1 review) OR
+experiment (pre-registration plan), routed by error-asymmetry.
 
 This is the ONLY path that creates the closed protocol-freeze + saturation-curve +
 coverage-critic framework.  A hand-run literature scan gets none of these gates.
@@ -15,19 +16,29 @@ coverage-critic framework.  A hand-run literature scan gets none of these gates.
 Subcommands:
   rv review <project> new <scope> --question "..."
       Create a review OKF note + reviews/<scope>/ artifact dir + Phase-1 DAG manifest.
-      Phase-1 shape: review-scope → [HG:approve-protocol] → review-search
-          → review-snowball → coverage-gate (auto-resolved).
+      Phase-1 shape: review-scope → [HG:approve-protocol] → review-search (tool)
+          → review-screen (agent) → review-snowball (tool)
+          → review-relevance-screen (tool, mechanical off-domain pre-filter)
+          → review-curate (agent) → review-relevance-verify-prep (tool)
+          → review-relevance-verify (cold agent, canary-verified re-check)
+          → coverage-gate (auto-resolved).
       ``review-scope`` MUST file a ``_protocol.md`` with a non-empty ``counter-position``
       field (L-2 gate, §5L.3) — ``review-search`` is gated on the protocol artifact.
       ``review-snowball`` runs an internal saturation loop (both forward + backward
-      citation directions) and produces ``_corpus.md`` + ``_saturation.md``.
+      citation directions) and produces ``_corpus_raw.md`` + ``_saturation.md``.
+      The relevance gate (design 2026-07-10-trustworthy-curation-relevance-gate-design.md
+      §3c/§3d) mechanically screens + a cold agent re-verifies every ``[NEW]`` paper for
+      off-domain contamination before the expensive Phase-2 fan-out: below
+      ``OFF_DOMAIN_HALT_THRESHOLD`` (0.30) it auto-prunes + declares and the run
+      proceeds; at/above threshold it HALT-DECLAREs at ``coverage-gate``.
 
-  rv review <project> expand <scope> [--corpus <path>]
-      Emit Phase-2 manifest from the frozen ``_corpus.md`` after coverage-gate approval.
-      One ``relate-<key>`` node per ``[NEW]`` citekey → ``review-synthesize``
+  Phase-2 — auto-emitted when ``coverage-gate`` GOes (no hand-run verb; the removed
+  ``rv review expand`` is a HARD-REMOVED stub only).
+      Emits the Phase-2 manifest from the frozen ``_corpus.md``: one ``relate-<key>``
+      node per ``[NEW]`` citekey → ``review-synthesize``
       → ``review-coverage-critic`` (L-2: [BLOCK] on missing counter-position)
-      → ``approve-review` (auto-resolved)`.
-      Saves ``reviews/<scope>/phase2-dag.json``.
+      → ``approve-review`` (auto-resolved).
+      Saved to ``reviews/<scope>/phase2-dag.json``.
 
   rv review <project> list
       List all review pointer notes for the project.
@@ -121,7 +132,8 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         "'rv review new' is the ONLY path that creates the protocol-freeze +\n"
         "saturation-curve + coverage-critic framework.\n"
         "Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json\n"
-        "After coverage-gate: rv review <project> expand <scope> → Phase-2"
+        "Phase-2 auto-emits when coverage-gate GOes — no hand-run 'expand' step;\n"
+        "then drive it with: rv dag run reviews/<scope>/phase2-dag.json"
     )
     if parent is not None:
         p = parent.add_parser(
@@ -142,7 +154,9 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help=(
             "Create a review OKF note + reviews/<scope>/ dir + Phase-1 DAG manifest. "
             "Scaffolds the §5L.1 DAG: review-scope → [HG:approve-protocol] → "
-            "review-search → review-snowball → coverage-gate (auto-resolved)."
+            "review-search → review-screen → review-snowball → review-relevance-screen "
+            "→ review-curate → review-relevance-verify-prep → review-relevance-verify "
+            "→ coverage-gate (auto-resolved)."
         ),
     )
     new_p.add_argument(

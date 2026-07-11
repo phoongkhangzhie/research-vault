@@ -313,11 +313,15 @@ def test_review_critic_tips_axis2_mentions_citekey_field():
 
 
 # ---------------------------------------------------------------------------
-# coverage-gate label references rv review coverage
+# coverage-gate label references coverage checking (not a fabricated CLI verb —
+# `rv review coverage` is REMOVED, D1 verb consolidation: coverage is checked
+# via the 'coverage' tool node-op, not a hand-run subcommand)
 # ---------------------------------------------------------------------------
 
 def test_coverage_gate_label_references_coverage_verb(cfg, tmp_instance):
-    """coverage-gate label in Phase-1 manifest must reference rv review coverage."""
+    """coverage-gate label in Phase-1 manifest must reference coverage checking,
+    but must NOT instruct a hand-run `rv review coverage` (that verb is
+    HARD-REMOVED, D1)."""
     from research_vault.review import cmd_new
 
     _, _, manifest = cmd_new(
@@ -333,6 +337,7 @@ def test_coverage_gate_label_references_coverage_verb(cfg, tmp_instance):
     assert "coverage" in label.lower(), (
         f"coverage-gate label must reference 'coverage'; got: {label!r}"
     )
-    assert "rv review" in label, (
-        f"coverage-gate label must include 'rv review'; got: {label!r}"
+    assert "rv review <project> coverage" not in label, (
+        f"coverage-gate label must not instruct a hand-run 'rv review coverage' "
+        f"(that verb is HARD-REMOVED, D1); got: {label!r}"
     )
