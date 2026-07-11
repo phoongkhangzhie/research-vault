@@ -338,13 +338,20 @@ def test_references_raises_adapter_fetch_error_not_systemexit(monkeypatch) -> No
 
 
 # ---------------------------------------------------------------------------
-# PR-S1 (pre-publish fix, 2026-07-10): the BACKWARD (references) snowball
-# direction ignored `per_round_limit` entirely — `asta papers get` has no
-# server-side `--limit`/pagination for a nested `references.*` projection
-# (unlike `cited_by`'s dedicated `asta papers citations ... --limit`
-# endpoint), so a seed's FULL reference list was always returned regardless
-# of the caller's `limit` kwarg. Observed on a live run: forward correctly
-# bounded to 31 hits, backward returned 461 from 5 seeds.
+# PR-S1 REWRITE (pre-publish fit-check, 2026-07-10): an earlier version of
+# this fix client-side-truncated `references()` to `limit`, reasoning that
+# `asta papers get` has no server-side `--limit`/pagination for a nested
+# `references.*` projection (unlike `cited_by`'s dedicated
+# `asta papers citations ... --limit` endpoint) so the kwarg was otherwise
+# silently unused. The corpus architect's fit-check flagged that as
+# RECALL-REGRESSIVE: backward-snowball exists to catch unique/peripheral
+# citations, each paper is fetched at most once per direction across the
+# whole walk (so a truncated reference is gone for good, not deferred), and
+# a real downstream corpus-build run relied on this exact unbounded
+# behavior (888 backward hits in one round). Total walk work is already
+# bounded at the WALK level
+# (fetch_budget / frontier_cap in snowball.py), not per-call. Decision:
+# backward stays fully unbounded per-call; these tests now pin THAT.
 # ---------------------------------------------------------------------------
 
 def _fake_references_run(n: int):
@@ -365,38 +372,42 @@ def _fake_references_run(n: int):
     return fake_run, items
 
 
-def test_references_bound_bites_when_seed_has_more_than_limit(monkeypatch) -> None:
-    """(a) acceptance: a seed with N > per_round_limit references yields
-    <= per_round_limit backward candidates in that round — the knob now
-    bites. Pre-fix this returned all 50 (the knob was dead)."""
-    fake_run, _items = _fake_references_run(50)
+def test_references_returns_all_regardless_of_limit_kwarg(monkeypatch) -> None:
+    """Acceptance: backward references are NEVER client-side truncated — a
+    seed with N references yields all N candidates regardless of `limit`.
+    This is the opposite of the (reverted) truncation behavior: a 50-ref
+    seed must yield 50 backward candidates even when `limit=20` is passed
+    (kept only for SourceAdapter Protocol parity — see the adapter's
+    docstring; it is a deliberate no-op here)."""
+    fake_run, items = _fake_references_run(50)
     monkeypatch.setattr(subprocess, "run", fake_run)
     adapter = SemanticScholarAdapter()
 
     hits = adapter.references("ARXIV:1706.03762", limit=20)
 
-    assert len(hits) == 20
+    assert len(hits) == 50
+    kept_dois = {h.external_ids["doi"] for h in hits}
+    expected_dois = {p["externalIds"]["DOI"] for p in items}
+    assert kept_dois == expected_dois
 
 
-def test_references_bound_preserves_as_returned_order_not_arbitrary_drop(monkeypatch) -> None:
-    """The truncation must be a deterministic, documented as-returned-order
-    prefix (per-round throttle), not an arbitrary/random subset — so the
-    excluded tail is knowable (it's whatever asta ranked/ordered last),
-    never a silent, unreproducible drop."""
+def test_references_returns_all_with_no_limit_arg_at_all(monkeypatch) -> None:
+    """The real snowball caller no longer passes `limit=` at all for the
+    backward direction (see snowball.py) — confirm the bare call (default
+    kwarg) also returns everything, not just the explicit-limit-passed case
+    above."""
     fake_run, items = _fake_references_run(10)
     monkeypatch.setattr(subprocess, "run", fake_run)
     adapter = SemanticScholarAdapter()
 
-    hits = adapter.references("ARXIV:1706.03762", limit=4)
+    hits = adapter.references("ARXIV:1706.03762")
 
-    assert len(hits) == 4
-    kept_dois = [h.external_ids["doi"] for h in hits]
-    expected_dois = [items[i]["externalIds"]["DOI"] for i in range(4)]
-    assert kept_dois == expected_dois
+    assert len(hits) == 10
 
 
 def test_references_below_limit_unaffected(monkeypatch) -> None:
-    """No behavior change when a seed has fewer references than the limit."""
+    """No behavior change when a seed has fewer references than the limit
+    (this was already true pre-fix; kept as a regression pin)."""
     fake_run, items = _fake_references_run(3)
     monkeypatch.setattr(subprocess, "run", fake_run)
     adapter = SemanticScholarAdapter()
@@ -406,10 +417,10 @@ def test_references_below_limit_unaffected(monkeypatch) -> None:
     assert len(hits) == 3
 
 
-def test_cited_by_unaffected_by_references_bound_fix(monkeypatch) -> None:
-    """(b) regression: forward direction behavior is unchanged — still
-    delegates the limit to asta's own `--limit` flag, no client-side
-    truncation added there."""
+def test_cited_by_still_respects_its_limit(monkeypatch) -> None:
+    """Regression: forward (`cited_by`) direction is untouched by this
+    rewrite — it still legitimately bounds via asta's own server-side
+    `--limit` flag. Only backward (`references`) is unbounded."""
     captured = {}
 
     def fake_run(cmd, **kwargs):
@@ -426,9 +437,9 @@ def test_cited_by_unaffected_by_references_bound_fix(monkeypatch) -> None:
     adapter = SemanticScholarAdapter()
     hits = adapter.cited_by("ARXIV:1706.03762", limit=20)
 
-    # asta's own --limit flag is what bounds this (mock returns 50 regardless
-    # of the flag — proving cited_by does NOT client-side-truncate, unlike
-    # the references fix above).
+    # asta's own --limit flag is what bounds this in production (the mock
+    # here returns 50 regardless of the flag, since it's a stub — the
+    # assertion is that the flag is passed through, not client-truncated).
     assert "--limit" in captured["cmd"]
     assert captured["cmd"][captured["cmd"].index("--limit") + 1] == "20"
     assert len(hits) == 50

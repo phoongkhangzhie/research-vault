@@ -191,6 +191,42 @@ class SemanticScholarAdapter:
             "references.abstract,references.venue"
         ),
     ) -> list[PaperHit]:
+        """Backward snowball: papers ``paper_id`` itself cites.
+
+        ``limit`` is accepted (kept for ``SourceAdapter`` Protocol parity
+        with ``search``/``cited_by``, and because ``snowball.py`` calls this
+        generically across whatever adapter it's given) but is a DELIBERATE
+        NO-OP here — see the PR-S1 REWRITE note below. Do not re-add a
+        client-side ``items[:limit]`` truncation; that was tried and
+        reverted (recall-regressive, see git history for the original
+        PR-S1 commit + its revert).
+
+        PR-S1 REWRITE (pre-publish fit-check, 2026-07-10): an earlier
+        version of this fix bound backward references client-side to
+        ``per_round_limit``, on the reasoning that ``asta papers get`` has
+        no server-side pagination for a nested ``references.*`` projection
+        (confirmed via `asta papers get --help`) so `limit` was otherwise
+        silently unused. The corpus architect flagged that as
+        RECALL-REGRESSIVE on fit-check: backward-snowball exists precisely
+        to catch UNIQUE, PERIPHERAL citations a paper's own bibliography
+        carries — unlike the forward direction (rediscoverable from many
+        citing papers), a truncated backward reference is not "delayed to
+        a later round," it is GONE for good the moment ``visited_pids``
+        marks this seed visited (each paper is fetched at most once per
+        direction across the whole walk). A real downstream project's
+        corpus-build run relied on this exact unbounded behavior (888
+        backward hits in one round). Total
+        walk work is ALREADY bounded — not by a per-call reference cap, but
+        at the WALK level by ``fetch_budget`` (hard ceiling on total calls)
+        and ``frontier_cap`` (bounds how many discovered papers re-seed the
+        next round) — see ``snowball.py``. A per-call backward cap would
+        cost recall for zero work-bound benefit, since those two knobs
+        already do the bounding job. Decision: backward stays fully
+        unbounded per-call; ``per_round_limit`` is FORWARD-only (see its
+        docstring in ``snowball.py::run_snowball``). Precision on the
+        resulting pool is the relevance gate's job downstream, not
+        truncation here.
+        """
         cmd = [
             "asta", "papers", "get", paper_id,
             "--fields", fields,
@@ -201,28 +237,4 @@ class SemanticScholarAdapter:
             raise AdapterFetchError(f"asta papers get failed:\n{r.stderr}")
         raw = json.loads(r.stdout)
         items = raw.get("references") or []
-        # PR-S1 (pre-publish fix, 2026-07-10): `asta papers get` has no
-        # server-side pagination/limit for a nested `references.*`
-        # projection (confirmed via `asta papers get --help` — only
-        # `--fields`/`--format`), unlike `cited_by`'s dedicated
-        # `asta papers citations ... --limit` endpoint. Before this fix,
-        # `limit` was accepted but silently unused here, so the BACKWARD
-        # snowball direction returned a seed's FULL reference list
-        # regardless of `per_round_limit` (observed: 461 backward hits from
-        # 5 seeds vs. forward's correctly-bounded 31) — `per_round_limit`
-        # was a near-dead knob for this direction.
-        #
-        # Fix: bound client-side, as-returned order (asta's own reference
-        # order, not re-ranked here). This is a PER-ROUND FANOUT THROTTLE,
-        # not a relevance filter or a permanent exclusion — references
-        # beyond the first `limit` are simply not fetched from THIS seed in
-        # THIS round. They are not blacklisted: the same paper can still be
-        # discovered via another path (e.g. as another frontier paper's
-        # forward citation, or as another seed's reference) in this or a
-        # later round, exactly as already happens today when `cited_by`'s
-        # server-side `--limit` similarly truncates the forward direction.
-        # The downstream relevance gate + `frontier_cap` reseed (see
-        # `snowball.py`) still decide what actually enters the corpus.
-        if limit and limit > 0:
-            items = items[:limit]
         return [_s2_item_to_hit(p) for p in items]

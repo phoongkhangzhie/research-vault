@@ -211,7 +211,23 @@ def run_snowball_to_saturation(
         backstop_waves: the guaranteed-termination cap for the saturation
             backstop.
         derivative_threshold: passed through to ``mark_derivatives``.
-        per_round_limit: per-(paper,direction) fetch limit each round.
+        per_round_limit: per-paper fetch limit each round — FORWARD
+            (``cited_by``) ONLY (PR-S1 REWRITE, 2026-07-10). Backward
+            (``references``) is intentionally UNBOUNDED per-call: a
+            paper's own bibliography is the highest-precision snowball
+            direction, and it exists specifically to catch unique,
+            peripheral citations that a per-call cap would permanently
+            drop (each paper is fetched at most once per direction across
+            the whole walk — a truncated reference is gone for good, not
+            "deferred to a later round," unlike a truncated forward hit
+            which is typically rediscoverable via another citing paper).
+            An earlier version of this fix bounded backward too; the
+            corpus architect's fit-check flagged that as recall-regressive
+            against a real run (888 backward hits in one round) and it was
+            reverted — see ``SemanticScholarAdapter.references``'s
+            docstring for the full account. Backward's total work is
+            already bounded at the WALK level by ``fetch_budget`` and
+            ``frontier_cap`` below, not by a per-call reference cap.
         seed_cap: hard cap on the STARTING frontier width. No ``PaperHit``
             (hence no relevance score) exists yet at the seed stage — seeds
             are bare ids off ``_screen.md`` — so the ranking here is the
@@ -406,7 +422,10 @@ def run_snowball_to_saturation(
             bwd_failed = False
             total_calls += 1
             try:
-                bwd = adapter.references(asta_id, limit=per_round_limit)
+                # Backward is deliberately NOT bounded by per_round_limit —
+                # see the docstring above + SemanticScholarAdapter.references
+                # (PR-S1 REWRITE, 2026-07-10: recall-regressive, reverted).
+                bwd = adapter.references(asta_id)
             except NotSupported:
                 bwd = []
             except Exception as e:  # noqa: BLE001
