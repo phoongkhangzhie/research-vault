@@ -117,21 +117,29 @@ def test_review_tips_keys_unchanged():
 # 2. note.py literature scaffold — the three optional fields
 # ---------------------------------------------------------------------------
 
+def _core_content(cfg, overlay_path):
+    """PR-A: key_equations/repo/artifacts live on the CENTRAL CORE, not the
+    thin per-project overlay `cmd_new` returns."""
+    overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
+    core_path = cfg.literature_root / f"{overlay_fields['central']}.md"
+    return core_path.read_text()
+
+
 def test_literature_scaffold_carries_key_equations_field(cfg):
     path = note_mod.cmd_new("demo-research", "literature", "A math paper", config=cfg)
-    content = path.read_text()
+    content = _core_content(cfg, path)
     assert "key_equations:" in content
 
 
 def test_literature_scaffold_carries_repo_field(cfg):
     path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
-    content = path.read_text()
+    content = _core_content(cfg, path)
     assert "repo:" in content
 
 
 def test_literature_scaffold_carries_artifacts_field(cfg):
     path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
-    content = path.read_text()
+    content = _core_content(cfg, path)
     assert "artifacts:" in content
 
 
@@ -139,7 +147,7 @@ def test_literature_scaffold_new_fields_are_optional_empty(cfg):
     """New fields scaffold as empty (unset) — mirrors the doi/arxiv_id precedent.
     Parsing them back must yield empty string, not a violation."""
     path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
-    content = path.read_text()
+    content = _core_content(cfg, path)
     fields, _ = note_mod._parse_frontmatter(content)
     assert fields.get("key_equations", None) == ""
     assert fields.get("repo", None) == ""
@@ -165,12 +173,21 @@ def test_literature_scaffold_passes_check(cfg):
 # ---------------------------------------------------------------------------
 
 def test_pre_enrichment_literature_note_parses_and_checks_unchanged(cfg, tmp_instance):
-    """An existing literature/ note written BEFORE PR-L1 (no key_equations/
-    repo/artifacts fields at all) must parse fine and cmd_check-pass unchanged."""
-    project_dir = tmp_instance / "projects" / "demo-research" / "literature"
-    project_dir.mkdir(parents=True, exist_ok=True)
-    legacy_note = project_dir / "legacy2020.md"
-    legacy_note.write_text(
+    """A CORE note written BEFORE PR-L1 (no key_equations/repo/artifacts
+    fields at all) must parse fine and cmd_check-pass unchanged.
+
+    PR-A note: the note-STORAGE-LAYOUT itself (core+overlay split, this is
+    NOT a monolithic single-file note) is forward-only — there is no
+    dual-read/back-compat path for a pre-PR-A monolithic note (see PR-A
+    §0.5: "no migration shims, no dual-read compat path"). This test only
+    covers PR-L1's own backward-compat claim (key_equations/repo/artifacts
+    are OPTIONAL fields on the two-layer CORE), scoped within the two-layer
+    shape.
+    """
+    core_dir = cfg.literature_root
+    core_dir.mkdir(parents=True, exist_ok=True)
+    legacy_core = core_dir / "legacy2020.md"
+    legacy_core.write_text(
         "---\n"
         "type: literature\n"
         "title: A legacy paper\n"
@@ -182,7 +199,15 @@ def test_pre_enrichment_literature_note_parses_and_checks_unchanged(cfg, tmp_ins
         "\n<!-- legacy body, no Key equations section -->\n",
         encoding="utf-8",
     )
-    fields, body = note_mod._parse_frontmatter(legacy_note.read_text(encoding="utf-8"))
+    overlay_dir = cfg.project_notes_dir("demo-research") / "literature"
+    overlay_dir.mkdir(parents=True, exist_ok=True)
+    overlay = overlay_dir / "legacy2020.md"
+    overlay.write_text(
+        "---\ntype: literature\ntitle: A legacy paper\ncentral: legacy2020\n---\n\n",
+        encoding="utf-8",
+    )
+
+    fields, body = note_mod._parse_frontmatter(legacy_core.read_text(encoding="utf-8"))
     assert fields.get("type") == "literature"
     assert "key_equations" not in fields  # absent entirely — not even empty
     assert "repo" not in fields

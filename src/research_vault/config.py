@@ -210,7 +210,7 @@ def _expand_paths(cfg: dict, instance_root: Path) -> dict:
     # datasets_root is included here so a toml-set value is expanded correctly.
     # When absent from the toml, Config.__init__ derives it from notes_root/datasets.
     path_keys = ("notes_root", "state_dir", "agents_dir", "tasks_dir", "control_dir",
-                 "datasets_root")
+                 "datasets_root", "literature_root")
     for key in path_keys:
         if key in cfg:
             p = Path(cfg[key]).expanduser()
@@ -281,6 +281,17 @@ class Config:
             self.datasets_root = Path(raw["datasets_root"])
         else:
             self.datasets_root = self.notes_root / "datasets"
+        # literature_root — the central, cross-project two-layer literature
+        # store (PR-A, §0.5). Mirrors datasets_root exactly: default
+        # notes_root/literature (hub/instance level, sibling of
+        # datasets_root); override in research_vault.toml:
+        # literature_root = "/shared/literature". This is the store's ONE
+        # location — cfg.project_notes_dir(project)/literature/ holds the
+        # thin per-project overlays, never the core.
+        if "literature_root" in raw:
+            self.literature_root = Path(raw["literature_root"])
+        else:
+            self.literature_root = self.notes_root / "literature"
         self.adapters: dict[str, str] = raw.get("adapters", {})
         # Observability config block (backend/run_logging/wandb_project).
         # Empty dict when absent so callers can .get(...) with defaults.

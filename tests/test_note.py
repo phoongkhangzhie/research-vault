@@ -125,9 +125,13 @@ def test_cli_note_check_clean(tmp_instance, capsys):
 # ---------------------------------------------------------------------------
 
 def test_literature_template_carries_citekey_placeholder(cfg):
-    """A freshly-scaffolded literature note carries a blank `citekey:` field."""
-    path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
-    content = path.read_text()
+    """A freshly-scaffolded literature note's CENTRAL CORE (not the thin
+    per-project overlay `cmd_new` returns — PR-A two-layer split) carries a
+    blank `citekey:` field."""
+    overlay_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
+    core_path = cfg.literature_root / f"{overlay_fields['central']}.md"
+    content = core_path.read_text()
     assert "citekey:" in content
 
 
@@ -143,10 +147,14 @@ def test_check_warns_absent_citekey_never_blocks(cfg):
 
 
 def test_check_warns_non_conformant_citekey(cfg):
-    """A citekey that doesn't match familyShorttitleYear WARNs."""
-    path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
-    content = path.read_text().replace("citekey: ", "citekey: 2005.14165", 1)
-    path.write_text(content)
+    """A citekey that doesn't match familyShorttitleYear WARNs. The
+    citekey lives on the CENTRAL CORE (PR-A two-layer split), not the
+    per-project overlay `cmd_new` returns."""
+    overlay_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
+    core_path = cfg.literature_root / f"{overlay_fields['central']}.md"
+    content = core_path.read_text().replace("citekey: ", "citekey: 2005.14165", 1)
+    core_path.write_text(content)
 
     violations = note_mod.cmd_check("demo-research", config=cfg)
     assert any(
@@ -156,10 +164,13 @@ def test_check_warns_non_conformant_citekey(cfg):
 
 
 def test_check_conformant_citekey_no_warning(cfg):
-    """A properly-conformant citekey produces zero citekey-lint violations."""
-    path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
-    content = path.read_text().replace("citekey: ", "citekey: smithStudyFooBar2023", 1)
-    path.write_text(content)
+    """A properly-conformant citekey produces zero citekey-lint violations.
+    The citekey lives on the CENTRAL CORE (PR-A two-layer split)."""
+    overlay_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
+    core_path = cfg.literature_root / f"{overlay_fields['central']}.md"
+    content = core_path.read_text().replace("citekey: ", "citekey: smithStudyFooBar2023", 1)
+    core_path.write_text(content)
 
     violations = note_mod.cmd_check("demo-research", config=cfg)
     assert not any(v.startswith("[citekey-lint]") for v in violations)
