@@ -3,7 +3,7 @@
 literature registry (PR-B, pre-publish #68 storage contract).
 
 Design of record: docs/superpowers/specs/2026-07-10-central-note-store-
-cross-project-design.md §0.5 PR-B (Wren, 2026-07-10).
+cross-project-design.md §0.5 PR-B (the architect, 2026-07-10).
 
 **Registry = a thin pointer, NOT a new artifact.** Per-project corpus
 membership is exactly the set of overlay files under

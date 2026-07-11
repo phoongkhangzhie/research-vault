@@ -41,7 +41,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from research_vault.config import Config, load_config
+from research_vault.config import Config
 from research_vault.note import _parse_frontmatter
 
 from . import ManuscriptType, SectionSpec, register_type
@@ -1210,10 +1210,18 @@ def source_transform(
 
     # PR-B / FF-3: resolve two-layer overlays' core-only fields (year/venue/
     # repo/citekey) against the central store — never read the thin overlay
-    # alone (see index_literature_rows' docstring).
-    _cfg = config or load_config()
+    # alone (see index_literature_rows' docstring). Only resolve against a
+    # GIVEN config — never force a load_config() call here (source_transform
+    # is called by catalog/grounding paths with config=None and no config
+    # file on disk; falling back to load_config() would turn an honest
+    # config=None degrade into a hard config-resolution error). getattr, not
+    # a bare attribute access: some callers pass partial duck-typed config
+    # doubles (e.g. test_coverage_allocation_wiring.py's `_Cfg`, which only
+    # carries `_raw`) — never assume a given config is a full
+    # research_vault.config.Config.
+    _literature_root = getattr(config, "literature_root", None)
     rows = index_literature_rows(
-        project_notes_dir / "literature", literature_root=_cfg.literature_root,
+        project_notes_dir / "literature", literature_root=_literature_root,
     )
 
     branches_raw = spine.get("branches", []) if spine else []
