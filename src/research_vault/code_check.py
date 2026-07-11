@@ -2,13 +2,12 @@
 """code_check.py — repo-plane conventions gate: `rv code check <project>`.
 
 When to use: ``rv code check <project>`` validates the CODE TREE (not a note's
-frontmatter) against the code-conventions doctrine (`data/doctrine/code-conventions.md`,
-). Distinct from the note-plane `rv note <project> check` — this verb is
-about facts on the repo tree: no notebook in the library import path, an
-environment pin, no data/results duplication, science-critical tests, and
-releasability (secrets/paths, CITATION.cff, LICENSE).
-
-CHECK-5, CHECK-6a, CHECK-7, CHECK-8a/b/c)  (D-CC-4, gate placement).
+frontmatter) against the code-conventions doctrine
+(`data/doctrine/code-conventions.md`). Distinct from the note-plane
+`rv note <project> check` — this verb is about facts on the repo tree: no
+notebook in the library import path, an environment pin, no data/results
+duplication, science-critical tests, and releasability (secrets/paths,
+CITATION.cff, LICENSE).
 
 Severity split mirrors `note.py::run`'s hard/warn convention exactly: a
 violation string starting with one of `_WARN_PREFIXES` degrades to a printed
@@ -93,7 +92,7 @@ def check_env_pinned(repo_root: Path) -> list[str]:
 
     Scope note: this checks only the repo-tree half of CHECK-5. The note-plane
     half (`repro_env_python` is a concrete version, not a range) is out of
-    scope for this repo-plane verb — see return for the deviation.
+    scope for this repo-plane verb — see the return value for the deviation.
     """
     for name in ("uv.lock", "requirements.lock"):
         if (repo_root / name).is_file():

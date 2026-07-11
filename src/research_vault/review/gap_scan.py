@@ -14,7 +14,7 @@ Architecture:
   - ``rv review gap-scan`` is the surface: a cheap OKF graph query over findings/,
     concepts/, mocs/, and an optional support_matcher meta dict.
   - The screen emits typed ``gaps/<id>.md`` notes (first-class OKF type,
-     D-GAP-1) with a ``suggested_route:`` field (L.15).
+     D-GAP-1) with a ``suggested_route:`` field.
   - ``rv review gap-scope <gap-id> <scope> [--target {literature|experiment}]``
     auto-authors either a Part-1 review scope (literature, unchanged) or an
     experiment pre-registration plan (experiment, new).
@@ -41,7 +41,7 @@ Closure statuses:
   closed-filled     — support-degree crossed threshold / MOC region filled
   proven-open       — targeted pass saturated without closing → candidate contribution
 
-Suggested routes (L.15):
+Suggested routes:
   literature  — read-first (knowledge_void, contradictory in intro/background)
   experiment  — run-first fast-path (evaluation_void in results section)
   triage      — human decides (gaps with unknown/absent section)
@@ -172,7 +172,7 @@ class GapRecord:
 
 
 # ---------------------------------------------------------------------------
-# Router: suggest_route pure function (L.15)
+# Router: suggest_route pure function
 # ---------------------------------------------------------------------------
 
 def suggest_route(gap_type: str, meta: dict[str, Any]) -> str:

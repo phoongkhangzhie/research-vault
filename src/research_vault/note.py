@@ -33,7 +33,7 @@ OKF_TYPES = frozenset({
     "findings",
     "mocs",
     "datasets",    # provenance note for data artifacts (points to data, never contains it)
-    "gaps",        # typed research gap record (L.8); project-scoped; first-class lifecycle
+    "gaps",        # typed research gap record; project-scoped; first-class lifecycle
 })
 
 # The sole SHARED (cross-project) OKF type — lives in cfg.datasets_root.
