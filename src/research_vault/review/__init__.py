@@ -779,24 +779,20 @@ class CorpusSchemaError(ValueError):
     """
 
 
-_CORPUS_ROW_BRACKET_TOKEN_RE = re.compile(r"\[([^\[\]]+)\]")
-
-
 def _corpus_row_tags(annotation: str) -> list[str]:
     """Case-normalized bracket-delimited tokens in a corpus row's
     annotation column.
 
-    Coverage-path twin of ``review.relevance._annotation_is_new`` (kept
-    consistent with it, per the same root-cause fix — a real
-    ``review-curate`` run emits a COMPOUND annotation like
-    ``[LEG-1][NEW] {SF,silicon-sampling}``, not just the bare legacy
-    ``[NEW]`` form; an exact-match/whole-cell-bracket check on that shape
-    silently drops the row, undercounting the corpus this feeds into
-    ``coverage_report``/the coverage-gate). Scans EVERY bracket-delimited
-    token in the annotation cell rather than requiring the whole cell to be
-    exactly one bracket pair.
+    A thin, import-cycle-safe re-export of
+    ``review.relevance.corpus_row_annotation_tags`` — the ONE shared
+    bracket-annotation grammar (converged from three independently
+    diverging re-implementations, see that function's docstring). Lazy
+    import (module-load-cycle safety, same convention already used
+    throughout this package).
     """
-    return [t.strip().upper() for t in _CORPUS_ROW_BRACKET_TOKEN_RE.findall(annotation)]
+    from .relevance import corpus_row_annotation_tags
+
+    return corpus_row_annotation_tags(annotation)
 
 
 def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
@@ -851,6 +847,71 @@ def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
         # No bracket token at all (header row, separator row, free prose
         # bullet inside the table region) — a correct, silent skip.
     return citekeys
+
+
+def check_corpus_all_accept_tagged(corpus_path: Path) -> dict[str, Any]:
+    """The corpus-tagging invariant (remediation corpus-bypass hardening):
+    every ``_corpus.md`` data row must carry a tag this function recognizes
+    as genuinely CURATED — an already-vetted ``[IN-CORPUS:*]`` row, or a
+    ``[NEW]``-tagged row that a ``review-curate``/re-curate pass has
+    actually processed. A ``[NEEDS-CURATE]``-tagged row — the tag
+    ``review.facet_remediation.screen_and_append_facet_hits`` and
+    ``review.remediation._append_new_corpus_rows`` (after this fix) both
+    stamp on a mechanically-screened-in but NOT-yet-leg-classified
+    remediation/facet-remediation append — is NOT accept-tagged. This is
+    the mechanical trip-wire that closes the corpus-bypass hole: neither
+    the coverage-gate nor approve-review may certify a corpus (GO /
+    GO-WITH-RESIDUE) while any row is still sitting un-recurated.
+
+    A malformed bracket annotation (a tag that is neither NEW nor
+    IN-CORPUS) is NOT this function's concern — that is
+    ``_parse_corpus_citekeys``'s loud ``CorpusSchemaError`` reject; a
+    caller wiring this gate into a certifying node should call BOTH (the
+    schema check already runs upstream of every such caller in practice,
+    via ``classify_coverage_gate_with_deviation_check``/``corpus_freeze``).
+
+    Returns ``{"exists", "all_tagged", "untagged_citekeys", "total_rows"}``.
+    A missing ``_corpus.md`` is an honest ``exists: False`` / vacuously
+    ``all_tagged: True`` (nothing to flag — the caller's OWN "no corpus"
+    handling, e.g. the walk-terminal producer-missing HALT, already covers
+    that case; this function must not double-HALT on it).
+    """
+    if not corpus_path.exists():
+        return {
+            "exists": False, "all_tagged": True,
+            "untagged_citekeys": [], "total_rows": 0,
+        }
+
+    from .relevance import annotation_needs_curate
+
+    text = corpus_path.read_text(encoding="utf-8")
+    untagged: list[str] = []
+    total = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cols = [c.strip() for c in stripped.split("|") if c.strip()]
+        if len(cols) < 2:
+            continue
+        annotation = cols[0]
+        tags = _corpus_row_tags(annotation)
+        if not tags:
+            continue  # not a data row (header/separator/prose) — same skip as _parse_corpus_citekeys
+        is_in_corpus = any(t.startswith("IN-CORPUS") for t in tags)
+        is_new = "NEW" in tags
+        if not (is_in_corpus or is_new):
+            continue  # malformed — CorpusSchemaError is the loud path for this, not duplicated here
+        total += 1
+        if is_new and annotation_needs_curate(annotation):
+            untagged.append(cols[1] if len(cols) > 1 else "?")
+
+    return {
+        "exists": True,
+        "all_tagged": not untagged,
+        "untagged_citekeys": untagged,
+        "total_rows": total,
+    }
 
 
 def _index_literature_notes_by_citekey(

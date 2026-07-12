@@ -195,16 +195,21 @@ def _p_block(relevance_payload: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-_BRACKET_ANNOTATION_RE = re.compile(r"^\[.*\]$")
-
-
 def _corpus_rows(corpus_path: Path) -> tuple[list[tuple[str, str]], list[str]]:
     """Return ``[(annotation, citekey), ...]`` for every row of ``_corpus.md``
-    + a ``gaps`` list. Mirrors (reuses the same bracket-shape rule as)
-    ``review._parse_corpus_citekeys`` — a malformed bracket annotation is
+    + a ``gaps`` list. Uses the ONE shared bracket-annotation grammar
+    (``review.relevance.corpus_row_annotation_tags`` — see that function's
+    convergence note; this was previously an independent exact-string-match
+    ``annotation.upper() == "[NEW]"`` check that silently undercounted a
+    COMPOUND annotation like ``[LEG-1][NEW]``, flagging it as a gap/
+    "malformed" row instead of counting it — the same undercount class
+    ``review._parse_corpus_citekeys`` was already fixed for). A malformed
+    bracket annotation (bracket-shaped but neither NEW nor IN-CORPUS) is
     surfaced as a ledger gap here rather than raising, since the ledger's
     job is to report state honestly, never to crash the gate it's attached
     to (the gate itself already enforces ``CorpusSchemaError`` upstream)."""
+    from .relevance import corpus_row_annotation_tags
+
     gaps: list[str] = []
     if not corpus_path.exists():
         gaps.append("K/corpus: _corpus.md not found.")
@@ -220,14 +225,18 @@ def _corpus_rows(corpus_path: Path) -> tuple[list[tuple[str, str]], list[str]]:
         if len(cols) < 2:
             continue
         annotation = cols[0]
-        if annotation.upper() == "[NEW]" or re.match(r"^\[IN-CORPUS:", annotation, re.IGNORECASE):
+        tags = corpus_row_annotation_tags(annotation)
+        if not tags:
+            continue
+        is_new = "NEW" in tags
+        is_in_corpus = any(t.startswith("IN-CORPUS") for t in tags)
+        if is_new or is_in_corpus:
             rows.append((annotation, cols[1]))
             continue
-        if _BRACKET_ANNOTATION_RE.match(annotation):
-            gaps.append(
-                f"K/corpus: {corpus_path.name}:{lineno}: malformed row annotation "
-                f"{annotation!r} — excluded from counts."
-            )
+        gaps.append(
+            f"K/corpus: {corpus_path.name}:{lineno}: malformed row annotation "
+            f"{annotation!r} — excluded from counts."
+        )
     return rows, gaps
 
 
@@ -408,9 +417,14 @@ def _k_block(
     """
     from ..cite import CITEKEY_RE
 
+    from .relevance import corpus_row_annotation_tags
+
     rows, gaps = _corpus_rows(corpus_path)
-    new_count = sum(1 for ann, _ck in rows if ann.upper() == "[NEW]")
-    in_corpus_count = sum(1 for ann, _ck in rows if ann.upper() != "[NEW]")
+    in_corpus_count = sum(
+        1 for ann, _ck in rows
+        if any(t.startswith("IN-CORPUS") for t in corpus_row_annotation_tags(ann))
+    )
+    new_count = len(rows) - in_corpus_count
 
     conformant = 0
     nonconformant = 0

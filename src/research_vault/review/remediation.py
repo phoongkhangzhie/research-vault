@@ -32,11 +32,9 @@ Stdlib only (+ intra-package imports). sr: NG-6a / D-5a
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any, Callable
 
-from ..cite import _make_citekey
 from .autonomy import (
     CRITIC_BACKTRACK,
     HALT_DECLARE,
@@ -53,31 +51,6 @@ from .style import get_critic_backtrack_max_rounds
 # One bounded critic-backtrack round — all reuse, no new discovery machinery
 # ---------------------------------------------------------------------------
 
-def _norm_title(title: str) -> str:
-    return re.sub(r"\s+", " ", (title or "").strip().lower())
-
-
-def _parse_corpus_row_titles(corpus_path: Path) -> set[str]:
-    """Normalized titles of every tagged row already in ``_corpus.md`` —
-    used for remediation-round self-dedup. Corpus-file-local (no
-    ``literature/`` note lookup needed): the row's own title column is the
-    dedup key, exactly the same table the round appends to."""
-    if not corpus_path.exists():
-        return set()
-    text = corpus_path.read_text(encoding="utf-8")
-    titles: set[str] = set()
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("|"):
-            continue
-        cols = [c.strip() for c in stripped.split("|") if c.strip()]
-        if len(cols) < 3:
-            continue
-        if re.match(r"^\[.*\]$", cols[0]):
-            titles.add(_norm_title(cols[2]))
-    return titles
-
-
 def _extract_hits(tool_op_result: Any) -> list[Any]:
     """Normalize either tool-op result shape into a flat ``list[PaperHit]``:
     ``sweep`` returns a ``SweepResult`` (``.kept: list[DedupedHit]``);
@@ -89,57 +62,6 @@ def _extract_hits(tool_op_result: Any) -> list[Any]:
     if isinstance(tool_op_result, list):
         return tool_op_result
     return []
-
-
-def _append_new_corpus_rows(
-    corpus_path: Path,
-    hits: list[Any],
-    existing_citekeys: set[str],
-) -> list[str]:
-    """Dedup ``hits`` against the existing corpus (by normalized title,
-    corpus-file-local step 2) and append ``[NEW]`` rows in the
-    recognized schema (NG-6a one recognized row shape). Returns the
-    sorted list of newly-added citekeys."""
-    existing_titles = _parse_corpus_row_titles(corpus_path)
-    seen_this_round: set[str] = set()
-    new_rows: list[str] = []
-    added_citekeys: list[str] = []
-    all_citekeys = set(existing_citekeys)
-
-    for hit in hits:
-        title = getattr(hit, "title", "") or ""
-        if not title:
-            continue
-        norm = _norm_title(title)
-        if norm in existing_titles or norm in seen_this_round:
-            continue
-        seen_this_round.add(norm)
-
-        authors = getattr(hit, "authors", None) or []
-        family = None
-        if authors:
-            first = authors[0]
-            if isinstance(first, str) and first.strip():
-                family = first.strip().rsplit(" ", 1)[-1]
-        year = str(getattr(hit, "year", "") or "")
-
-        citekey = _make_citekey(family, title, year, all_citekeys)
-        all_citekeys.add(citekey)
-        added_citekeys.append(citekey)
-        new_rows.append(f"| [NEW] | {citekey} | {title} |")
-
-    if new_rows:
-        if corpus_path.exists():
-            text = corpus_path.read_text(encoding="utf-8")
-        else:
-            corpus_path.parent.mkdir(parents=True, exist_ok=True)
-            text = "| annotation | citekey | title |\n|---|---|---|\n"
-        if not text.endswith("\n"):
-            text += "\n"
-        text += "\n".join(new_rows) + "\n"
-        corpus_path.write_text(text, encoding="utf-8")
-
-    return sorted(added_citekeys)
 
 
 # ---------------------------------------------------------------------------
@@ -461,10 +383,28 @@ def run_directed_remediation_round(
     literature`` layout derived from ``corpus_path`` (which lives at
     ``project_notes_dir/reviews/<scope>/_corpus.md``) when not given.
 
+    ★ Sibling-bug fix (remediation corpus-bypass): this round used to
+    append every sweep/snowball hit DIRECTLY into ``_corpus.md`` as a bare
+    ``[NEW]`` row — downstream of curate, the relevance-screen, AND the
+    cold final-corpus verify, so a critic-backtrack round could inject an
+    off-domain citation-neighbor paper (or any unscreened hit) straight
+    into a "certified" corpus. Every hit this round finds is now screened
+    through ``review.facet_remediation.screen_and_append_facet_hits`` (the
+    SAME mechanical relevance-gate + tag-never-raw helper the Layer-3
+    facet-remediation loop already uses) BEFORE it can reach
+    ``_corpus.md``: an ``OFF_DOMAIN`` hit is declared into
+    ``<out_dir>/_critic-backtrack-residue.md``, never appended; a screened-
+    in hit is tagged ``[NEW][NEEDS-CURATE]`` (never a bare/leg-tagged row)
+    so ``review.check_corpus_all_accept_tagged`` still flags it as pending
+    a re-curate pass.
+
     Returns ``{"round": int, "added": [...], "stopped": str | None,
-    "related": {...} | None}`` — ``related`` (new in this PR) is the dict
+    "related": {...} | None, "off_domain": [...], "uncertain": [...]}`` —
+    ``related`` (new in this PR) is the dict
     ``run_incremental_relate_for_new_citekeys`` returns, or ``None`` when
-    the round found zero-new (nothing to relate).
+    the round found zero-new (nothing to relate). ``off_domain``/
+    ``uncertain`` are ``screen_and_append_facet_hits``'s own return fields,
+    passed straight through.
     """
     if tool_op_fn is None:
         tool_op_fn = run_tool_op
@@ -480,8 +420,11 @@ def run_directed_remediation_round(
         )
 
     from . import _parse_corpus_citekeys  # lazy — module-load-cycle safety
+    from .facet_remediation import screen_and_append_facet_hits  # lazy — module-load-cycle safety
+    from .relevance import parse_protocol_criteria  # lazy — module-load-cycle safety
 
     existing_citekeys = set(_parse_corpus_citekeys(corpus_path))
+    criteria, counter_position = parse_protocol_criteria(protocol_path)
 
     # 1. Re-sweep the named pole's frozen counter queries, HARDER (all
     #    sources, relaxed per-cell limit) — frozen-protocol-keyed, no new
@@ -519,14 +462,25 @@ def run_directed_remediation_round(
         except Exception:
             pass  # the sweep's own hits still count; snowball widening is best-effort
 
-    # 3. Dedup + annotate + append (mirrors run_remediation_round step 2).
-    added = _append_new_corpus_rows(corpus_path, hits, existing_citekeys)
+    # 3. Screen (relevance_gate, per hit) + dedup + tag ([NEW][NEEDS-CURATE],
+    #    never bare/raw) + append — the sibling-bug fix (see docstring). An
+    #    OFF_DOMAIN hit is declared into the residue file, never appended.
+    residue_path = out_dir / "_critic-backtrack-residue.md"
+    screen_result = screen_and_append_facet_hits(
+        corpus_path, hits,
+        criteria=criteria, counter_position=counter_position,
+        residue_path=residue_path, existing_citekeys=existing_citekeys,
+    )
+    added = screen_result["added"]
 
     rs_state["rounds_used"] = int(rs_state.get("rounds_used", 0)) + 1
     rs_state["last_wave_added_count"] = len(added)
 
     if not added:
-        return {"round": rs_state["rounds_used"], "added": [], "stopped": "zero-new"}
+        return {
+            "round": rs_state["rounds_used"], "added": [], "stopped": "zero-new",
+            "off_domain": screen_result["off_domain"], "uncertain": screen_result["uncertain"],
+        }
 
     # 4. Declare the denominator growth — SAME within-criteria-append kind
     #    as the saturation-remediation loop; a frozen-facet re-sweep+
@@ -565,4 +519,7 @@ def run_directed_remediation_round(
         relate_fn=relate_fn, escalate_relate_fn=escalate_relate_fn,
     )
 
-    return {"round": rs_state["rounds_used"], "added": added, "stopped": None, "related": related}
+    return {
+        "round": rs_state["rounds_used"], "added": added, "stopped": None, "related": related,
+        "off_domain": screen_result["off_domain"], "uncertain": screen_result["uncertain"],
+    }
