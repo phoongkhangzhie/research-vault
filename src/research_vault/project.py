@@ -922,14 +922,13 @@ def cmd_edges(
 # project remove — clean local teardown (the reversal of `new`/`add`)
 # ---------------------------------------------------------------------------
 #
-# Design: internal design note (the architect).
-# Grounded reversal of every artifact `cmd_new`/`cmd_add` stand up (R1-R9 in the
-# design's inventory).  rv owns the RV-SIDE teardown authoritatively and emits a
+# Grounded reversal of every artifact `cmd_new`/`cmd_add` stand up.
+# rv owns the RV-SIDE teardown authoritatively and emits a
 # structured ``VAULT-TEARDOWN`` handoff for the thin `vault project remove` to
 # consume (projects.json un-insert via held human-go PR, hub-clone removal,
 # deploy suppression) — rv never writes projects.json or touches a hub clone.
 #
-# THE load-bearing guard (of the design): because GitHub preserves all
+# THE load-bearing guard: because GitHub preserves all
 # pushed work, local removal is reversible (re-clone) EXCEPT for anything not
 # yet pushed.  So before clearing worktrees or purging the local repo, we
 # enumerate uncommitted/untracked files, unpushed commits, un-pushed branches,
@@ -1408,7 +1407,7 @@ def cmd_remove(
     # ── Archive DAG runs (safe for terminal; REFUSE for live) ───────────────
     if plan["live_runs"]:
         print(f"  REFUSE: live/provisional DAG run(s) not archived: {', '.join(plan['live_runs'])}")
-        print("    (don't tear down a running experiment — charter §5)")
+        print("    (don't tear down a running experiment)")
         blocked = True
     _archive_dag_runs(cfg, plan["terminal_runs"])
 

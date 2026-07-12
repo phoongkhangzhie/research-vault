@@ -51,8 +51,8 @@ OKF_SHARED_TYPES: frozenset[str] = frozenset({"datasets"})
 # overlay (role/position/concept-edges + a `central:` pointer) lives at
 # cfg.project_notes_dir(project)/literature/<citekey>.md — same location a
 # literature note has always lived at, now carrying only the RQ-relative
-# layer. See (2026-07-10-central-note-store-cross-project-design.md
-#). A third routing class — NOT membership in
+# layer (the central-note-store cross-project design). A third routing
+# class — NOT membership in
 # OKF_SHARED_TYPES, which would collapse the per-project overlay away.
 # SSOT: consumed by cmd_new/cmd_list/cmd_check's three-arm routing + the
 # note.load_literature_note resolver. Do NOT duplicate this — import from
@@ -541,7 +541,7 @@ def _literature_overlay_body() -> str:
 # The overlay's `central:` frontmatter value is a cross-bundle backbone link
 # in rv's `okf:<bundle>/<path>.md` URI form (config.py's bundle registry),
 # e.g. `central: [smith2024](okf:literature/smith2024.md)`. During the
-# migration window a bare slug (`central: smith2024`, the pre-PR-2 form) is
+# migration window a bare slug (`central: smith2024`, the legacy form) is
 # still accepted for back-compat — `_extract_central_slug` handles both.
 _CENTRAL_OKF_LINK_RE = re.compile(
     r"\(okf:literature/([A-Za-z0-9][A-Za-z0-9_.\-]*)\.md\)"
@@ -619,7 +619,7 @@ def _cmd_new_two_layer(
         # an S2 candidate to a filed note without requiring Zotero library.json sync.
         # Fill these in after rv note new to enable [IN-CORPUS] annotation for the note.
         #
-        # (§K-2): the canonical BibTeX citekey (K-D1: authorYearWord —
+        # citekey: the canonical BibTeX citekey (authorYearWord —
         # familyShorttitleYear, see cite.CITEKEY_RE). The FILENAME may stay
         # an arbitrary id (arXiv id, S2 id, slug — whatever this note was
         # filed under); this field is now the ONE convention downstream
@@ -687,7 +687,7 @@ def _cmd_new_two_layer(
 
 class DanglingCentralPointerError(ValueError):
     """Raised when an overlay's ``central:`` pointer does not resolve to an
-    existing central-core note. A surfaced violation (charter §2) — never
+    existing central-core note. A surfaced violation — never
     a silent empty/partial note."""
 
 
@@ -873,7 +873,7 @@ _OVERLAY_ONLY_BODY_HEADING_RE = re.compile(
 
 
 def check_two_layer_invariants(core_path: Path, overlay_path: Path) -> list[str]:
-    """The invariant lint (acceptance item 3): no intrinsic field
+    """The invariant lint: no intrinsic field
     authored in an overlay, no position/role/concept-edge in a core.
 
     Returns a list of violation strings. Every violation is a hard
@@ -1099,7 +1099,7 @@ def cmd_check(
                 # (surfaces manual gaps right after the run, not at paper-writing time)
                 repro_warnings = check_repro_sentinel_lint(p)
                 violations.extend(repro_warnings)
-                # F24: warn when experiment ran but dataset provenance is unrecorded
+                # Warn when experiment ran but dataset provenance is unrecorded
                 # (SURFACE, never block — researcher records via `rv note <p> new datasets`)
                 dataset_warnings = check_dataset_provenance_warn(p)
                 violations.extend(dataset_warnings)
@@ -1149,7 +1149,7 @@ def cmd_check(
                         core_fields, _ = _parse_frontmatter(
                             core_path.read_text(encoding="utf-8")
                         )
-                        # citekey conformance (DECIDED K-D2: WARN this
+                        # citekey conformance (WARN this
                         # release — promotion to a coverage-gate BLOCK is DEFERRED).
                         # An absent or non-conformant citekey never flips the exit
                         # code; it surfaces so a human can migrate it
@@ -1260,14 +1260,14 @@ def check_citekey_conformance(
 ) -> list[str]:
     """WARN when a literature note's ``citekey:`` is absent or non-conformant.
 
-    DECIDED K-D2: this is a WARN-only lint this release — it never
+    This is a WARN-only lint this release — it never
     flips ``rv note check``'s exit code. Promotion to a coverage-gate BLOCK
     is DEFERRED to a future release (once enough of the corpus has been
     migrated via ``rv research migrate-citekeys`` that a hard gate wouldn't
     just fire on every pre-existing note).
 
     Conformance is ``cite.CITEKEY_RE`` — the single ``familyShorttitleYear``
-    convention (K-D1). The visible unresolvable-metadata sentinel
+    convention. The visible unresolvable-metadata sentinel
     (``cite.CITEKEY_SENTINEL``) also fails conformance on purpose — a note
     stuck at "citekey could not be computed" should keep surfacing until a
     human fills in title/authors/year and re-runs the stamp.
@@ -1808,7 +1808,7 @@ def check_provenance_chain(exp_note_path: Path) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def check_dataset_provenance_warn(exp_note_path: Path) -> list[str]:
-    """F24: warn when a ran experiment has unrecorded dataset provenance.
+    """Warn when a ran experiment has unrecorded dataset provenance.
 
     Fires when:
       - _normalize_results(fields)["scores"] is non-empty (any score recorded
@@ -2019,11 +2019,11 @@ def run(args: argparse.Namespace) -> int:
             #   [repro-lint] WARN: — repro-sentinel lint
             #   [gap-hygiene] WARN: — vanished anchor on open/reopened gap
             #   [dataset-provenance] WARN: — unrecorded dataset provenance on a ran
-            #     experiment (F24). check_dataset_provenance_warn's own docstring
+            #     experiment. check_dataset_provenance_warn's own docstring
             #     states this is "SURFACE, never a BLOCK — INFO/WARN only"; it must
             #     degrade like the other two WARN classes, not hard-fail.
             #   [citekey-lint] WARN: — literature note citekey absent/non-conformant
-            #     (DECIDED K-D2: WARN this release, BLOCK deferred).
+            #     (WARN this release, BLOCK deferred).
             #   [two-layer-lint] WARN: — '## Related papers' found in an
             #     overlay; expected until the incremental_relate edge-write
             #     fast-follow lands. Note: "[two-layer-lint]

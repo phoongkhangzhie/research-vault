@@ -424,7 +424,7 @@ class Config:
         bundle name, or a well-formed pointer to a file that does not exist
         on disk. Never raises: this is the resolution primitive underneath
         every cross-bundle reader; the caller decides how loudly to surface
-        an unresolved link (charter §2 — surfaced by the caller, never
+        an unresolved link (surfaced by the caller, never
         silently swallowed at this layer either).
         """
         link = (link or "").strip()

@@ -2,7 +2,7 @@
 """review/ledger.py: the additive, single-writer ``_corpus_ledger.md``
 assembler (the fourth handoff property: LEDGERED).
 
-Design of record: dispatch brief (2026-07-10), building on the
+Introduced 2026-07-10, building on the
 handoff-contract properties COMPLETE / CLEAN / CANONICALLY-KEYED /
 LEDGERED. Provenance for a completed review is currently scattered across
 ``_search_hits.md``, ``_walk.md``, ``_coverage-gaps.md``, the
@@ -23,7 +23,7 @@ scalars in frontmatter (the gate/methods-consumable summary) + structured
 detail as markdown body TABLES (parseable the same way ``_corpus.md``/
 ``_search_hits.md`` already are) — never inline JSON in frontmatter.
 
-Fail-closed (charter §2): a value with no traceable source is NEVER
+Fail-closed: a value with no traceable source is NEVER
 guessed. Any source artifact that is missing or malformed for a section
 that's expected to exist emits a loud ``> [LEDGER-GAP] <section>: <what
 was missing/malformed>`` line in that section AND flips the top-level
@@ -303,7 +303,7 @@ def _citekey_migrated_count(
     DOES record a per-project, append-only provenance artifact —
     ``literature/_citekey_migration_ledger.json`` (``research.py``'s
     ``_CITEKEY_MIGRATION_LEDGER_NAME``) — so a bare ``0`` here would be a
-    fabricated fact (charter §1), not an honest "not derived".
+    fabricated fact, not an honest "not derived".
 
     When the ledger file exists: count DISTINCT migration-ledger entries
     whose ``new`` citekey appears in THIS review's ``_corpus.md`` — the
@@ -355,7 +355,7 @@ def _not_yet_distilled_block(
 
     This is DERIVED (not a stored counter): it re-reads ``_deviations.md``'s
     declared adds (via the SAME parser ``autonomy`` writes/reads them with —
-    ``_parse_deviation_citekey_deltas``, charter §6) and joins them against
+    ``_parse_deviation_citekey_deltas``) and joins them against
     the materialized edge graph (``relate_check.parse_paper_relations`` over
     each note body). The paper->paper edge graph (``## Related papers``) is
     CORE-only content — ``incremental_relate.append_bidirectional_edge``
@@ -715,7 +715,7 @@ def render_methods_from_ledger(ledger_path: Path) -> str:
     relevance, canonical-key map) verbatim.
 
     Every number here traces to the ledger — this function parses, it never
-    recomputes a count (charter §1: never fabricate; the ledger is the
+    recomputes a count (never fabricate; the ledger is the
     single source of truth built for exactly this consumer). Per the
     gold-settled decision (no Appendix in the reader-facing document), this
     output is written to the project's DEVLOG/control note, NEVER joined
@@ -780,7 +780,7 @@ def render_methods_from_ledger(ledger_path: Path) -> str:
     # The body already carries the fully-rendered detail tables (search
     # plan, citation-neighbor walk, relevance dispositions, canonical-key
     # map, open residue) — reuse verbatim rather than re-parsing/
-    # re-rendering them a second time (charter §6).
+    # re-rendering them a second time.
     body_stripped = body.strip()
     if body_stripped.startswith("# Corpus ledger"):
         # Drop the ledger's own H1 title — this is a subsection of the

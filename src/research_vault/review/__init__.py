@@ -94,7 +94,7 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
     not just by prompt convention.
 
     Uses ``note._parse_frontmatter`` (the canonical parser) — no re-rolled
-    YAML/regex logic (charter §6: reuse over create).
+    YAML/regex logic (reuse over create).
 
     Args:
         protocol_path: path to the review's ``_protocol.md`` artifact.
@@ -134,7 +134,7 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
-# D-7: empty-counter-facet structural gate — mirrors check_protocol_gate
+# Empty-counter-facet structural gate — mirrors check_protocol_gate
 # above (the free-text `counter-position` field), one level more mechanical:
 # a facet declared with a THESIS query but no frozen COUNTER-side query is a
 # protocol defect, caught BEFORE any search executes (
@@ -142,7 +142,7 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 def check_counter_facet_gate(protocol_path: Path) -> tuple[bool, str]:
-    """ D-7: BLOCK when a nested ``seed_queries`` facet (the D-3
+    """BLOCK when a nested ``seed_queries`` facet (the stance-tagged
     thesis/counter schema) has one or more THESIS queries but ZERO frozen
     COUNTER-side queries.
 
@@ -151,7 +151,7 @@ def check_counter_facet_gate(protocol_path: Path) -> tuple[bool, str]:
     thesis/counter split) never declared a counter-pole in the first place,
     so this gate has nothing to check there (``group_facet_stances``
     correctly returns ``{}`` for a purely-legacy matrix; see its docstring).
-    This is the forward-only D-7 requirement on NEWLY-scoped protocols, not
+    This is a forward-only requirement on NEWLY-scoped protocols, not
     a retroactive re-check of an already-approved protocol (``approve-
     protocol`` is a one-time gate; an already-passed protocol never re-hits
     it).
@@ -171,7 +171,7 @@ def check_counter_facet_gate(protocol_path: Path) -> tuple[bool, str]:
 
     if not protocol_path.exists():
         return False, (
-            f"rv dag approve: D-7 gate BLOCKED — _protocol.md not found at "
+            f"rv dag approve: counter-facet existence gate BLOCKED — _protocol.md not found at "
             f"{protocol_path}."
         )
 
@@ -184,7 +184,7 @@ def check_counter_facet_gate(protocol_path: Path) -> tuple[bool, str]:
     # before the loop even runs.
     if seed_queries_declared_but_unparsed(text):
         return False, (
-            f"rv dag approve: D-7 gate BLOCKED — {protocol_path} declares a "
+            f"rv dag approve: counter-facet existence gate BLOCKED — {protocol_path} declares a "
             f"`seed_queries:` key that parses to ZERO usable queries "
             f"(malformed nesting/indentation, or an empty/garbage block).\n"
             f"An empty query matrix must never silently clear this gate — "
@@ -202,7 +202,7 @@ def check_counter_facet_gate(protocol_path: Path) -> tuple[bool, str]:
     if empty_counter_poles:
         poles = ", ".join(empty_counter_poles)
         return False, (
-            f"rv dag approve: D-7 gate BLOCKED — {protocol_path} declares a "
+            f"rv dag approve: counter-facet existence gate BLOCKED — {protocol_path} declares a "
             f"THESIS query for facet(s) [{poles}] with NO frozen counter-side "
             f"query.\n"
             f"A contested facet with no disconfirming query is a protocol "
@@ -293,7 +293,7 @@ def read_protocol_deliverable(protocol_path: Path) -> str:
 
 # The ONLY two values the gate ever trusts. A fixed vocab, not a heuristic —
 # no prose-scanning regex, no anchoring/ambiguity patching. This whitelist
-# (charter §2) is what closes the whole prose-evasion class the prior
+# is what closes the whole prose-evasion class the prior
 # ``_COVERAGE_CRITIC_VERDICT_RE``/``_COVERAGE_CRITIC_VERDICT_LINE_RE``
 # implementation kept getting evaded on (first-match -> line-anchor -> a
 # residual opening-line evasion) — the operator's directive: stop parsing
@@ -306,7 +306,7 @@ _COVERAGE_CRITIC_VERDICT_VOCAB = frozenset({"PASS", "BLOCK"})
 # frontmatter ``verdict:`` field.
 _COVERAGE_CRITIC_BULLET_RE = re.compile(r"^\s*-\s+(.+?)\s*$")
 
-# D-5a: a BLOCK reason bullet is classified as backtrack-eligible iff
+# A BLOCK reason bullet is classified as backtrack-eligible iff
 # it starts with this literal prefix (case-insensitive) — deliberately
 # NARROWER than the whole axis-4 "COUNTER-POSITION" umbrella. The
 # pre-existing hard-block bullets (``COUNTER-POSITION ABSENT`` — the
@@ -328,7 +328,7 @@ _COUNTER_POSITION_BULLET_PREFIX = "counter-position thin-pole"
 # Flat scalars (not a nested mapping): `note._parse_frontmatter` only
 # supports flat key:value + mapping-lists, not a bare nested dict under one
 # key (engineer memory: "Parser extension STOP decision") — reusing the
-# canonical parser as-is (charter §6) rather than hand-rolling a second,
+# canonical parser as-is rather than hand-rolling a second,
 # richer frontmatter grammar for this one field.
 _REMEDIATION_TARGET_FIELDS: tuple[str, ...] = (
     "remediation_target_node", "remediation_target_pole", "remediation_target_directive",
@@ -341,7 +341,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
     "not_run": [...]}`` structural-payload shape
     ``review.autonomy.evaluation_from_structural_payload`` consumes — the
     SAME adapter ``approve-framework``/``approve-manuscript`` already use
-    (charter §6 reuse-over-create; no new disposition path invented).
+    (reuse-over-create; no new disposition path invented).
 
     This function reads ONLY the frontmatter field — it never scans the
     body prose for bracket tokens. Prose (including a stray ``[PASS]``/
@@ -367,7 +367,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
       generic blocking reason (never a BLOCK verdict silently downgraded to
       a pass because no bullets were parsed).
 
-    Also returns two (D-5a) keys, both consumed by
+    Also returns two additional keys, both consumed by
     ``review.remediation.resolve_coverage_critic`` (an older caller reading
     only ``blocking``/``not_run`` is unaffected — additive fields):
       - ``remediation_target_expected`` (bool): True iff ``verdict == BLOCK``
@@ -379,7 +379,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
         AND all three are non-empty; ``None`` otherwise (including the
         "expected but incomplete" fail-closed case — never guessed).
 
-    scanning entirely) — 2026-07-09; D-5a (remediation_target) — 2026-07-10
+    scanning entirely) — 2026-07-09; ``remediation_target`` added 2026-07-10
     """
     if not critic_note_path.exists():
         return {
@@ -448,7 +448,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
     if not reasons:
         reasons = ["[BLOCK] verdict with no itemized reason bullets found"]
 
-    # D-5a: classify — is this a PURE counter-position/thin-pole BLOCK
+    # Classify — is this a PURE counter-position/thin-pole BLOCK
     # (every itemized reason starts with the "counter-position" prefix)? A
     # mixed BLOCK (any axis-1/3 reason present) is NEVER eligible for the
     # autonomous pole-directed backtrack, however the reasons are itemized —
@@ -517,7 +517,7 @@ def check_walk_terminal(walk_path: Path) -> dict[str, Any]:
         to HALT-DECLARE, same as any other non-canonical value.
 
     Uses ``note._parse_frontmatter`` (the canonical parser) — no re-rolled
-    YAML/regex logic (charter §6: reuse over create), mirroring
+    YAML/regex logic (reuse over create), mirroring
     ``check_protocol_gate``'s use of the same parser on ``_protocol.md``.
 
     Args:
@@ -530,7 +530,7 @@ def check_walk_terminal(walk_path: Path) -> dict[str, Any]:
           walk_complete: bool      — True iff stop_reason starts with "walk-complete:".
           hop_count:    int | None — parsed N from "walk-complete:N-hops", else None.
 
-    charter §2 (surface, never silently drop): this function never fabricates
+    Surface, never silently drop: this function never fabricates
     ``"walk-complete:N-hops"`` for anything it can't confirm. A MISSING field
     returns ``stop_reason == ""``; a NON-CANONICAL value (e.g. a dash instead
     of a colon, free prose, garbage, or a legacy ``"saturated"``/
@@ -606,7 +606,7 @@ def check_source_coverage(
                                    Non-empty -> the coverage-gate must
                                    fail-closed (never certify saturated).
 
-    charter §2 (surface, never silently drop): a missing ``_search_hits.md``
+    Surface, never silently drop: a missing ``_search_hits.md``
     returns ``exists: False`` with empty lists — the CALLER decides how to
     treat that (structurally can't have reached coverage-gate without a
     search having run, so this is a defensive default, not a green light).
@@ -654,11 +654,12 @@ def check_facet_coverage_from_search_hits(search_hits_path: Path) -> dict[str, A
       exists:            bool             — whether ``_search_hits.md`` was found.
       declared:          bool             — whether the sweep that wrote it
                                              computed facet coverage at all
-                                             (a manifest with no nested D-3
-                                             facets, or a pre-0.3.1 sweep,
+                                             (a manifest with no nested
+                                             stance-tagged facets, or a
+                                             pre-0.3.1 sweep,
                                              never stamps these fields — an
                                              honest no-op, never a fabricated
-                                             empty-thin-poles GO; charter §2).
+                                             empty-thin-poles GO).
       pole_counts:        dict[str, int]
       thin_poles:          list[str]
       min_hits_per_pole:   int | None
@@ -760,7 +761,7 @@ def update_search_hits_pole_count(
 
 
 # ---------------------------------------------------------------------------
-# Coverage report (F16+F17) — deterministic, keyed by citekey
+# Coverage report — deterministic, keyed by citekey
 # ---------------------------------------------------------------------------
 
 class CorpusSchemaError(ValueError):
@@ -772,7 +773,7 @@ class CorpusSchemaError(ValueError):
     ``continue``d past such a row, so a malformed remediation append
     vanished from the corpus set and ``coverage_report``/the coverage-gate
     audited a stale subset while reporting green. This is a loud reject
-    instead (charter §2 — surface, never silently drop).
+    instead (surface, never silently drop).
 
     Narrow structural signal, not "any unrecognized row": a bullet/prose
     line or a header/separator row (whose column-0 is NOT bracket-shaped)
@@ -922,7 +923,7 @@ def _index_literature_notes_by_citekey(
 ) -> dict[str, Path]:
     """Build a citekey → note-path index from the project's literature/ OKF dir.
 
-    F17: identity is the ``citekey:`` frontmatter field (filename-agnostic).
+    Identity is the ``citekey:`` frontmatter field (filename-agnostic).
     Falls back to the filename stem ONLY if the field is absent or empty.
     This allows descriptive filenames like ``zheng2023-pride-mc-selectors.md``
     while matching the corpus citekey ``zheng2023-pride`` without false-orphaning.
@@ -932,7 +933,7 @@ def _index_literature_notes_by_citekey(
     pointer and prefers the CORE's citekey field. ``literature_root=None``
     (or no resolvable core) degrades to the overlay's own citekey field —
     which for a two-layer note is normally absent, so this correctly falls
-    through to the filename-stem convention (still F17-correct, since the
+    through to the filename-stem convention (still correct, since the
     core's filename and the overlay's filename share one slug by
     construction — see ``note._cmd_new_two_layer``).
 
@@ -963,7 +964,7 @@ def _index_literature_notes_by_citekey(
                         citekey = (core_fields.get("citekey") or "").strip()
                     except OSError:
                         pass
-        # F17: prefer the citekey: field over the filename stem
+        # Prefer the citekey: field over the filename stem
         if not citekey:
             citekey = note_path.stem
         index[citekey] = note_path
@@ -1001,14 +1002,14 @@ def coverage_report(
     *,
     config: Config | None = None,
 ) -> dict[str, Any]:
-    """Deterministic corpus-coverage check keyed by citekey (F16+F17).
+    """Deterministic corpus-coverage check keyed by citekey.
 
     Source-of-truth: the frozen ``_corpus.md`` manifest.  Identity of literature
-    notes is the ``citekey:`` frontmatter field (filename-agnostic — F17 fix).
+    notes is the ``citekey:`` frontmatter field (filename-agnostic).
 
     Reports per citekey:
       - ``materialized``:   a ``literature/`` note with matching citekey: field exists.
-      - ``unmaterialized``: corpus citekey with no matching note (gap — F16).
+      - ``unmaterialized``: corpus citekey with no matching note (gap).
       - ``orphan``:         materialized but absent from every ``mocs/`` region.
       - ``mention_only``:   (placeholder — detection not yet implemented; [] always).
       - ``counts``:         summary counts for all four categories.
@@ -1016,7 +1017,7 @@ def coverage_report(
     Why filename-agnostic?
       Descriptive filenames like ``zheng2023-pride-mc-selectors.md`` carrying
       ``citekey: zheng2023-pride`` must match corpus entry ``zheng2023-pride``
-      without being flagged orphan.  Stem-based matching was the original bug (F17).
+      without being flagged orphan.  Stem-based matching was the original bug.
 
     Args:
         project: project slug (must be in config registry).
@@ -1045,7 +1046,7 @@ def coverage_report(
     # Source-of-truth: corpus citekeys (all annotated rows)
     corpus_citekeys: list[str] = _parse_corpus_citekeys(corpus_path)
 
-    # Index literature notes by citekey: field (F17 — filename-agnostic)
+    # Index literature notes by citekey: field (filename-agnostic)
     lit_index: dict[str, Path] = _index_literature_notes_by_citekey(
         literature_dir, literature_root=cfg.literature_root,
     )
@@ -1255,7 +1256,7 @@ def relations_report(
     ``coverage_report``'s pattern exactly — same anti-pattern this closes
     ("do NOT hand-stem-match... run the deterministic command").
 
-    Reuse-over-create (charter §6): zero new edge mechanism — this is a
+    Reuse-over-create: zero new edge mechanism — this is a
     corpus-wide fold of the SAME parser the presence check uses per-note.
 
     Two-layer store: paper->paper edges live in the CENTRAL CORE
@@ -1597,9 +1598,9 @@ def _build_phase1_manifest(
         ],
     })
 
-    # 6. review-relevance-screen — TOOL node (design 2026-07-10-
-    #    trustworthy-curation-relevance-gate-design.md, CORE not
-    #    deferred): the mechanical, deterministic relevance pre-filter over
+    # 6. review-relevance-screen — TOOL node (a CORE-not-deferred
+    #    part of the trustworthy-curation relevance-gate design): the
+    #    mechanical, deterministic relevance pre-filter over
     #    the raw snowball pool. The snowball is the ACTUAL contamination
     #    source (citation-promiscuous — a paper cites a galaxy survey for a
     #    stats method; query-scoping can't help it), so it is gated here,
@@ -2225,7 +2226,7 @@ def cmd_expand(
     total_data_rows = _count_corpus_data_rows(corpus_text)
     new_citekeys = _parse_new_citekeys_from_text(corpus_text)
 
-    # F15: green-but-vacuous guard — if the corpus has annotation rows but none
+    # green-but-vacuous guard — if the corpus has annotation rows but none
     # parsed as [NEW], there is a format mismatch.  Do NOT write a 0-relate
     # phase2-dag.json; raise loud so the operator can fix the corpus format.
     # A truly empty corpus (0 annotation rows) still degrades gracefully (direct
@@ -2260,7 +2261,7 @@ def cmd_expand(
         encoding="utf-8",
     )
 
-    # F16+F17: one-line coverage summary so the operator sees state immediately
+    # One-line coverage summary so the operator sees state immediately
     # (non-fatal — if _corpus.md is absent or literature/ doesn't exist yet,
     # we just print zeros rather than failing the expand step)
     import sys as _sys

@@ -13,7 +13,7 @@ provisional/confirmed bookkeeping. The async-veto window
 ``clear_provisional_if_elapsed``/``check_declare_final_gate``) and the
 ``rv dag veto`` CLI surface it backed were REMOVED for this reason — see
 DEVLOG.md. This module is the single-sourced home (mirrors
-``check_gates.build_approve_payload``'s assembler pattern, charter §6
+``check_gates.build_approve_payload``'s assembler pattern, 
 reuse-over-create) for TWO things that were previously a human keypress at
 ``rv dag approve``:
 
@@ -81,7 +81,7 @@ HALT_DECLARE = "HALT-DECLARE"
 # walk makes auto-re-expansion contradictory. CRITIC_BACKTRACK below is
 # UNRELATED to this deletion (a separate mechanism — the counter-position/
 # thin-pole critic backtrack — untouched by the walk redesign) and remains.
-# An approve-review-only disposition (D-5a) — a PURE counter-position/
+# An approve-review-only disposition — a PURE counter-position/
 # thin-pole critic BLOCK (``remediation_target_expected`` on the
 # ``check_coverage_critic_verdict`` payload), a valid ``remediation_target``
 # naming the exact pole, and backtrack budget remaining. Never returned by
@@ -119,7 +119,7 @@ _VALID_DISPOSITIONS: frozenset[str] = frozenset(
 class DispositionResult:
     """The gate-policy engine's output: exactly one disposition + why.
 
-    charter §2: every non-GO is a loud, first-class artifact (``reason`` +
+    Every non-GO is a loud, first-class artifact (``reason`` +
     ``evidence`` are always populated, never blank on a non-GO). Every GO is
     either fully-green (``GO``) or explicitly residue-annotated
     (``GO_WITH_RESIDUE``) — there is no green-and-empty path.
@@ -166,7 +166,7 @@ def classify_disposition(ev: GateEvaluation) -> DispositionResult:
     signal; the MOST severe wins, never averaged):
 
       1. Untrustworthy signal (canary abort)        -> HALT-DECLARE, fail-closed.
-         Never auto-retry the same broken judge (charter §10).
+         Never auto-retry the same broken judge.
       2. Floor gate NOT RUN / incomplete fan-out     -> HALT-DECLARE, fail-closed.
          A floor gate that didn't run must never look like a pass (explore-rl #3).
       3. Deterministic fixable BLOCK, budget spent   -> HALT-DECLARE.
@@ -228,7 +228,7 @@ def evaluation_from_structural_payload(payload: dict[str, Any]) -> GateEvaluatio
     REVISE (a canary-abort landing only in ``blocking`` would be downgraded
     to an ordinary fixable BLOCK and dispatch a bounded auto-revise against
     the SAME broken judge — the exact priority violation the gate-policy
-    engine exists to prevent; charter §10, never auto-retry an untrustworthy
+    engine exists to prevent; never auto-retry an untrustworthy
     judge). Absent
     key defaults to ``False`` — backward compatible with any older payload
     shape that predates this field.
@@ -266,7 +266,7 @@ def evaluation_from_board(
     """
     cleared = bool(board_result.get("cleared", False))
     if canary_aborted:
-        # Untrustworthy signal — never routed to residue (charter §10: never
+        # Untrustworthy signal — never routed to residue (never
         # auto-trust an untrustworthy judge's "quality shortfall").
         return GateEvaluation(canary_aborted=True)
     residue: str | None = None
@@ -298,7 +298,7 @@ def evaluation_from_framework_critic(payload: dict[str, Any]) -> GateEvaluation:
 
     This is the SAME shape ``evaluation_from_structural_payload`` already
     consumes (support-matcher / equation / hermetic-bib) — a thin,
-    named call-through, not a second disposition path (charter §6): the
+    named call-through, not a second disposition path: the
     critic's payload already carries ``canary_aborted`` as a top-level flag,
     so an untrustworthy (canary-mismatched) verdict classifies HALT-DECLARE
     at priority 1, never downgraded to an ordinary fixable BLOCK/REVISE.
@@ -343,7 +343,7 @@ def classify_coverage_gate(
       neighborhood bound, and that must be declared, not hidden).
     - absent / malformed / anything else            -> HALT-DECLARE,
       fail-closed (never treat an unparseable stop-reason as complete —
-      charter §2 whitelist-not-blacklist).
+       whitelist-not-blacklist).
     """
     if source_coverage_info is not None and source_coverage_info.get("declared_dark"):
         declared_dark = source_coverage_info["declared_dark"]
@@ -408,7 +408,7 @@ def classify_coverage_gate(
     # "budget:N-calls" form — a non-canonical spelling, free prose, or
     # garbage (including the legacy "saturated"/"backstop:N-waves" strings a
     # pre-0.3.1 _saturation.md might still carry). Fail-closed: this must
-    # NEVER be silently treated as complete (charter §2).
+    # NEVER be silently treated as complete.
     return DispositionResult(
         HALT_DECLARE,
         f"stop_reason {stop_reason!r} is not a recognized citation-neighbor "
@@ -723,7 +723,7 @@ def _op_sweep(
     ``SweepResult`` (back-compat for any caller that doesn't want the
     artifact written, e.g. a unit test exercising the op in isolation).
 
-    ``angle_keys``/``sources_override`` (D-5a): pass-through to
+    ``angle_keys``/``sources_override``: pass-through to
     ``run_sweep_from_protocol`` — the pole-directed critic-backtrack round
     (``review.remediation.run_directed_remediation_round``) restricts the
     sweep to one facet's frozen counter-queries and widens to every
@@ -785,7 +785,7 @@ def _is_valid_paper_id(token: str) -> bool:
     arXiv id / S2 40-hex corpus id / scheme-prefixed form)?
 
     Reuses the SAME id shapes ``research.py``'s ``_normalize_paper_id_for_asta``
-    already recognizes (charter §6 reuse-over-create) — no second id grammar
+    already recognizes (reuse-over-create) — no second id grammar
     to keep in sync. This is the hard backstop that keeps a stray frontmatter
     ``---``, a prose sentence, or a table row from ever reaching asta as a
     seed id, regardless of which extraction path found the line.
@@ -824,7 +824,7 @@ def _extract_seed_ids_from_screen(text: str) -> list[str]:
          for anyone who skips the fence.
 
     Either path only ever returns id-shaped tokens — a frontmatter ``---``,
-    a prose sentence, or a table row is silently EXCLUDED (charter §2: this
+    a prose sentence, or a table row is silently EXCLUDED (this
     is a narrow, unambiguous filter — not silently dropping a *malformed
     but intended* id, which would need a wider net; a prose sentence or a
     ``---`` was never an id contender in the first place).
@@ -871,7 +871,7 @@ def _op_snowball(
     screen note's own prose PRISMA exclusion audit trail lives freely above
     it; see ``review/style.py``'s ``review_screen_tips``).
 
-    ``seed_ids`` (D-5a): an EXPLICIT seed-id list, bypassing the
+    ``seed_ids``: an EXPLICIT seed-id list, bypassing the
     ``_screen.md`` file entirely — the pole-directed critic-backtrack round
     (``review.remediation.run_directed_remediation_round``) has no
     ``_screen.md`` of its own (there is no screen step in a backtrack
@@ -967,7 +967,7 @@ def _op_relevance_screen(
     """The ``relevance_screen`` tool op (design 2026-07-10-trustworthy-
     curation-relevance-gate-design.md) — the mechanical snowball-screen
     gate between ``review-snowball`` and ``review-curate``. Thin call-
-    through to ``review.relevance.screen_corpus_raw`` (charter §6 — no
+    through to ``review.relevance.screen_corpus_raw`` (no
     mechanism reimplemented here).
     """
     from research_vault.review.relevance import screen_corpus_raw

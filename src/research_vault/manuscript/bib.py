@@ -1,16 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""bib.py: hermetic reference-list build + citation-resolve gate (D-SV-A).
+"""bib.py: hermetic reference-list build + citation-resolve gate.
 
-Re-instantiates the removed ``manuscript/bib.py`` (deleted earlier),
-adapted to the type-generic manuscript loop's D-SV-A contract, and later
-retired its LaTeX render target entirely (the operator's explicit call —
-see DEVLOG). The manuscript loop's citation convention is now
-markdown-only: a ``[[citekey]]`` wikilink in the draft prose (RD-1),
-resolved against a markdown-native ``references.md`` ledger.
+Adapted to the type-generic manuscript loop's hermetic, never-fabricate
+contract, and later retired its LaTeX render target entirely (an explicit,
+documented design call — see DEVLOG). The manuscript loop's citation
+convention is now markdown-only: a ``[[citekey]]`` wikilink in the draft
+prose, resolved against a markdown-native ``references.md`` ledger.
 
 The hermetic gate confirms BOTH, at build time:
   1. Every ``[[citekey]]`` wikilink in the draft resolves to a real
-     ``literature/`` note (citekey: field, F17 filename-stem fallback) — a
+     ``literature/`` note (citekey: field, filename-stem fallback) — a
      dangling wikilink is flagged (non-empty errors), never silently
      dropped or fabricated.
   2. ``references.md`` is self-contained — every entry written to it is
@@ -43,7 +42,7 @@ _REFERENCE_ENTRY_KEY_RE = re.compile(r"^-\s+\*\*([^*]+)\*\*", re.MULTILINE)
 
 def extract_cited_keys(draft_files: list[Path]) -> set[str]:
     """Extract all citekeys from a list of markdown draft files
-    (``[[citekey]]`` wikilinks, RD-1's markdown render target).
+    (``[[citekey]]`` wikilinks, the markdown render target).
 
     Returns a set of stripped citekey strings.
     """
@@ -63,7 +62,7 @@ def extract_cited_keys(draft_files: list[Path]) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# literature/ frontmatter index (D-SV-A — the hermetic source of truth)
+# literature/ frontmatter index (the hermetic source of truth)
 # ---------------------------------------------------------------------------
 
 def _load_literature_bib_index(
@@ -71,7 +70,7 @@ def _load_literature_bib_index(
 ) -> dict[str, dict[str, Any]]:
     """Build a citekey -> frontmatter-fields index from ``literature/`` notes.
 
-    Mirrors the F17 convention (``review._index_literature_notes_by_citekey``):
+    Mirrors the citekey-identity convention (``review._index_literature_notes_by_citekey``):
     identity is the ``citekey:`` frontmatter field, filename-agnostic; falls
     back to the filename stem ONLY if the field is absent or empty. Reads
     frontmatter directly (rather than importing the review-module helper) so
@@ -173,7 +172,7 @@ _HEADER = (
     "<!-- Closed bibliography: only [[citekey]]-referenced keys appear. -->\n"
     "<!-- Do NOT hand-edit citekeys — the build is deterministic; re-run the -->\n"
     "<!-- manuscript bib gate to regenerate. -->\n"
-    "<!-- NO live Zotero/network call is made to produce this file (D-SV-A). -->\n"
+    "<!-- NO live Zotero/network call is made to produce this file. -->\n"
 )
 
 
@@ -186,7 +185,7 @@ def build_references_md(
 ) -> tuple[list[str], Path]:
     """Build ``tree_root/references.md`` from ``literature/`` frontmatter.
 
-    Hermetic (D-SV-A): reads only local files (``literature/*.md``
+    Hermetic: reads only local files (``literature/*.md``
     frontmatter + the manuscript's markdown draft files) — no network, no
     Zotero API call is reachable from this path (see ``TestHermeticNoNetwork``).
 
@@ -245,14 +244,15 @@ def build_references_md(
 
 # ---------------------------------------------------------------------------
 #  mechanical [[citekey]] -> [N] render + hermetic numbered
-# "## Sources" + references.bib (design D-4).
+# "## Sources" + references.bib.
 #
 # The drafter keeps the stable, content-addressable [[citekey]] token in
-# sections/*.md and _report.md (RD-1, unchanged above) — this is a
+# sections/*.md and _report.md (unchanged above) — this is a
 # SEPARATE render pass that never mutates those draft files. It reads the
 # same draft files + literature/ frontmatter, and writes NEW artifacts:
-#   - tree_root/report.md (architect ruling, two-artifact
-#     rename): the READER-FACING [N]-numbered body + a "## Sources" section
+#   - tree_root/report.md (the reader-facing render, a separate
+#     two-artifact rename from the drafted source): the READER-FACING
+#     [N]-numbered body + a "## Sources" section
 #     (the gold shape). No underscore prefix — this is the one file a
 #     reader ever sees; `_report.md` (source) is internal (rv's own
 #     `_LEAK_ARTIFACT_FILENAME_RE` convention: underscore-prefixed .md is
@@ -262,7 +262,7 @@ def build_references_md(
 #   - tree_root/references.bib      — the same closed bibliography as a
 #     real, parseable BibTeX file.
 # This mirrors build_references_md's hermetic, never-fabricate contract
-# (D-SV-A) applied to a numbered render instead of a bare markdown ledger.
+# applied to a numbered render instead of a bare markdown ledger.
 # ---------------------------------------------------------------------------
 
 # Mirrors cite.CITEKEY_SENTINEL — duplicated, not imported: bib.py's
@@ -276,8 +276,8 @@ _CITEKEY_SENTINEL = "CITEKEY-UNRESOLVED"
 
 def extract_cited_keys_ordered(draft_files: list[Path]) -> list[str]:
     """Like ``extract_cited_keys`` but preserves FIRST-APPEARANCE order
-    (D-4b) instead of returning an unordered set — required for
-    deterministic ``[N]`` numbering. Deduped (D-4c): a repeated ``[[key]]``
+    instead of returning an unordered set — required for
+    deterministic ``[N]`` numbering. Deduped: a repeated ``[[key]]``
     keeps its first-seen position, not a new one.
     """
     seen: set[str] = set()
@@ -299,7 +299,7 @@ def extract_cited_keys_ordered(draft_files: list[Path]) -> list[str]:
 
 def _claim_snippet(text: str, start: int, end: int, width: int = 60) -> str:
     """Return a short, single-line context window around a match span, for
-    naming the offending claim in a BLOCK message (D-4e) — never just the
+    naming the offending claim in a BLOCK message — never just the
     bare citekey with no context."""
     lo = max(0, start - width)
     hi = min(len(text), end + width)
@@ -313,10 +313,10 @@ def _resolve_citations(
 
     Returns:
         ordered_keys: every VALID (non-blank, non-sentinel) citekey token
-            found, first-appearance-deduped (D-4b/D-4c).
+            found, first-appearance-deduped.
         matched: subset of ordered_keys with a backing ``literature/`` note —
             the only keys safe to number/emit as a Source or ``.bib`` entry.
-        errors: D-4e messages (blank/sentinel citekey, naming the offending
+        errors: blank/sentinel-citekey messages (naming the offending
             claim) + unmatched-key messages (valid format, no backing note) —
             both keep the key out of ``matched``.
 
@@ -327,7 +327,7 @@ def _resolve_citations(
     unconditionally, regardless of whether some ``literature/`` note happens
     to carry that literal string as its ``citekey:`` field (a real failure
     mode: several unresolved-metadata notes can collide on the same
-    sentinel) — never emitted as a ``[N]`` entry or a ``.bib`` key (D-4e).
+    sentinel) — never emitted as a ``[N]`` entry or a ``.bib`` key.
     """
     ordered_keys: list[str] = []
     seen: set[str] = set()
@@ -348,7 +348,7 @@ def _resolve_citations(
                 label = key or "<blank>"
                 errors.append(
                     f"{draft_path.name}: [[{label}]] is an unresolved/blank "
-                    f"citekey (D-4e) — claim: \"{snippet}\" — a blank or "
+                    f"citekey — claim: \"{snippet}\" — a blank or "
                     "CITEKEY-UNRESOLVED sentinel is never rendered as a "
                     "[N] entry or .bib key; resolve the real citekey "
                     "before publish."
@@ -372,9 +372,9 @@ def _resolve_citations(
 def build_citation_numbering(
     ordered_keys: list[str], matched: dict[str, dict[str, Any]],
 ) -> dict[str, int]:
-    """Assign ``[N]`` numbers to ``ordered_keys`` in first-appearance order
-    (D-4b), skipping any key absent from ``matched`` (unresolved/unmatched —
-    never numbered). Deterministic: same inputs -> same numbering (D-4c).
+    """Assign ``[N]`` numbers to ``ordered_keys`` in first-appearance order,
+    skipping any key absent from ``matched`` (unresolved/unmatched —
+    never numbered). Deterministic: same inputs -> same numbering.
     """
     numbering: dict[str, int] = {}
     n = 0
@@ -388,7 +388,7 @@ def build_citation_numbering(
 
 def convert_wikilinks_to_numbered(text: str, numbering: dict[str, int]) -> str:
     """Mechanically replace every ``[[key]]`` present in ``numbering`` with
-    ``[N]`` (D-4a). A key NOT in ``numbering`` (unresolved, unmatched, or the
+    ``[N]``. A key NOT in ``numbering`` (unresolved, unmatched, or the
     sentinel) is left untouched — it surfaces as residue via
     ``find_residual_wikilinks``, never silently dropped.
     """
@@ -404,7 +404,7 @@ def convert_wikilinks_to_numbered(text: str, numbering: dict[str, int]) -> str:
 def find_residual_wikilinks(text: str) -> list[str]:
     """Return every ``[[citekey]]`` token still present in ``text`` — a
     non-empty result after ``convert_wikilinks_to_numbered`` means a
-    half-converted body (D-4d), never ship it."""
+    half-converted body, never ship it."""
     return [m.group(1).strip() for m in _WIKILINK_CITE_RE.finditer(text)]
 
 
@@ -445,7 +445,7 @@ def build_sources_section(
     numbering: dict[str, int], matched: dict[str, dict[str, Any]],
 ) -> str:
     """Build the whole ``## Sources`` block, one line per numbered key, in
-    ``[N]`` order (not citekey-sorted — RD-1's numbered-reader-list shape,
+    ``[N]`` order (not citekey-sorted — the reader-facing numbered-list shape,
     distinct from ``build_references_md``'s alphabetical ledger)."""
     lines = ["## Sources", ""]
     for key, n in sorted(numbering.items(), key=lambda kv: kv[1]):
@@ -501,7 +501,7 @@ _BIB_HEADER = (
     "% references.bib — hermetic BibTeX build from literature/ frontmatter\n"
     "% (rv manuscript). Do NOT hand-edit — re-run the numbered render\n"
     "% to regenerate. NO live Zotero/network call is made to produce this\n"
-    "% file (mirrors references.md's D-SV-A hermetic contract).\n"
+    "% file (mirrors references.md's hermetic, never-fabricate contract).\n"
 )
 
 
@@ -520,7 +520,7 @@ def build_references_bib(
     Returns:
         (errors, bib_path): errors mirrors ``_resolve_citations`` — a
         blank/sentinel or unmatched citekey is flagged and NEVER emitted as
-        a ``.bib`` entry (D-4e); ``bib_path`` is always written (best-effort,
+        a ``.bib`` entry; ``bib_path`` is always written (best-effort,
         possibly header-only when nothing resolved).
     """
     references_bib_path = tree_root / "references.bib"
@@ -553,18 +553,18 @@ def render_numbered_manuscript(
     draft_files: list[Path] | None = None,
     literature_root: Path | None = None,
 ) -> dict[str, Any]:
-    """The full D-4 render: mechanical ``[[citekey]] -> [N]`` conversion of
+    """The full render: mechanical ``[[citekey]] -> [N]`` conversion of
     the reader-facing draft + a hermetic numbered ``## Sources`` section +
     ``references.bib`` — the deliverable.
 
     Never mutates the drafted ``_report.md``/``sections/*.md`` (they keep
-    their stable ``[[citekey]]`` tokens, D-4a) — writes two NEW artifacts:
+    their stable ``[[citekey]]`` tokens) — writes two NEW artifacts:
     ``tree_root/report.md`` (the reader-facing numbered body +
     Sources — no underscore, the one file a reader ever sees) and
     ``tree_root/references.bib``.
 
-    Fail-closed (charter §2): a blank/``CITEKEY-UNRESOLVED`` citekey
-    (D-4e) or any residual ``[[citekey]]`` left after conversion (D-4d) is a
+    Fail-closed: a blank/``CITEKEY-UNRESOLVED`` citekey
+    or any residual ``[[citekey]]`` left after conversion is a
     hard BLOCK — ``ok: False`` with the offending claim/key named in
     ``errors``, never a silently half-converted body.
 
@@ -598,14 +598,14 @@ def render_numbered_manuscript(
         converted = convert_wikilinks_to_numbered(text, numbering)
         for res_key in find_residual_wikilinks(converted):
             if res_key == "" or res_key == _CITEKEY_SENTINEL:
-                # Already reported with a named-claim message above (D-4e) —
+                # Already reported with a named-claim message above —
                 # don't double-report the same token under a second, less
                 # specific message.
                 continue
             errors.append(
                 f"{draft_path.name}: residual [[{res_key}]] left in the "
                 "reader body after [N] conversion — a half-converted body "
-                "is never shipped (D-4d)."
+                "is never shipped."
             )
         rendered_bodies[str(draft_path)] = converted
 
@@ -649,7 +649,8 @@ def check_citation_resolve(
     draft_files: list[Path] | None = None,
     literature_root: Path | None = None,
 ) -> dict[str, Any]:
-    """The hermetic citation-resolve gate — BOTH predicates of D-SV-A.
+    """The hermetic citation-resolve gate — BOTH predicates of the module
+    docstring's contract.
 
     1. Every ``[[citekey]]`` wikilink resolves to a real ``literature/`` note
        (dangling wikilink -> BLOCK — surfaced via ``ok: False`` + non-empty
@@ -661,7 +662,7 @@ def check_citation_resolve(
        ``lit_index``, by construction of ``build_references_md``).
 
     Fail-closed: a build that produced ANY error is ``ok: False`` — never a
-    silent partial pass (charter §2 — surface, never silently drop).
+    silent partial pass (surface, never silently drop).
 
     Returns:
         {

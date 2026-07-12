@@ -513,7 +513,7 @@ _WANDB_ILLEGAL_CHARS = frozenset(" /\\#?%:")
 
 
 def _warn_if_wandb_unsafe(project: str) -> None:
-    """Loud warn (charter §2) on a W&B-illegal char — never silently sanitize (D4)."""
+    """Loud warn on a W&B-illegal char — never silently sanitize."""
     if project and any(ch in _WANDB_ILLEGAL_CHARS for ch in project):
         warnings.warn(
             f"resolve_run_logging_target: resolved W&B project {project!r} contains "
@@ -545,7 +545,7 @@ def resolve_run_logging_target(
 
       Either may be "" when unresolved. A resolved project containing a W&B-illegal
       character (space, /, \\, #, ?, %, :) triggers a loud UserWarning — never a
-      silent sanitize (charter §2 / D4).
+      silent sanitize.
 
     Never imports wandb — pure config resolution.
     """

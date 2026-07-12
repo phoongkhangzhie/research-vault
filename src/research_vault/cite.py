@@ -329,7 +329,7 @@ def _all_citekeys(key: str, uid: int) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-#  the ONE canonical citekey convention (K-D1: authorYearWord).
+#  the ONE canonical citekey convention (authorYearWord).
 # ---------------------------------------------------------------------------
 # Four incompatible schemes were reaching the corpus (arXiv-id / S2-id /
 # OpenAlex-id / slug) because each ingestion path minted its own key. This is
@@ -347,14 +347,14 @@ def _all_citekeys(key: str, uid: int) -> set[str]:
 CITEKEY_RE = re.compile(r"^[a-z]+[A-Za-z]*\d{4}[a-z]?$")
 
 # Visible fail-closed sentinel for a citekey that could not be computed
-# (title/year metadata unresolved) — NEVER a guessed key (charter §1).
+# (title/year metadata unresolved) — NEVER a guessed key.
 # Mirrors the REPRO_SENTINEL convention (note.py): a loud, greppable hole,
 # never a blank field or an invented value.
 CITEKEY_SENTINEL = "CITEKEY-UNRESOLVED"
 
 
 def make_citekey(family: str | None, title: str, year: str, existing: set[str]) -> str:
-    """Compute the canonical ``familyShorttitleYear`` citekey (K-D1).
+    """Compute the canonical ``familyShorttitleYear`` citekey.
 
     Pure + Zotero-free: ``existing`` is an explicit set of already-used keys
     (from whatever universe the caller cares about — a Zotero library, a

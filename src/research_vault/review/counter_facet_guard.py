@@ -1,18 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/counter_facet_guard.py D-6: the cold, rejects-only,
+"""review/counter_facet_guard.py: the cold, rejects-only,
 canary-verified guard on the Step-C counter-facet EXTRACTION output.
 
-**Why this exists (not just D-7's existence check).** D-7
+**Why this exists (not just the existence check).** The existence gate
 (``review.check_counter_facet_gate``) proves a counter-pole EXISTS — a
 frozen ``counter:`` query list is present for every ``thesis:`` facet. It
 does NOT prove the counter-facet is STRONG. A thesis-biased generator can
-satisfy D-7 with a straw-man ("does X never happen?") instead of the real
-refuting sub-literature (the researcher's Q2 in the search-breadth design; the design
-doc's bake-off explicitly routes a straw-man-generator FAIL here). D-7
+satisfy the existence gate with a straw-man ("does X never happen?") instead
+of the real refuting sub-literature. The existence gate
 is the floor; this module is the ceiling.
 
-**The trustworthy-verdict shape** (engineer memory: "Trustworthy LLM-verdict
-shape" — recurred in this codebase: board reviewers, cold-judge, support-matcher):
+**The trustworthy-verdict shape** (recurred in this codebase: board
+reviewers, cold-judge, support-matcher):
   - **COLD** — the judge prompt carries ONLY the counter-facet's query
     terms, never the thesis facet, the research question, or which paper
     prompted the review. Thesis-anchoring is exactly how a strawman gets
@@ -41,8 +40,8 @@ run a judge, and constructs no in-process judge. The inline
 ``check_counter_facet_strength(judge_fn=...)`` path is exercised only with a
 TEST-injected ``judge_fn``; a ``judge_fn=None`` call HALT-DECLAREs.
 
-Only judges facets that ALREADY have a non-empty ``counter`` list (D-7
-already BLOCKs the empty case — nothing to judge there).
+Only judges facets that ALREADY have a non-empty ``counter`` list (the
+existence gate already BLOCKs the empty case — nothing to judge there).
 
 Stdlib only. Hermetic in tests (``judge_fn`` injectable; the emit/ingest
 functions never call an LLM at all).
@@ -136,9 +135,9 @@ def _counter_facet_canary_bank() -> list[tuple[list[str], str]]:
 
 def _collect_counter_facets(protocol_text: str) -> list[tuple[str, list[str]]]:
     """Return every (angle, counter_queries) with a NON-empty counter list —
-    the facets this guard actually judges (D-7 already BLOCKs the empty
+    the facets this guard actually judges (the existence gate already BLOCKs the empty
     case). Shared by BOTH the emit path and the inline test path so they see
-    the identical facet set (charter §6)."""
+    the identical facet set."""
     from research_vault.sources.sweep import group_facet_stances, parse_angle_matrix
 
     angle_matrix = parse_angle_matrix(protocol_text)
@@ -234,7 +233,7 @@ def ingest_counter_facet_verdicts(
             "ok": False,
             "blocking": [],
             "not_run": [
-                "counter-facet strength guard (D-6) HALT-DECLARE: "
+                "counter-facet strength guard HALT-DECLARE: "
                 "_cf-verdicts.json is missing or empty while real facet tasks "
                 "were emitted — the counter-facet STRENGTH floor was never "
                 "checked. This is NOT a pass; re-run the counter-facet "
@@ -275,7 +274,7 @@ def ingest_counter_facet_verdicts(
                 else f"judge verdict: {filled[tid]}"
             )
             blocking.append(
-                f"counter-facet strength guard (D-6) REJECTED facet "
+                f"counter-facet strength guard REJECTED facet "
                 f"'{angle}' — {reason}. This reads as a straw-man counter-pole "
                 f"(existence != strength) — re-author its counter queries to "
                 f"name the real refuting sub-literature, then re-run "
@@ -336,7 +335,7 @@ def check_counter_facet_strength(
     *,
     judge_fn: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
-    """D-6: cold, rejects-only, canary-verified guard on every facet's
+    """Cold, rejects-only, canary-verified guard on every facet's
     counter-side queries.
 
     Returns a dict:
@@ -364,7 +363,7 @@ def check_counter_facet_strength(
         return {
             "ok": False,
             "blocking": [
-                "counter-facet strength guard (D-6) BLOCKED — `seed_queries:` "
+                "counter-facet strength guard BLOCKED — `seed_queries:` "
                 "is declared but parses to ZERO usable queries (malformed "
                 "nesting/indentation, or an empty/garbage block). An empty "
                 "facet-iteration loop must never look identical to 'no "
@@ -382,12 +381,12 @@ def check_counter_facet_strength(
             "ok": False,
             "blocking": [],
             "not_run": [
-                "counter-facet strength guard (D-6) HALT-DECLARE: no judge. "
+                "counter-facet strength guard HALT-DECLARE: no judge. "
                 "The direct-API judge path was deleted — this cold "
                 "guard runs via the emit/ingest fan-out. Emit the "
                 "counter-facet task set and let the hub fan out the cold "
                 "judges before approving the protocol. Counter-facets were "
-                "checked only for EXISTENCE (D-7), never STRENGTH — a "
+                "checked only for EXISTENCE, never STRENGTH — a "
                 "straw-man could still be sitting in this protocol."
             ],
             "canary_aborted": False,
@@ -402,7 +401,7 @@ def check_counter_facet_strength(
             return {
                 "ok": False,
                 "blocking": [
-                    f"counter-facet strength guard (D-6) CANARY ABORTED — "
+                    f"counter-facet strength guard CANARY ABORTED — "
                     f"expected [{expected}] on a known probe, judge returned "
                     f"{verdict!r}. The guard is blind; do not trust any "
                     f"[STRONG] verdict until this is fixed."
@@ -418,7 +417,7 @@ def check_counter_facet_strength(
         verdict = _run_judge(counter_queries, judge_fn=judge_fn)
         if verdict != "STRONG":
             blocking.append(
-                f"counter-facet strength guard (D-6) REJECTED facet "
+                f"counter-facet strength guard REJECTED facet "
                 f"'{angle}' — judge verdict: {verdict or 'UNPARSEABLE'}. "
                 f"This reads as a straw-man counter-pole (existence != "
                 f"strength) — re-author its counter queries to name the "

@@ -18,7 +18,7 @@ that make breadth safe and useful:
 
 Design authority: the next-gen lit-review loop design doc, (breadth-then-
 depth)  (HR-craft folds). Adapters are stdlib-HTTP or subprocess-shelled
-(asta) — no forced third-party dependency (charter §6 reuse-over-create).
+(asta) — no forced third-party dependency (reuse-over-create).
 """
 from __future__ import annotations
 

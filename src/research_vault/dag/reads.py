@@ -305,7 +305,7 @@ def resolve_reads_paths(
     Returns one entry per reads: item.  Items that resolve successfully are
     the absolute path.  Items that fail resolution are included as
     ``"<ref> (unresolved)"`` so the caller (build_brief) can surface them
-    rather than silently dropping them (charter §2: surface-never-silently-drop).
+    rather than silently dropping them (surface-never-silently-drop).
 
     human-go nodes carry no reads: field — returns [] for them.
     SSOT for per-node reads→abs-path resolution used by build_brief.

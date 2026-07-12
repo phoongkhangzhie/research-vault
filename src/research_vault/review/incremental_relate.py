@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/incremental_relate.py D-5b: incremental, concept-graph-
+"""review/incremental_relate.py: incremental, concept-graph-
 blocked relate for a batch of newly-appended (counter-)papers.
 
 WHY THIS EXISTS
@@ -32,7 +32,7 @@ NEIGHBORHOOD, not corpus size.
     both notes' ``## Related papers`` sections in one call
     (``append_bidirectional_edge``), not just the new note's.
   - **Island detector (safety valve)** — a newcomer with ZERO concept-graph
-    candidates is never silently dropped (charter §2): it is recorded in
+    candidates is never silently dropped: it is recorded in
     ``.islands`` and, if ``escalate_relate_fn`` is given, escalated to a
     WIDER relate over the whole baseline corpus — scoped to ONLY that
     island paper, never fanning the wider relate out to every newcomer.
@@ -42,7 +42,7 @@ B, and why) is an LLM/agent decision in production — this module owns the
 candidate generation + bidirectional write MECHANISM only, taking
 ``relate_fn``/``escalate_relate_fn`` as injectable judgment callables
 (same seam shape as ``counter_facet_guard``'s ``judge_fn`` and
-``manuscript.check_gates``'s board callables — charter §6, no new
+``manuscript.check_gates``'s board callables — reuse over create, no new
 injection convention invented).
 
 Stdlib only.
@@ -148,7 +148,7 @@ def append_bidirectional_edge(
     candidate_reason: str | None = None,
     core_dir: Path | None = None,
 ) -> None:
-    """Append the SAME relation to BOTH notes (D-5b: a paper->paper edge is
+    """Append the SAME relation to BOTH notes (a paper->paper edge is
     a fact about both papers, the central-notes model — the corpus gains
     connections without re-relating). The candidate's own edge direction
     defaults to a symmetric tag/reason unless the caller states an
@@ -180,7 +180,7 @@ def append_bidirectional_edge(
 
 @dataclass
 class IncrementalRelateResult:
-    """The batch result — every field surfaced (charter §2), never a bare
+    """The batch result — every field surfaced, never a bare
     "done" signal."""
 
     added_edges: list[dict[str, Any]] = field(default_factory=list)
@@ -209,7 +209,7 @@ def run_incremental_relate(
     ``append_bidirectional_edge``).
 
     Every entry in ``new_citekeys`` must already have a full-distilled
-    ``literature/<citekey>.md`` note (D-5b: "full-distill ONLY the new
+    ``literature/<citekey>.md`` note ("full-distill ONLY the new
     counter-papers" happens upstream, bounded to this batch).
     ``baseline_citekeys`` is the EXISTING corpus at the start of this call —
     candidates are drawn from it only, never from other papers in the same

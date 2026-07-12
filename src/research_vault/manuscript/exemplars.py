@@ -51,7 +51,7 @@ def _parse_exemplar_file(text: str, *, filename: str) -> dict[str, Any]:
 
     Raises ValueError on a malformed file (missing the ``---`` separator) —
     a materialization bug should fail loudly at load time, never silently
-    drop a block (charter §2).
+    drop a block.
 
     Args:
         text: the file's full text.

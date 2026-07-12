@@ -30,7 +30,7 @@ from .derivative import count_independent, mark_derivatives
 from .ranker import UtilityScore, rank_and_select, score_hit
 from .registry import DEFAULT_SOURCES, get_adapter
 
-DEFAULT_FETCH_BUDGET = 100 # D-1: HR's diminishing-returns cap (~100 planned
+DEFAULT_FETCH_BUDGET = 100 # A diminishing-returns cap (~100 planned
 # searches); raised from 65 now that the facet-matrix generator (see
 # `parse_angle_matrix`/`group_facet_stances` below) derives ~40-100 queries
 # per protocol instead of the old fixed 5-angle set — the old 65 cap would
@@ -76,7 +76,7 @@ def parse_angle_matrix(protocol_text: str) -> dict[str, str]:
 
     Returned unchanged: ``{"by-method": "<query>", "by-outcome": "<query>"}``.
 
-    **Nested stance-tagged facet** (D-3 — the facet-matrix generator's
+    **Nested stance-tagged facet** (the facet-matrix generator's
     output; the researcher's Step-C counter-position facets as a first-class class)::
 
         seed_queries:
@@ -89,14 +89,14 @@ def parse_angle_matrix(protocol_text: str) -> dict[str, str]:
 
     is FLATTENED into distinct keys — one per enumerated query —
     ``"by-temporal.thesis.0"``, ``"by-temporal.thesis.1"``,
-    ``"by-temporal.counter.0"``. This is the reuse move (charter §6):
+    ``"by-temporal.counter.0"``. This is the reuse move:
     ``run_width_sweep``'s ``(angle-key x source)`` cross-product and
     ``corpus_freeze.canonicalize_criteria``'s sorted-key hash canon both
     consume the plain ``dict[str, str]`` return unchanged — no second parse,
     no restructuring of the concurrency/hashing machinery, just more/richer
     flat keys. Use ``group_facet_stances()`` when the FACET STRUCTURE
     (thesis/counter grouping, not just the flat query list) is needed — e.g.
-    the D-7 empty-counter-pole gate, or the D-6 cold counter-facet guard.
+    the empty-counter-pole existence gate, or the cold counter-facet strength guard.
 
     Returns ``{}`` if ``seed_queries:`` is absent or the legacy FLAT-LIST
     shape (a bare list under ``seed_queries:``, no per-angle keys at all) —
@@ -300,7 +300,7 @@ def group_facet_stances(angle_matrix: dict[str, str]) -> dict[str, dict[str, lis
     Legacy scalar keys (no ``.thesis.``/``.counter.`` suffix) never declared
     a counter-pole — they are simply ABSENT from the returned mapping, never
     surfaced as an empty facet (which would wrongly make them eligible for
-    the D-7 empty-counter-pole gate below).
+    the empty-counter-pole existence gate below).
     """
     buckets: dict[str, dict[str, dict[int, str]]] = {}
     for key, val in angle_matrix.items():
@@ -323,13 +323,13 @@ def group_facet_stances(angle_matrix: dict[str, str]) -> dict[str, dict[str, lis
 
 def seed_queries_declared_but_unparsed(protocol_text: str) -> bool:
     """True iff the protocol declares a ``seed_queries:`` key at all, but
-    ``parse_angle_matrix`` yields ZERO usable queries (architect fit-check
-    finding, judge-independent fail-open): a malformed/mis-indented
+    ``parse_angle_matrix`` yields ZERO usable queries (a judge-independent
+    fail-open a review caught): a malformed/mis-indented
     nested block, or an otherwise-garbage ``seed_queries:`` value, can
     silently collapse to ``{}`` — and an empty facet-iteration loop at
     ``approve-protocol`` then looks IDENTICAL to "this protocol has no
-    counter-facets to check", clearing BOTH the D-7 existence gate and the
-    D-6 strength guard for a protocol that never actually froze anything
+    counter-facets to check", clearing BOTH the existence gate and the
+    strength guard for a protocol that never actually froze anything
     usable.
 
     A protocol that never declares ``seed_queries:`` at all is a DIFFERENT,
@@ -359,8 +359,8 @@ def seed_queries_declared_but_unparsed(protocol_text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Query-time near-dup filter (D-4) + post-dedup distinct-query count/band
-# (D-1, friction iii): a semantic (asta/S2) backend collapses near-literal
+# Query-time near-dup filter + post-dedup distinct-query count/band:
+# a semantic (asta/S2) backend collapses near-literal
 # combinatorial restatements to one NL query, so the 40-100 breadth
 # assertion must hold on the POST-dedup distinct count, never the raw
 # enumerated-cell count — the pairwise C(facets,2) combinatorics can
@@ -400,7 +400,7 @@ def dedupe_near_duplicate_queries(queries: list[str], *, threshold: float = 0.9)
 
 
 def count_distinct_queries(angle_matrix: dict[str, str], *, near_dup_threshold: float = 0.9) -> int:
-    """The post-dedup distinct query count the 40-100 band assertion (D-1)
+    """The post-dedup distinct query count the 40-100 band assertion
     must be checked against — never the raw ``len(angle_matrix)``."""
     return len(dedupe_near_duplicate_queries(list(angle_matrix.values()), threshold=near_dup_threshold))
 
@@ -417,7 +417,7 @@ def validate_matrix_band(
     near_dup_threshold: float = 0.9,
 ) -> tuple[bool, str]:
     """Non-blocking band check (SIGNAL at `approve-protocol`, never a hard
-    BLOCK — D-1 recommends the derived ~40-100 count as a target the
+    BLOCK — the derived ~40-100 count is a target the
     generator should land near, not an exact requirement every RQ must hit).
 
     Returns ``(in_band, message)``.
@@ -454,9 +454,9 @@ def _dedupe_domain_stripped(
     ``dedupe_near_duplicate_queries``, but the Jaccard token sets have the
     frozen protocol's domain vocabulary (question/inclusion/exclusion/
     coverage_claim tokens — ``review.relevance._domain_vocabulary``)
-    subtracted first. Reuses ``review.relevance._tokenize`` (charter §6 —
-    the SAME stopword-aware tokenizer the relevance gate itself judges
-    with; no second tokenizer)."""
+    subtracted first. Reuses ``review.relevance._tokenize`` (the SAME
+    stopword-aware tokenizer the relevance gate itself judges with; no
+    second tokenizer)."""
     from research_vault.review.relevance import _tokenize as _rel_tokenize
 
     kept: list[str] = []
@@ -486,10 +486,10 @@ def check_facet_breadth_floor(
 ) -> tuple[bool, str]:
     """Layer 1 (0.3.1): the generation-time facet-breadth HARD BLOCK.
 
-    Scoped to ``group_facet_stances``' output ONLY (the nested D-3
-    thesis/counter facet form) — mirrors D-7's own scoping (a purely-legacy
-    scalar matrix declares no pole structure at all and has nothing for this
-    floor to check; see ``group_facet_stances``' docstring).
+    Scoped to ``group_facet_stances``' output ONLY (the nested stance-tagged
+    thesis/counter facet form) — mirrors the existence gate's own scoping (a
+    purely-legacy scalar matrix declares no pole structure at all and has
+    nothing for this floor to check; see ``group_facet_stances``' docstring).
 
     For every facet:
       - a DECLARED counter pole (non-empty ``counter`` list) -> BOTH poles
@@ -498,19 +498,19 @@ def check_facet_breadth_floor(
         needs >= 2M queries, which already exceeds N by the shipped
         defaults).
       - NO declared counter pole (a thesis-only facet — defense-in-depth:
-        by construction this should already have been rejected by D-7
-        upstream at the SAME approve-protocol gate, but this function does
+        by construction this should already have been rejected by the
+        existence gate upstream at the SAME approve-protocol gate, but this function does
         not assume gate ORDER) -> the facet's total distinct query count is
         checked against ``min_per_facet`` (N).
 
     Distinctness is measured POST domain-vocab-stripped near-dup collapse
-    (``_dedupe_domain_stripped``) — a rejects-only screen (item 3 of the
-    design); the real breadth guarantee is Layer 2's result-pool distinct-
-    paper count, not this generation-time query count.
+    (``_dedupe_domain_stripped``) — a rejects-only screen; the real breadth
+    guarantee is Layer 2's result-pool distinct-paper count, not this
+    generation-time query count.
 
     Returns ``(ok, message)`` — ``ok`` is False when any facet/pole reads
     thin; the message names every thin facet/pole (never just the first,
-    charter §2 surface-don't-drop).
+     surface-don't-drop).
     """
     from research_vault.note import _parse_frontmatter
     from research_vault.review.relevance import _domain_vocabulary
@@ -582,7 +582,7 @@ def compute_facet_pole_coverage(cells: list["SweepCell"]) -> dict[str, set[str]]
 
     A legacy (non-thesis/counter) cell's ``angle`` never matches
     ``_FACET_KEY_RE`` and is silently excluded (facet-coverage is scoped to
-    the nested D-3 form only — mirrors Layer 1 / D-7's own scoping).
+    the nested stance-tagged form only — mirrors Layer 1's own scoping).
     """
     coverage: dict[str, set[str]] = {}
     for cell in cells:
@@ -609,7 +609,7 @@ def check_facet_coverage(
     count, even one that never surfaced a SINGLE hit (a pole absent from
     ``compute_facet_pole_coverage``'s output because no cell for it ever
     matched must never look identical to "no facet-coverage information
-    exists" — charter §2, it must read as count 0, a maximally-thin pole).
+    exists" — it must read as count 0, a maximally-thin pole).
 
     Returns ``{"pole_counts": {pole: int}, "thin_poles": [pole, ...],
     "min_hits_per_pole": int}`` — ``thin_poles`` sorted, every pole with
@@ -713,13 +713,14 @@ def run_width_sweep(
 ) -> list[SweepCell]:
     """Fetch the cross-product ``(angle × source)`` concurrently.
 
-    ``dedupe_queries`` (D-4, default on): before building the cross-product,
+    ``dedupe_queries`` (default on): before building the cross-product,
     collapse any query that is a near-literal restatement of one already
     kept (``dedupe_near_duplicate_queries``) — the facet-matrix generator's
     pairwise combinatorics deliberately overlap, and firing two near-
     identical queries just burns fetch budget for the same hits. This is the
-    query-TIME half of D-4; the result-POOL half (overlap raises confidence
-    via ``angles_by_identity``) is unchanged, in ``compose_sweep_result``.
+    query-TIME half of near-dup collapse; the result-POOL half (overlap
+    raises confidence via ``angles_by_identity``) is unchanged, in
+    ``compose_sweep_result``.
 
     Returns one ``SweepCell`` per (angle, source) pair, in the original
     angle-then-source enumeration order (order-preserving, so dedup's
@@ -888,7 +889,7 @@ def run_sweep_from_protocol(
     """End-to-end: read the frozen ``_protocol.md``, parse the angle matrix +
     sources, run the parallel width-sweep, compose the ranked/deduped result.
 
-    ``angle_keys`` (critic-backtrack D-5a): restrict the sweep to a
+    ``angle_keys`` (critic-backtrack): restrict the sweep to a
     SUBSET of the FROZEN angle matrix's own keys — an exact flattened key
     (``"by-temporal.counter.0"``) or a prefix (``"by-temporal.counter"``,
     matched via ``key == prefix or key.startswith(prefix + ".")``). This
@@ -897,7 +898,7 @@ def run_sweep_from_protocol(
     swept this call. ``None`` (default) sweeps the full matrix, unchanged
     behavior.
 
-    ``sources_override`` (D-5a): sweep against this explicit source
+    ``sources_override``: sweep against this explicit source
     list instead of the protocol's declared ``sources:`` — e.g. "all
     registered sources" for a backtrack round that intensifies beyond the
     protocol's normal default-on subset. ``None`` (default) uses
@@ -966,7 +967,7 @@ def _annotate_hit(
 
     Bridges the PaperHit shape (normalized ``external_ids`` dict) to the
     ``_corpus_annotation`` S2-native-dict contract it was written against —
-    reuse over reinvention (charter §6), not a second annotation mechanism.
+    reuse over reinvention, not a second annotation mechanism.
 
     ``external_ids`` is the caller's MERGED ids (``d.external_ids`` off a
     ``DedupedHit``) when available — same fix as ``_paper_id_of_hit``, a
@@ -1138,7 +1139,7 @@ def write_search_hits(
             # The id is the JOIN KEY the review-screen agent hands to the
             # snowball tool op as a seed — a hit with no resolvable id can
             # never be emitted as a seed. Flag it loudly rather than let an
-            # empty Paper-id cell look like an oversight (charter §2).
+            # empty Paper-id cell look like an oversight.
             flags.append("[NO-ID: cannot resolve doi/arxiv/openalex/s2 — needs manual id lookup]")
         if hit.derivative_of is not None:
             flags.append(f"[DERIVATIVE-OF:{hit.derivative_of}]")

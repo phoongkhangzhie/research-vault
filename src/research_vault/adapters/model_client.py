@@ -17,7 +17,7 @@ configured observability backend ONCE, and registers the always-on
 ``_EmissionCounter`` — so every ``complete()`` is traced (Plane A) and aggregated
 (Plane B) with zero per-call code in the harness.
 
-Reliability contract (charter §2 — surface, never silently drop):
+Reliability contract (surface, never silently drop):
   ``assert_observed()`` (also fired on ``__exit__`` and ``atexit``) catches the
   silently-broken seam: if the backend is not "none" AND calls were made AND the
   emission counter saw ZERO events, the callback pipeline never fired → a LOUD

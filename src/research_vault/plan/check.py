@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """plan/check.py — shape-lint for pre-registered experiment plans (K-2).
 
-REJECTS-ONLY structural screen (charter §9): can only FAIL an ill-formed plan,
+REJECTS-ONLY structural screen: can only FAIL an ill-formed plan,
 never certify a good one.  The semantic completeness judgment (is the diagnosis
 table *sensible*?) stays with the plan-critic (reviewer); this lint catches what
 does NOT need an LLM.

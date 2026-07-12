@@ -585,7 +585,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "Use `rv plan tips [--key <key>]` to inspect the plan_tips seam (researcher's "
             "defaults or adopter override from [plan_style] in research_vault.toml). "
             "Anti-pattern: do NOT skip plan check before human-go-plan — the shape-lint "
-            "is the rejects-only structural screen (charter §9); the plan-critic (reviewer) "
+            "is the rejects-only structural screen; the plan-critic (reviewer) "
             "judges semantic completeness but cannot substitute for missing outcome rows. "
             "Anti-pattern: do NOT call freeze-harness without a prior freeze — it is "
             "FAIL-CLOSED on absent plan_freeze. "
@@ -642,7 +642,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "a proven-open gap (targeted pass saturated without closing → run-candidate). "
             "Gap closure: use `rv review <project> gap-close <gap-id> "
             "--by <note-ref> --status <status>` to record the bidirectional provenance "
-            "edge — --by is REQUIRED for closed-supported/closed-filled (charter §2: a "
+            "edge — --by is REQUIRED for closed-supported/closed-filled (a "
             "closed gap with no closer is un-auditable); --by is REJECTED for proven-open. "
             "--by writes both: closed_by: in the gap FM + closes: in the closing note FM. "
             "Use `rv review <project> gap-promote <gap-id> --to <ref>` to promote a "
@@ -900,13 +900,13 @@ def _check_example_snippets(registry: dict | None = None) -> list[str]:
     """Parse-verify every ``Use `rv <verb> ...``` snippet in when_to_use strings.
 
     Only checks snippets that contain ``<placeholder>`` patterns — these signal a real
-    usage example a hub would copy/paste. Bare navigation references without angle-bracket
-    arguments (e.g. ``rv project list``) are skipped as intentional shorthand.
+    usage example an adopter would copy/paste. Bare navigation references without
+    angle-bracket arguments (e.g. ``rv project list``) are skipped as intentional shorthand.
 
     Returns a list of violation strings. Empty = all clear.
 
-    This implements charter §1 for examples: a ``Use `rv ...``` snippet is a specific
-    — it must be invokable against the real parser, not just syntactically present.
+    A ``Use `rv ...``` snippet is a grounded, specific claim, not an illustrative
+    sketch — it must be invokable against the real parser, not just syntactically present.
     """
     import re
     import shlex as _shlex

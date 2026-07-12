@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 KEYRING_SERVICE = "research-vault"
 
 # ---------------------------------------------------------------------------
-# Class labels (F3).  Only the runtime is REQUIRED; every feature key is
+# Class labels.  Only the runtime is REQUIRED; every feature key is
 # FEATURE-REQUIRED (locked-until-you-add, never a FAIL); OPTIONAL is reserved.
 # ---------------------------------------------------------------------------
 CLASS_REQUIRED = "REQUIRED"

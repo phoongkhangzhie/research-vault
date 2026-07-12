@@ -719,7 +719,7 @@ class TestCounterFacetStrengthGuard:
         assert result["ok"] is False
         assert result["halt"] is True
         assert result["not_run"]
-        assert "D-6" in result["not_run"][0]
+        assert "counter-facet strength guard" in result["not_run"][0]
         assert "HALT-DECLARE" in result["not_run"][0]
 
     def test_canary_passes_then_rejects_planted_strawman(self) -> None:

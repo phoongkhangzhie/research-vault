@@ -147,7 +147,7 @@ class GapRecord:
       type    — one of GAP_TYPES
       anchor  — OKF path (relative to project_notes_dir) of the anchoring artifact
       claim   — verbatim claim text from the anchor (becomes the review question)
-      why     — brief reason the detector flagged this (honest surface, charter §2)
+      why     — brief reason the detector flagged this (honest surface)
       status  — one of GAP_STATUSES
     """
 
@@ -565,8 +565,9 @@ def _check_reopen_signal(
         evaluation_void) → WARN on stderr, status UNCHANGED.
         Any non-contradictory type re-firing on proven-open / promoted → also WARN only.
 
-    Stamps 'reopened_reason: <signal>' and retains 'closed_by:' as history (charter §2:
-    surface, never silently drop; the closure audit trail is a specific).
+    Stamps 'reopened_reason: <signal>' and retains 'closed_by:' as history
+    (surface, never silently drop; the closure audit trail is a specific,
+    grounded fact).
     """
     # Only structural signals authorize auto-reopen (NEVER semantic drift)
     is_contradictory = rec.type == GAP_TYPE_CONTRADICTORY
@@ -608,7 +609,7 @@ def _stamp_reopened(pnd: Path, gid: str, reason: str) -> None:
     """Stamp a gap as 'reopened' with a reason field (in-place, retains closed_by:).
 
      (3): reopened carries 'reopened_reason: <signal>' AND
-    retains 'closed_by:' as history — surface, never drop (charter §2).
+    retains 'closed_by:' as history — surface, never drop.
     """
     gap_path = _gap_note_path(pnd, gid)
     if not gap_path.exists():
@@ -987,7 +988,7 @@ def _append_closes_to_note(note_path: Path, gap_id: str) -> None:
     Implements ruling 2 (W3C PROV + Gotel & Finkelstein): the failure mode
     is the MISSING backward link — write both edges, never just the forward one.
 
-    If the note file does not exist, emits a UserWarning (charter §2: surface,
+    If the note file does not exist, emits a UserWarning (surface,
     never silently drop) so the operator knows the backward ``closes:`` edge was
     skipped.  The forward ``closed_by:`` edge is already written in the gap note;
     the audit trail is partially intact but the back-edge is missing until the
@@ -1022,7 +1023,7 @@ def cmd_gap_close(
 
     Provenance rules (D-CLOSE-1):
     - ``closer_ref`` is REQUIRED for ``closed-supported`` / ``closed-filled``.
-      A closed gap with no closer is un-auditable (charter §2). The closer is the
+      A closed gap with no closer is un-auditable. The closer is the
       specific that must be recorded — a literature/ note, experiments/ result, etc.
     - ``closer_ref`` is REJECTED for ``proven-open``. Nothing closed it — the
       targeted pass saturated, confirming this is a candidate contribution.
@@ -1057,7 +1058,7 @@ def cmd_gap_close(
     if status in _REQUIRES_CLOSER and not closer_ref:
         raise ValueError(
             f"gap-close --status {status!r} requires --by <note-ref>. "
-            f"A closed gap with no closer is un-auditable (charter §2). "
+            f"A closed gap with no closer is un-auditable. "
             f"Provide the OKF note that resolved this gap "
             f"(e.g. 'literature/smith2024', 'experiments/exp-001')."
         )
@@ -1149,7 +1150,7 @@ def cmd_gap_promote(
     if not to_ref:
         raise ValueError(
             "gap-promote requires --to <ref>. "
-            "A promotion without a target is un-auditable (charter §2). "
+            "A promotion without a target is un-auditable. "
             "Provide the manuscript section or claim reference "
             "(e.g. 'manuscript/contributions', 'manuscript/future-work')."
         )

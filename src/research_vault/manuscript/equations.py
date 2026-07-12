@@ -37,8 +37,8 @@ Three coordinated pieces (type-generic — applies to any
       absence — an unconfirmed equation is treated as dropped, never as
       "probably fine").
 
-  ★ D-MS-2 (the operator's explicit call, overriding this design doc's own REC of
-  BLOCK for marked-critical): the gate is **SIGNAL, NOT BLOCK** — for BOTH a
+  ★ An explicit, documented design call, overriding an earlier recommendation of
+  BLOCK for marked-critical: the gate is **SIGNAL, NOT BLOCK** — for BOTH a
   marked-critical AND an unmarked absent equation. Some papers have no
   equations at all; a drop must never fail the build. A dropped
   marked-critical equation is flagged for the human review loop (worst-
@@ -127,9 +127,9 @@ def _extract_literature_equations(
     """Extract the structured (label + criticality-joined) ledger for a
     ``literature/`` note. Empty list if the note has no ``## Key equations``
     section — a silent, correct no-op (most papers have no pivotal
-    equations; charter §2 distinguishes this from a missing-data error).
+    equations; this distinguishes it from a missing-data error).
 
-    ★ The join is BY LABEL, exact-match (the L1 review catch) — label uniqueness
+    ★ The join is BY LABEL, exact-match — label uniqueness
     within a note is assumed (the relate agent's contract). A
     frontmatter entry whose label has no matching body block (or vice versa)
     is simply not joined — the entry contributes no ledger row for that
@@ -403,8 +403,8 @@ def check_equation_fidelity(
     *,
     judge_fn: Callable[[dict[str, Any], str], bool] | None = None,
 ) -> list[dict[str, Any]]:
-    """The equation-fidelity gate — SIGNAL, never BLOCK (★ D-MS-2, the
-    operator's explicit call).
+    """The equation-fidelity gate — SIGNAL, never BLOCK (★ an explicit,
+    documented design call).
 
     For each ledger equation: deterministic normalized-LaTeX match against
     the draft's display-math blocks FIRST; if no match and ``judge_fn`` is
@@ -413,9 +413,9 @@ def check_equation_fidelity(
     no ``judge_fn`` at all, means "absent", never "probably fine").
 
     ★ Class: EVERY finding here is a SIGNAL (surfaced to the human review
-    loop for triage), regardless of ``critical``. This design doc's own
-    text recommends BLOCK for marked-critical — the operator's explicit override
-    (D-MS-2) is SIGNAL-only throughout: some manuscripts genuinely have no
+    loop for triage), regardless of ``critical``. An earlier recommendation
+    of BLOCK for marked-critical was explicitly overridden — this gate
+    is SIGNAL-only throughout: some manuscripts genuinely have no
     equations, and a drop must never fail the build. ``severity`` still
     distinguishes ``"critical"`` (marked ``critical: true``) from
     ``"unmarked"`` (no criticality data — old note, or a non-literature
@@ -431,7 +431,7 @@ def check_equation_fidelity(
         judge_fn: optional ``(ledger_entry, draft_text) -> bool`` callable —
             ``True`` means "this equation IS represented in the draft
             (re-typeset)". Any exception is treated as ``False`` (fail-
-            closed — charter §2/honesty-gates.md §5).
+            closed — honesty-gates.md §5).
 
     Returns:
         A list of finding dicts (empty = every ledger equation was found —

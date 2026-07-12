@@ -35,7 +35,7 @@ explicit ``judge_fn`` is injected (tests). In PRODUCTION ``judge_fn`` is
 always None, so the gate routes to the cold-agent-judge emit/ingest fan-out
 (the ``_cold_fanout_dirs_present`` branch — the only production judge path)
 or, when nothing was emitted, lands in the payload's ``not_run`` list with a
-LOUD message surfaced at the human-go (charter §2: surface, never silently
+LOUD message surfaced at the human-go (surface, never silently
 drop; never green-and-empty). This is NOT a hard block on the deterministic
 gates: a manuscript with no fan-out emitted can still reach
 ``approve-manuscript`` on the deterministic bib gate alone, but the human
@@ -195,7 +195,7 @@ def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
 
     Deterministic and independent of every other gate — no judge, no network,
     no dependency on markdown vs. tex render target. Every hit is surfaced
-    (never truncated to the first match, charter §2 — a `.strip()`/`[:1]`
+    (never truncated to the first match — a `.strip()`/`[:1]`
     shortcut here would silently hide every leak after the first).
 
     Args:
@@ -457,8 +457,8 @@ def check_coverage_gate(
 # paper load-bearing in multiple branches, e.g. spanning two pipeline stages,
 # or both a method-family member and a tension exemplar) — the gate never
 # blocks on multi-allocation, only on zero-allocation. Allocation is machine-checkable in
-# the note's frontmatter (the D8 mapping-list format `note._parse_frontmatter`
-# already reads — charter §6, no new grammar); fuller narrative rationale lives
+# the note's frontmatter (the existing mapping-list format `note._parse_frontmatter`
+# already reads — reuse over create, no new grammar); fuller narrative rationale lives
 # in the note's prose body (not read by this gate).
 #
 # Design decision: the requirement is "machine-checkable allocation in
@@ -484,7 +484,7 @@ def _coverage_records(raw: Any) -> tuple[list[dict[str, str]], list[str]]:
     ``note._parse_frontmatter`` returns a list of dicts for a D8 mapping-list,
     a list of str for a plain scalar-list, or ``""`` for an absent/empty key.
     A bucket item that is NOT a ``key: value`` mapping (a bare scalar) is
-    malformed — surfaced, never silently coerced (charter §2).
+    malformed — surfaced, never silently coerced.
     """
     if not raw or isinstance(raw, str):
         return [], []
@@ -649,7 +649,7 @@ def check_coverage_allocation_gate(
 # body — and the judge explains why the drop matters (a whole missing
 # cluster vs. a single missing paper). Reuses the same coverage-map parser
 # (``_coverage_records`` / ``_pfm_gates``) and the citation SSOT
-# (``WIKILINK_CITE_RE``) — charter §6, no new grammar.
+# (``WIKILINK_CITE_RE``) — reuse over create, no new grammar.
 
 def compute_coverage_diff(coverage_map_path: Path, reader_body: str) -> dict[str, Any]:
     """The mechanical WIDTH ground truth: which ``used`` papers were dropped.
@@ -778,7 +778,7 @@ def build_approve_payload(
     # indistinguishable from an ordinary fixable BLOCK, so the gate-policy
     # engine would REVISE it (dispatch a bounded auto-revise against the SAME
     # broken judge) instead of HALT-DECLARE-ing (fail-closed, never retry an
-    # untrustworthy judge — charter §10). See evaluation_from_structural_payload.
+    # untrustworthy judge). See evaluation_from_structural_payload.
     canary_aborted = False
 
     # ── 1. Hermetic references.md — deterministic, ALWAYS runs, hard BLOCK
@@ -795,7 +795,7 @@ def build_approve_payload(
     #      reader-facing `report.md` (`[N]` inline + `## Sources`) +
     #      `references.bib`. Fail-closed: a non-empty ``errors`` (residual
     #      `[[citekey]]`, blank/sentinel token) BLOCKs — a half-converted
-    #      `report.md` is never shipped (D-4d/D-4e). Independent of
+    #      `report.md` is never shipped. Independent of
     #      ``check_citation_resolve`` above (that gate validates
     #      `references.md`; this one drives the numbered render) but both
     #      read the SAME `_report.md` source, never the render itself. ──

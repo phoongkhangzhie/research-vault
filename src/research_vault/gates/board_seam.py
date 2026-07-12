@@ -3,7 +3,7 @@
 fan-out contract for the autonomous review board (4->6 lenses —
 CONTENT split into DEPTH/WIDTH/SYNTH, FRAMEWORK renamed INSTRUCT).
 
-Built ON ``gates.judge_seam``'s primitives (charter §6 — reuse, don't
+Built ON ``gates.judge_seam``'s primitives (reuse, don't
 fork): ``interleave_with_canaries``, ``fail_closed_fill`` (id-vocab
 shape only — this module's own axis-score fail-closed fill lives here,
 see ``_fail_closed_axis_scores``, because a board verdict carries a 1-5

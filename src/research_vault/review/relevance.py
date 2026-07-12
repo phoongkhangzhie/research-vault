@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """review/relevance.py — the trustworthy-curation relevance gate.
 
-Design of record: internal doctrine (does not ship). Root cause: a
-downstream project's e2e validation run's Phase-2 relate fan-out refused/flagged 51 of
-97 "curated" papers as off-domain (astronomy, materials physics, musicology,
-literary criticism, surgical robotics, finance) — caught only by luck, AFTER
-the expensive fan-out. This module is the precision floor: relevance is a
+Root cause: a real production e2e validation run's Phase-2 relate fan-out
+refused/flagged 51 of 97 "curated" papers as off-domain (astronomy,
+materials physics, musicology, literary criticism, surgical robotics,
+finance) — caught only by luck, AFTER the expensive fan-out. This module
+is the precision floor: relevance is a
 fail-closed GATE (never a 7th ranking dimension — ``sources/ranker.py``
 stays unchanged and only orders relevant survivors).
 
@@ -46,7 +46,7 @@ from typing import Any
 from research_vault.note import _parse_frontmatter
 
 # ---------------------------------------------------------------------------
-# 1. The fixed 3-value vocabulary (charter §2: whitelist, never a heuristic
+# 1. The fixed 3-value vocabulary (whitelist, never a heuristic
 #    blacklist — see review.check_walk_terminal's identical rationale)
 # ---------------------------------------------------------------------------
 
@@ -297,7 +297,7 @@ def screen_corpus_raw(
         row, so ``review-curate`` sees exactly which rows to double-check).
       - ``OFF_DOMAIN`` rows are moved to a declared
         ``## Rejected as off-domain (relevance gate)`` section — NEVER
-        silently dropped (charter §2); each rejected row's title/abstract
+        silently dropped; each rejected row's title/abstract
         is preserved in full for audit.
 
     Returns:
@@ -527,7 +527,7 @@ class DegenerateVerifyInputError(RuntimeError):
     (retro'd on the live cultural-actor-fidelity run: a 264-paper curated
     corpus produced a ``_corpus_verify_input.md`` with the two canary rows
     and nothing else). That must never look like a clean pass — this is a
-    loud, HALT-shaped failure (charter §2), raised here so the tool-node
+    loud, HALT-shaped failure, raised here so the tool-node
     runner (``dag/verbs.py::_auto_execute_tool_nodes``) surfaces it as a
     ``blocked`` node rather than writing an artifact that silently
     satisfies the downstream ``needs: artifact:...+fresh`` edge.
@@ -605,7 +605,7 @@ def build_verify_input(
             "(NEW-tagged) rows — the verify input would contain only the "
             "two canary probes. A rejects-only verifier over a probe-only "
             "input verifies the judge but checks no real curation "
-            "(charter §2/§10). Halting rather than writing a probe-only "
+            ". Halting rather than writing a probe-only "
             "artifact that would look like a clean pass downstream."
         )
 
@@ -650,7 +650,7 @@ def parse_relevance_verdict_table(text: str) -> tuple[dict[str, str], list[str]]
     """Parse the cold verifier's structured ``| Citekey | Verdict |`` table.
 
     Fixed vocab ONLY (``IN``/``OFF_DOMAIN``/``UNCERTAIN``, case-normalized)
-    — never prose-parsed (charter §2, mirrors
+    — never prose-parsed (mirrors
     ``review.check_coverage_critic_verdict``'s structured-field discipline).
 
     Returns:
@@ -688,13 +688,13 @@ def check_relevance_verifier(verifier_path: Path) -> dict[str, Any]:
     """Read the cold verifier's ``_relevance-verdict.md`` into the
     structural-payload shape ``classify_relevance_verdict`` consumes.
 
-    charter §2 (surface, never silently drop) + §10 (a canary miss is a
-    contamination flag, not a footnote):
+    Surface, never silently drop — and a canary miss is a contamination
+    flag, not a footnote:
       - Missing artifact -> ``exists: False`` (a floor gate that never ran
         must never look like a pass — the caller HALTs).
       - Canary row absent OR misclassified -> ``canary_aborted: True``
         (untrustworthy judge signal — fail-closed, never auto-retry the
-        same broken judge, charter §10).
+        same broken judge).
       - A malformed verdict row -> excluded from ``verdicts`` and listed in
         ``malformed`` (the caller treats a malformed/missing per-paper
         verdict as KEEP+flag — recall-safe, never a silent drop).
@@ -866,7 +866,7 @@ def prune_off_domain_from_corpus(
     """Remove ``off_domain_citekeys`` rows from ``_corpus.md`` and declare
     the prune in ``residue_path`` (mirrors ``_coverage-gaps.md``'s honest-
     residue convention — an autonomous corpus mutation must be declared,
-    never silent, per charter §2 and the D2 deviation-transparency
+    never silent, per the surface-never-silently-drop and deviation-transparency
     contract).
 
     Idempotent: a citekey already absent from ``_corpus.md`` (e.g. a repeat
@@ -906,8 +906,7 @@ def prune_off_domain_from_corpus(
     existing = residue_path.read_text(encoding="utf-8") if residue_path.exists() else (
         "# Relevance-gate residue\n\n"
         "Papers auto-pruned by the cold final-corpus relevance verifier "
-        "(design 2026-07-10-trustworthy-curation-relevance-gate-design.md "
-        ") — verified OFF-DOMAIN, below the HALT threshold, so the run "
+        "— verified OFF-DOMAIN, below the HALT threshold, so the run "
         "proceeds with these papers removed from the corpus rather than "
         "halting for human review.\n\n"
     )

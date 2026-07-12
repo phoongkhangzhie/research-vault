@@ -10,10 +10,10 @@ possible), and rv INGESTS the returned verdicts. This module is the SHARED
 low-level primitive the gate's emit_*_tasks/ingest_*_verdicts functions
 build on — the schema names, the id-join, the canary-key check, and the
 fail-closed defaulting stay generic (any future judge-gated fan-out reuses
-this, not a fork; charter §6). (The cold-read self-containment critic
+this, not a fork). (The cold-read self-containment critic
 that originally shared this seam was removed — SIGNAL-only, non-actionable
-under hands-off autonomy, redundant with the review board + RD-6. The
-operator's call; see DEVLOG.)
+under hands-off autonomy, redundant with the review board's own reader-hygiene
+checks. An explicit, documented design call; see DEVLOG.)
 
 THE THREE ARTIFACTS (NG-4 contract):
   _judge-tasks.json       (rv -> hub -> cold judges; PUBLIC — canaries carry
@@ -160,8 +160,8 @@ def interleave_with_canaries(
     #
     # ★ Build a LIST of length n_canary (NOT a set): for a small ``total``,
     # two canaries can target the SAME slot; a set comprehension would COLLAPSE
-    # them and silently DROP a canary (a vanished probe weakens the guard —
-    # charter §2). Resolve every collision to a distinct free slot instead, so
+    # them and silently DROP a canary (a vanished probe weakens the guard).
+    # Resolve every collision to a distinct free slot instead, so
     # ALL n_canary canaries are always placed (verified: len(canary_key) ==
     # n_canary for any total >= 1).
     raw_positions = [

@@ -253,7 +253,7 @@ def _check_wandb() -> tuple[bool, str, bool]:
             "  Get a free account at: https://wandb.ai"
         ), False
 
-    # F4: resolve WANDB_API_KEY through the registry SSOT (env → unified keyring).
+    # resolve WANDB_API_KEY through the registry SSOT (env → unified keyring).
     present, source, masked = resolve_key(WANDB_KEY)
     if present:
         return True, f"wandb: SDK ok (v{wandb_ver}), WANDB_API_KEY set via {source} ({masked})", False
@@ -480,7 +480,7 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
     wandb_ok, wandb_msg, _ = _check_wandb()
     obs_ok, obs_msg, _ = _check_observability(cfg)
 
-    # F3: all_required_ok gates ONLY on the runtime (+ observability when required).
+    # all_required_ok gates ONLY on the runtime (+ observability when required).
     required_failed: list[str] = []
     if not claude_ok:
         required_failed.append("agent runtime (Claude CLI)")
@@ -538,7 +538,7 @@ def run_preflight(cfg: Any = None, *, require_observability: bool = False) -> di
     status = "OK" if obs_ok else ("FAIL" if require_observability else "INFO")
     lines.append(f"  [{status}] observability: {obs_msg}")
 
-    # ── Summary (F1: culprits travel inline) ─────────────────────────────────
+    # ── Summary (culprits travel inline) ─────────────────────────────────
     lines.append("")
     if all_required:
         lines.append("Result: OK — the agent runtime is present (the only hard requirement).")

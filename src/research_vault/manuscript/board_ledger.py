@@ -298,7 +298,7 @@ def round2_clears(floor_round2: dict[str, Any], ledger: list[dict[str, Any]]) ->
 
 # ---------------------------------------------------------------------------
 # Patch-not-regenerate mechanics — a single exact-match surgical edit,
-# mirroring the harness Edit tool's own contract (charter §6: reuse the
+# mirroring the harness Edit tool's own contract (reuse the
 # SAME semantics the real tool enforces, don't invent a looser stand-in).
 # ---------------------------------------------------------------------------
 

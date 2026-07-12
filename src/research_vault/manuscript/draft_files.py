@@ -5,7 +5,7 @@ make up the reader-facing draft" (next-gen lit-review, Wave B).
 Before RD-1, ``bib.py``, ``fidelity_gates.py``, and ``check_gates.py`` each
 hand-rolled a near-identical ``tree_root.rglob(...)`` glob — three call sites
 that would each need updating separately (and drift) once the render target
-changed. This collapses them to one (charter §6: reuse over create).
+changed. This collapses them to one (reuse over create).
 
 The manuscript loop's ONLY render target is markdown (``_report.md`` +
 ``sections/*.md``) — LaTeX (``main.tex``/``sections/*.tex``) has been removed

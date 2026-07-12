@@ -182,8 +182,8 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "counter-pole ('does X never happen?' instead of the real refuting "
         "sub-literature) is the exact failure this schema exists to catch, "
         "and it is also caught downstream by a cold rejects-only judge "
-        "guard (D-6) — pinning decoding here keeps that guard's verdict "
-        "reproducible run-to-run.\n"
+        "guard (the counter-facet strength guard) — pinning decoding here "
+        "keeps that guard's verdict reproducible run-to-run.\n"
         "      D. Combine into the query matrix: single-facet high-recall "
         "(~1/facet) + pairwise facet AND-combinations + core multi-facet "
         "precise queries + counter-position queries (each counter facet x "
@@ -212,7 +212,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "          by-population: \"<legacy scalar form still accepted for a "
         "facet with no contested counter-pole>\"\n"
         "    A facet with a `thesis` list and NO `counter` list is a "
-        "protocol defect — `approve-protocol` structurally BLOCKS it (D-7), "
+        "protocol defect — `approve-protocol` structurally BLOCKS it, "
         "same convention as the empty `counter-position` field below. A "
         "near-synonym seed set (8 rewordings of one facet) is the exact "
         "failure mode the FACET step fixes — each facet must probe a "
@@ -416,8 +416,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "coverage downstream, not by this walk terminal alone."
     ),
     "review_relevance_verify_tips": (
-        "You are the COLD final-corpus relevance verifier (design "
-        "2026-07-10-trustworthy-curation-relevance-gate-design.md) — a "
+        "You are the COLD final-corpus relevance verifier — a "
         "REJECTS-ONLY, fresh judge with no stake in `review-curate`'s "
         "decisions. A `_corpus_verify_input.md` note has been prepared for "
         "you: one row per `[NEW]` paper in the final `_corpus.md` "
@@ -1015,7 +1014,7 @@ def get_remediation_max_rounds(config: Any = None) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Critic-backtrack round-cap config seam (D-5a) — SEPARATE from
+# Critic-backtrack round-cap config seam — SEPARATE from
 # `remediation_max_rounds` above: a critic backtrack round re-pays the
 # (full-distill + incremental-relate) delta for the papers it finds, which
 # is a materially different cost than a saturation-remediation round's

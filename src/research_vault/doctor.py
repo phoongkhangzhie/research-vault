@@ -433,7 +433,7 @@ def _probe_permissions_slurm(host: str) -> dict[str, Any]:
     Rides the same ``_ssh_probe_call`` / ``_SSH_PROBE_OPTS`` SSOT as the
     inventory probe. Graceful degrade: sacctmgr absent / accounting not
     configured → ``{"available": False, "reason": "..."}`` → caller falls back
-    to inventory-only proposal with an explicit banner (charter §2).
+    to inventory-only proposal with an explicit banner.
 
     Returns a permissions block::
 

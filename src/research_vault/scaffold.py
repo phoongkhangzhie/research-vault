@@ -19,7 +19,7 @@ Crew hats (``.claude/agents/<role>.md``) are NOT statics — they are DERIVED by
 
 Package data is loaded via ``importlib.resources`` + ``as_file()`` so the copy
 works from a regular wheel install AND a zipped wheel (zipimport-safe).  A
-missing package-data file is a HARD ERROR, never a silent skeleton (charter §2).
+missing package-data file is a HARD ERROR, never a silent skeleton.
 
 Stdlib only.
 """
@@ -221,7 +221,7 @@ def iter_managed_statics() -> Iterator[tuple[str, bytes]]:
     both paths, so nothing can be init-only (the invisible-on-upgrade bug).
 
     Raises ``RuntimeError`` if a declared package-data source is missing (the
-    wheel is incomplete) — never silently skips (charter §2).
+    wheel is incomplete) — never silently skips.
     """
     data = pkg_data()
 

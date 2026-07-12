@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """literature.py — `rv literature list <project>`: the per-project two-layer
-literature registry (pre-publish #68 storage contract).
-
-Design of record: internal design note (the architect, 2026-07-10).
+literature registry (pre-publish storage contract, 2026-07-10).
 
 **Registry = a thin pointer, NOT a new artifact.** Per-project corpus
 membership is exactly the set of overlay files under
@@ -115,7 +113,7 @@ def cmd_list(project: str, *, config: Config | None = None) -> list[dict[str, An
       error         — set (title/role/etc. left None) when the overlay
                        carries a dangling ``central:`` pointer or has no
                        resolvable core — surfaced, never silently dropped
-                       (charter §2); the paper still appears in the
+                      ; the paper still appears in the
                        returned list.
     """
     cfg = config or load_config()

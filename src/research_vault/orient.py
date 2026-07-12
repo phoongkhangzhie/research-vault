@@ -20,7 +20,7 @@ existing read-fresh artifacts; it does not manufacture them — author
 doctrine/coordination.md's "Project context — read fresh" section).
 
 Stdlib only. Reuses status.cmd_status for the operational section — no
-duplicated read logic (charter §6, reuse over create).
+duplicated read logic (reuse over create).
 """
 from __future__ import annotations
 

@@ -752,7 +752,7 @@ def run_reviewer_node(
         scores = {dim: extracted.get(dim, 0) for dim in _ALL_DIMS}
 
     # ARR (justify-each-score) visibility -- best-effort per-dim
-    # justification lookup, SURFACED (charter §2), never silently dropped.
+    # justification lookup, SURFACED, never silently dropped.
     # Score numbers still come from the proven ``_extract_review_scores``
     # extractor above; this is additional audit metadata, not a re-gate.
     _, justifications = _extract_review_scores_and_justifications(raw_response)
@@ -984,7 +984,7 @@ def run_meta_review(
             ),
         }
     elif frame_low_this_round:
-        # Surfaced (charter §2) but NOT yet an escalation -- a single round's
+        # Surfaced but NOT yet an escalation -- a single round's
         # weak FRAME is not "round after round" recurrence.
         watching_note = (
             f"[Round {round_num}] FRAME flagged weak (min score {frame_min} < "

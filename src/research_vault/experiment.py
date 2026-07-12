@@ -175,7 +175,7 @@ Component manipulated: [name the single component].
 
 """
 
-    # F24: dataset provenance section — surfaces the recording step so it cannot be silently skipped.
+    # dataset provenance section — surfaces the recording step so it cannot be silently skipped.
     dataset_section = (
         "## Dataset Provenance\n\n"
         "Record dataset provenance BEFORE running to keep data lineage structural.\n"

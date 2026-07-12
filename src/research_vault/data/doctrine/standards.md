@@ -75,7 +75,7 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   **grounding violation** (charter §1 — never fabricate; a false help fabricates capability aimed at the
   person deciding whether to trust the tool), not cosmetic. The motivating case:
   a verb's help + docstrings claimed behaviour while the builders were **orphaned** (defined,
-  never called). Both #27 gates caught it — but `rv help --check` passed green, because it verifies a
+  never called). Neither gate caught it — but `rv help --check` passed green, because it verifies a
   `when_to_use` is *present*, not that it is *true* (`_check_verb_docstrings`, cli.py). **Prove-it
   discipline (review-checklist item):** on any PR that touches a verb's help/docstring or the behaviour
   it describes, the reviewer reads the help *against the code path* and confirms every claimed behaviour
@@ -120,7 +120,7 @@ Grounded in real regressions caught in review — the disciplines that keep a gr
   between runs.** Same-second `.pyc` mtime staleness causes `.pyc` files written by one mutant to satisfy
   the mtime check for a subsequent mutant in a batched run: the old bytecode is re-used, the mutation
   effectively does not execute, and the mutant spuriously "survives" (false pass). Run each mutation as
-  a subprocess, OR delete `__pycache__` between mutations. Confirmed empirically on PR #80 (reviewer
+  a subprocess, OR delete `__pycache__` between mutations. Confirmed empirically (a reviewer
   gate caught it during acceptance tests).
 - **An extracted helper is only done when the pre-existing caller uses it.** A change whose deliverable
   is "extract Phase-X as a reusable function" is incomplete if the pre-existing path still contains a

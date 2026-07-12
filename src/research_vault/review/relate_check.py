@@ -8,7 +8,7 @@ grounded in Cochrane/PICO extraction discipline, Noblit & Hare
 meta-ethnography's reciprocal/refutational/line-of-argument relation typing,
 and Webster & Watson's concept matrix — see REFERENCES.md) fixes the READING
 DISCIPLINE, never the note SCHEMA (the flexible-not-rigid constraint). This module
-is the **rejects-only presence check** (charter §9) that enforces the
+is the **rejects-only presence check** that enforces the
 discipline mechanically: it verifies the mandatory questions were ANSWERED,
 never how well. A PASS never certifies quality; it only fails to find a
 missing mandatory answer.
@@ -540,7 +540,7 @@ def parse_concept_edges(body: str) -> ParsedConceptEdges:
 class RelatePresenceResult:
     """Rejects-only presence-check result. ``ok`` is True iff `findings` is
     empty — a PASS never certifies quality, it only fails to find a missing
-    mandatory answer (charter §9)."""
+    mandatory answer."""
 
     findings: list[str] = field(default_factory=list)
 
@@ -748,7 +748,7 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
             "type is a PROSE TOKEN after the link, not a link-prefix tag "
             "(OKF conformance); paper→paper edges may optionally add a "
             "trailing '(reciprocal|refutational|line-of-argument)' mirror. "
-            "Never silently dropped (charter §2)."
+            "Never silently dropped."
         )
 
     # Defect #70(a): canonical '## Concept edges' heading, enforced only when

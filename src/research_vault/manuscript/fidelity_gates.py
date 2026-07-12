@@ -77,7 +77,7 @@ DEFAULT_SUPPORT_BATCH_SIZE: int = 20
 def _collect_support_items(draft_files: "list[Path]") -> list[tuple[str, str, str]]:
     """Extract every (sentence, citekey, section) triple carrying a citation.
 
-    Shared by BOTH judge paths (charter §6: single source, not two
+    Shared by BOTH judge paths (single source, not two
     independently-drifting copies): the inline judge loop
     (``check_support_tally``: test-injected ``judge_fn`` only, no live
     API default) and the cold-fanout emit path

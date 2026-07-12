@@ -86,7 +86,7 @@ grep -n "_helper_name" src/module_a.py src/module_b.py
 
 Both files must show a call-site, not just a comment or import.  If only one side calls it, the
 extraction is incomplete and the PR is **needs-work** regardless of how clean the new function is.
-(Grounded in PR #96: `resolve_produces_paths` docstring claimed SSOT parity with
+(Grounded in a real defect: `resolve_produces_paths` docstring claimed SSOT parity with
 `_check_project_scoped_note`; the AST test in `test_dag_brief.py::TestSSOT` is the mechanized guard.)
 
 ## Reviewer technique base (three-dot, not two-dot)
@@ -107,7 +107,7 @@ git diff main..head   # false-flags deletions when main advanced past the branch
 A two-dot diff against a moved `main` false-flags files that were deleted on `main` after the
 branch was cut as "deleted by this PR."  This is a noisy distraction that can bury real findings.
 Always use `git diff <base>...<head>` (three dots) or `gh pr view --json files`.
-(Grounded in PR #94 review cycle.)
+(Grounded in a real review cycle.)
 
 ## The verdict header — gate-clean by construction
 

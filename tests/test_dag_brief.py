@@ -191,8 +191,10 @@ class TestBriefPreamble:
         assert "source_dir" in BRIEF_PREAMBLE
 
     def test_anti_fabrication(self):
-        """Contains anti-fabrication marker."""
-        assert "charter" in BRIEF_PREAMBLE.lower()
+        """Contains an anti-fabrication marker (0.3.1 leak scrub: the brief's
+        own ANTI-FABRICATION section states the discipline in public terms —
+        no internal governance-doc citation required)."""
+        assert "anti-fabrication" in BRIEF_PREAMBLE.lower()
         assert "fabricat" in BRIEF_PREAMBLE.lower()
 
     def test_structured_return_contract(self):

@@ -300,7 +300,7 @@ def run_update(
 
     # Belt-and-suspenders: verify the write-set never overlaps USER_OWNED names.
     # A future static whose filename collides with a user-owned name must be
-    # caught here — not silently overwrite user content (charter §2 + §5).
+    # caught here — not silently overwrite user content.
     _write_set_tops = {
         fa.relpath.split("/")[0]
         for fa in plan

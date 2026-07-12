@@ -24,13 +24,13 @@ Commands:
     --force                       bypass dedup gate (logs loudly)
     --dry-run                     preview without writing
   rv research citekey <project> <note-id>
-                                   compute + stamp the canonical citekey (K-D1)
-                                   into a filed literature note
+                                   compute + stamp the canonical authorYearWord
+                                   citekey into a filed literature note
   rv research migrate-citekeys <project> [--dry-run]
                                    one-shot: stamp canonical citekeys into every
                                    absent/non-conformant literature note
 
-  D1 (verb consolidation) HARD-REMOVED ``sweep``/``cited-by``/``references`` —
+  Verb consolidation HARD-REMOVED ``sweep``/``cited-by``/``references`` —
   they collapsed into the review-loop DAG's ``sweep``/``snowball`` tool
   node-ops (invoked IN-PROCESS by ``rv dag run``, never shelled directly).
   Use ``rv review <project> new <scope> ...`` + ``rv dag run`` instead of
@@ -395,11 +395,11 @@ def compute_and_stamp_citekey(note_path: Path, literature_dir: Path) -> str:
     This is the review-loop hook: the relate-<key> subagent calls
     ``rv research citekey <project> <id>`` once it has filled in title/
     authors/year (per the 5-move reading protocol) — the canonical
-    familyShorttitleYear key (K-D1) is computed here rather than left to the
+    familyShorttitleYear key is computed here rather than left to the
     agent to invent. Filename stays whatever id the note was filed under;
     only the ``citekey:`` FIELD becomes the convention.
 
-    Fail-closed (charter §1): if title or year is unresolved (blank/absent),
+    Fail-closed: if title or year is unresolved (blank/absent),
     NEVER guess — stamp ``cite.CITEKEY_SENTINEL`` instead, loudly. A missing
     note is a caller error (raises FileNotFoundError — there is nothing to
     read metadata from).
@@ -724,7 +724,7 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
     if cfg and not project:
         project = _default_project(cfg)
 
-    # F12: normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
+    # normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
     paper_id = _normalize_paper_id_for_asta(args.paper_id)
 
     # NG-1: pure refactor — the S2 citations subprocess call now lives in
@@ -738,7 +738,7 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
         sys.exit(str(e))
     papers = [h.raw for h in hits]
 
-    # F12: zero-result hint when the id was normalized (bare input may still be wrong)
+    # zero-result hint when the id was normalized (bare input may still be wrong)
     if not papers and paper_id != args.paper_id:
         print(
             f"rv research cited-by: 0 results — bare id was normalized to {paper_id!r}. "
@@ -777,7 +777,7 @@ def cmd_references(args: argparse.Namespace) -> int:
     if cfg and not project:
         project = _default_project(cfg)
 
-    # F12: normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
+    # normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
     paper_id = _normalize_paper_id_for_asta(args.paper_id)
 
     # NG-1: pure refactor — the S2 references subprocess call now lives in
@@ -791,7 +791,7 @@ def cmd_references(args: argparse.Namespace) -> int:
         sys.exit(str(e))
     papers = [h.raw for h in hits]
 
-    # F12: zero-result hint when the id was normalized (bare input may still be wrong)
+    # zero-result hint when the id was normalized (bare input may still be wrong)
     if not papers and paper_id != args.paper_id:
         print(
             f"rv research references: 0 results — bare id was normalized to {paper_id!r}. "
@@ -969,7 +969,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     note is already filed (``rv note new <project> literature <citekey>``).
     If the note isn't filed yet, this is a no-op with a clear pointer — the
     same "note not filed yet" contract ``fulltext.py``'s stamp already uses
-    — never an error (charter §2: surface, don't silently drop, but also
+    — never an error (surface, don't silently drop, but also
     don't invent note-filing as a side effect of ``add``).
     """
     _preflight_asta()
@@ -1043,7 +1043,7 @@ _CITEKEY_MIGRATION_LEDGER_NAME = "_citekey_migration_ledger.json"
 def cmd_citekey(args: argparse.Namespace) -> int:
     """rv research citekey <project> <note-id>:.
 
-    Compute + stamp the canonical familyShorttitleYear citekey (K-D1) into a
+    Compute + stamp the canonical familyShorttitleYear citekey into a
     filed literature note, from that note's OWN title/authors/year
     frontmatter. The relate-<key> subagent calls this once those fields are
     filled in (per the 5-move reading protocol, review/style.py) — the
@@ -1206,7 +1206,7 @@ def cmd_migrate_citekeys(args: argparse.Namespace) -> int:
     ledger's project-scoped audit trail — see ``ledger_path`` below); the
     project argument no longer narrows WHICH notes get migrated.
 
-    DECIDED K-D2: this release, run this by hand only against the ONE
+    This release, run this by hand only against the ONE
     project whose corpus needs migrating (no code-level project restriction
     here — this verb is general; the *rollout* is scoped by the operator
     invoking it against a single project at a time, not by this module).
@@ -1470,7 +1470,7 @@ def build_parser(
         help="Compute + stamp the canonical citekey into a filed literature note.",
         description=(
             "Reads title/authors/year from the note's OWN frontmatter and stamps "
-            "the canonical familyShorttitleYear citekey (K-D1) into `citekey:`. "
+            "the canonical familyShorttitleYear citekey into `citekey:`. "
             "Unresolved metadata -> the visible CITEKEY_SENTINEL, never a guess "
             "(exit 1)."
         ),
@@ -1481,7 +1481,7 @@ def build_parser(
     )
 
     # migrate-citekeys: one-shot maintenance pass over a
-    # project's literature/ notes (DECIDED K-D2: one project only this
+    # project's literature/ notes (one project only this
     # release — the verb itself is general; only the rollout is scoped).
     migrate_p = sub.add_parser(
         "migrate-citekeys",
@@ -1504,7 +1504,7 @@ def build_parser(
 
 def run(args: argparse.Namespace) -> int:
     """Dispatch research subcommands. Returns exit code."""
-    # D1 (verb consolidation): cited-by / references / sweep are
+    # Verb consolidation: cited-by / references / sweep are
     # HARD-REMOVED stubs — always dispatch to the redirect breadcrumb.
     if getattr(args, "_rv_removed_verb", None) is not None:
         from .cli_removed_verbs import run_removed_verb_stub

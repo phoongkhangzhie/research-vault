@@ -119,7 +119,7 @@ def render_framework_candidates_menu() -> str:
 def _framework_shape_by_key(key: str) -> dict[str, str] | None:
     """Look up a ``FRAMEWORK_SHAPES`` record by its ``key`` — the single
     lookup every lens/candidate/menu-render helper uses, so ``FRAMEWORK_SHAPES``
-    stays the one vocabulary (charter §6: no second shape grammar)."""
+    stays the one vocabulary (no second shape grammar)."""
     for shape in FRAMEWORK_SHAPES:
         if shape["key"] == key:
             return shape
@@ -467,7 +467,7 @@ _FRAMEWORK_CRITIC_BRIEF_TEMPLATE = (
 def render_critic_brief(canary_id: str) -> str:
     """The cold, rejects-only, fail-closed ``framework-critic`` brief —
     mirrors the coverage-critic's structured ``verdict:`` frontmatter
-    contract (never prose-parsed, charter §6 reuse-over-create) plus an
+    contract (never prose-parsed, reuse-over-create) plus an
     id-keyed canary (an unmarked probe token the critic must echo back
     verbatim, proving it actually read this specific brief rather than
     rubber-stamping a generic PASS — the trustworthy-LLM-verdict shape:
@@ -489,7 +489,7 @@ def check_framework_critique_verdict(
     "not_run": [...], "canary_aborted": bool}`` structural-payload shape
     ``review.autonomy.evaluation_from_framework_critic``/
     ``evaluation_from_structural_payload`` consume — mirrors
-    ``review.check_coverage_critic_verdict`` exactly (charter §6: no new
+    ``review.check_coverage_critic_verdict`` exactly (no new
     disposition path, no second prose-scanning grammar).
 
     Fail-closed, in priority order:
@@ -499,10 +499,10 @@ def check_framework_critique_verdict(
          absent or does not match EXACTLY -> ``canary_aborted: True`` (an
          untrustworthy signal — the critic did not demonstrably read this
          run's brief; never treated as a pass, never auto-retried the same
-         way, charter §10).
+         way).
       4. ``verdict`` absent/malformed (anything but exactly PASS/BLOCK,
          case-normalized) -> ``not_run`` (fail-closed, whitelist-not-
-         blacklist, charter §2).
+         blacklist).
       5. ``PASS`` -> clean. ``BLOCK`` -> every ``- <reason>`` body bullet as
          ``blocking`` (best-effort, informational only).
     """
@@ -889,7 +889,7 @@ def render_prisma_ledger(
     """Render a PRISMA-style inclusion/exclusion ledger from a coverage report.
 
     ``coverage`` is the dict shape returned by ``review.coverage_report()``
-    (F16+F17: keyed by citekey; ``counts`` summary). Byte-deterministic —
+    (keyed by citekey; ``counts`` summary). Byte-deterministic —
     no LLM, no invented numbers; this is a sibling to ``coverage_report``
     itself.
 
@@ -999,7 +999,7 @@ def index_literature_rows(
     Returns:
         Rows sorted by citekey (falls back to the overlay's filename stem
         when no resolvable ``citekey:`` is found — mirrors
-        ``review._index_literature_notes_by_citekey``'s F17 convention).
+        ``review._index_literature_notes_by_citekey``'s convention).
         Empty list if the dir does not exist.
 
     """
@@ -1690,7 +1690,7 @@ def check_outline_gate(
 ) -> list[str]:
     """The cheap, rejects-only outline pre-pass gate.
 
-    A cheap screen that can only REJECT (charter §9): before the expensive
+    A cheap screen that can only REJECT: before the expensive
     whole-draft runs, confirm every frozen branch is anchored to something
     real in ``_outline.md`` — surfacing a framework/corpus problem in
     minutes, not after a full draft.
@@ -1746,7 +1746,7 @@ def check_outline_gate(
         Strips surrounding matched quotes (a frozen branch value may carry
         literal quote characters from its source), casefolds, and collapses
         internal whitespace — robust to quoting/whitespace drift without
-        loosening the match into anything semantic/fuzzy (charter §9: a
+        loosening the match into anything semantic/fuzzy (a
         rejects-only screen must stay a literal floor).
         """
         s = s.strip()

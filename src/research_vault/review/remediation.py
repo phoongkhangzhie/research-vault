@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/remediation.py — the pole-directed critic-backtrack loop (D-5a).
+"""review/remediation.py — the pole-directed critic-backtrack loop.
 
 ★ NOTE (0.3.1): the coverage-gate saturation-remediation machinery that
 used to live in this module (``resolve_coverage_gate``'s REMEDIATE upgrade,
@@ -11,7 +11,7 @@ corpus contradictory — depth-bounding IS the design, not a shortfall to
 remediate. What remains below (the counter-position/
 thin-pole critic backtrack, ``resolve_coverage_critic`` +
 ``run_directed_remediation_round``) is an UNRELATED mechanism — it answers
-a completely different gate (``approve-review``'s L-2 counter-position
+a completely different gate (``approve-review``'s counter-position
 critic BLOCK), not the walk's own terminal — and is untouched by this
 deletion.
 
@@ -28,7 +28,7 @@ enforced by this module's construction, not by convention:
      invariant (``pre==post`` criteria, ``removed==[]``) means this loop
      structurally cannot self-author a criteria change or a removal.
 
-Stdlib only (+ intra-package imports). sr: NG-6a / D-5a
+Stdlib only (+ intra-package imports).
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def _extract_hits(tool_op_result: Any) -> list[Any]:
 
 
 # ---------------------------------------------------------------------------
-# D-5a: the critic-BLOCK -> bounded, pole-directed backtrack
+# The critic-BLOCK -> bounded, pole-directed backtrack
 #
 # Wires the previously un-wired approve-review REVISE path: a PURE
 # counter-position/thin-pole critic BLOCK (review.check_coverage_critic_
@@ -178,7 +178,7 @@ def resolve_coverage_critic(
     )
 
 
-# The "all registered sources" widen (D-5a: "all sources" for the backtrack,
+# The "all registered sources" widen ("all sources" for the backtrack,
 # vs. the protocol's normal default-on subset) — imported lazily inside the
 # function that uses it (module-load-cycle safety, same convention as the
 # other lazy imports in this file).
@@ -195,8 +195,8 @@ def _best_paper_id(external_ids: dict[str, str]) -> str | None:
     ``sources.sweep._paper_id_of_hit`` — same precedent as
     ``counter_facet_guard._judge_configured``'s duplication note: a private,
     single-purpose helper reused across a module boundary is copied with a
-    pointer comment rather than importing a private symbol (charter §6 is
-    about not reimplementing MECHANISM; a 4-line id-priority rule is not
+    pointer comment rather than importing a private symbol (reuse over create
+    is about not reimplementing MECHANISM; a 4-line id-priority rule is not
     worth a shared-module dependency for). MUST be called with the MERGED
     ``external_ids`` (a ``DedupedHit.external_ids``, never a bare
     ``hit.external_ids``) — see the source docstring for the enrichment
@@ -211,7 +211,7 @@ def _best_paper_id(external_ids: dict[str, str]) -> str | None:
 
 
 def _extract_seed_ids_for_snowball(tool_op_result: Any) -> list[str]:
-    """Best-effort seed-id extraction for the snowball re-seed step (§D-5a).
+    """Best-effort seed-id extraction for the snowball re-seed step.
 
     Prefers the REAL sweep shape (``SweepResult.kept: list[DedupedHit]``,
     each carrying merged ``external_ids``). Falls back to a plain list of
@@ -275,8 +275,8 @@ _RELAXED_PER_CELL_LIMIT = 40  # a backtrack round intensifies vs. the sweep op's
 
 
 # ---------------------------------------------------------------------------
-# fix (Shape B): wiring the backtrack's newly-found counter-papers
-# through ``review.incremental_relate`` module (D-5b) — previously
+# Wiring the backtrack's newly-found counter-papers
+# through the ``review.incremental_relate`` module — previously
 # built + unit-tested but UNREACHED from the running loop (zero references
 # from dag/verbs.py). This section owns ONLY the plumbing: filtering
 # ``added`` citekeys to those with an already-distilled
@@ -315,8 +315,7 @@ def run_incremental_relate_for_new_citekeys(
     ``literature/<citekey>.md`` note (``run_incremental_relate``'s own
     caller contract — full-distill happens upstream/out-of-band). A
     corpus-row-only citekey with no distilled note yet is surfaced in
-    ``not_yet_distilled`` — never silently dropped, never crashed on
-    (charter §2).
+    ``not_yet_distilled`` — never silently dropped, never crashed on it.
 
     ``core_dir``, when given, is where ``run_incremental_relate`` WRITES
     every edge — the two-layer store's central core (``cfg.literature_root``),
@@ -369,7 +368,7 @@ def run_directed_remediation_round(
     now: float | None = None,
     core_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Execute ONE bounded, POLE-DIRECTED critic-backtrack round (§D-5a).
+    """Execute ONE bounded, POLE-DIRECTED critic-backtrack round.
 
     Re-executes the FROZEN counter-query named by ``pole`` HARDER: every
     registered source (not just the protocol's declared subset) and a

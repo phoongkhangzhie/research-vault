@@ -1,29 +1,29 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/corpus_freeze.py — NG-6a piece 1: the explicit, versioned
-``corpus_freeze`` baseline + the fail-closed ``rv review refresh`` re-freeze.
+"""review/corpus_freeze.py — the explicit, versioned ``corpus_freeze``
+baseline + the fail-closed ``rv review refresh`` re-freeze.
 
-Design of record: internal design note.
 Builds ON the baseline (``frozen_corpus_citekeys`` in
 ``run_state.meta``, ``review.autonomy.classify_coverage_gate_with_deviation_check``,
 ``check_undeclared_deviation``) — does NOT re-implement it.
 
 The freeze precedent mirrored here is ``plan/freeze.py`` (a hash + resolution
 pin stored in ``run_state.meta``, re-verified fail-closed at the gate) —
-charter §6 reuse-over-create; a sibling module for the corpus, same shape.
+reuse over create; a sibling module for the corpus, same shape.
 
 ``corpus_freeze`` (this module) and ``frozen_corpus_citekeys`` (
 ``review.autonomy``) are kept IN SYNC deliberately, not merged into one
-field: ``frozen_corpus_citekeys`` remains the flat SSOT the already-wired D2
-BLOCK (``classify_coverage_gate_with_deviation_check``) reads/writes — that
-wiring + its integration tests are untouched by this module. ``corpus_freeze``
-is the richer, versioned, hashed wrapper NG-6a adds on top: every time this
-module re-freezes (``refresh``/a remediation round), it writes the SAME
-citekey set into BOTH ``run_state.meta["corpus_freeze"]["corpus_citekeys"]``
-and ``run_state.meta["frozen_corpus_citekeys"]`` — so the next
+field: ``frozen_corpus_citekeys`` remains the flat SSOT the already-wired
+undeclared-deviation BLOCK (``classify_coverage_gate_with_deviation_check``)
+reads/writes — that wiring + its integration tests are untouched by this
+module. ``corpus_freeze`` is the richer, versioned, hashed wrapper this
+module adds on top: every time this module re-freezes (``refresh``/a
+remediation round), it writes the SAME citekey set into BOTH
+``run_state.meta["corpus_freeze"]["corpus_citekeys"]`` and
+``run_state.meta["frozen_corpus_citekeys"]`` — so the next
 ``classify_coverage_gate_with_deviation_check`` call (unmodified) compares
 against the moved-forward baseline, never a stale one.
 
-Stdlib only. sr: NG-6a
+Stdlib only.
 """
 from __future__ import annotations
 
@@ -58,8 +58,8 @@ def _norm_criteria_value(v: Any) -> str:
 # ---------------------------------------------------------------------------
 # 0.3.1 tiered-hash split (the search-breadth + facet-coverage redesign's
 # crux). Precedent = ``plan/freeze.py``'s ``covers_hash`` vs
-# ``covers_retries_hash`` split — charter §6, a sibling shape, not a new
-# mechanism.
+# ``covers_retries_hash`` split — reuse over create, a sibling shape, not a
+# new mechanism.
 #
 # BEFORE this split, ``canonicalize_criteria`` hashed question + inclusion +
 # exclusion + coverage_claim + sources + the FULL query TEXT of

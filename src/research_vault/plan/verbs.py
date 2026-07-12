@@ -16,7 +16,7 @@ Subcommands:
         - covers-id convention: covers: entries must be bare IDs, not
           path-prefixed (e.g. 'q1-main1', not 'experiments/q1-main1').
       Exit 0 on pass; exit 1 with violations printed on fail.
-      This is a REJECTS-ONLY screen (charter §9): pass does NOT certify the plan;
+      This is a REJECTS-ONLY screen: pass does NOT certify the plan;
       the plan-critic (reviewer) judges semantic completeness.
 
   rv plan tips [--key <key>]

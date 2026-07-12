@@ -28,7 +28,7 @@ closure down into ``run_incremental_relate``'s ``relate_fn``/
 ``escalate_relate_fn`` parameters — no API call, no async anywhere below
 this module.
 
-**Candidate generation is REUSED, not re-implemented** (charter §6): this
+**Candidate generation is REUSED, not re-implemented**: this
 module calls ``incremental_relate.build_concept_index``/``note_concepts``
 directly — the exact same concept-graph blocking rule
 ``run_incremental_relate`` itself uses internally, so the pairs this module

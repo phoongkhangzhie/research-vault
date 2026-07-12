@@ -16,7 +16,7 @@ CHECK-8a is always HARD (secrets/paths never degrade). CHECK-8b/c degrade to
 WARN in local mode but drop their prefix (become HARD) in `--release` mode —
 the release subset (CHECK-8b/c: "WARN locally / HARD at release").
 
-Zero new walker (charter §6): CHECK-8a COMPOSES the existing
+Zero new walker: CHECK-8a COMPOSES the existing
 `scripts/leakage_scan.sh --secrets-only <dir>` (dev-tree tooling, same
 fail-open-when-absent posture as `git_discipline._run_leakage_scan`) — it does
 NOT reimplement a secrets scanner. The absolute-personal-path regex class is a
@@ -271,7 +271,7 @@ def _find_leakage_scan_script() -> Path | None:
     Mirrors `git_discipline._run_leakage_scan`'s candidate search (same
     fail-open-when-absent posture: an adopting project without the rv dev
     tree simply can't run the composed half of CHECK-8a — surfaced as a WARN,
-    never silently dropped, charter §2).
+    never silently dropped).
     """
     candidates = [
         Path(__file__).parent.parent.parent / "scripts" / "leakage_scan.sh",
@@ -387,7 +387,7 @@ def check_citation_cff(repo_root: Path, *, release: bool = False) -> list[str]:
 def check_license(repo_root: Path, *, release: bool = False) -> list[str]:
     """LICENSE present + matches a known SPDX signature (WARN local / HARD release).
 
-    *Which* license is [DOC] (charter §1 — never guess/auto-pick); this only
+    *Which* license is [DOC] (never guess/auto-pick); this only
     checks presence + that the content isn't the unfilled scaffold placeholder
     and matches a recognizable OSI license signature (CHECK-8c).
     """

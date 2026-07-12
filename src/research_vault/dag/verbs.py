@@ -257,7 +257,7 @@ _AUTONOMOUS_GATE_IDS = frozenset({
 
 _TOOL_AUTO_EXEC_MAX_PASSES = 100  # bounded loop guard — never spin forever
 
-# fix (Shape B): a defence-in-depth backstop on the approve-review
+# A defence-in-depth backstop on the approve-review
 # incremental-relate round-stepping loop — distinct from
 # ``review.style.get_critic_backtrack_max_rounds`` (which bounds ROUNDS
 # specifically); this bounds the outer resolve<->round<->relate-fanout loop
@@ -339,7 +339,7 @@ def _auto_execute_tool_nodes(
                     # A declared
                     # produces: artifact that isn't on disk after the op
                     # ran is a fail-closed BLOCK, never a green node with
-                    # no file (charter §2 — surface, never silently drop).
+                    # no file (surface, never silently drop).
                     msg = (
                         f"tool node {nid!r} (op={op!r}) declared produces: "
                         f"artifact(s) {missing!r} but none were found on "
@@ -349,7 +349,7 @@ def _auto_execute_tool_nodes(
                     run_state.set_node_status(nid, "blocked", error=msg[:_FAILURE_SUMMARY_MAX_CHARS])
                 else:
                     run_state.set_node_status(nid, "succeeded")
-            except Exception as e:  # noqa: BLE001 — surface, never swallow (charter §2)
+            except Exception as e:  # noqa: BLE001 — surface, never swallow
                 ns["tool_error"] = str(e)[:2000]
                 run_state.set_node_status(nid, "blocked", error=str(e)[:_FAILURE_SUMMARY_MAX_CHARS])
             executed_any = True
@@ -464,7 +464,7 @@ def _evaluate_autonomous_gate(
                 )
             except Exception as e:  # noqa: BLE001 — never let ledger assembly
                 # crash the coverage-gate's own disposition (surfaced, never
-                # silently swallowed — charter §2).
+                # silently swallowed).
                 import sys as _sys
                 print(
                     f"rv dag approve: coverage-gate: _corpus_ledger.md assembly "
@@ -873,8 +873,7 @@ def _evaluate_autonomous_gate(
             _autonomy.evaluation_from_structural_payload(_payload)
         )
 
-        # ★ fold in the holistic-quality review board (design
-        # 2026-07-08-autonomous-board-design.md) — a SEPARATE failure
+        # ★ fold in the holistic-quality review board — a SEPARATE failure
         # class from the mechanical integrity floors above. A missing
         # board-result artifact means the board was never driven for this
         # manuscript (an out-of-band, hub-orchestrated multi-round fanout
@@ -929,10 +928,10 @@ def _evaluate_autonomous_gate(
         # never scanned) — SAME structural-payload adapter approve-framework
         # already uses (no new disposition path).
         #
-        # (D-5a): extended further, mirroring the coverage-gate branch
-        # above — ``review.remediation.resolve_coverage_critic`` may upgrade
-        # a REVISE (from a PURE counter-position/thin-pole BLOCK) to
-        # CRITIC_BACKTRACK. fix (Shape B): the round-stepping loop is
+        # The critic-backtrack path is extended further, mirroring the
+        # coverage-gate branch above — ``review.remediation.resolve_coverage_critic``
+        # may upgrade a REVISE (from a PURE counter-position/thin-pole BLOCK) to
+        # CRITIC_BACKTRACK. The round-stepping loop is
         # driven HERE (not via ``review.remediation.run_bounded_critic_
         # backtrack``, which assumed a synchronous in-process relate_fn) —
         # each round's newly-found counter-papers' relate judgment goes
@@ -972,7 +971,7 @@ def _evaluate_autonomous_gate(
             remediation_state=run_state.meta.get("critic_backtrack_state"),
         )
         if disposition.disposition == _autonomy.CRITIC_BACKTRACK:
-            # fix (Shape B): the newly-found counter-papers' relate
+            # The newly-found counter-papers' relate
             # judgment (does paper A relate to paper B) is a JUDGE, so it
             # routes the CC harness cold emit/ingest fan-out — never a
             # synchronous in-process LLM call (original
@@ -992,7 +991,8 @@ def _evaluate_autonomous_gate(
             # injecting a resolved SYNCHRONOUS dict-lookup ``relate_fn``/
             # ``escalate_relate_fn`` down into ``run_incremental_relate``
             # (via ``review.relate_judge_seam`` — see its module docstring
-            # for the full "why Shape B, not Shape A" reasoning).
+            # for the full reasoning on why the harness fan-out design was
+            # chosen over an in-process synchronous relate call).
             from ..review import _parse_corpus_citekeys
             from ..review import relate_judge_seam as _rjs
             from ..review.incremental_relate import run_incremental_relate
@@ -1224,7 +1224,7 @@ def _derive_project_and_id(manifest: dict[str, Any], *, prefix: str, suffix: str
 
     Returns ``None`` if the manifest doesn't carry the expected shape
     (never guesses — a phase-transition emission that can't derive its own
-    inputs must fail loudly, not silently skip, charter §2).
+    inputs must fail loudly, not silently skip).
     """
     project = manifest.get("project")
     run_id = str(manifest.get("run_id", ""))
@@ -1301,9 +1301,9 @@ def _emit_next_phase(
     would raise ``FileExistsError`` against the first child's artifacts).
 
     Any failure to derive/emit is stamped onto the node's state as
-    ``phase_transition_error`` and surfaced (never silently dropped,
-    charter §2) — the gate itself already resolved GO; a failed
-    auto-emission is a distinct, loud signal that manual follow-up
+    ``phase_transition_error`` and surfaced (never silently dropped) — the
+    gate itself already resolved GO; a failed auto-emission is a distinct,
+    loud signal that manual follow-up
     (``rv review expand`` / ``rv manuscript new``+``expand`` by hand) is
     needed.
     """
@@ -1455,7 +1455,7 @@ def _emit_next_phase(
         child = _start_dag_run_inprocess(child_manifest, child_manifest_path, store)
         run_state.meta.setdefault("child_runs", {})[node_id] = child.run_id
         ns["emitted_next_phase_run_id"] = child.run_id
-    except Exception as e:  # noqa: BLE001 — surface, never swallow (charter §2)
+    except Exception as e:  # noqa: BLE001 — surface, never swallow
         ns["phase_transition_error"] = str(e)[:2000]
 
 
@@ -2348,7 +2348,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     """
     run_id = args.run_id
     node_id = args.node_id
-    # F13: read the new optional flags (safe getattr — tests that don't set them
+    # read the new optional flags (safe getattr — tests that don't set them
     # still work; bare approve calls are backward-compatible).
     decision_note: str | None = getattr(args, "note", None) or None
     raw_outputs: list[str] = getattr(args, "output", None) or []
@@ -2428,17 +2428,19 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 print(msg, file=sys.stderr)
                 return 1
 
-            # D-7: a declared thesis facet with no frozen counter-side
+            # A declared thesis facet with no frozen counter-side
             # query is a protocol defect — hard BLOCK, same convention as
             # the check_protocol_gate empty-counter-position field above.
+            # (the counter-facet EXISTENCE gate.)
             ok, msg = check_counter_facet_gate(Path(protocol_ref))
             if not ok:
                 print(msg, file=sys.stderr)
                 return 1
 
-            # D-6: cold, rejects-only, canary-verified
-            # counter-facet STRENGTH guard — existence (D-7) != strength; a
-            # thesis-biased generator can satisfy D-7 with a straw-man.
+            # Cold, rejects-only, canary-verified
+            # counter-facet STRENGTH guard — existence != strength; a
+            # thesis-biased generator can satisfy the existence gate above with
+            # a straw-man.
             # the direct-API judge path was deleted; the strength judge runs
             # via the cold emit/ingest fan-out. Unified HALT (deliverable #3):
             # no fan-out / no verdicts / incomplete fan-out -> HALT-DECLARE
@@ -2493,10 +2495,10 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 for nr in struct["not_run"]:
                     print(f"rv dag approve: approve-protocol HALT-DECLARE: {nr}", file=sys.stderr)
 
-            # D-1: the derived 40-100 distinct-query band is a SIGNAL,
+            # The derived 40-100 distinct-query band is a SIGNAL,
             # never a BLOCK (the generator's derived count is a target, not
             # an exact requirement) — always printed so the human sees it at
-            # the gate (charter §2: surface, never silently drop).
+            # the gate (surface, never silently drop).
             from ..sources.sweep import parse_angle_matrix, validate_matrix_band
             angle_matrix = parse_angle_matrix(Path(protocol_ref).read_text(encoding="utf-8"))
             if angle_matrix:
@@ -2505,9 +2507,10 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     print(f"rv dag approve: approve-protocol SIGNAL: {band_msg}", file=sys.stderr)
 
             # 0.3.1 Layer 1: the per-facet/per-pole generation-time breadth
-            # floor — a real HARD BLOCK (unlike D-1's band SIGNAL above),
-            # scoped to the nested D-3 facet form (mirrors D-7's own
-            # scoping). N/M are config-driven, per-review-type overridable
+            # floor — a real HARD BLOCK (unlike the distinct-query-band SIGNAL
+            # above), scoped to the nested stance-tagged facet form (mirrors
+            # the counter-facet existence gate's own scoping). N/M are
+            # config-driven, per-review-type overridable
             # (review.style.get_min_queries_per_facet/get_min_queries_per_pole).
             from ..sources.sweep import check_facet_breadth_floor
             from ..review.style import (
@@ -2572,7 +2575,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                         print(f"  BLOCK: {b}", file=sys.stderr)
                     return 1
                 # SIGNALs and not_run gates never block approval — but they
-                # are ALWAYS printed (charter §2: surface, never silently
+                # are ALWAYS printed (surface, never silently
                 # drop; never green-and-empty) so the human sees them at the
                 # gate, not buried in a log file elsewhere.
                 for s in payload["signals"]:
@@ -2580,7 +2583,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 for n in payload["not_run"]:
                     print(f"rv dag approve: approve-manuscript NOT RUN: {n}", file=sys.stderr)
             else:
-                # fix (integration-reviewer followup, charter §2): an
+                # fix (integration-reviewer followup): an
                 # unregistered/malformed ``manuscript_type`` used to fall
                 # through this ``if`` silently — no gates ran, nothing was
                 # printed, and the human-go gate would pass with ZERO
@@ -2743,7 +2746,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
             return 2
         if _disposition_result.disposition == _autonomy.HALT_DECLARE:
             # A HALT-DECLARE is a first-class NOT-CLEARED artifact — surface
-            # it loudly and reject the gate (never silently pass, charter §2).
+            # it loudly and reject the gate (never silently pass).
             reject = True
             if decision_note is None:
                 decision_note = f"HALT-DECLARE (auto): {_disposition_result.reason}"
@@ -2771,7 +2774,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     #
     # On a verify EXCEPTION, BLOCK (return 1)
     # instead of warning-and-proceeding.  An integrity gate must fail-closed on
-    # inability-to-verify (charter §2: surface, never swallow).
+    # inability-to-verify (surface, never swallow).
     #
     # require_frozen=False: the hook already gates on plan_freeze presence above,
     # so it never calls verify on a non-frozen run; the no-op path is never needed.
@@ -2811,7 +2814,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 )
                 return 1
 
-    # F13: parse --output k=v pairs into a dict.
+    # parse --output k=v pairs into a dict.
     # Reject malformed entries so the human gets a clear error.
     parsed_outputs: dict[str, str] = {}
     for kv in raw_outputs:
@@ -2853,12 +2856,12 @@ def cmd_approve(args: argparse.Namespace) -> int:
             print(_reason, file=sys.stderr)
             return 1
 
-    # F13: determine final status (approve → succeeded; reject → blocked).
+    # determine final status (approve → succeeded; reject → blocked).
     final_status = "blocked" if reject else "succeeded"
 
     run_state.set_node_status(node_id, final_status)
 
-    # F13: persist decision_note and outputs into the node state so they
+    # persist decision_note and outputs into the node state so they
     # are available to downstream agents and the audit trail.
     ns = run_state.node_states.setdefault(node_id, {})
     if decision_note is not None:
@@ -3357,7 +3360,7 @@ def cmd_status(args: argparse.Namespace) -> int:
                       + ("..." if len(last_failure) > 200 else ""))
 
     # Show current frontier
-    # F6: include awaiting-go nodes that have already been promoted by a prior
+    # include awaiting-go nodes that have already been promoted by a prior
     # _recompute_awaiting_go call (from dag run/tick/complete).  compute_frontier
     # skips them because "awaiting-go" is in _NON_ADVANCEABLE — so they would
     # silently disappear from the status display even though they still need human
@@ -3540,7 +3543,7 @@ def build_parser(
         ),
     )
 
-    # approve  (F13: --note / --output / --reject)
+    # approve  (--note / --output / --reject)
     app_p = sub.add_parser(
         "approve",
         help="Approve (or reject) a human-go node.",

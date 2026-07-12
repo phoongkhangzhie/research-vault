@@ -293,7 +293,7 @@ class EnvSecretStore:
     first, then a clear error is surfaced).
     """
 
-    # Service name is the registry SSOT (F4) — one place defines it, so a key
+    # Service name is the registry SSOT — one place defines it, so a key
     # written by `rv onboard` under this service is read back here.
     _SERVICE = _KEYRING_SERVICE
 

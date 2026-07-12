@@ -45,7 +45,7 @@ from .reads import resolve_reads_paths
 # The teeth: role framing + instance/scratchpad boundary + anti-fabrication +
 # the STRUCTURED-RETURN contract (so rv dag complete is meaningful).
 #
-# Compose: charter §1 (grounding), §2 (surface-never-silently-drop), §5 (irreversible),
+# Compose: grounding, surface-never-silently-drop, irreversible-work-waits-for-a-nod,
 # and the ⟦RETURN⟧ schema (how the hub reads your output).
 
 BRIEF_PREAMBLE = """\
@@ -63,7 +63,7 @@ INSTANCE BOUNDARY
   • Never touch another project's source_dir.
   • Commit incrementally as you go (commit-as-you-go discipline).
 
-ANTI-FABRICATION (charter §1)
+ANTI-FABRICATION
   • Every specific claim — a number, a path, a metric, a citekey — must trace
     to a real source (a file you Read, a tool output, recorded run state).
   • If something is not grounded, say so; do NOT invent specifics to appear concrete.
@@ -82,7 +82,7 @@ When you finish, return the following block so `rv dag complete` is meaningful:
 
   Then: run `rv dag complete <run_id> <node_id>` (SUCCEEDED path) or
         `rv dag complete <run_id> <node_id> --status failed --error "<summary>"`
-        (FAILED path — summary is REQUIRED for retriable nodes, D-RETRY-9).\
+        (FAILED path — summary is REQUIRED for retriable nodes).\
 """
 
 

@@ -23,12 +23,11 @@ Subcommands:
           → review-relevance-verify (cold agent, canary-verified re-check)
           → coverage-gate (auto-resolved).
       ``review-scope`` MUST file a ``_protocol.md`` with a non-empty ``counter-position``
-      field (L-2 gate) — ``review-search`` is gated on the protocol artifact.
+      field — ``review-search`` is gated on the protocol artifact.
       ``review-snowball`` runs an internal citation-neighbor relevance walk (both
       forward + backward citation directions, depth-bounded by ``--relevance-hops``,
       default 1) and produces ``_corpus_raw.md`` + ``_walk.md``.
-      The relevance gate (design 2026-07-10-trustworthy-curation-relevance-gate-design.md
-      ) mechanically screens + a cold agent re-verifies every ``[NEW]`` paper for
+      The relevance gate mechanically screens + a cold agent re-verifies every ``[NEW]`` paper for
       off-domain contamination before the expensive Phase-2 fan-out: below
       ``OFF_DOMAIN_HALT_THRESHOLD`` (0.30) it auto-prunes + declares and the run
       proceeds; at/above threshold it HALT-DECLAREs at ``coverage-gate``.
@@ -77,8 +76,8 @@ Subcommands (the gap-driven pass):
   rv review <project> gap-close <gap-id> --status <status> [--by <note-ref>]
       Stamp a gap's closure status. status ∈ {closed-supported, closed-filled, proven-open}.
       A ``proven-open`` gap saturated without closing → run-candidate contribution.
-      --by is REQUIRED for closed-supported and closed-filled (charter §2:
-      a closed gap with no closer is un-auditable). --by is REJECTED for proven-open
+      --by is REQUIRED for closed-supported and closed-filled (a closed gap
+      with no closer is un-auditable). --by is REJECTED for proven-open
       (nothing closed it — that's the point). --by writes bidirectional edges:
         closed_by: <note-ref> in the gap FM + closes: <gap-id> in the closing note FM.
       Anti-pattern: do NOT gap-close a closed-* gap without --by — a closer-less closure
@@ -413,7 +412,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         "gap-close",
         help=(
             "Stamp a gap's closure status with provenance edge ((1)). "
-            "--by is REQUIRED for closed-supported/closed-filled (charter §2); "
+            "--by is REQUIRED for closed-supported/closed-filled; "
             "REJECTED for proven-open (nothing closed it). "
             "proven-open = targeted pass saturated without closing → candidate contribution."
         ),
@@ -440,7 +439,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help=(
             "The OKF note that resolved this gap (e.g. 'literature/smith2024', "
             "'experiments/exp-001'). REQUIRED for closed-supported and closed-filled "
-            "(a closed gap with no closer is un-auditable — charter §2). "
+            "(a closed gap with no closer is un-auditable). "
             "REJECTED for proven-open (nothing closed it). "
             "Writes bidirectional edges: closed_by: in the gap FM + closes: in the closing note FM."
         ),
@@ -469,7 +468,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help=(
             "Manuscript section or claim reference (e.g. 'manuscript/contributions', "
             "'manuscript/future-work'). Required — a promotion without a target is "
-            "un-auditable (charter §2)."
+            "un-auditable."
         ),
     )
 
@@ -979,7 +978,7 @@ def _run_gap_close(args: argparse.Namespace) -> int:
 
 
 def _run_coverage(args: argparse.Namespace) -> int:
-    """Report deterministic corpus-coverage keyed by citekey: field (F16+F17)."""
+    """Report deterministic corpus-coverage keyed by citekey: field."""
     from research_vault.config import load_config
     from research_vault.review import coverage_report
 

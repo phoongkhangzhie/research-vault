@@ -11,11 +11,11 @@ Multi-repo support (GD-D6):
   Use ``rv wt add <task> --project <slug>`` to create a worktree in a
   project repo's ``<source_dir>-wt/`` directory.
 
-Crew identity (``--as <role>``, GD-D6):
+Crew identity (``--as <role>``):
   Passing ``--as <role>`` sets ``git config user.email`` in the new worktree
   to ``<role>@<crew-domain>`` (config key: ``crew.identity_domain``; default
   placeholder: ``example.invalid``).  The worktree identity is set by
-  construction, killing the "forgot to activate the role" bug (PR #5).
+  construction, killing the "forgot to activate the role" bug.
 
 Environment overrides (for tests):
   RV_WT_HOME   path to the worktrees directory (default: <repo>-wt)

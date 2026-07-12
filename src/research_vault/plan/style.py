@@ -60,7 +60,7 @@ _DEFAULT_PLAN_TIPS: dict[str, str] = {
         "No near-neighbour paraphrase — the arrow names the specific manipulation and the specific outcome. "
         "Specify the pre-registered analysis: estimand, test statistic, comparison baseline, and units. "
         "State decision thresholds AND the measurement's own noise floor (split-half variance / seed variance). "
-        "A threshold with no stated noise floor is not pre-registered (charter §10: a result 'too good' is "
+        "A threshold with no stated noise floor is not pre-registered (a result 'too good' is "
         "an artifact until explained — the noise floor is the sanity bound). "
         "State the falsifier: the concrete result that would refute the claim. "
         "If nothing could refute it, it is not yet a claim — redesign the experiment."
@@ -86,7 +86,7 @@ _DEFAULT_PLAN_TIPS: dict[str, str] = {
         "The trigger and table are locked before any run; the only branching at evaluation time is "
         "'trigger fired / did not fire'. "
         "If the trigger did not fire, the conditional is recorded as blocked (pre-committed, "
-        "trigger false, deliberately not run) — this is a reportable honest negative (charter §2), "
+        "trigger false, deliberately not run) — this is a reportable honest negative, "
         "not a silent drop."
     ),
     "diagnosis_table": (

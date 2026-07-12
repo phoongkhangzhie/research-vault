@@ -8,7 +8,7 @@ byte-identically duplicated in ``manuscript/bib.py`` and
 duplication was to dodge an import cycle). Neither module actually imports
 the other, so there was no cycle to dodge — both are leaves imported by
 ``manuscript/check_gates.py``. Hoisted here so the two copies can never
-drift apart (charter §6: reuse, don't proliferate).
+drift apart (reuse, don't proliferate).
 
 Stdlib only; this module has no other intra-package imports, so importing
 it from anywhere in ``manuscript/`` is cycle-free by construction.

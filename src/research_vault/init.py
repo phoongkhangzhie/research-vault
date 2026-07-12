@@ -38,7 +38,7 @@ Package data layout:
   the wheel.  They are loaded via ``importlib.resources`` + ``as_file()`` so the
   copy works from a regular wheel install AND from a zipped wheel (zipimport-safe).
   There are NO ``__file__``-based fallbacks — a missing data file is a HARD ERROR,
-  not a silent skeleton (charter §2: surface, never silently degrade).
+  not a silent skeleton (surface, never silently degrade).
 
 Stdlib only. No external deps.
 """

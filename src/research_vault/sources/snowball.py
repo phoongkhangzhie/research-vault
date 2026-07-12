@@ -14,7 +14,7 @@ sacrifice recall, it RELOCATES it to query breadth (search-facet coverage).
 Mirrors ``sweep.py``'s shape: fetch (both directions, each hop) -> dedup
 -> derivative discount -> compose. Reuses ``sources/derivative.py``
 (``mark_derivatives``/``count_independent``) and ``sources/dedup.py`` — no
-mechanism is reimplemented (charter §6).
+mechanism is reimplemented.
 
 ★ Known, DECLARED caveat (carried over from the prior saturation design —
 do not let this silently vanish): the shipped ``review_snowball_tips``
@@ -55,7 +55,7 @@ from typing import Any, Callable
 from .base import AdapterFetchError, NotSupported, PaperHit, SourceAdapter
 from .dedup import DedupedHit, dedup_hits, identity_key
 from .derivative import count_independent, mark_derivatives
-from .sweep import _evidence_snippet  # reuse, not reinvent — charter §6
+from .sweep import _evidence_snippet  # reuse, not reinvent
 
 DEFAULT_RELEVANCE_HOPS = 1
 # Deprecated alias — one-release back-compat only (0.3.1). Use
@@ -79,7 +79,7 @@ DEFAULT_FETCH_BUDGET = 200
 
 # Bump if the on-disk checkpoint shape ever changes incompatibly — a
 # mismatched version is treated exactly like "no checkpoint" (start fresh),
-# never a crash on an old/foreign file (charter §5: reversible, never trust
+# never a crash on an old/foreign file (reversible, never trust
 # a stale/foreign artifact blindly). Bumped 1->2 for the fetch-budget
 # addition (total_calls must be resumed, not reset to 0). Bumped 2->3 for
 # the 0.3.1 relevance-hops rename (the checkpoint dict's match-key changed
@@ -91,7 +91,7 @@ _CHECKPOINT_VERSION = 3
 # Every key the resume path reads directly off a loaded checkpoint dict. A
 # checkpoint missing ANY of these (truncated write, hand-edited, a foreign
 # file that happens to parse as JSON) must be treated as absent/corrupt —
-# i.e. a fresh start — never a KeyError crash (charter §5: same "never trust
+# i.e. a fresh start — never a KeyError crash (same "never trust
 # a stale/foreign artifact blindly" reversibility this module already
 # applies to the version/seed_ids/relevance_hops mismatch case).
 _REQUIRED_CHECKPOINT_KEYS = (
@@ -171,7 +171,7 @@ class SnowballResult:
     # 2026-07-09 live-asta validation fix: paper ids for which BOTH
     # cited_by AND references raised an error this walk — a genuinely
     # unresolvable id (e.g. a 404), never silently absorbed into "0 new
-    # this round" without a trace (charter §2).
+    # this round" without a trace.
     unresolvable_ids: list[str] = field(default_factory=list)
 
     @property
@@ -280,7 +280,7 @@ def run_citation_neighbor_walk(
             hop's already-fetched hits, then sets
             ``stop_reason == f"budget:{fetch_budget}-calls"`` and returns —
             never a crash, never silently truncated without a distinct stop
-            reason (charter §2).
+            reason.
         checkpoint_path: when given, hop-granularity walk state is
             persisted here after every completed hop, and a PRIOR
             checkpoint at this same path (matching ``seed_ids`` +
@@ -310,7 +310,7 @@ def run_citation_neighbor_walk(
         total-fetch ceiling fired — a bounded corpus, residue-required), or
         ``"no-seeds-resolved"`` (every seed id failed to resolve on BOTH
         directions — an all-seeds lookup failure; see below) — never
-        anything else, and never left blank (charter §2). Only
+        anything else, and never left blank. Only
         ``walk-complete:N-hops`` sets ``walk_complete`` True; the
         coverage-gate whitelist (``review.autonomy.classify_coverage_gate``)
         fail-closes (HALT-DECLARE) on anything outside this exact 4-value
@@ -332,7 +332,7 @@ def run_citation_neighbor_walk(
 
     Seed and frontier ids are normalized to the asta-resolvable
     scheme-prefixed form (``research.py``'s ``_normalize_paper_id_for_asta``
-    — reused, not reimplemented, charter §6) immediately before each
+    — reused, not reimplemented) immediately before each
     ``cited_by``/``references`` call: a bare arXiv id 404s on asta where the
     ``ARXIV:``-prefixed form resolves (verified live, 2026-07-09).
     """
@@ -617,7 +617,7 @@ def run_citation_neighbor_walk(
 
     if not stop_reason:
         # Defensive — should be unreachable (the for/else above always sets
-        # it), but never leave the field blank (charter §2).
+        # it), but never leave the field blank.
         stop_reason = f"walk-complete:{relevance_hops}-hops"
 
     # Every original seed failed to resolve on BOTH directions and zero hits
@@ -664,7 +664,7 @@ def _annotate_hit(
 ) -> str:
     """[NEW] / [IN-CORPUS:<citekey>] annotation — mirrors
     ``sweep._annotate_hit`` exactly (same bridge to ``_corpus_annotation``,
-    the mechanical corpus-index check; charter §6, do not reinvent).
+    the mechanical corpus-index check; reuse over create, do not reinvent).
 
     ``external_ids`` is the caller's MERGED ids (``d.external_ids``) when
     available — same fix as ``_paper_id_of``. Defaults to
@@ -699,7 +699,7 @@ def write_corpus_raw(
 
     Evidence columns (Venue/Year/Abstract-TL;DR) mirror ``sweep.py``'s
     ``write_search_hits`` exactly (same ``_evidence_snippet`` helper, reused
-    not reimplemented — charter §6): the substance-screening gap fix
+    not reimplemented): the substance-screening gap fix
     (pre-publish hardening batch, 2026-07-09). Before this, the raw pool
     carried only ``annotation | paper-id | title`` — no abstract — so
     ``review-curate`` degraded to title-only screening, unable to verify a
@@ -754,8 +754,7 @@ def write_walk_report(result: SnowballResult, out_path: Path) -> Path:
     ``budget:N-calls``, or ``no-seeds-resolved`` (the walk-terminal contract,
     ``review.check_walk_terminal`` reads this verbatim) — followed by the
     per-hop body table and an "Unresolvable ids" count (2026-07-09 live-asta
-    fix: surface, never silently drop, a seed/frontier id that 404'd —
-    charter §2).
+    fix: surface, never silently drop, a seed/frontier id that 404'd).
     """
     lines: list[str] = [
         "---",

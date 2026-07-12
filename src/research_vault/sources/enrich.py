@@ -256,7 +256,7 @@ def _fetch_pmc_xml(pmcid: str) -> str:
 def _jats_xml_to_text(xml_text: str) -> str:
     """Extract the article body's text content from a JATS XML document.
     Missing/malformed <body> -> empty string (caller treats as decline, not
-    a crash — charter §2 surface-don't-drop via the FetchResult chain, not
+    a crash — surface-don't-drop via the FetchResult chain, not
     an exception escaping to the fan-out)."""
     root = ET.fromstring(xml_text)  # noqa: S314 (trusted EuropePMC response)
     body = root.find(".//body")

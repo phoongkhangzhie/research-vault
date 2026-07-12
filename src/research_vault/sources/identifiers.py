@@ -55,8 +55,8 @@ def stamp_note_frontmatter(note_path: Path, fields: dict[str, str]) -> bool:
     """Stamp/replace scalar frontmatter *fields* in *note_path* in place.
 
     Canonical stamp-or-inject helper (moved here from ``fulltext.py``, which
-    re-exports this name for backward compatibility — reuse over duplicate,
-    charter §6). Regex-replaces an existing ``key: value`` line if present;
+    re-exports this name for backward compatibility — reuse over duplicate).
+    Regex-replaces an existing ``key: value`` line if present;
     otherwise injects a new ``key: value`` line just before the closing
     ``---`` delimiter, rather than reserializing the whole frontmatter
     (which would risk corrupting fields this helper doesn't know about).

@@ -20,7 +20,7 @@ analysis_metrics)`` → ``run.finish()``. The run path ``entity/project/<run_id>
 surfaced via the Notifier and (optionally) written to the experiment note's
 ``results_wandb_run`` field so the score/analyze node can ``rv wandb pull`` it.
 
-Reliability (charter §2): ``run_logging=true`` with an unresolvable key / project, or
+Reliability: ``run_logging=true`` with an unresolvable key / project, or
 a ``wandb.init`` that raises → a LOUD Notifier warn (raise under
 ``require_observability``). Uses core ``wandb`` — NO new dep. ``wandb`` imported lazily.
 
@@ -93,7 +93,7 @@ def log_experiment_run(
         run_fn(model_client)
         return ""
 
-    # Precondition — surface loudly, don't silently skip (charter §2). This only
+    # Precondition — surface loudly, don't silently skip. This only
     # fires when the slug, the explicit override, AND the manifest fallback are
     # ALL empty — the per-project slug default (project_slug) covers the common case.
     if not project.strip():

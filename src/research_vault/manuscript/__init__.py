@@ -270,7 +270,7 @@ def _build_phase2_manifest(
 
     Raises ValueError if ``ms_type.section_set`` is empty — a type with no
     sections has nothing to draft; this is a structural inconsistency to
-    surface loudly, never a fabricated empty-but-green manifest (charter §2).
+    surface loudly, never a fabricated empty-but-green manifest.
 
     Args:
         manuscript_fields: the ``_manuscript.md`` frontmatter fields dict
@@ -699,7 +699,7 @@ def cmd_review(
     When to use: ``rv manuscript <project> review <slug>`` runs the bounded
     review-revise loop (``manuscript/review_board.py``) against the
     manuscript's current draft. The in-process API judge default was
-    DELETED — a None ``judge_fn`` raises loudly (charter §2: never a silent
+    DELETED — a None ``judge_fn`` raises loudly (never a silent
     no-op). Production cold-judge review runs via the 6-lens board's
     emit/ingest fan-out (``manuscript.board`` + ``gates.board_seam``), driven
     out-of-band by the hub; this OLD 2x3 in-process board is exercised only
@@ -749,7 +749,7 @@ def cmd_review(
     # ``approve-manuscript``). This OLD 2x3 in-process board
     # (``review_board.run_review_board``) is exercised only with a
     # test-injected ``judge_fn``; a None ``judge_fn`` raises loudly rather
-    # than reach for a deleted live-API default (charter §2: never a silent
+    # than reach for a deleted live-API default (never a silent
     # no-op).
     if judge_fn is None:
         raise RuntimeError(
