@@ -54,7 +54,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..note import _parse_frontmatter
-from .relate_check import _RELATED_PAPERS_HEADING_RE, parse_concept_edges
+from .relate_check import _RELATED_PAPERS_HEADING_RE, _TAG_SYMMETRY, parse_concept_edges
 
 
 def _note_path(literature_dir: Path, citekey: str) -> Path:
@@ -148,12 +148,24 @@ def append_bidirectional_edge(
     candidate_reason: str | None = None,
     core_dir: Path | None = None,
 ) -> None:
-    """Append the SAME relation to BOTH notes (D-5b: a paper->paper edge is
-    a fact about both papers, the central-notes model — the corpus gains
-    connections without re-relating). The candidate's own edge direction
-    defaults to a symmetric tag/reason unless the caller states an
-    asymmetric one explicitly (e.g. one side EXTENDS, the reciprocal side
-    is better read as PARTIAL).
+    """Append a relation to BOTH notes (D-5b: a paper->paper edge is a fact
+    about both papers, the central-notes model — the corpus gains
+    connections without re-relating).
+
+    DIRECTIONALITY (PR-1, ``relate_check._TAG_SYMMETRY``): the candidate's
+    own edge direction, when the caller does not state one explicitly,
+    is derived from ``new_tag``'s symmetry class — a SYMMETRIC/self-
+    converse tag (``SUPPORTS``, ``CONTRADICTS``, ``PARTIAL``) mirrors with
+    the SAME token; an ASYMMETRIC tag (``EXTENDS``) mirrors with its
+    CONVERSE token (``FOUNDATION-FOR``) — never the same token. A caller-
+    supplied ``candidate_tag``/``candidate_reason`` always overrides this
+    default (e.g. a considered asymmetric pairing the caller has already
+    judged). A ``new_tag`` absent from ``_TAG_SYMMETRY`` (a NEVER-
+    auto-mirrored tag — ``USES``/``GROUNDED-IN``/``PRODUCED``, one-way by
+    the shared-never-refs-project invariant / the artifact-target
+    invariant) raises ``ValueError`` unconditionally: this function only
+    ever writes the SAME paper->paper relation reciprocally, so a one-way
+    tag reaching it is a caller bug, not a case to silently degrade.
 
     ``literature_dir`` is the dir candidate generation reads concept
     graphs from (the project overlay — ``## Concept edges`` is
@@ -165,6 +177,15 @@ def append_bidirectional_edge(
     production caller (``dag/verbs.py``'s ``approve-review`` branch) passes
     ``core_dir`` explicitly.
     """
+    if new_tag not in _TAG_SYMMETRY:
+        raise ValueError(
+            f"append_bidirectional_edge: tag {new_tag!r} is never auto-"
+            "mirrored (absent from relate_check._TAG_SYMMETRY — USES/"
+            "GROUNDED-IN/PRODUCED are one-way by design). This function "
+            "always writes a reciprocal edge to both notes; a one-way tag "
+            "must be written with a single-edge call "
+            "(append_related_papers_edge) on the source note only."
+        )
     new_note = _note_write_path(core_dir, literature_dir, new_citekey)
     candidate_note = _note_write_path(core_dir, literature_dir, candidate_citekey)
     append_related_papers_edge(
@@ -173,7 +194,7 @@ def append_bidirectional_edge(
     )
     append_related_papers_edge(
         candidate_note, display=new_citekey, target=new_citekey,
-        tag=candidate_tag if candidate_tag is not None else new_tag,
+        tag=candidate_tag if candidate_tag is not None else _TAG_SYMMETRY[new_tag],
         reason=candidate_reason if candidate_reason is not None else new_reason,
     )
 

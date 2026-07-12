@@ -126,7 +126,13 @@ class TestBidirectionalEdgeWrite:
         assert any(e["target"] == "existing2024" and e["tag"] == "SUPPORTS" for e in new_edges.edges)
         assert any(e["target"] == "newone2026" and e["tag"] == "SUPPORTS" for e in existing_edges.edges)
 
-    def test_asymmetric_candidate_side_honored(self, tmp_path):
+    def test_asymmetric_tag_default_mirrors_converse_not_same_token(self, tmp_path):
+        """PR-1 (relate_check._TAG_SYMMETRY): an ASYMMETRIC tag's default
+        mirror (no explicit candidate_tag override) is its CONVERSE token,
+        never the same token — EXTENDS mirrors as FOUNDATION-FOR. This
+        supersedes the pre-PR-1 shipped behavior (same-token mirror for
+        every tag), which planted a false reverse edge for every
+        asymmetric relation."""
         literature_dir = tmp_path / "literature"
         _write_note(literature_dir, "base2024", concepts=["x"])
         _write_note(literature_dir, "new2026", concepts=["x"])
@@ -138,9 +144,31 @@ class TestBidirectionalEdgeWrite:
             ["new2026"], literature_dir=literature_dir, baseline_citekeys={"base2024"},
             relate_fn=relate_fn,
         )
-        # default (no candidate_tag override) mirrors the same tag both ways
+        new_edges = parse_paper_relations((literature_dir / "new2026.md").read_text(encoding="utf-8"))
         base_edges = parse_paper_relations((literature_dir / "base2024.md").read_text(encoding="utf-8"))
-        assert any(e["target"] == "new2026" and e["tag"] == "EXTENDS" for e in base_edges.edges)
+        assert any(e["target"] == "base2024" and e["tag"] == "EXTENDS" for e in new_edges.edges)
+        assert any(e["target"] == "new2026" and e["tag"] == "FOUNDATION-FOR" for e in base_edges.edges)
+        assert not any(e["tag"] == "EXTENDS" for e in base_edges.edges)
+
+    def test_explicit_candidate_tag_override_still_honored(self, tmp_path):
+        """A caller-supplied candidate_tag/candidate_reason always wins over
+        the _TAG_SYMMETRY default — e.g. a considered asymmetric pairing
+        the caller has already judged (one side EXTENDS, the reciprocal
+        side is better read as PARTIAL)."""
+        literature_dir = tmp_path / "literature"
+        _write_note(literature_dir, "base2024x", concepts=["y"])
+        new_note = literature_dir / "new2026x.md"
+        new_note.write_text(
+            "---\ncitekey: new2026x\n---\n\nconcepts placeholder\n", encoding="utf-8"
+        )
+
+        ir.append_bidirectional_edge(
+            literature_dir, "new2026x", "base2024x",
+            new_tag="EXTENDS", new_reason="extends the method in a real way",
+            candidate_tag="PARTIAL", candidate_reason="only partially covered by the newer paper",
+        )
+        base_edges = parse_paper_relations((literature_dir / "base2024x.md").read_text(encoding="utf-8"))
+        assert any(e["target"] == "new2026x" and e["tag"] == "PARTIAL" for e in base_edges.edges)
 
     def test_missing_note_raises_loudly(self, tmp_path):
         literature_dir = tmp_path / "literature"

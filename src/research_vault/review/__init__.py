@@ -1129,7 +1129,13 @@ def check_link_resolution(
          that exists as a central-core note;
       3. every paper→concept edge in the overlay's own '## Concept edges'
          section (``relate_check.parse_concept_edges``) targets a slug that
-         exists under ``project_notes_dir/concepts/``.
+         exists under ``project_notes_dir/concepts/``;
+      4. (PR-1) every UNIFIED typed edge (``relate_check.parse_typed_edges``)
+         found in either body — cross-bundle ``okf:...`` edges (resolved via
+         ``cfg.resolve_bundle_link``), within-project edges (resolved
+         against ``project_notes_dir``), and artifact-targeted provenance
+         edges (resolved as a file path under ``project_notes_dir``, file-
+         existence only — never note-conformance).
 
     An overlay whose ``central:`` link does not resolve is skipped for (2)
     (no core body to read edges from) but still recorded as an error for
@@ -1153,7 +1159,7 @@ def check_link_resolution(
         authoring) — this function only resolves, it never classifies
         severity.
     """
-    from .relate_check import parse_concept_edges, parse_paper_relations
+    from .relate_check import parse_concept_edges, parse_paper_relations, parse_typed_edges
 
     if project_notes_dir is None:
         if project is None:
@@ -1232,7 +1238,72 @@ def check_link_resolution(
                     f"{edge['target']}.md does not exist."
                 )
 
+        # (PR-1) unified typed edges — cross-bundle / within-project /
+        # artifact — found in either body. Checked on BOTH the overlay
+        # body and the resolved core body (whichever has content): a
+        # project note may author either kind, this wave's grammar does
+        # not scope them to a particular file.
+        core_source_path = core_path if central_slug else None
+        for source_path, source_body in (
+            (overlay_path, overlay_body),
+            (core_source_path, core_body),
+        ):
+            if not source_body:
+                continue
+            for edge in parse_typed_edges(source_body).edges:
+                err = _resolve_typed_edge_target(
+                    edge, cfg=cfg, project_notes_dir=project_notes_dir,
+                )
+                if err is not None:
+                    errors.append(f"{source_path}: {err}")
+
     return {"ok": not errors, "errors": errors}
+
+
+def _resolve_typed_edge_target(
+    edge: dict[str, Any], *, cfg: Config, project_notes_dir: Path,
+) -> str | None:
+    """Resolve one ``relate_check.parse_typed_edges`` edge (PR-1's
+    cross-bundle / within-project / artifact scopes) against the
+    resolvable set. Returns an error message string on an unresolved
+    target, else ``None``. Never raises.
+
+    ``cross-bundle`` resolves via ``cfg.resolve_bundle_link`` (the SAME
+    general primitive every ``okf:`` link resolves through — returns
+    ``None`` on any unresolvable link, including a bundle name not yet
+    registered, e.g. ``okf:concepts/...`` before ``concepts_root`` exists).
+    ``within-project`` resolves against ``project_notes_dir`` (the
+    project's own bundle root). ``artifact`` validates FILE EXISTENCE only
+    — never note-conformance (an artifact is not a note).
+    """
+    scope = edge["scope"]
+    target = edge["target"]
+    if scope == "cross-bundle":
+        if cfg.resolve_bundle_link(target) is None:
+            return (
+                f"unresolved cross-bundle link '{target}' — no bundle "
+                "note exists at that path (or the bundle name is not yet "
+                "registered)."
+            )
+        return None
+    if scope == "within-project":
+        target_path = project_notes_dir / target.lstrip("/")
+        if not target_path.exists():
+            return (
+                f"unresolved within-project link '{target}' — no note "
+                f"exists at {target_path}."
+            )
+        return None
+    if scope == "artifact":
+        target_path = project_notes_dir / target
+        if not target_path.exists():
+            return (
+                f"unresolved provenance artifact target '{target}' — no "
+                f"file exists at {target_path} (artifact-existence only, "
+                "no note-conformance check)."
+            )
+        return None
+    return None  # pragma: no cover — _TARGET_RE only yields the 3 scopes above
 
 
 # ---------------------------------------------------------------------------
