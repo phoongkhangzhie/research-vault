@@ -237,28 +237,59 @@ def test_default_fetch_budget_raised_past_65() -> None:
 # ---------------------------------------------------------------------------
 
 def test_canonicalize_criteria_hash_is_stable_across_repeated_calls() -> None:
-    from research_vault.review.corpus_freeze import canonicalize_criteria
+    from research_vault.review.corpus_freeze import canonicalize_frozen_criteria
 
-    a = canonicalize_criteria(NESTED_PROTOCOL)
-    b = canonicalize_criteria(NESTED_PROTOCOL)
+    a = canonicalize_frozen_criteria(NESTED_PROTOCOL)
+    b = canonicalize_frozen_criteria(NESTED_PROTOCOL)
     assert a == b
 
 
-def test_canonicalize_criteria_hash_changes_only_on_declared_amendment() -> None:
-    from research_vault.review.corpus_freeze import canonicalize_criteria
+def test_canonicalize_criteria_hash_changes_on_facet_key_set_amendment() -> None:
+    # 0.3.2 tiered-hash split: canonicalize_frozen_criteria hashes the facet
+    # KEY SET (angle names + declared (angle,stance) pairs), never the
+    # individual query TEXT — see the query-tier's own (inverse) contract
+    # below (test_query_matrix_hash_changes_on_query_text_edit).
+    from research_vault.review.corpus_freeze import canonicalize_frozen_criteria
 
-    baseline = canonicalize_criteria(NESTED_PROTOCOL)
+    baseline = canonicalize_frozen_criteria(NESTED_PROTOCOL)
+    amended = NESTED_PROTOCOL.replace(
+        "  by-method: \"transformer attention mechanism\"",
+        "  by-method: \"transformer attention mechanism\"\n"
+        "  by-outcome: \"a brand new legacy angle\"",
+    )
+    assert canonicalize_frozen_criteria(amended) != baseline
+
+
+def test_canonicalize_frozen_criteria_unaffected_by_within_facet_query_text_edit() -> None:
+    # The crux of the 0.3.2 tiered-hash split: editing/appending a query
+    # STRING within an ALREADY-DECLARED pole must NOT change the frozen
+    # tier — that is what makes a within-facet-query-append round
+    # autonomously re-freezable without a human criteria-change deviation.
+    from research_vault.review.corpus_freeze import canonicalize_frozen_criteria
+
+    baseline = canonicalize_frozen_criteria(NESTED_PROTOCOL)
     amended = NESTED_PROTOCOL.replace(
         "persona stability multi-turn LLM",
         "persona stability multi-turn LLM AMENDED",
     )
-    assert canonicalize_criteria(amended) != baseline
+    assert canonicalize_frozen_criteria(amended) == baseline
+
+
+def test_query_matrix_hash_changes_on_query_text_edit() -> None:
+    from research_vault.review.corpus_freeze import canonicalize_query_matrix
+
+    baseline = canonicalize_query_matrix(NESTED_PROTOCOL)
+    amended = NESTED_PROTOCOL.replace(
+        "persona stability multi-turn LLM",
+        "persona stability multi-turn LLM AMENDED",
+    )
+    assert canonicalize_query_matrix(amended) != baseline
 
 
 def test_legacy_protocol_still_hashes_without_crashing() -> None:
-    from research_vault.review.corpus_freeze import canonicalize_criteria
+    from research_vault.review.corpus_freeze import canonicalize_frozen_criteria
 
-    canon = canonicalize_criteria(LEGACY_SCALAR_PROTOCOL)
+    canon = canonicalize_frozen_criteria(LEGACY_SCALAR_PROTOCOL)
     assert "by-method" in canon
 
 
@@ -577,13 +608,25 @@ class TestApproveProtocolD7Wiring:
         refusal above is load-bearing on THIS gate, not some unrelated
         block (the same still-required check_protocol_gate counter-position
         field is non-empty in this fixture, so only the D-7 gate can be
-        blocking)."""
+        blocking).
+
+        0.3.2: also neutralizes the NEW Layer-1 facet-breadth floor
+        (``check_facet_breadth_floor``) — EMPTY_COUNTER_POLE_PROTOCOL's
+        single-query thesis-only facet would otherwise ALSO trip that
+        independent gate once D-7 is neutered, which would make this test
+        assert the wrong thing (Layer 1's own BLOCK, not D-7's absence).
+        This test is scoped to D-7 in isolation; Layer 1 has its own
+        dedicated coverage in test_facet_coverage_0_3_2.py."""
         import research_vault.review as review_mod
+        import research_vault.sources.sweep as sweep_mod
 
         old = _set_run_env(tmp_path)
         try:
             monkeypatch.setattr(
                 review_mod, "check_counter_facet_gate", lambda p: (True, "OK")
+            )
+            monkeypatch.setattr(
+                sweep_mod, "check_facet_breadth_floor", lambda text, **kw: (True, "OK")
             )
             from research_vault.dag.verbs import cmd_approve
 

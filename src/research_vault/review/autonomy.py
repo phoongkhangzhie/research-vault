@@ -95,8 +95,23 @@ HALT_DECLARE = "HALT-DECLARE"
 # bounded, pole-directed backtrack round, `review.remediation`).
 CRITIC_BACKTRACK = "CRITIC-BACKTRACK"
 
+# 0.3.2 (search-breadth + facet-coverage redesign): coverage-gate-only, a
+# SEPARATE mechanism from CRITIC_BACKTRACK above (that one answers
+# approve-review's L-2 counter-position/thin-pole critic BLOCK on the
+# FINAL corpus; this one answers Layer 2's RESULT-TIME facet-coverage gate
+# — a declared pole that surfaced too few DISTINCT papers this sweep,
+# checked at coverage-gate). Dispatched by `review.remediation.
+# resolve_facet_coverage` (parallel in shape to `resolve_coverage_critic`)
+# and driven by `dag/verbs.py`'s coverage-gate branch, which emits a
+# facet-query-authoring task for a fresh agent (never in-process; a new
+# QUERY must be AUTHORED, unlike CRITIC_BACKTRACK's re-run-the-existing-
+# frozen-counter-query-harder) and, once authored, applies the
+# `within-facet-query-append` structural re-gate (`review.corpus_freeze`'s
+# tiered-hash split) before re-sweeping and re-evaluating.
+FACET_REMEDIATE = "FACET-REMEDIATE"
+
 _VALID_DISPOSITIONS: frozenset[str] = frozenset(
-    {GO, GO_WITH_RESIDUE, REVISE, HALT_DECLARE, CRITIC_BACKTRACK}
+    {GO, GO_WITH_RESIDUE, REVISE, HALT_DECLARE, CRITIC_BACKTRACK, FACET_REMEDIATE}
 )
 
 
@@ -480,16 +495,23 @@ def _parse_corpus_citekeys_helper(corpus_path: Path) -> list[str]:
 # 2. The deviation log (D2) — the transparency contract + repurposed BLOCK
 # ---------------------------------------------------------------------------
 
-# The two recognized `kind` values. `within-criteria-append`
-# is the ONLY kind the autonomous remediation loop may self-author — its
-# invariant (pre==post criteria, no removals) is asserted below, so the loop
-# can never smuggle a criteria edit or a removal through this kind. A
-# `criteria-change` deviation is unconstrained (any pre/post, any
-# removed/added) and is human-authored only (never called by
+# The recognized `kind` values. `within-criteria-append`
+# is the ONLY kind the autonomous critic-backtrack remediation loop may
+# self-author — its invariant (pre==post criteria, no removals) is
+# asserted below, so the loop can never smuggle a criteria edit or a
+# removal through this kind. `within-facet-query-append` (0.3.2 — the
+# search-breadth + facet-coverage redesign's Layer 3) is the SIBLING kind
+# the autonomous FACET remediation loop may self-author: pre==post
+# FROZEN-TIER criteria_hash (never the query-inclusive tier — see
+# `review.corpus_freeze`'s module-level tiered-hash note) AND every
+# existing ``(angle, stance)`` query list only GREW (superset, no removals,
+# no edits). A `criteria-change` deviation is unconstrained (any pre/post,
+# any removed/added) and is human-authored only (never called by
 # `review.remediation`). ``None`` (the default) is a generic/legacy
 # deviation with no kind-specific invariant — back-compat for callers that
 # predate this typing.
 DEVIATION_KIND_WITHIN_CRITERIA_APPEND = "within-criteria-append"
+DEVIATION_KIND_WITHIN_FACET_QUERY_APPEND = "within-facet-query-append"
 DEVIATION_KIND_CRITERIA_CHANGE = "criteria-change"
 
 
@@ -504,6 +526,10 @@ def record_deviation(
     rationale: str,
     kind: str | None = None,
     now: datetime.datetime | None = None,
+    facet_key: str | None = None,
+    new_queries: list[str] | None = None,
+    pre_query_matrix_hash: str | None = None,
+    post_query_matrix_hash: str | None = None,
 ) -> str:
     """Append a DECLARED ``v(k)->v(k+1)`` deviation block to
     ``_deviations.md`` (requirement 1). Never a silent edit — every
@@ -513,10 +539,21 @@ def record_deviation(
     ``kind`` (optional — ``None`` is back-compat with older callers):
       - ``"within-criteria-append"`` — asserts the invariant
         ``pre_criteria == post_criteria and removed == []``. This is the
-        ONLY kind ``review.remediation``'s autonomous loop may author; the
-        assertion means the loop structurally CANNOT self-author a criteria
-        edit or a removal — a violation raises ``ValueError`` rather than
-        silently recording an out-of-invariant block.
+        ONLY kind ``review.remediation``'s critic-backtrack autonomous loop
+        may author; the assertion means the loop structurally CANNOT
+        self-author a criteria edit or a removal — a violation raises
+        ``ValueError`` rather than silently recording an out-of-invariant
+        block.
+      - ``"within-facet-query-append"`` (0.3.2) — the SIBLING self-
+        authorable kind for the FACET-remediation loop. Same
+        ``pre_criteria == post_criteria and removed == []`` invariant
+        (callers pass the FROZEN-TIER ``criteria_hash`` as pre/post-
+        criteria here — never the query-inclusive tier), PLUS requires
+        ``facet_key``, ``new_queries`` (non-empty), ``pre_query_matrix_hash``,
+        and ``post_query_matrix_hash`` to all be given (fail loud,
+        ``ValueError``, on any missing — the auditable record this kind
+        promises can never be partially written). Every field is recorded
+        verbatim into the block — auditable, un-launderable.
       - ``"criteria-change"`` — unconstrained; human-authored only (never
         called by the remediation loop).
       - ``None`` — no invariant enforced (generic/legacy deviation).
@@ -528,10 +565,10 @@ def record_deviation(
     now = now or datetime.datetime.now(tz=datetime.timezone.utc)
     removed = removed or []
     added = added or []
-    if kind == DEVIATION_KIND_WITHIN_CRITERIA_APPEND:
+    if kind in (DEVIATION_KIND_WITHIN_CRITERIA_APPEND, DEVIATION_KIND_WITHIN_FACET_QUERY_APPEND):
         if pre_criteria != post_criteria or removed:
             raise ValueError(
-                "record_deviation: kind='within-criteria-append' requires "
+                f"record_deviation: kind={kind!r} requires "
                 "pre_criteria == post_criteria AND removed == [] (the "
                 "denominator may only GROW within the frozen criteria "
                 "invariant). Got "
@@ -541,12 +578,32 @@ def record_deviation(
                 "deviation, never self-authored by the autonomous "
                 "remediation loop."
             )
+    facet_block = ""
+    if kind == DEVIATION_KIND_WITHIN_FACET_QUERY_APPEND:
+        if not facet_key or not new_queries or not pre_query_matrix_hash or not post_query_matrix_hash:
+            raise ValueError(
+                "record_deviation: kind='within-facet-query-append' requires "
+                "ALL of facet_key, new_queries (non-empty), "
+                "pre_query_matrix_hash, post_query_matrix_hash — got "
+                f"facet_key={facet_key!r}, new_queries={new_queries!r}, "
+                f"pre_query_matrix_hash={pre_query_matrix_hash!r}, "
+                f"post_query_matrix_hash={post_query_matrix_hash!r}. This "
+                "kind's auditable record can never be partially written."
+            )
+        new_query_lines = "\n".join(f'  - "{q}"' for q in new_queries)
+        facet_block = (
+            f"**Facet key:** {facet_key}\n"
+            f"**New queries:**\n{new_query_lines}\n"
+            f"**Pre query_matrix_hash:** {pre_query_matrix_hash}\n"
+            f"**Post query_matrix_hash:** {post_query_matrix_hash}\n"
+        )
     kind_line = f"**Kind:** {kind}\n" if kind else ""
     block = (
         f"\n## Deviation v{version - 1} -> v{version} ({now.isoformat()})\n\n"
         f"{kind_line}"
         f"**Pre-criteria:**\n{pre_criteria}\n\n"
         f"**Post-criteria:**\n{post_criteria}\n\n"
+        f"{facet_block}"
         f"**Removed citekeys:** {', '.join(sorted(removed)) if removed else '(none)'}\n"
         f"**Added citekeys:** {', '.join(sorted(added)) if added else '(none)'}\n\n"
         f"**Rationale:** {rationale}\n"
@@ -693,8 +750,29 @@ def _op_sweep(
         notes_index = _load_notes_index(literature_dir, literature_root=cfg.literature_root)
         notes_title_index = _load_notes_title_index(literature_dir, literature_root=cfg.literature_root)
 
+    # 0.3.2 Layer 2: compute the per-pole distinct-paper facet-coverage
+    # ONLY for a FULL sweep (angle_keys=None) — a DIRECTED/restricted
+    # sweep (a critic-backtrack round, or a Layer-3 facet-remediation
+    # round) never touched most of the matrix's poles this call, so a
+    # facet-coverage snapshot computed from it would misreport every
+    # untouched pole as "0 hits" (a false-thin signal, never stamped here).
+    facet_coverage = None
+    if angle_keys is None:
+        from research_vault.config import load_config as _load_cfg
+        from research_vault.review.style import get_min_hits_per_pole
+        from research_vault.sources.sweep import check_facet_coverage, parse_angle_matrix
+
+        _cfg = config if config is not None else _load_cfg()
+        protocol_text = Path(protocol).read_text(encoding="utf-8")
+        full_angle_matrix = parse_angle_matrix(protocol_text)
+        facet_coverage = check_facet_coverage(
+            full_angle_matrix, result.cells,
+            min_hits_per_pole=get_min_hits_per_pole(_cfg),
+        )
+
     written = write_search_hits(
         result, Path(out), notes_index=notes_index, notes_title_index=notes_title_index,
+        facet_coverage=facet_coverage,
     )
     return str(written)
 

@@ -987,3 +987,95 @@ def get_critic_backtrack_max_rounds(config: Any = None) -> int:
             if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
                 return value
     return DEFAULT_CRITIC_BACKTRACK_MAX_ROUNDS
+
+
+# ---------------------------------------------------------------------------
+# Facet-breadth / facet-coverage config seam (0.3.2 — search-breadth +
+# facet-coverage redesign, "recall from queries"). All four knobs are
+# per-review-type overridable via an OPTIONAL nested
+# ``[review_style.by_type.<review_type>]`` sub-table checked BEFORE the
+# flat ``[review_style]`` table, which is checked before the shipped
+# default — three-tier lookup, same fail-closed-to-default posture as
+# every other knob in this module (a non-int/non-positive/missing override
+# at ANY tier falls through to the next, never a crash, never an
+# unbounded/zero value). ``review_type`` is an adopter-supplied free string
+# (e.g. "systematic", "scoping") — rv itself has no fixed review-type
+# vocabulary; a project that never sets one simply never has a
+# ``by_type`` table to match and always resolves via the flat tier.
+# ---------------------------------------------------------------------------
+
+def _review_style_int_override(
+    config: Any, key: str, *, review_type: str | None = None,
+) -> int | None:
+    """Shared 2-tier lookup (``by_type.<review_type>`` then flat) for a
+    positive-int ``[review_style]`` knob. Returns ``None`` (never raises,
+    never returns a non-positive/non-int value) when neither tier carries a
+    usable override — the caller falls back to its own shipped default."""
+    if config is None:
+        return None
+    raw = getattr(config, "_raw", {})
+    override = raw.get("review_style", {})
+    if not isinstance(override, dict):
+        return None
+
+    if review_type:
+        by_type = override.get("by_type", {})
+        if isinstance(by_type, dict):
+            type_override = by_type.get(review_type, {})
+            if isinstance(type_override, dict):
+                value = type_override.get(key)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+                    return value
+
+    value = override.get(key)
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+        return value
+    return None
+
+
+DEFAULT_MIN_QUERIES_PER_FACET: int = 3
+DEFAULT_MIN_QUERIES_PER_POLE: int = 2
+DEFAULT_MIN_HITS_PER_POLE: int = 3
+DEFAULT_MAX_FACET_REMEDIATION_ROUNDS: int = 2
+
+
+def get_min_queries_per_facet(config: Any = None, *, review_type: str | None = None) -> int:
+    """Layer 1 generation-time floor (N) — every THESIS-ONLY facet (no
+    declared counter pole; see ``sources.sweep.check_facet_breadth_floor``)
+    must carry at least this many post-dedup distinct queries. Non-additive
+    with ``get_min_queries_per_pole`` — a facet that DOES declare both poles
+    is checked by the per-pole floor instead (2 x M=2 already >= N=3 by the
+    shipped defaults), never by summing the two. Default 3.
+    """
+    override = _review_style_int_override(config, "min_queries_per_facet", review_type=review_type)
+    return override if override is not None else DEFAULT_MIN_QUERIES_PER_FACET
+
+
+def get_min_queries_per_pole(config: Any = None, *, review_type: str | None = None) -> int:
+    """Layer 1 generation-time floor (M) — every DECLARED pole (thesis or
+    counter list under a nested facet) must carry at least this many
+    post-dedup distinct queries. Default 2.
+    """
+    override = _review_style_int_override(config, "min_queries_per_pole", review_type=review_type)
+    return override if override is not None else DEFAULT_MIN_QUERIES_PER_POLE
+
+
+def get_min_hits_per_pole(config: Any = None, *, review_type: str | None = None) -> int:
+    """Layer 2 result-time floor (K) — every declared pole must surface at
+    least this many DISTINCT (deduped) papers in the result pool, or it is
+    "thin" and eligible for Layer-3 facet-remediation. Default 3 (aligned
+    to ``sources.sweep.compose_sweep_result``'s independence ``floor=3``).
+    """
+    override = _review_style_int_override(config, "min_hits_per_pole", review_type=review_type)
+    return override if override is not None else DEFAULT_MIN_HITS_PER_POLE
+
+
+def get_max_facet_remediation_rounds(config: Any = None, *, review_type: str | None = None) -> int:
+    """Layer 3 bound (R) — the facet re-search remediation loop's global
+    round cap; after R rounds a still-thin pole HALT-DECLAREs to a human
+    rather than fishing further. Default 2.
+    """
+    override = _review_style_int_override(
+        config, "max_facet_remediation_rounds", review_type=review_type,
+    )
+    return override if override is not None else DEFAULT_MAX_FACET_REMEDIATION_ROUNDS

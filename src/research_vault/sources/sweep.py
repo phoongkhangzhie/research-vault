@@ -22,7 +22,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from .base import NotSupported, PaperHit, SourceAdapter
 from .dedup import DedupedHit, dedup_hits, identity_key
@@ -174,6 +174,121 @@ def parse_angle_matrix(protocol_text: str) -> dict[str, str]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Layer 3 (0.3.2) — the append-only protocol-text writer. The COUNTERPART to
+# `parse_angle_matrix` above: appends new query strings under an ALREADY-
+# DECLARED ``(angle, stance)`` pole's ``- "..."`` list, in place, leaving
+# every other byte of the frontmatter untouched (never a full YAML
+# re-render — this file has no yaml dependency and the parser above is
+# deliberately a narrow, hand-rolled walk, not a general parser).
+# ---------------------------------------------------------------------------
+
+def append_queries_to_protocol_text(
+    protocol_text: str, angle: str, stance: str, new_queries: list[str],
+) -> str:
+    """Return NEW protocol text with ``new_queries`` appended under the
+    ALREADY-DECLARED ``seed_queries.<angle>.<stance>`` list (matches the
+    indentation of the existing items when any exist; falls back to
+    ``stance_indent + 2`` when the pole is declared with a stance key but
+    ZERO items yet).
+
+    Pure (never mutates ``protocol_text`` or writes a file) — callers pair
+    this with ``review.corpus_freeze``'s structural re-gate BEFORE writing
+    the result to disk, so a violated invariant never reaches the file.
+
+    Raises ``ValueError`` if ``angle``/``stance`` is not a declared pole in
+    ``protocol_text`` at all (this function can only APPEND to an existing
+    pole, it can never author a new facet/pole — that would be exactly the
+    fishing hole the frozen-tier hash exists to close).
+    """
+    if not new_queries:
+        return protocol_text
+    if not protocol_text.startswith("---"):
+        raise ValueError("append_queries_to_protocol_text: no frontmatter block found")
+    end = protocol_text.find("\n---", 3)
+    if end == -1:
+        raise ValueError("append_queries_to_protocol_text: no frontmatter block found")
+    fm_block = protocol_text[3:end]
+    rest = protocol_text[end:]
+
+    lines = fm_block.split("\n")
+    in_block = False
+    current_angle: str | None = None
+    current_stance: str | None = None
+    angle_indent: int | None = None
+    stance_indent: int | None = None
+    stance_line_idx: int | None = None
+    last_item_idx: int | None = None
+    last_item_indent: int | None = None
+    found_pole = False
+
+    for i, line in enumerate(lines):
+        if line.strip() == "":
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        stripped = line.strip()
+
+        if indent == 0:
+            in_block = stripped.rstrip(":") == "seed_queries" and stripped.endswith(":")
+            current_angle = None
+            current_stance = None
+            angle_indent = None
+            stance_indent = None
+            continue
+        if not in_block:
+            continue
+
+        if stripped.startswith("- "):
+            if current_angle == angle and current_stance == stance:
+                last_item_idx = i
+                last_item_indent = indent
+            continue
+
+        m = _KV_RE.match(stripped)
+        if not m:
+            continue
+        key, val = m.group(1), m.group(2).strip()
+
+        if angle_indent is None or indent <= angle_indent:
+            angle_indent = indent
+            current_angle = key
+            current_stance = None
+            if val:
+                current_angle = None  # legacy scalar leaf, no thesis/counter children
+            continue
+
+        if key in ("thesis", "counter"):
+            current_stance = key
+            stance_indent = indent
+            if current_angle == angle and current_stance == stance:
+                found_pole = True
+                stance_line_idx = i
+            continue
+
+    if not found_pole:
+        raise ValueError(
+            f"append_queries_to_protocol_text: pole {angle!r}.{stance!r} is "
+            "not a DECLARED pole in this protocol's seed_queries: — this "
+            "function can only APPEND to an EXISTING pole, never author a "
+            "new facet/pole."
+        )
+
+    if last_item_idx is not None:
+        insert_at = last_item_idx + 1
+        insert_indent = last_item_indent
+    else:
+        # the pole is declared (a `thesis:`/`counter:` key exists) but has
+        # ZERO items yet — insert right after the stance line itself.
+        insert_at = stance_line_idx + 1  # type: ignore[operator]
+        insert_indent = (stance_indent or 0) + 2
+
+    new_lines = [f'{" " * insert_indent}- "{q}"' for q in new_queries]
+    lines[insert_at:insert_at] = new_lines
+
+    new_fm_block = "\n".join(lines)
+    return protocol_text[:3] + new_fm_block + rest
+
+
 _FACET_KEY_RE = re.compile(r"^(?P<angle>[\w-]+)\.(?P<stance>thesis|counter)\.(?P<idx>\d+)$")
 
 
@@ -319,6 +434,202 @@ def validate_matrix_band(
             f"(target band: {lo}-{hi}) — likely over the diminishing-returns cap"
         )
     return True, f"{n} distinct queries post-dedup (in the {lo}-{hi} target band)"
+
+
+# ---------------------------------------------------------------------------
+# Layer 1 (0.3.2) — the generation-time facet-BREADTH floor, a HARD BLOCK at
+# approve-protocol. `dedupe_near_duplicate_queries` above (query-time,
+# stdlib token-Jaccard, no domain-vocab awareness) is a rejects-only SCREEN
+# here — the real breadth guarantee is Layer 2 (result-pool distinct-paper
+# coverage, below). Tightened by stripping the frozen protocol's own
+# domain-vocabulary (shared jargon every query in-scope legitimately
+# repeats) before computing Jaccard, so shared jargon alone never inflates
+# apparent distinctness between two genuinely-different queries.
+# ---------------------------------------------------------------------------
+
+def _dedupe_domain_stripped(
+    queries: list[str], domain_vocab: frozenset[str] | set[str], *, threshold: float = 0.9,
+) -> list[str]:
+    """Same order-preserving near-dup collapse as
+    ``dedupe_near_duplicate_queries``, but the Jaccard token sets have the
+    frozen protocol's domain vocabulary (question/inclusion/exclusion/
+    coverage_claim tokens — ``review.relevance._domain_vocabulary``)
+    subtracted first. Reuses ``review.relevance._tokenize`` (charter §6 —
+    the SAME stopword-aware tokenizer the relevance gate itself judges
+    with; no second tokenizer)."""
+    from research_vault.review.relevance import _tokenize as _rel_tokenize
+
+    kept: list[str] = []
+    kept_tokensets: list[set[str]] = []
+    for q in queries:
+        tokens = _rel_tokenize(q) - domain_vocab
+        is_dup = False
+        for existing in kept_tokensets:
+            if not tokens or not existing:
+                continue
+            jaccard = len(tokens & existing) / len(tokens | existing)
+            if jaccard >= threshold:
+                is_dup = True
+                break
+        if not is_dup:
+            kept.append(q)
+            kept_tokensets.append(tokens)
+    return kept
+
+
+def check_facet_breadth_floor(
+    protocol_text: str,
+    *,
+    min_per_facet: int = 3,
+    min_per_pole: int = 2,
+    near_dup_threshold: float = 0.9,
+) -> tuple[bool, str]:
+    """Layer 1 (0.3.2): the generation-time facet-breadth HARD BLOCK.
+
+    Scoped to ``group_facet_stances``' output ONLY (the nested D-3
+    thesis/counter facet form) — mirrors D-7's own scoping (a purely-legacy
+    scalar matrix declares no pole structure at all and has nothing for this
+    floor to check; see ``group_facet_stances``' docstring).
+
+    For every facet:
+      - a DECLARED counter pole (non-empty ``counter`` list) -> BOTH poles
+        are checked against ``min_per_pole`` (M) INDEPENDENTLY — never
+        summed against ``min_per_facet`` (non-additive; a 2-pole facet
+        needs >= 2M queries, which already exceeds N by the shipped
+        defaults).
+      - NO declared counter pole (a thesis-only facet — defense-in-depth:
+        by construction this should already have been rejected by D-7
+        upstream at the SAME approve-protocol gate, but this function does
+        not assume gate ORDER) -> the facet's total distinct query count is
+        checked against ``min_per_facet`` (N).
+
+    Distinctness is measured POST domain-vocab-stripped near-dup collapse
+    (``_dedupe_domain_stripped``) — a rejects-only screen (item 3 of the
+    design); the real breadth guarantee is Layer 2's result-pool distinct-
+    paper count, not this generation-time query count.
+
+    Returns ``(ok, message)`` — ``ok`` is False when any facet/pole reads
+    thin; the message names every thin facet/pole (never just the first,
+    charter §2 surface-don't-drop).
+    """
+    from research_vault.note import _parse_frontmatter
+    from research_vault.review.relevance import _domain_vocabulary
+
+    fields, _ = _parse_frontmatter(protocol_text)
+    criteria = {
+        key: fields.get(key, "")
+        for key in ("question", "inclusion", "exclusion", "coverage_claim")
+    }
+    domain_vocab = _domain_vocabulary(criteria)
+
+    angle_matrix = parse_angle_matrix(protocol_text)
+    facets = group_facet_stances(angle_matrix)
+
+    thin: list[str] = []
+    for angle in sorted(facets):
+        stances = facets[angle]
+        thesis_kept = _dedupe_domain_stripped(stances["thesis"], domain_vocab, threshold=near_dup_threshold)
+        counter_kept = _dedupe_domain_stripped(stances["counter"], domain_vocab, threshold=near_dup_threshold)
+
+        if stances["counter"]:
+            if len(thesis_kept) < min_per_pole:
+                thin.append(
+                    f"{angle}.thesis: {len(thesis_kept)} distinct query(ies) "
+                    f"(need >= {min_per_pole})"
+                )
+            if len(counter_kept) < min_per_pole:
+                thin.append(
+                    f"{angle}.counter: {len(counter_kept)} distinct query(ies) "
+                    f"(need >= {min_per_pole})"
+                )
+        else:
+            total_kept = len(thesis_kept)
+            if total_kept < min_per_facet:
+                thin.append(
+                    f"{angle}: {total_kept} distinct query(ies) (need >= {min_per_facet})"
+                )
+
+    if thin:
+        return False, (
+            "rv dag approve: facet-breadth floor BLOCKED — the frozen "
+            "query matrix under-samples the following facet(s)/pole(s): "
+            f"{'; '.join(thin)}.\n"
+            "Fix: add more DISTINCT (non-near-dup, non-domain-jargon-only) "
+            "queries under the named facet/pole in `seed_queries:`, then "
+            "re-run `rv dag approve <run_id> approve-protocol`."
+        )
+    return True, "OK"
+
+
+# ---------------------------------------------------------------------------
+# Layer 2 (0.3.2) — result-time facet-coverage: count result-pool-DEDUPED
+# DISTINCT PAPERS per declared pole (never raw hit rows — 3 near-dup queries
+# returning the same 2 papers must read as 2, not 3; the load-bearing
+# breadth guarantee, unlike Layer 1's rejects-only query-count screen).
+# ---------------------------------------------------------------------------
+
+def compute_facet_pole_coverage(cells: list["SweepCell"]) -> dict[str, set[str]]:
+    """Per-pole (``"<angle>.<stance>"``) DISTINCT-PAPER identity sets across
+    the FULL fetched result pool (every non-errored cell — pre-budget,
+    pre-rank-and-select; the acceptance criterion is the result POOL, not
+    the final kept/budget-selected subset).
+
+    Keyed by the facet+stance, NOT the per-query flattened key
+    (``<angle>.<stance>.<idx>``) — every ``(angle, stance, idx)`` cell for
+    the SAME pole accumulates onto the SAME identity set via
+    ``sources.dedup.identity_key``, so a paper surfaced by 3 near-dup
+    queries under one pole counts ONCE, never 3.
+
+    A legacy (non-thesis/counter) cell's ``angle`` never matches
+    ``_FACET_KEY_RE`` and is silently excluded (facet-coverage is scoped to
+    the nested D-3 form only — mirrors Layer 1 / D-7's own scoping).
+    """
+    coverage: dict[str, set[str]] = {}
+    for cell in cells:
+        if cell.error:
+            continue
+        m = _FACET_KEY_RE.match(cell.angle)
+        if not m:
+            continue
+        pole_key = f"{m.group('angle')}.{m.group('stance')}"
+        bucket = coverage.setdefault(pole_key, set())
+        for hit in cell.hits:
+            bucket.add(identity_key(hit))
+    return coverage
+
+
+def check_facet_coverage(
+    angle_matrix: dict[str, str],
+    cells: list["SweepCell"],
+    *,
+    min_hits_per_pole: int = 3,
+) -> dict[str, Any]:
+    """Layer 2 facet-coverage payload — every DECLARED pole (from
+    ``group_facet_stances(angle_matrix)``) is seeded into the result with a
+    count, even one that never surfaced a SINGLE hit (a pole absent from
+    ``compute_facet_pole_coverage``'s output because no cell for it ever
+    matched must never look identical to "no facet-coverage information
+    exists" — charter §2, it must read as count 0, a maximally-thin pole).
+
+    Returns ``{"pole_counts": {pole: int}, "thin_poles": [pole, ...],
+    "min_hits_per_pole": int}`` — ``thin_poles`` sorted, every pole with
+    ``count < min_hits_per_pole``.
+    """
+    facets = group_facet_stances(angle_matrix)
+    declared_poles = sorted(
+        f"{angle}.{stance}"
+        for angle, stances in facets.items()
+        for stance in ("thesis", "counter")
+        if stances[stance]
+    )
+    coverage = compute_facet_pole_coverage(cells)
+    pole_counts = {pole: len(coverage.get(pole, set())) for pole in declared_poles}
+    thin_poles = sorted(p for p, c in pole_counts.items() if c < min_hits_per_pole)
+    return {
+        "pole_counts": pole_counts,
+        "thin_poles": thin_poles,
+        "min_hits_per_pole": min_hits_per_pole,
+    }
 
 
 def parse_sources(protocol_text: str) -> list[str]:
@@ -713,6 +1024,7 @@ def write_search_hits(
     *,
     notes_index: dict[str, str] | None = None,
     notes_title_index: dict[str, list[tuple[str, str]]] | None = None,
+    facet_coverage: dict[str, Any] | None = None,
 ) -> Path:
     """Render the width-sweep result to ``_search_hits.md`` (Option C -A).
 
@@ -737,13 +1049,34 @@ def write_search_hits(
     actually contributed a hit (pre-publish hardening batch, a downstream project's live-e2e-run
     finding 2026-07-09).
     """
-    lines: list[str] = [
+    fm_lines = [
         "---",
         f"dark_sources: {', '.join(result.dark_sources)}",
-        "---",
-        "",
-        "# Search hits\n",
     ]
+    if facet_coverage is not None:
+        # 0.3.2 Layer 2: stamp the per-pole distinct-paper coverage +
+        # thin-pole markers so a LATER `coverage-gate` evaluation (a
+        # different process invocation — the cells themselves are
+        # ephemeral, never persisted) can read the facet-coverage disposition
+        # back mechanically. Same flat-frontmatter-comma-joined convention
+        # `dark_sources:`/`stop_reason:` already use.
+        pole_counts = facet_coverage.get("pole_counts", {})
+        counts_canon = ", ".join(f"{p}={c}" for p, c in sorted(pole_counts.items()))
+        fm_lines.append(f"facet_pole_counts: {counts_canon}")
+        fm_lines.append(f"facet_thin_poles: {', '.join(facet_coverage.get('thin_poles', []))}")
+        fm_lines.append(f"facet_min_hits_per_pole: {facet_coverage.get('min_hits_per_pole', '')}")
+    fm_lines.append("---")
+
+    lines: list[str] = [*fm_lines, "", "# Search hits\n"]
+
+    if facet_coverage is not None and facet_coverage.get("thin_poles"):
+        lines.append(
+            "> ⚠ THIN FACET-POLE: "
+            f"{', '.join(facet_coverage['thin_poles'])} — surfaced fewer than "
+            f"{facet_coverage.get('min_hits_per_pole', '?')} DISTINCT (deduped) "
+            "papers this sweep. Eligible for Layer-3 facet re-search "
+            "remediation at coverage-gate.\n"
+        )
 
     if result.dark_sources:
         lines.append(

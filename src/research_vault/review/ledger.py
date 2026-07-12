@@ -70,7 +70,7 @@ def _q_block(protocol_path: Path, walk_path: Path, gaps_path: Path) -> dict[str,
     structured extraction of "the" open poles since no such schema exists
     on that artifact).
     """
-    from .corpus_freeze import hash_criteria_bytes
+    from .corpus_freeze import hash_query_matrix_bytes
     from ..sources.sweep import parse_angle_matrix
     from . import check_walk_terminal
 
@@ -84,7 +84,13 @@ def _q_block(protocol_path: Path, walk_path: Path, gaps_path: Path) -> dict[str,
         distinct_query_count = 0
         matrix_band_ok = False
     else:
-        matrix_hash = hash_criteria_bytes(protocol_path)
+        # 0.3.2 tiered-hash split: the ledger's Q block is about the ACTUAL
+        # searched query matrix — repointed to the query-TEXT tier
+        # (``hash_query_matrix_bytes``), which is what changes across a
+        # ``within-facet-query-append`` remediation round. The frozen-tier
+        # bright line (``hash_criteria_bytes``) is a DIFFERENT, human-gated
+        # hash, not what this audit field describes.
+        matrix_hash = hash_query_matrix_bytes(protocol_path)
         angle_matrix = parse_angle_matrix(protocol_text)
         angles_searched = ", ".join(sorted(angle_matrix.keys()))
         # distinct_query_count: POST-DEDUP on the actual query STRING values
