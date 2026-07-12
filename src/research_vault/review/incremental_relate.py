@@ -95,11 +95,14 @@ def build_concept_index(
 
 
 def _note_write_path(core_dir: Path | None, overlay_dir: Path, citekey: str) -> Path:
-    """The path an edge write targets: the CENTRAL CORE
-    (``core_dir/<citekey>.md``) when ``core_dir`` is given, else the legacy
-    ``overlay_dir/<citekey>.md`` location — back-compat for callers that
-    have not yet been retargeted to the two-layer store's central bundle
-    (``cfg.literature_root``). See ``append_bidirectional_edge``."""
+    """The path an edge write targets — ``cfg.literature_root/<citekey>.md``.
+
+    the overlay unwind (0.3.2): literature is shared-canonical, ONE
+    write root. ``core_dir``/``overlay_dir`` are kept as two parameters for
+    call-site back-compat (every caller still threads both through) but now
+    resolve to the SAME root when both are given; ``core_dir=None`` degrades
+    to ``overlay_dir`` — the pre-unwind two-layer callers' fallback, harmless
+    now that there is only one root to fall back to."""
     root = core_dir if core_dir is not None else overlay_dir
     return root / f"{citekey}.md"
 
@@ -199,13 +202,12 @@ def append_bidirectional_edge(
     tag reaching it is a caller bug, not a case to silently degrade.
 
     ``literature_dir`` is the dir candidate generation reads concept
-    graphs from (the project overlay — ``## Concept edges`` is
-    overlay-only content, see ``note.check_two_layer_invariants``).
-    ``core_dir``, when given, is where the edge is WRITTEN — the two-layer
-    store's central core (``cfg.literature_root``), never the overlay
-    (``## Related papers`` is core-only content). ``core_dir=None``
-    degrades to writing at ``literature_dir`` — back-compat only; every
-    production caller (``dag/verbs.py``'s ``approve-review`` branch) passes
+    graphs from (each note's own ``## Concept edges`` section — 0.3.2
+    (the overlay unwind): literature is shared-canonical, so this IS the write root too).
+    ``core_dir``, when given, is where the edge is WRITTEN — the same
+    shared store (``cfg.literature_root``). ``core_dir=None`` degrades to
+    writing at ``literature_dir`` — back-compat only; every production
+    caller (``dag/verbs.py``'s ``approve-review`` branch) passes
     ``core_dir`` explicitly.
     """
     if new_tag not in _TAG_SYMMETRY:
@@ -325,11 +327,11 @@ def run_incremental_relate(
     """Concept-graph-blocked incremental relate for a batch of new papers.
 
     ``literature_dir`` is read for concept-graph candidate generation
-    (``## Concept edges`` — overlay-only content). ``core_dir``, when
-    given, is where every written edge lands — the two-layer store's
-    central core (``cfg.literature_root``); ``core_dir=None`` degrades to
-    writing at ``literature_dir`` (back-compat only — see
-    ``append_bidirectional_edge``).
+    (each note's own ``## Concept edges`` section). ``core_dir``, when
+    given, is where every written edge lands — 0.3.2 (the overlay unwind): literature is
+    shared-canonical, so this is the SAME store (``cfg.literature_root``);
+    ``core_dir=None`` degrades to writing at ``literature_dir`` (back-compat
+    only — see ``append_bidirectional_edge``).
 
     Every entry in ``new_citekeys`` must already have a full-distilled
     ``literature/<citekey>.md`` note (D-5b: "full-distill ONLY the new

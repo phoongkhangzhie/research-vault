@@ -182,10 +182,16 @@ class TestBuiltWheelDataIsClean:
             "Built wheel's data/** contains private markers:\n" + "\n".join(offenders)
         )
 
-    def test_wheel_literature_examples_present_and_two_layer_shaped(self, tmp_path):
-        """The two-layer literature fixtures actually SHIP in the wheel
-        (not accidentally excluded by the artifacts glob) — a positive
-        control alongside the leak-clean negative control above."""
+    def test_wheel_literature_examples_present_and_shared_canonical_shaped(self, tmp_path):
+        """The shared-canonical literature fixtures actually SHIP in the
+        wheel (not accidentally excluded by the artifacts glob) — a
+        positive control alongside the leak-clean negative control above.
+        the overlay unwind (0.3.2): there is no more per-project
+        overlay to ship — demo-litreview instead ships a
+        `notes/mocs/literature-roles.md` carrying the relocated role
+        narration; assert THAT ships, and that the stale overlay dir does
+        NOT (a regression pin against the migration silently missing a
+        file)."""
         uv = _require_uv()
         dist_dir = tmp_path / "dist"
         dist_dir.mkdir()
@@ -201,10 +207,14 @@ class TestBuiltWheelDataIsClean:
 
         assert any(
             n.endswith("research_vault/data/examples/literature/smith2024.md") for n in names
-        ), "central core smith2024.md missing from wheel"
+        ), "shared literature note smith2024.md missing from wheel"
         assert any(
             n.endswith(
-                "research_vault/data/examples/demo-litreview/notes/literature/smith2024.md"
+                "research_vault/data/examples/demo-litreview/notes/mocs/literature-roles.md"
             )
             for n in names
-        ), "demo-litreview overlay smith2024.md missing from wheel"
+        ), "demo-litreview's relocated role-narration MOC missing from wheel"
+        assert not any(
+            "research_vault/data/examples/demo-litreview/notes/literature/" in n
+            for n in names
+        ), "the dissolved per-project literature overlay dir must not ship"

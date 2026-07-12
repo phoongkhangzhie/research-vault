@@ -24,12 +24,6 @@ artifacts:
   - "checkpoint: https://example.invalid/artifacts/smith2024-ckpt"
 ---
 
-<!-- Literature note — CENTRAL CORE (intrinsic paper facts). -->
-<!-- Two-layer store: this file is shared across every project that -->
-<!-- reads this paper — do NOT put role:/position:/concept-edges here; -->
-<!-- those belong in the per-project overlay (see -->
-<!-- demo-litreview/notes/literature/smith2024.md, carrying central: smith2024). -->
-
 ## Result
 
 The paper reports a 4.2-point accuracy gain over a dense-retrieval-only
@@ -50,3 +44,7 @@ central claim turns on (Section 3.2) — a plain dense-similarity baseline
 
 - [jones2023](/literature/jones2023.md) — EXTENDS: extends jones2023's
   static retrieval index with the interleaved reasoning loop above.
+
+## Concept edges
+
+- [retrieval-augmented-reasoning](/concepts/retrieval-augmented-reasoning.md) — SUPPORTS: the paper's central mechanism is this review's organizing concept.

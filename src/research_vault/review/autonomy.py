@@ -746,9 +746,12 @@ def _op_sweep(
         from research_vault.research import _load_notes_index, _load_notes_title_index
 
         cfg = config if config is not None else load_config()
-        literature_dir = cfg.project_notes_dir(project) / "literature"
-        notes_index = _load_notes_index(literature_dir, literature_root=cfg.literature_root)
-        notes_title_index = _load_notes_title_index(literature_dir, literature_root=cfg.literature_root)
+        # the overlay unwind (0.3.2): literature is shared-canonical —
+        # cfg.literature_root directly, not a per-project literature/ dir
+        # (there is no such dir any more).
+        literature_dir = cfg.literature_root
+        notes_index = _load_notes_index(literature_dir)
+        notes_title_index = _load_notes_title_index(literature_dir)
 
     # 0.3.1 Layer 2: compute the per-pole distinct-paper facet-coverage
     # ONLY for a FULL sweep (angle_keys=None) — a DIRECTED/restricted
@@ -941,9 +944,12 @@ def _op_snowball(
         from research_vault.research import _load_notes_index, _load_notes_title_index
 
         cfg = config if config is not None else load_config()
-        literature_dir = cfg.project_notes_dir(project) / "literature"
-        notes_index = _load_notes_index(literature_dir, literature_root=cfg.literature_root)
-        notes_title_index = _load_notes_title_index(literature_dir, literature_root=cfg.literature_root)
+        # the overlay unwind (0.3.2): literature is shared-canonical —
+        # cfg.literature_root directly, not a per-project literature/ dir
+        # (there is no such dir any more).
+        literature_dir = cfg.literature_root
+        notes_index = _load_notes_index(literature_dir)
+        notes_title_index = _load_notes_title_index(literature_dir)
 
     corpus_raw_path = write_corpus_raw(
         result, out_dir_path / "_corpus_raw.md",

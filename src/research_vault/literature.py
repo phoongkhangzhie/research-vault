@@ -1,18 +1,21 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""literature.py — `rv literature list <project>`: the per-project two-layer
-literature registry (pre-publish #68 storage contract).
+"""literature.py — `rv literature list <project>`: the project's adopted
+literature registry.
 
-Design of record: internal design note (the architect, 2026-07-10).
+Design of record: internal design note (the architect, 2026-07-10);
+re-derived for the overlay unwind (0.3.2 — literature became
+shared-canonical; see note.py's module docstring).
 
-**Registry = a thin pointer, NOT a new artifact.** Per-project corpus
-membership is exactly the set of overlay files under
-``project_notes_dir(project)/literature/`` — the resolver's own
-``note.iter_literature_notes`` already treats this dir as the per-project
-registry (filesystem-is-registry). This module globs it and
-enriches each entry via the project's ALREADY-WRITTEN ``_corpus_ledger.md``
-(``review/ledger.py``) — it never recomputes or re-stores any of the
-ledger's provenance (the canonical-key map, resolving ids, accepted/
-in_corpus/new counts).
+**Registry = a thin pointer, NOT a new artifact.** The overlay unwind (0.3.2) dissolved the
+per-project literature/ overlay — there is no longer a filesystem dir that
+IS the per-project registry. Membership moved to the mechanical corpus
+ledger (review/ledger.py): a project's
+"adopted" set is the UNION of every citekey appearing in any
+``_corpus_ledger.md`` this project has produced. This module reads that
+union, resolves each citekey against the shared literature store
+(``cfg.literature_root``), and enriches with the SAME ledger's canonical-
+key map (resolving ids, conformance) it already read for membership — it
+never recomputes or re-stores any of the ledger's provenance.
 
 **Zero-recomputation is load-bearing, not a style preference.**
 ``review.ledger._k_block``/``_resolving_ids_for_note`` own the ONE
@@ -23,6 +26,12 @@ driftable implementation of the same claim. Instead this module only
 parses the markdown table ``write_corpus_ledger`` already rendered
 (``## Canonical-key map``) back into a dict — pure text parsing over an
 artifact someone else computed and wrote to disk.
+
+**Role is no longer available here.** Before the overlay unwind, ``role``/``position`` were
+overlay fields this module could read straight off the per-project note.
+The overlay unwind (0.3.2) moved role to CURATED project MOCs (narration, not a mechanical
+field) — this registry surfaces membership + conformance only; role is a
+human-authored fact, read from a MOC directly, not enumerable here.
 
 The ``state_dir/literature_index.json`` cache (citekey -> ids/title/
 adopting-projects, for fast cross-project enumeration + the knowledge
@@ -39,7 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, load_config
-from .note import _parse_frontmatter, load_literature_note
+from .note import _parse_frontmatter
 
 # ---------------------------------------------------------------------------
 # Ledger discovery + read-only parsing (never recomputes ledger content)
@@ -91,37 +100,35 @@ def _parse_key_map_table(ledger_text: str) -> dict[str, tuple[str, bool]]:
 # ---------------------------------------------------------------------------
 
 def cmd_list(project: str, *, config: Config | None = None) -> list[dict[str, Any]]:
-    """Enumerate this project's adopted literature — the overlay dir, which
-    IS the per-project registry — enriched via any
-    ``_corpus_ledger.md`` this project has already produced.
+    """Enumerate this project's adopted literature.
 
-    Returns one dict per adopted paper (overlay file):
-      citekey       — the resolved core's ``citekey:`` field if set, else
-                       the overlay's ``central:`` pointer (the filename
-                       slug) — the same fallback the ledger's own
-                       ``_k_block``/bulk consumers use.
-      title, role   — read through the resolver (``load_literature_note``):
-                       title from the merged core+overlay, role from the
-                       overlay only (RQ-relative, never core content).
-      resolving_ids — from the ledger's canonical-key map; "" if this
-                       citekey never appeared in any ledger this project
-                       has written (e.g. adopted outside a review loop, or
-                       the ledger predates this paper — an honest gap, not
-                       a fabricated value).
-      conformant    — True/False from the ledger; None if not found there.
-      in_ledger     — whether this citekey was found in ANY ledger — lets a
-                       caller distinguish "checked, non-conformant" from
-                       "never checked".
-      error         — set (title/role/etc. left None) when the overlay
-                       carries a dangling ``central:`` pointer or has no
-                       resolvable core — surfaced, never silently dropped
-                       (charter §2); the paper still appears in the
+    the overlay unwind (0.3.2): "adopted" is now MECHANICAL membership
+    — the union of every citekey appearing in any ``_corpus_ledger.md`` this
+    project has produced (the ledger's own canonical-key map — the SAME
+    artifact this function already reads for enrichment). There is no more
+    per-project literature/ overlay dir to glob.
+
+    Returns one dict per adopted citekey:
+      citekey       — the ledger's canonical-key-map key.
+      title         — read directly off the shared literature note
+                       (``cfg.literature_root/<citekey>.md``); ``None`` when
+                       no such note exists yet (adopted-but-not-materialized
+                       — an honest gap, not a crash).
+      role          — always ``None`` — the overlay unwind (0.3.2) moved role to CURATED
+                       project MOCs (RQ-relative narration), not a
+                       mechanical field this registry can enumerate. Kept as
+                       a key (rather than dropped) so existing callers don't
+                       KeyError; read the project's MOCs directly for role.
+      resolving_ids — from the ledger's canonical-key map.
+      conformant    — True/False from the ledger.
+      in_ledger     — always True here (every row comes FROM a ledger) —
+                       kept for shape back-compat with pre-unwind callers.
+      error         — set (title left None) when the shared note doesn't
+                       exist yet — surfaced, never silently dropped
+                       (charter §2); the citekey still appears in the
                        returned list.
     """
     cfg = config or load_config()
-    overlay_dir = cfg.project_notes_dir(project) / "literature"
-    if not overlay_dir.exists():
-        return []
 
     key_map: dict[str, tuple[str, bool]] = {}
     for ledger_path in _find_ledgers(cfg, project):
@@ -133,51 +140,48 @@ def cmd_list(project: str, *, config: Config | None = None) -> list[dict[str, An
         # most-recently-touched review scope's verdict is the freshest one.
         key_map.update(_parse_key_map_table(text))
 
+    if not key_map:
+        return []
+
     rows: list[dict[str, Any]] = []
-    for overlay_file in sorted(overlay_dir.glob("*.md")):
-        overlay_slug = overlay_file.stem
-        try:
-            assembled = load_literature_note(cfg, project, overlay_slug)
-        except FileNotFoundError as e:
+    for citekey in sorted(key_map):
+        resolving_ids, conformant = key_map[citekey]
+        note_path = cfg.literature_root / f"{citekey}.md"
+        if not note_path.is_file():
             rows.append({
-                "citekey": overlay_slug,
-                "overlay_slug": overlay_slug,
+                "citekey": citekey,
                 "title": None,
                 "role": None,
-                "resolving_ids": "",
-                "conformant": None,
-                "in_ledger": False,
+                "resolving_ids": resolving_ids,
+                "conformant": conformant,
+                "in_ledger": True,
+                "error": (
+                    f"no shared literature note at {note_path} — adopted "
+                    "(in this project's corpus ledger) but not yet "
+                    "materialized."
+                ),
+            })
+            continue
+        try:
+            note_fields, _ = _parse_frontmatter(note_path.read_text(encoding="utf-8"))
+        except OSError as e:
+            rows.append({
+                "citekey": citekey,
+                "title": None,
+                "role": None,
+                "resolving_ids": resolving_ids,
+                "conformant": conformant,
+                "in_ledger": True,
                 "error": str(e),
             })
             continue
-
-        if not assembled.core_resolved:
-            # OKF tolerant-load (note.load_literature_note): a dangling/
-            # absent backbone link never raises — surfaced here instead,
-            # same "error" row shape as the FileNotFoundError branch above.
-            rows.append({
-                "citekey": overlay_slug,
-                "overlay_slug": overlay_slug,
-                "title": None,
-                "role": None,
-                "resolving_ids": "",
-                "conformant": None,
-                "in_ledger": False,
-                "error": assembled.core_resolve_issue,
-            })
-            continue
-
-        core_citekey = str(assembled.fields.get("citekey") or "").strip()
-        lookup_key = core_citekey or overlay_slug
-        resolving_ids, conformant = key_map.get(lookup_key, ("", None))
         rows.append({
-            "citekey": lookup_key,
-            "overlay_slug": overlay_slug,
-            "title": assembled.fields.get("title", ""),
-            "role": assembled.fields.get("role", ""),
+            "citekey": citekey,
+            "title": note_fields.get("title", ""),
+            "role": None,
             "resolving_ids": resolving_ids,
             "conformant": conformant,
-            "in_ledger": lookup_key in key_map,
+            "in_ledger": True,
             "error": None,
         })
     return rows
@@ -191,14 +195,15 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
     """Build the argument parser for the `literature` verb.
 
     When to use: `rv literature list <project>` to see the papers a project
-    has adopted (its literature/ overlay dir), enriched with the resolving
-    ids + conformance verdict recorded the last time a review's
+    has adopted (its corpus ledger's membership), enriched with the
+    resolving ids + conformance verdict recorded the last time a review's
     `_corpus_ledger.md` was written for this project. Anti-pattern: do NOT
-    hand-glob `literature/*.md` and eyeball frontmatter — the overlay alone
-    is thin (no ids, no conformance) by design (two-layer split); this
-    verb resolves through the core + the ledger for you.
+    hand-glob the shared literature store and eyeball frontmatter to guess
+    which papers belong to a project — membership is mechanical (the
+    ledger), not derivable from the shared store alone; this verb resolves
+    through the ledger + the shared note for you.
     """
-    desc = "The per-project two-layer literature registry (adopted papers, ledger-enriched)."
+    desc = "The project's adopted-literature registry (ledger membership, shared-store-enriched)."
     if parent is not None:
         p = parent.add_parser("literature", help="Literature registry.", description=desc)
     else:

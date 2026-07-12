@@ -1051,13 +1051,13 @@ def _evaluate_autonomous_gate(
             protocol_path = review_dir / "_protocol.md"
             corpus_path = review_dir / "_corpus.md"
             deviations_path = review_dir / "_deviations.md"
-            # concept-graph candidate generation reads the project OVERLAY
-            # dir ('## Concept edges' is overlay-only content); every
-            # written paper->paper edge targets the CENTRAL CORE
-            # (cfg.literature_root — '## Related papers' is core-only
-            # content, two-layer store).
-            literature_dir = review_dir.parent.parent / "literature"
-            core_dir = load_config().literature_root
+            # the overlay unwind (0.3.2): literature is shared-
+            # canonical — concept-graph candidate generation AND every
+            # written paper->paper edge both target the SAME shared store
+            # (cfg.literature_root). There is no per-project overlay dir
+            # left to read '## Concept edges' from.
+            literature_dir = load_config().literature_root
+            core_dir = literature_dir
             judge_dir = review_dir / "judge" / "relate"
 
             # The pole is resolved ONCE from the triggering critic_payload
@@ -1745,15 +1745,14 @@ def _check_relate_presence(
     complete-time, mirroring the existing OKF-type and provenance-chain gates'
     structural posture.
 
-    a literature note is now two-layer — ``note_path_str``
-    resolves to the per-project OVERLAY (role/position live there), while
-    Move 1/3's contribution_kind/result_reported live on the CENTRAL CORE
-    (``literature_root/<citekey>.md``). The checklist is evaluated against
-    the ASSEMBLED (core+overlay concatenated) text so it sees both layers —
-    reading the overlay alone would false-FAIL every core-only question.
-    When ``literature_root`` is None (caller doesn't have it, or the core
-    hasn't been distilled yet), degrades gracefully to overlay-only text —
-    the checklist then correctly reports the (real) missing core fields.
+    the overlay unwind (0.3.2): a literature note is now
+    shared-canonical — ONE note, no per-project overlay to merge.
+    ``note_path_str`` (already resolved by the caller against
+    ``cfg.shared_type_root("literature")`` — see the call site above) IS the
+    note; the checklist is evaluated against its own text directly. The
+    ``literature_root`` parameter is kept for call-site back-compat (still
+    threaded through by the caller) but is no longer used for a merge —
+    there is nothing left to assemble.
 
     Returns a list of finding strings (empty = OK or not a relate- node).
     """
@@ -1772,33 +1771,15 @@ def _check_relate_presence(
     except OSError:
         return []  # likewise already reported by _check_okf_note_type
 
-    from ..note import _parse_frontmatter as _pfm_relate, _render_frontmatter as _rfm_relate
+    from ..note import _parse_frontmatter as _pfm_relate
 
-    fields, body = _pfm_relate(text)
+    fields, _body = _pfm_relate(text)
     if fields.get("type", "") != "literature":
         return []
 
     from ..review.relate_check import check_relate_presence
 
-    assembled_text = text
-    if literature_root is not None:
-        citekey = note_path.stem
-        core_path = literature_root / f"{citekey}.md"
-        if core_path.exists():
-            try:
-                core_text = core_path.read_text(encoding="utf-8")
-                core_fields, core_body = _pfm_relate(core_text)
-                # Rebuild ONE frontmatter block + concatenated body — raw
-                # concatenation would produce a SECOND "---...---" block
-                # that _parse_frontmatter (single-block parser) would treat
-                # as inert body text, silently dropping the overlay's
-                # role/position from the merged fields dict.
-                merged_fields = {**fields, **core_fields}
-                assembled_text = _rfm_relate(merged_fields) + "\n" + core_body + "\n" + body
-            except OSError:
-                pass  # degrade to overlay-only text; core-only fields correctly report missing
-
-    result = check_relate_presence(note_path, text=assembled_text)
+    result = check_relate_presence(note_path, text=text)
     return result.findings
 
 
@@ -2311,19 +2292,37 @@ def cmd_complete(args: argparse.Namespace) -> int:
             # multi-repo adopters (source_dir != notes_root) are handled
             # correctly.  Falls back to cfg.notes_root for manifests with no
             # "project" field (demo case; source_dir == notes_root stays green).
-            _project_slug = manifest.get("project")
-            if _project_slug:
-                try:
-                    _note_root = cfg.project_notes_dir(_project_slug)
-                except KeyError as _e:
-                    print(
-                        f"rv dag complete: {_e}",
-                        file=sys.stderr,
-                    )
-                    return 1
+            #
+            # 0.3.2's shared-canonical moves: a
+            # shared-canonical type (datasets/concepts/literature) does NOT
+            # live under project_notes_dir at all — resolving
+            # "literature/<citekey>.md" against a project's source_dir would
+            # silently miss the real file (which lives at
+            # cfg.literature_root/<citekey>.md). Detect a shared-type prefix
+            # on produces.note and resolve directly against the shared root,
+            # stripping the type-dir segment (the shared root's own
+            # directory listing IS the type — no further <type>/ subdir).
+            from ..note import OKF_SHARED_TYPES as _OKF_SHARED_TYPES_PRODUCES
+            _note_rel = produces["note"]
+            _type_seg, _sep, _rest = _note_rel.partition("/")
+            if _type_seg in _OKF_SHARED_TYPES_PRODUCES and _sep:
+                _note_root = cfg.notes_root  # unused below — path passed absolute
+                _resolved_note_path = str(cfg.shared_type_root(_type_seg) / _rest)
             else:
-                _note_root = cfg.notes_root
-            issues = _check_okf_note_type(produces["note"], _note_root)
+                _project_slug = manifest.get("project")
+                if _project_slug:
+                    try:
+                        _note_root = cfg.project_notes_dir(_project_slug)
+                    except KeyError as _e:
+                        print(
+                            f"rv dag complete: {_e}",
+                            file=sys.stderr,
+                        )
+                        return 1
+                else:
+                    _note_root = cfg.notes_root
+                _resolved_note_path = _note_rel
+            issues = _check_okf_note_type(_resolved_note_path, _note_root)
             if issues:
                 print(f"rv dag complete: OKF vault check FAILED for node {node_id!r}:", file=sys.stderr)
                 for issue in issues:
@@ -2333,7 +2332,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
             # CHECK-1 (flagship, HARD): ride the provenance-chain
             # completeness gate — only fires for experiments-type notes with a
             # claimed result whose chain is incomplete.
-            chain_issues = _check_experiments_provenance_chain(produces["note"], _note_root)
+            chain_issues = _check_experiments_provenance_chain(_resolved_note_path, _note_root)
             if chain_issues:
                 print(
                     f"rv dag complete: provenance-chain gate FAILED for node {node_id!r}:",
@@ -2350,7 +2349,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
             # Wave 0 (Reading) relate-<key> node presence-check gate —
             # rejects-only, checklist not schema (see relate_check.py docstring).
             relate_issues = _check_relate_presence(
-                produces["note"], _note_root, node_id, literature_root=cfg.literature_root
+                _resolved_note_path, _note_root, node_id, literature_root=cfg.literature_root
             )
             if relate_issues:
                 print(
@@ -2676,6 +2675,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 payload = build_approve_payload(
                     tree_root, project_notes_dir, _ms_type,
                     literature_root=cfg.literature_root,
+                    concepts_root=cfg.concepts_root,
                 )
                 if not payload["ok"]:
                     print(

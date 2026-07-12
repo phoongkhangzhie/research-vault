@@ -241,14 +241,12 @@ def _corpus_rows(corpus_path: Path) -> tuple[list[tuple[str, str]], list[str]]:
 
 
 def _literature_note_for_citekey(literature_root: Path | None, citekey: str) -> Path | None:
-    """Resolve a corpus citekey to its CENTRAL-CORE note path (the
-    two-layer store — intrinsic fields like doi/arxiv_id, and the paper->
-    paper edge graph, live on the core, not the per-project overlay; every
-    caller of this function reads intrinsic content, so it resolves against
-    ``literature_root``, not a project's ``literature/`` overlay dir).
+    """Resolve a corpus citekey to its shared literature note path (0.3.2
+    the overlay unwind: literature is shared-canonical — ONE note per
+    paper at ``literature_root``, carrying every intrinsic field directly).
 
-    Tries the filename-==-citekey convention first (the common case — see
-    ``note._cmd_new_two_layer``'s slug convention / the K-stage canonical
+    Tries the filename-==-citekey convention first (the common case — the
+    ``rv note new literature`` slug convention / the K-stage canonical
     stamp), then falls back to scanning ``literature_root/*.md`` frontmatter
     for a matching ``citekey:`` field (a note filed under a different
     filename slug — the same divergence ``research._note_citekey``
@@ -357,13 +355,12 @@ def _not_yet_distilled_block(
     declared adds (via the SAME parser ``autonomy`` writes/reads them with —
     ``_parse_deviation_citekey_deltas``, charter §6) and joins them against
     the materialized edge graph (``relate_check.parse_paper_relations`` over
-    each note body). The paper->paper edge graph (``## Related papers``) is
-    CORE-only content — ``incremental_relate.append_bidirectional_edge``
-    writes it to the two-layer store's CENTRAL CORE, so this resolves
-    against ``literature_root`` (``cfg.literature_root``), not a project's
-    overlay dir. ``literature_root is None`` -> every remediation-added
-    paper is un-resolvable, so all count as not-yet-distilled (honest,
-    never a fabricated 0).
+    each note body). The paper->paper edge graph (``## Related papers``)
+    lives on the shared literature note (the overlay unwind (0.3.2)) —
+    ``incremental_relate.append_bidirectional_edge`` writes it to
+    ``literature_root`` (``cfg.literature_root``). ``literature_root is
+    None`` -> every remediation-added paper is un-resolvable, so all count
+    as not-yet-distilled (honest, never a fabricated 0).
 
     Non-gating by construction: a legitimate mid-backtrack snapshot has
     un-related adds; only the caller's GO context asserts == 0. Returned as
@@ -403,11 +400,12 @@ def _k_block(
     the real ``_citekey_migration_ledger.json`` when present; an honest
     ``"untracked"`` sentinel (never a fabricated ``0``) when absent. That
     ledger is a project-level bookkeeping JSON (not an OKF note), so it
-    still resolves against ``literature_dir`` (the project's overlay dir),
-    unaffected by the two-layer split.
+    still resolves against ``literature_dir`` (a project-scoped path — kept
+    separate from ``literature_root`` even post-unwind, since this JSON is
+    per-project audit trail, not shared content).
 
-    ``resolving_ids`` (doi:/arxiv:) is CORE-only content — resolves
-    against ``literature_root`` (the central store).
+    ``resolving_ids`` (doi:/arxiv:) lives directly on the shared literature
+    note (the overlay unwind (0.3.2)) — resolves against ``literature_root``.
     """
     from ..cite import CITEKEY_RE
 

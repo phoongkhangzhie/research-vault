@@ -199,6 +199,7 @@ def extract_equation_ledger(
     equation_sources: tuple[str, ...],
     *,
     literature_root: Path | None = None,
+    concepts_root: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Mine ``equation_sources`` notes for pivotal equations -> a ledger.
 
@@ -218,13 +219,18 @@ def extract_equation_ledger(
         project_notes_dir: the project's notes root (``cfg.project_notes_dir``).
         equation_sources: OKF type names to mine (e.g. from
             ``ms_type.equation_sources``).
-        literature_root: ``cfg.literature_root``. When ``"literature"``
-            is one of ``equation_sources``, ``key_equations:``/``##  Key
-            equations`` are intrinsic (CORE-only) content — mine the CENTRAL
-            CORE for those notes, not the project overlay dir. ``None``
-            degrades to mining the overlay dir directly (a monolithic
-            fixture — not a violation, just a degrade path; some hermetic
-            tests do this on purpose).
+        literature_root: ``cfg.literature_root``. Literature is
+            shared-canonical (the overlay unwind (0.3.2)) — when
+            ``"literature"`` is one of ``equation_sources`` and this is
+            given, mine the SHARED store, not ``project_notes_dir/
+            literature`` (which no longer holds this content — there is no
+            per-project overlay any more). ``None`` degrades to mining
+            ``project_notes_dir/literature`` directly (a legacy/hermetic
+            fixture dir — not a violation, just a degrade path; some
+            hermetic tests do this on purpose).
+        concepts_root: ``cfg.concepts_root``. concepts is ALSO
+            shared-canonical (0.3.2's concepts move) — same routing as
+            ``literature_root`` above, for the ``"concepts"`` source.
 
     Returns:
         A list of ``{"note", "label", "title", "latex", "critical"}`` dicts,
@@ -235,11 +241,14 @@ def extract_equation_ledger(
     """
     ledger: list[dict[str, Any]] = []
     for okf_type in equation_sources:
-        # literature notes are two-layer — key_equations/## Key
-        # equations are CORE-only, so mine literature_root (when given)
-        # instead of the project's thin overlay dir.
+        # literature/concepts are shared-canonical (the overlay unwind (0.3.2) literature —
+        # the overlay unwind, the earlier concepts move) — mine the shared store (when
+        # given) instead of project_notes_dir/<type> (which holds none of
+        # this content for a shared type).
         if okf_type == "literature" and literature_root is not None:
             source_dir = literature_root
+        elif okf_type == "concepts" and concepts_root is not None:
+            source_dir = concepts_root
         else:
             source_dir = project_notes_dir / okf_type
         if not source_dir.exists():

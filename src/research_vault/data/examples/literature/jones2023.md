@@ -21,12 +21,6 @@ repo:
 artifacts:
 ---
 
-<!-- Literature note — CENTRAL CORE (intrinsic paper facts). -->
-<!-- Two-layer store: this file is shared across every project that -->
-<!-- reads this paper — do NOT put role:/position:/concept-edges here; -->
-<!-- those belong in the per-project overlay (see -->
-<!-- demo-litreview/notes/literature/jones2023.md, carrying central: jones2023). -->
-
 ## Result
 
 Establishes that a static, pre-built dense index scales sub-linearly in
@@ -44,3 +38,7 @@ reasoning-time context — exactly the gap smith2024 (below) targets.
 <!-- "## Related papers" section ((c)2: shipped 0.3.0 writes both sides). -->
 - [smith2024](/literature/smith2024.md) — EXTENDS: smith2024 extends this
   paper's static index with an interleaved retrieval-reasoning loop.
+
+## Concept edges
+
+- [retrieval-augmented-reasoning](/concepts/retrieval-augmented-reasoning.md) — PARTIAL: the paper this review's organizing concept is defined against.
