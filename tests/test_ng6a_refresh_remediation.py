@@ -65,19 +65,6 @@ def _protocol_note(
     )
 
 
-def _saturation_info(*, stop_reason: str = "saturated") -> dict:
-    return {
-        "exists": True,
-        "stop_reason": stop_reason,
-        "is_backstop": stop_reason.startswith("backstop:"),
-    }
-
-
-class _FakeHit:
-    def __init__(self, title: str, year: int = 2024, authors: list[str] | None = None):
-        self.title = title
-        self.year = year
-        self.authors = authors or ["Jane Smith"]
 
 
 # ===========================================================================
@@ -110,6 +97,39 @@ class TestParserHardening:
             "| annotation | citekey | title |\n|---|---|---|\n"
             "| [NEW] | alpha2024 | Alpha paper |\n"
             "| [BAD] | ghost2024 | A malformed remediation row |\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(CorpusSchemaError, match="ghost2024|malformed"):
+            _parse_corpus_citekeys(corpus)
+
+    def test_compound_annotation_and_doi_citekey_parse(self, tmp_path):
+        """Coverage-path twin of PR #250's relevance-verify-prep fix: a real
+        ``review-curate`` run emits a COMPOUND annotation
+        (``[LEG-1][NEW] {tags}``) and DOI-shaped citekeys
+        (``10.48550/arXiv.2604.19787``) — neither the bare ``[NEW]`` exact
+        match nor the old no-``/`` citekey charset matched this real shape,
+        silently undercounting the corpus fed into ``coverage_report``/the
+        coverage-gate."""
+        corpus = tmp_path / "_corpus.md"
+        corpus.write_text(
+            "| annotation | citekey | title |\n|---|---|---|\n"
+            "| [LEG-1][NEW] {SF,silicon-sampling} | 10.48550/arXiv.2604.19787 | A compound-annotated paper |\n"
+            "| [IN-CORPUS:beta2024] | beta2024 | Prior-cycle paper |\n",
+            encoding="utf-8",
+        )
+        assert _parse_corpus_citekeys(corpus) == [
+            "10.48550/arXiv.2604.19787", "beta2024",
+        ]
+
+    def test_bracket_shaped_but_no_recognized_tag_still_raises_loud(self, tmp_path):
+        """A compound-shaped annotation with NO NEW/IN-CORPUS token among its
+        bracket tokens must still be the loud CorpusSchemaError reject —
+        broadening the match to compound annotations must not also broaden
+        it into silently accepting an unrecognized tag."""
+        corpus = tmp_path / "_corpus.md"
+        corpus.write_text(
+            "| annotation | citekey | title |\n|---|---|---|\n"
+            "| [LEG-1][WEIRD] {tags} | ghost2024 | malformed compound row |\n",
             encoding="utf-8",
         )
         with pytest.raises(CorpusSchemaError, match="ghost2024|malformed"):
@@ -353,231 +373,18 @@ class TestRefresh:
 
 
 # ===========================================================================
-# 5. resolve_coverage_gate — disposition composition (§4.1)
-# ===========================================================================
-
-class TestResolveCoverageGateComposition:
-    def test_saturated_no_gap_go(self):
-        base = auto.DispositionResult(auto.GO, "saturated")
-        out = rem.resolve_coverage_gate(base, _saturation_info(stop_reason="saturated"))
-        assert out.disposition == auto.GO
-
-    def test_halt_declare_passes_through_unchanged(self):
-        base = auto.DispositionResult(auto.HALT_DECLARE, "malformed")
-        out = rem.resolve_coverage_gate(base, _saturation_info(stop_reason="garbage"))
-        assert out.disposition == auto.HALT_DECLARE
-
-    def test_backstop_budget_and_first_wave_remediates(self):
-        base = auto.DispositionResult(auto.GO_WITH_RESIDUE, "backstop")
-        out = rem.resolve_coverage_gate(
-            base, _saturation_info(stop_reason="backstop:3-waves"),
-            remediation_state=None, max_rounds=2,
-        )
-        assert out.disposition == auto.REMEDIATE
-
-    def test_backstop_budget_exhausted_go_with_residue(self):
-        base = auto.DispositionResult(auto.GO_WITH_RESIDUE, "backstop")
-        out = rem.resolve_coverage_gate(
-            base, _saturation_info(stop_reason="backstop:3-waves"),
-            remediation_state={"rounds_used": 2, "last_wave_added_count": 3},
-            max_rounds=2,
-        )
-        assert out.disposition == auto.GO_WITH_RESIDUE
-
-    def test_backstop_last_wave_zero_new_go_with_residue(self):
-        base = auto.DispositionResult(auto.GO_WITH_RESIDUE, "backstop")
-        out = rem.resolve_coverage_gate(
-            base, _saturation_info(stop_reason="backstop:3-waves"),
-            remediation_state={"rounds_used": 1, "last_wave_added_count": 0},
-            max_rounds=2,
-        )
-        assert out.disposition == auto.GO_WITH_RESIDUE
-
-    def test_non_backstop_go_with_residue_untouched(self):
-        """Defensive: classify_coverage_gate never actually produces this
-        shape (GO_WITH_RESIDUE always implies is_backstop), but
-        resolve_coverage_gate must stay honest about the precondition."""
-        base = auto.DispositionResult(auto.GO_WITH_RESIDUE, "residue, not backstop")
-        out = rem.resolve_coverage_gate(
-            base, {"exists": True, "stop_reason": "saturated", "is_backstop": False},
-        )
-        assert out.disposition == auto.GO_WITH_RESIDUE
-        assert out is base
-
-
-# ===========================================================================
-# 6. run_remediation_round + run_bounded_remediation — termination (§4.3)
-# ===========================================================================
-
-class TestRemediationRound:
-    def _seed(self, tmp_path, citekeys):
-        corpus = tmp_path / "_corpus.md"
-        protocol = tmp_path / "_protocol.md"
-        deviations = tmp_path / "_deviations.md"
-        _corpus_note(corpus, citekeys)
-        _protocol_note(protocol)
-        meta: dict = {}
-        cf.stamp_corpus_freeze(meta, corpus_path=corpus, protocol_path=protocol)
-        return meta, corpus, protocol, deviations
-
-    def test_round_appends_declares_and_refreshes(self, tmp_path):
-        meta, corpus, protocol, deviations = self._seed(tmp_path, ["a2024"])
-
-        def fake_tool_op(op, **kwargs):
-            assert op == "sweep"
-            assert kwargs["protocol"] == str(protocol)
-            return [_FakeHit("A Brand New Paper"), _FakeHit("Another New Paper")]
-
-        result = rem.run_remediation_round(
-            meta, protocol_path=protocol, corpus_path=corpus,
-            deviations_path=deviations, tool_op_fn=fake_tool_op,
-        )
-        assert result["stopped"] is None
-        assert len(result["added"]) == 2
-        assert meta["corpus_freeze"]["version"] == 2
-        assert set(meta["frozen_corpus_citekeys"]) >= {"a2024"}
-        assert len(_parse_corpus_citekeys(corpus)) == 3
-        assert deviations.exists()
-        assert "within-criteria-append" in deviations.read_text(encoding="utf-8")
-
-    def test_round_dedups_against_existing_titles(self, tmp_path):
-        """A hit whose (normalized) title already appears in _corpus.md
-        must NOT be appended twice."""
-        corpus = tmp_path / "_corpus.md"
-        protocol = tmp_path / "_protocol.md"
-        deviations = tmp_path / "_deviations.md"
-        corpus.write_text(
-            "| annotation | citekey | title |\n|---|---|---|\n"
-            "| [NEW] | a2024 | Alpha Paper |\n",
-            encoding="utf-8",
-        )
-        _protocol_note(protocol)
-        meta: dict = {}
-        cf.stamp_corpus_freeze(meta, corpus_path=corpus, protocol_path=protocol)
-
-        def fake_tool_op(op, **kwargs):
-            return [_FakeHit("Alpha Paper"), _FakeHit("A Genuinely New One")]
-
-        result = rem.run_remediation_round(
-            meta, protocol_path=protocol, corpus_path=corpus,
-            deviations_path=deviations, tool_op_fn=fake_tool_op,
-        )
-        assert len(result["added"]) == 1
-
-    def test_zero_new_wave_stops_and_declares_nothing(self, tmp_path):
-        """★ TERMINATION (a): a wave that finds zero new -> no deviation
-        recorded, no refresh, remediation_state records last_wave==0."""
-        meta, corpus, protocol, deviations = self._seed(tmp_path, ["a2024"])
-
-        def fake_tool_op(op, **kwargs):
-            return []
-
-        result = rem.run_remediation_round(
-            meta, protocol_path=protocol, corpus_path=corpus,
-            deviations_path=deviations, tool_op_fn=fake_tool_op,
-        )
-        assert result["stopped"] == "zero-new"
-        assert result["added"] == []
-        assert meta["corpus_freeze"]["version"] == 1  # never refreshed
-        assert not deviations.exists()
-        assert meta["remediation_state"]["last_wave_added_count"] == 0
-
-    def test_sweep_exception_degrades_to_zero_new_never_crashes(self, tmp_path):
-        meta, corpus, protocol, deviations = self._seed(tmp_path, ["a2024"])
-
-        def raising_tool_op(op, **kwargs):
-            raise RuntimeError("network down")
-
-        result = rem.run_remediation_round(
-            meta, protocol_path=protocol, corpus_path=corpus,
-            deviations_path=deviations, tool_op_fn=raising_tool_op,
-        )
-        assert result["stopped"] == "zero-new"
-
-
-class TestBoundedRemediationTermination:
-    def _seed(self, tmp_path, citekeys):
-        corpus = tmp_path / "_corpus.md"
-        protocol = tmp_path / "_protocol.md"
-        deviations = tmp_path / "_deviations.md"
-        _corpus_note(corpus, citekeys)
-        _protocol_note(protocol)
-        meta: dict = {}
-        cf.stamp_corpus_freeze(meta, corpus_path=corpus, protocol_path=protocol)
-        return meta, corpus, protocol, deviations
-
-    def test_zero_new_terminates_after_one_round(self, tmp_path):
-        meta, corpus, protocol, deviations = self._seed(tmp_path, ["a2024"])
-        initial = auto.DispositionResult(auto.REMEDIATE, "start")
-        calls = {"n": 0}
-
-        def fake_tool_op(op, **kwargs):
-            calls["n"] += 1
-            return []
-
-        out = rem.run_bounded_remediation(
-            meta, initial, _saturation_info(stop_reason="backstop:3-waves"),
-            protocol_path=protocol, corpus_path=corpus, deviations_path=deviations,
-            tool_op_fn=fake_tool_op, max_rounds=5,
-        )
-        assert out.disposition == auto.GO_WITH_RESIDUE
-        assert calls["n"] == 1  # exactly one round — stopped on zero-new
-
-    def test_round_cap_terminates_a_one_new_per_wave_pathological_corpus(self, tmp_path):
-        """★ TERMINATION (b): 'one new paper per wave' cannot exceed
-        max_rounds even though each round finds something new."""
-        meta, corpus, protocol, deviations = self._seed(tmp_path, ["a2024"])
-        initial = auto.DispositionResult(auto.REMEDIATE, "start")
-        counter = {"n": 0}
-
-        def fake_tool_op(op, **kwargs):
-            counter["n"] += 1
-            return [_FakeHit(f"Pathological Paper Number {counter['n']}")]
-
-        out = rem.run_bounded_remediation(
-            meta, initial, _saturation_info(stop_reason="backstop:3-waves"),
-            protocol_path=protocol, corpus_path=corpus, deviations_path=deviations,
-            tool_op_fn=fake_tool_op, max_rounds=2,
-        )
-        assert out.disposition == auto.GO_WITH_RESIDUE
-        assert counter["n"] == 2  # never exceeds the round cap
-        assert meta["remediation_state"]["rounds_used"] == 2
-
-    def test_saturated_never_triggers_remediate(self, tmp_path):
-        """A base GO under a genuinely saturated corpus never even enters
-        the remediation machinery."""
-        base = auto.DispositionResult(auto.GO, "saturated, no gap")
-        out = rem.resolve_coverage_gate(base, _saturation_info(stop_reason="saturated"))
-        assert out.disposition == auto.GO
-
-    def test_multi_round_eventually_saturates_the_frozen_frontier(self, tmp_path):
-        """Two rounds find something new, the third finds nothing (frozen
-        protocol exhausted) -> declares residue, never hits the round cap."""
-        meta, corpus, protocol, deviations = self._seed(tmp_path, ["a2024"])
-        initial = auto.DispositionResult(auto.REMEDIATE, "start")
-        counter = {"n": 0}
-
-        def fake_tool_op(op, **kwargs):
-            counter["n"] += 1
-            if counter["n"] <= 2:
-                return [_FakeHit(f"Round {counter['n']} New Paper")]
-            return []
-
-        out = rem.run_bounded_remediation(
-            meta, initial, _saturation_info(stop_reason="backstop:3-waves"),
-            protocol_path=protocol, corpus_path=corpus, deviations_path=deviations,
-            tool_op_fn=fake_tool_op, max_rounds=5,
-        )
-        assert out.disposition == auto.GO_WITH_RESIDUE
-        assert counter["n"] == 3
-        assert len(_parse_corpus_citekeys(corpus)) == 3  # a2024 + 2 rounds
-
-
-# ===========================================================================
-# 7. End-to-end through the REAL dag-verbs path (not just the review/
-#    remediation unit level) — the real refresh/remediation path driven
-#    through a full DAG tick, mirroring test_ng4b_autonomy_wiring.py's
-#    TestSelfAdvancingRunner harness.
+# 5. End-to-end through the REAL dag-verbs path (not just the review/
+#    refresh unit level) — driven through a full DAG tick, mirroring
+#    test_ng4b_autonomy_wiring.py's TestSelfAdvancingRunner harness.
+#
+#    0.3.1 NOTE: the coverage-gate REMEDIATE composition/round/bounded-
+#    termination test classes that used to live here were DELETED along
+#    with the saturation-gated snowball's remediation machinery (see
+#    review/remediation.py's module docstring) — depth-bounding the
+#    citation-neighbor walk makes auto-re-expansion contradictory. What
+#    remains below exercises the coverage-gate's walk-terminal-based
+#    disposition end-to-end (GO on walk-complete, HALT-DECLARE on a
+#    malformed corpus row) with no remediation round in the loop.
 # ===========================================================================
 
 class TestEndToEndThroughDagVerbs:
@@ -625,10 +432,11 @@ class TestEndToEndThroughDagVerbs:
                 "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
                 encoding="utf-8",
             )
-            (out / "_saturation.md").write_text(
-                "---\nstop_reason: backstop:3-waves\n---\n\nSaturation curve.\n", encoding="utf-8",
+            (out / "_walk.md").write_text(
+                "---\nstop_reason: walk-complete:1-hops\n---\n\nCitation-neighbor relevance walk.\n",
+                encoding="utf-8",
             )
-            return {"stop_reason": "backstop:3-waves"}
+            return {"stop_reason": "walk-complete:1-hops"}
 
         monkeypatch.setitem(_auto.OP_REGISTRY, "sweep", _fake_sweep)
         monkeypatch.setitem(_auto.OP_REGISTRY, "snowball", _fake_snowball)
@@ -690,35 +498,18 @@ class TestEndToEndThroughDagVerbs:
         rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-relevance-verify", status="succeeded"))
         assert rc == 0
 
-    def test_backstop_gate_autonomously_remediates_and_go_with_residues_on_exhaustion(
+    def test_walk_complete_gate_autonomously_goes_no_remediation(
         self, tmp_instance, monkeypatch,
     ):
-        """The real end-to-end path: coverage-gate resolves REMEDIATE, runs
-        bounded rounds via a fake tool-op (network-free), grows the corpus,
-        and eventually declares residue when the frozen frontier is
-        exhausted — driven through a REAL `dag tick`, not a monkeypatched
-        internal-only call."""
+        """The real end-to-end path (0.3.1): coverage-gate resolves GO
+        directly off a ``walk-complete:1-hops`` terminal — no REMEDIATE
+        upgrade, no bounded round, no extra tool-op call — driven through a
+        REAL `dag tick`, not a monkeypatched internal-only call."""
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick
-        from research_vault.review import remediation as _remediation
 
         cfg = load_config()
-        run_id, review_dir, store = self._kick_review(cfg, scope="scope-remediate")
-
-        calls = {"n": 0}
-
-        def fake_tool_op(op, **kwargs):
-            calls["n"] += 1
-            assert op == "sweep"
-            if calls["n"] == 1:
-                return [_FakeHit("Newly Discovered Paper One")]
-            return []  # round 2: frozen frontier exhausted
-
-        # Patched BEFORE _drive_to_coverage_gate: coverage-gate's autonomous
-        # resolution (and, on REMEDIATE, the bounded remediation loop) fires
-        # the moment review-snowball completes (cmd_complete's own internal
-        # frontier recompute) — not only on a LATER explicit cmd_tick.
-        monkeypatch.setattr(_remediation, "run_tool_op", fake_tool_op)
+        run_id, review_dir, store = self._kick_review(cfg, scope="scope-walk-complete")
 
         self._drive_to_coverage_gate(run_id, review_dir, store, monkeypatch=monkeypatch)
 
@@ -726,25 +517,21 @@ class TestEndToEndThroughDagVerbs:
         assert rc == 0
         rs = store.load(run_id)
         assert rs.node_status("coverage-gate") == "succeeded"
-        assert "GO-WITH-RESIDUE" in rs.node_states["coverage-gate"]["decision_note"]
-        assert calls["n"] == 2
+        assert "GO" in rs.node_states["coverage-gate"]["decision_note"]
+        assert "REMEDIATE" not in rs.node_states["coverage-gate"]["decision_note"]
 
         corpus_path = review_dir / "_corpus.md"
         citekeys = _parse_corpus_citekeys(corpus_path)
-        assert len(citekeys) == 3  # alpha2024 + beta2024 + the one remediation hit
+        assert len(citekeys) == 2  # alpha2024 + beta2024 — nothing added by remediation
 
-        deviations_path = review_dir / "_deviations.md"
-        assert deviations_path.exists()
-        assert "within-criteria-append" in deviations_path.read_text(encoding="utf-8")
+        # No remediation state was ever populated (the machinery is gone).
+        assert not rs.meta.get("remediation_state")
 
-        # corpus_freeze moved forward, and legacy frozen_corpus_citekeys is
-        # in sync (a SUBSEQUENT re-evaluation must not see a stale-baseline
-        # undeclared delta).
-        assert rs.meta["corpus_freeze"]["version"] == 2
+        # corpus_freeze stamped, and legacy frozen_corpus_citekeys is in sync.
+        assert rs.meta["corpus_freeze"]["version"] == 1
         assert set(rs.meta["frozen_corpus_citekeys"]) == set(citekeys)
 
-        # Phase-2 still auto-emitted — GO-WITH-RESIDUE proceeds exactly like
-        # the pre-NG-6a case.
+        # Phase-2 still auto-emitted on GO.
         assert "emitted_next_phase_run_id" in rs.node_states["coverage-gate"]
 
     def test_malformed_corpus_row_surfaces_as_halt_declare_not_a_crash(
@@ -808,10 +595,10 @@ class TestRefreshCliVerb:
             (out / "_corpus_raw.md").write_text(
                 "| [NEW] | alpha2024 | Alpha paper |\n", encoding="utf-8",
             )
-            (out / "_saturation.md").write_text(
-                "---\nstop_reason: saturated\n---\n\n", encoding="utf-8",
+            (out / "_walk.md").write_text(
+                "---\nstop_reason: walk-complete:1-hops\n---\n\n", encoding="utf-8",
             )
-            return {"stop_reason": "saturated"}
+            return {"stop_reason": "walk-complete:1-hops"}
 
         monkeypatch.setitem(_auto.OP_REGISTRY, "sweep", _fake_sweep)
         monkeypatch.setitem(_auto.OP_REGISTRY, "snowball", _fake_snowball)

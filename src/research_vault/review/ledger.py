@@ -5,7 +5,7 @@ assembler (the fourth handoff property: LEDGERED).
 Design of record: dispatch brief (2026-07-10), building on the
 handoff-contract properties COMPLETE / CLEAN / CANONICALLY-KEYED /
 LEDGERED. Provenance for a completed review is currently scattered across
-``_search_hits.md``, ``_saturation.md``, ``_coverage-gaps.md``, the
+``_search_hits.md``, ``_walk.md``, ``_coverage-gaps.md``, the
 relevance-verify verdict artifact, and ``_corpus.md`` — this module
 consolidates it into ONE machine-readable artifact so the manuscript stage
 and reader-facing methods sections consume a single, verifiable record.
@@ -59,12 +59,12 @@ def _read_text_or_none(path: Path | None) -> str | None:
     return path.read_text(encoding="utf-8")
 
 
-def _q_block(protocol_path: Path, saturation_path: Path, gaps_path: Path) -> dict[str, Any]:
-    """Assemble the Q (search-breadth/saturation) block.
+def _q_block(protocol_path: Path, walk_path: Path, gaps_path: Path) -> dict[str, Any]:
+    """Assemble the Q (search-breadth/walk-coverage) block.
 
     Sources: ``_protocol.md`` (frozen matrix, via ``corpus_freeze``'s own
-    canonicalization helpers — reused, not re-derived), ``_saturation.md``
-    (via ``review.check_saturation_backstop`` — the SAME whitelist-only
+    canonicalization helpers — reused, not re-derived), ``_walk.md``
+    (via ``review.check_walk_terminal`` — the SAME whitelist-only
     parser the coverage-gate itself reads), ``_coverage-gaps.md`` (agent-
     authored free prose — best-effort verbatim residue, never a fabricated
     structured extraction of "the" open poles since no such schema exists
@@ -72,7 +72,7 @@ def _q_block(protocol_path: Path, saturation_path: Path, gaps_path: Path) -> dic
     """
     from .corpus_freeze import hash_criteria_bytes
     from ..sources.sweep import parse_angle_matrix
-    from . import check_saturation_backstop
+    from . import check_walk_terminal
 
     gaps: list[str] = []
     protocol_text = _read_text_or_none(protocol_path)
@@ -94,11 +94,14 @@ def _q_block(protocol_path: Path, saturation_path: Path, gaps_path: Path) -> dic
         distinct_query_count = len({str(v).strip() for v in angle_matrix.values() if str(v).strip()})
         matrix_band_ok = 40 <= distinct_query_count <= 100
 
-    saturation_info = check_saturation_backstop(saturation_path)
-    if not saturation_info["exists"]:
-        gaps.append("Q: _saturation.md not found — stop_reason/bounded_not_saturated unknown.")
-    stop_reason = saturation_info["stop_reason"]
-    bounded_not_saturated = bool(saturation_info["is_backstop"])
+    walk_info = check_walk_terminal(walk_path)
+    if not walk_info["exists"]:
+        gaps.append("Q: _walk.md not found — stop_reason/walk_bounded unknown.")
+    stop_reason = walk_info["stop_reason"]
+    # True only for a budget-terminated walk — the one surviving residue
+    # case (0.3.1: walk-complete:N-hops and neighborhood-exhausted are both
+    # clean terminals, never "bounded" in this sense).
+    walk_bounded = stop_reason.lower().startswith("budget:")
 
     open_counter_poles = ""
     gaps_text = _read_text_or_none(gaps_path)
@@ -121,7 +124,7 @@ def _q_block(protocol_path: Path, saturation_path: Path, gaps_path: Path) -> dic
         "distinct_query_count": distinct_query_count,
         "matrix_band_ok": matrix_band_ok,
         "stop_reason": stop_reason,
-        "bounded_not_saturated": bounded_not_saturated,
+        "walk_bounded": walk_bounded,
         "open_counter_poles": open_counter_poles,
         "gaps_text": gaps_text,
         "_gaps": gaps,
@@ -470,17 +473,17 @@ def _render_search_plan_table(search_hits_path: Path | None) -> tuple[list[str],
     return lines, gaps
 
 
-def _render_saturation_table(saturation_path: Path | None) -> tuple[list[str], list[str]]:
+def _render_walk_table(walk_path: Path | None) -> tuple[list[str], list[str]]:
     gaps: list[str] = []
     lines = [
-        "## Saturation", "",
-        "| Round | New (forward) | New (backward) | New independent | Cumulative | Direction-starved |",
+        "## Citation-neighbor walk", "",
+        "| Hop | New (forward) | New (backward) | New independent | Cumulative | Direction-starved |",
         "|---|---|---|---|---|---|",
     ]
-    text = _read_text_or_none(saturation_path)
+    text = _read_text_or_none(walk_path)
     if text is None:
-        gaps.append("Saturation: _saturation.md not found.")
-        lines.append("| _(no _saturation.md found)_ | | | | | |")
+        gaps.append("Walk: _walk.md not found.")
+        lines.append("| _(no _walk.md found)_ | | | | | |")
         lines.append("")
         return lines, gaps
     row_re = re.compile(
@@ -488,7 +491,7 @@ def _render_saturation_table(saturation_path: Path | None) -> tuple[list[str], l
     )
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("|") and not stripped.startswith("|---") and "Round" not in stripped.split("|")[1]:
+        if stripped.startswith("|") and not stripped.startswith("|---") and "Hop" not in stripped.split("|")[1]:
             m = row_re.match(stripped)
             if m:
                 lines.append(
@@ -561,7 +564,7 @@ def write_corpus_ledger(
 ) -> Path:
     """Assemble ``_corpus_ledger.md`` from the review's existing durable
     artifacts. Additive: reads ``_protocol.md``/``_search_hits.md``/
-    ``_saturation.md``/``_coverage-gaps.md``/``_corpus.md`` under
+    ``_walk.md``/``_coverage-gaps.md``/``_corpus.md`` under
     ``review_dir`` — never writes to any of them.
 
     Args:
@@ -579,9 +582,11 @@ def write_corpus_ledger(
         relevance_payload: ``review.relevance.check_relevance_verifier``'s
             return dict, or ``None`` if the node was never wired for this
             manifest (honest no-op, not a gap).
-        critic_backtrack_rounds: the coverage-gate's own bounded-remediation
-            round count (``run_state.meta["remediation_state"]["rounds_used"]``),
-            passed in by the caller since the ledger has no run-state access.
+        critic_backtrack_rounds: the pole-directed critic-backtrack loop's
+            round count (``run_state.meta["critic_backtrack_state"]["rounds_used"]``,
+            an UNRELATED mechanism from the deleted coverage-gate
+            remediation loop — see ``review/remediation.py``), passed in by
+            the caller since the ledger has no run-state access.
         halt_reason: when the coverage-gate disposition is HALT-DECLARE,
             the human-readable reason — folded into ``ledger_complete:
             false`` + a top-level gap line, so a HALT snapshot is still an
@@ -595,27 +600,27 @@ def write_corpus_ledger(
     scope = review_scope or review_dir.name
     protocol_path = review_dir / "_protocol.md"
     search_hits_path = review_dir / "_search_hits.md"
-    saturation_path = review_dir / "_saturation.md"
+    walk_path = review_dir / "_walk.md"
     gaps_path = review_dir / "_coverage-gaps.md"
     corpus_path = review_dir / "_corpus.md"
     out = out_path or (review_dir / "_corpus_ledger.md")
 
     deviations_path = review_dir / "_deviations.md"
 
-    q = _q_block(protocol_path, saturation_path, gaps_path)
+    q = _q_block(protocol_path, walk_path, gaps_path)
     p = _p_block(relevance_payload)
     k = _k_block(corpus_path, literature_dir, literature_root)
     nd = _not_yet_distilled_block(deviations_path, literature_dir)
 
     search_lines, search_gaps = _render_search_plan_table(search_hits_path)
-    saturation_lines, saturation_gaps = _render_saturation_table(saturation_path)
+    walk_lines, walk_gaps = _render_walk_table(walk_path)
     relevance_lines = _render_relevance_table(relevance_payload)
     key_map_lines = _render_key_map_table(k["key_map_rows"])
     residue_lines = _render_residue_section(q["gaps_text"])
 
     all_gaps: list[str] = (
         list(q["_gaps"]) + list(p["_gaps"]) + list(k["_gaps"])
-        + search_gaps + saturation_gaps
+        + search_gaps + walk_gaps
     )
     if halt_reason:
         all_gaps.append(f"HALT: {halt_reason}")
@@ -634,7 +639,7 @@ def write_corpus_ledger(
         _fm_line("distinct_query_count", q["distinct_query_count"]),
         _fm_line("matrix_band_ok", q["matrix_band_ok"]),
         _fm_line("stop_reason", q["stop_reason"]),
-        _fm_line("bounded_not_saturated", q["bounded_not_saturated"]),
+        _fm_line("walk_bounded", q["walk_bounded"]),
         _fm_line("open_counter_poles", q["open_counter_poles"]),
         _fm_line("critic_backtrack_rounds", critic_backtrack_rounds),
         # P block
@@ -672,7 +677,7 @@ def write_corpus_ledger(
     body = (
         fm_lines
         + search_lines
-        + saturation_lines
+        + walk_lines
         + relevance_lines
         + key_map_lines
         + residue_lines
@@ -691,9 +696,9 @@ def write_corpus_ledger(
 
 def render_methods_from_ledger(ledger_path: Path) -> str:
     """Render the PRISMA-style methods flow from ``_corpus_ledger.md``
-    — frontmatter scalars for the count/search/saturation summary,
-    the body's already-rendered tables (search plan, saturation, relevance,
-    canonical-key map) verbatim.
+    — frontmatter scalars for the count/search/walk-coverage summary,
+    the body's already-rendered tables (search plan, citation-neighbor walk,
+    relevance, canonical-key map) verbatim.
 
     Every number here traces to the ledger — this function parses, it never
     recomputes a count (charter §1: never fabricate; the ledger is the
@@ -751,17 +756,17 @@ def render_methods_from_ledger(ledger_path: Path) -> str:
         f"angles: {_f('angles_searched')}."
     )
     lines.append(
-        f"Saturation stop reason: {_f('stop_reason')} "
-        f"(bounded-not-saturated: {_f('bounded_not_saturated')})."
+        f"Citation-neighbor walk stop reason: {_f('stop_reason')} "
+        f"(walk_bounded: {_f('walk_bounded')})."
     )
     if _f("open_counter_poles"):
         lines.append(f"Open counter-poles: {_f('open_counter_poles')}.")
     lines.append("")
 
     # The body already carries the fully-rendered detail tables (search
-    # plan, saturation, relevance dispositions, canonical-key map, open
-    # residue) — reuse verbatim rather than re-parsing/re-rendering them a
-    # second time (charter §6).
+    # plan, citation-neighbor walk, relevance dispositions, canonical-key
+    # map, open residue) — reuse verbatim rather than re-parsing/
+    # re-rendering them a second time (charter §6).
     body_stripped = body.strip()
     if body_stripped.startswith("# Corpus ledger"):
         # Drop the ledger's own H1 title — this is a subsection of the

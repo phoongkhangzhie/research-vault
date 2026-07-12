@@ -114,10 +114,10 @@ def _drive_to_relevance_screen(monkeypatch, tmp_instance: Path, scope: str):
             "|---|---|---|---|---|---|---|\n" + _CORPUS_RAW_ROWS,
             encoding="utf-8",
         )
-        (out / "_saturation.md").write_text(
-            "---\nstop_reason: saturated\n---\n\nSaturation curve.\n", encoding="utf-8",
+        (out / "_walk.md").write_text(
+            "---\nstop_reason: walk-complete:1-hops\n---\n\nCitation-neighbor relevance walk.\n", encoding="utf-8",
         )
-        return {"stop_reason": "saturated"}
+        return {"stop_reason": "walk-complete:1-hops"}
 
     monkeypatch.setitem(_auto.OP_REGISTRY, "sweep", _fake_sweep)
     monkeypatch.setitem(_auto.OP_REGISTRY, "snowball", _fake_snowball)

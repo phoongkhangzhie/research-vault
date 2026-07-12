@@ -730,7 +730,7 @@ def write_search_hits(
     evidence (abstract, venue, year), not on titles alone.
 
     Stamps flat frontmatter with ``dark_sources:`` (comma-joined, empty when
-    none) — same convention ``sources/snowball.py``'s ``write_saturation``
+    none) — same convention ``sources/snowball.py``'s ``write_walk_report``
     uses for ``stop_reason:`` — the machine-readable signal
     ``review.check_source_coverage`` reads to fail-closed the coverage-gate
     when a source declared in the protocol's ``sources:`` list never

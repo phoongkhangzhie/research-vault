@@ -610,8 +610,8 @@ def _print_candidates(
     When notes_index (loaded from the project's literature/ OKF dir — Fix #32,
     extended by rv-refs-corpus-fix to mine `url:`) and/or notes_title_index
     (title+author fallback — rv-refs-corpus-fix) is provided, each candidate is
-    annotated [IN-CORPUS:<citekey>] or [NEW] so the lit-review saturation
-    stopping rule can detect when a snowball round adds no new papers.
+    annotated [IN-CORPUS:<citekey>] or [NEW] so the lit-review citation-
+    neighbor walk can detect when a hop adds no new papers.
     """
     print(f"\n{len(papers)} candidate(s)\n")
     for p in papers:
@@ -1349,7 +1349,8 @@ def build_parser(
             "--deep/WebSearch escalation still recommended for deep recall. "
             "Anti-pattern: do NOT rely on find alone for systematic lit review — it is a "
             "starting point; use `rv review <project> new <scope>` + `rv dag run` "
-            "for a protocol-gated, saturation-snowballed systematic review."
+            "for a protocol-gated systematic review with a citation-neighbor "
+            "relevance walk."
         ),
     )
     find_p.add_argument("query")

@@ -63,11 +63,11 @@ def _search_hits_note(path: Path) -> Path:
     return path
 
 
-def _saturation_note(path: Path, *, stop_reason: str = "saturated") -> Path:
+def _walk_note(path: Path, *, stop_reason: str = "walk-complete:1-hops") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         f"---\nstop_reason: {stop_reason}\nunresolvable_count: 0\n---\n\n"
-        "# Saturation curve\n\n"
+        "# Citation-neighbor relevance walk\n\n"
         "| Round | New (forward) | New (backward) | New independent | Cumulative | Direction-starved |\n"
         "|---|---|---|---|---|---|\n"
         "| 1 | 4 | 2 | 5 | 5 |  |\n"
@@ -102,7 +102,7 @@ def _build_scope(tmp_path: Path, name: str = "demo-scope") -> tuple[Path, Path]:
     review_dir = tmp_path / "reviews" / name
     _protocol_note(review_dir / "_protocol.md")
     _search_hits_note(review_dir / "_search_hits.md")
-    _saturation_note(review_dir / "_saturation.md")
+    _walk_note(review_dir / "_walk.md")
     _corpus_note(review_dir / "_corpus.md")
     lit_dir = tmp_path / "notes" / "demo" / "literature"
     _literature_notes(lit_dir)
@@ -128,7 +128,7 @@ class TestSchemaConformance:
         expected_keys = {
             "type", "review_scope", "schema_version", "ledger_complete",
             "matrix_hash", "angles_searched", "distinct_query_count", "matrix_band_ok",
-            "stop_reason", "bounded_not_saturated", "open_counter_poles",
+            "stop_reason", "walk_bounded", "open_counter_poles",
             "critic_backtrack_rounds",
             "relevance_verdict_total", "off_domain_count", "uncertain_count",
             "off_domain_fraction", "relevance_disposition", "relevance_canary_ok",
@@ -143,7 +143,7 @@ class TestSchemaConformance:
         assert fields["matrix_hash"].startswith("sha256:")
         assert fields["angles_searched"] == "by-method, by-outcome"
         assert str(fields["distinct_query_count"]) == "2"
-        assert fields["stop_reason"] == "saturated"
+        assert fields["stop_reason"] == "walk-complete:1-hops"
         assert fields["citekey_convention"] == "authorYearWord"
         assert str(fields["citekey_conformant_count"]) == "2"
         assert str(fields["citekey_nonconformant_count"]) == "0"
@@ -160,7 +160,7 @@ class TestSchemaConformance:
         text = out.read_text(encoding="utf-8")
         for heading in (
             "## Search plan provenance",
-            "## Saturation",
+            "## Citation-neighbor walk",
             "## Relevance-gate dispositions",
             "## Canonical-key map",
             "## Open coverage residue",
@@ -200,9 +200,9 @@ class TestVerifiablePropertiesFromLedgerAlone:
         review_dir, lit_dir = _build_scope(tmp_path)
         out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
-        # COMPLETE: angles + saturation + open poles all present/derivable
+        # COMPLETE: angles + walk-terminal stop_reason + open poles all present/derivable
         assert fields["angles_searched"]
-        assert fields["stop_reason"] == "saturated"
+        assert fields["stop_reason"] == "walk-complete:1-hops"
         assert fields["open_counter_poles"] == ""  # no _coverage-gaps.md -> nothing open
 
     def test_clean_verifiable(self, tmp_path):
@@ -225,7 +225,7 @@ class TestVerifiablePropertiesFromLedgerAlone:
         review_dir = tmp_path / "reviews" / "bad-scope"
         _protocol_note(review_dir / "_protocol.md")
         _search_hits_note(review_dir / "_search_hits.md")
-        _saturation_note(review_dir / "_saturation.md")
+        _walk_note(review_dir / "_walk.md")
         _corpus_note(review_dir / "_corpus.md", rows=[("[NEW]", "S2:123456")])
         out = write_corpus_ledger(review_dir, literature_dir=None)
         fields, _ = _parse_frontmatter(out.read_text(encoding="utf-8"))
@@ -243,7 +243,7 @@ class TestAdditive:
         siblings = [
             review_dir / "_protocol.md",
             review_dir / "_search_hits.md",
-            review_dir / "_saturation.md",
+            review_dir / "_walk.md",
             review_dir / "_corpus.md",
         ]
         before_text = {p: p.read_text(encoding="utf-8") for p in siblings}
@@ -292,9 +292,9 @@ class TestFailClosed:
         # The malformed row must not silently inflate the counted total.
         assert int(fields["accepted"]) == 1
 
-    def test_missing_saturation_flips_ledger_incomplete(self, tmp_path):
+    def test_missing_walk_report_flips_ledger_incomplete(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
-        (review_dir / "_saturation.md").unlink()
+        (review_dir / "_walk.md").unlink()
         out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert str(fields["ledger_complete"]).strip().lower() == "false"
@@ -432,7 +432,7 @@ class TestCoverageGapsResidue:
     def test_coverage_gaps_file_surfaced_verbatim(self, tmp_path):
         review_dir, lit_dir = _build_scope(tmp_path)
         (review_dir / "_coverage-gaps.md").write_text(
-            "terminated by backstop after 3 waves; corpus is bounded-not-saturated.\n\n"
+            "terminated by the total-fetch budget; corpus is bounded, not depth-complete.\n\n"
             "- stability sub-literature remains under-explored\n"
             "- concepts/robustness still growing at termination\n",
             encoding="utf-8",
@@ -440,7 +440,7 @@ class TestCoverageGapsResidue:
         out = write_corpus_ledger(review_dir, literature_dir=lit_dir, literature_root=lit_dir)
         fields, text = _parse_frontmatter(out.read_text(encoding="utf-8"))
         assert "stability sub-literature" in fields["open_counter_poles"]
-        assert "bounded-not-saturated" in text
+        assert "not depth-complete" in text
         assert str(fields["ledger_complete"]).strip().lower() == "true"
 
 

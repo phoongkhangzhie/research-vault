@@ -12,7 +12,7 @@ This test drives the REAL DAG runner (``cmd_run``/``cmd_tick``/
 ``review._build_phase1_manifest`` (via ``review.cmd_new``), injecting ONLY
 the network boundary — a fake ``SourceAdapter`` registered where a real
 adapter would normally be resolved. It never monkeypatches ``run_tool_op``,
-``_op_sweep``, ``_op_snowball``, or ``run_snowball_to_saturation`` — the
+``_op_sweep``, ``_op_snowball``, or ``run_citation_neighbor_walk`` — the
 real op bodies run, for real, against the fake adapter.
 
 Coverage (mirrors the spec's 5 numbered asserts):
@@ -21,13 +21,15 @@ Coverage (mirrors the spec's 5 numbered asserts):
      -> review-curate[agent] -> coverage-gate).
   2. A subprocess spy proves the removed verbs (sweep/cited-by/references)
      are never shelled, for the entire run.
-  3. _search_hits.md ([NEW]/[IN-CORPUS] + per-cell counts), _saturation.md
-     (stop_reason: exactly saturated|backstop:N-waves), _corpus_raw.md all
-     exist on disk, written by the REAL tool ops.
+  3. _search_hits.md ([NEW]/[IN-CORPUS] + per-cell counts), _walk.md
+     (stop_reason: exactly walk-complete:N-hops|neighborhood-exhausted|
+     budget:N-calls), _corpus_raw.md all exist on disk, written by the REAL
+     tool ops.
   4. produces: enforcement — an op that returns without writing its
      declared artifact drives the node to blocked, not succeeded.
-  5. Backstop path: a never-saturating fake neighborhood -> stop_reason
-     backstop:N-waves + _coverage-gaps.md written by review-curate.
+  5. Budget path: a never-exhausting fake neighborhood with a tiny fetch
+     budget -> stop_reason budget:N-calls + _coverage-gaps.md written by
+     review-curate.
 """
 from __future__ import annotations
 
@@ -167,7 +169,7 @@ _REALISTIC_SCREEN_MD_TEMPLATE = (
 def _drive_through_screen(run_id, review_dir, store, seed_line: str = "10.1000/fakeseed\n") -> None:
     """review-scope -> approve-protocol -> review-search(tool, real op) ->
     review-screen(agent, hand-completed) — the shared prefix of both the
-    saturating and backstop scenarios.
+    neighborhood-exhausted and walk-complete scenarios.
 
     ``_screen.md`` is written as a REALISTIC note (YAML frontmatter + prose
     exclusion audit trail + a fenced ```seeds``` block) — not a bare-id
@@ -235,7 +237,7 @@ class TestRealRunnerEndToEnd:
     shelled; the three tool-written artifacts land on disk with the
     expected shape."""
 
-    def test_saturated_path_writes_all_tool_artifacts_no_removed_verb_shelled(
+    def test_neighborhood_exhausted_path_writes_all_tool_artifacts_no_removed_verb_shelled(
         self, tmp_instance: Path, monkeypatch, subprocess_spy,
     ):
         from research_vault.config import load_config
@@ -246,14 +248,15 @@ class TestRealRunnerEndToEnd:
 
         cfg = load_config()
 
-        # Round 1 finds one genuinely new paper; rounds 2+3 find nothing ->
-        # 2-consecutive-zero -> "saturated". This scenario needs >= 3 waves
-        # available (1 to find something + 2 to plateau) — the shipped
-        # DEFAULT is now 2 (breadth x depth bounds fix), so bump it back to
-        # 3 for THIS test only (it's specifically exercising the saturated
-        # path, not the default wave count — that's covered by
-        # test_review_saturation_backstop.py).
-        monkeypatch.setattr(review_style, "DEFAULT_SATURATION_BACKSTOP_WAVES", 3)
+        # Hop 1 finds one genuinely new paper; hops 2+3 find nothing ->
+        # 2-consecutive-zero -> "neighborhood-exhausted". This scenario
+        # needs >= 3 hops available (1 to find something + 2 to plateau) —
+        # the shipped DEFAULT is now 1 (0.3.1 citation-neighbor walk), so
+        # bump it to 3 for THIS test only (it's specifically exercising the
+        # neighborhood-exhausted path, not the default hop count — that's
+        # covered by test_review_walk_terminal.py + the sibling
+        # default-1-hop test in this file).
+        monkeypatch.setattr(review_style, "DEFAULT_RELEVANCE_HOPS", 3)
         _register_fake_adapter(
             monkeypatch,
             search_hits=[_hit("A Width-Swept Paper", "10.1000/searchhit1")],
@@ -287,10 +290,10 @@ class TestRealRunnerEndToEnd:
         assert corpus_raw_path.exists()
         assert "A Snowballed Paper" in corpus_raw_path.read_text(encoding="utf-8")
 
-        saturation_path = review_dir / "_saturation.md"
-        assert saturation_path.exists()
-        saturation_text = saturation_path.read_text(encoding="utf-8")
-        assert "stop_reason: saturated" in saturation_text
+        walk_path = review_dir / "_walk.md"
+        assert walk_path.exists()
+        walk_text = walk_path.read_text(encoding="utf-8")
+        assert "stop_reason: neighborhood-exhausted" in walk_text
 
         # review-curate (agent) writes the FINAL _corpus.md.
         corpus_path = review_dir / "_corpus.md"
@@ -362,11 +365,17 @@ class TestProducesEnforcementRealPath:
         assert "seed_queries" in rs.node_states["review-search"].get("tool_error", "")
 
 
-class TestBackstopPath:
-    """Item 5: a never-saturating fake neighborhood -> stop_reason
-    backstop:N-waves + _coverage-gaps.md written by review-curate."""
+class TestDefaultOneHopWalkCompletePath:
+    """Item 5 (0.3.1 retarget): a never-plateauing fake neighborhood driven
+    through the REAL runner at the SHIPPED DEFAULT (no relevance_hops
+    override) — confirming the load-bearing 0.3.1 invariant: a 1-hop run
+    GOes cleanly through coverage-gate end-to-end, stop_reason
+    walk-complete:1-hops, NO _coverage-gaps.md demanded (depth-bounding is
+    the design, not a shortfall)."""
 
-    def test_backstop_terminates_and_coverage_gaps_written(self, tmp_instance: Path, monkeypatch):
+    def test_default_one_hop_walk_complete_goes_no_residue_demanded(
+        self, tmp_instance: Path, monkeypatch,
+    ):
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick, cmd_approve, cmd_complete, cmd_run
         from research_vault.dag.store import RunStore
@@ -374,9 +383,11 @@ class TestBackstopPath:
 
         cfg = load_config()
 
-        # Every round yields a genuinely distinct, non-derivative new paper
-        # -> never 2-consecutive-zero -> the wave-cap backstop fires
-        # (default backstop_waves is now 2 — breadth x depth bounds fix).
+        # Every round would yield a genuinely distinct, non-derivative new
+        # paper (never 2-consecutive-zero) — at relevance_hops=1 (the
+        # shipped default, no override here), the walk runs exactly ONE hop
+        # cleanly to depth and stops with "walk-complete:1-hops" — round 2's
+        # script entry is deliberately present to prove it's NEVER reached.
         _register_fake_adapter(
             monkeypatch,
             search_hits=[_hit("Seed Search Hit", "10.1000/searchhit2")],
@@ -387,7 +398,7 @@ class TestBackstopPath:
         )
 
         note_path, review_dir, phase1 = cmd_new(
-            "demo-research", "scope-integration-backstop", question="Q2?", config=cfg,
+            "demo-research", "scope-integration-walk-complete", question="Q2?", config=cfg,
         )
         manifest_path = review_dir / "phase1-dag.json"
         rc = cmd_run(argparse.Namespace(manifest=str(manifest_path)))
@@ -400,11 +411,16 @@ class TestBackstopPath:
         rs = store.load(run_id)
         assert rs.node_status("review-snowball") == "succeeded", rs.node_states.get("review-snowball")
 
-        saturation_path = review_dir / "_saturation.md"
-        saturation_text = saturation_path.read_text(encoding="utf-8")
-        assert "stop_reason: backstop:2-waves" in saturation_text
+        walk_path = review_dir / "_walk.md"
+        walk_text = walk_path.read_text(encoding="utf-8")
+        assert "stop_reason: walk-complete:1-hops" in walk_text
+        # Round 2's script entry (Distinct Paper Beta) was never reached —
+        # the walk stopped at the 1-hop bound, not because it ran dry.
+        assert "Distinct Paper Beta" not in (review_dir / "_corpus_raw.md").read_text(encoding="utf-8")
 
-        # review-curate (agent): backstop-termination REQUIRES _coverage-gaps.md.
+        # review-curate (agent) writes the FINAL _corpus.md — NO
+        # _coverage-gaps.md needed at walk-complete:N-hops (a clean,
+        # expected terminal, never a shortfall to declare).
         corpus_path = review_dir / "_corpus.md"
         corpus_path.write_text(
             "| annotation | citekey | title |\n|---|---|---|\n"
@@ -412,10 +428,7 @@ class TestBackstopPath:
             encoding="utf-8",
         )
         gaps_path = review_dir / "_coverage-gaps.md"
-        gaps_path.write_text(
-            "terminated by backstop after 2 waves; corpus is bounded-not-saturated.\n",
-            encoding="utf-8",
-        )
+        assert not gaps_path.exists()
         rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-curate", status="succeeded"))
         assert rc == 0
 
@@ -425,5 +438,7 @@ class TestBackstopPath:
         assert rc == 0
         rs = store.load(run_id)
         assert rs.node_status("coverage-gate") == "succeeded"
-        assert "GO-WITH-RESIDUE" in rs.node_states["coverage-gate"]["decision_note"]
-        assert gaps_path.exists()
+        decision_note = rs.node_states["coverage-gate"]["decision_note"]
+        assert "GO" in decision_note
+        assert "GO-WITH-RESIDUE" not in decision_note
+        assert not gaps_path.exists()  # never demanded, never fabricated

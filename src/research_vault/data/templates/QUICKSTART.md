@@ -292,7 +292,7 @@ Frontier:
 
 - Research question and inclusion/exclusion criteria
 - Seed queries and planned sources
-- Saturation stopping rule
+- Citation-neighbor walk depth bound (relevance hops)
 
 This is **Gate 1** (a cheap screen before the expensive search). I can't approve this
 myself — the crew cannot self-approve. Please review the protocol note and, if it looks
@@ -304,8 +304,8 @@ rv dag approve review-scope-xling-transfer-phase1 approve-protocol
 
 Once you approve, `review-search` (a deterministic width-sweep tool node) fires, then
 the researcher screens the hits (`review-screen`), then `review-snowball` (the
-deterministic saturation walk) runs, the researcher curates the raw corpus
-(`review-curate`), and I'll surface `coverage-gate` for your final review before
+deterministic citation-neighbor relevance walk) runs, the researcher curates the raw
+corpus (`review-curate`), and I'll surface `coverage-gate` for your final review before
 Phase-2 synthesis begins.
 
 ---
@@ -338,14 +338,16 @@ the pre-registration plan has been critiqued and frozen, and each main's harness
 is reviewed independently before its own `human-go-harness-<main>` gate. Start
 one with `rv experiment <project> new <id> --question '...'`.
 
-### Lit-review loop — pre-registered, saturation-gated
+### Lit-review loop — pre-registered, citation-neighbor relevance walk
 
 The protocol (question, seed queries, inclusion/exclusion, and a required
 counter-position) must be approved at `approve-protocol` before any search fires
 (the L-2 anti-fishing gate). A deterministic width-sweep (`review-search`) is
 screened by a thin agent judgment layer (`review-screen`); a deterministic
-both-direction snowball walk (`review-snowball`) then runs to saturation. The
-raw pool passes a **relevance gate** — a mechanical off-domain pre-filter
+both-direction citation-neighbor relevance walk (`review-snowball`) then runs,
+depth-bounded by `--relevance-hops` (default 1 — the vetted core plus its
+immediate citation neighborhood; recall is owned by the search, not deep
+snowballing). The raw pool passes a **relevance gate** — a mechanical off-domain pre-filter
 (`review-relevance-screen`) ahead of concept-tagging and curation
 (`review-curate`), then a cold, canary-verified re-check
 (`review-relevance-verify`) of every `[NEW]` paper — before the final corpus

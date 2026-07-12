@@ -16,7 +16,7 @@ Coverage:
          coverage-gate nodes in correct order
      3f. review-scope produces _protocol.md sidecar
      3g. review-search has artifact-watch on _protocol.md in needs
-     3h. review-snowball produces _corpus.md and _saturation.md
+     3h. review-snowball produces _corpus.md and _walk.md
      3i. coverage-gate is human-go
      3j. spec strings pull from review_tips seam (non-empty)
   4. review cmd_new — counter-position (L-2 gate) in spec
@@ -244,15 +244,15 @@ def test_review_search_watches_protocol(review_new_result):
     )
 
 
-def test_review_snowball_produces_corpus_raw_and_saturation(review_new_result):
-    """review-snowball (tool) produces _corpus_raw.md and _saturation.md —
+def test_review_snowball_produces_corpus_raw_and_walk_report(review_new_result):
+    """review-snowball (tool) produces _corpus_raw.md and _walk.md —
     the FINAL _corpus.md is review-curate's output (Option C hybrid)."""
     note_path, review_dir, manifest = review_new_result
     snowball_node = next(n for n in manifest["nodes"] if n["id"] == "review-snowball")
     produces = snowball_node.get("produces", [])
     produces_str = " ".join(str(p) for p in produces)
     assert "_corpus_raw.md" in produces_str, f"Missing _corpus_raw.md in produces: {produces!r}"
-    assert "_saturation.md" in produces_str, f"Missing _saturation.md in produces: {produces!r}"
+    assert "_walk.md" in produces_str, f"Missing _walk.md in produces: {produces!r}"
 
 
 def test_review_curate_produces_final_corpus(review_new_result):

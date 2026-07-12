@@ -109,39 +109,53 @@ class TestClassifyDisposition:
 # ---------------------------------------------------------------------------
 
 class TestClassifyCoverageGate:
-    def test_saturated_is_go(self):
-        info = {"exists": True, "stop_reason": "saturated", "is_backstop": False, "wave_count": None}
+    def test_walk_complete_is_go(self):
+        info = {"exists": True, "stop_reason": "walk-complete:1-hops", "walk_complete": True, "hop_count": 1}
         result = auto.classify_coverage_gate(info)
         assert result.disposition == auto.GO
 
-    def test_backstop_with_gaps_note_is_go_with_residue(self, tmp_path):
+    def test_neighborhood_exhausted_is_go(self):
+        info = {"exists": True, "stop_reason": "neighborhood-exhausted", "walk_complete": False, "hop_count": None}
+        result = auto.classify_coverage_gate(info)
+        assert result.disposition == auto.GO
+
+    def test_walk_complete_demands_no_gaps_note(self, tmp_path):
+        """0.3.1: walk-complete:N-hops is the normal terminal — GO even when
+        no _coverage-gaps.md exists at all (never demanded)."""
+        gaps = tmp_path / "_coverage-gaps.md"  # never written
+        info = {"exists": True, "stop_reason": "walk-complete:1-hops", "walk_complete": True, "hop_count": 1}
+        result = auto.classify_coverage_gate(info, coverage_gaps_path=gaps)
+        assert result.disposition == auto.GO
+
+    def test_budget_with_gaps_note_is_go_with_residue(self, tmp_path):
         gaps = tmp_path / "_coverage-gaps.md"
         gaps.write_text("open frontier\n")
-        info = {"exists": True, "stop_reason": "backstop:3-waves", "is_backstop": True, "wave_count": 3}
+        info = {"exists": True, "stop_reason": "budget:200-calls", "walk_complete": False, "hop_count": None}
         result = auto.classify_coverage_gate(info, coverage_gaps_path=gaps)
         assert result.disposition == auto.GO_WITH_RESIDUE
-        assert result.evidence["stop_reason"] == "backstop:3-waves"
+        assert result.evidence["stop_reason"] == "budget:200-calls"
 
-    def test_backstop_without_gaps_note_halts(self, tmp_path):
+    def test_budget_without_gaps_note_halts(self, tmp_path):
         gaps = tmp_path / "_coverage-gaps.md"  # never written
-        info = {"exists": True, "stop_reason": "backstop:3-waves", "is_backstop": True, "wave_count": 3}
+        info = {"exists": True, "stop_reason": "budget:200-calls", "walk_complete": False, "hop_count": None}
         result = auto.classify_coverage_gate(info, coverage_gaps_path=gaps)
         assert result.disposition == auto.HALT_DECLARE
 
-    def test_missing_saturation_file_halts(self):
-        info = {"exists": False, "stop_reason": "", "is_backstop": False, "wave_count": None}
+    def test_missing_walk_file_halts(self):
+        info = {"exists": False, "stop_reason": "", "walk_complete": False, "hop_count": None}
         result = auto.classify_coverage_gate(info)
         assert result.disposition == auto.HALT_DECLARE
 
     @pytest.mark.parametrize(
         "stop_reason",
-        ["", "backstop-3-waves", "backstop after 3 waves", "Saturated", "SATURATED ",
-         "garbage", "not sure", "1"],
+        ["", "walk-complete-1-hops", "walk complete after 1 hop", "saturated", "SATURATED ",
+         "backstop:3-waves", "garbage", "not sure", "1"],
     )
     def test_malformed_or_noncanonical_stop_reason_halts(self, stop_reason):
-        """Whitelist, not blacklist — every non-canonical spelling must
-        fail closed, never sail through as if saturated."""
-        info = {"exists": True, "stop_reason": stop_reason, "is_backstop": False, "wave_count": None}
+        """Whitelist, not blacklist — every non-canonical spelling (including
+        the legacy pre-0.3.1 vocabulary) must fail closed, never sail through
+        as if the walk completed cleanly."""
+        info = {"exists": True, "stop_reason": stop_reason, "walk_complete": False, "hop_count": None}
         result = auto.classify_coverage_gate(info)
         assert result.disposition == auto.HALT_DECLARE
 
@@ -150,18 +164,18 @@ class TestClassifyCoverageGate:
 # 2b. classify_coverage_gate — source-coverage fail-closed (pre-publish
 # hardening batch, 2026-07-09 downstream e2e-run finding): a source declared
 # in the protocol's `sources:` list that went DARK this sweep must HALT,
-# even when the saturation record itself would otherwise say "saturated".
+# even when the walk record itself would otherwise say "walk-complete:N-hops".
 # ---------------------------------------------------------------------------
 
 class TestClassifyCoverageGateSourceDark:
-    SATURATED_INFO = {"exists": True, "stop_reason": "saturated", "is_backstop": False, "wave_count": None}
+    WALK_COMPLETE_INFO = {"exists": True, "stop_reason": "walk-complete:1-hops", "walk_complete": True, "hop_count": 1}
 
-    def test_declared_dark_source_halts_even_when_saturated(self):
+    def test_declared_dark_source_halts_even_when_walk_complete(self):
         """The dark-source check must short-circuit BEFORE the (otherwise
-        GO) saturation logic runs — a genuinely-saturated-looking record is
+        GO) walk-terminal logic runs — a genuinely-clean-looking record is
         NOT trustworthy if a declared source never actually answered."""
         source_info = {"exists": True, "dark_sources": ["arxiv"], "declared_dark": ["arxiv"]}
-        result = auto.classify_coverage_gate(self.SATURATED_INFO, source_coverage_info=source_info)
+        result = auto.classify_coverage_gate(self.WALK_COMPLETE_INFO, source_coverage_info=source_info)
         assert result.disposition == auto.HALT_DECLARE
         assert "arxiv" in result.reason
         assert result.evidence["declared_dark_sources"] == ["arxiv"]
@@ -171,18 +185,18 @@ class TestClassifyCoverageGateSourceDark:
         `sources:` list (e.g. an opt-in source nobody asked for) must not
         block — only DECLARED coverage is a promise the gate must keep."""
         source_info = {"exists": True, "dark_sources": ["pubmed"], "declared_dark": []}
-        result = auto.classify_coverage_gate(self.SATURATED_INFO, source_coverage_info=source_info)
+        result = auto.classify_coverage_gate(self.WALK_COMPLETE_INFO, source_coverage_info=source_info)
         assert result.disposition == auto.GO
 
-    def test_no_dark_sources_proceeds_to_normal_saturation_logic(self):
+    def test_no_dark_sources_proceeds_to_normal_walk_terminal_logic(self):
         source_info = {"exists": True, "dark_sources": [], "declared_dark": []}
-        result = auto.classify_coverage_gate(self.SATURATED_INFO, source_coverage_info=source_info)
+        result = auto.classify_coverage_gate(self.WALK_COMPLETE_INFO, source_coverage_info=source_info)
         assert result.disposition == auto.GO
 
     def test_source_coverage_info_none_is_backward_compatible(self):
         """Callers that don't pass source_coverage_info at all (pre-existing
         call sites) must behave exactly as before this feature."""
-        result = auto.classify_coverage_gate(self.SATURATED_INFO, source_coverage_info=None)
+        result = auto.classify_coverage_gate(self.WALK_COMPLETE_INFO, source_coverage_info=None)
         assert result.disposition == auto.GO
 
 

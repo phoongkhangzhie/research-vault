@@ -1085,7 +1085,7 @@ def render_provenance_header() -> str:
     enforces this: a literal ``sha256:...`` in reader prose is a hard BLOCK).
 
     This is deliberately static boilerplate, not survey-specific data — the
-    per-survey counts/funnel/saturation-stop detail lives in the project's
+    per-survey counts/funnel/walk-stop detail lives in the project's
     DEVLOG/control note (``render_prisma_ledger``'s output,
     gold-settled: `report.md` carries no Appendix, so this can no longer
     point the reader at one), never fabricated here.
@@ -1102,8 +1102,8 @@ def render_provenance_header() -> str:
     """
     return (
         "> This survey follows a pre-registered protocol — frozen inclusion/"
-        "exclusion criteria, a documented multi-source search and snowball "
-        "process, and a saturation-verified stopping rule. The full audit "
+        "exclusion criteria, a documented multi-source search and a "
+        "depth-bounded citation-neighbor relevance walk. The full audit "
         "trail (PRISMA funnel, corpus provenance, any scope deviations) is "
         "in the project's control note."
     )
@@ -1337,7 +1337,7 @@ STYLE_BRIEFS: dict[str, str] = {
         "— do NOT render an 'Appendix A' section, and do NOT join this "
         "content into `report.md` at all. Instead, write the full methods/"
         "audit-trail record (inclusion/exclusion criteria, PRISMA funnel "
-        "table, saturation stop, counter-position list) from the injected "
+        "table, citation-neighbor walk stop, counter-position list) from the injected "
         "PRISMA ledger (mechanical — counts come from `rv review "
         "coverage`, never estimated by you) as a DATED ENTRY in the "
         "project's `DEVLOG.md` (or this run's control note, if the project "

@@ -1,13 +1,14 @@
-"""test_snowball.py — sources.snowball.run_snowball_to_saturation (Option C
-§4-B, docs/superpowers/specs/2026-07-09-review-loop-nodekind-drift-fix.md).
+"""test_snowball.py — sources.snowball.run_citation_neighbor_walk (0.3.1
+citation-neighbor relevance walk; Option C §4-B,
+docs/superpowers/specs/2026-07-09-review-loop-nodekind-drift-fix.md).
 
 Coverage:
-  1. saturation: 2 consecutive zero-independent-new rounds -> stop_reason == "saturated"
-  2. backstop: a never-saturating neighborhood hits the wave cap -> "backstop:N-waves"
+  1. neighborhood-exhausted: 2 consecutive zero-independent-new hops -> stop_reason == "neighborhood-exhausted"
+  2. walk-complete: a never-plateauing neighborhood hits the hop cap -> "walk-complete:N-hops"
   3. direction-starved flag when only one direction returns hits
   4. derivative discount: a near-duplicate restatement doesn't count as independent-new
   5. an adapter raising NotSupported degrades gracefully (no crash)
-  6. write_corpus_raw / write_saturation render the expected artifacts
+  6. write_corpus_raw / write_walk_report render the expected artifacts
   7. resumable checkpoint: a mid-walk kill leaves a checkpoint + partial
      corpus on disk; re-invoking RESUMES (no re-fetch of visited ids) and
      reaches the same terminal corpus as an uninterrupted run
@@ -25,9 +26,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from research_vault.sources.base import NotSupported, PaperHit
 from research_vault.sources.snowball import (
-    run_snowball_to_saturation,
+    run_citation_neighbor_walk,
     write_corpus_raw,
-    write_saturation,
+    write_walk_report,
 )
 
 
@@ -74,15 +75,15 @@ class _ScriptedAdapter:
         return bwd
 
 
-def test_saturation_two_consecutive_zero_rounds():
+def test_neighborhood_exhausted_two_consecutive_zero_rounds():
     adapter = _ScriptedAdapter({
         1: ([_hit("New Paper 1", doi="10.1/new1")], []),
         2: ([], []),
         3: ([], []),
     })
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
-    assert result.stop_reason == "saturated"
-    assert result.is_backstop is False
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
+    assert result.stop_reason == "neighborhood-exhausted"
+    assert result.walk_complete is False
     # round 1 found something, rounds 2+3 found nothing -> 2 consecutive zero -> stop
     assert len(result.rounds) == 3
     assert result.rounds[0].new_independent == 1
@@ -90,17 +91,17 @@ def test_saturation_two_consecutive_zero_rounds():
     assert result.rounds[2].new_independent == 0
 
 
-def test_backstop_never_saturates():
+def test_walk_complete_never_exhausts():
     # Every round returns a genuinely new, non-derivative paper -> never
-    # 2-consecutive-zero -> backstop fires at the wave cap.
+    # 2-consecutive-zero -> the walk runs cleanly to the hop cap.
     adapter = _ScriptedAdapter({
         1: ([_hit("Distinct Paper Alpha population outcome method one", doi="10.1/a1")], []),
         2: ([_hit("Distinct Paper Beta measurement design cohort two", doi="10.1/a2")], []),
         3: ([_hit("Distinct Paper Gamma protocol trial sample three", doi="10.1/a3")], []),
     })
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
-    assert result.stop_reason == "backstop:3-waves"
-    assert result.is_backstop is True
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
+    assert result.stop_reason == "walk-complete:3-hops"
+    assert result.walk_complete is True
     assert len(result.rounds) == 3
 
 
@@ -110,7 +111,7 @@ def test_direction_starved_flag():
         2: ([], []),
         3: ([], []),
     })
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
     assert result.rounds[0].direction_starved is True
     assert result.rounds[0].new_forward == 1
     assert result.rounds[0].new_backward == 0
@@ -126,7 +127,7 @@ def test_derivative_discount_does_not_count_as_independent_new():
         2: ([], []),
         3: ([], []),
     })
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
     # Two hits arrived, but one is a near-duplicate restatement of the
     # other -> only 1 counts as independent-new.
     assert result.rounds[0].new_independent == 1
@@ -140,9 +141,9 @@ def test_not_supported_degrades_gracefully():
             raise NotSupported("no reference graph")
 
     adapter = _NoBackwardAdapter({1: ([_hit("Fwd Only", doi="10.1/f")], []), 2: ([], []), 3: ([], [])})
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
     assert result.errors == []
-    assert result.stop_reason in ("saturated", "backstop:3-waves")
+    assert result.stop_reason in ("neighborhood-exhausted", "walk-complete:3-hops")
 
 
 def test_unexpected_exception_recorded_not_raised():
@@ -151,15 +152,15 @@ def test_unexpected_exception_recorded_not_raised():
             raise RuntimeError("adapter unreachable")
 
     adapter = _BoomAdapter({1: ([], []), 2: ([], []), 3: ([], [])})
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
     assert any("adapter unreachable" in e for e in result.errors)
     assert result.stop_reason  # never blank
 
 
 def test_stop_reason_never_blank_and_exactly_canonical():
     adapter = _ScriptedAdapter({1: ([], []), 2: ([], []), 3: ([], [])})
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
-    assert result.stop_reason == "saturated"
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
+    assert result.stop_reason == "neighborhood-exhausted"
 
 
 # ---------------------------------------------------------------------------
@@ -212,8 +213,8 @@ def test_one_bad_seed_is_skipped_walk_continues_and_completes():
     adapter = _RaisingSeedAdapter(
         {1: ([good_hit], [])}, bad_ids={"ARXIV:2407.16891"},
     )
-    result = run_snowball_to_saturation(
-        ["10.1/goodseed", "2407.16891"], adapter=adapter, backstop_waves=3,
+    result = run_citation_neighbor_walk(
+        ["10.1/goodseed", "2407.16891"], adapter=adapter, relevance_hops=3,
     )
     # Never aborts/raises (the test reaching here at all is half the proof).
     assert result.stop_reason  # never blank
@@ -225,10 +226,10 @@ def test_one_bad_seed_is_skipped_walk_continues_and_completes():
 
 def test_all_seeds_fail_degrades_gracefully_no_crash():
     """Every seed 404s -> graceful empty-corpus outcome with a distinct,
-    honest stop_reason (never mislabeled "saturated") — no crash."""
+    honest stop_reason (never mislabeled "neighborhood-exhausted") — no crash."""
     adapter = _RaisingSeedAdapter({}, bad_ids={"ARXIV:1111.11111", "DOI:10.1234/allbad2"})
-    result = run_snowball_to_saturation(
-        ["1111.11111", "10.1234/allbad2"], adapter=adapter, backstop_waves=3,
+    result = run_citation_neighbor_walk(
+        ["1111.11111", "10.1234/allbad2"], adapter=adapter, relevance_hops=3,
     )
     assert result.stop_reason == "no-seeds-resolved"
     assert result.kept == []
@@ -238,13 +239,13 @@ def test_all_seeds_fail_degrades_gracefully_no_crash():
 
 def test_all_seeds_fail_still_writes_artifacts(tmp_path):
     adapter = _RaisingSeedAdapter({}, bad_ids={"ARXIV:1111.11111"})
-    result = run_snowball_to_saturation(["1111.11111"], adapter=adapter, backstop_waves=3)
+    result = run_citation_neighbor_walk(["1111.11111"], adapter=adapter, relevance_hops=3)
 
     corpus_out = write_corpus_raw(result, tmp_path / "_corpus_raw.md")
     assert corpus_out.exists()
     assert "no-seeds-resolved" in corpus_out.read_text()
 
-    sat_out = write_saturation(result, tmp_path / "_saturation.md")
+    sat_out = write_walk_report(result, tmp_path / "_walk.md")
     sat_text = sat_out.read_text()
     assert "stop_reason: no-seeds-resolved" in sat_text
     assert "unresolvable_count: 1" in sat_text
@@ -256,9 +257,9 @@ def test_seed_ids_normalized_before_adapter_call():
     DOI reaches it DOI:-prefixed; an already-prefixed / S2-sha id passes
     through unchanged. Spy on the actual argument the adapter receives."""
     adapter = _RaisingSeedAdapter({}, bad_ids=set())
-    run_snowball_to_saturation(
+    run_citation_neighbor_walk(
         ["2005.14165", "10.1234/x.2023", "ARXIV:1706.03762"],
-        adapter=adapter, backstop_waves=1,
+        adapter=adapter, relevance_hops=1,
     )
     assert adapter.cited_by_ids == ["ARXIV:2005.14165", "DOI:10.1234/x.2023", "ARXIV:1706.03762"]
     assert adapter.references_ids == ["ARXIV:2005.14165", "DOI:10.1234/x.2023", "ARXIV:1706.03762"]
@@ -268,7 +269,7 @@ def test_real_semantic_scholar_adapter_404_degrades_walk_continues(monkeypatch):
     """Closes the faked-adapter gap directly: drives the REAL
     ``SemanticScholarAdapter`` (only ``subprocess.run`` mocked at the network
     boundary — the same seam a live 404 crosses) through
-    ``run_snowball_to_saturation`` with its DEFAULT adapter (``adapter=None``).
+    ``run_citation_neighbor_walk`` with its DEFAULT adapter (``adapter=None``).
     One seed 404s on both directions; the other resolves normally. Before
     the fix, the adapter's ``sys.exit`` on a non-zero asta exit (SystemExit,
     a BaseException) would propagate straight out of this call and abort the
@@ -301,8 +302,8 @@ def test_real_semantic_scholar_adapter_404_degrades_walk_continues(monkeypatch):
 
     monkeypatch.setattr(_subprocess, "run", fake_run)
 
-    result = run_snowball_to_saturation(
-        ["9999.99999", "ARXIV:1706.03762"], backstop_waves=2,
+    result = run_citation_neighbor_walk(
+        ["9999.99999", "ARXIV:1706.03762"], relevance_hops=2,
     )
     assert result.stop_reason  # never blank, walk completed (didn't crash)
     assert "9999.99999" in result.unresolvable_ids
@@ -346,8 +347,8 @@ def test_resume_after_kill_mid_walk(tmp_path):
         {1: ([_hit("New Paper 1", doi="10.1/new1")], [])}, kill_at_call=2,
     )
     with pytest.raises(KeyboardInterrupt):
-        run_snowball_to_saturation(
-            [seed], adapter=kill_adapter, backstop_waves=3, checkpoint_path=ckpt,
+        run_citation_neighbor_walk(
+            [seed], adapter=kill_adapter, relevance_hops=3, checkpoint_path=ckpt,
         )
 
     # 1. Checkpoint + partial corpus survive the kill.
@@ -363,13 +364,13 @@ def test_resume_after_kill_mid_walk(tmp_path):
     # 2. Resume: a BRAND NEW adapter instance. If the walk re-fetched round 1
     # (the seed), this adapter's own call log would show it — it never does.
     resume_adapter = _ScriptedAdapter({1: ([], []), 2: ([], [])})
-    result = run_snowball_to_saturation(
-        [seed], adapter=resume_adapter, backstop_waves=3, checkpoint_path=ckpt,
+    result = run_citation_neighbor_walk(
+        [seed], adapter=resume_adapter, relevance_hops=3, checkpoint_path=ckpt,
     )
 
     fetched_ids = [pid for _, pid in resume_adapter.calls]
     assert seed not in fetched_ids  # no re-fetch of the visited round-1 seed
-    assert result.stop_reason == "saturated"
+    assert result.stop_reason == "neighborhood-exhausted"
     assert [d.hit.title for d in result.kept] == ["New Paper 1"]
     assert not ckpt.exists()  # cleaned up on clean completion
 
@@ -379,8 +380,8 @@ def test_resume_after_kill_mid_walk(tmp_path):
         2: ([], []),
         3: ([], []),
     })
-    baseline = run_snowball_to_saturation(
-        [seed], adapter=baseline_adapter, backstop_waves=3,
+    baseline = run_citation_neighbor_walk(
+        [seed], adapter=baseline_adapter, relevance_hops=3,
     )
     assert {d.hit.title for d in baseline.kept} == {d.hit.title for d in result.kept}
     assert baseline.stop_reason == result.stop_reason
@@ -395,10 +396,10 @@ def test_fresh_run_with_checkpoint_path_but_no_prior_checkpoint(tmp_path):
         2: ([], []),
         3: ([], []),
     })
-    result = run_snowball_to_saturation(
-        ["10.1/seed"], adapter=adapter, backstop_waves=3, checkpoint_path=ckpt,
+    result = run_citation_neighbor_walk(
+        ["10.1/seed"], adapter=adapter, relevance_hops=3, checkpoint_path=ckpt,
     )
-    assert result.stop_reason == "saturated"
+    assert result.stop_reason == "neighborhood-exhausted"
     assert not ckpt.exists()
 
 
@@ -409,8 +410,8 @@ def test_no_checkpoint_path_behaves_as_today():
         2: ([], []),
         3: ([], []),
     })
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
-    assert result.stop_reason == "saturated"
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
+    assert result.stop_reason == "neighborhood-exhausted"
 
 
 def test_progress_log_emits_round_lines(capsys):
@@ -419,11 +420,11 @@ def test_progress_log_emits_round_lines(capsys):
         2: ([], []),
         3: ([], []),
     })
-    run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
     captured = capsys.readouterr()
-    assert "round 1/3" in captured.err
-    assert "round 2/3" in captured.err
-    assert "round 3/3" in captured.err
+    assert "hop 1/3" in captured.err
+    assert "hop 2/3" in captured.err
+    assert "hop 3/3" in captured.err
 
 
 def test_progress_log_custom_callback():
@@ -431,10 +432,10 @@ def test_progress_log_custom_callback():
     instead of stderr — e.g. to route into a review-node log file."""
     lines: list[str] = []
     adapter = _ScriptedAdapter({1: ([], []), 2: ([], []), 3: ([], [])})
-    run_snowball_to_saturation(
-        ["10.1/seed"], adapter=adapter, backstop_waves=3, progress_cb=lines.append,
+    run_citation_neighbor_walk(
+        ["10.1/seed"], adapter=adapter, relevance_hops=3, progress_cb=lines.append,
     )
-    assert any("round 1/3" in line for line in lines)
+    assert any("hop 1/3" in line for line in lines)
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +468,7 @@ def test_write_corpus_raw_carries_substance_evidence(tmp_path):
         2: ([], []),
         3: ([], []),
     })
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
 
     corpus_out = write_corpus_raw(result, tmp_path / "_corpus_raw.md", notes_index={})
     text = corpus_out.read_text()
@@ -501,7 +502,7 @@ def test_write_corpus_raw_blank_abstract_is_a_blank_cell_not_a_dropped_row(tmp_p
         2: ([], []),
         3: ([], []),
     })
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
 
     corpus_out = write_corpus_raw(result, tmp_path / "_corpus_raw.md", notes_index={})
     text = corpus_out.read_text()
@@ -510,13 +511,13 @@ def test_write_corpus_raw_blank_abstract_is_a_blank_cell_not_a_dropped_row(tmp_p
     assert "10.1/noabstract" in text  # id never dropped alongside a blank abstract
 
 
-def test_write_corpus_raw_and_saturation(tmp_path):
+def test_write_corpus_raw_and_walk_report(tmp_path):
     adapter = _ScriptedAdapter({
         1: ([_hit("New Paper 1", doi="10.1/new1")], []),
         2: ([], []),
         3: ([], []),
     })
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
 
     corpus_out = write_corpus_raw(result, tmp_path / "_corpus_raw.md", notes_index={})
     text = corpus_out.read_text()
@@ -524,10 +525,10 @@ def test_write_corpus_raw_and_saturation(tmp_path):
     assert "New Paper 1" in text
     assert f"Stop reason: {result.stop_reason}" in text
 
-    sat_out = write_saturation(result, tmp_path / "_saturation.md")
+    sat_out = write_walk_report(result, tmp_path / "_walk.md")
     sat_text = sat_out.read_text()
-    assert "stop_reason: saturated" in sat_text
-    assert "| Round |" in sat_text
+    assert "stop_reason: neighborhood-exhausted" in sat_text
+    assert "| Hop |" in sat_text
 
 
 # ---------------------------------------------------------------------------
@@ -564,7 +565,7 @@ def test_snowball_paper_id_never_blank_when_a_duplicate_has_it(tmp_path):
         2: ([], []),
         3: ([], []),
     })
-    result = run_snowball_to_saturation(["10.1/seed"], adapter=adapter, backstop_waves=3)
+    result = run_citation_neighbor_walk(["10.1/seed"], adapter=adapter, relevance_hops=3)
 
     assert len(result.kept) == 1
     kept = result.kept[0]
@@ -619,8 +620,8 @@ def test_snowball_frontier_reseed_resolves_merged_pid(tmp_path, monkeypatch):
     monkeypatch.setattr(snowball_mod, "_atomic_write_json", _spy_atomic_write)
 
     ckpt = tmp_path / "_snowball_checkpoint.json"
-    run_snowball_to_saturation(
-        ["10.1/seed"], adapter=adapter, backstop_waves=3, checkpoint_path=ckpt,
+    run_citation_neighbor_walk(
+        ["10.1/seed"], adapter=adapter, relevance_hops=3, checkpoint_path=ckpt,
     )
 
     assert len(captured_calls) >= 1, "checkpoint must be written after round 1"
@@ -672,26 +673,28 @@ def test_snowball_walk_survives_non_serializable_raw_in_hit(tmp_path):
         2: ([], []),
         3: ([], []),
     })
-    result = run_snowball_to_saturation(
-        ["10.1/seed"], adapter=adapter, backstop_waves=3, checkpoint_path=ckpt,
+    result = run_citation_neighbor_walk(
+        ["10.1/seed"], adapter=adapter, relevance_hops=3, checkpoint_path=ckpt,
     )
-    assert result.stop_reason == "saturated"
+    assert result.stop_reason == "neighborhood-exhausted"
     assert [d.hit.title for d in result.kept] == ["Bad Raw Paper"]
 
 
 def test_checkpoint_missing_required_key_treated_as_absent(tmp_path):
-    """A checkpoint that matches version/seed_ids/backstop_waves but is
+    """A checkpoint that matches version/seed_ids/relevance_hops but is
     missing a key the resume path reads directly (e.g. a truncated write,
     or a hand-edited/foreign file) must be treated as absent — a fresh
     start — never a KeyError crash."""
+    from research_vault.sources.snowball import _CHECKPOINT_VERSION
+
     ckpt = tmp_path / "_snowball_checkpoint.json"
     seed = "10.1/seed"
-    # Matches the version/seed_ids/backstop_waves gate, but is missing
+    # Matches the version/seed_ids/relevance_hops gate, but is missing
     # "all_hits" (and several other required resume-path keys) entirely.
     ckpt.write_text(json.dumps({
-        "version": 1,
+        "version": _CHECKPOINT_VERSION,
         "seed_ids": [seed],
-        "backstop_waves": 3,
+        "relevance_hops": 3,
         "completed_round": 1,
         "frontier": [seed],
         # "all_hits", "seen_identities", "visited_pids", "errors", "rounds",
@@ -705,17 +708,17 @@ def test_checkpoint_missing_required_key_treated_as_absent(tmp_path):
     })
     # Must NOT KeyError — must fall through to a fresh start (round 1 runs
     # again, fetching the seed).
-    result = run_snowball_to_saturation(
-        [seed], adapter=adapter, backstop_waves=3, checkpoint_path=ckpt,
+    result = run_citation_neighbor_walk(
+        [seed], adapter=adapter, relevance_hops=3, checkpoint_path=ckpt,
     )
-    assert result.stop_reason == "saturated"
+    assert result.stop_reason == "neighborhood-exhausted"
     assert adapter.calls.count(("cited_by", seed)) == 1  # fresh-start refetch
 
 
 # ---------------------------------------------------------------------------
 # Breadth x depth bounds — a broad-topic downstream-project validation walk ran
 # unbounded (1hr+); these cap it (seed_cap / frontier_cap / fetch_budget /
-# backstop_waves=2 default).
+# relevance_hops=2 default).
 # ---------------------------------------------------------------------------
 
 
@@ -752,8 +755,8 @@ def test_seed_cap_caps_to_top_25_preserving_input_order():
     ``seed_cap``. 30 seeds in -> only the first 25 are ever fetched."""
     seeds = [f"10.1234/seed{i}" for i in range(30)]
     adapter = _SpyAdapter()
-    result = run_snowball_to_saturation(
-        seeds, adapter=adapter, backstop_waves=1, seed_cap=25,
+    result = run_citation_neighbor_walk(
+        seeds, adapter=adapter, relevance_hops=1, seed_cap=25,
     )
     assert len(adapter.cited_by_ids) == 25
     assert adapter.cited_by_ids == [f"DOI:10.1234/seed{i}" for i in range(25)]
@@ -763,8 +766,8 @@ def test_seed_cap_caps_to_top_25_preserving_input_order():
 def test_seed_cap_no_op_when_under_the_cap():
     seeds = [f"10.1234/seed{i}" for i in range(5)]
     adapter = _SpyAdapter()
-    result = run_snowball_to_saturation(
-        seeds, adapter=adapter, backstop_waves=1, seed_cap=25,
+    result = run_citation_neighbor_walk(
+        seeds, adapter=adapter, relevance_hops=1, seed_cap=25,
     )
     assert len(adapter.cited_by_ids) == 5
     assert result.seed_count == 5
@@ -783,8 +786,8 @@ def test_frontier_cap_promotes_only_top_25_by_citation_count():
         for i in range(30)
     ]
     adapter = _SpyAdapter(fwd_by_pid={"DOI:10.1234/seed": thirty_hits})
-    result = run_snowball_to_saturation(
-        [seed], adapter=adapter, backstop_waves=2, frontier_cap=25,
+    result = run_citation_neighbor_walk(
+        [seed], adapter=adapter, relevance_hops=2, frontier_cap=25,
     )
     # Round 1: only the seed is fetched (1 cited_by + 1 references call).
     # Round 2: exactly the top-25-by-citation_count promoted papers are
@@ -814,8 +817,8 @@ def test_fetch_budget_stops_walk_gracefully_with_distinct_stop_reason():
                                  abstract="distinct beta topic content")],
         },
     )
-    result = run_snowball_to_saturation(
-        ["10.1234/seed"], adapter=adapter, backstop_waves=100, fetch_budget=3,
+    result = run_citation_neighbor_walk(
+        ["10.1234/seed"], adapter=adapter, relevance_hops=100, fetch_budget=3,
     )
     assert result.stop_reason == "budget:3-calls"
     # Never exceeds the budget (2 calls in round 1, budget hit mid-round 2).
@@ -826,16 +829,20 @@ def test_fetch_budget_stops_walk_gracefully_with_distinct_stop_reason():
 
 def test_fetch_budget_stop_reason_never_exceeds_configured_value():
     adapter = _SpyAdapter()
-    result = run_snowball_to_saturation(
-        ["10.1234/seed"], adapter=adapter, backstop_waves=5, fetch_budget=1,
+    result = run_citation_neighbor_walk(
+        ["10.1234/seed"], adapter=adapter, relevance_hops=5, fetch_budget=1,
     )
     assert result.stop_reason == "budget:1-calls"
 
 
-def test_backstop_waves_default_is_2():
+def test_relevance_hops_default_is_1():
+    assert __import__(
+        "research_vault.sources.snowball", fromlist=["DEFAULT_RELEVANCE_HOPS"]
+    ).DEFAULT_RELEVANCE_HOPS == 1
+    # Deprecated alias stays numerically in sync (0.3.1 one-release back-compat).
     assert __import__(
         "research_vault.sources.snowball", fromlist=["DEFAULT_BACKSTOP_WAVES"]
-    ).DEFAULT_BACKSTOP_WAVES == 2
+    ).DEFAULT_BACKSTOP_WAVES == 1
 
     adapter = _SpyAdapter(
         fwd_by_pid={
@@ -845,11 +852,27 @@ def test_backstop_waves_default_is_2():
                                  abstract="distinct beta topic content")],
         },
     )
-    # Never-saturating (each round finds a genuinely new independent paper)
-    # -> hits the DEFAULT wave cap (no explicit backstop_waves passed).
-    result = run_snowball_to_saturation(["10.1234/seed"], adapter=adapter)
-    assert result.stop_reason == "backstop:2-waves"
-    assert len(result.rounds) == 2
+    # Never-exhausting (the one hop finds a genuinely new independent paper)
+    # -> hits the DEFAULT hop cap (no explicit relevance_hops passed).
+    result = run_citation_neighbor_walk(["10.1234/seed"], adapter=adapter)
+    assert result.stop_reason == "walk-complete:1-hops"
+    assert len(result.rounds) == 1
+
+
+def test_backstop_waves_deprecated_alias_warns_and_maps_to_relevance_hops():
+    """One-release back-compat (0.3.1): the deprecated ``backstop_waves``
+    kwarg still works, warns, and is equivalent to passing ``relevance_hops``."""
+    adapter = _ScriptedAdapter({
+        1: ([_hit("New Paper 1", doi="10.1/new1")], []),
+        2: ([], []),
+        3: ([], []),
+    })
+    with pytest.warns(DeprecationWarning):
+        result = run_citation_neighbor_walk(
+            ["10.1/seed"], adapter=adapter, backstop_waves=3,
+        )
+    assert result.stop_reason == "neighborhood-exhausted"
+    assert len(result.rounds) == 3
 
 
 def test_resume_carries_over_total_calls_and_respects_budget(tmp_path):
@@ -870,8 +893,8 @@ def test_resume_carries_over_total_calls_and_respects_budget(tmp_path):
         fwd_by_pid={"DOI:10.1234/seed": [_hit("Paper A", doi="10.1234/a")]},
     )
     with pytest.raises(KeyboardInterrupt):
-        run_snowball_to_saturation(
-            [seed], adapter=kill_adapter, backstop_waves=100,
+        run_citation_neighbor_walk(
+            [seed], adapter=kill_adapter, relevance_hops=100,
             fetch_budget=3, checkpoint_path=ckpt,
         )
     # Round 1 completed (2 calls: cited_by + references on the seed);
@@ -880,8 +903,8 @@ def test_resume_carries_over_total_calls_and_respects_budget(tmp_path):
     assert data["total_calls"] == 2
 
     resume_adapter = _SpyAdapter()
-    result = run_snowball_to_saturation(
-        [seed], adapter=resume_adapter, backstop_waves=100,
+    result = run_citation_neighbor_walk(
+        [seed], adapter=resume_adapter, relevance_hops=100,
         fetch_budget=3, checkpoint_path=ckpt,
     )
     # Only ONE more call is permitted before the budget (3) is hit —
@@ -891,16 +914,18 @@ def test_resume_carries_over_total_calls_and_respects_budget(tmp_path):
     assert result.stop_reason == "budget:3-calls"
 
 
-def test_budget_stop_reason_is_fail_closed_not_saturated_at_coverage_gate():
-    """Confirms the coverage-gate whitelist treats a distinct
-    ``budget:N-calls`` stop_reason exactly like any other non-canonical
-    value — HALT-DECLARE, never a silent GO. ``is_backstop`` must be False
-    (it does not start with ``backstop:``)."""
+def test_budget_stop_reason_is_go_with_residue_iff_gaps_note_present():
+    """Confirms the coverage-gate whitelist treats ``budget:N-calls`` as the
+    ONE surviving residue case — GO-WITH-RESIDUE iff the required
+    ``_coverage-gaps.md`` note exists, else HALT-DECLARE (never a silent GO
+    without the residue declared)."""
     from research_vault.review import autonomy as auto
 
     info = {
         "exists": True, "stop_reason": "budget:200-calls",
-        "is_backstop": False, "wave_count": None,
+        "walk_complete": False, "hop_count": None,
     }
+    # No coverage_gaps_path given -> the presence check is skipped (the
+    # caller didn't ask), so this degrades to GO-WITH-RESIDUE.
     result = auto.classify_coverage_gate(info)
-    assert result.disposition == auto.HALT_DECLARE
+    assert result.disposition == auto.GO_WITH_RESIDUE

@@ -8,7 +8,7 @@ The `lit-review-loop.json` manifest mirrors the shipped two-phase loop built by
 `review/__init__.py` (`_build_phase1_manifest` + `_build_phase2_manifest`) as a
 single static illustration:
 
-**Phase-1 (7 nodes) — discovery, pre-registered and saturation-gated:**
+**Phase-1 (7 nodes) — discovery, pre-registered, citation-neighbor relevance walk:**
 
 1. **review-scope** (researcher) — freeze the question, seed queries,
    inclusion/exclusion, and a REQUIRED counter-position (L-2 anti-fishing gate)
@@ -17,8 +17,8 @@ single static illustration:
    angle matrix; protocol-gated by an artifact-watch on `_protocol.md`
 4. **review-screen** (researcher) — apply inclusion/exclusion to the search hits,
    accept a seed frontier
-5. **review-snowball** (tool, deterministic) — both-direction, multi-round
-   snowball walk to saturation
+5. **review-snowball** (tool, deterministic) — both-direction citation-neighbor
+   relevance walk, depth-bounded by `relevance_hops` (default 1)
 6. **review-curate** (researcher) — concept-tag + curate the raw corpus into
    the final `_corpus.md`
 7. **coverage-gate** — Gate 2: resolved AUTONOMOUSLY (single-human-gate
@@ -35,7 +35,7 @@ single static illustration:
 9. **review-synthesize** (researcher) — extract claims to `concepts/`, build the
    index in `mocs/`
 10. **review-coverage-critic** (reviewer, rejects-only) — flags premature
-    saturation, orphan concepts, protocol non-adherence, and a missing/ignored
+    walk termination, orphan concepts, protocol non-adherence, and a missing/ignored
     counter-position ([PASS]/[BLOCK])
 11. **approve-review** — Gate 3: [BLOCK] count + counter-position verdict —
     resolved AUTONOMOUSLY (single-human-gate design: only `approve-protocol`,
