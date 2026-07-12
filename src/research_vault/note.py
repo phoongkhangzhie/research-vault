@@ -3,7 +3,7 @@
 
 When to use: use `rv note <project> <type> …` to create or list OKF notes for a project.
 Notes follow the Open Knowledge Format: markdown + YAML frontmatter with a required `type` field.
-The type determines the subdirectory: literature/, concepts/, methods/, experiments/,
+The type determines the subdirectory: literature/, concepts/, methodology/, experiments/,
 findings/, mocs/, datasets/.
 
 Path resolution: always via Config — zero hardcoded paths.
@@ -28,7 +28,7 @@ from .hashing import hash_file as _hash_file  # canonical hasher — never dupli
 OKF_TYPES = frozenset({
     "literature",
     "concepts",
-    "methods",
+    "methodology",  # project's own approach/protocol notes (was "methods" pre-0.3.2)
     "experiments",
     "findings",
     "mocs",
@@ -36,24 +36,31 @@ OKF_TYPES = frozenset({
     "gaps",        # typed research gap record; project-scoped; first-class lifecycle
 })
 
-# The sole SHARED (cross-project) OKF type — lives in cfg.datasets_root.
+# The SHARED (cross-project) OKF types — project-independent content, ONE
+# note each, no per-project overlay. `datasets` lives in cfg.datasets_root;
+# `concepts` lives in cfg.concepts_root (joined the shared partition in
+# 0.3.2 — a canonical cross-paper conceptual claim is project-independent,
+# exactly like a dataset's provenance). Per-type root resolution goes
+# through `cfg.shared_type_root(t)` (config.py) — never a hardcoded root.
 # All other OKF types are PROJECT-SCOPED (cfg.project_notes_dir / type_dir)
 # UNLESS they are two-layer (see OKF_TWO_LAYER_TYPES below).
 # SSOT for the project-scoped-vs-shared split.
 # Consumed by: wait_for (note: resolver), dag/verbs (_check_project_scoped_note).
 # Do NOT duplicate this — import from here.
-OKF_SHARED_TYPES: frozenset[str] = frozenset({"datasets"})
+OKF_SHARED_TYPES: frozenset[str] = frozenset({"datasets", "concepts"})
 
 # The TWO-LAYER (cross-project core + per-project overlay) OKF type(s).
-# `datasets` is purely shared (one file, no per-project part); `literature`
-# is two-layer: an intrinsic core (paper facts + inter-paper edges, distilled
-# once) lives at cfg.literature_root/<citekey>.md, and a thin per-project
-# overlay (role/position/concept-edges + a `central:` pointer) lives at
-# cfg.project_notes_dir(project)/literature/<citekey>.md — same location a
-# literature note has always lived at, now carrying only the RQ-relative
-# layer. See (2026-07-10-central-note-store-cross-project-design.md
+# `datasets`/`concepts` are purely shared (one file, no per-project part);
+# `literature` is two-layer: an intrinsic core (paper facts + inter-paper
+# edges, distilled once) lives at cfg.literature_root/<citekey>.md, and a
+# thin per-project overlay (role/position/concept-edges + a `central:`
+# pointer) lives at cfg.project_notes_dir(project)/literature/<citekey>.md
+# — same location a literature note has always lived at, now carrying only
+# the RQ-relative layer. See (2026-07-10-central-note-store-cross-project-design.md
 #). A third routing class — NOT membership in
 # OKF_SHARED_TYPES, which would collapse the per-project overlay away.
+# `literature` sheds this overlay in a later release, at which point it
+# joins the plain shared partition alongside `datasets`/`concepts`.
 # SSOT: consumed by cmd_new/cmd_list/cmd_check's three-arm routing + the
 # note.load_literature_note resolver. Do NOT duplicate this — import from
 # here.
@@ -360,16 +367,17 @@ def cmd_new(project: str, note_type: str, title: str, *,
     # See. Handled as its own branch (below) — never falls
     # through to the plain project-scoped/shared branches.
     #
-    # Shared types (OKF_SHARED_TYPES) live in cfg.datasets_root, not in
-    # the project-scoped notes directory. A shared-type note filed for one project
-    # is visible and lineage-gatable from any other project.
+    # Shared types (OKF_SHARED_TYPES) live in their own shared root
+    # (cfg.shared_type_root), not in the project-scoped notes directory. A
+    # shared-type note filed for one project is visible and
+    # lineage-gatable from any other project.
     # Use OKF_SHARED_TYPES SSOT — not a hardcoded "datasets"
     # string — so a 2nd shared type automatically routes correctly here.
     if note_type in OKF_TWO_LAYER_TYPES:
         return _cmd_new_two_layer(cfg, project, note_type, title, note_id=note_id, tags=tags)
 
     if note_type in OKF_SHARED_TYPES:
-        notes_dir = cfg.datasets_root
+        notes_dir = cfg.shared_type_root(note_type)
     else:
         notes_dir = cfg.project_notes_dir(project) / note_type
     notes_dir.mkdir(parents=True, exist_ok=True)
@@ -946,11 +954,12 @@ def cmd_list(project: str, note_type: str | None = None, *,
 
     notes = []
     for t in types_to_scan:
-        # Shared types live in the shared root, not
-        # project_notes_dir/<type>/. Use OKF_SHARED_TYPES SSOT, not a hardcoded
-        # "datasets" string, so a 2nd shared type routes correctly automatically.
+        # Shared types live in their own shared root, not
+        # project_notes_dir/<type>/. Use OKF_SHARED_TYPES SSOT + cfg.shared_type_root,
+        # not a hardcoded "datasets"/datasets_root, so a 2nd shared type routes
+        # correctly automatically.
         if t in OKF_SHARED_TYPES:
-            subdir = cfg.datasets_root
+            subdir = cfg.shared_type_root(t)
         else:
             subdir = base / t
         if not subdir.exists():
@@ -1012,11 +1021,11 @@ def cmd_check(
     violations = []
 
     for t in OKF_TYPES:
-        # Shared types live in the shared root.
-        # Use OKF_SHARED_TYPES SSOT — not a hardcoded "datasets" — so a 2nd
-        # shared type is handled automatically.
+        # Shared types live in their own shared root.
+        # Use OKF_SHARED_TYPES SSOT + cfg.shared_type_root — not a hardcoded
+        # "datasets"/datasets_root — so a 2nd shared type is handled automatically.
         if t in OKF_SHARED_TYPES:
-            subdir = cfg.datasets_root
+            subdir = cfg.shared_type_root(t)
         else:
             subdir = base / t
         if not subdir.exists():

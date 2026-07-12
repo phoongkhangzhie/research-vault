@@ -302,8 +302,9 @@ graph TD
 
 ```
 {slug}/
-├── notes/            OKF knowledge base (literature/ concepts/ methods/ experiments/
-│                      findings/ mocs/ gaps/ log/) — datasets/ is SHARED (rv datasets_root)
+├── notes/            OKF knowledge base (literature/ methodology/ experiments/
+│                      findings/ mocs/ gaps/ log/) — datasets/ + concepts/ are SHARED
+│                      (rv datasets_root / concepts_root)
 ├── code/{{src,tests,tools}}/   ALL source — freely refactorable, nothing links INTO it
 ├── data/              raw inputs — read-only, large files gitignored
 ├── results/{{runs,scores}}/    runs=raw/gitignored, scores=computed/TRACKED SSOT

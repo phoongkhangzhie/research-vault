@@ -143,12 +143,13 @@ class TestDatasetsOkfType:
 
         Updated 8→9 when SR-MS-1a added manuscript; updated 9→10 when SR-LR-2 added
         gaps; reduced 10→8 by SR-RM-FIGMS (removed figures and manuscript).
-        datasets is the SHARED type (SR-8); gaps is PROJECT-SCOPED. The 6 base types
-        (literature, concepts, methods, experiments, findings, mocs) are project-scoped.
+        datasets + concepts are SHARED types (0.3.2 moved concepts to shared);
+        gaps/methodology/experiments/findings/mocs are PROJECT-SCOPED; literature
+        is two-layer. "methods" was renamed "methodology" in 0.3.2.
         """
         assert len(note_mod.OKF_TYPES) == 8
         expected = {
-            "literature", "concepts", "methods", "experiments",
+            "literature", "concepts", "methodology", "experiments",
             "findings", "mocs", "datasets", "gaps",
         }
         assert note_mod.OKF_TYPES == expected

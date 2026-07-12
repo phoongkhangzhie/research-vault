@@ -805,7 +805,7 @@ class TestShippedDocVerbAudit:
 
         return None
 
-    def test_arg_shape_bites_on_wrong_order(self):
+    def test_arg_shape_bites_on_wrong_order(self, monkeypatch):
         """The arg-shape check flags a deliberately wrong positional order (F14 class).
 
         RED-BEFORE-GREEN proof:
@@ -818,8 +818,11 @@ class TestShippedDocVerbAudit:
         If the check were vacuous this test would itself fail (it asserts a non-None result).
         """
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-        import os
-        os.environ.setdefault("RESEARCH_VAULT_CONFIG", "/dev/null")
+        # monkeypatch (not os.environ.setdefault) — auto-restored on teardown, so
+        # this test can never leak RESEARCH_VAULT_CONFIG=/dev/null forward into a
+        # later test in the same session (it did, before this fix — any later
+        # caller of load_config() would inherit the poisoned env var and raise).
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", "/dev/null")
         from research_vault.cli import _build_top_parser, _load_instance_verbs  # noqa
 
         try:
@@ -840,7 +843,7 @@ class TestShippedDocVerbAudit:
             f"Expected 'invalid choice' or 'unrecognized' in error, got: {err!r}"
         )
 
-    def test_no_wrong_shape_commands_in_shipped_docs(self):
+    def test_no_wrong_shape_commands_in_shipped_docs(self, monkeypatch):
         """Every rv command in shipped docs must parse against its registered argparse parser.
 
         Catches:
@@ -853,8 +856,9 @@ class TestShippedDocVerbAudit:
         are NOT flagged (they are injected as dummies and retried).
         """
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-        import os
-        os.environ.setdefault("RESEARCH_VAULT_CONFIG", "/dev/null")
+        # monkeypatch — see test_arg_shape_bites_on_wrong_order's comment: never
+        # leak RESEARCH_VAULT_CONFIG=/dev/null forward into a later test.
+        monkeypatch.setenv("RESEARCH_VAULT_CONFIG", "/dev/null")
         from research_vault.cli import _build_top_parser, _load_instance_verbs  # noqa
 
         try:

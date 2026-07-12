@@ -6,7 +6,7 @@ Coverage:
      1a. literature/ note: labeled body block joined to FM critical: true/false
      1b. literature/ note: no "## Key equations" section -> empty ledger, no error
      1c. concepts/ (non-literature) note: generic display-math scan, critical=None
-     1d. type-agnostic: a stub experiment-paper-shaped source set (methods/,
+     1d. type-agnostic: a stub experiment-paper-shaped source set (methodology/,
          experiments/) mines the same way — no lit-review-specific assumption
      1e. missing source dir -> contributes zero entries, no error
      1f. label-join correctness: label uniqueness + exact-match (Ada's L1 catch)
@@ -133,12 +133,12 @@ def test_concepts_note_generic_scan_unmarked(tmp_path):
 
 
 def test_type_agnostic_stub_experiment_paper_sources(tmp_path):
-    """Design §7c: a future experiment-paper type mines methods/experiments,
+    """Design §7c: a future experiment-paper type mines methodology/experiments,
     not literature/concepts — the extractor makes no lit-review-specific
     assumption; it is driven entirely by the equation_sources tuple."""
     _write_note(
-        tmp_path, "methods", "algo.md",
-        "---\ntype: methods\ntitle: The algorithm\n---\n\n"
+        tmp_path, "methodology", "algo.md",
+        "---\ntype: methodology\ntitle: The algorithm\n---\n\n"
         "$$ \\theta_{t+1} = \\theta_t - \\eta \\nabla L(\\theta_t) $$\n",
     )
     _write_note(
@@ -146,7 +146,7 @@ def test_type_agnostic_stub_experiment_paper_sources(tmp_path):
         "---\ntype: experiments\ntitle: Run 1\n---\n\nNo equations here.\n",
     )
 
-    ledger = eq.extract_equation_ledger(tmp_path, ("methods", "experiments"))
+    ledger = eq.extract_equation_ledger(tmp_path, ("methodology", "experiments"))
 
     assert len(ledger) == 1
     assert "nabla L" in ledger[0]["latex"]

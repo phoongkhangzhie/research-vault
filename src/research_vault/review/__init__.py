@@ -1129,13 +1129,27 @@ def check_link_resolution(
          that exists as a central-core note;
       3. every paper→concept edge in the overlay's own '## Concept edges'
          section (``relate_check.parse_concept_edges``) targets a slug that
-         exists under ``project_notes_dir/concepts/``;
+         exists under ``cfg.concepts_root`` (concepts are shared-canonical
+         as of 0.3.2 — resolved against the shared store, never the
+         project's own notes dir);
       4. every UNIFIED typed edge (``relate_check.parse_typed_edges``)
          found in either body — cross-bundle ``okf:...`` edges (resolved via
-         ``cfg.resolve_bundle_link``), within-project edges (resolved
-         against ``project_notes_dir``), and artifact-targeted provenance
-         edges (resolved as a file path under ``project_notes_dir``, file-
+         ``cfg.resolve_bundle_link``, which ALSO covers ``okf:concepts/...``
+         — the ONE cross-bundle resolution path for a project→shared
+         concept edge), within-project edges (resolved against
+         ``project_notes_dir``), and artifact-targeted provenance edges
+         (resolved as a file path under ``project_notes_dir``, file-
          existence only — never note-conformance).
+
+    A concept edge resolves against ``cfg.concepts_root`` EXACTLY ONCE,
+    never via both (3) and (4): ``relate_check._scan_edge_lines`` buckets
+    every edge LINE into exactly one of its four disjoint scopes by which
+    named group of its target grammar matched — a bare ``/concepts/<slug>.md``
+    link is the INTRA-SHARED scope (bucket (3), ``parse_concept_edges``); an
+    ``okf:concepts/<slug>.md`` link is the CROSS-BUNDLE scope (bucket (4),
+    ``parse_typed_edges``). One scan, one bucket per line — (3) and (4) read
+    disjoint buckets of the SAME single pass, so a line is never resolved
+    twice and never falls through unresolved either.
 
     An overlay whose ``central:`` link does not resolve is skipped for (2)
     (no core body to read edges from) but still recorded as an error for
@@ -1172,7 +1186,9 @@ def check_link_resolution(
     else:
         cfg = config or load_config()
     literature_dir = project_notes_dir / "literature"
-    concepts_dir = project_notes_dir / "concepts"
+    # concepts is shared-canonical (0.3.2) — resolve against cfg.concepts_root,
+    # never the project's own notes dir.
+    concepts_dir = cfg.concepts_root
 
     errors: list[str] = []
     if not literature_dir.exists():
@@ -1228,14 +1244,17 @@ def check_link_resolution(
                         f"{edge['target']}.md does not exist."
                     )
 
-        # Paper->concept edges live in the overlay's own body.
+        # Paper->concept edges live in the overlay's own body. concepts are
+        # shared-canonical: this is a project->shared resolution against
+        # cfg.concepts_root, not an intra-project lookup.
         for edge in parse_concept_edges(overlay_body).edges:
             target_path = concepts_dir / f"{edge['target']}.md"
             if not target_path.exists():
                 errors.append(
-                    f"{overlay_path}: unresolved intra-bundle link in "
-                    f"'## Concept edges' — target /concepts/"
-                    f"{edge['target']}.md does not exist."
+                    f"{overlay_path}: unresolved cross-bundle link in "
+                    f"'## Concept edges' — target concepts/"
+                    f"{edge['target']}.md does not exist in the shared "
+                    f"concepts store ({concepts_dir})."
                 )
 
         # Unified typed edges — cross-bundle / within-project /
@@ -1548,7 +1567,17 @@ def _build_phase1_manifest(
     # project_root=manifest_path.parent is at run/tick time).
     # Previously this returned a bare name like "literature" which resolved
     # relative to the manifest dir (reviews/<scope>/) — always wrong.
+    # concepts is shared-canonical (0.3.2) — routes to cfg.concepts_root,
+    # never project_notes_dir/concepts (which no longer holds concepts
+    # content). Config resolution is LAZY (only on the "concepts" branch,
+    # only when the caller didn't already supply a Config) — most callers
+    # of _build_phase1_manifest never need a Config at all, and forcing an
+    # eager load_config() here would break callers (and tests) that
+    # deliberately run without a discoverable/valid config.
     def _rel(okf_type: str) -> str:
+        if okf_type == "concepts":
+            _cfg_for_rel = config if isinstance(config, Config) else load_config()
+            return str(_cfg_for_rel.concepts_root)
         return str(project_notes_dir / okf_type)
 
     # Absolute path to review artifact dir (for produces: and watch: expressions)
@@ -1917,8 +1946,13 @@ def _build_phase2_manifest(
     def _afterok(from_id: str) -> dict[str, Any]:
         return {"from": from_id, "edge": "afterok"}
 
-    # Absolute OKF type-dir pointers (Fix #34 — same as Phase-1; see comment there)
+    # Absolute OKF type-dir pointers (Fix #34 — same as Phase-1; see comment there).
+    # concepts is shared-canonical (0.3.2) — routes to cfg.concepts_root.
+    _cfg_for_rel = config if isinstance(config, Config) else load_config()
+
     def _rel(okf_type: str) -> str:
+        if okf_type == "concepts":
+            return str(_cfg_for_rel.concepts_root)
         return str(project_notes_dir / okf_type)
 
     protocol_path = str(review_dir / "_protocol.md")

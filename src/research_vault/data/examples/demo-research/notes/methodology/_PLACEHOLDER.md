@@ -1,10 +1,10 @@
 ---
-type: methods
+type: methodology
 ---
 
-# methods/ — Methods and protocol notes
+# methodology/ — This project's own method and protocol notes
 
-Each file documents a research method or protocol update.
+Each file documents a research method or protocol update for this project.
 The research loop soft-couples the methods-update node here.
 
 **Naming convention:** `method-<id>.md`
@@ -12,7 +12,7 @@ The research loop soft-couples the methods-update node here.
 **Required frontmatter:**
 ```yaml
 ---
-type: methods
+type: methodology
 citekey: method-<id>
 title: <Method title>
 ---

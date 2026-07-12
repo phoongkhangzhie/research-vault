@@ -171,9 +171,9 @@ This file documents the structure and design decisions for this Research Vault i
   notes/                # central OKF knowledge base
     experiments/        # pre-registration notes (filed before runs)
     findings/           # research findings
-    methods/            # method and protocol notes
-    literature/         # distilled literature notes
-    concepts/           # distilled conceptual claims
+    methodology/        # method and protocol notes (project-scoped)
+    literature/         # distilled literature notes (shared-canonical)
+    concepts/           # distilled conceptual claims (shared-canonical)
     mocs/               # maps of content (link graphs)
   control/              # coordination bus (one file per project)
   tasks/                # task cards (one subdir per project)
@@ -388,7 +388,7 @@ def cmd_init_in_dir(target_dir: str, *, verbose: bool = False) -> int:
 
     # ── Create OKF note type dirs ────────────────────────────────────────────
     scaffold_okf_dirs(notes_root)
-    for note_type in sorted({"experiments", "findings", "methods", "literature", "concepts", "mocs"}):
+    for note_type in sorted({"experiments", "findings", "methodology", "literature", "concepts", "mocs"}):
         vprint(f"  created: notes/{note_type}/")
 
     # ── Write research_vault.toml ────────────────────────────────────────────
