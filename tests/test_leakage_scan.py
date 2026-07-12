@@ -1072,3 +1072,164 @@ def test_red_on_codenames_only_does_not_broadly_exempt_other_tests_files(tmp_pat
     assert_red(result)
     assert "test_experiment_run.py" in result.stdout
     assert "test_leakage_scan.py:" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Class 12: Internal dev-process references in Python source (0.3.1 leak scrub)
+# ---------------------------------------------------------------------------
+# "charter §N" (internal governance-doc citation), bare D-N/K-DN/SR- decision
+# labels, PR/task numbers, "design of record"/"internal design note", and
+# dangling design-doc-filename pointers must not appear in shipped Python
+# source. Scoped .py-only (mirrors class 10): shipped doctrine .md files
+# legitimately self-reference their OWN numbered sections.
+
+
+def test_red_on_charter_section_in_py_docstring(tmp_path):
+    """'charter §N' glued onto a .py comment/docstring must be flagged."""
+    _write_py(tmp_path, '''\
+        """module.py — something.
+
+        Never silently drop (charter §2).
+        """
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_charter_section_in_doctrine_md(tmp_path):
+    """'charter §N' in shipped doctrine .md is a legitimate self-reference
+    to agent-charter.md's own numbered values — NOT a leak. Class 12 is
+    .py-scoped only."""
+    write_doc(
+        tmp_path,
+        "Never silently drop (charter §2).\n",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_red_on_bare_d_label_in_py_comment(tmp_path):
+    """A bare internal decision label like 'D-4e' in a .py comment must be
+    flagged — a dangling pointer into an unshipped design doc."""
+    _write_py(tmp_path, '''\
+        # naming the offending claim in a BLOCK message (D-4e).
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_scrubbed_d_label(tmp_path):
+    """Genericized phrasing (no bare D-N label) passes."""
+    _write_py(tmp_path, '''\
+        # naming the offending claim in a BLOCK message.
+        def fn(): pass
+    ''')
+    assert_green(run_scan(tmp_path))
+
+
+def test_red_on_k_d_label_in_py(tmp_path):
+    """A bare 'K-D1' decision label in .py source must be flagged."""
+    _write_py(tmp_path, '''\
+        # compute the canonical familyShorttitleYear citekey (K-D1).
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_sr_tag_in_py(tmp_path):
+    """A bare 'SR-XPB' internal story-reference tag in .py source must be
+    flagged."""
+    _write_py(tmp_path, '''\
+        # ranker-defeats-filter pattern (SR-XPB).
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_sr_tag_in_lint_py_self_reference(tmp_path):
+    """lint.py's own rule-9 docstring/comments legitimately NAME 'SR-XPB' as
+    an example of the pattern that rule catches — self-referential, not a
+    leak (mirrors the scanner's own SKIP_PATTERN self-exclusion)."""
+    _write_py(
+        tmp_path,
+        '''\
+        """lint.py — rule 9 catches SR-tags (e.g. SR-XPB, SR-CO-REMOTE) in
+        shipped adopter-facing docs."""
+        def fn(): pass
+        ''',
+        filename="lint.py",
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_red_on_pr_number_in_py(tmp_path):
+    """A bare internal PR reference ('PR #5') in .py source must be flagged."""
+    _write_py(tmp_path, '''\
+        # killing the "forgot to activate the role" bug (PR #5).
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_acceptance_item_in_py(tmp_path):
+    """A bare internal acceptance-checklist item number in .py source must
+    be flagged."""
+    _write_py(tmp_path, '''\
+        """The invariant lint (acceptance item 3): no intrinsic field."""
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_design_of_record_in_py(tmp_path):
+    """'Design of record: internal design note' in .py source must be
+    flagged — an unshipped design-doc genre label with no public referent."""
+    _write_py(tmp_path, '''\
+        """module.py — something.
+
+        Design of record: internal design note.
+        """
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_design_doc_filename_in_py(tmp_path):
+    """A dangling pointer to an unshipped design-doc filename
+    (YYYY-MM-DD-...-design.md) in .py source must be flagged."""
+    _write_py(tmp_path, '''\
+        # See 2026-07-10-trustworthy-curation-relevance-gate-design.md for detail.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_class_12_scrubbed_shipped_module(tmp_path):
+    """A fully-genericized module (no internal dev-process references)
+    passes class 12 cleanly."""
+    _write_py(tmp_path, '''\
+        """module.py — something.
+
+        Surface, never silently drop: this function never fabricates
+        a value it cannot confirm.
+        """
+        def fn(): pass
+    ''')
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_class_12_tests_dir_exempt(tmp_path):
+    """tests/ is never shipped in the wheel — class 12 (mirrors class 10's
+    tests/-exclusion rationale) does not fire on tests/*.py, even for the
+    same internal labels legitimately used in test docstrings/comments."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    _write_py(
+        tests_dir,
+        '''\
+        # D-7 gate and the cold counter-facet guard both need this fixture
+        # (charter §2, SR-XPB, K-D1, PR #96, design of record).
+        def fn(): pass
+        ''',
+        filename="test_something.py",
+    )
+    assert_green(run_scan(tmp_path))

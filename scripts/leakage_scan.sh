@@ -47,6 +47,14 @@
 #      boundary-safety comments in Python source are an established, accepted development-
 #      history convention, out of scope here). No grandfather exemption (PR-C2: DEVLOG.md,
 #      the only file that carried one, is now untracked and out of the scanned surface).
+#  12. Internal dev-process references in Python source — "charter §N" (an internal
+#      governance-doc citation), bare internal spec/decision labels (D-4e, K-D1, SR-XPB),
+#      internal PR/task numbers, "design of record"/"internal design note", and dangling
+#      pointers to unshipped design-doc filenames (YYYY-MM-DD-...-design.md). A public
+#      wheel's Python source should never read like an internal changelog. Scoped .py-only
+#      via _grep_re_py (mirrors class 10): shipped doctrine .md legitimately self-references
+#      its OWN numbered sections (agent-charter.md's "§N", note-conventions.md's "#N" list
+#      items) — those are real, shipped, non-dangling cross-references, out of scope here.
 #
 # Self-exclusion: the scanner skips itself, ci.yml, and the test file
 # (all three intentionally list the marker strings). tests/test_git_discipline.py is also
@@ -298,6 +306,44 @@ _grep_py_word() {
     fi
 }
 
+_grep_re_py() {
+    # _grep_re_py LABEL ERE_PATTERN [EXTRA_EXCLUDE_ERE]
+    # Like _grep_re but .py files only — used for class 12 (internal
+    # dev-process references in shipped Python source). Mirrors class 10's
+    # _grep_py_word rationale: shipped *.md doctrine legitimately carries
+    # these labels in its OWN self-consistent numbering (e.g. agent-charter.md
+    # defines "charter §N"; note-conventions.md defines its own numbered
+    # list, cross-referenced elsewhere in doctrine as "note-conventions #N").
+    # A public wheel's PYTHON SOURCE should never read like an internal
+    # changelog — that is the surface this class targets. tests/ is ALSO
+    # excluded: it is never shipped (pyproject.toml build artifacts) and is
+    # scanned separately, --codenames-only, for class 1 only.
+    #
+    # EXTRA_EXCLUDE_ERE (optional): an additional path regex to exclude,
+    # for a file that legitimately documents the pattern itself (e.g.
+    # lint.py's own rule-9 docstring names "SR-XPB" as an example of what
+    # that rule catches — self-referential, not a leak, same shape as this
+    # scanner's own SKIP_PATTERN self-exclusion).
+    local label="$1" pattern="$2" extra_exclude="${3:-}"
+    local found
+    local TESTS_EXCLUDE='(^|/)tests/'
+    if [ "$STAGED" -eq 1 ]; then
+        found=$(echo "$STAGED_FILES" | grep '\.py$' | xargs -I{} grep -nH -E "$pattern" {} 2>/dev/null \
+                | grep -Ev "$SKIP_PATTERN" | grep -Ev "$TESTS_EXCLUDE" || true)
+    else
+        found=$(grep -rn --include="*.py" -E "$pattern" "$TARGET" 2>/dev/null \
+                | grep -Ev "$SKIP_PATTERN" | grep -Ev "$TESTS_EXCLUDE" || true)
+    fi
+    if [ -n "$extra_exclude" ] && [ -n "$found" ]; then
+        found=$(echo "$found" | grep -Ev "$extra_exclude" || true)
+    fi
+    if [ -n "$found" ]; then
+        echo "$found"
+        echo "FAIL [$label]: internal dev-process reference matched (.py, regex '$pattern')"
+        FAIL=1
+    fi
+}
+
 _grep_literal_non_py() {
     # _grep_literal_non_py LABEL LITERAL
     # Like _grep_literal but EXCLUDES .py files entirely — internal dev-path
@@ -525,6 +571,45 @@ _grep_py_word "crew-name/atlas"  "atlas"
 # design-of-record citations don't trip this and aren't shipped anyway.
 _grep_literal_non_py "path/tilde-vault"       "~/vault"
 _grep_literal         "path/docs-superpowers"  "docs/superpowers/"
+
+# ── Class 12: Internal dev-process references in Python source ──────────────
+# A pre-publish scrub (0.3.1) found systemic internal-process references in
+# shipped .py comments/docstrings: an internal governance-doc citation
+# ("charter §N"), bare internal spec/decision labels (D-4e, K-D1, SR-XPB),
+# internal PR/task numbers, and dangling pointers to unshipped design-doc
+# filenames. None of these are dangling in the sense of "the file doesn't
+# ship" per se — some (like agent-charter.md) DO ship as doctrine — but a
+# public wheel's PYTHON SOURCE should never read like an internal changelog:
+# an adopter reading a docstring shouldn't have to cross-reference an
+# internal numbering scheme to understand a comment. Scoped .py-only via
+# _grep_re_py (mirrors class 10): shipped *.md doctrine legitimately
+# self-references its OWN numbered sections (agent-charter.md's own "§N"
+# values, note-conventions.md's own "#N" list items) — those are NOT
+# dangling and are out of scope here.
+#
+# "charter §" — an internal governance-doc citation glued onto a plain
+# comment as a parenthetical; the technical point should stand on its own.
+_grep_re_py "devproc/charter-section" "charter §[0-9]"
+# Bare "D-<digit>" decision/spec labels (D-4e, D-5a, D-7, ...) — an
+# unshipped internal design doc's numbering scheme.
+_grep_re_py "devproc/d-label" "\bD-[0-9]+[a-zA-Z]?\b"
+# "K-D<digit>" decision labels (K-D1, K-D2, ...).
+_grep_re_py "devproc/k-d-label" "\bK-D[0-9]+\b"
+# "SR-" internal story-reference tags (SR-XPB, SR-CO-REMOTE, SR-1, ...).
+# lint.py's own rule-9 docstring/comments NAME this exact pattern as an
+# example of what that rule catches (self-referential, not a leak — the
+# same shape as this scanner's own SKIP_PATTERN self-exclusion).
+_grep_re_py "devproc/sr-tag" "\bSR-[A-Z0-9]+(-[A-Z0-9]+)*\b" "(^|/)lint\.py:"
+# "PR #N" / "PR-N" / "PR delta" — internal pull-request references.
+_grep_re_py "devproc/pr-number" "\bPR[ -]?#[0-9]+\b|PR delta"
+# "acceptance item N" — an internal acceptance-checklist item number.
+_grep_re_py "devproc/acceptance-item" "acceptance item [0-9]+"
+# "Design of record" / "design note" — an internal design-doc genre label
+# with no public referent (the doc itself never ships).
+_grep_re_py "devproc/design-of-record" "[Dd]esign of record|internal design note"
+# Internal design-doc filenames (YYYY-MM-DD-...-design[.md]) — a dangling
+# pointer into an unshipped spec directory.
+_grep_re_py "devproc/design-doc-filename" "[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9-]*-design(\.md)?"
 
 fi  # end CODENAMES_ONLY-skips-classes-2-11 block
 
