@@ -64,7 +64,9 @@ project repo — the project repo carries only its own content.
 <project>/                        # git repo root = the OKF vault (source_dir = ./notes)
 ├── notes/                        # OKF knowledge base — the ONLY note store
 │   ├── literature/                 (rv OKF_TYPES; per-project overlay of the shared core)
-│   ├── methodology/                project-scoped (this project's own approach/protocol)
+│   ├── methodology/                project-scoped (this project's own approach/protocol —
+│                                    a general/reusable methodological idea belongs in the
+│                                    shared concepts/ instead; there is no shared methods/ bundle)
 │   ├── experiments/               pre-registration + results-provenance notes
 │   ├── findings/
 │   ├── mocs/

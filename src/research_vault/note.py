@@ -1199,6 +1199,95 @@ def cmd_check(
 
 
 # ---------------------------------------------------------------------------
+# Legacy-concepts relocation (0.3.2 migration path)
+# ---------------------------------------------------------------------------
+
+
+def relocate_legacy_concepts(
+    project_notes_dir: Path,
+    concepts_root: Path,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Mechanically move a project's LEGACY (pre-0.3.2) ``concepts/`` notes
+    to the shared ``concepts_root`` — the migration path for the finding
+    ``review.check_link_resolution`` surfaces as ``[link-lint]`` (see that
+    module's ``_check_concepts_orphan``).
+
+    Never invoked automatically by any gate or hook — this is a tool an
+    operator/agent runs explicitly on a project it knows needs migrating.
+    It never touches real project data unless called on it directly.
+
+    Idempotent + link-safe: identity is the FILENAME (the same identity
+    every OKF concept-edge already resolves by — ``/concepts/<slug>.md``),
+    so re-running after a partial move is a correct no-op for what already
+    landed, and every existing edge pointing at that filename keeps
+    resolving after the move (the file just lives at a new root, same
+    name). Deduping is a byte-identical compare on that same filename
+    identity — never a content-similarity guess.
+
+    Args:
+        project_notes_dir: the project's own notes dir (the LEGACY
+            ``concepts/`` is ``project_notes_dir / "concepts"``).
+        concepts_root: the shared destination (``cfg.concepts_root``).
+        dry_run: report what WOULD happen; never touches disk.
+
+    Returns:
+        {
+          "moved":            [Path, ...]  — relocated (dest path; the
+                                              would-be dest path under dry_run),
+          "already_present":  [Path, ...]  — dest already has this filename,
+                                              BYTE-IDENTICAL — legacy copy
+                                              removed (deduped), not "moved",
+          "conflicts":        [Path, ...]  — dest already has this filename
+                                              with DIFFERENT content — left
+                                              in place, never auto-resolved,
+          "dry_run": bool,
+        }
+    """
+    import shutil
+
+    legacy_dir = project_notes_dir / "concepts"
+    result: dict[str, Any] = {
+        "moved": [], "already_present": [], "conflicts": [], "dry_run": dry_run,
+    }
+    if not legacy_dir.exists():
+        return result
+    try:
+        if legacy_dir.resolve() == concepts_root.resolve():
+            return result
+    except OSError:
+        pass
+
+    if not dry_run:
+        concepts_root.mkdir(parents=True, exist_ok=True)
+
+    for p in sorted(legacy_dir.glob("*.md")):
+        if p.name in OKF_RESERVED_FILENAMES:
+            continue
+        dest = concepts_root / p.name
+        if dest.exists():
+            try:
+                same = dest.read_bytes() == p.read_bytes()
+            except OSError:
+                same = False
+            if same:
+                result["already_present"].append(p)
+                if not dry_run:
+                    p.unlink()
+            else:
+                result["conflicts"].append(p)
+            continue
+        if dry_run:
+            result["moved"].append(dest)
+        else:
+            shutil.move(str(p), str(dest))
+            result["moved"].append(dest)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Vanished-anchor check for gap notes
 # ---------------------------------------------------------------------------
 
@@ -1980,6 +2069,16 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
         ),
     )
 
+    # relocate-concepts (0.3.2 migration path)
+    relocate_p = sub.add_parser(
+        "relocate-concepts",
+        help="Move a project's legacy concepts/ notes to the shared concepts_root.",
+    )
+    relocate_p.add_argument(
+        "--dry-run", action="store_true",
+        help="Report what would move, without touching disk.",
+    )
+
     return p
 
 
@@ -2054,6 +2153,26 @@ def run(args: argparse.Namespace) -> int:
             for w in warnings:
                 print(f"  {w}")
             return 1 if hard else 0
+
+        elif args.note_cmd == "relocate-concepts":
+            dry_run = bool(getattr(args, "dry_run", False))
+            project_notes_dir = cfg.project_notes_dir(args.project)
+            result = relocate_legacy_concepts(
+                project_notes_dir, cfg.concepts_root, dry_run=dry_run,
+            )
+            label = "Would relocate" if dry_run else "Relocated"
+            if not result["moved"] and not result["already_present"] and not result["conflicts"]:
+                print(f"rv note relocate-concepts: nothing to relocate for {args.project!r}.")
+                return 0
+            for p in result["moved"]:
+                print(f"  {label}: {p}")
+            for p in result["already_present"]:
+                print(f"  Deduped (already at destination, byte-identical): {p}")
+            for p in result["conflicts"]:
+                print(
+                    f"  CONFLICT (destination has different content, not moved): {p}"
+                )
+            return 1 if result["conflicts"] else 0
 
     except (ValueError, KeyError) as e:
         print(f"rv note: {e}", file=sys.stderr)
