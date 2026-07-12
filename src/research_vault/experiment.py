@@ -278,14 +278,14 @@ def _build_experiment_manifest(
 
     All node IDs and gate names mirror the shipped research-loop.json SSOT.
     spec: pointers use plan_note_path for plan node; doctrine pointers for others.
-    reads: uses absolute paths (Fix #34 pattern from review scaffold).
+    reads: uses absolute paths (same pattern as the review scaffold).
 
     Zero new walker/schema mechanism — standard afterok edges throughout.
     The harness sub-sequence uses stock human-go and agent node types only.
     """
 
     def _abs(okf_type: str) -> str:
-        """Absolute OKF type-dir pointer (Fix #34 pattern — review/__init__.py)."""
+        """Absolute OKF type-dir pointer (same pattern as review/__init__.py)."""
         return str(notes_dir / okf_type)
 
     def _afterok(from_id: str) -> dict[str, Any]:

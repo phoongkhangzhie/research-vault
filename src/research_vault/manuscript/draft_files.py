@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/draft_files.py — RD-1: single source of truth for "which files
-make up the reader-facing draft" (next-gen lit-review, Wave B).
+"""manuscript/draft_files.py — single source of truth for "which files
+make up the reader-facing draft".
 
-Before RD-1, ``bib.py``, ``fidelity_gates.py``, and ``check_gates.py`` each
+Previously, ``bib.py``, ``fidelity_gates.py``, and ``check_gates.py`` each
 hand-rolled a near-identical ``tree_root.rglob(...)`` glob — three call sites
 that would each need updating separately (and drift) once the render target
 changed. This collapses them to one (reuse over create).

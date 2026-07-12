@@ -4,7 +4,7 @@
 When to use: ``rv research <subcommand>`` for Semantic Scholar search/find,
 corpus dedup annotation, and paper ingestion.
 
-Key constraints (re-implemented fresh from vault's research.py as behavioral spec):
+Key constraints:
   - ``default_project`` comes from config (``cfg._raw.get("default_project")``) —
     NEVER a compiled-in codename (zero hardcoded project names in this module).
   - All path resolution goes through Config — zero hardcoded paths.
@@ -56,7 +56,7 @@ from .sources.identifiers import write_external_ids_to_note
 
 
 # ---------------------------------------------------------------------------
-# Paper-id normalization (F12 — arXiv/DOI scheme-prefix shim)
+# Paper-id normalization (arXiv/DOI scheme-prefix shim)
 # ---------------------------------------------------------------------------
 
 # Recognised scheme prefixes (checked case-insensitively)
@@ -216,11 +216,11 @@ def _normalize_arxiv(arxiv: str | None) -> str | None:
 def _arxiv_from_url(url: str | None) -> str | None:
     """Extract a normalized arXiv id from a `url:` frontmatter field.
 
-    rv-refs-corpus-fix: real literature notes commonly carry ONLY a `url:`
+    Real literature notes commonly carry ONLY a `url:`
     field pointing at the arXiv abstract page (e.g.
     ``https://arxiv.org/abs/2209.06899``) — never a separate `arxiv_id:`
-    field.  Mirrors the URL-mining the sibling ``vault research`` tool's
-    cite.py already relies on (``_arxiv_of``) for the same real-world shape.
+    field.  Mirrors the same URL-mining convention this framework's own
+    ``cite.py`` already relies on (``_arxiv_of``) for the same real-world shape.
     """
     if not url:
         return None
@@ -258,10 +258,10 @@ def _first_author_family(authors_field: str | None) -> str:
 
 def _note_citekey(fields: dict[str, Any], note_path: Path) -> str:
     """Return the note's canonical citekey: the `citekey:` frontmatter field
-    (the operator's Better BibTeX scheme, e.g. ``argyleOutOneMany2022``) when
+    (the Better BibTeX scheme, e.g. ``argyleOutOneMany2022``) when
     present, falling back to the filename stem for notes filed without one.
 
-    rv-023: a large majority of real project notes have a filename slug that
+    A large majority of real project notes have a filename slug that
     differs from the note's own BBT `citekey:` — before this fix,
     `[IN-CORPUS:<x>]` always emitted the filename stem, never the BBT key a
     researcher actually cites.
@@ -303,12 +303,12 @@ def _load_notes_index(
 ) -> dict[str, str]:
     """Build a normalized-id → citekey lookup by scanning literature/*.md frontmatter.
 
-    Fix #32: literature notes filed via ``rv note new literature`` are invisible to the
+    Literature notes filed via ``rv note new literature`` are invisible to the
     Zotero library.json-based corpus index.  This function builds a parallel lookup
     from the doi: and arxiv_id: frontmatter fields that literature notes now carry as
     optional placeholders.  The citekey is the note's filename stem.
 
-    rv-refs-corpus-fix: also mines the `url:` field for an arXiv/DOI id when the
+    Also mines the `url:` field for an arXiv/DOI id when the
     dedicated `doi:`/`arxiv_id:` fields are absent — real notes overwhelmingly use
     only `url:` (see _arxiv_from_url / _doi_from_url).  Declared doi:/arxiv_id:
     fields always take priority when present.
@@ -434,7 +434,7 @@ def compute_and_stamp_citekey(note_path: Path, literature_dir: Path) -> str:
 def _title_fallback_match(title_norm: str, note_title: str) -> bool:
     """Conservative title-fallback match for `_corpus_annotation` tier 3.
 
-    rv-refs-corpus-fix review tightening: the original prefix/either-contains
+    The original prefix/either-contains
     heuristic over-matched on real, distinct papers — a reviewer reproduced
     three cases empirically: title-superset (one title a strict prefix of a
     longer, different paper's title), a series prefix ("Part I" vs "Part II"
@@ -462,7 +462,7 @@ def _load_notes_title_index(
 ) -> dict[str, list[tuple[str, str]]]:
     """Build a first-author-family → [(citekey, normalized_title)] fallback lookup.
 
-    rv-refs-corpus-fix: a small fraction of real notes carry NO extractable id
+    A small fraction of real notes carry NO extractable id
     anywhere (e.g. a conference-proceedings `url:` with no DOI/arXiv pattern —
     the "Aher 2022" case).  For those, the only remaining corpus signal is the
     note's own title + first author.  This tier is deliberately year-agnostic:
@@ -523,22 +523,21 @@ def _corpus_annotation(
 
     Checks sources in order:
       1. notes_index        — built from literature/*.md doi/arxiv_id
-                               frontmatter, declared OR url-derived (Fix #32 +
-                               rv-refs-corpus-fix: filed notes count as
-                               in-corpus even before a note carries an id,
-                               and even when the note only carries a `url:`
-                               field).  Emits the note's own `citekey:`
-                               frontmatter (the operator's Better BibTeX
+                               frontmatter, declared OR url-derived (filed
+                               notes count as in-corpus even before a note
+                               carries an id, and even when the note only
+                               carries a `url:` field).  Emits the note's own
+                               `citekey:` frontmatter (the Better BibTeX
                                scheme) when present, falling back to the
-                               filename stem (rv-023).
+                               filename stem.
       2. notes_title_index  — first-author-family + long-title fallback for
-                               notes with NO extractable id anywhere
-                               (rv-refs-corpus-fix).  Year-agnostic by design
+                               notes with NO extractable id anywhere.
+                               Year-agnostic by design
                                (canonical S2 year vs. a note's own venue year
                                commonly differ) — see _load_notes_title_index
                                for the conservative-title-length rationale.
 
-    rv-023: the third tier — a Zotero ``library.json`` corpus index — was
+    The third tier — a Zotero ``library.json`` corpus index — was
     removed as structurally dead: nothing wired a `refs =` path into real
     project config, and even when present the parser expected the raw
     Zotero-API item shape (`item["data"][...]`), never the flat CSL-JSON a
@@ -552,7 +551,7 @@ def _corpus_annotation(
     doi = _normalize_doi(ext.get("DOI"))
     arxiv = _normalize_arxiv(ext.get("ArXiv"))
 
-    # 1. Check literature/ OKF dir index (Fix #32)
+    # 1. Check literature/ OKF dir index
     ni = notes_index or {}
     if ni:
         if doi and doi in ni:
@@ -560,7 +559,7 @@ def _corpus_annotation(
         if arxiv and arxiv in ni:
             return f"[IN-CORPUS:{ni[arxiv]}]"
 
-    # 2. Title + first-author fallback (rv-refs-corpus-fix) — only reached when
+    # 2. Title + first-author fallback — only reached when
     #    no id matched above.
     nti = notes_title_index or {}
     if nti:
@@ -607,9 +606,9 @@ def _print_candidates(
 ) -> None:
     """Print S2 paper candidates in a human-readable table.
 
-    When notes_index (loaded from the project's literature/ OKF dir — Fix #32,
-    extended by rv-refs-corpus-fix to mine `url:`) and/or notes_title_index
-    (title+author fallback — rv-refs-corpus-fix) is provided, each candidate is
+    When notes_index (loaded from the project's literature/ OKF dir,
+    also mining `url:`) and/or notes_title_index
+    (title+author fallback) is provided, each candidate is
     annotated [IN-CORPUS:<citekey>] or [NEW] so the lit-review citation-
     neighbor walk can detect when a hop adds no new papers.
     """
@@ -679,7 +678,7 @@ def cmd_find(args: argparse.Namespace) -> int:
     else:
         # Over-fetch: request pool candidates (or just limit when --no-rerank)
         fetch_n = pool if do_rerank else args.limit
-        # NG-1: pure refactor — the S2 search subprocess call now lives in
+        # Pure refactor — the S2 search subprocess call now lives in
         # SemanticScholarAdapter (research_vault.sources); PaperHit.raw carries
         # the original S2 dict so this pipeline is byte-identical downstream.
         hits = SemanticScholarAdapter().search(args.query, limit=fetch_n, fields=fields)
@@ -696,7 +695,7 @@ def cmd_find(args: argparse.Namespace) -> int:
             args.query, papers, min_score=min_score, top_k=args.limit
         )
 
-    # Fix #32: check filed literature notes for corpus dedup (zero-infra)
+    # Check filed literature notes for corpus dedup (zero-infra)
     lit_dir = (
         cfg.project_notes_dir(project) / "literature"
         if project else None
@@ -727,7 +726,7 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
     # normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
     paper_id = _normalize_paper_id_for_asta(args.paper_id)
 
-    # NG-1: pure refactor — the S2 citations subprocess call now lives in
+    # Pure refactor — the S2 citations subprocess call now lives in
     # SemanticScholarAdapter; PaperHit.raw carries the original S2 dict.
     # AdapterFetchError is a catchable Exception (not sys.exit) so the
     # multi-round snowball walk can degrade gracefully on one bad seed
@@ -747,7 +746,7 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    # Fix #32: check filed literature notes for corpus dedup
+    # Check filed literature notes for corpus dedup
     lit_dir = (
         cfg.project_notes_dir(project) / "literature"
         if (cfg and project) else None
@@ -780,7 +779,7 @@ def cmd_references(args: argparse.Namespace) -> int:
     # normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
     paper_id = _normalize_paper_id_for_asta(args.paper_id)
 
-    # NG-1: pure refactor — the S2 references subprocess call now lives in
+    # Pure refactor — the S2 references subprocess call now lives in
     # SemanticScholarAdapter; PaperHit.raw carries the original S2 dict.
     # AdapterFetchError is a catchable Exception (not sys.exit) so the
     # multi-round snowball walk can degrade gracefully on one bad seed
@@ -800,7 +799,7 @@ def cmd_references(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    # Fix #32: check filed literature notes for corpus dedup
+    # Check filed literature notes for corpus dedup
     lit_dir = (
         cfg.project_notes_dir(project) / "literature"
         if (cfg and project) else None
@@ -1251,15 +1250,15 @@ def cmd_migrate_citekeys(args: argparse.Namespace) -> int:
 
 
 def cmd_sweep(args: argparse.Namespace) -> int:
-    """sweep: NG-3 parallel width-sweep over the FROZEN _protocol.md angle
+    """sweep: parallel width-sweep over the FROZEN _protocol.md angle
     matrix + sources.
 
     Reads (never widens) the angle matrix + sources frozen at
     `approve-protocol` (anti-fishing) — this command has no write path
     back to `_protocol.md`. Runs the cross-product (angle x source) fetch
     concurrently under the fetch budget, then composes: cross-source dedup
-    (NG-2) -> derivative-of overlap discounting (NG-9) -> the 6-dim utility
-    rank + saturation-paired floor (NG-3). Annotates the kept set vs the
+    -> derivative-of overlap discounting -> the 6-dim utility
+    rank + saturation-paired floor. Annotates the kept set vs the
     project's filed literature notes, same [NEW]/[IN-CORPUS:*] contract as
     `rv research find`.
     """

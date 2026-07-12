@@ -2403,7 +2403,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # L-2 anti-fishing structural gate (task #33): the review loop's
+    # Anti-fishing structural gate: the review loop's
     # ``approve-protocol`` node (see review/_build_phase1_manifest)
     # may not be approved unless the upstream ``review-scope`` node's
     # ``_protocol.md`` carries a non-empty ``counter-position`` field.
@@ -2528,7 +2528,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 return 1
 
     # the lit-review manuscript type's framework-selection Phase-1 gate
-    # (D5) — mirrors the L-2 gate above. ``approve-framework`` may
+    # — mirrors the anti-fishing gate above. ``approve-framework`` may
     # not be approved unless the manuscript's ``_manuscript.md`` (sibling to
     # this Phase-1 manifest, at ``manifest_path.parent``) carries a non-empty
     # ``spine_shape``+``branches``. Only the lit-review type registers a

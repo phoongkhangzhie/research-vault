@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/ranker.py — the 6-dim utility score + the saturation-paired floor
-(NG-3, HR-craft rec 2).
+.
 
 HR's Authority/Novelty/Stance-diversity/Coverage/Redundancy/Freshness rubric
 (0-3 each) turns "core vs boundary" into a number the width-sweep can budget
@@ -64,7 +64,7 @@ def score_hit(
     ``angle_category_count`` — how many distinct angle CATEGORIES
                             (by-method/by-outcome/by-paradigm/by-population)
                             surfaced it — the stance/framing-diversity proxy.
-    ``is_derivative``    — NG-9's derivative-of flag; discounts redundancy.
+    ``is_derivative``    — the derivative-of flag; discounts redundancy.
     """
     hit = deduped.hit
     year = current_year or datetime.date.today().year

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/relate_judge_seam.py fix (Shape B): the harness
+"""review/relate_judge_seam.py fix: the harness
 emit/ingest cold-judge fan-out for incremental-relate's paper<->paper edge
 judgment.
 
@@ -14,7 +14,7 @@ synchronous in-process LLM call.
 
 **Why the fan-out lives HERE, driven by the DAG layer, not inside
 ``incremental_relate.run_incremental_relate``'s own per-pair ``relate_fn``
-callback (the rejected "Shape A").** The harness fan-out is asynchronous and
+callback (the rejected "").** The harness fan-out is asynchronous and
 two-phase: emit a batched task file -> [the hub cold-fans-out fresh
 subagent-judges, out of process] -> ingest the returned verdicts file on a
 LATER invocation. A synchronous per-pair ``relate_fn(a, b) -> edge`` signature
@@ -51,7 +51,7 @@ whole-batch canary failure still HALTs (untrustworthy judge — don't write
 ANY edge from this batch), but an individual missing/garbled per-pair
 verdict just skips that one edge, never blocks the review loop.
 
-THE THREE ARTIFACTS (mirrors judge_seam's NG-4 contract, relate-scoped):
+THE THREE ARTIFACTS (mirrors judge_seam's contract, relate-scoped):
   _relate-tasks.json       (rv -> hub -> cold judges; carries the round's
                             ``new_citekeys``/``baseline_citekeys`` too, so a
                             LATER ingest can reconstruct which citekeys to
@@ -211,7 +211,7 @@ def _extract_relate_verdict(response: str) -> tuple[str, str] | None:
 
 
 # ---------------------------------------------------------------------------
-# emit / ingest — the NG-4-shaped fan-out contract
+# emit / ingest — the same cold-agent-judge fan-out contract shape
 # ---------------------------------------------------------------------------
 
 def emit_relate_tasks(

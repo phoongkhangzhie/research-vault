@@ -12,12 +12,12 @@ Three coordinated pieces (type-generic — applies to any
           block per equation, body LaTeX verbatim underneath;
         - the frontmatter ``key_equations:`` criticality ledger (a D8
           mapping-list of ``{label, critical}``) — joined to the body block
-          BY LABEL (label-uniqueness + exact-match; the L1 review catch).
+          BY LABEL (label-uniqueness + exact-match).
       A non-``literature`` source (e.g. ``concepts/``) has no criticality
       ledger to join — its display-math blocks (``$$…$$``, ``\\[…\\]``,
       ``\\begin{equation}…\\end{equation}``) are mined generically and marked
       ``critical=None`` (unmarked — LLM-judge-criticality-fallback
-      territory; M4 ships the deterministic half, ``check_equation_fidelity``
+      territory; this module ships the deterministic half, ``check_equation_fidelity``
       below degrades an unmarked equation to SIGNAL rather than guessing).
       A note with no equations anywhere is a silent, correct no-op (never an
       error) — most notes have none.
@@ -483,7 +483,7 @@ def check_equation_fidelity(
                 f"({'marked critical' if critical else 'unmarked' if critical is None else 'marked non-critical'}) "
                 f"from {entry.get('note', '?')} not found in the draft (deterministic match"
                 f"{' + judge' if judge_fn is not None else ''} both missed) — SIGNAL, not BLOCK "
-                f"(D-MS-2): surfaced for the review loop, build not failed."
+                f": surfaced for the review loop, build not failed."
             ),
         })
 

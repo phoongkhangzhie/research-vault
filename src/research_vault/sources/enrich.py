@@ -1,15 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""sources/enrich.py — OA-first full-text enrichment (tier 1, design
-2026-07-08-oa-fulltext-enrichment.md).
+"""sources/enrich.py — OA-first full-text enrichment (tier 1).
 
 Full text is a SECOND-STAGE enrichment on a ``PaperHit`` (abstract -> full
 body), kept separate from the sweep so selection stays fast/cheap and cost
-stays bounded to the papers actually read (of the design doc — this is
+stays bounded to the papers actually read — this is
 read-time enrichment, called per-paper at the relate boundary, never at
-sweep time).
+sweep time.
 
-``FetchProvider`` mirrors HR's ``WebProvider`` (``~/framework-bench/
-hyperresearch/src/hyperresearch/web/base.py``) minus authentication — tier 2
+``FetchProvider`` mirrors a prior internal research tool's ``WebProvider``
+design minus authentication — tier 2
 (authenticated paywall crawl) is explicitly OUT of scope; this module only
 designs the socket a future ``AuthedCrawlProvider`` would plug into.
 
@@ -88,8 +87,9 @@ def _http_get_json(url: str, *, timeout: int = 20) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Shared junk / login-wall screen — ported from HR's WebResult.looks_like_junk
-# / looks_like_login_wall (web/base.py), MINUS the authenticated-crawl parts.
+# Shared junk / login-wall screen — ported from a prior internal research
+# tool's WebResult.looks_like_junk / looks_like_login_wall, MINUS the
+# authenticated-crawl parts.
 # Every provider's output passes through this before becoming a FetchResult
 # with text — a login-wall or bot-check page means "not actually OA" for
 # tier 1: decline that provider, fall through, record oa_status: closed if

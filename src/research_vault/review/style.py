@@ -4,7 +4,7 @@
 SEAM CONTRACT
   ``get_review_tips(config=None)`` is the call-point for the review DAG nodes'
   spec/prompt.  The shipped default is the researcher's retrieval-grounded prose:
-  the citation-neighbor relevance walk (0.3.1), counter-position/L-2 gate, and
+  the citation-neighbor relevance walk (0.3.1), counter-position/anti-fishing gate, and
   disconfirming obligation, each anchored to the systematic-review methodology it
   operationalizes (protocol pre-registration, both-direction citation-neighbor
   walking, concept-centric synthesis).  Adopters override per lab/venue via the
@@ -229,7 +229,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "  - `exclusion`: criteria that disqualify a paper.\n"
         "  - `coverage_claim`: what a COMPLETE corpus would contain "
         "(e.g. 'all English papers 2015–2025 on X in venues Y').\n"
-        "  - `counter-position` (REQUIRED — L-2 structural gate): "
+        "  - `counter-position` (REQUIRED — structural gate): "
         "the literature that would REFUTE the coverage claim — name the specific "
         "sub-literature or opposing view that must be actively sought. "
         "A review with an empty or missing `counter-position` cannot pass the "
@@ -678,7 +678,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "           artifacts:\n"
         "             - dataset: https://example.org/dataset\n"
         "             - project-page: https://example.org/project\n"
-        "     RECORD-WHAT-YOU-SEE ONLY (D-MS-6, LEAN scope): this is a list of "
+        "     RECORD-WHAT-YOU-SEE ONLY (LEAN scope): this is a list of "
         "pointers, not an acquisition system — do not clone the repo, download "
         "the checkpoint, or fetch the dataset. Note that it exists and where; "
         "nothing is retrieved.\n\n"
@@ -768,7 +768,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "   Compare the accepted corpus against `_protocol.md` inclusion/exclusion.\n"
         "   Any paper included that violates inclusion criteria = fishing = `[BLOCK]`.\n"
         "   Any paper excluded that meets inclusion criteria = coverage gap = `[BLOCK]`.\n\n"
-        "4. COUNTER-POSITION (L-2 gate — REQUIRED)\n"
+        "4. COUNTER-POSITION (gate — REQUIRED)\n"
         "   The `_protocol.md` MUST have a non-empty `counter-position` field.\n"
         "   - Missing or empty `counter-position` → `[BLOCK]` (hard structural gate).\n"
         "   - Non-empty `counter-position` but corpus contains ZERO papers from the "

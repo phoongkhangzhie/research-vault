@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""sources/semantic_scholar.py — SemanticScholarAdapter (NG-1, pure refactor).
+"""sources/semantic_scholar.py — SemanticScholarAdapter (pure refactor).
 
 Wraps the exact asta subprocess calls ``research.py``'s ``cmd_find`` /
 ``cmd_cited_by`` / ``cmd_references`` shelled out to inline, same asta

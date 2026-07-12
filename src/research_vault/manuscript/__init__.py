@@ -23,11 +23,10 @@ two-phase scaffolder pattern, review/__init__.py):
   - cmd_list:   list manuscript folders for a project (parity with cmd_list
                 on the sibling review/experiment loops).
 
-Explicitly OUT of scope for (stub/interface only here at the time;
-STATUS as — M2/M3/M4/M5/M6 have since LANDED and are wired together
+The gates below have all since LANDED and are wired together
 by ``manuscript/check_gates.py::build_approve_payload``, called from
 ``rv dag approve`` at ``approve-manuscript`` AND re-fired every review-revise
-round via ``review_board.run_revise``):
+round via ``review_board.run_revise``:
   the hermetic .bib build (landed — ``manuscript/bib.py``), the hard
   fidelity gates (landed — ``manuscript/fidelity_gates.py``), the
   equation machinery (landed — ``manuscript/equations.py``), the
@@ -44,9 +43,9 @@ warrant one). Markdown is the ONLY render target — LaTeX has been removed
 entirely (the operator's explicit call — see DEVLOG):
   manuscripts/<slug>/
   ├── _manuscript.md   # control + frontmatter: manuscript_type, spine, corpus_hash, run_state
-  ├── _report.md # RD-1: internal [[citekey]] SOURCE (drafter/assemble write target)
+  ├── _report.md # internal [[citekey]] SOURCE (drafter/assemble write target)
   ├── report.md # reader-facing [N]-numbered render (bib.render_numbered_manuscript)
-  ├── sections/*.md    # RD-1: markdown sections
+  ├── sections/*.md    # markdown sections
   ├── references.md # hermetic citekey-resolution ledger — see manuscript/bib.py
   ├── references.bib # hermetic BibTeX build (paired with the report.md render)
   └── figures/
@@ -105,7 +104,7 @@ def _unknown_type_error(key: str) -> ValueError:
 def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
     """Write a neutral markdown report stub to tree_root (idempotent).
 
-    RD-1 (next-gen lit-review): the manuscript's reader path
+    The manuscript's reader path
     renders MARKDOWN — ``_report.md`` (this stub: the internal
     ``[[citekey]]`` SOURCE, the assemble node's write target) +
     ``sections/*.md``. The reader-facing ``report.md`` (no underscore) is a
@@ -127,7 +126,7 @@ def _write_report_md_stub(tree_root: Path, slug: str, ms_type_key: str) -> None:
         f"# {slug}\n\n"
         f"<!-- Manuscript: {slug}  (type: {ms_type_key}) -->\n"
         "<!-- Machine-injected results/equation data + hermetic citekey resolution:\n"
-        "     references.md is built hermetically by manuscript/bib.py (RD-1);\n"
+        "     references.md is built hermetically by manuscript/bib.py;\n"
         "     pivotal equations are injected into the writer briefs by\n"
         "     manuscript/equations.py and checked every round by\n"
         "     check_gates.py::build_approve_payload. -->\n\n"
@@ -196,10 +195,10 @@ def _inject_source_transform_tips(
         tip now instructs a DEVLOG/control-note write, never a body
         section or an appendix; ``report.md`` carries no Appendix at all).
       - ``references``         -> appended to the ``references`` tip.
-      - ``provenance_header``  -> appended to the ``assemble`` tip (RD-3: the
+      - ``provenance_header``  -> appended to the ``assemble`` tip (the
         hash-free blockquote the assembler prepends atop ``report.md``).
       - ``framework_branches`` -> appended to BOTH the ``introduction`` tip
-        (RD-4: the spine-at-a-glance orientation table folded into the
+        (the spine-at-a-glance orientation table folded into the
         opening section, since the standalone ``framework`` body row is
         deleted) and the ``thematic-sections`` tip (which needs to know how
         many branches to draft one section per).
@@ -258,15 +257,15 @@ def _build_phase2_manifest(
       section-1 -> section-2 -> ... -> section-N -> assemble -> approve-manuscript (auto-resolved)
 
     Each section node reads its declared ``source_atoms`` (OKF type dirs,
-    absolute paths — Fix #34 lesson: absolute so the reads:-grounding resolver
+    absolute paths so the reads:-grounding resolver
     finds them regardless of project_root at run/tick time) + the sections/
     working dir. ``assemble`` joins the drafted sections into ``_report.md``
-    (RD-1, the internal ``[[citekey]]`` SOURCE — never ``report.md``,
+    (the internal ``[[citekey]]`` SOURCE — never ``report.md``,
     which is a separate reader-facing render produced later).
     ``approve-manuscript`` is the terminal human-go gate; the hermetic-.bib,
     fidelity, and equation gates that feed it are
     assembled by ``manuscript/check_gates.py::build_approve_payload`` and
-    wired into ``rv dag approve`` (the manuscript-integration PR).
+    wired into ``rv dag approve``.
 
     Raises ValueError if ``ms_type.section_set`` is empty — a type with no
     sections has nothing to draft; this is a structural inconsistency to
@@ -282,7 +281,7 @@ def _build_phase2_manifest(
             whose framework isn't frozen yet, is a correct no-op).
 
     """
-    # NG-7 (next-gen lit-review): a type's custom Phase-2 builder
+    # A type's custom Phase-2 builder
     # (single-pass outline -> draft -> assemble) takes over entirely when
     # present — mirrors ``_build_phase1_manifest``'s delegation exactly.
     if ms_type.phase2_builder is not None:
@@ -318,8 +317,8 @@ def _build_phase2_manifest(
             tips, equation_ledger, ms_type.section_set, ms_type.equation_sources
         )
 
-    # Integration-PR (seam edit — minimal + additive, mirrors the block
-    # above): wire M6's `source_transform` (previously computed nowhere —
+    # A minimal, additive seam edit mirroring the block
+    # above: wire `source_transform` (previously computed nowhere —
     # dead code). A type with no `source_transform` is a no-op (unchanged
     # tips); cmd_expand passes the frozen spine (`spine_shape`+`branches`)
     # read from `_manuscript.md` via `manuscript_fields` — valid because
@@ -334,8 +333,7 @@ def _build_phase2_manifest(
         )
         tips = _inject_source_transform_tips(tips, transform)
 
-    #  NG-8 (next-gen lit-review, supersedes the
-    # verbatim form): embed the type's exemplar bundle into the matching
+    # Embed the type's exemplar bundle into the matching
     # sections' briefs as MUST-READ POINTERS (``read <path>``), not a
     # verbatim embed and not a prose "write in a synthesis style"
     # description. A type with no `exemplar_bundle`, or a bundle dir that
@@ -359,8 +357,8 @@ def _build_phase2_manifest(
         return {"from": from_id, "edge": "afterok"}
 
     def _rel(okf_type: str) -> str:
-        # Absolute path (Fix #34 lesson — project_root at tick time is the
-        # manifest's parent dir, i.e. manuscripts/<slug>/, NOT project_notes_dir).
+        # Absolute path — project_root at tick time is the
+        # manifest's parent dir, i.e. manuscripts/<slug>/, NOT project_notes_dir.
         return str(project_notes_dir / okf_type)
 
     sections_dir_abs = str(tree_root / "sections")
@@ -372,7 +370,7 @@ def _build_phase2_manifest(
     for section in ms_type.section_set:
         node_id = section.name
         reads = [_rel(atom) for atom in section.source_atoms] + [sections_dir_abs]
-        # NG-8: wire the exemplar bundle's absolute dir into `reads:` so the
+        # Wire the exemplar bundle's absolute dir into `reads:` so the
         # harness's reads-grounding resolver surfaces the pointed-at files as
         # available context ("the `reads:` wiring guarantees
         # availability; the outline citation guarantees use").
@@ -380,7 +378,7 @@ def _build_phase2_manifest(
             reads.append(str(exemplar_bundle_dir))
         node_spec = _spec(section.brief_key or section.name)
 
-        # NG-8: the pre-dispatch presence assertion — a driver that
+        # The pre-dispatch presence assertion — a driver that
         # somehow bypassed inject_exemplar_briefs for a section this bundle
         # covers fails LOUDLY here, never silently ships a voiceless brief.
         if exemplar_blocks:
@@ -400,12 +398,12 @@ def _build_phase2_manifest(
         section_ids.append(node_id)
         prev_id = node_id
 
-    # assemble — joins the drafted sections into _report.md (RD-1,
+    # assemble — joins the drafted sections into _report.md (
     # the internal [[citekey]] SOURCE — never the rendered `report.md`).
     nodes.append({
         "id": "assemble",
         "type": "agent",
-        "label": "Assemble — join drafted sections into _report.md (RD-1)",
+        "label": "Assemble — join drafted sections into _report.md",
         "spec": _spec("assemble"),
         "reads": [sections_dir_abs],
         "needs": [_afterok(section_ids[-1])],
@@ -465,7 +463,7 @@ def cmd_new(
     machinery, and review-revise board plugging into this
     same folder as they land.
 
-    NG-7 (explore-rl friction #6): the manuscript slug is expected to
+    The manuscript slug is expected to
     match its underlying ``rv review`` scope id (``reviews/<slug>/_corpus.md``)
     — a silent mismatch surfaces two DAG nodes deep as an unexplained "no
     frozen corpus" from the ``scope``/``coverage-gate`` machinery. Two fixes:
@@ -484,8 +482,8 @@ def cmd_new(
         ms_type_key: the registered ManuscriptType key (e.g. "lit-review").
             Unknown types fail loudly — see ``_unknown_type_error``.
         config: optional Config (loaded if None).
-        from_review: an ``rv review`` scope id to adopt as the slug (NG-7
-            ) — pre-binds the corpus by making the manuscript slug equal
+        from_review: an ``rv review`` scope id to adopt as the slug —
+            pre-binds the corpus by making the manuscript slug equal
             the review scope id, the convention every corpus-lookup keys off.
 
     Returns:
@@ -518,7 +516,7 @@ def cmd_new(
         raise ValueError(
             "rv manuscript new: a slug is required — pass it directly, or "
             "pass --from-review <scope> to adopt the review scope id as the "
-            "slug (NG-7)."
+            "slug."
         )
 
     ms_type = get_type(ms_type_key)
@@ -540,7 +538,7 @@ def cmd_new(
             f"(avoiding a silent overwrite of an in-progress manuscript)."
         )
 
-    # NG-7 warn-at-creation: a slug with no matching frozen review
+    # Warn-at-creation: a slug with no matching frozen review
     # corpus is a silent landmine that surfaces two nodes deep (scope/
     # coverage-gate report "no frozen corpus" with no explanation of why).
     expected_corpus = project_notes_dir / "reviews" / slug / "_corpus.md"
@@ -826,8 +824,8 @@ def _stamp_review_meta(note_path: Path, result: dict[str, Any]) -> None:
 
 
 def _judge_dir(tree_root: Path, gate: str) -> Path:
-    """``manuscripts/<slug>/judge/<gate>/`` — one dir per gate (
-    NG-4's "one file per gate")."""
+    """``manuscripts/<slug>/judge/<gate>/`` — one dir per gate (the
+    cold-agent-judge fan-out's "one file per gate" convention)."""
     return tree_root / "judge" / gate
 
 
@@ -838,14 +836,15 @@ def cmd_judge_emit(
     config: Config | None = None,
     gate: str = "support-matcher",
 ) -> dict[str, Any]:
-    """Emit the NG-4 cold-agent-judge fan-out task set (
+    """Emit the cold-agent-judge fan-out task set (
     Phase A) — ``rv manuscript <project> judge-emit <slug>``.
 
     Writes ``manuscripts/<slug>/judge/support-matcher/_judge-tasks.json`` +
     ``_judge-canary-key.json``. Support-matcher-ONLY — the cold-read
     self-containment critic that originally shared this seam was removed
     (SIGNAL-only, non-actionable under hands-off autonomy, redundant with
-    the review board + RD-6; the operator's call, see DEVLOG). rv calls NO LLM on
+    the review board's own term-definition gate; an explicit, documented
+    design call, see DEVLOG). rv calls NO LLM on
     this path — the hub is responsible for fanning cold subagent-judges
     out over the written tasks file and writing ``_judge-verdicts.json``
     alongside it; run ``rv manuscript <project> judge-ingest <slug>`` once
@@ -898,7 +897,7 @@ def cmd_judge_ingest(
     config: Config | None = None,
     gate: str = "support-matcher",
 ) -> dict[str, Any]:
-    """Ingest ``_judge-verdicts.json`` for the NG-4 fan-out (
+    """Ingest ``_judge-verdicts.json`` for the cold-agent-judge fan-out (
     Phase C) — ``rv manuscript <project> judge-ingest <slug>``.
 
     Reads whatever the hub wrote to

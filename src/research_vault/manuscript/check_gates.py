@@ -1,23 +1,23 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""manuscript/check_gates.py — the INTEGRATION PR: assemble the manuscript-loop
-gates the parallel wave (M2/M3/M4/M6) built but never wired together.
+"""manuscript/check_gates.py — assembles the manuscript-loop
+gates, previously built in parallel but never wired together.
 
 ``build_approve_payload`` is the single entry point ``rv dag approve`` calls at
 the ``approve-manuscript`` node (mirrors ``check_framework_gate``'s wiring at
 ``approve-framework``) — and the future per-round review-revise
 re-fire is designed to import THIS function rather than duplicate the gate
-assembly (single-sourced, per the integration-PR brief).
+assembly (single-sourced).
 
-Assembles the four gates by HONESTY-CLASS, per the operator's LOCKED
-judge-guard policy (the resolved call carried in the dispatching brief — see
-``manuscript/equations.py``'s D-MS-2 note for the parallel precedent: an
-explicit operator override on a design doc's own recommendation is followed,
-and the divergence is documented, not silently applied):
+Assembles the four gates by HONESTY-CLASS, per an explicit, documented
+judge-guard policy (see ``manuscript/equations.py``'s module docstring for
+the parallel precedent: an explicit override on a design doc's own
+recommendation is followed, and the divergence is documented, not silently
+applied):
 
   - ``check_citation_resolve`` (``manuscript/bib.py``)     -> hard BLOCK,
     deterministic, ALWAYS runs (no judge dependency at all).
   - ``check_equation_fidelity`` (``manuscript/equations.py``) -> SIGNAL
-    ONLY (D-MS-2 — never BLOCK, even marked-critical). Deterministic; ALWAYS
+    ONLY (never BLOCK, even marked-critical). Deterministic; ALWAYS
     runs (no judge dependency — the LLM-judge fallback inside the gate itself
     is a separate, optional refinement not wired here).
   - ``check_support_tally`` (``manuscript/fidelity_gates.py``) -> BLOCK
@@ -25,8 +25,8 @@ and the divergence is documented, not silently applied):
     the judge guard. Support-matcher is the ONE judge-gated LLM check now
     (the former ``check_cold_read_tally`` self-containment critic was
     removed — SIGNAL-only, non-actionable under hands-off autonomy,
-    redundant with the review board's coherence axis + RD-6's hard
-    term-definition gate. The operator's call; see DEVLOG).
+    redundant with the review board's coherence axis + its own hard
+    term-definition gate. An explicit, documented design call; see DEVLOG).
 
 **The judge guard** (design doctrine: ``honesty-gates.md`` fail-closed
 discipline, applied honestly in the OTHER direction here). The env-var
@@ -124,9 +124,9 @@ def _read_draft_text(tree_root: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# check_reader_hygiene — RD-5, next-gen lit-review (deterministic,
-# ALWAYS runs, hard BLOCK, no judge dependency — the presentation program's
-# most transferable HR mechanic, rv's biggest packaging gap before this PR).
+# check_reader_hygiene (deterministic, ALWAYS runs, hard BLOCK, no judge
+# dependency) — the reader-facing document must never leak internal
+# pipeline vocabulary or hashes.
 # ---------------------------------------------------------------------------
 
 # Internal pipeline-vocabulary handles that must never leak into reader prose.
@@ -184,7 +184,7 @@ _LEAK_TOOL_TOKENS: tuple[str, ...] = (
 
 
 def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
-    """The reader-hygiene leak-gate (RD-5) — BLOCK on pipeline vocabulary
+    """The reader-hygiene leak-gate — BLOCK on pipeline vocabulary
     leaking into reader-facing prose.
 
     When to use: run over the ASSEMBLED reader body (the joined, rendered
@@ -210,7 +210,7 @@ def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
     for m in _LEAK_CP_HANDLE_RE.finditer(reader_body):
         errors.append(
             f"reader-hygiene BLOCK: counter-position handle {m.group(0)!r} leaked "
-            f"into reader prose — name the counter-position inline (RD-6), never "
+            f"into reader prose — name the counter-position inline, never "
             f"by its internal handle."
         )
     for m in _LEAK_Q_HANDLE_RE.finditer(reader_body):
@@ -221,7 +221,7 @@ def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
     for m in _LEAK_SHA256_RE.finditer(reader_body):
         errors.append(
             f"reader-hygiene BLOCK: a corpus hash {m.group(0)!r} leaked into reader "
-            f"prose — route hashes to the control note / DEVLOG (RD-3), never the "
+            f"prose — route hashes to the control note / DEVLOG, never the "
             f"manuscript body."
         )
     for m in _LEAK_ARTIFACT_FILENAME_RE.finditer(reader_body):
@@ -257,16 +257,16 @@ def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# check_heading_order — HR-craft rec 5, NG-7's structural-mirror
-# H2-order diff (deterministic, ALWAYS runs, SIGNAL only — no judge dependency)
+# check_heading_order — a structural-mirror H2-order diff (deterministic,
+# ALWAYS runs, SIGNAL only — no judge dependency)
 # ---------------------------------------------------------------------------
 
 def check_heading_order(draft_text: str, expected_order: "list[str] | tuple[str, ...]") -> dict[str, Any]:
-    """HR-craft rec 5: a deterministic H2-heading-order diff.
+    """A deterministic H2-heading-order diff.
 
-    HR's instruction-critic diffs the draft's ordered H2 list element-wise
-    against a frozen heading contract; NG-7's single-pass outline already
-    freezes a reading-order spine (``lit_review.READING_ORDER``, RD-2) — this
+    Diffs the draft's ordered H2 list element-wise
+    against a frozen heading contract; the single-pass outline already
+    freezes a reading-order spine (``lit_review.READING_ORDER``) — this
     is the cheap, mechanical cross-check confirming the draft actually
     delivered the frozen frame.
 
@@ -704,7 +704,7 @@ def compute_coverage_diff(coverage_map_path: Path, reader_body: str) -> dict[str
 
 
 # ---------------------------------------------------------------------------
-# _cold_fanout_dirs_present — NG-4 detector
+# _cold_fanout_dirs_present — cold-agent-judge fan-out detector
 # ---------------------------------------------------------------------------
 
 def _cold_fanout_dirs_present(tree_root: Path) -> bool:
@@ -770,7 +770,7 @@ def build_approve_payload(
     blocking: list[str] = []
     signals: list[str] = []
     not_run: list[str] = []
-    # NG-4b item 3: a support-matcher canary-abort (blind-judge probe fails)
+    # A support-matcher canary-abort (blind-judge probe fails)
     # must be visible to review.autonomy's gate-policy engine as a TOP-LEVEL
     # flag, not buried inside a `blocking` string. classify_disposition's
     # priority order checks `canary_aborted` BEFORE `blocking` (untrustworthy
@@ -807,9 +807,10 @@ def build_approve_payload(
     if not render_result["ok"]:
         blocking.extend(f"[numbered-render] {e}" for e in render_result["errors"])
 
-    # ── 2. Equation-fidelity — deterministic, ALWAYS runs, SIGNAL only,
-    #      D-MS-2. A type with no equation_sources is a correct
-    #      no-op (nothing declared to mine, never an error). ────────────────
+    # ── 2. Equation-fidelity — deterministic, ALWAYS runs, SIGNAL only
+    #      (see equations.py's module docstring). A type with no
+    #      equation_sources is a correct no-op (nothing declared to mine,
+    #      never an error). ────────────────────────────────────────────────
     equation_sources = getattr(ms_type, "equation_sources", ()) or ()
     if equation_sources:
         ledger = _equations.extract_equation_ledger(
@@ -838,7 +839,7 @@ def build_approve_payload(
         else:
             signals.extend(f"[support-matcher:PARTIAL] {w}" for w in support_result["warnings"])
     elif _cold_fanout_dirs_present(tree_root):
-        # NG-4 (PRIMARY path): no live judge_fn/env, but an
+        # PRIMARY path: no live judge_fn/env, but an
         # orchestrator-dispatched cold-agent-judge fan-out was emitted for
         # this manuscript (``judge/support-matcher/_judge-tasks.json`` present)
         # — ingest whatever verdicts landed instead of falling into the
@@ -865,7 +866,7 @@ def build_approve_payload(
             canary_aborted = True
             blocking.extend(f"[support-matcher] {e}" for e in support_result["errors"])
         elif support_result.get("halt"):
-            # NG-4b: an incomplete/missing judge-fanout is the "floor
+            # An incomplete/missing judge-fanout is the "floor
             # gate NOT RUN" failure class, NOT a fixable BLOCK — it belongs
             # in `not_run` (-> HALT-DECLARE, priority 2) so the gate-policy
             # engine never dispatches a bounded auto-revise against a floor
@@ -901,13 +902,13 @@ def build_approve_payload(
     if coverage_result["warnings"]:
         not_run.extend(f"[coverage-gate] {w}" for w in coverage_result["warnings"])
 
-    # ── 6. Reader-hygiene leak-gate (RD-5) — deterministic, ALWAYS runs,
+    # ── 6. Reader-hygiene leak-gate — deterministic, ALWAYS runs,
     #      hard BLOCK. No judge dependency; independent of every other gate.
     hygiene_draft_text = _read_draft_text(tree_root)
     hygiene_result = check_reader_hygiene(hygiene_draft_text)
     blocking.extend(f"[reader-hygiene] {e}" for e in hygiene_result["errors"])
 
-    # ── 7. Heading-order diff (HR-craft rec 5, NG-7) — deterministic, ALWAYS
+    # ── 7. Heading-order diff — deterministic, ALWAYS
     #      runs (when the type declares a frozen reading order), SIGNAL only.
     #      Only lit-review declares READING_ORDER today; a type with none is
     #      a correct no-op (never fabricated for a type that hasn't defined one).
@@ -933,7 +934,7 @@ def build_approve_payload(
         "blocking": blocking,
         "signals": signals,
         "not_run": not_run,
-        # NG-4b: top-level canary-abort flag — see comment at the top of
+        # Top-level canary-abort flag — see comment at the top of
         # this function. Consumed by review.autonomy.evaluation_from_structural_payload.
         "canary_aborted": canary_aborted,
     }

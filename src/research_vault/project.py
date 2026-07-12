@@ -329,7 +329,7 @@ def _render_pointers_skeleton(slug: str, source_dir: str) -> str:
 
     pointers.md is a LIGHTWEIGHT, READ-FRESH file — not a baked hat lens.
     It accrues pointers as the project develops; a brand-new project can
-    have an empty skeleton and nothing blocks on it (design D-LR-1).
+    have an empty skeleton and nothing blocks on it.
 
     Blessed MUST-contain shape (the multi-project context-switch convention,
     de-facto per rv's own pointers.md — see doctrine/coordination.md):

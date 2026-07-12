@@ -198,7 +198,7 @@ def parse_protocol_criteria(protocol_path: Path) -> tuple[dict[str, Any], str]:
         criteria: ``{"question": ..., "inclusion": ..., "exclusion": ...,
             "coverage_claim": ...}`` (missing fields default to ``""``).
         counter_position: the frozen ``counter-position`` field (``""`` if
-            absent — the L-2 structural gate at ``approve-protocol``
+            absent — the anti-fishing structural gate at ``approve-protocol``
             already refuses an empty one before search ever fires, but this
             function must not crash on a protocol that hasn't cleared that
             gate yet, e.g. in isolated unit tests).

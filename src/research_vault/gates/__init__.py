@@ -22,8 +22,8 @@ Modules:
 (The former ``coldread.py`` self-containment critic — 3-verdict
 [STANDS-ALONE|DANGLING|NEEDS-CONTEXT] — was removed: it was SIGNAL-only,
 non-actionable under hands-off autonomy, and redundant with the 2x3 review
-board's coherence axis + RD-6's hard term-definition gate. The operator's call;
-see DEVLOG.)
+board's coherence axis + its own hard term-definition gate. An explicit,
+documented design call; see DEVLOG.)
 
 stdlib-only, judge_fn-injectable (mockable in tests, no live LLM call
 required), and fail-closed by construction (a parse failure, a missing

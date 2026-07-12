@@ -93,11 +93,11 @@ class ManuscriptType:
         reviewer_lenses: reviewer lens specs.
         canaries: canary probe identifiers.
         phase2_builder: optional callable building a CUSTOM Phase-2 manifest
-            (NG-7, next-gen lit-review single-pass
+            (a single-pass
             outline -> draft -> assemble, replacing the type-generic
             per-section chain). Mirrors ``phase1_builder``'s already-
-            established override shape exactly (reuse-over-create, charter
-            ). Signature: ``(project, slug, project_notes_dir, tree_root,
+            established override shape exactly (reuse-over-create).
+            Signature: ``(project, slug, project_notes_dir, tree_root,
             *, manuscript_fields, config) -> dict[str, Any]`` (a DAG manifest
             dict). ``None`` = the core's default section_set chain
             (``_build_phase2_manifest``) — a type with no Phase-2 override

@@ -59,7 +59,7 @@ _DUP_IGNORE_NAMES = frozenset({".gitkeep", "README.md"})
 # ---------------------------------------------------------------------------
 
 def check_notebook_in_src(code_dir: Path) -> list[str]:
-    """No ``*.ipynb`` under ``code/src/`` — the library import path (D-CC-1).
+    """No ``*.ipynb`` under ``code/src/`` — the library import path.
 
     HARD: a notebook in the import path could become (or already be) the sole
     source of a claimed number, defeating the note-plane CHECK-3a invariant
@@ -75,7 +75,7 @@ def check_notebook_in_src(code_dir: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# CHECK-5 — environment pinned (repo-plane, WARN — soft, D-CC-2, researcher F1.2)
+# CHECK-5 — environment pinned (repo-plane, WARN — soft, , researcher F1.2)
 # ---------------------------------------------------------------------------
 
 #: (filename, "how we know it's pinned") — checked at repo root, in order.
@@ -180,7 +180,7 @@ def check_runs_scores_git_policy(repo_root: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# CHECK-7 — science-critical path has tests (repo-plane, WARN — soft, D-CC-3)
+# CHECK-7 — science-critical path has tests (repo-plane, WARN — soft)
 # ---------------------------------------------------------------------------
 
 _SCIENCE_CRITICAL_MARKER = "# science-critical"
@@ -347,9 +347,9 @@ _SPDX_SIGNATURES: list[tuple[str, str]] = [
     # readability since rv itself ships AGPL-3.0 (2026-07-08 relicense).
     ("AGPL-3.0", "GNU AFFERO GENERAL PUBLIC LICENSE"),
     ("GPL-3.0", "GNU GENERAL PUBLIC LICENSE"),
-    ("GPL-2.0", "GNU GENERAL PUBLIC LICENSE"),
+    ("GP.0", "GNU GENERAL PUBLIC LICENSE"),
     ("LGPL-3.0", "GNU LESSER GENERAL PUBLIC LICENSE"),
-    ("MPL-2.0", "Mozilla Public License"),
+    ("MP.0", "Mozilla Public License"),
     ("Unlicense", "This is free and unencumbered software"),
 ]
 

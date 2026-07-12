@@ -6,7 +6,7 @@ for project task branches.  Anti-patterns this prevents: committed-to-main
 directly · never made a worktree · working on main instead of an isolated
 branch.
 
-Multi-repo support (GD-D6):
+Multi-repo support:
   By default, worktrees are created for the framework repo (instance_root).
   Use ``rv wt add <task> --project <slug>`` to create a worktree in a
   project repo's ``<source_dir>-wt/`` directory.

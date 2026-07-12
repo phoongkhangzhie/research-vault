@@ -6,8 +6,8 @@ healthy git habits without requiring a named identity system.  Anti-patterns
 this prevents: committed-to-main directly · never made a worktree · hand-merged
 red CI.
 
-Design: GD.1 (protect-main off structure not identity), GD.2 (core.hooksPath
-per-repo), GD.3 (profile-aware check), GD.4 (consent/opt-in install).
+Design: protect-main keys off structure not identity; ``core.hooksPath`` is
+set per-repo; the check is profile-aware; install is consent/opt-in.
 
 Subcommands
 -----------
@@ -35,7 +35,7 @@ Subcommands
   status [--project <slug> | --all]
       Reports install state per repo.
 
-Repo profiles (GD.1 / GD-D7)
+Repo profiles
 ------------------------------
   Framework repo (instance_root — the public OSS package):
       Leakage: secrets + private-markers (all 9 classes; it's PUBLIC).

@@ -29,7 +29,7 @@ append-as-caveat) and reject-not-force-fit
 block). The revise agent this brief is dispatched to is
 ``[Read, Edit]``-locked at the HARNESS level (no Write, no Bash) — the
 tool grant makes patch-not-regenerate STRUCTURAL, not merely disciplinary
-(mirrors the charter's coordinator-class tool-grant argument, applied here
+(the same coordinator-class-vs-doer-class tool-grant argument, applied here
 to a doer-class agent's SCOPE rather than its role).
 
 Stdlib only. Hermetic — every function here is pure data manipulation; the

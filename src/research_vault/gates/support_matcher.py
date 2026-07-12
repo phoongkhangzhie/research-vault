@@ -67,7 +67,7 @@ reaches the Anthropic Messages endpoint itself for a judge.
 judge_fn is a wiring error, not a soft no-op. The injectable ``judge_fn`` seam
 remains for TESTS only.
 
-D-MS-4 RESOLVED: Opus-tier judge at runtime (not the engineer's run model);
+Opus-tier judge at runtime (not the engineer's run model);
 resolved on the cold-fanout side, never from an env var read here.
 
 LOGGING
@@ -97,8 +97,8 @@ from typing import Any, Callable
 # defaulting to "" — never a live model resolution.
 
 # Confirmatory-strength verbs that escalate exploratory findings to BLOCK
-# (D-MS-5: hedged/low-confidence finding stated as unhedged claim → BLOCK;
-#  general drift → WARN). Used in J-2 stance-mismatch check.
+# (a hedged/low-confidence finding stated as an unhedged claim → BLOCK;
+#  general drift → WARN). Used in the stance-mismatch check.
 _CONFIRMATORY_VERBS: frozenset[str] = frozenset({
     "we show",
     "we establish",
@@ -673,7 +673,7 @@ def match_support(
                           deleted the in-process API default; None raises
                          loudly (production runs via the emit/ingest cold
                          fan-out). Pass a mock in tests.
-        judge_model:     the model-id to log (D-MS-4 resolved: Opus-tier).
+        judge_model:     the model-id to log (resolved: Opus-tier).
         section:         manuscript section stem (tex.stem) passed
                          through from check_support_tally, stored in SupportVerdict.section
                          and emitted in to_meta_dict() for absent_row routing in gap_scan.py.
@@ -750,7 +750,7 @@ def match_support(
     verdict, verbatim_span, polarity, reasoning = _parse_judge_response(raw_response)
 
     # J-2 escalation: exploratory note cited at explicit confirmatory strength → BLOCK
-    # (D-MS-5: strength inversion is a BLOCK; general drift is WARN)
+    # (strength inversion is a BLOCK; general drift is WARN)
     j2_escalation = False
     if stance and stance.lower() in ("exploratory", "pilot", "tentative"):
         claim_lower = claim.lower()

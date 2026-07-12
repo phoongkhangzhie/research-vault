@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """citation_pattern.py — the single source of truth for the manuscript
-loop's ``[[citekey]]`` wikilink citation syntax (RD-1).
+loop's ``[[citekey]]`` wikilink citation syntax.
 
 Pre-publish hardening followup: ``WIKILINK_CITE_RE`` used to be
 byte-identically duplicated in ``manuscript/bib.py`` and

@@ -228,8 +228,8 @@ def run_incremental_relate(
     island paper (never fans out to any other newcomer, even in the same
     batch).
 
-    ``relate_fn=None`` raises ``RuntimeError`` — fail-closed (fix,
-    Shape B). This module NEVER self-judges: the judgment callable must
+    ``relate_fn=None`` raises ``RuntimeError`` — fail-closed.
+    This module NEVER self-judges: the judgment callable must
     already be resolved (a synchronous dict-lookup over harness-ingested
     verdicts, injected by the caller — see ``review.relate_judge_seam`` /
     ``dag/verbs.py``'s ``approve-review`` branch), never a live API default

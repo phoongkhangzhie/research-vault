@@ -139,7 +139,7 @@ REPRO_MANUAL = [
     "repro_dataset_split",
     "repro_metric",
 ]
-# (D-CC-2 / CHECK-4b): tolerance taxonomy — declares the comparison a
+# (CHECK-4b): tolerance taxonomy — declares the comparison a
 # golden-rerun test should apply against this experiment's recorded
 # scores[].hash, so an exact-hash gate never fails-forever on a legitimately
 # nondeterministic (GPU/stochastic) pipeline. Values: exact | tol:<eps> |
@@ -410,7 +410,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
         # MANUAL fields: cross-lingual trio + eval params — fill by hand; sentinel = honest hole.
         for repro_field in REPRO_ALL_FIELDS:
             fields[repro_field] = REPRO_SENTINEL
-        # (D-CC-2 / R3): repro_determinism scaffolds to the strict safe
+        # (R3): repro_determinism scaffolds to the strict safe
         # default "exact", NOT the sentinel — a stochastic/GPU pipeline must
         # explicitly relax it. Overridden after the loop (not a REPRO_SENTINEL
         # hole, so it must not be forced to fill like the completeness fields).
@@ -463,7 +463,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
             "<!--   repro_prompt_version, repro_dataset_split, repro_metric. -->\n"
             "<!-- Anti-fabrication: use 'not-recorded-in-provenance' not blank/guessed. -->\n"
             "<!-- -->\n"
-            "<!-- repro_determinism (D-CC-2): the tolerance taxonomy a -->\n"
+            "<!-- repro_determinism: the tolerance taxonomy a -->\n"
             "<!--   golden-rerun test uses to pick its comparison. Values: -->\n"
             "<!--     exact       — bit-for-bit reproducible (default; strictest) -->\n"
             "<!--     tol:<eps>   — reproducible within a numeric epsilon, e.g. tol:1e-6 -->\n"
@@ -614,7 +614,7 @@ def _cmd_new_two_layer(
             "title": title,
             "created": _today(),
         }
-        # Fix #32: literature notes carry optional doi/arxiv_id placeholders so the
+        # Literature notes carry optional doi/arxiv_id placeholders so the
         # notes-based corpus-dedup index (_load_notes_index in research.py) can match
         # an S2 candidate to a filed note without requiring Zotero library.json sync.
         # Fill these in after rv note new to enable [IN-CORPUS] annotation for the note.
@@ -1668,7 +1668,7 @@ def check_provenance_chain(exp_note_path: Path) -> list[str]:
         either being REPRO_NOT_APPLICABLE exempts the whole config-artifact
         requirement (hash-match is meaningless without both).
 
-    CHECK-3a (notebook invariant, D-CC-1): no scores[] entry's location may end
+    CHECK-3a (notebook invariant): no scores[] entry's location may end
     in ".ipynb" — a claimed result's number must never be notebook-sourced.
 
     Backward-compat: a note with no claimed result (empty scores list, e.g. rv's
@@ -1697,7 +1697,7 @@ def check_provenance_chain(exp_note_path: Path) -> list[str]:
     name = exp_note_path.name
     violations: list[str] = []
 
-    # CHECK-3a: no claimed score may be notebook-sourced (D-CC-1)
+    # CHECK-3a: no claimed score may be notebook-sourced
     for i, entry in enumerate(scores):
         location = (entry.get("location") or "").strip()
         if location.lower().endswith(".ipynb"):
@@ -1705,7 +1705,7 @@ def check_provenance_chain(exp_note_path: Path) -> list[str]:
             violations.append(
                 f"{name}: scores entry {label!r} location is a notebook "
                 f"({location}) — a claimed result must never be notebook-sourced "
-                f"(CHECK-3a, D-CC-1); move the computation into code/src/ and re-run"
+                f"(CHECK-3a); move the computation into code/src/ and re-run"
             )
 
     # results_commit — git SHA of the producing code. ALWAYS required — the

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """fidelity_gates.py — manuscript-loop THIN ADAPTER over the shared gates.
 
-The hard fidelity gate re-instantiated — the claim->source
-support-matcher — lives in the SHAREABLE ``research_vault.gates`` package
-(D-SV-0), not here. This module is the manuscript-loop's own thin,
+The hard fidelity gate — the claim->source
+support-matcher — lives in the SHAREABLE ``research_vault.gates`` package,
+not here. This module is the manuscript-loop's own thin,
 additive wiring on top of it:
 
   check_support_tally(tree_root, ...) — walks every ``*.md`` file under a
@@ -19,21 +19,21 @@ design's hard-fidelity-gate section expects the ``approve-manuscript``
 payload assembler to consume: ``errors`` (BLOCK-level strings), ``warnings``
 (WARN-level strings), ``honest_report`` (never says "verified"), and
 ``canary_aborted``. Consumed by ``manuscript/check_gates.py::build_approve_payload``
-(the manuscript-integration PR) — see that module for the honesty-class
+— see that module for the honesty-class
 assembly (support-matcher is the citation-fidelity BLOCK floor).
 
 (The former cold-read self-containment critic — the manuscript-tree
 adapter over ``gates.coldread.run_cold_read()`` — was removed: it was
 SIGNAL-only, non-actionable under hands-off autonomy, and redundant with
-the 2x3 review board's coherence axis + RD-6's hard term-definition gate.
-The operator's call; see DEVLOG. The cold-agent-judge fan-out seam (NG-4) below
-is now support-matcher-ONLY.)
+the 2x3 review board's coherence axis + its own hard term-definition gate.
+An explicit, documented design call; see DEVLOG. The cold-agent-judge
+fan-out seam below is now support-matcher-ONLY.)
 
 Doctrine: data/doctrine/honesty-gates.md, data/doctrine/review-board.md.
 
 SCOPE — additive, minimal shared-seam edit at the time this file was written:
   This file did NOT touch ``manuscript/check_gates.py`` — that module has
-  SINCE LANDED (the manuscript-integration PR) and imports
+  SINCE LANDED and imports
   ``check_support_tally`` from here as its judge-guarded LLM gate.
 
 Stdlib only. Hermetic in tests (judge_fn is always injectable — no live LLM
@@ -59,7 +59,7 @@ from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE as _WIKI
 # ``judge_fn``.
 _DEFAULT_JUDGE_MODEL: str = ""
 
-# NG-4 batch sizing: default per-batch task count for emit_support_tasks.
+# Cold-agent-judge fan-out batch sizing: default per-batch task count for emit_support_tasks.
 # Raised from the original 8 -> 20 (the operator's call, live 0.3.0
 # validation run: 82 tasks / 11 batches for a 25-paper survey was too
 # many cold-judge spawns for the hub to fan out; 20 packs the same task
@@ -81,7 +81,7 @@ def _collect_support_items(draft_files: "list[Path]") -> list[tuple[str, str, st
     independently-drifting copies): the inline judge loop
     (``check_support_tally``: test-injected ``judge_fn`` only, no live
     API default) and the cold-fanout emit path
-    (``emit_support_tasks``, NG-4) call this identically so the two paths
+    (``emit_support_tasks``) call this identically so the two paths
     see the EXACT same set of (claim, citekey) pairs for a given draft.
     """
     all_items: list[tuple[str, str, str]] = []
@@ -305,7 +305,7 @@ def check_support_tally(
 
 
 # ---------------------------------------------------------------------------
-# NG-4 — support-matcher cold-agent-judge fan-out (PRIMARY path)
+# support-matcher cold-agent-judge fan-out (PRIMARY path)
 #
 # emit_support_tasks / ingest_support_verdicts replace the inline
 # ``judge_fn(prompt)`` call above with the emit-tasks -> hub-fanout ->
@@ -321,7 +321,7 @@ def _compute_citation_set_hash(items: "list[tuple[str, str, str]]") -> str:
     """Deterministic hash of the draft's citation universe (the exact
     (sentence, citekey, section) triples ``_collect_support_items``
     extracts) — stamped into ``tasks_doc`` at emit time and recomputed at
-    ingest time (PR Finding C: draft<->tasks binding).
+    ingest time (the draft<->tasks binding).
 
     A citation added to (or removed from) the draft AFTER emit changes
     this hash — ``ingest_support_verdicts`` HALTs on a mismatch rather
@@ -342,16 +342,15 @@ _SUPPORT_VERDICT_VOCAB: frozenset[str] = frozenset(
 # doc). Never a certifying value.
 _SUPPORT_FAIL_CLOSED_DEFAULT = "ABSENT"
 
-# NOTE on the design spec's JSON example vs. this vocab: NG-4
-# contract JSON literal shows ``"verdict": "SUPPORTED"`` — but the brief
-# explicitly says the vocab must MATCH THE EXISTING EXTRACTOR, and
+# NOTE: an earlier design sketch's JSON example showed
+# ``"verdict": "SUPPORTED"`` — but the vocab must MATCH THE EXISTING EXTRACTOR, and
 # ``gates.support_matcher._extract_support_verdict`` (the live code, the
 # doctrine-of-record) uses ``SUPPORTS``, not ``SUPPORTED``. Followed the
 # code (do NOT widen/rename the fixed vocab; SUPPORTED would silently fail
 # to match ``_SUPPORT_VERDICT_VOCAB`` and get fail-closed-defaulted to
-# ABSENT on every real task) — same "operator override / doc typo, code is
-# the SSOT" precedent as D-MS-2 (equations.py). Flagged for the architect
-# review — see the PR description.
+# ABSENT on every real task) — same "sketch vs. doc typo, code is
+# the SSOT" precedent as the equation-fidelity module's own design call
+# (see equations.py's module docstring).
 
 
 def _format_note_source_excerpt(fields: dict[str, str]) -> str:
@@ -465,7 +464,7 @@ def emit_support_tasks(
     HANDFUL of cold judges, not one per claim.
 
     rv does NOT call an LLM on this path — no judge_fn, no env var. This
-    is the whole point of NG-4: the fan-out is harness-side.
+    is the whole point of the cold-agent-judge fan-out: it is harness-side.
 
     Args:
         tree_root:        the manuscript folder (``manuscripts/<slug>/``).

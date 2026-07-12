@@ -215,7 +215,7 @@ Phase-2 (per-paper distillation + synthesis, fanned out after coverage-gate appr
 relate-<key> (×N papers) → review-synthesize → review-coverage-critic → [approve-review]
 ```
 
-The protocol must be approved (Gate 1) before search fires — the L-2
+The protocol must be approved (Gate 1) before search fires — the
 anti-fishing gate. `review-search`/`review-snowball` are deterministic TOOL
 nodes (width-sweep, both-direction snowball); `review-screen`/`review-curate`
 are thin agent judgment layers. `coverage-gate` (Gate 2) is the phase

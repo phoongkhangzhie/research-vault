@@ -1076,12 +1076,12 @@ def render_comparison_table(rows: list[dict[str, str]]) -> str:
 
 
 def render_provenance_header() -> str:
-    """Render the RD-3 provenance blockquote (2-3 lines, no hash/no counts).
+    """Render the provenance blockquote (2-3 lines, no hash/no counts).
 
-    RD-3: a short, mechanical, hash-free
+    A short, mechanical, hash-free
     provenance statement for the top of the assembled document. The corpus
     hash and any reconciliation flags route to the control note / DEVLOG —
-    NEVER the manuscript body (the RD-5 reader-hygiene leak-gate structurally
+    NEVER the manuscript body (the reader-hygiene leak-gate structurally
     enforces this: a literal ``sha256:...`` in reader prose is a hard BLOCK).
 
     This is deliberately static boilerplate, not survey-specific data — the
@@ -1152,7 +1152,7 @@ def source_transform(
         ``render_comparison_table``)
       - the frozen framework's branches (from ``spine`` — the `_manuscript.md`
         fields written at ``approve-framework``)
-      - RD-3: a hash-free ``provenance_header`` blockquote for the top of the
+      - a hash-free ``provenance_header`` blockquote for the top of the
         assembled document (``render_provenance_header``).
 
     Args:
@@ -1276,13 +1276,13 @@ _THEMATIC_BRIEF = (
 
 STYLE_BRIEFS: dict[str, str] = {
     "introduction": (
-        "RD-2 (reader-first): open on the THESIS, not the methods — the "
+        "Reader-first: open on the THESIS, not the methods — the "
         "survey's central claim and why-now, in the first paragraph. Bold "
-        "the topic sentence (RD-6). Do NOT lead with corpus size, search "
+        "the topic sentence. Do NOT lead with corpus size, search "
         "process, or a methods preamble — that record now lives in the "
         "project's DEVLOG/control note, not this reader-facing document "
         "(gold-settled — no Appendix in `report.md`).\n\n"
-        "RD-4 (softened): orient the reader to the frozen "
+        "Orient the reader to the frozen "
         "`spine_shape:`/`branches:` (from `_manuscript.md`, approve-"
         "framework) — a compact table is ONE good way to do this, but is "
         "not mandatory; a 2-3 sentence naming of the branches + why this "
@@ -1296,7 +1296,7 @@ STYLE_BRIEFS: dict[str, str] = {
         "Draw scope framing from `mocs/` and open questions from `gaps/` — "
         "never invent a gap not anchored in a real `gaps/` note. Preview the "
         "contributions, then hand off directly into the thematic sections — "
-        "no PRISMA/methods detour (RD-2)."
+        "no PRISMA/methods detour."
     ),
     "thematic-sections": _THEMATIC_BRIEF,
     "cross-cutting-analysis": (
@@ -1320,7 +1320,7 @@ STYLE_BRIEFS: dict[str, str] = {
         "thematic sections and cross-cutting analysis."
     ),
     "references": (
-        "RD-1: this is `## Sources`, MECHANICAL not prose — a hermetic "
+        "This is `## Sources`, MECHANICAL not prose — a hermetic "
         "NUMBERED ledger built from the citekey ledger (`literature/` "
         "frontmatter), byte-deterministic — never hand-type or invent an "
         "entry. Use the injected `[N]` numbered list VERBATIM as the body "
@@ -1329,7 +1329,7 @@ STYLE_BRIEFS: dict[str, str] = {
         " (gold-settled `report.md`): cite in the body of EVERY other "
         "section with the matching `[N]` inline marker (e.g. 'Smith et al. "
         "[3] show...') — `[[citekey]]` markdown wikilinks are RETIRED from "
-        "the reader path, and `\\cite{}` stays retired too (RD-1). The `[N]` "
+        "the reader path, and `\\cite{}` stays retired too. The `[N]` "
         "a source carries is fixed by this section's list order; look it up "
         "here, never invent or guess a number."
     ),
@@ -1344,29 +1344,29 @@ STYLE_BRIEFS: dict[str, str] = {
         "project's `DEVLOG.md` (or this run's control note, if the project "
         "has no DEVLOG yet) — never in the reader body. A corpus hash or "
         "any raw `sha256:` value belongs HERE, in the DEVLOG/control-note "
-        "record — never in `report.md` (the reader-hygiene leak-gate, "
-        "RD-5, still BLOCKs a literal hash appearing in the assembled "
+        "record — never in `report.md` (the reader-hygiene leak-gate "
+        "still BLOCKs a literal hash appearing in the assembled "
         "report). Name every counter-position by its actual argument, "
-        "never by an internal `CPk` handle (RD-6)."
+        "never by an internal `CPk` handle."
     ),
     "abstract": (
         "Write the abstract LAST, after every other section is drafted — it "
         "is a one-sentence thesis + framework preview and MUST be a strict "
-        "subset of claims already made in the body (the support-matcher, "
-        ", gates this: an abstract claim absent from the body is a "
+        "subset of claims already made in the body (the support-matcher "
+        "gates this: an abstract claim absent from the body is a "
         "fidelity failure). Never introduce a new claim here."
     ),
     "assemble": (
-        "RD-1: join the drafted sections into `_report.md` (markdown, the "
+        "Join the drafted sections into `_report.md` (markdown, the "
         "internal `[[citekey]]` SOURCE: never write `report.md` "
         "directly, that name is reserved for the SEPARATE `[N]`-numbered "
         "reader render produced later by the bib-render pass) in "
-        "READER-FIRST reading order (RD-2): Abstract, Introduction (thesis "
+        "READER-FIRST reading order: Abstract, Introduction (thesis "
         "+ spine-at-a-glance), Thematic sections, Cross-cutting analysis, "
         "Open problems, Conclusion, Sources (References) — even though "
         "Abstract was DRAFTED in a different chain order (last, so it "
         "could summarize the finished body). Prepend the injected "
-        "`provenance_header` blockquote (RD-3, hash-free) as the very "
+        "`provenance_header` blockquote (hash-free) as the very "
         "first lines of `_report.md`, before the Abstract. Do not reorder "
         "or drop a section.\n\n"
         " (gold-settled): the final reader-facing document carries NO "
@@ -1379,7 +1379,7 @@ STYLE_BRIEFS: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-#  the survey's reader-first 8-row section-set (RD-2/RD-4)
+#  the survey's reader-first 8-row section-set
 # ---------------------------------------------------------------------------
 # Chain order (this tuple) is the Phase-2 DAG's drafting order (each afterok
 # the previous) — NOT the final document order (see the "assemble" brief
@@ -1388,13 +1388,13 @@ STYLE_BRIEFS: dict[str, str] = {
 # first. References/appendix-methods are mechanical (M) and have no prose
 # dependency, so they run right before Abstract for simplicity.
 #
-# RD-2/RD-4 (next-gen lit-review): pre-Wave-B this tuple had 9 rows
+# This tuple previously had 9 rows
 # including `prisma-scope` and `framework` as BODY sections — a reader
 # traversed ~475 lines of methodology/framework internals before the first
 # survey sentence. Both are removed as body rows here:
-#   - `prisma-scope` -> relocated to `appendix-methods` (RD-3), rendered LAST
+#   - `prisma-scope` -> relocated to `appendix-methods`, rendered LAST
 #     in the READING order (see the "assemble" brief) — reader-optional.
-#   - `framework` -> DELETED entirely (RD-4); the spine is now shown by
+#   - `framework` -> DELETED entirely; the spine is now shown by
 #     SECTION ORDER + a compact orientation table folded into `introduction`
 #     (no "why this spine over rejected candidates" body section — that
 #     defense stays internal, in `_framework-candidates.md`).
@@ -1484,7 +1484,7 @@ SECTION_SET: tuple[SectionSpec, ...] = (
 #   single_pass_corpus_ceiling = 60
 _DEFAULT_SINGLE_PASS_CORPUS_CEILING = 40
 
-# RD-2's reader-first reading order — the order the consolidated draft
+# The reader-first reading order — the order the consolidated draft
 # brief presents each section's contract in, and the order `assemble` joins
 # them in `report.md`. Abstract is listed first here (reading order) even
 # though it is drafted conceptually last within the single pass (it must
@@ -1503,11 +1503,11 @@ READING_ORDER: tuple[str, ...] = (
     "open-problems", "conclusion", "references",
 )
 
-# RD-6 + HR-craft rec 1: drafting-style rules folded into
+# Drafting-style rules folded into
 # the single consolidated draft brief (was spread across the 9-node chain's
-# individual briefs pre-Wave-B).
+# individual briefs).
 _RD6_STYLE_RULES = (
-    "Drafting-style rules (RD-6, binding across every section of this "
+    "Drafting-style rules (binding across every section of this "
     "single pass):\n"
     "1. BOLD topic sentences — the first sentence of each paragraph states "
     "its claim in bold, not buried after the evidence.\n"
@@ -1518,8 +1518,8 @@ _RD6_STYLE_RULES = (
     "unbroken prose blocks.\n"
     "4. Name every counter-position INLINE by its actual argument — 'X "
     "argue instead that...' — NEVER by an internal handle (`CPk`). The "
-    "reader-hygiene leak-gate (RD-5) BLOCKs a literal `CPk`/`Qk` handle.\n\n"
-    "HR-craft rec 1 — integrate-by-scoping, don't append-as-caveat: when "
+    "reader-hygiene leak-gate BLOCKs a literal `CPk`/`Qk` handle.\n\n"
+    "Integrate-by-scoping, don't append-as-caveat: when "
     "counter-evidence lands, NARROW the claim's scope ('X holds in A; in B, "
     "Z changes the regime') instead of hedging ('X, though this may "
     "differ'). A narrowed claim sharpens the thesis; a hedge dissolves it — "
@@ -1801,7 +1801,7 @@ def check_outline_gate(
 
 
 def _build_consolidated_draft_brief(tips: dict[str, str]) -> str:
-    """Consolidate the per-section tips (RD-2's reading order) into ONE
+    """Consolidate the per-section tips (in reading order) into ONE
     single-pass draft brief: "the mechanical injections
     ... now inject into ONE brief + the outline".
 
@@ -1962,11 +1962,11 @@ def phase2_builder(
     assemble_spec = tips.get(
         "assemble",
         (
-            "RD-1: join the drafted sections into `_report.md` (markdown, "
+            "Join the drafted sections into `_report.md` (markdown, "
             "the internal `[[citekey]]` SOURCE: never `report.md`, "
             "that name is reserved for the separate reader render) in "
-            "READER-FIRST reading order (RD-2): " + ", ".join(READING_ORDER) + ". "
-            "Prepend the injected `provenance_header` blockquote (RD-3, "
+            "READER-FIRST reading order: " + ", ".join(READING_ORDER) + ". "
+            "Prepend the injected `provenance_header` blockquote ("
             "hash-free) as the very first lines, before the Abstract."
         ),
     )
@@ -2054,7 +2054,7 @@ def phase2_builder(
     nodes.append({
         "id": "assemble",
         "type": "agent",
-        "label": "Assemble — join drafted sections into _report.md (RD-1)",
+        "label": "Assemble — join drafted sections into _report.md",
         "spec": preamble.rstrip() + "\n\n---\n\n" + assemble_spec,
         "reads": [sections_dir_abs],
         "needs": [_afterok(last_draft_id)],

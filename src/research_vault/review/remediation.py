@@ -294,7 +294,7 @@ _RELAXED_PER_CELL_LIMIT = 40  # a backtrack round intensifies vs. the sweep op's
 # ``approve-review`` branch (the harness emit/ingest fan-out is
 # asynchronous + two-phase — it cannot live inside a synchronous per-pair
 # ``relate_fn(a, b) -> edge`` default; see ``relate_judge_seam``'s module
-# docstring for the full "why Shape B" reasoning). ``run_incremental_relate``
+# docstring for the full reasoning). ``run_incremental_relate``
 # itself (concept-graph blocking, bidirectional write, island escalation) is
 # untouched — this is plumbing only.
 # ---------------------------------------------------------------------------
@@ -329,8 +329,7 @@ def run_incremental_relate_for_new_citekeys(
     distilled) never even reaches the requirement (``run_incremental_relate``
     is only called when ``ready`` is non-empty); a caller WITH something to
     relate but ``relate_fn=None`` gets ``run_incremental_relate``'s own
-    fail-closed ``RuntimeError`` (this module never self-judges fix,
-    Shape B).
+    fail-closed ``RuntimeError`` (this module never self-judges).
 
     Returns ``{"result": IncrementalRelateResult | None, "not_yet_distilled":
     [...]}``. ``result`` is ``None`` only when EVERY new citekey lacks a

@@ -84,7 +84,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         default=None,
         help=(
             "Manuscript identifier slug (e.g. 'survey-llm-eval'). Optional "
-            "when --from-review is given (adopted from it, NG-7)."
+            "when --from-review is given (adopted from it)."
         ),
     )
     new_p.add_argument(
@@ -101,7 +101,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         metavar="<scope>",
         default=None,
         help=(
-            "An `rv review` scope id to adopt as the slug (NG-7) — "
+            "An `rv review` scope id to adopt as the slug — "
             "pre-binds the corpus by making the manuscript slug equal the "
             "review scope id, the convention every corpus-lookup keys off. "
             "An explicit <slug> that differs from this is warned, not "
@@ -109,26 +109,26 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         ),
     )
 
-    # ── expand / review — D1 HARD-REMOVED (verb consolidation) ────────────
+    # ── expand / review — HARD-REMOVED (verb consolidation) ────────────
     # expand collapsed into the autonomous Phase-1->2 draft emission
     # (fires when approve-framework GOes). review (the 2x3 board) collapsed
-    # into an agent-fan-out node + the NG-4 cold-judge seam consumed at
+    # into an agent-fan-out node + the cold-judge fan-out seam consumed at
     # approve-manuscript --auto. Both underlying functions
     # (manuscript.cmd_expand, manuscript.review_board.run_review_board)
     # remain importable.
     from ..cli_removed_verbs import add_removed_verb_stub
     add_removed_verb_stub(
         sub, "expand",
-        op_or_transition="the autonomous Phase-1->2 draft emission (fires when approve-framework GOes, NG-4)",
+        op_or_transition="the autonomous Phase-1->2 draft emission (fires when approve-framework GOes)",
         redirect="rv dag approve <run> approve-framework --auto (Phase-2 is emitted automatically on GO)",
     )
     add_removed_verb_stub(
         sub, "review",
-        op_or_transition="the review-board agent-fan-out node + the NG-4 cold-judge seam",
+        op_or_transition="the review-board agent-fan-out node + the cold-judge fan-out seam",
         redirect=(
             "rv dag approve <run> approve-manuscript --auto (consumes the "
             "structural fidelity gates today; wiring the full 2x3 board into "
-            "--auto is a flagged NG-5 follow-up — see the PR description) "
+            "--auto is a flagged follow-up) "
             "or manuscript.review_board.run_review_board directly"
         ),
     )
@@ -139,7 +139,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help="List manuscript folders for the project.",
     )
 
-    # ── judge-emit (NG-4) ───────────────────────────────────────
+    # ── judge-emit ───────────────────────────────────────
     judge_emit_p = sub.add_parser(
         "judge-emit",
         help=(
@@ -160,7 +160,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         ),
     )
 
-    # ── judge-ingest (NG-4) ─────────────────────────────────────
+    # ── judge-ingest ─────────────────────────────────────
     judge_ingest_p = sub.add_parser(
         "judge-ingest",
         help=(
@@ -367,7 +367,7 @@ def _run_list(args: argparse.Namespace) -> int:
 
 
 def _run_judge_emit(args: argparse.Namespace) -> int:
-    """Emit the NG-4 cold-agent-judge fan-out task set(s)."""
+    """Emit the cold-agent-judge fan-out task set(s)."""
     from research_vault.config import load_config
     from research_vault.manuscript import cmd_judge_emit
 

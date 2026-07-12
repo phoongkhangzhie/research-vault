@@ -97,7 +97,7 @@ CRITIC_BACKTRACK = "CRITIC-BACKTRACK"
 
 # 0.3.1 (search-breadth + facet-coverage redesign): coverage-gate-only, a
 # SEPARATE mechanism from CRITIC_BACKTRACK above (that one answers
-# approve-review's L-2 counter-position/thin-pole critic BLOCK on the
+# approve-review's counter-position/thin-pole critic BLOCK on the
 # FINAL corpus; this one answers Layer 2's RESULT-TIME facet-coverage gate
 # — a declared pole that surfaced too few DISTINCT papers this sweep,
 # checked at coverage-gate). Dispatched by `review.remediation.
@@ -481,8 +481,8 @@ def classify_coverage_gate_with_deviation_check(
 
 
 def _parse_corpus_citekeys_helper(corpus_path: Path) -> list[str]:
-    """Thin call-through to ``review._parse_corpus_citekeys`` (reuse, charter
-    ) — a lazy import avoids a module-level circular import (``review``'s
+    """Thin call-through to ``review._parse_corpus_citekeys`` (reuse over create)
+    — a lazy import avoids a module-level circular import (``review``'s
     package ``__init__`` imports from other review submodules; autonomy.py
     is itself imported by ``review/verbs.py`` and ``dag/verbs.py``).
     """

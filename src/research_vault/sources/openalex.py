@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""sources/openalex.py — OpenAlexAdapter (NG-2, breadth source #3, default-on per D4).
+"""sources/openalex.py — OpenAlexAdapter (breadth source #3, default-on per D4).
 
 OpenAlex exposes both directions of the citation graph (``cited_by_api_url``
 for forward citations; the work's own ``referenced_works`` for backward), so

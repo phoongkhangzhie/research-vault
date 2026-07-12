@@ -22,7 +22,7 @@ This module is the read/write SSOT for that persistence:
 ``FRONTMATTER_FIELD_MAP`` is the one place the PaperHit-key -> frontmatter-
 key naming lives. ``arxiv`` -> ``arxiv_id`` preserves the existing note
 convention (``note.cmd_new``'s literature scaffold already carries
-``doi``/``arxiv_id`` placeholders — Fix #32); the other four ids have no
+``doi``/``arxiv_id`` placeholders); the other four ids have no
 prior frontmatter precedent, so they use the same name PaperHit.external_ids
 already uses (``pmcid``, ``openalex``, ``pmid``, ``s2``) — no new naming
 scheme, no rename of the two fields already in the wild.
@@ -35,8 +35,8 @@ from pathlib import Path
 # PaperHit-style key -> literature-note frontmatter field name.
 # Keep in sync with sources/base.py's PaperHit.external_ids key vocabulary
 # (doi, arxiv, openalex, pmid, s2, mag) plus pmcid (sources/pubmed.py).
-# `arxiv` keeps its existing note-convention name `arxiv_id` (Fix #32,
-# note.cmd_new); every other key matches PaperHit's own vocabulary 1:1
+# `arxiv` keeps its existing note-convention name `arxiv_id`
+# (note.cmd_new); every other key matches PaperHit's own vocabulary 1:1
 # since there is no prior frontmatter precedent to preserve.
 FRONTMATTER_FIELD_MAP: dict[str, str] = {
     "doi": "doi",
@@ -80,8 +80,8 @@ def stamp_note_frontmatter(note_path: Path, fields: dict[str, str]) -> bool:
         # blank existing value ("key: \n") would let the trailing \s* eat
         # straight through the line break into the NEXT field's line,
         # corrupting it (repro: an empty-placeholder scaffold field, e.g.
-        # note.cmd_new's literature `doi: `/`arxiv_id: ` placeholders —
-        # Fix #32 — followed by another field on the very next line).
+        # note.cmd_new's literature `doi: `/`arxiv_id: ` placeholders,
+        # followed by another field on the very next line).
         pattern = re.compile(rf"^({re.escape(key)}:[ \t]*).*$", re.MULTILINE)
         if pattern.search(text) is not None:
             # Existing field — replace in place (never a string-equality
@@ -129,7 +129,7 @@ def read_external_ids_from_note(note_path: Path) -> dict[str, str]:
     Returns {} if the note does not exist or carries none of the known id
     fields. Blank/whitespace-only field values are treated as absent (the
     scaffolded literature template ships empty ``doi:``/``arxiv_id:``
-    placeholders — Fix #32 — an unfilled placeholder must not round-trip as
+    placeholders — an unfilled placeholder must not round-trip as
     a real id).
     """
     if not note_path.is_file():

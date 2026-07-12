@@ -28,15 +28,15 @@ SCOPE (the operator's locked decision, carried in the dispatch brief):
     1-2) -- framework/taxonomy critic (dim 3, WITH the reframe-escalation
     trigger) -- synthesis-vs-enumeration adversary (dims 4-6, 8).
     Reviewers are disconfirm-first and NEVER receive the manuscript's thesis
-    (anti-anchoring -- the same discipline as M3's honesty gates): the judge
+    (anti-anchoring -- the same discipline as the honesty-gates judges): the judge
     prompt carries ONLY the rendered draft text + the rubric + the lens.
   - **Re-fire via ``check_gates.build_approve_payload`` -- NOT duplicated.**
     ``run_revise`` calls the single-sourced assembler (hermetic-.bib,
     equation-fidelity, support-matcher, coverage-gate) rather than
     re-implementing any of those checks here. (The former cold-read gate
     was removed -- SIGNAL-only, non-actionable under hands-off autonomy,
-    redundant with this board's own SYNTH/GAP dims + RD-6. The operator's call,
-    see DEVLOG.)
+    redundant with this board's own SYNTH/GAP dims + its own term-definition
+    gate. An explicit, documented design call, see DEVLOG.)
   - ** (this pass): the researcher's calibrated ``DEFAULT_LIT_REVIEW_RUBRIC``**
     (methodology doc §A.2) replaces the mock rubric via
     the SAME override seam (``ms_type.rubric`` / ``[manuscript_review].rubric``)
@@ -684,7 +684,7 @@ def get_reviewer_lens_spec(k: int, K: int) -> str:
 def _build_reviewer_prompt(draft_text: str, rubric: str, lens_spec: str) -> str:
     """Build the reviewer judge prompt: lens + rubric + draft text ONLY.
 
-    Anti-anchoring (mirrors M3's honesty-gate discipline): the reviewer sees
+    Anti-anchoring (mirrors the honesty-gates' discipline): the reviewer sees
     ONLY the lens posture, the rubric, and the rendered draft text. It does
     NOT see the manuscript's thesis/framing, the project context, prior-
     round reviews, or the author's rebuttal -- the function signature
@@ -900,7 +900,7 @@ def run_meta_review(
     # - fix 1: propagate per-reviewer missing_justifications (ARR) --
     # ``run_reviewer_node`` computes ``missing_justifications`` per reviewer
     # but this function never read it -- surfaced to the machine, silently
-    # dropped before the human (a green-and-empty, charter Sec 2). Aggregate
+    # dropped before the human (a green-and-empty check). Aggregate
     # every reviewer's missing-justification dims into a dedicated field, and
     # additionally push FLOOR-dim misses (SCOPE/REPRO/CITE by default) into
     # ``worst_findings`` -- an unjustified FLOOR score deserves a loud line

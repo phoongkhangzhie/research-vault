@@ -708,7 +708,7 @@ def cmd_status(
 
     lines.append("")
 
-    # --- Pointers.md (design D-LR-1) ---
+    # --- Pointers.md ---
     # Echo the pointers.md head so the crew sees project-context pointers
     # automatically (they already read rv status for control state — no new habit).
     try:

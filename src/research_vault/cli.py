@@ -611,7 +611,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "auto-prunes and the run proceeds, at/above it HALT-DECLAREs), and "
             "coverage-critic gates. "
             "The `review-scope` node MUST file a `_protocol.md` with a non-empty "
-            "`counter-position` field (L-2 gate) — the anti-fishing structural "
+            "`counter-position` field (gate) — the anti-fishing structural "
             "obligation, MECHANICALLY ENFORCED at `rv dag approve <run_id> "
             "approve-protocol`: an empty/missing `counter-position` field REFUSES the "
             "approval (nonzero exit, node stays `awaiting-go`, no state mutation) — "

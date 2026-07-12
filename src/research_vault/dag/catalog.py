@@ -218,7 +218,7 @@ LOOP_CATALOG: list[LoopEntry] = [
                 node_id="approve-protocol",
                 label=(
                     "Review protocol approved (counter-position required before search fires — "
-                    "L-2 anti-fishing gate)"
+                    "the anti-fishing gate)"
                 ),
                 freeze_action=None,
             ),

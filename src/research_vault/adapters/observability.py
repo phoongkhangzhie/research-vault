@@ -21,7 +21,7 @@ AND accrues usage/cost/latency from the ``log_success_event`` kwargs. ONE counte
 feeds BOTH planes (Plane A trace tags / Plane B run.summary aggregates), and it is
 what ``ModelClient.assert_observed()`` reads to catch a silently-broken seam.
 
-IMPORT-LIGHT (charter): ``litellm`` and ``weave`` are core deps that MUST
+IMPORT-LIGHT: ``litellm`` and ``weave`` are core deps that MUST
 stay lazy. This module keeps EVERY ``litellm`` / ``weave`` import inside functions.
 The ``CustomLogger`` subclasses are built by factory closures so that importing this
 module — which ``load_adapters`` does on the ``rv help`` path — never pulls in

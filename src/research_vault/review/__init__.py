@@ -80,14 +80,14 @@ def _review_artifact_dir(project: str, scope_id: str, cfg: Config) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# L-2 anti-fishing structural gate (task #33) — counter-position enforcement
+# Anti-fishing structural gate — counter-position enforcement
 # ---------------------------------------------------------------------------
 
 def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
-    """Structural L-2 anti-fishing check: ``_protocol.md`` must carry a
+    """Structural anti-fishing check: ``_protocol.md`` must carry a
     non-empty ``counter-position`` frontmatter field.
 
-    This is the native rv enforcement of the L-2 gate that was previously
+    This is the native rv enforcement of a gate that was previously
     ``review_scope_tips``/``review_critic_tips`` prose only (agent-instructed,
     never mechanically checked). Wired into ``rv dag approve`` at the
     ``approve-protocol`` node so the gate refuses structurally,
@@ -105,7 +105,7 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
     """
     if not protocol_path.exists():
         return False, (
-            f"rv dag approve: L-2 gate BLOCKED — _protocol.md not found at "
+            f"rv dag approve: anti-fishing gate BLOCKED — _protocol.md not found at "
             f"{protocol_path}. The review-scope node must produce this file "
             f"before approve-protocol can pass."
         )
@@ -117,7 +117,7 @@ def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
         counter = " ".join(str(item) for item in counter)
     if not str(counter).strip():
         return False, (
-            f"rv dag approve: L-2 gate BLOCKED — {protocol_path} has an "
+            f"rv dag approve: anti-fishing gate BLOCKED — {protocol_path} has an "
             f"empty or missing 'counter-position' frontmatter field.\n"
             f"The anti-fishing gate requires the protocol to name a "
             f"falsifying/opposing sub-literature BEFORE search executes.\n"
@@ -1473,9 +1473,9 @@ def _build_phase1_manifest(
     def _afterok(from_id: str) -> dict[str, Any]:
         return {"from": from_id, "edge": "afterok"}
 
-    # Absolute OKF type-dir pointers (Fix #34: emit absolute paths so the
+    # Absolute OKF type-dir pointers — emit absolute paths so the
     # reads:-grounding resolver finds the real OKF dirs regardless of what
-    # project_root=manifest_path.parent is at run/tick time).
+    # project_root=manifest_path.parent is at run/tick time.
     # Previously this returned a bare name like "literature" which resolved
     # relative to the manifest dir (reviews/<scope>/) — always wrong.
     def _rel(okf_type: str) -> str:
@@ -1495,7 +1495,7 @@ def _build_phase1_manifest(
     nodes: list[dict[str, Any]] = []
 
     # 1. review-scope — freeze question + seed queries + inclusion/exclusion +
-    #    coverage claim + REQUIRED counter-position (L-2 gate) before any search.
+    #    coverage claim + REQUIRED counter-position (gate) before any search.
     # produces: uses filename as key (schema ignores unknown keys; key is the
     # discovery surface for tests + the walker's artifact-watch resolver).
     nodes.append({
@@ -1831,11 +1831,11 @@ def _build_phase2_manifest(
       ...            ─┘
 
     Each relate-<key> is a static node over the frozen corpus approved at coverage-gate.
-    The parallelism cut is (a) two-phase parallel fan-out (D-LR-3 recommended option).
+    The parallelism cut is two-phase parallel fan-out.
 
     The coverage-critic is a REJECTS-ONLY agent: [PASS]/[BLOCK] convention.
-    It enforces L-2 (counter-position): [BLOCK] on missing/empty counter-position
-    OR corpus that ignored the declared opposing sub-literature.
+    It enforces the counter-position requirement: [BLOCK] on missing/empty
+    counter-position OR corpus that ignored the declared opposing sub-literature.
     """
     tips = get_review_tips(config=config)
     preamble = get_review_style_preamble(config=config)
@@ -1847,7 +1847,7 @@ def _build_phase2_manifest(
     def _afterok(from_id: str) -> dict[str, Any]:
         return {"from": from_id, "edge": "afterok"}
 
-    # Absolute OKF type-dir pointers (Fix #34 — same as Phase-1; see comment there)
+    # Absolute OKF type-dir pointers (same as Phase-1; see comment there)
     def _rel(okf_type: str) -> str:
         return str(project_notes_dir / okf_type)
 
@@ -1895,14 +1895,14 @@ def _build_phase2_manifest(
 
     # review-coverage-critic — rejects-only, reviewer role
     # Judges: walk-coverage genuine-vs-premature, orphan concepts,
-    # protocol-adherence, AND L-2 counter-position PRESENT and SOUGHT (hard
+    # protocol-adherence, AND counter-position PRESENT and SOUGHT (hard
     # [BLOCK] if absent or ignored).
     nodes.append({
         "id": "review-coverage-critic",
         "type": "agent",
         "label": (
             "Coverage critic (rejects-only): walk-coverage genuineness + protocol-adherence + "
-            "counter-position present-and-sought (L-2) → [PASS]/[BLOCK]"
+            "counter-position present-and-sought → [PASS]/[BLOCK]"
         ),
         "spec": _spec("review_critic_tips"),
         "reads": [
