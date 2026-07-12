@@ -130,7 +130,7 @@ def test_literature_template_carries_citekey_placeholder(cfg):
     blank `citekey:` field."""
     overlay_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
     overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
-    core_path = cfg.literature_root / f"{overlay_fields['central']}.md"
+    core_path = cfg.literature_root / f"{note_mod._extract_central_slug(overlay_fields['central'])}.md"
     content = core_path.read_text()
     assert "citekey:" in content
 
@@ -152,7 +152,7 @@ def test_check_warns_non_conformant_citekey(cfg):
     per-project overlay `cmd_new` returns."""
     overlay_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
     overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
-    core_path = cfg.literature_root / f"{overlay_fields['central']}.md"
+    core_path = cfg.literature_root / f"{note_mod._extract_central_slug(overlay_fields['central'])}.md"
     content = core_path.read_text().replace("citekey: ", "citekey: 2005.14165", 1)
     core_path.write_text(content)
 
@@ -168,7 +168,7 @@ def test_check_conformant_citekey_no_warning(cfg):
     The citekey lives on the CENTRAL CORE (PR-A two-layer split)."""
     overlay_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
     overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
-    core_path = cfg.literature_root / f"{overlay_fields['central']}.md"
+    core_path = cfg.literature_root / f"{note_mod._extract_central_slug(overlay_fields['central'])}.md"
     content = core_path.read_text().replace("citekey: ", "citekey: smithStudyFooBar2023", 1)
     core_path.write_text(content)
 
@@ -186,3 +186,43 @@ def test_check_sentinel_citekey_still_warns(cfg):
 
     violations = note_mod.cmd_check("demo-research", config=cfg)
     assert any(v.startswith("[citekey-lint] WARN:") for v in violations)
+
+
+# ---------------------------------------------------------------------------
+# PR-2: OKF-reserved filenames (index.md / log.md) are skipped everywhere
+# ---------------------------------------------------------------------------
+
+def test_reserved_filenames_skipped_in_cmd_list(cfg):
+    findings_dir = cfg.project_notes_dir("demo-research") / "findings"
+    findings_dir.mkdir(parents=True, exist_ok=True)
+    (findings_dir / "index.md").write_text("not an OKF note\n", encoding="utf-8")
+    (findings_dir / "log.md").write_text("not an OKF note either\n", encoding="utf-8")
+    note_mod.cmd_new("demo-research", "findings", "A real finding", config=cfg)
+
+    notes = note_mod.cmd_list("demo-research", "findings", config=cfg)
+    paths = {n["path"].name for n in notes}
+    assert "index.md" not in paths
+    assert "log.md" not in paths
+    assert len(notes) == 1
+
+
+def test_reserved_filenames_skipped_in_cmd_check(cfg):
+    """A bare index.md/log.md (no 'type:' field) would otherwise surface as
+    a spurious 'missing type' violation — reserved filenames are never OKF
+    concept notes and must not be mis-parsed as one."""
+    findings_dir = cfg.project_notes_dir("demo-research") / "findings"
+    findings_dir.mkdir(parents=True, exist_ok=True)
+    (findings_dir / "index.md").write_text("not an OKF note\n", encoding="utf-8")
+
+    violations = note_mod.cmd_check("demo-research", config=cfg)
+    assert not any("index.md" in v for v in violations)
+
+
+def test_reserved_filenames_skipped_in_iter_literature_notes(cfg):
+    overlay_dir = cfg.project_notes_dir("demo-research") / "literature"
+    overlay_dir.mkdir(parents=True, exist_ok=True)
+    (overlay_dir / "index.md").write_text("not an OKF note\n", encoding="utf-8")
+    note_mod.cmd_new("demo-research", "literature", "A real paper", config=cfg, note_id="real2024")
+
+    notes = list(note_mod.iter_literature_notes(cfg, "demo-research"))
+    assert {n.overlay_path.stem for n in notes} == {"real2024"}

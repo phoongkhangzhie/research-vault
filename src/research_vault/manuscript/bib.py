@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE as _WIKILINK_CITE_RE
-from research_vault.note import _parse_frontmatter
+from research_vault.note import _extract_central_slug, _parse_frontmatter
 
 # Matches the citekey out of a written references.md entry line:
 # "- **citekey** — Title...".
@@ -103,7 +103,7 @@ def _load_literature_bib_index(
             continue
         overlay_fields, _body = _parse_frontmatter(text)
         fields = dict(overlay_fields)
-        central = str(overlay_fields.get("central") or "").strip()
+        central = _extract_central_slug(str(overlay_fields.get("central") or ""))
         if literature_root is not None and central:
             core_path = Path(literature_root) / f"{central}.md"
             if core_path.exists():

@@ -121,8 +121,10 @@ class TestCmdNewTwoLayer:
             "demo-research", "literature", "A Paper", config=cfg, note_id="paper2024"
         )
         fields, _ = note_mod._parse_frontmatter(overlay_path.read_text(encoding="utf-8"))
-        assert fields.get("central") == "paper2024"
-        core_path = cfg.literature_root / f"{fields['central']}.md"
+        # PR-2: the cross-bundle backbone link form, not a bare slug.
+        assert fields.get("central") == "[paper2024](okf:literature/paper2024.md)"
+        assert note_mod._extract_central_slug(fields["central"]) == "paper2024"
+        core_path = cfg.literature_root / "paper2024.md"
         assert core_path.exists()
 
     def test_overlay_returned_path_matches_legacy_shape(self, cfg):
@@ -161,7 +163,7 @@ class TestCmdNewTwoLayer:
         overlay2 = cfg.project_notes_dir("demo-litreview") / "literature" / "shared2024.md"
         assert overlay2.exists()
         fields, _ = note_mod._parse_frontmatter(overlay2.read_text(encoding="utf-8"))
-        assert fields.get("central") == "shared2024"
+        assert note_mod._extract_central_slug(fields.get("central")) == "shared2024"
 
 
 # ---------------------------------------------------------------------------
@@ -188,20 +190,58 @@ class TestResolver:
         assembled = note_mod.load_literature_note(cfg, "demo-research", "paper2024")
         assert assembled.fields.get("citekey") == "paper2024"
         assert assembled.fields.get("role") == "counter-position"
-        assert assembled.fields.get("central") == "paper2024"
+        assert note_mod._extract_central_slug(assembled.fields.get("central")) == "paper2024"
+        assert assembled.core_resolved is True
         assert assembled.core_path == core_path
         assert assembled.overlay_path == overlay_path
 
-    def test_dangling_central_pointer_fails_closed(self, cfg):
+    def test_dangling_central_pointer_is_tolerant_loud(self, cfg):
+        """PR-2 fork 3: a dangling backbone link never raises — OKF's own
+        consumer-MUST-tolerate rule, applied to rv's cross-bundle
+        extension. The resolver returns a surfaced, overlay-only
+        AssembledNote instead, plus a UserWarning."""
         overlay_dir = cfg.project_notes_dir("demo-research") / "literature"
         overlay_dir.mkdir(parents=True, exist_ok=True)
         bad_overlay = overlay_dir / "ghost2024.md"
         bad_overlay.write_text(
-            "---\ntype: literature\ncentral: ghost2024\n---\n\n", encoding="utf-8"
+            "---\ntype: literature\ncentral: [ghost2024](okf:literature/ghost2024.md)\n---\n\n",
+            encoding="utf-8",
         )
         # No core exists for 'ghost2024' — a dangling pointer.
-        with pytest.raises(note_mod.DanglingCentralPointerError):
-            note_mod.load_literature_note(cfg, "demo-research", "ghost2024")
+        with pytest.warns(UserWarning, match="dangling"):
+            assembled = note_mod.load_literature_note(cfg, "demo-research", "ghost2024")
+        assert assembled.core_resolved is False
+        assert assembled.core_path is None
+        assert "dangling" in assembled.core_resolve_issue.lower()
+        # Overlay content is still present — never a silently-empty note.
+        assert assembled.fields.get("type") == "literature"
+
+    def test_absent_central_pointer_is_also_tolerant_loud(self, cfg):
+        overlay_dir = cfg.project_notes_dir("demo-research") / "literature"
+        overlay_dir.mkdir(parents=True, exist_ok=True)
+        (overlay_dir / "nopointer2024.md").write_text(
+            "---\ntype: literature\n---\n\n", encoding="utf-8",
+        )
+        with pytest.warns(UserWarning):
+            assembled = note_mod.load_literature_note(cfg, "demo-research", "nopointer2024")
+        assert assembled.core_resolved is False
+        assert assembled.core_path is None
+
+    def test_bare_slug_central_pointer_still_resolves_back_compat(self, cfg):
+        """Migration-window back-compat: a pre-PR-2 bare `central: <slug>`
+        value (not yet migrated to the okf: link form) still resolves."""
+        note_mod.cmd_new("demo-research", "literature", "Legacy Paper", config=cfg, note_id="legacy2024")
+        overlay_path = cfg.project_notes_dir("demo-research") / "literature" / "legacy2024.md"
+        text = overlay_path.read_text(encoding="utf-8")
+        text = text.replace(
+            "central: [legacy2024](okf:literature/legacy2024.md)", "central: legacy2024"
+        )
+        overlay_path.write_text(text, encoding="utf-8")
+
+        assembled = note_mod.load_literature_note(cfg, "demo-research", "legacy2024")
+        assert assembled.core_resolved is True
+        assert assembled.citekey == "legacy2024"
+        assert assembled.core_path == cfg.literature_root / "legacy2024.md"
 
     def test_overlay_missing_raises_not_adopted(self, cfg):
         # Core exists (distilled by another project) but demo-research never
@@ -266,6 +306,30 @@ class TestInvariantLint:
         violations = note_mod.check_two_layer_invariants(core_path, overlay_path)
         hard = [v for v in violations if not v.startswith("[two-layer-lint] WARN:")]
         assert any("role" in v and "core" in v for v in hard)
+
+    def test_related_papers_in_overlay_is_blocked(self, cfg):
+        """PR-2: '## Related papers' left in an overlay is a hard BLOCK, not
+        the pre-PR-2 WARN — the edge-write retarget means a core-only body
+        heading surfacing in the overlay is always genuine misauthoring."""
+        note_mod.cmd_new("demo-research", "literature", "Edge Leak Paper", config=cfg, note_id="edgeleak2024")
+        core_path = cfg.literature_root / "edgeleak2024.md"
+        overlay_path = cfg.project_notes_dir("demo-research") / "literature" / "edgeleak2024.md"
+
+        overlay_path.write_text(
+            overlay_path.read_text(encoding="utf-8")
+            + "\n## Related papers\n\n"
+            "- [other2024](/literature/other2024.md) — SUPPORTS: planted leak.\n",
+            encoding="utf-8",
+        )
+
+        violations = note_mod.check_two_layer_invariants(core_path, overlay_path)
+        hard = [v for v in violations if v.startswith("[two-layer-lint] BLOCK:")]
+        assert any("Related papers" in v or "core-only body" in v for v in hard)
+        # No lingering WARN-class marker for this class — it's a hard BLOCK now.
+        assert not any(
+            v.startswith("[two-layer-lint] WARN:") and "Related papers" in v
+            for v in violations
+        )
 
     def test_mutation_guard_lint_is_load_bearing(self, cfg):
         """Proof the lint actually fires — not vacuously green. Weaken the

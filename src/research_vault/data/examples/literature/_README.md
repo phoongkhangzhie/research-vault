@@ -25,9 +25,11 @@ and belong in each adopting project's thin **overlay** (see
 `smith2024.md` and `jones2023.md` are the two papers `demo-litreview`'s
 `lit-review-loop.json` relates (`relate-smith2024`/`relate-jones2023`). Each
 has a matching thin overlay at
-`demo-litreview/notes/literature/<citekey>.md` carrying `central: <citekey>`
-+ this project's `role`/`position`/concept-edges — together they demonstrate
-the full two-layer split a real `rv note <project> new literature` write produces.
+`demo-litreview/notes/literature/<citekey>.md` carrying
+`central: [<citekey>](okf:literature/<citekey>.md)` — rv's cross-bundle
+backbone link (see note-conventions.md's OKF-extension section) — + this
+project's `role`/`position`/concept-edges — together they demonstrate the
+full two-layer split a real `rv note <project> new literature` write produces.
 
 Read through the resolver, never by hand-globbing this directory + parsing
 frontmatter directly: `note.load_literature_note(cfg, project, citekey)` /

@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from research_vault.config import Config
-from research_vault.note import _parse_frontmatter
+from research_vault.note import _extract_central_slug, _parse_frontmatter
 
 from . import ManuscriptType, SectionSpec, register_type
 
@@ -1014,7 +1014,7 @@ def index_literature_rows(
             continue
         overlay_fields, _ = _parse_frontmatter(text)
         fields = dict(overlay_fields)
-        central = str(overlay_fields.get("central") or "").strip()
+        central = _extract_central_slug(str(overlay_fields.get("central") or ""))
         if literature_root is not None and central:
             core_path = Path(literature_root) / f"{central}.md"
             if core_path.exists():

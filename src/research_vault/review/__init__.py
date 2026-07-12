@@ -41,7 +41,9 @@ from typing import Any
 
 from research_vault.config import Config, load_config
 from research_vault.note import (
+    OKF_RESERVED_FILENAMES,
     OKF_TYPES,
+    _extract_central_slug,
     _parse_frontmatter,
     _render_frontmatter,
     scaffold_okf_dirs,
@@ -949,7 +951,7 @@ def _index_literature_notes_by_citekey(
         fields, _ = _parse_frontmatter(text)
         citekey = (fields.get("citekey") or "").strip()
         if not citekey and literature_root is not None:
-            central = (fields.get("central") or "").strip()
+            central = _extract_central_slug(fields.get("central") or "")
             if central:
                 core_path = Path(literature_root) / f"{central}.md"
                 if core_path.exists():
@@ -1102,6 +1104,15 @@ def relations_report(
     Reuse-over-create (charter §6): zero new edge mechanism — this is a
     corpus-wide fold of the SAME parser the presence check uses per-note.
 
+    Two-layer store: paper->paper edges live in the CENTRAL CORE
+    (cfg.literature_root), never the overlay — this walks the project's
+    overlay dir to enumerate the ADOPTED set (this project's own corpus
+    membership), but parses each entry's ``## Related papers`` section from
+    its RESOLVED core body, not the overlay's own body. An overlay whose
+    ``central:`` backbone link does not resolve contributes to
+    ``known_citekeys`` (by filename-stem fallback) but has no edges to add
+    — an honest zero, not a crash.
+
     Returns:
         dict with keys:
           edges:      list[dict] — {source, target, tag, type, reason,
@@ -1134,31 +1145,35 @@ def relations_report(
     known_citekeys: set[str] = set()
     if literature_dir.exists():
         for note_path in sorted(literature_dir.glob("*.md")):
+            if note_path.name in OKF_RESERVED_FILENAMES:
+                continue
             try:
                 text = note_path.read_text(encoding="utf-8")
             except OSError:
                 continue
-            fields, body = _parse_frontmatter(text)
-            # citekey is intrinsic (core-only) — prefer the resolved
-            # central core's citekey field over the (normally-absent on a
-            # thin overlay) local one; degrades to the filename stem, which
-            # shares the core's slug by construction (note._cmd_new_two_layer).
+            fields, _overlay_body = _parse_frontmatter(text)
+            # citekey is intrinsic (core-only); '## Related papers' is
+            # ALSO core-only (two-layer store, edges write to the central
+            # core) — resolve the backbone link ONCE and read both from
+            # the same resolved core note.
             source_citekey = (fields.get("citekey") or "").strip()
-            if not source_citekey:
-                central = (fields.get("central") or "").strip()
-                if central:
-                    core_path = cfg.literature_root / f"{central}.md"
-                    if core_path.exists():
-                        try:
-                            core_fields, _ = _parse_frontmatter(
-                                core_path.read_text(encoding="utf-8")
-                            )
-                            source_citekey = (core_fields.get("citekey") or "").strip()
-                        except OSError:
-                            pass
+            core_body = ""
+            central = _extract_central_slug(fields.get("central") or "")
+            if central:
+                core_path = cfg.literature_root / f"{central}.md"
+                if core_path.exists():
+                    try:
+                        core_fields, core_body = _parse_frontmatter(
+                            core_path.read_text(encoding="utf-8")
+                        )
+                        source_citekey = source_citekey or (
+                            core_fields.get("citekey") or ""
+                        ).strip()
+                    except OSError:
+                        pass
             source_citekey = source_citekey or note_path.stem
             known_citekeys.add(source_citekey)
-            parsed = parse_paper_relations(body)
+            parsed = parse_paper_relations(core_body)
             for edge in parsed.edges:
                 edges.append({
                     "source": source_citekey,

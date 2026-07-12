@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, load_config
-from .note import DanglingCentralPointerError, _parse_frontmatter, load_literature_note
+from .note import _parse_frontmatter, load_literature_note
 
 # ---------------------------------------------------------------------------
 # Ledger discovery + read-only parsing (never recomputes ledger content)
@@ -138,7 +138,7 @@ def cmd_list(project: str, *, config: Config | None = None) -> list[dict[str, An
         overlay_slug = overlay_file.stem
         try:
             assembled = load_literature_note(cfg, project, overlay_slug)
-        except (FileNotFoundError, DanglingCentralPointerError) as e:
+        except FileNotFoundError as e:
             rows.append({
                 "citekey": overlay_slug,
                 "overlay_slug": overlay_slug,
@@ -148,6 +148,22 @@ def cmd_list(project: str, *, config: Config | None = None) -> list[dict[str, An
                 "conformant": None,
                 "in_ledger": False,
                 "error": str(e),
+            })
+            continue
+
+        if not assembled.core_resolved:
+            # OKF tolerant-load (note.load_literature_note): a dangling/
+            # absent backbone link never raises — surfaced here instead,
+            # same "error" row shape as the FileNotFoundError branch above.
+            rows.append({
+                "citekey": overlay_slug,
+                "overlay_slug": overlay_slug,
+                "title": None,
+                "role": None,
+                "resolving_ids": "",
+                "conformant": None,
+                "in_ledger": False,
+                "error": assembled.core_resolve_issue,
             })
             continue
 

@@ -2,7 +2,7 @@
 type: literature
 title: A Framework for Retrieval-Augmented Reasoning
 created: 2026-01-15
-central: smith2024
+central: [smith2024](okf:literature/smith2024.md)
 in_corpus_of: topic
 role: methodological
 position: "Directly answers this review's RQ — the interleaved retrieval-reasoning loop is the closest existing mechanism to what we're evaluating; used as the primary comparison baseline in the synthesis."

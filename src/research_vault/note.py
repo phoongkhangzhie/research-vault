@@ -59,6 +59,14 @@ OKF_SHARED_TYPES: frozenset[str] = frozenset({"datasets"})
 # here.
 OKF_TWO_LAYER_TYPES: frozenset[str] = frozenset({"literature"})
 
+# OKF-reserved filenames (spec §"reserved filenames" — index.md is a
+# directory listing, log.md a chronological update history; neither is a
+# concept note). Reserved at ANY level of a bundle. Every note-tool scan
+# (cmd_list/cmd_check/iter_*) skips these — they are never OKF concept
+# notes and must not be mis-parsed as one (a bare `index.md` with no `type:`
+# field would otherwise surface as a spurious violation).
+OKF_RESERVED_FILENAMES: frozenset[str] = frozenset({"index.md", "log.md"})
+
 # Every OKF type that is plain PROJECT-SCOPED — i.e. neither shared nor
 # two-layer. Derived (not hand-maintained) so it can never drift out of
 # sync with OKF_TYPES / OKF_SHARED_TYPES / OKF_TWO_LAYER_TYPES as new types
@@ -526,6 +534,37 @@ def _literature_overlay_body() -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# The `central:` backbone link — rv's cross-bundle OKF extension
+# ---------------------------------------------------------------------------
+#
+# The overlay's `central:` frontmatter value is a cross-bundle backbone link
+# in rv's `okf:<bundle>/<path>.md` URI form (config.py's bundle registry),
+# e.g. `central: [smith2024](okf:literature/smith2024.md)`. During the
+# migration window a bare slug (`central: smith2024`, the pre-PR-2 form) is
+# still accepted for back-compat — `_extract_central_slug` handles both.
+_CENTRAL_OKF_LINK_RE = re.compile(
+    r"\(okf:literature/([A-Za-z0-9][A-Za-z0-9_.\-]*)\.md\)"
+)
+
+
+def _extract_central_slug(central_value: str) -> str:
+    """Extract the central-core slug from an overlay's `central:` value.
+
+    Accepts both the current cross-bundle backbone link
+    (`[<citekey>](okf:literature/<citekey>.md)`) and, for back-compat during
+    the migration window, a bare `<citekey>` slug with no link wrapper.
+    Returns `""` for an empty/absent value.
+    """
+    central_value = (central_value or "").strip()
+    if not central_value:
+        return ""
+    m = _CENTRAL_OKF_LINK_RE.search(central_value)
+    if m:
+        return m.group(1)
+    return central_value
+
+
 def _cmd_new_two_layer(
     cfg: Config, project: str, note_type: str, title: str, *,
     note_id: str | None = None,
@@ -619,10 +658,13 @@ def _cmd_new_two_layer(
         "type": note_type,
         "title": title,
         "created": _today(),
-        # The pointer — resolved to core_dir/<central>.md by the resolver
-        # (literature_core_path). A dangling value here fails closed
-        # (load_literature_note raises DanglingCentralPointerError).
-        "central": slug,
+        # The cross-bundle backbone link (rv's OKF extension — see
+        # note-conventions.md) — resolved via cfg.resolve_bundle_link /
+        # literature_core_path by the resolver. A dangling link is
+        # tolerated (OKF MUST-tolerate, charter §2): load_literature_note
+        # returns a surfaced, overlay-only AssembledNote rather than
+        # raising — see load_literature_note's docstring.
+        "central": f"[{slug}](okf:literature/{slug}.md)",
     }
     if tags:
         overlay_fields["tags"] = "[" + ", ".join(tags) + "]"
@@ -660,13 +702,24 @@ class AssembledNote:
     ``body`` concatenates core body + overlay body so heading-based
     parsers (``## Result``/``## Related papers`` in core, ``## Concept
     edges`` in overlay) keep working unchanged against the assembled text.
+
+    ``core_resolved``/``core_resolve_issue``: OKF's cross-bundle backbone
+    link (the overlay's ``central:`` field) is a link like any other, and
+    OKF readers MUST tolerate a broken one — see ``load_literature_note``'s
+    docstring. ``core_resolved is False`` means the backbone link did not
+    resolve (absent, malformed, or dangling); ``core_path`` is ``None``,
+    ``fields``/``body`` carry the overlay ONLY, and
+    ``core_resolve_issue`` is the human-readable reason — surfaced, never
+    silently dropped (charter §2).
     """
 
     citekey: str
     fields: dict[str, str]
     body: str
-    core_path: Path
+    core_path: Path | None
     overlay_path: Path
+    core_resolved: bool = True
+    core_resolve_issue: str = ""
 
 
 def literature_core_path(cfg: Config, citekey: str) -> Path:
@@ -683,15 +736,24 @@ def literature_overlay_path(cfg: Config, project: str, citekey: str) -> Path:
 def load_literature_note(cfg: Config, project: str, citekey: str) -> AssembledNote:
     """Load + merge a two-layer literature note for *project*.
 
-    Fail-closed:
+    Fail-closed on the overlay itself:
       - overlay absent for this project -> ``FileNotFoundError`` (the
         paper may be central-distilled by ANOTHER project — "distilled
         but not adopted by X" — but THIS project never adopted it; that
         is a distinct, non-violation state you get by NOT calling this
         for a project that hasn't adopted the paper).
-      - overlay present but ``central:`` pointer absent/dangling ->
-        ``DanglingCentralPointerError`` (a real integrity violation,
-        surfaced loudly — never a silent empty note).
+
+    Tolerant-loud on the cross-bundle backbone link (OKF's own
+    consumer-MUST-tolerate rule, applied to rv's ``okf:`` extension —
+    note-conventions.md): when the overlay's ``central:`` link is absent,
+    malformed, or dangling (no resolvable core), this NEVER raises.
+    Instead it returns an ``AssembledNote`` with ``core_resolved=False``,
+    ``core_path=None``, overlay-only ``fields``/``body``, and
+    ``core_resolve_issue`` set to a human-readable reason — plus a
+    ``UserWarning`` so the gap is surfaced (charter §2), never silently
+    swallowed. A caller that needs a hard gate on this (e.g. a curation-time
+    producer check) inspects ``core_resolved`` explicitly, rather than the
+    resolver itself refusing to return.
     """
     overlay_path = literature_overlay_path(cfg, project, citekey)
     if not overlay_path.exists():
@@ -704,36 +766,59 @@ def load_literature_note(cfg: Config, project: str, citekey: str) -> AssembledNo
     overlay_text = overlay_path.read_text(encoding="utf-8")
     overlay_fields, overlay_body = _parse_frontmatter(overlay_text)
 
-    central = str(overlay_fields.get("central") or "").strip()
-    if not central:
-        raise DanglingCentralPointerError(
-            f"load_literature_note: overlay {overlay_path} carries no "
-            f"'central:' pointer — every literature overlay must point at "
-            f"its central core."
+    central_raw = str(overlay_fields.get("central") or "").strip()
+    central_slug = _extract_central_slug(central_raw)
+
+    core_path: Path | None = None
+    core_fields: dict[str, str] = {}
+    core_body = ""
+    core_resolved = False
+    core_resolve_issue = ""
+
+    if not central_slug:
+        core_resolve_issue = (
+            f"overlay {overlay_path} carries no 'central:' backbone link — "
+            f"every literature overlay should point at its central core."
         )
-    core_path = literature_core_path(cfg, central)
-    if not core_path.exists():
-        raise DanglingCentralPointerError(
-            f"load_literature_note: overlay {overlay_path} points to "
-            f"central: {central!r} but no central core exists at "
-            f"{core_path} — dangling pointer."
+    else:
+        candidate_core = literature_core_path(cfg, central_slug)
+        if candidate_core.is_file():
+            core_path = candidate_core
+            core_resolved = True
+            core_text = core_path.read_text(encoding="utf-8")
+            core_fields, core_body = _parse_frontmatter(core_text)
+        else:
+            core_resolve_issue = (
+                f"overlay {overlay_path} points to central: {central_raw!r} "
+                f"(resolved slug {central_slug!r}) but no central core exists "
+                f"at {candidate_core} — dangling backbone link."
+            )
+
+    if not core_resolved:
+        import warnings
+        warnings.warn(
+            f"load_literature_note: {core_resolve_issue} Tolerant-load (OKF "
+            f"consumer-MUST-tolerate): returning an overlay-only "
+            f"AssembledNote(core_resolved=False) rather than raising.",
+            UserWarning,
+            stacklevel=2,
         )
-    core_text = core_path.read_text(encoding="utf-8")
-    core_fields, core_body = _parse_frontmatter(core_text)
 
     # Intrinsic (core) wins on any key collision — overlay first, core
     # second. By construction the two layers own disjoint field sets
     # (check_two_layer_invariants gates this); this merge order is a
     # safety net, not the primary correctness mechanism.
     merged_fields: dict[str, str] = {**overlay_fields, **core_fields}
-    merged_body = core_body + "\n" + overlay_body
+    merged_body = (core_body + "\n" + overlay_body) if core_resolved else overlay_body
 
     return AssembledNote(
-        citekey=central,
+        citekey=central_slug or citekey,
         fields=merged_fields,
         body=merged_body,
         core_path=core_path,
         overlay_path=overlay_path,
+        core_resolved=core_resolved,
+        core_resolve_issue=core_resolve_issue,
     )
 
 
@@ -747,6 +832,8 @@ def iter_literature_notes(cfg: Config, project: str):
     if not overlay_dir.exists():
         return
     for overlay_file in sorted(overlay_dir.glob("*.md")):
+        if overlay_file.name in OKF_RESERVED_FILENAMES:
+            continue
         yield load_literature_note(cfg, project, overlay_file.stem)
 
 
@@ -754,18 +841,16 @@ def iter_literature_notes(cfg: Config, project: str):
 # Two-layer invariant lint (item 8 — GATING, not a nicety)
 # ---------------------------------------------------------------------------
 #
-# Frontmatter misplacement is a hard BLOCK (unambiguous, and never touched
-# by the deferred incremental_relate edge-write mechanism — see below).
-# Body-section misplacement of '## Related papers' into the overlay is a
-# WARN: incremental_relate.append_bidirectional_edge still physically
-# writes paper->paper edges to the project's literature/<key>.md file
-# (the overlay's location) by explicit scope-fence deferral (
-# "rewiring edge-writes to target the central core is fast-follow, not
-# this PR") — so this is a KNOWN, DOCUMENTED, currently-expected surface
-# until that fast-follow lands, not a bug this lint should hard-fail on.
-# '## Concept edges' appearing in the core IS a hard BLOCK: nothing in the
-# shipped write path ever puts it there, so its presence is a genuine
-# misauthoring, not a deferred-mechanism artifact.
+# Frontmatter misplacement is a hard BLOCK. Body-section misplacement of a
+# core-only heading ('## Result' / '## Key equations' / '## Related
+# papers') into the overlay is ALSO a hard BLOCK: incremental_relate.
+# append_bidirectional_edge writes paper->paper edges to the CENTRAL CORE
+# (cfg.literature_root), never the overlay — a core-only heading in an
+# overlay is therefore always genuine misauthoring, not an expected
+# artifact of the write mechanism (the prior WARN-class deferral is
+# subsumed now that the edge-write retarget has landed). '## Concept
+# edges' appearing in the core IS also a hard BLOCK: nothing in the
+# shipped write path ever puts it there.
 
 _CORE_ONLY_FIELDS: frozenset[str] = frozenset({
     "citekey", "doi", "arxiv_id", "pmcid", "openalex", "pmid", "s2",
@@ -791,13 +876,15 @@ def check_two_layer_invariants(core_path: Path, overlay_path: Path) -> list[str]
     """The invariant lint (acceptance item 3): no intrinsic field
     authored in an overlay, no position/role/concept-edge in a core.
 
-    Returns a list of violation strings. Hard violations (frontmatter
-    misplacement, '## Concept edges' in a core) carry no ``WARN`` marker
-    and are meant to flip a caller's exit code / fail a pytest assertion
-    (GATING). Body-section '## Related papers' in an overlay is prefixed
-    ``[two-layer-lint] WARN:`` (degrades like note.py's other WARN
-    classes — see ``run()``'s ``_WARN_PREFIXES``) — a documented, expected
-    surface until the incremental_relate edge-write fast-follow lands.
+    Returns a list of violation strings. Every violation is a hard
+    ``[two-layer-lint] BLOCK:`` (GATING — flips a caller's exit code / fails
+    a pytest assertion): frontmatter misplacement in either direction,
+    a core-only body heading ('## Result'/'## Key equations'/
+    '## Related papers') in the overlay, or '## Concept edges' in the
+    core. incremental_relate.append_bidirectional_edge writes paper->paper
+    edges to the central core (cfg.literature_root), never the overlay —
+    so a core-only heading surfacing in the overlay is always a genuine
+    authoring defect, not an artifact of the write mechanism.
     """
     violations: list[str] = []
     if not core_path.exists() or not overlay_path.exists():
@@ -824,11 +911,9 @@ def check_two_layer_invariants(core_path: Path, overlay_path: Path) -> list[str]
 
     if _CORE_ONLY_BODY_HEADINGS_RE.search(overlay_body):
         violations.append(
-            f"[two-layer-lint] WARN: {overlay_path.name}: a core-only body "
+            f"[two-layer-lint] BLOCK: {overlay_path.name}: a core-only body "
             f"section (Result/Key equations/Related papers) was found in "
-            f"the overlay — expected until the incremental_relate "
-            f"edge-write rewiring fast-follow retargets writes at the "
-            f"central core ({core_path}); see scope fence."
+            f"the overlay — belongs in the central core ({core_path})."
         )
 
     if _OVERLAY_ONLY_BODY_HEADING_RE.search(core_body):
@@ -871,6 +956,8 @@ def cmd_list(project: str, note_type: str | None = None, *,
         if not subdir.exists():
             continue
         for p in sorted(subdir.glob("*.md")):
+            if p.name in OKF_RESERVED_FILENAMES:
+                continue
             text = p.read_text(encoding="utf-8")
             fields, _ = _parse_frontmatter(text)
             notes.append({"path": p, "fields": fields})
@@ -925,6 +1012,8 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
         covered_ids: set[str] = set()
         if t == "experiments":
             for _pre_p in sorted(subdir.glob("*.md")):
+                if _pre_p.name in OKF_RESERVED_FILENAMES:
+                    continue
                 try:
                     _pre_text = _pre_p.read_text(encoding="utf-8")
                 except OSError:
@@ -937,6 +1026,8 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                         covered_ids.add(_cid)
 
         for p in sorted(subdir.glob("*.md")):
+            if p.name in OKF_RESERVED_FILENAMES:
+                continue
             text = p.read_text(encoding="utf-8")
             fields, _ = _parse_frontmatter(text)
             note_type = fields.get("type", "")
@@ -1029,7 +1120,8 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                     violations.append(
                         f"{p}: type={note_type!r} but file is in {t!r} directory"
                     )
-                central = str(fields.get("central") or "").strip()
+                central_raw = str(fields.get("central") or "").strip()
+                central = _extract_central_slug(central_raw)
                 if not central:
                     violations.append(
                         f"{p}: literature overlay missing 'central:' pointer "
@@ -1039,7 +1131,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                     core_path = literature_core_path(cfg, central)
                     if not core_path.exists():
                         violations.append(
-                            f"{p}: dangling 'central:' pointer {central!r} — "
+                            f"{p}: dangling 'central:' pointer {central_raw!r} — "
                             f"no central core exists at {core_path}"
                         )
                     else:

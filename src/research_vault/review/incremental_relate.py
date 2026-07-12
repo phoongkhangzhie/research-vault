@@ -94,6 +94,16 @@ def build_concept_index(
     return citekey_concepts, concept_citekeys
 
 
+def _note_write_path(core_dir: Path | None, overlay_dir: Path, citekey: str) -> Path:
+    """The path an edge write targets: the CENTRAL CORE
+    (``core_dir/<citekey>.md``) when ``core_dir`` is given, else the legacy
+    ``overlay_dir/<citekey>.md`` location — back-compat for callers that
+    have not yet been retargeted to the two-layer store's central bundle
+    (``cfg.literature_root``). See ``append_bidirectional_edge``."""
+    root = core_dir if core_dir is not None else overlay_dir
+    return root / f"{citekey}.md"
+
+
 def append_related_papers_edge(
     note_path: Path, *, display: str, target: str, tag: str, reason: str,
 ) -> None:
@@ -136,15 +146,27 @@ def append_bidirectional_edge(
     new_reason: str,
     candidate_tag: str | None = None,
     candidate_reason: str | None = None,
+    core_dir: Path | None = None,
 ) -> None:
     """Append the SAME relation to BOTH notes (D-5b: a paper->paper edge is
     a fact about both papers, the central-notes model — the corpus gains
     connections without re-relating). The candidate's own edge direction
     defaults to a symmetric tag/reason unless the caller states an
     asymmetric one explicitly (e.g. one side EXTENDS, the reciprocal side
-    is better read as PARTIAL)."""
-    new_note = _note_path(literature_dir, new_citekey)
-    candidate_note = _note_path(literature_dir, candidate_citekey)
+    is better read as PARTIAL).
+
+    ``literature_dir`` is the dir candidate generation reads concept
+    graphs from (the project overlay — ``## Concept edges`` is
+    overlay-only content, see ``note.check_two_layer_invariants``).
+    ``core_dir``, when given, is where the edge is WRITTEN — the two-layer
+    store's central core (``cfg.literature_root``), never the overlay
+    (``## Related papers`` is core-only content). ``core_dir=None``
+    degrades to writing at ``literature_dir`` — back-compat only; every
+    production caller (``dag/verbs.py``'s ``approve-review`` branch) passes
+    ``core_dir`` explicitly.
+    """
+    new_note = _note_write_path(core_dir, literature_dir, new_citekey)
+    candidate_note = _note_write_path(core_dir, literature_dir, candidate_citekey)
     append_related_papers_edge(
         new_note, display=candidate_citekey, target=candidate_citekey,
         tag=new_tag, reason=new_reason,
@@ -175,8 +197,16 @@ def run_incremental_relate(
     baseline_citekeys: set[str],
     relate_fn: Callable[[str, str], dict[str, str] | None] | None,
     escalate_relate_fn: Callable[[str, set[str]], list[dict[str, str]]] | None = None,
+    core_dir: Path | None = None,
 ) -> IncrementalRelateResult:
     """Concept-graph-blocked incremental relate for a batch of new papers.
+
+    ``literature_dir`` is read for concept-graph candidate generation
+    (``## Concept edges`` — overlay-only content). ``core_dir``, when
+    given, is where every written edge lands — the two-layer store's
+    central core (``cfg.literature_root``); ``core_dir=None`` degrades to
+    writing at ``literature_dir`` (back-compat only — see
+    ``append_bidirectional_edge``).
 
     Every entry in ``new_citekeys`` must already have a full-distilled
     ``literature/<citekey>.md`` note (D-5b: "full-distill ONLY the new
@@ -233,6 +263,7 @@ def run_incremental_relate(
                     append_bidirectional_edge(
                         literature_dir, new_ck, edge["candidate"],
                         new_tag=edge["tag"], new_reason=edge["reason"],
+                        core_dir=core_dir,
                     )
                     result.added_edges.append({
                         "new": new_ck, "candidate": edge["candidate"],
@@ -249,6 +280,7 @@ def run_incremental_relate(
             append_bidirectional_edge(
                 literature_dir, new_ck, cand,
                 new_tag=verdict["tag"], new_reason=verdict["reason"],
+                core_dir=core_dir,
             )
             result.added_edges.append({
                 "new": new_ck, "candidate": cand,
