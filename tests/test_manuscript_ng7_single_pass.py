@@ -388,8 +388,18 @@ def test_dag_complete_outline_gate_passes_anchored_branch(cfg, tmp_path: Path):
     _freeze_spine(note_path, spine_shape="pipeline", branches=["representation-learning"])
     manifest = cmd_expand("demo-research", "survey-ng7-outline-gate-ok", config=cfg)
 
+    # MOC-entry invariant (check 5): the branch must enter through a real
+    # `mocs/<region>` file, not just be named in prose.
+    project_notes_dir = tree_root.parent.parent
+    mocs_dir = project_notes_dir / "mocs"
+    mocs_dir.mkdir(parents=True, exist_ok=True)
+    (mocs_dir / "representation-learning-region.md").write_text(
+        "# representation-learning region\n", encoding="utf-8",
+    )
+
     (tree_root / "_outline.md").write_text(
         "## representation-learning\n\n"
+        "Enters through mocs/representation-learning-region.\n"
         "Thesis: X. Compares [[smith2023]] and [[jones2022]]. "
         "Imitates e07 (comparison-synthesis move).\n",
         encoding="utf-8",

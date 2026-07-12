@@ -1241,8 +1241,10 @@ _THEMATIC_BRIEF = (
     "this as a single-cite ¶ and scores it LOW on SYNTH. Never write one.\n"
     "2. REQUIRE a theme-claim + AT LEAST TWO papers compared per synthesis "
     "unit: `claim -> the >=2 papers marshalled -> the critical comparison "
-    "(which wins where, and why)`. The claim comes from a `concepts/` atom; "
-    "the papers from that concept's linked `literature/` notes.\n"
+    "(which wins where, and why)`. Enter through the `mocs/` region this "
+    "branch draws on — the claim comes from the `concepts/` atom(s) that "
+    "region points to; the papers from those concepts' linked `literature/` "
+    "notes.\n"
     "3. Relationships ('X builds on Y', 'X contradicts Y') are GROUNDED in — "
     "but never SURFACED as — note link-fields (`role`/`position`) and "
     "the typed paper→paper edges a `## Related papers` section carries "
@@ -1302,9 +1304,12 @@ STYLE_BRIEFS: dict[str, str] = {
     "cross-cutting-analysis": (
         "Synthesize cross-cutting trends and tensions across the thematic "
         "sections — what the field collectively knows and where it disagrees. "
-        "Same anti-enumeration discipline as the thematic-sections brief: no "
-        "single-cite ¶, claims marshal >=2 papers, relationships only from "
-        "note link-fields — never invented."
+        "Enter through the `mocs/` region(s) spanning the branches being "
+        "cross-cut; the `concepts/` grounding the trend is what that region "
+        "points to, never a bare concepts-dir glob. Same anti-enumeration "
+        "discipline as the thematic-sections brief: no single-cite ¶, claims "
+        "marshal >=2 papers, relationships only from note link-fields — "
+        "never invented."
     ),
     "open-problems": (
         "Surface open problems and future directions ANCHORED to the "
@@ -1323,7 +1328,10 @@ STYLE_BRIEFS: dict[str, str] = {
         "RD-1: this is `## Sources`, MECHANICAL not prose — a hermetic "
         "NUMBERED ledger built from the citekey ledger (`literature/` "
         "frontmatter), byte-deterministic — never hand-type or invent an "
-        "entry. Use the injected `[N]` numbered list VERBATIM as the body "
+        "entry. The citekey set itself is the framework's coverage "
+        "allocation (`_coverage-map.md`), reached through the `mocs/` "
+        "regions the framework was built from — never a flat scan of the "
+        "shared literature store. Use the injected `[N]` numbered list VERBATIM as the body "
         "of this section, in the injected order — do not renumber, "
         "reorder, or drop an entry.\n\n"
         " (gold-settled `report.md`): cite in the body of EVERY other "
@@ -1422,6 +1430,17 @@ STYLE_BRIEFS: dict[str, str] = {
 # `_build_consolidated_draft_brief`, which folds this tip in as a distinct
 # "not a report section" block rather than a `Section: appendix-methods`
 # row). 8 -> 7 rows.
+#
+# MOC-entry model: the manuscript no longer reaches the shared `concepts`/
+# `literature` bundles as independently-globbed flat atoms. It ENTERS shared
+# knowledge through the project's curated `mocs/` (the thematic path a human
+# actually authored) plus `gaps/` (open questions) — the shared bundles are
+# then read as the atoms a MOC's own pointers resolve into, never as a bare
+# directory glob with no curated entry point. Every ``source_atoms`` tuple
+# below that reaches a shared bundle (`concepts`/`literature`) therefore
+# lists ``mocs`` FIRST — the entry atom — followed by the shared atoms it
+# leads into. A section with no shared-bundle atom (``open-problems``,
+# ``conclusion``, ``abstract``) needs no MOC entry and is unchanged.
 SECTION_SET: tuple[SectionSpec, ...] = (
     SectionSpec(
         name="introduction",
@@ -1432,13 +1451,13 @@ SECTION_SET: tuple[SectionSpec, ...] = (
     SectionSpec(
         name="thematic-sections",
         assembly_class="S",
-        source_atoms=("concepts", "literature"),
+        source_atoms=("mocs", "concepts", "literature"),
         brief_key="thematic-sections",
     ),
     SectionSpec(
         name="cross-cutting-analysis",
         assembly_class="S",
-        source_atoms=("concepts", "mocs"),
+        source_atoms=("mocs", "concepts"),
         brief_key="cross-cutting-analysis",
     ),
     SectionSpec(
@@ -1456,7 +1475,7 @@ SECTION_SET: tuple[SectionSpec, ...] = (
     SectionSpec(
         name="references",
         assembly_class="M",
-        source_atoms=("literature",),
+        source_atoms=("mocs", "literature"),
         brief_key="references",
     ),
     SectionSpec(
@@ -1687,6 +1706,7 @@ def check_outline_gate(
     outline_path: Path,
     branches: list[str],
     used_citekeys: list[str] | None = None,
+    mocs_dir: Path | None = None,
 ) -> list[str]:
     """The cheap, rejects-only outline pre-pass gate.
 
@@ -1712,6 +1732,16 @@ def check_outline_gate(
          the expensive whole-draft, rather than by the downstream drop this PR
          exists to prevent.
 
+    Plus (MOC-entry invariant) — when ``mocs_dir`` is supplied (the
+    project's ``mocs/`` directory):
+      5. the manuscript enters shared knowledge THROUGH a curated MOC, never
+         a bare `concepts/`/`literature/` glob (§2.6 of the model this gate
+         enforces). At least one ``mocs/<region>`` reference must appear in
+         the outline, AND every ``mocs/<region>`` reference named must
+         resolve to a real file under ``mocs_dir`` — a named region with no
+         real target is exactly the "curated path" collapsing to a rumour,
+         caught here before the expensive whole-draft.
+
     Args:
         outline_path: path to ``_outline.md``.
         branches: the frozen ``branches:`` list from ``_manuscript.md``.
@@ -1719,6 +1749,10 @@ def check_outline_gate(
             (``read_coverage_used_citekeys``). ``None``/empty disables check 4
             (no coverage map yet is the allocation gate's concern, not this
             pre-pass's — never fabricated here).
+        mocs_dir: optional path to the project's ``mocs/`` directory.
+            ``None`` disables check 5 (a caller that hasn't wired the
+            project's notes dir through yet degrades honestly, never fakes
+            a pass).
 
     Returns:
         A list of finding strings (empty = OK). Never raises — a missing
@@ -1796,6 +1830,35 @@ def check_outline_gate(
                 f"from the draft: {missing}. Anchor each (or re-allocate it in "
                 f"_coverage-map.md as clustered/deferred with a reason)."
             )
+
+    # ── (5) MOC-entry invariant: enter shared knowledge THROUGH a MOC. ──
+    if mocs_dir is not None and branches:
+        # Greedy `[\w\-]+` (word chars + hyphen, no bare `.`) so a sentence-
+        # ending period right after the slug is never swept into the
+        # capture; the optional `(?:\.md)?` still consumes an EXPLICIT
+        # `.md` suffix when the reference spells it out.
+        moc_refs = sorted(set(re.findall(r"mocs/([\w\-]+)(?:\.md)?", text)))
+        if not moc_refs:
+            issues.append(
+                f"outline gate: no `mocs/<region>` reference found anywhere in "
+                f"{outline_path.name} — the manuscript must enter shared "
+                f"knowledge THROUGH a curated MOC (never a bare `concepts/`/"
+                f"`literature/` glob); name the `mocs/` region each branch "
+                f"draws on."
+            )
+        else:
+            dangling = [
+                ref for ref in moc_refs
+                if not (mocs_dir / f"{ref}.md").exists()
+            ]
+            if dangling:
+                issues.append(
+                    f"outline gate: {len(dangling)} `mocs/<region>` reference(s) "
+                    f"named in {outline_path.name} resolve to NO real file under "
+                    f"{mocs_dir} — a named MOC region with no real target is the "
+                    f"curated entry path collapsing to a rumour: {dangling}. "
+                    f"Author the MOC region first, or name a real one."
+                )
 
     return issues
 
@@ -1939,11 +2002,17 @@ def phase2_builder(
         "Outline pre-pass — a CHEAP, rejects-only screen. "
         "For EACH frozen branch (`branches:` in `_manuscript.md`), write a "
         "block in `_outline.md` naming: (1) the section's thesis-claim, (2) "
-        "the `concepts/`/`gaps/` anchors it will marshal, (3) the >=2 papers "
+        "the `mocs/` region it ENTERS THROUGH — write the literal token "
+        "`mocs/<region-slug>` (the curated path this branch draws on) — "
+        "AND the `concepts/`/`gaps/` anchors that region points to and the "
+        "branch will marshal, (3) the >=2 papers "
         "it will compare (as `[[citekey]]` wikilinks), and (4) WHICH "
         "exemplar-move it will imitate (cite the exemplar id, e.g. 'imitates "
-        "e07 — comparison-synthesis move'). If a branch cannot be anchored "
-        "to real concepts/gaps, FAIL here — surface the framework/corpus "
+        "e07 — comparison-synthesis move'). The manuscript enters shared "
+        "knowledge THROUGH a curated MOC, never a bare concepts/literature "
+        "glob — if a branch cannot be anchored to a real `mocs/<region-slug>` "
+        "with real concepts/gaps behind it, FAIL "
+        "here — surface the framework/corpus "
         "problem now, before the expensive whole-draft.\n\n"
         f"Frozen branches: {', '.join(branches) if branches else '(none frozen yet)'}"
     )

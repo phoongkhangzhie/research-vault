@@ -2172,7 +2172,18 @@ def cmd_complete(args: argparse.Namespace) -> int:
             used_citekeys = read_coverage_used_citekeys(
                 manifest_path.parent / "_coverage-map.md"
             )
-            outline_issues = check_outline_gate(outline_path, branches, used_citekeys)
+            # MOC-entry invariant: manifest_path.parent is the manuscript's
+            # tree_root (manuscripts/<slug>/); project_notes_dir is two
+            # levels up (manuscripts/<slug>/../.. — the established pattern,
+            # see the framework/coverage-hash node wiring above in this
+            # file). mocs_dir may not exist yet for an old project — the gate
+            # degrades to "no mocs/ dir" via check 5's own dangling-file
+            # check, never crashes.
+            _project_notes_dir = manifest_path.parent.parent.parent
+            mocs_dir = _project_notes_dir / "mocs"
+            outline_issues = check_outline_gate(
+                outline_path, branches, used_citekeys, mocs_dir=mocs_dir
+            )
             if outline_issues:
                 print(
                     f"rv dag complete: outline gate FAILED for node {node_id!r}:",
