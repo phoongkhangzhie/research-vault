@@ -104,30 +104,45 @@ def _note_write_path(core_dir: Path | None, overlay_dir: Path, citekey: str) -> 
     return root / f"{citekey}.md"
 
 
-def append_related_papers_edge(
-    note_path: Path, *, display: str, target: str, tag: str, reason: str,
+def append_typed_edge(
+    note_path: Path, *, display: str, target_link: str, tag: str, reason: str,
 ) -> None:
-    """Append one OKF-conformant paper->paper edge line
-    (``[display](/literature/<target>.md) — TAG: reason`` — relationship
-    type as a prose token, not a link-prefix tag) to ``note_path``'s body —
-    creating the ``## Related papers`` heading if absent. Round-trips
-    through ``relate_check.parse_paper_relations`` unchanged (same
-    grammar, ``_EDGE_LINE_RE``).
+    """Append one OKF-conformant typed-edge line
+    (``[display](target_link) — TAG: reason`` — relationship type as a
+    prose token, not a link-prefix tag) to ``note_path``'s body — creating
+    the ``## Related papers`` heading if absent. Round-trips through
+    ``relate_check``'s unified parser (``parse_paper_relations``/
+    ``parse_concept_edges``/``parse_typed_edges``, all backed by the same
+    ``_EDGE_LINE_RE``) unchanged, regardless of scope.
+
+    ``target_link`` is the ALREADY-FORMED OKF link target for whichever
+    scope the caller is writing — intra-shared (``/literature/<ck>.md``,
+    ``/concepts/<slug>.md``), cross-bundle (``okf:literature/<ck>.md``,
+    ``okf:concepts/<slug>.md``, ``okf:datasets/<ds>.md``), within-project
+    (``/experiments|findings|gaps|methodology/<id>.md``), or artifact
+    (``results/runs|scores/<id>.jsonl|csv``). This is the ONE write
+    mechanism the unified typed-edge model uses regardless of scope —
+    every scope's presence check reads the same full-body scan
+    (``relate_check._scan_edge_lines``), so a single ``## Related papers``
+    heading convention is sufficient; the presence check only requires
+    this heading's PRESENCE for the intra-shared paper→paper scope
+    (Move 4) — every other scope's edge lines are found by the full-body
+    scan regardless of which heading (if any) they sit under.
 
     Raises ``FileNotFoundError`` if ``note_path`` does not exist — a
     candidate/target note absent from disk is an integrity issue (the
     "dangling edge" case this module's caller contract explicitly rules
-    out: every citekey it writes to must already be a full-distilled
-    note), never silently stubbed into existence.
+    out: every note a caller writes to must already exist on disk), never
+    silently stubbed into existence.
     """
     if not note_path.exists():
         raise FileNotFoundError(
             f"incremental_relate: cannot append an edge to {note_path} — "
-            "it does not exist. Every citekey passed to run_incremental_relate "
-            "(new or candidate) must already be a full-distilled literature note."
+            "it does not exist. Every note a typed-edge writer targets "
+            "(new or candidate, source or target) must already exist on disk."
         )
     text = note_path.read_text(encoding="utf-8")
-    line = f"- [{display}](/literature/{target}.md) — {tag}: {reason}"
+    line = f"- [{display}]({target_link}) — {tag}: {reason}"
     if not text.endswith("\n"):
         text += "\n"
     if _RELATED_PAPERS_HEADING_RE.search(text):
@@ -135,6 +150,22 @@ def append_related_papers_edge(
     else:
         text += "\n## Related papers\n" + line + "\n"
     note_path.write_text(text, encoding="utf-8")
+
+
+def append_related_papers_edge(
+    note_path: Path, *, display: str, target: str, tag: str, reason: str,
+) -> None:
+    """Append one OKF-conformant paper->paper edge line
+    (``[display](/literature/<target>.md) — TAG: reason``) to
+    ``note_path``'s body. A thin literature-specific wrapper over
+    ``append_typed_edge`` — kept as its own function (rather than inlined
+    at every paper->paper call site) so existing callers' import surface
+    and written bytes stay identical (the unified typed-edge engine's
+    golden discipline — see this module's own docstring)."""
+    append_typed_edge(
+        note_path, display=display, target_link=f"/literature/{target}.md",
+        tag=tag, reason=reason,
+    )
 
 
 def append_bidirectional_edge(
@@ -196,6 +227,77 @@ def append_bidirectional_edge(
         candidate_note, display=new_citekey, target=new_citekey,
         tag=candidate_tag if candidate_tag is not None else _TAG_SYMMETRY[new_tag],
         reason=candidate_reason if candidate_reason is not None else new_reason,
+    )
+
+
+def append_within_project_bidirectional_edge(
+    project_notes_dir: Path,
+    source_type: str,
+    source_id: str,
+    target_type: str,
+    target_id: str,
+    *,
+    tag: str,
+    reason: str,
+    source_display: str | None = None,
+    target_display: str | None = None,
+) -> None:
+    """Write a WITHIN-PROJECT typed edge reciprocally to both notes — the
+    writer half of the unified typed-edge engine's within-project scope
+    (the read/resolve side already exists; see
+    ``review.check_link_resolution``'s ``within-project`` arm).
+    Generalizes ``append_bidirectional_edge``'s
+    bidirectional-write PATTERN (same converse-lookup mechanism, same
+    refusal for never-mirrored tags) beyond the literature-only
+    ``literature_dir``/``core_dir`` routing to an arbitrary within-project
+    type pair — the write root is ``project_notes_dir/<type>/`` (e.g. a
+    finding ``DERIVED-FROM`` an experiment writes
+    ``project_notes_dir/findings/<id>.md`` and
+    ``project_notes_dir/experiments/<id>.md``).
+
+    ``source_type``/``target_type`` are within-project OKF types
+    (``experiments``/``findings``/``gaps``/``methodology`` —
+    ``relate_check._TARGET_RE``'s ``p_type`` group); each note is written
+    at ``project_notes_dir/<type>/<id>.md``.
+
+    DIRECTIONALITY (``relate_check._TAG_SYMMETRY``) — same rule
+    ``append_bidirectional_edge`` already applies to paper->paper,
+    reused here unchanged (one SSOT, no second symmetry table): a
+    SYMMETRIC/self-converse tag mirrors with the SAME token; an
+    ASYMMETRIC within-project tag (``DERIVED-FROM``/``ADDRESSES``/
+    ``ANSWERS``) mirrors with its CONVERSE token (``SHOWS``/
+    ``ADDRESSED-BY``/``ANSWERED-BY``) — never the same token. A tag
+    absent from ``_TAG_SYMMETRY`` (``USES``/``GROUNDED-IN``/``PRODUCED`` —
+    never auto-mirrored, one-way by design) raises ``ValueError``
+    unconditionally: this function always writes a reciprocal edge to
+    both notes, so a one-way tag reaching it is a caller bug, not a case
+    to silently degrade — a one-way within-project/cross-bundle/artifact
+    edge must be written with a single-edge call (``append_typed_edge``)
+    on the source note only.
+    """
+    if tag not in _TAG_SYMMETRY:
+        raise ValueError(
+            f"append_within_project_bidirectional_edge: tag {tag!r} is "
+            "never auto-mirrored (absent from relate_check._TAG_SYMMETRY — "
+            "USES/GROUNDED-IN/PRODUCED are one-way by design). This "
+            "function always writes a reciprocal edge to both notes; a "
+            "one-way tag must be written with a single-edge call "
+            "(append_typed_edge) on the source note only."
+        )
+    source_note = project_notes_dir / source_type / f"{source_id}.md"
+    target_note = project_notes_dir / target_type / f"{target_id}.md"
+    append_typed_edge(
+        source_note,
+        display=target_display if target_display is not None else target_id,
+        target_link=f"/{target_type}/{target_id}.md",
+        tag=tag, reason=reason,
+    )
+    append_typed_edge(
+        target_note,
+        display=source_display if source_display is not None else source_id,
+        target_link=f"/{source_type}/{source_id}.md",
+        tag=_TAG_SYMMETRY[tag],
+        reason=reason,
     )
 
 
