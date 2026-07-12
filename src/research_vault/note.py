@@ -964,7 +964,12 @@ def cmd_list(project: str, note_type: str | None = None, *,
     return notes
 
 
-def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
+def cmd_check(
+    project: str,
+    *,
+    config: Config | None = None,
+    strict_links: bool = False,
+) -> list[str]:
     """Validate OKF notes for the given project.
 
     Checks that:
@@ -988,6 +993,17 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
       when stance=confirmatory but the note is not in any plan master's covers:
       (degrade-to-skip when no plan masters exist); BLOCKS when supports_main
       points to a non-existent note.
+
+    Link resolution (``review.check_link_resolution``): every literature
+    overlay's cross-bundle backbone link + intra-bundle edges are resolved
+    against the resolvable bundle set. Consumer-tolerant by default — an
+    unresolved link is not-yet-written knowledge during day-to-day
+    authoring, so it degrades to a ``[link-lint] WARN:`` (never flips the
+    exit code). Pass ``strict_links=True`` to promote the SAME findings to
+    a hard ``[link-lint] BLOCK:`` — the curation-time posture (also used at
+    the review-approval and manuscript-approval gates, and via the CLI's
+    ``--strict-links`` flag). One resolution pass, two postures — see
+    ``review.check_link_resolution``'s own docstring.
 
     Returns a list of violation strings (empty = all clear).
     """
@@ -1129,12 +1145,7 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                     )
                 else:
                     core_path = literature_core_path(cfg, central)
-                    if not core_path.exists():
-                        violations.append(
-                            f"{p}: dangling 'central:' pointer {central_raw!r} — "
-                            f"no central core exists at {core_path}"
-                        )
-                    else:
+                    if core_path.exists():
                         core_fields, _ = _parse_frontmatter(
                             core_path.read_text(encoding="utf-8")
                         )
@@ -1149,12 +1160,31 @@ def cmd_check(project: str, *, config: Config | None = None) -> list[str]:
                         # (BLOCK entries flip the exit code; WARN entries
                         # degrade like the other WARN classes below).
                         violations.extend(check_two_layer_invariants(core_path, p))
+                    # A PRESENT-but-unresolvable 'central:' pointer (the
+                    # core file does not exist) is a link-RESOLUTION finding,
+                    # not a completeness finding — it is surfaced once,
+                    # project-wide, by the link-resolution pass below
+                    # ([link-lint]), not duplicated here. Only a genuinely
+                    # ABSENT pointer (checked above) is a hard, unconditional
+                    # violation of this per-note completeness check.
             else:
                 # Standard OKF type-dir contract for the other project-scoped types
                 if note_type != t:
                     violations.append(
                         f"{p}: type={note_type!r} but file is in {t!r} directory"
                     )
+
+    # Link resolution — project-wide, once (not per-note, per-type): the
+    # cross-bundle backbone + intra-bundle edges every literature overlay
+    # carries. Call-time import (note.py is the lower layer; review/
+    # imports FROM note.py, never the reverse — this avoids a circular
+    # import at module load).
+    from .review import check_link_resolution as _check_link_resolution
+
+    link_result = _check_link_resolution(project, config=cfg)
+    if not link_result["ok"]:
+        prefix = "[link-lint] BLOCK:" if strict_links else "[link-lint] WARN:"
+        violations.extend(f"{prefix} {e}" for e in link_result["errors"])
 
     return violations
 
@@ -1928,7 +1958,18 @@ def build_parser(parent: argparse._SubParsersAction | None = None) -> argparse.A
                         choices=sorted(OKF_TYPES), help="Filter by OKF type.")
 
     # check
-    sub.add_parser("check", help="Validate OKF note frontmatter.")
+    check_p = sub.add_parser("check", help="Validate OKF note frontmatter.")
+    check_p.add_argument(
+        "--strict-links", action="store_true", dest="strict_links",
+        help=(
+            "Promote link-resolution findings (the cross-bundle backbone + "
+            "intra-bundle edges) from a WARN to a hard BLOCK. Default "
+            "'rv note check' tolerates an unresolved link as not-yet-"
+            "written knowledge (day-to-day authoring); --strict-links is "
+            "the curation-time posture (same posture the review-approval "
+            "and manuscript-approval gates always use)."
+        ),
+    )
 
     return p
 
@@ -1968,7 +2009,8 @@ def run(args: argparse.Namespace) -> int:
             return 0
 
         elif args.note_cmd == "check":
-            violations = cmd_check(args.project, config=cfg)
+            strict_links = bool(getattr(args, "strict_links", False))
+            violations = cmd_check(args.project, config=cfg, strict_links=strict_links)
             if not violations:
                 print(f"rv note check: OK — {args.project!r}")
                 return 0
@@ -1987,9 +2029,14 @@ def run(args: argparse.Namespace) -> int:
             #     fast-follow lands. Note: "[two-layer-lint]
             #     BLOCK:" entries do NOT match this (more specific) prefix,
             #     so they stay hard.
+            #   [link-lint] WARN: — an unresolved cross-bundle backbone or
+            #     intra-bundle edge link, tolerated by default (not-yet-
+            #     written knowledge). Note: "[link-lint] BLOCK:" (only
+            #     emitted when --strict-links is passed) does NOT match this
+            #     prefix, so it stays hard — see cmd_check's strict_links arg.
             _WARN_PREFIXES = (
                 "[repro-lint]", "[gap-hygiene]", "[dataset-provenance]", "[citekey-lint]",
-                "[two-layer-lint] WARN:",
+                "[two-layer-lint] WARN:", "[link-lint] WARN:",
             )
             hard = [v for v in violations if not v.startswith(_WARN_PREFIXES)]
             warnings = [v for v in violations if v.startswith(_WARN_PREFIXES)]
