@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""migrate_overlay_unwind.py — the 0.3.2 PR-5 migration: collapse a
+"""migrate_overlay_unwind.py — the 0.3.2 overlay-unwind migration: collapse a
 two-layer literature note (a central core + a per-project overlay glued
 by a ``central:`` pointer) into ONE shared-canonical note.
 
@@ -63,7 +63,7 @@ _LITERATURE_ROLES_HEADING_RE = re.compile(
 )
 
 # The stock "CENTRAL CORE / two-layer store" HTML-comment preamble every
-# pre-PR-5 core note carries (note.py's old ``_literature_core_body``
+# pre-unwind core note carries (note.py's old ``_literature_core_body``
 # template). Purely explanatory — never load-bearing — but leaving it in a
 # freshly-merged shared-canonical note would misleadingly describe a model
 # that no longer exists. Scrubbed as a block (matched loosely, tolerant of

@@ -62,8 +62,8 @@ begins.**
 
 ## The shared-canonical literature store
 
-`literature/<key>.md` is **shared-canonical** (the overlay unwind (0.3.2), the overlay
-unwind — earlier the store was two layers, a cross-project central core
+`literature/<key>.md` is **shared-canonical** (the overlay unwind, 0.3.2 —
+earlier the store was two layers, a cross-project central core
 plus a thin per-project overlay glued by a `central:` pointer; that
 overlay is now dissolved): ONE note per paper at
 `../literature/<citekey>.md` (a sibling of this project,
