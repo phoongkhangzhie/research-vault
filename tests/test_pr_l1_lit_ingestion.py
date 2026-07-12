@@ -121,7 +121,8 @@ def _core_content(cfg, overlay_path):
     """PR-A: key_equations/repo/artifacts live on the CENTRAL CORE, not the
     thin per-project overlay `cmd_new` returns."""
     overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
-    core_path = cfg.literature_root / f"{overlay_fields['central']}.md"
+    central_slug = note_mod._extract_central_slug(overlay_fields["central"])
+    core_path = cfg.literature_root / f"{central_slug}.md"
     return core_path.read_text()
 
 

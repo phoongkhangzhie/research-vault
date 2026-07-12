@@ -306,6 +306,7 @@ def run_incremental_relate_for_new_citekeys(
     baseline_citekeys: set[str],
     relate_fn: Callable[[str, str], dict[str, str] | None] | None = None,
     escalate_relate_fn: Callable[[str, set[str]], list[dict[str, str]]] | None = None,
+    core_dir: Path | None = None,
 ) -> dict[str, Any]:
     """The wiring layer between a remediation/backtrack round's ``added``
     citekeys and ``review.incremental_relate.run_incremental_relate``.
@@ -316,6 +317,12 @@ def run_incremental_relate_for_new_citekeys(
     corpus-row-only citekey with no distilled note yet is surfaced in
     ``not_yet_distilled`` — never silently dropped, never crashed on
     (charter §2).
+
+    ``core_dir``, when given, is where ``run_incremental_relate`` WRITES
+    every edge — the two-layer store's central core (``cfg.literature_root``),
+    passed straight through. ``core_dir=None`` degrades to writing at
+    ``literature_dir`` (back-compat only — see ``incremental_relate.
+    append_bidirectional_edge``).
 
     ``relate_fn``/``escalate_relate_fn`` are passed straight through to
     ``run_incremental_relate`` — NEVER resolved to a live-API default here.
@@ -341,6 +348,7 @@ def run_incremental_relate_for_new_citekeys(
     result = run_incremental_relate(
         ready, literature_dir=literature_dir, baseline_citekeys=baseline_citekeys,
         relate_fn=relate_fn, escalate_relate_fn=escalate_relate_fn,
+        core_dir=core_dir,
     )
     return {"result": result, "not_yet_distilled": not_yet_distilled}
 
@@ -359,6 +367,7 @@ def run_directed_remediation_round(
     relate_fn: Callable[[str, str], dict[str, str] | None] | None = None,
     escalate_relate_fn: Callable[[str, set[str]], list[dict[str, str]]] | None = None,
     now: float | None = None,
+    core_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Execute ONE bounded, POLE-DIRECTED critic-backtrack round (§D-5a).
 
@@ -382,6 +391,10 @@ def run_directed_remediation_round(
     ``literature_dir`` defaults to the standard ``project_notes_dir/
     literature`` layout derived from ``corpus_path`` (which lives at
     ``project_notes_dir/reviews/<scope>/_corpus.md``) when not given.
+    ``core_dir``, when given, is passed straight through to
+    ``run_incremental_relate_for_new_citekeys`` as the edge-WRITE target
+    (the two-layer store's central core); ``None`` degrades to writing at
+    ``literature_dir`` (back-compat only).
 
     ★ Sibling-bug fix (remediation corpus-bypass): this round used to
     append every sweep/snowball hit DIRECTLY into ``_corpus.md`` as a bare
@@ -517,6 +530,7 @@ def run_directed_remediation_round(
     related = run_incremental_relate_for_new_citekeys(
         added, literature_dir=lit_dir, baseline_citekeys=existing_citekeys,
         relate_fn=relate_fn, escalate_relate_fn=escalate_relate_fn,
+        core_dir=core_dir,
     )
 
     return {

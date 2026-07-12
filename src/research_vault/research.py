@@ -284,13 +284,13 @@ def _resolve_intrinsic_fields(
     purpose; not a violation, just a degrade path)."""
     if literature_root is None:
         return overlay_fields
-    central = str(overlay_fields.get("central") or "").strip()
+    from .note import _extract_central_slug, _parse_frontmatter
+    central = _extract_central_slug(str(overlay_fields.get("central") or ""))
     if not central:
         return overlay_fields
     core_path = Path(literature_root) / f"{central}.md"
     if not core_path.exists():
         return overlay_fields
-    from .note import _parse_frontmatter
     try:
         core_fields, _ = _parse_frontmatter(core_path.read_text(encoding="utf-8"))
     except OSError:

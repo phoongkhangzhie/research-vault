@@ -134,10 +134,21 @@ def test_outline_gate_no_frozen_branches_is_a_noop():
 # ---------------------------------------------------------------------------
 
 def _write_lit_note_with_relation(
-    literature_dir: Path, citekey: str, target: str, tag: str = "SUPPORTS", reason: str = "shares the method"
+    cfg, literature_dir: Path, citekey: str, target: str, tag: str = "SUPPORTS", reason: str = "shares the method"
 ) -> None:
+    """Write a two-layer pair: a thin overlay carrying a resolving
+    ``central:`` backbone link, and the matching central core (at
+    ``cfg.literature_root``) carrying '## Related papers' — core-only
+    content (relations_report resolves each overlay's backbone link and
+    reads edges from the resolved core, never the overlay directly)."""
     literature_dir.mkdir(parents=True, exist_ok=True)
     (literature_dir / f"{citekey}.md").write_text(
+        f"---\ntype: literature\ntitle: A Paper\n"
+        f"central: [{citekey}](okf:literature/{citekey}.md)\n---\n\n",
+        encoding="utf-8",
+    )
+    cfg.literature_root.mkdir(parents=True, exist_ok=True)
+    (cfg.literature_root / f"{citekey}.md").write_text(
         "---\ntype: literature\ntitle: A Paper\ncitekey: " + citekey + "\n---\n\n"
         "## Related papers\n\n"
         f"- [{target}](/literature/{target}.md) — {tag}: {reason}\n",
@@ -149,14 +160,21 @@ def test_render_relations_ledger_traverses_pr2_edges(tmp_path: Path):
     from research_vault.config import Config, _default_config, _expand_paths, Config as _CfgCls
 
     project_notes_dir = tmp_path / "notes"
-    _write_lit_note_with_relation(project_notes_dir / "literature", "xiong2023", "smith2022", tag="SUPPORTS")
-    _write_lit_note_with_relation(project_notes_dir / "literature", "smith2022", "xiong2023", tag="CONTRADICTS")
 
     # Build a minimal Config whose project_notes_dir resolves to project_notes_dir.
+    # literature_root is pinned to a SIBLING dir, distinct from
+    # project_notes_dir/literature — the two-layer store's central core is
+    # never the same directory as a project's own overlay (a minimal config
+    # with no override would otherwise alias notes_root/literature onto this
+    # single project's own overlay dir, hiding the two-layer split).
     raw = _default_config()
     raw["projects"] = {"demo": {"source_dir": str(project_notes_dir)}}
+    raw["literature_root"] = str(tmp_path / "central-literature")
     raw = _expand_paths(raw, tmp_path)
     cfg = _CfgCls(raw)
+
+    _write_lit_note_with_relation(cfg, project_notes_dir / "literature", "xiong2023", "smith2022", tag="SUPPORTS")
+    _write_lit_note_with_relation(cfg, project_notes_dir / "literature", "smith2022", "xiong2023", tag="CONTRADICTS")
 
     ledger = render_relations_ledger("demo", "any-scope", config=cfg)
     assert "xiong2023" in ledger
@@ -271,8 +289,8 @@ def test_phase2_builder_draft_consumes_pr2_relations_ledger(cfg):
     from research_vault.manuscript import cmd_new, cmd_expand
 
     project_notes_dir = cfg.project_notes_dir("demo-research")
-    _write_lit_note_with_relation(project_notes_dir / "literature", "xiong2023", "smith2022", tag="SUPPORTS")
-    _write_lit_note_with_relation(project_notes_dir / "literature", "smith2022", "xiong2023", tag="CONTRADICTS")
+    _write_lit_note_with_relation(cfg, project_notes_dir / "literature", "xiong2023", "smith2022", tag="SUPPORTS")
+    _write_lit_note_with_relation(cfg, project_notes_dir / "literature", "smith2022", "xiong2023", tag="CONTRADICTS")
 
     cmd_new("demo-research", "survey-ng7-relations", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-ng7-relations", config=cfg)

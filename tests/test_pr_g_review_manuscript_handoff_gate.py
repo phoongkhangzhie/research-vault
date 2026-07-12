@@ -431,6 +431,23 @@ def _run_gate(review_dir: Path, monkeypatch, *, fake_tool_op, run_state=None):
     }
     if run_state is None:
         run_state = _FakeRunState()
+    # This module's fixtures are pre-two-layer-store: `_write_lit_note`
+    # writes ONE flat file per citekey (no core/overlay split), and every
+    # assertion below reads paper->paper edges back from that SAME file.
+    # dag.verbs' approve-review branch now resolves the edge-WRITE target
+    # via `load_config().literature_root` (the central-store retarget) —
+    # pin it to the fixtures' own literature dir so this gate-mechanics
+    # suite keeps its monolithic single-dir convention (the two-layer split
+    # itself is covered separately by test_literature_store.py /
+    # test_literature_demo_fixtures.py).
+    from research_vault.config import Config, _default_config
+
+    literature_dir_for_cfg = review_dir.parent.parent / "literature"
+    fake_raw = _default_config()
+    fake_raw["literature_root"] = str(literature_dir_for_cfg)
+    monkeypatch.setattr(
+        "research_vault.dag.verbs.load_config", lambda: Config(fake_raw)
+    )
     disposition = _evaluate_autonomous_gate(
         "approve-review", nodes_lookup, review_dir / "manifest.json", run_state,
     )

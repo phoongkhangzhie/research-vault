@@ -342,7 +342,7 @@ def _citekey_migrated_count(
 
 
 def _not_yet_distilled_block(
-    deviations_path: Path, literature_dir: Path | None,
+    deviations_path: Path, literature_root: Path | None,
 ) -> dict[str, Any]:
     """ derivation: ``not_yet_distilled_count`` — every remediation-
     added corpus citekey (a ``within-criteria-append`` deviation's ``added``
@@ -357,19 +357,13 @@ def _not_yet_distilled_block(
     declared adds (via the SAME parser ``autonomy`` writes/reads them with —
     ``_parse_deviation_citekey_deltas``, charter §6) and joins them against
     the materialized edge graph (``relate_check.parse_paper_relations`` over
-    each note body). Note: although the paper->paper edge graph
-    (``## Related papers``) is architecturally CORE-only content, this
-    STILL resolves against ``literature_dir`` (the project's overlay dir),
-    NOT ``literature_root`` — ``incremental_relate.
-    append_bidirectional_edge`` is UNCHANGED by explicit scope-fence
-    deferral ("rewiring edge-writes to the central core is
-    fast-follow, not this PR") and still physically writes edges to the
-    overlay location. Pointing this at literature_root before that
-    fast-follow lands would find zero edges and false-flag every paper as
-    not-yet-distilled. Revisit this resolution when the edge-write
-    rewiring fast-follow lands. ``literature_dir is None`` -> every
-    remediation-added paper is un-resolvable, so all count as
-    not-yet-distilled (honest, never a fabricated 0).
+    each note body). The paper->paper edge graph (``## Related papers``) is
+    CORE-only content — ``incremental_relate.append_bidirectional_edge``
+    writes it to the two-layer store's CENTRAL CORE, so this resolves
+    against ``literature_root`` (``cfg.literature_root``), not a project's
+    overlay dir. ``literature_root is None`` -> every remediation-added
+    paper is un-resolvable, so all count as not-yet-distilled (honest,
+    never a fabricated 0).
 
     Non-gating by construction: a legitimate mid-backtrack snapshot has
     un-related adds; only the caller's GO context asserts == 0. Returned as
@@ -382,7 +376,7 @@ def _not_yet_distilled_block(
     _removed, added = _parse_deviation_citekey_deltas(deviations_path)
     not_distilled: list[str] = []
     for citekey in sorted(added):
-        note_path = _literature_note_for_citekey(literature_dir, citekey)
+        note_path = _literature_note_for_citekey(literature_root, citekey)
         if note_path is None:
             not_distilled.append(citekey)
             continue
@@ -630,7 +624,7 @@ def write_corpus_ledger(
     q = _q_block(protocol_path, walk_path, gaps_path)
     p = _p_block(relevance_payload)
     k = _k_block(corpus_path, literature_dir, literature_root)
-    nd = _not_yet_distilled_block(deviations_path, literature_dir)
+    nd = _not_yet_distilled_block(deviations_path, literature_root)
 
     search_lines, search_gaps = _render_search_plan_table(search_hits_path)
     walk_lines, walk_gaps = _render_walk_table(walk_path)

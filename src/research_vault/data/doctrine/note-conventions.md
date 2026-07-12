@@ -82,12 +82,16 @@ extension point):
   `PARTIAL:` / `EXTENDS:` — so a Noblit & Hare-style traversal can fold the corpus's
   comparative spine without re-deriving it from unstructured prose. A plain OKF reader
   still sees an ordinary markdown link followed by an ordinary sentence.
-- **A cross-bundle backbone** (planned, not yet built) — a small `okf:<bundle>/<concept>.md`
-  URI scheme letting a project's thin literature *overlay* point back at the shared
-  central literature bundle, and similarly for the shared datasets bundle. The OKF spec
-  is explicitly silent on cross-bundle references, nested bundles, and bundle-boundary
+- **A cross-bundle backbone** — a small `okf:<bundle>/<path>.md` URI scheme letting a
+  project's thin literature *overlay* point back at the shared central literature bundle
+  (`central: [<citekey>](okf:literature/<citekey>.md)`), and generalizing the same way to
+  the shared datasets bundle and any future project-to-project pointer. The OKF spec is
+  explicitly silent on cross-bundle references, nested bundles, and bundle-boundary
   resolution — this is a first-class rv extension for cross-project reasoning and
-  synthesis, not a claim of spec-level cross-bundle conformance.
+  synthesis, not a claim of spec-level cross-bundle conformance. A plain OKF reader
+  tolerates `okf:` as an unrecognized (but well-formed) link scheme; rv resolves it via
+  a bundle registry (named bundle -> root path). A dangling or malformed backbone link is
+  tolerated by every consumer (never raises) — see the resolver's own docstring.
 
 ## Profiles — the hub's optimization
 

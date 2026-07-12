@@ -19,9 +19,24 @@ import pytest
 from research_vault.config import load_config
 
 
-def _write_lit_note(literature_dir: Path, citekey: str, body: str) -> None:
+def _write_lit_note(cfg, literature_dir: Path, citekey: str, body: str) -> None:
+    """Write a two-layer pair: a thin overlay carrying a resolving
+    ``central:`` backbone link, and the matching central core (at
+    ``cfg.literature_root``) carrying the body — ``## Related papers`` is
+    core-only content (``relations_report`` resolves each overlay's
+    backbone link and reads edges from the resolved core, never the
+    overlay directly)."""
     literature_dir.mkdir(parents=True, exist_ok=True)
-    text = (
+    overlay_text = (
+        "---\n"
+        "type: literature\n"
+        f"central: [{citekey}](okf:literature/{citekey}.md)\n"
+        "---\n"
+    )
+    (literature_dir / f"{citekey}.md").write_text(overlay_text, encoding="utf-8")
+
+    cfg.literature_root.mkdir(parents=True, exist_ok=True)
+    core_text = (
         "---\n"
         "type: literature\n"
         f"citekey: {citekey}\n"
@@ -29,7 +44,7 @@ def _write_lit_note(literature_dir: Path, citekey: str, body: str) -> None:
         "---\n"
         f"{body}\n"
     )
-    (literature_dir / f"{citekey}.md").write_text(text, encoding="utf-8")
+    (cfg.literature_root / f"{citekey}.md").write_text(core_text, encoding="utf-8")
 
 
 class TestRelationsReport:
@@ -46,6 +61,7 @@ class TestRelationsReport:
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
 
         _write_lit_note(
+            cfg,
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
@@ -53,6 +69,7 @@ class TestRelationsReport:
             "baseline; this paper's bound removes that assumption. (refutational)\n",
         )
         _write_lit_note(
+            cfg,
             literature_dir,
             "li2023",
             "## Related papers\n\n"
@@ -75,7 +92,7 @@ class TestRelationsReport:
         from research_vault.review import relations_report
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
-        _write_lit_note(literature_dir, "novel2024", "No relations section here.\n")
+        _write_lit_note(cfg, literature_dir, "novel2024", "No relations section here.\n")
 
         report = relations_report("demo-litreview", "scope-any", config=cfg)
         assert report["edges"] == []
@@ -88,6 +105,7 @@ class TestRelationsReport:
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
         _write_lit_note(
+            cfg,
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
@@ -109,6 +127,7 @@ class TestRelationsReport:
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
         _write_lit_note(
+            cfg,
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
@@ -124,12 +143,13 @@ class TestRelationsReport:
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
         _write_lit_note(
+            cfg,
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
             "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the mechanism in a related setting.\n",
         )
-        _write_lit_note(literature_dir, "li2023", "No relations here.\n")
+        _write_lit_note(cfg, literature_dir, "li2023", "No relations here.\n")
         report = relations_report("demo-litreview", "scope-any", config=cfg)
         assert report["dangling"] == []
 
@@ -141,6 +161,7 @@ class TestRelationsReport:
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
         _write_lit_note(
+            cfg,
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
@@ -176,6 +197,7 @@ class TestRelationsVerb:
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
         _write_lit_note(
+            cfg,
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
@@ -208,6 +230,7 @@ class TestRelationsVerb:
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
         _write_lit_note(
+            cfg,
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
@@ -225,6 +248,7 @@ class TestRelationsVerb:
         cfg = load_config(reload=True)
         literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
         _write_lit_note(
+            cfg,
             literature_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"

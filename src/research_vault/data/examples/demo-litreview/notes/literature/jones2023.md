@@ -2,7 +2,7 @@
 type: literature
 title: Static Dense Retrieval Indices at Scale
 created: 2026-01-10
-central: jones2023
+central: [jones2023](okf:literature/jones2023.md)
 in_corpus_of: topic
 role: counter-position
 position: "The paper's own discussion (Section 6) is the closest thing to a counter-position in the corpus: a static index cannot incorporate reasoning-time context, which is exactly what this review's RQ requires — cited as the gap smith2024 fills."

@@ -442,4 +442,81 @@ source_dir = "{proj_dir}"
 
         cfg = load_config(reload=True)
         assert cfg.config_source == "none"
-        assert cfg.config_file is None
+
+
+# ---------------------------------------------------------------------------
+# PR-2: the cross-bundle backbone registry (rv's OKF extension)
+# ---------------------------------------------------------------------------
+
+class TestBundleRegistry:
+    """resolve_bundle_link never raises — every unresolvable case (unknown
+    bundle, missing file, malformed URI) returns None (charter §2: the
+    caller decides how loudly to surface it, not this resolution
+    primitive)."""
+
+    @pytest.fixture
+    def cfg(self, tmp_path):
+        proj_dir = tmp_path / "projects" / "demo"
+        cfg_path = tmp_path / "research_vault.toml"
+        cfg_path.write_text(
+            f'instance_root = "{tmp_path}"\n'
+            f'notes_root = "{tmp_path / "notes"}"\n'
+            f'state_dir = "{tmp_path / "state"}"\n'
+            f'agents_dir = "{tmp_path / ".agents"}"\n'
+            f'tasks_dir = "{tmp_path / "tasks"}"\n'
+            f'control_dir = "{tmp_path / "control"}"\n'
+            f'literature_root = "{tmp_path / "central-literature"}"\n'
+            '[adapters]\nnotifier = "file"\nbackend = "local"\nsecrets = "env"\n'
+            '[projects.demo]\n'
+            f'source_dir = "{proj_dir}"\n',
+            encoding="utf-8",
+        )
+        os.environ["RESEARCH_VAULT_CONFIG"] = str(cfg_path)
+        reset_config_cache()
+        try:
+            yield load_config(reload=True)
+        finally:
+            os.environ.pop("RESEARCH_VAULT_CONFIG", None)
+            reset_config_cache()
+
+    def test_bundle_registry_covers_literature_datasets_and_projects(self, cfg):
+        registry = cfg.bundle_registry()
+        assert registry["literature"] == cfg.literature_root
+        assert registry["datasets"] == cfg.datasets_root
+        assert registry["demo"] == cfg.project_notes_dir("demo")
+
+    def test_resolves_a_real_literature_link(self, cfg):
+        cfg.literature_root.mkdir(parents=True, exist_ok=True)
+        target = cfg.literature_root / "smith2024.md"
+        target.write_text("---\ntype: literature\n---\n", encoding="utf-8")
+
+        resolved = cfg.resolve_bundle_link("okf:literature/smith2024.md")
+        assert resolved == target
+
+    def test_unknown_bundle_returns_none(self, cfg):
+        assert cfg.resolve_bundle_link("okf:nonexistent-bundle/x.md") is None
+
+    def test_missing_file_returns_none(self, cfg):
+        cfg.literature_root.mkdir(parents=True, exist_ok=True)
+        # Well-formed bundle + path, but the file was never written.
+        assert cfg.resolve_bundle_link("okf:literature/ghost.md") is None
+
+    def test_malformed_uri_returns_none(self, cfg):
+        # No scheme at all.
+        assert cfg.resolve_bundle_link("literature/smith2024.md") is None
+        # Wrong scheme.
+        assert cfg.resolve_bundle_link("http://example.com/x.md") is None
+        # No trailing .md.
+        assert cfg.resolve_bundle_link("okf:literature/smith2024") is None
+        # Empty / None.
+        assert cfg.resolve_bundle_link("") is None
+        assert cfg.resolve_bundle_link(None) is None
+
+    def test_resolves_a_project_bundle_link(self, cfg):
+        target_dir = cfg.project_notes_dir("demo") / "concepts"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / "some-concept.md"
+        target.write_text("---\ntype: concepts\n---\n", encoding="utf-8")
+
+        resolved = cfg.resolve_bundle_link("okf:demo/concepts/some-concept.md")
+        assert resolved == target

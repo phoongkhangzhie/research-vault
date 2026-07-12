@@ -35,6 +35,7 @@ Stdlib only.
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -248,6 +249,22 @@ def resolve_repo_root(source_dir: str | Path) -> Path:
     return p.parent if p.name == "notes" else p
 
 
+# ---------------------------------------------------------------------------
+# Cross-bundle backbone links — rv's OKF extension
+# ---------------------------------------------------------------------------
+#
+# The Open Knowledge Format spec (v0.1) is one-bundle-scoped: it defines
+# `/section/slug.md` links resolved against a single bundle root, and is
+# explicitly silent on cross-bundle references. Each rv bundle (the shared
+# literature store, the shared datasets store, each project's own notes
+# tree) is individually OKF-conformant; the `okf:<bundle>/<path>.md` URI
+# scheme below is rv's documented extension for the one thing every
+# project-scoped overlay needs: a pointer OUT of its own bundle at a shared
+# store. A plain OKF reader that doesn't know the `okf:` scheme tolerates it
+# as an unrecognized (but well-formed) link target — never a parse failure.
+_OKF_URI_RE = re.compile(r"^okf:([A-Za-z0-9_.\-]+)/(.+\.md)$")
+
+
 class Config:
     """Resolved Research Vault configuration.
 
@@ -378,6 +395,50 @@ class Config:
     def project_edges_path(self) -> "Path":
         """Return the path to the edge store JSON file (state_dir/project_edges.json)."""
         return self.state_dir / "project_edges.json"
+
+    # --- cross-bundle backbone registry ---
+
+    def bundle_registry(self) -> dict[str, Path]:
+        """The named bundle -> root-path map for `resolve_bundle_link`.
+
+        Every instance-level shared store gets a name (``literature`` ->
+        ``literature_root``, ``datasets`` -> ``datasets_root``); every
+        registered project gets its own slug -> ``project_notes_dir(slug)``.
+        This is the ONE registry every cross-bundle `okf:` link resolves
+        through — a general rv primitive, not literature-specific (see
+        note-conventions.md's OKF-extension section).
+        """
+        registry: dict[str, Path] = {
+            "literature": self.literature_root,
+            "datasets": self.datasets_root,
+        }
+        for slug in self.projects:
+            registry[slug] = self.project_notes_dir(slug)
+        return registry
+
+    def resolve_bundle_link(self, link: str) -> Path | None:
+        """Resolve an rv cross-bundle ``okf:<bundle>/<path>.md`` link to an
+        absolute ``Path`` via the bundle registry.
+
+        Returns ``None`` on ANY unresolvable link — malformed URI, unknown
+        bundle name, or a well-formed pointer to a file that does not exist
+        on disk. Never raises: this is the resolution primitive underneath
+        every cross-bundle reader; the caller decides how loudly to surface
+        an unresolved link (charter §2 — surfaced by the caller, never
+        silently swallowed at this layer either).
+        """
+        link = (link or "").strip()
+        m = _OKF_URI_RE.match(link)
+        if not m:
+            return None
+        bundle_name, rel_path = m.groups()
+        root = self.bundle_registry().get(bundle_name)
+        if root is None:
+            return None
+        resolved = root / rel_path
+        if not resolved.is_file():
+            return None
+        return resolved
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"Config(instance_root={self.instance_root!r}, projects={list(self.projects)!r})"

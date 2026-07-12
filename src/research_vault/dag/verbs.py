@@ -1000,7 +1000,13 @@ def _evaluate_autonomous_gate(
             protocol_path = review_dir / "_protocol.md"
             corpus_path = review_dir / "_corpus.md"
             deviations_path = review_dir / "_deviations.md"
+            # concept-graph candidate generation reads the project OVERLAY
+            # dir ('## Concept edges' is overlay-only content); every
+            # written paper->paper edge targets the CENTRAL CORE
+            # (cfg.literature_root — '## Related papers' is core-only
+            # content, two-layer store).
             literature_dir = review_dir.parent.parent / "literature"
+            core_dir = load_config().literature_root
             judge_dir = review_dir / "judge" / "relate"
 
             # The pole is resolved ONCE from the triggering critic_payload
@@ -1071,6 +1077,7 @@ def _evaluate_autonomous_gate(
                             baseline_citekeys=round_baseline_citekeys,
                             relate_fn=_resolved_relate_fn,
                             escalate_relate_fn=_resolved_escalate_fn,
+                            core_dir=core_dir,
                         )
                     _rjs.clear_relate_fanout(judge_dir)
 
@@ -1105,6 +1112,7 @@ def _evaluate_autonomous_gate(
                     literature_dir=literature_dir,
                     relate_fn=_noop_relate_fn,
                     escalate_relate_fn=_noop_escalate_fn,
+                    core_dir=core_dir,
                 )
                 added = round_result.get("added", [])
                 if added:
