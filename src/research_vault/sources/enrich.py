@@ -8,10 +8,10 @@ stays bounded to the papers actually read (of the design doc — this is
 read-time enrichment, called per-paper at the relate boundary, never at
 sweep time).
 
-``FetchProvider`` mirrors HR's ``WebProvider`` (``~/framework-bench/
-hyperresearch/src/hyperresearch/web/base.py``) minus authentication — tier 2
-(authenticated paywall crawl) is explicitly OUT of scope; this module only
-designs the socket a future ``AuthedCrawlProvider`` would plug into.
+``FetchProvider`` mirrors a generic web-fetch provider pattern, minus
+authentication — tier 2 (authenticated paywall crawl) is explicitly OUT of
+scope; this module only designs the socket a future ``AuthedCrawlProvider``
+would plug into.
 
 Provider ordering is stdlib-first — PMC (JATS XML, stdlib
 ``xml.etree``) and much of Unpaywall/OpenAlex (HTML landing pages) need no
