@@ -329,7 +329,7 @@ class TestFamilySlotValidation:
 
 
 # ---------------------------------------------------------------------------
-# Golden discipline — existing csb-style edges parse byte-identically
+# Golden discipline — existing edges parse byte-identically
 # ---------------------------------------------------------------------------
 
 class TestGoldenByteIdentical:
