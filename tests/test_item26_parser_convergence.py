@@ -84,6 +84,34 @@ contradicted_by:
     assert fields.get("contradicted_by") == ["rebuttal2024"]
 
 
+def test_parse_frontmatter_strips_quotes_from_plain_scalar_list_items():
+    """note._parse_frontmatter strips surrounding quotes on '  - item' entries.
+
+    The two sibling paths (inline scalar; mapping-list-item) already strip
+    surrounding quote chars. The plain scalar-list-item path did not, so a
+    frozen `branches:` block list with quoted items parsed the literal quote
+    characters into the value — breaking any downstream case-folded substring
+    match (e.g. the outline gate) against an unquoted heading.
+    """
+    from research_vault.note import _parse_frontmatter
+
+    text = """\
+---
+type: manuscript
+id: ms-002
+branches:
+  - "survey to behaviour"
+  - plain
+---
+# Manuscript body
+"""
+    fields, _ = _parse_frontmatter(text)
+    branches = fields.get("branches")
+    assert branches == ["survey to behaviour", "plain"], (
+        f"Expected quotes stripped from list items, got {branches!r}"
+    )
+
+
 def test_parse_frontmatter_empty_list_field():
     """note._parse_frontmatter returns [] for a key with empty value and no items."""
     from research_vault.note import _parse_frontmatter

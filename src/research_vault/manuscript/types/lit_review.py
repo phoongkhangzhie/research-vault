@@ -1738,13 +1738,29 @@ def check_outline_gate(
         return [f"outline gate: cannot read {outline_path}: {e}"]
 
     text_lower = text.lower()
+
+    def _norm_label(s: str) -> str:
+        """Normalize a label for the rejects-only containment check.
+
+        Strips surrounding matched quotes (a frozen branch value may carry
+        literal quote characters from its source), casefolds, and collapses
+        internal whitespace — robust to quoting/whitespace drift without
+        loosening the match into anything semantic/fuzzy (charter §9: a
+        rejects-only screen must stay a literal floor).
+        """
+        s = s.strip()
+        if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
+            s = s[1:-1]
+        return re.sub(r"\s+", " ", s).strip().casefold()
+
+    text_norm = _norm_label(text)
     issues: list[str] = []
 
     for branch in branches:
         b = str(branch).strip()
         if not b:
             continue
-        if b.lower() not in text_lower:
+        if _norm_label(b) not in text_norm:
             issues.append(
                 f"outline gate: frozen branch {b!r} has no corresponding entry "
                 f"in {outline_path.name} — every frozen branch must be anchored "
