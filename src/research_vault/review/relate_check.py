@@ -887,10 +887,13 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
             )
 
     # Parsed once — full-body scan (Defect #70), shared by Move 4 (paper
-    # edges + malformed) and the Defect #71 retrieval-tier gate below (both
-    # edge kinds).
+    # edges + malformed) and the Defect #71 retrieval-tier gate below (all
+    # three edge buckets: paper→paper, paper→concept, and the unified
+    # typed-edge engine's cross-bundle/within-project/artifact scopes —
+    # the family-keyed cap generalization).
     parsed_relations = parse_paper_relations(body)
     parsed_concepts = parse_concept_edges(body)
+    parsed_other = parse_typed_edges(body)
 
     # ── Move 4: paper→paper relations, mandatory whitelist answer ──
     relations_sought = _get_scalar(fields, "paper_relations_sought").lower()
@@ -974,11 +977,24 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
             "consumers can rely on its exact name (Defect #70)"
         )
 
-    # ── Defect #71: retrieval-tier gates edge strength ─────────────────────
+    # ── Defect #71: retrieval-tier gates edge strength — FAMILY-KEYED ──────
     # A note read at less than full-text (abstract-only/title-only/any other
-    # or unstamped read_basis) must not carry a SUPPORTS/CONTRADICTS edge of
-    # EITHER kind (paper→paper or paper→concept) — the paper was never read
-    # at the fidelity needed to assert or refute a claim; cap the strongest
+    # or unstamped read_basis) must not carry a SUPPORTS/CONTRADICTS edge —
+    # of ANY scope: paper→paper, paper→concept (both intra-shared, checked
+    # above via parsed_relations/parsed_concepts), OR the unified typed-edge
+    # engine's cross-bundle/within-project scopes (``other_edges`` —
+    # e.g. a project note's ``okf:literature/…``/``okf:concepts/…`` or
+    # ``/experiments|findings|gaps|methodology/…`` ARGUMENTATIVE edge). The
+    # cap is keyed to the ARGUMENTATIVE family (``_TAG_FAMILY``), never to a
+    # single scope — a skimmed-basis finding could otherwise CONTRADICTS a
+    # paper uncapped simply by writing it as a cross-bundle edge instead of
+    # an intra-shared one — the read-basis cap must be a property of the
+    # EDGE FAMILY, not the scope it happens to be written in (closed
+    # here). Provenance/structural edges
+    # (USES/PRODUCED/DERIVED-FROM/GROUNDED-IN/ADDRESSES/ANSWERS and their
+    # converses) get NO cap — a PRODUCED edge is a fact about a run, not a
+    # claim about a source's fidelity. The paper was never read at the
+    # fidelity needed to assert or refute a claim; cap the strongest
     # permissible type at PARTIAL. Fail-closed: an absent or unstamped
     # 'read_basis' is treated as NOT full-text (never a free pass to claim
     # full strength by simply omitting the field).
@@ -1004,6 +1020,17 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
                     "note not read at full-text fidelity cannot assert or "
                     "refute a claim at that strength; cap at [PARTIAL] "
                     "(Defect #71 retrieval-tier gate)"
+                )
+        for edge in parsed_other.edges:
+            if edge["family"] == "argumentative" and edge["tag"] in strong_tags:
+                findings.append(
+                    f"{edge['scope']} typed edge to {edge['target']!r} "
+                    f"carries [{edge['tag']}] but 'read_basis' is "
+                    f"{(read_basis or '(unstamped)')!r}, not 'full-text' — a "
+                    "note not read at full-text fidelity cannot assert or "
+                    "refute a claim at that strength; cap at [PARTIAL] "
+                    "(Defect #71 retrieval-tier gate, family-keyed to every "
+                    "argumentative edge regardless of scope)"
                 )
 
     return RelatePresenceResult(findings=findings)
