@@ -635,6 +635,128 @@ def check_source_coverage(
 
 
 # ---------------------------------------------------------------------------
+# 0.3.1 Layer 2 — facet-coverage read-back. The width-sweep's SweepCells are
+# ephemeral (never persisted); a LATER `coverage-gate` evaluation (a
+# different process invocation) reads the per-pole counts back from
+# `_search_hits.md`'s frontmatter (stamped by `sources.sweep.
+# write_search_hits`'s `facet_pole_counts:`/`facet_thin_poles:`/
+# `facet_min_hits_per_pole:` fields) — mirrors `check_source_coverage`
+# above's dark_sources read-back exactly (same reason, same shape).
+# ---------------------------------------------------------------------------
+
+def check_facet_coverage_from_search_hits(search_hits_path: Path) -> dict[str, Any]:
+    """Read the Layer-2 facet-coverage payload back from ``_search_hits.md``.
+
+    Returns:
+      exists:            bool             — whether ``_search_hits.md`` was found.
+      declared:          bool             — whether the sweep that wrote it
+                                             computed facet coverage at all
+                                             (a manifest with no nested D-3
+                                             facets, or a pre-0.3.1 sweep,
+                                             never stamps these fields — an
+                                             honest no-op, never a fabricated
+                                             empty-thin-poles GO; charter §2).
+      pole_counts:        dict[str, int]
+      thin_poles:          list[str]
+      min_hits_per_pole:   int | None
+
+    A missing ``_search_hits.md`` returns ``exists: False`` — the CALLER
+    decides how to treat that (structurally can't have reached coverage-gate
+    without a search having run).
+    """
+    if not search_hits_path.exists():
+        return {
+            "exists": False, "declared": False,
+            "pole_counts": {}, "thin_poles": [], "min_hits_per_pole": None,
+        }
+
+    text = search_hits_path.read_text(encoding="utf-8")
+    fields, _ = _parse_frontmatter(text)
+
+    if "facet_pole_counts" not in fields and "facet_thin_poles" not in fields:
+        return {
+            "exists": True, "declared": False,
+            "pole_counts": {}, "thin_poles": [], "min_hits_per_pole": None,
+        }
+
+    raw_counts = fields.get("facet_pole_counts", "")
+    pole_counts: dict[str, int] = {}
+    raw_counts_items = raw_counts if isinstance(raw_counts, list) else str(raw_counts).split(",")
+    for item in raw_counts_items:
+        item = str(item).strip()
+        if not item or "=" not in item:
+            continue
+        pole, _, count_str = item.partition("=")
+        pole = pole.strip()
+        try:
+            pole_counts[pole] = int(count_str.strip())
+        except ValueError:
+            continue
+
+    raw_thin = fields.get("facet_thin_poles", "")
+    if isinstance(raw_thin, list):
+        thin_poles = [str(p).strip() for p in raw_thin if str(p).strip()]
+    else:
+        thin_poles = [p.strip() for p in str(raw_thin).split(",") if p.strip()]
+
+    raw_min = fields.get("facet_min_hits_per_pole", "")
+    try:
+        min_hits_per_pole: int | None = int(str(raw_min).strip())
+    except ValueError:
+        min_hits_per_pole = None
+
+    return {
+        "exists": True,
+        "declared": True,
+        "pole_counts": pole_counts,
+        "thin_poles": thin_poles,
+        "min_hits_per_pole": min_hits_per_pole,
+    }
+
+
+def update_search_hits_pole_count(
+    search_hits_path: Path, pole: str, added_count: int, *, min_hits_per_pole: int,
+) -> dict[str, Any]:
+    """Layer 3: increment ``pole``'s ``facet_pole_counts`` entry by
+    ``added_count`` and recompute ``facet_thin_poles``, IN PLACE, on an
+    EXISTING ``_search_hits.md`` — a regex-stamp (mirrors the flat-
+    frontmatter stamp convention already used elsewhere in this codebase),
+    never a full re-render; the cells table + kept table are untouched.
+
+    ``added_count`` is the round's SCREENED-and-appended citekey count
+    (``review.facet_remediation.screen_and_append_facet_hits``'s ``added``)
+    — already deduped against the corpus by title, a defensible proxy for
+    "distinct new papers surfaced for this pole this round" without
+    re-running a full sweep-wide dedup pass.
+
+    Returns the UPDATED ``{"pole_counts", "thin_poles", "min_hits_per_pole"}``
+    payload (same shape as ``check_facet_coverage_from_search_hits``).
+    """
+    current = check_facet_coverage_from_search_hits(search_hits_path)
+    pole_counts = dict(current.get("pole_counts", {}))
+    pole_counts[pole] = pole_counts.get(pole, 0) + added_count
+    thin_poles = sorted(p for p, c in pole_counts.items() if c < min_hits_per_pole)
+
+    text = search_hits_path.read_text(encoding="utf-8")
+    counts_canon = ", ".join(f"{p}={c}" for p, c in sorted(pole_counts.items()))
+    text = re.sub(
+        r"^facet_pole_counts:.*$", f"facet_pole_counts: {counts_canon}",
+        text, count=1, flags=re.MULTILINE,
+    )
+    text = re.sub(
+        r"^facet_thin_poles:.*$", f"facet_thin_poles: {', '.join(thin_poles)}",
+        text, count=1, flags=re.MULTILINE,
+    )
+    search_hits_path.write_text(text, encoding="utf-8")
+
+    return {
+        "pole_counts": pole_counts,
+        "thin_poles": thin_poles,
+        "min_hits_per_pole": min_hits_per_pole,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Coverage report (F16+F17) — deterministic, keyed by citekey
 # ---------------------------------------------------------------------------
 

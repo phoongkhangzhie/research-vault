@@ -394,6 +394,8 @@ def _evaluate_autonomous_gate(
     from ..review import autonomy as _autonomy
     from ..review import check_walk_terminal
     from ..review import CorpusSchemaError as _CorpusSchemaError
+    from ..review import check_facet_coverage_from_search_hits as _check_facet_coverage_from_search_hits
+    from ..sources.sweep import group_facet_stances, parse_angle_matrix
 
     if node_id == "coverage-gate":
         snowball_node = nodes_lookup.get("review-snowball")
@@ -594,6 +596,125 @@ def _evaluate_autonomous_gate(
                     (disposition, relevance_result),
                     key=lambda r: _severity[r.disposition],
                 )
+
+            # 0.3.1 Layer 2/3: the explicit 3-tier fold (design item 2) —
+            # (1) any HALT already returned above / dominates unconditionally
+            # (this branch is only reached with disposition != HALT_DECLARE);
+            # (2) a thin pole + remediation budget remaining routes through
+            # `FACET_REMEDIATE`'s round-stepping loop below; (3) otherwise
+            # the existing {GO, GO_WITH_RESIDUE} fold above is final —
+            # deliberately NOT leaned on the generic severity `max` (a thin
+            # pole must never silently lose to GO_WITH_RESIDUE and skip
+            # remediation).
+            facet_coverage_info = (
+                _check_facet_coverage_from_search_hits(Path(search_hits_path))
+                if search_hits_path
+                else None
+            )
+            if disposition.disposition != _autonomy.HALT_DECLARE:
+                from ..review import facet_remediation as _fremed
+
+                # missing-SET fail-closed cross-check (hardening): derive
+                # whether the FROZEN protocol itself declared nested
+                # facets, independent of whatever `_search_hits.md`
+                # stamped — a declared-faceted protocol whose sweep never
+                # stamped Layer-2 coverage is a stamping failure, not a
+                # legacy protocol; see `resolve_facet_coverage`'s docstring.
+                protocol_declares_facets = False
+                if protocol_path.exists():
+                    protocol_declares_facets = bool(
+                        group_facet_stances(
+                            parse_angle_matrix(protocol_path.read_text(encoding="utf-8"))
+                        )
+                    )
+
+                disposition = _fremed.resolve_facet_coverage(
+                    disposition, facet_coverage_info,
+                    remediation_state=run_state.meta.get("facet_remediation_state"),
+                    protocol_declares_facets=protocol_declares_facets,
+                )
+
+            if disposition.disposition == _autonomy.FACET_REMEDIATE:
+                target_pole = disposition.evidence["target_pole"]
+                task_dir = _fremed.facet_task_dir(review_dir, target_pole)
+                fr_state = run_state.meta.setdefault(
+                    "facet_remediation_state", {"rounds_used": 0},
+                )
+
+                response = _fremed.read_facet_query_response(task_dir)
+                if response is not None:
+                    # Phase 2: an agent already authored the new queries —
+                    # apply the round (screen+tag+append, never raw; see
+                    # review.facet_remediation's module docstring), then
+                    # re-derive the disposition to see if ANOTHER round is
+                    # needed. relevance_verify_node's produces gives the
+                    # cold-verify artifact path to invalidate on any add.
+                    relevance_ref = (
+                        relevance_verify_node.get("produces", {}).get("_relevance-verdict.md")
+                        if relevance_verify_node is not None else None
+                    )
+                    from ..review.style import get_min_hits_per_pole as _get_min_hits
+
+                    round_result = _fremed.run_facet_query_append_round(
+                        run_state.meta, pole=target_pole, new_queries=response,
+                        protocol_path=protocol_path, corpus_path=corpus_path,
+                        deviations_path=deviations_path, out_dir=review_dir,
+                        search_hits_path=Path(search_hits_path) if search_hits_path else None,
+                        relevance_verdict_path=Path(relevance_ref) if relevance_ref else None,
+                        min_hits_per_pole=(facet_coverage_info or {}).get("min_hits_per_pole")
+                        or _get_min_hits(load_config()),
+                    )
+                    _fremed.clear_facet_task(task_dir)
+                    fr_state["rounds_used"] = int(fr_state.get("rounds_used", 0)) + 1
+
+                    return _write_ledger_final_act(
+                        _autonomy.DispositionResult(
+                            _autonomy.HALT_DECLARE,
+                            f"coverage-gate: facet-remediation round for pole "
+                            f"{target_pole!r} complete — {len(round_result['added'])} "
+                            "screened-in paper(s) added, tagged [NEEDS-CURATE] "
+                            "(never a bare/leg-tagged row) and the cold "
+                            "relevance-verify artifact was invalidated on any "
+                            "add. AWAITING a re-curate pass (leg-classification) "
+                            "and a FRESH relevance-verify run before this gate "
+                            "can be re-evaluated.",
+                            {"round_result": round_result, "rounds_used": fr_state["rounds_used"]},
+                        ),
+                        relevance_payload_for_ledger,
+                    )
+
+                if not _fremed.facet_task_pending(task_dir):
+                    # Phase 1: no task emitted yet for this round — emit the
+                    # query-authoring task and pause for the hub to dispatch
+                    # a fresh agent.
+                    existing_matrix = parse_angle_matrix(
+                        Path(protocol_path).read_text(encoding="utf-8")
+                    ) if protocol_path.exists() else {}
+                    facets = group_facet_stances(existing_matrix)
+                    _angle, _stance = target_pole.rsplit(".", 1)
+                    existing_queries = facets.get(_angle, {}).get(_stance, [])
+                    current_count = (facet_coverage_info or {}).get("pole_counts", {}).get(target_pole, 0)
+                    from ..review.style import get_min_queries_per_pole as _get_min_per_pole_r
+
+                    _fremed.emit_facet_query_task(
+                        task_dir, pole=target_pole, existing_queries=existing_queries,
+                        min_queries_needed=_get_min_per_pole_r(load_config()),
+                        min_hits_per_pole=(facet_coverage_info or {}).get("min_hits_per_pole", 3),
+                        current_count=current_count,
+                    )
+
+                return _write_ledger_final_act(
+                    _autonomy.DispositionResult(
+                        _autonomy.HALT_DECLARE,
+                        f"coverage-gate: facet-remediation task emitted/pending "
+                        f"for pole {target_pole!r} under {task_dir} — AWAITING "
+                        "a fresh agent to author new queries (write "
+                        "_facet-query-response.md), then re-evaluate.",
+                        {"target_pole": target_pole, "task_dir": str(task_dir)},
+                    ),
+                    relevance_payload_for_ledger,
+                )
+
             return _write_ledger_final_act(disposition, relevance_payload_for_ledger)
         except _CorpusSchemaError as e:
             return _write_ledger_final_act(_autonomy.DispositionResult(
@@ -2294,6 +2415,26 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 in_band, band_msg = validate_matrix_band(angle_matrix)
                 if not in_band:
                     print(f"rv dag approve: approve-protocol SIGNAL: {band_msg}", file=sys.stderr)
+
+            # 0.3.1 Layer 1: the per-facet/per-pole generation-time breadth
+            # floor — a real HARD BLOCK (unlike D-1's band SIGNAL above),
+            # scoped to the nested D-3 facet form (mirrors D-7's own
+            # scoping). N/M are config-driven, per-review-type overridable
+            # (review.style.get_min_queries_per_facet/get_min_queries_per_pole).
+            from ..sources.sweep import check_facet_breadth_floor
+            from ..review.style import (
+                get_min_queries_per_facet as _get_min_per_facet,
+                get_min_queries_per_pole as _get_min_per_pole,
+            )
+            _cfg = load_config()
+            ok, msg = check_facet_breadth_floor(
+                Path(protocol_ref).read_text(encoding="utf-8"),
+                min_per_facet=_get_min_per_facet(_cfg),
+                min_per_pole=_get_min_per_pole(_cfg),
+            )
+            if not ok:
+                print(msg, file=sys.stderr)
+                return 1
 
     # the lit-review manuscript type's framework-selection Phase-1 gate
     # (D5) — mirrors the L-2 gate above. ``approve-framework`` may

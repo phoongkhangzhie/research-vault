@@ -35,7 +35,7 @@ from typing import Any
 
 from ..hashing import hash_file
 from ..note import _parse_frontmatter
-from ..sources.sweep import parse_angle_matrix, parse_sources
+from ..sources.sweep import group_facet_stances, parse_angle_matrix, parse_sources
 
 
 class RefreshBlocked(Exception):
@@ -55,18 +55,70 @@ def _norm_criteria_value(v: Any) -> str:
     return str(v).strip()
 
 
-def canonicalize_criteria(protocol_text: str) -> str:
-    """Canonicalize the FROZEN criteria fields of ``_protocol.md`` into a
-    stable byte form (sorted keys, normalized whitespace) — the one bright
-    line between "denominator" (citekey set, may grow if declared) and
-    "criteria" (these hashed bytes, frozen at the one human gate).
+# ---------------------------------------------------------------------------
+# 0.3.1 tiered-hash split (the search-breadth + facet-coverage redesign's
+# crux). Precedent = ``plan/freeze.py``'s ``covers_hash`` vs
+# ``covers_retries_hash`` split — charter §6, a sibling shape, not a new
+# mechanism.
+#
+# BEFORE this split, ``canonicalize_criteria`` hashed question + inclusion +
+# exclusion + coverage_claim + sources + the FULL query TEXT of
+# ``seed_queries:`` in one blob — so ``refresh`` step 3 BLOCKed on ANY
+# change to a query string, meaning a facet re-search remediation round
+# (which must AUTHOR new queries for a thin pole) could never re-hash
+# autonomously; every round would look identical to an undeclared criteria
+# edit and demand a human ``criteria-change`` deviation.
+#
+# Split into two independently-hashed tiers:
+#   1. ``criteria_hash`` (frozen bright line, HUMAN-gated) = question +
+#      inclusion + exclusion + coverage_claim + sources + the facet KEY SET
+#      (sorted top-level ``seed_queries:`` key names — legacy scalar AND
+#      nested-facet — plus sorted ``(angle, stance)`` pairs for every
+#      DECLARED pole) — NEVER the individual query strings. A NEW facet, a
+#      NEW pole, or an edited inclusion/exclusion/sources still changes this
+#      hash (a real scope change); appending a query string to an EXISTING
+#      declared pole does not.
+#   2. ``query_matrix_hash`` (may grow autonomously WITHIN a stable facet
+#      key set) = the full ``seed_queries:`` query TEXT, unchanged from the
+#      old ``canonicalize_criteria`` behavior for this one field.
+# ---------------------------------------------------------------------------
 
-    Reuses ``note._parse_frontmatter`` for the flat scalar fields
-    (``question``, ``inclusion``, ``exclusion``, ``coverage_claim``) and
-    ``sources.sweep.parse_angle_matrix``/``parse_sources`` for the nested
-    ``seed_queries:`` angle matrix + the ``sources:`` inline list (charter
-     reuse the SAME parsers the width-sweep itself reads the frozen
-    protocol with, never a second hand-rolled parse of the same fields).
+_NESTED_QUERY_KEY_RE = re.compile(r"^(?P<angle>[\w-]+)\.(?P<stance>thesis|counter)\.\d+$")
+
+
+def _facet_key_set_canon(protocol_text: str) -> str:
+    """Canonicalize the SHAPE of ``seed_queries:`` — which top-level angles
+    exist (legacy scalar or nested) and which ``(angle, stance)`` poles are
+    DECLARED — never the query text itself. This is the facet-key-set half
+    of the frozen-tier hash; ``within-facet-query-append``'s structural
+    re-gate asserts this canon is byte-identical pre/post a remediation
+    round (see ``review.autonomy.record_deviation``)."""
+    angle_matrix = parse_angle_matrix(protocol_text)
+    legacy_keys = sorted(k for k in angle_matrix if not _NESTED_QUERY_KEY_RE.match(k))
+    facets = group_facet_stances(angle_matrix)
+    facet_names = sorted(facets.keys())
+    pole_pairs = sorted(
+        f"{angle}.{stance}"
+        for angle, stances in facets.items()
+        for stance in ("thesis", "counter")
+        if stances[stance]
+    )
+    return (
+        f"legacy_keys={','.join(legacy_keys)}\n"
+        f"facet_names={','.join(facet_names)}\n"
+        f"poles={','.join(pole_pairs)}"
+    )
+
+
+def canonicalize_frozen_criteria(protocol_text: str) -> str:
+    """Canonicalize the FROZEN-TIER criteria fields of ``_protocol.md`` into
+    a stable byte form — the human-gated bright line between "denominator"
+    (citekey set, may grow if declared) and "criteria" (these hashed bytes).
+
+    question/inclusion/exclusion/coverage_claim/sources (unchanged from the
+    pre-0.3.1 ``canonicalize_criteria``) PLUS the facet KEY SET
+    (``_facet_key_set_canon``) — NEVER the individual query strings (see
+    module-level tiered-hash note above).
     """
     fields, _ = _parse_frontmatter(protocol_text)
     question = _norm_criteria_value(fields.get("question", ""))
@@ -74,30 +126,116 @@ def canonicalize_criteria(protocol_text: str) -> str:
     exclusion = _norm_criteria_value(fields.get("exclusion", ""))
     coverage_claim = _norm_criteria_value(fields.get("coverage_claim", ""))
 
-    angle_matrix = parse_angle_matrix(protocol_text)
-    angles_canon = "\n".join(f"{k}={angle_matrix[k]}" for k in sorted(angle_matrix))
-
     sources = parse_sources(protocol_text)
     sources_canon = ",".join(sorted(sources))
+
+    facet_key_canon = _facet_key_set_canon(protocol_text)
 
     return (
         f"question={question}\n"
         f"inclusion={inclusion}\n"
         f"exclusion={exclusion}\n"
         f"coverage_claim={coverage_claim}\n"
-        f"seed_queries:\n{angles_canon}\n"
         f"sources={sources_canon}\n"
+        f"{facet_key_canon}\n"
     )
 
 
+def canonicalize_query_matrix(protocol_text: str) -> str:
+    """Canonicalize the QUERY-TEXT tier of ``seed_queries:`` — the full
+    flattened-key -> query-string content, sorted by key. This tier MAY
+    grow autonomously (a ``within-facet-query-append`` deviation appends new
+    queries under an existing, stable facet key) — unlike
+    ``canonicalize_frozen_criteria``, a change here alone never trips the
+    human-gated ``criteria-change`` BLOCK."""
+    angle_matrix = parse_angle_matrix(protocol_text)
+    return "\n".join(f"{k}={angle_matrix[k]}" for k in sorted(angle_matrix))
+
+
+def check_facet_query_append_re_gate(pre_text: str, post_text: str) -> tuple[bool, str]:
+    """Layer 3's STRUCTURAL re-gate (item 4 of the design — name the
+    structural fence explicitly, not just "the hash didn't change"):
+    verifies a candidate ``within-facet-query-append`` mutation is airtight.
+
+    Asserts, in order:
+      1. The frozen-tier canon (``canonicalize_frozen_criteria`` —
+         question/inclusion/exclusion/coverage_claim/sources + facet KEY
+         SET) is byte-identical pre/post.
+      2. The facet NAME set is unchanged (defense-in-depth; already implied
+         by 1, checked explicitly for a precise failure message).
+      3. Every declared ``(angle, stance)`` query list in ``post_text`` is
+         an APPEND-ONLY superset of ``pre_text``'s — the post list's first
+         N entries (N = the pre list's length) are BYTE-IDENTICAL to the
+         pre list, in order; nothing removed, nothing edited, nothing
+         reordered — only new entries appended at the tail.
+
+    This is the STRUCTURAL half of the two-fence design (item 4): it
+    catches a NEW facet, a NEW pole, a removed/edited existing query, or a
+    changed inclusion/exclusion/sources field. It CANNOT catch a technically
+    in-facet query that targets a different population/scope — that is the
+    SEMANTIC fence, owned by the frozen inclusion/exclusion criteria plus
+    the cold ``review.relevance.classify_relevance_verdict`` off-domain HALT
+    screening every newly-surfaced paper downstream (never re-implemented
+    here).
+
+    Returns ``(ok, message)`` — never raises; the caller decides whether a
+    failed re-gate is a hard abort (Layer 3's round driver treats it as
+    exactly that, via ``ValueError``, never a silent proceed).
+    """
+    pre_frozen = canonicalize_frozen_criteria(pre_text)
+    post_frozen = canonicalize_frozen_criteria(post_text)
+    if pre_frozen != post_frozen:
+        return False, (
+            "structural re-gate FAILED: the frozen-tier criteria canon "
+            "changed (facet key set, sources, or scope fields) — this is "
+            "NOT a pure within-facet query append."
+        )
+
+    pre_facets = group_facet_stances(parse_angle_matrix(pre_text))
+    post_facets = group_facet_stances(parse_angle_matrix(post_text))
+
+    if set(pre_facets.keys()) != set(post_facets.keys()):
+        return False, "structural re-gate FAILED: the facet NAME set changed."
+
+    for angle, pre_stances in pre_facets.items():
+        post_stances = post_facets[angle]
+        for stance in ("thesis", "counter"):
+            pre_list = pre_stances[stance]
+            post_list = post_stances[stance]
+            if len(post_list) < len(pre_list):
+                return False, (
+                    f"structural re-gate FAILED: {angle}.{stance}'s query "
+                    f"list SHRANK ({len(pre_list)} -> {len(post_list)})."
+                )
+            if post_list[: len(pre_list)] != pre_list:
+                return False, (
+                    f"structural re-gate FAILED: {angle}.{stance}'s existing "
+                    "queries were edited or reordered — not a pure "
+                    "append-at-the-tail."
+                )
+
+    return True, "OK"
+
+
 def hash_criteria_bytes(protocol_path: Path) -> str:
-    """``sha256:<hex>`` of the canonicalized criteria bytes of
-    ``_protocol.md``. A missing protocol hashes the empty canonical form
-    (deterministic, never crashes — the absence itself will trip other
-    gates, e.g. ``check_protocol_gate``, this function's job is only the
-    hash)."""
+    """``sha256:<hex>`` of the canonicalized FROZEN-TIER criteria bytes of
+    ``_protocol.md`` (``canonicalize_frozen_criteria`` — NEVER the query
+    text; see the module-level tiered-hash note). A missing protocol hashes
+    the empty canonical form (deterministic, never crashes — the absence
+    itself will trip other gates, e.g. ``check_protocol_gate``, this
+    function's job is only the hash)."""
     text = protocol_path.read_text(encoding="utf-8") if protocol_path.exists() else ""
-    canon = canonicalize_criteria(text)
+    canon = canonicalize_frozen_criteria(text)
+    return "sha256:" + hashlib.sha256(canon.encode("utf-8")).hexdigest()
+
+
+def hash_query_matrix_bytes(protocol_path: Path) -> str:
+    """``sha256:<hex>`` of the canonicalized QUERY-MATRIX tier bytes of
+    ``_protocol.md`` (``canonicalize_query_matrix``). This hash is expected
+    to CHANGE across a ``within-facet-query-append`` round — it is NOT the
+    fail-closed human-gated bright line (that is ``hash_criteria_bytes``)."""
+    text = protocol_path.read_text(encoding="utf-8") if protocol_path.exists() else ""
+    canon = canonicalize_query_matrix(text)
     return "sha256:" + hashlib.sha256(canon.encode("utf-8")).hexdigest()
 
 
@@ -141,6 +279,10 @@ def stamp_corpus_freeze(
         "corpus_hash": hash_file(corpus_path) if corpus_path.exists() else "",
         "corpus_citekeys": citekeys,
         "criteria_hash": hash_criteria_bytes(protocol_path),
+        # 0.3.1 tiered-hash split: the query-text tier, tracked ALONGSIDE
+        # the frozen-tier `criteria_hash` (never merged into it) — see the
+        # module-level tiered-hash note above `canonicalize_frozen_criteria`.
+        "query_matrix_hash": hash_query_matrix_bytes(protocol_path),
         "corpus_path": str(corpus_path.resolve()) if corpus_path.exists() else str(corpus_path),
         "protocol_path": str(protocol_path.resolve()) if protocol_path.exists() else str(protocol_path),
         "frozen_at": now if now is not None else time.time(),
@@ -173,6 +315,123 @@ def _has_criteria_change_deviation(deviations_path: Path) -> bool:
     return False
 
 
+_DEVIATION_HEADER_RE = re.compile(r"^## Deviation v\d+ -> v\d+ \(.*?\)\s*$", re.MULTILINE)
+_FACET_KEY_LINE_RE = re.compile(r"^\*\*Facet key:\*\*\s*(.*)$", re.MULTILINE)
+_NEW_QUERIES_LINE_RE = re.compile(r'^\s*-\s*"(.*)"\s*$', re.MULTILINE)
+_PRE_QM_HASH_LINE_RE = re.compile(r"^\*\*Pre query_matrix_hash:\*\*\s*(.*)$", re.MULTILINE)
+_POST_QM_HASH_LINE_RE = re.compile(r"^\*\*Post query_matrix_hash:\*\*\s*(.*)$", re.MULTILINE)
+
+
+def _iter_within_facet_query_append_deviations(deviations_path: Path) -> list[dict[str, Any]]:
+    """Parse every ``kind: within-facet-query-append`` block out of
+    ``_deviations.md`` (scoped to the fixed field lines
+    ``record_deviation`` itself writes — same scoping discipline as
+    ``_has_criteria_change_deviation``/``_parse_deviation_citekey_deltas``,
+    never a general markdown parser).
+
+    Returns a list of ``{"facet_key", "new_queries", "pre_query_matrix_hash",
+    "post_query_matrix_hash"}`` dicts, one per declared block, in file
+    order. A block missing any of these fields is skipped (an honest
+    absence, not a fabricated partial record — ``record_deviation`` itself
+    never writes a partial ``within-facet-query-append`` block, see its own
+    fail-loud invariant)."""
+    if not deviations_path.exists():
+        return []
+    text = deviations_path.read_text(encoding="utf-8")
+    headers = list(_DEVIATION_HEADER_RE.finditer(text))
+    out: list[dict[str, Any]] = []
+    for i, h in enumerate(headers):
+        start = h.end()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+        block = text[start:end]
+        if "**Kind:** within-facet-query-append" not in block:
+            continue
+        facet_m = _FACET_KEY_LINE_RE.search(block)
+        pre_m = _PRE_QM_HASH_LINE_RE.search(block)
+        post_m = _POST_QM_HASH_LINE_RE.search(block)
+        if not facet_m or not pre_m or not post_m:
+            continue
+        new_queries = [m.group(1) for m in _NEW_QUERIES_LINE_RE.finditer(block)]
+        out.append({
+            "facet_key": facet_m.group(1).strip(),
+            "new_queries": new_queries,
+            "pre_query_matrix_hash": pre_m.group(1).strip(),
+            "post_query_matrix_hash": post_m.group(1).strip(),
+        })
+    return out
+
+
+def check_facet_query_append_re_gate_against_deviation_log(
+    protocol_path: Path,
+    deviations_path: Path,
+    *,
+    pre_query_matrix_hash: str,
+    post_query_matrix_hash: str,
+) -> tuple[bool, str]:
+    """The out-of-band-edit re-gate (defense-in-depth): ``refresh`` calls
+    this whenever the query-matrix tier moved while the frozen tier stayed
+    stable, to close the gap that only ``run_facet_query_append_round``'s
+    OWN structural re-gate (``check_facet_query_append_re_gate``) was
+    enforced at the autonomous-mutation site — an out-of-band MANUAL query
+    edit/removal (never routed through that function) would otherwise reach
+    ``refresh`` unre-gated.
+
+    Asserts, in order:
+      1. A ``within-facet-query-append`` deviation is on record whose
+         declared ``(pre_query_matrix_hash, post_query_matrix_hash)`` pair
+         is EXACTLY ``(pre_query_matrix_hash, post_query_matrix_hash)`` —
+         i.e. the declared block bridges the baseline's query-matrix hash
+         to the current one with no gap. Absent -> reject.
+      2. That deviation's declared ``new_queries`` are found as an
+         append-at-the-TAIL of the CURRENT protocol's query list for the
+         declared facet/pole (the same append-only invariant
+         ``check_facet_query_append_re_gate`` enforces at round-time,
+         re-verified here against the durable record rather than an
+         in-memory pre/post pair) — an edited, reordered, or short tail
+         -> reject.
+
+    Returns ``(ok, message)`` — never raises.
+    """
+    matches = [
+        d for d in _iter_within_facet_query_append_deviations(deviations_path)
+        if d["pre_query_matrix_hash"] == pre_query_matrix_hash
+        and d["post_query_matrix_hash"] == post_query_matrix_hash
+    ]
+    if not matches:
+        return False, (
+            "structural re-gate FAILED: the query-matrix tier changed "
+            f"(hash {pre_query_matrix_hash[:16]}... -> "
+            f"{post_query_matrix_hash[:16]}...) with no matching "
+            "'within-facet-query-append' deviation on record bridging "
+            "exactly that pair — an out-of-band manual query edit/removal "
+            "is not distinguishable from a declared append-only round."
+        )
+
+    dev = matches[-1]
+    m = _POLE_KEY_RE.match(dev["facet_key"]) if dev["facet_key"] else None
+    if not m:
+        return False, (
+            "structural re-gate FAILED: the matching deviation's facet key "
+            f"{dev['facet_key']!r} is not shaped '<angle>.(thesis|counter)'."
+        )
+    angle, stance = m.group("angle"), m.group("stance")
+    protocol_text = protocol_path.read_text(encoding="utf-8") if protocol_path.exists() else ""
+    current_facets = group_facet_stances(parse_angle_matrix(protocol_text))
+    post_list = current_facets.get(angle, {}).get(stance, [])
+    new_queries = dev["new_queries"]
+    if not new_queries or post_list[-len(new_queries):] != new_queries:
+        return False, (
+            f"structural re-gate FAILED: the declared new queries for "
+            f"{dev['facet_key']!r} are not an append-at-the-tail of the "
+            "CURRENT protocol's query list — edited, reordered, or "
+            "removed since the deviation was recorded."
+        )
+    return True, "OK"
+
+
+_POLE_KEY_RE = re.compile(r"^(?P<angle>[\w-]+)\.(?P<stance>thesis|counter)$")
+
+
 def refresh(
     run_state_meta: dict[str, Any],
     *,
@@ -189,9 +448,25 @@ def refresh(
       1. Load the ``corpus_freeze`` baseline. Absent -> BLOCK.
       2. Re-parse ``_corpus.md`` (the hardened parser — a malformed row
          raises ``CorpusSchemaError``, propagated, never silently skipped).
-      3. Criteria-hash check: a changed hash with no human
-         ``criteria-change`` deviation on record -> BLOCK (the anti-fishing
-         pin firing).
+      3. Criteria-hash check (0.3.1: the FROZEN TIER only —
+         ``hash_criteria_bytes``/``canonicalize_frozen_criteria`` — NEVER the
+         query-text tier; see the module-level tiered-hash note): a changed
+         frozen-tier hash with no human ``criteria-change`` deviation on
+         record -> BLOCK (the anti-fishing pin firing). A change confined to
+         the query-matrix tier (a ``within-facet-query-append`` round) never
+         trips this BLOCK on its own — BUT (defense-in-depth hardening) it
+         MUST still be re-gated: see 3b below.
+      3b. Query-matrix re-gate (hardening — closes the out-of-band-edit
+         gap): when the frozen tier is stable but the query-matrix hash
+         moved, ``refresh`` no longer admits the delta unconditionally —
+         it requires a matching ``within-facet-query-append`` deviation on
+         record AND re-runs the append-only structural invariant against
+         it (``check_facet_query_append_re_gate_against_deviation_log``).
+         Previously this tier's re-gate was enforced ONLY at the
+         autonomous mutation site (``run_facet_query_append_round``); an
+         out-of-band manual query edit never routed through that function
+         would reach here unre-gated. No matching deviation, or a failed
+         re-gate -> BLOCK, same teeth as the frozen-tier BLOCK above.
       4. Declared-delta check (``check_undeclared_deviation``, the SAME
          repurposed function the coverage-gate path uses — single-sourced).
          Any undeclared citekey delta -> BLOCK.
@@ -231,6 +506,20 @@ def refresh(
                 "deviation (record_deviation(..., kind='criteria-change')) "
                 "first, or revert the protocol edit."
             )
+    else:
+        current_query_matrix_hash = hash_query_matrix_bytes(protocol_path)
+        baseline_query_matrix_hash = baseline.get("query_matrix_hash")
+        if (
+            baseline_query_matrix_hash is not None
+            and current_query_matrix_hash != baseline_query_matrix_hash
+        ):
+            ok, msg = check_facet_query_append_re_gate_against_deviation_log(
+                protocol_path, deviations_path,
+                pre_query_matrix_hash=baseline_query_matrix_hash,
+                post_query_matrix_hash=current_query_matrix_hash,
+            )
+            if not ok:
+                raise RefreshBlocked(f"rv review refresh: BLOCKED — {msg}")
 
     ok, msg = check_undeclared_deviation(
         set(baseline["corpus_citekeys"]), current_citekeys, deviations_path,
@@ -243,6 +532,7 @@ def refresh(
         "corpus_hash": hash_file(corpus_path),
         "corpus_citekeys": sorted(current_citekeys),
         "criteria_hash": current_criteria_hash,
+        "query_matrix_hash": hash_query_matrix_bytes(protocol_path),
         "corpus_path": str(corpus_path.resolve()),
         "protocol_path": str(protocol_path.resolve()) if protocol_path.exists() else str(protocol_path),
         "frozen_at": now if now is not None else time.time(),
