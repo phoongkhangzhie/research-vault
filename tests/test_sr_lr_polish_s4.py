@@ -77,7 +77,9 @@ def test_f17_descriptive_filename_not_orphaned(review_with_corpus, tmp_instance)
 
     cfg, review_dir, _ = review_with_corpus
     project_notes_dir = cfg.project_notes_dir("demo-research")
-    literature_dir = project_notes_dir / "literature"
+    # the overlay unwind (0.3.2): literature is shared-canonical —
+    # materialized notes live at cfg.literature_root, not a per-project dir.
+    literature_dir = cfg.literature_root
     literature_dir.mkdir(parents=True, exist_ok=True)
     mocs_dir = project_notes_dir / "mocs"
     mocs_dir.mkdir(parents=True, exist_ok=True)
@@ -152,7 +154,9 @@ def test_orphan_materialized_but_not_in_any_moc(review_with_corpus, tmp_instance
 
     cfg, review_dir, _ = review_with_corpus
     project_notes_dir = cfg.project_notes_dir("demo-research")
-    literature_dir = project_notes_dir / "literature"
+    # the overlay unwind (0.3.2): literature is shared-canonical —
+    # materialized notes live at cfg.literature_root, not a per-project dir.
+    literature_dir = cfg.literature_root
     literature_dir.mkdir(parents=True, exist_ok=True)
     mocs_dir = project_notes_dir / "mocs"
     mocs_dir.mkdir(parents=True, exist_ok=True)

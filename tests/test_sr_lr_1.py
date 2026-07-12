@@ -574,12 +574,15 @@ def test_phase1_reads_resolve_against_project_okf_dirs(cfg, tmp_instance):
     project_root = manifest_path.parent
 
     # Create the project OKF dirs so the resolution CAN succeed (post-fix).
-    # concepts is shared-canonical (0.3.2) — its reads: pointer resolves
-    # against cfg.concepts_root, not the project notes dir.
+    # concepts/literature are shared-canonical (the earlier concepts move,
+    # then the overlay unwind
+    # literature — the overlay unwind) — their reads: pointers resolve
+    # against their own shared root, not the project notes dir.
     project_notes_dir = cfg.project_notes_dir("demo-research")
-    for okf_dir in ("literature", "mocs", "findings"):
+    for okf_dir in ("mocs", "findings"):
         (project_notes_dir / okf_dir).mkdir(parents=True, exist_ok=True)
     cfg.concepts_root.mkdir(parents=True, exist_ok=True)
+    cfg.literature_root.mkdir(parents=True, exist_ok=True)
 
     # After the fix: OKF-dir reads: pointers are absolute → they resolve against the
     # real project OKF dirs (or the shared concepts root), not the manifest's
@@ -656,12 +659,14 @@ def test_phase2_reads_resolve_against_project_okf_dirs(cfg, tmp_instance, corpus
     manifest_path = review_dir / "phase2-dag.json"
     project_root = manifest_path.parent
 
-    # Create OKF dirs. concepts is shared-canonical (0.3.2) — resolves
-    # against cfg.concepts_root, not the project notes dir.
+    # Create OKF dirs. concepts/literature are shared-canonical (0.3.2
+    # the shared-canonical moves (concepts, then literature)) — resolve against their own shared
+    # root, not the project notes dir.
     project_notes_dir = cfg.project_notes_dir("demo-research")
-    for okf_dir in ("literature", "mocs", "findings"):
+    for okf_dir in ("mocs", "findings"):
         (project_notes_dir / okf_dir).mkdir(parents=True, exist_ok=True)
     cfg.concepts_root.mkdir(parents=True, exist_ok=True)
+    cfg.literature_root.mkdir(parents=True, exist_ok=True)
 
     # protocol_path is absolute; OKF dirs must also be absolute after the fix
     # Don't create the protocol file — it's an absolute path that won't exist;

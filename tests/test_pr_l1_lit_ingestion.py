@@ -117,13 +117,11 @@ def test_review_tips_keys_unchanged():
 # 2. note.py literature scaffold — the three optional fields
 # ---------------------------------------------------------------------------
 
-def _core_content(cfg, overlay_path):
-    """PR-A: key_equations/repo/artifacts live on the CENTRAL CORE, not the
-    thin per-project overlay `cmd_new` returns."""
-    overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
-    central_slug = note_mod._extract_central_slug(overlay_fields["central"])
-    core_path = cfg.literature_root / f"{central_slug}.md"
-    return core_path.read_text()
+def _core_content(cfg, note_path):
+    """the overlay unwind (0.3.2): key_equations/repo/artifacts live
+    directly on the single shared note `cmd_new` returns — no overlay
+    indirection to resolve."""
+    return note_path.read_text()
 
 
 def test_literature_scaffold_carries_key_equations_field(cfg):

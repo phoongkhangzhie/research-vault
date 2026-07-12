@@ -77,8 +77,11 @@ class TestPartitionMembership:
     def test_datasets_still_in_okf_shared_types(self):
         assert "datasets" in note_mod.OKF_SHARED_TYPES
 
-    def test_two_layer_types_unchanged(self):
-        assert note_mod.OKF_TWO_LAYER_TYPES == frozenset({"literature"})
+    def test_two_layer_types_dissolved(self):
+        """the overlay unwind (0.3.2): OKF_TWO_LAYER_TYPES is gone —
+        literature joined OKF_SHARED_TYPES like concepts/datasets."""
+        assert not hasattr(note_mod, "OKF_TWO_LAYER_TYPES")
+        assert "literature" in note_mod.OKF_SHARED_TYPES
 
     def test_concepts_not_in_project_types(self):
         assert "concepts" not in note_mod.OKF_PROJECT_TYPES
@@ -86,16 +89,12 @@ class TestPartitionMembership:
     def test_classes_still_pairwise_disjoint(self):
         proj = note_mod.OKF_PROJECT_TYPES
         shared = note_mod.OKF_SHARED_TYPES
-        two_layer = note_mod.OKF_TWO_LAYER_TYPES
         assert proj & shared == frozenset()
-        assert proj & two_layer == frozenset()
-        assert shared & two_layer == frozenset()
 
     def test_classes_still_union_to_okf_types(self):
         proj = note_mod.OKF_PROJECT_TYPES
         shared = note_mod.OKF_SHARED_TYPES
-        two_layer = note_mod.OKF_TWO_LAYER_TYPES
-        assert proj | shared | two_layer == note_mod.OKF_TYPES
+        assert proj | shared == note_mod.OKF_TYPES
 
 
 # ---------------------------------------------------------------------------
@@ -143,23 +142,15 @@ class TestConceptEdgeResolution:
         note_mod.cmd_new("demo-research", "concepts", "Target Concept", config=cfg)
         concept_slug = next(cfg.concepts_root.glob("*.md")).stem
 
-        # A literature overlay carrying a paper->concept edge to that slug.
-        proj_notes = cfg.project_notes_dir("demo-research")
-        lit_dir = proj_notes / "literature"
-        lit_dir.mkdir(parents=True, exist_ok=True)
-        overlay = lit_dir / "smith2024.md"
-        overlay.write_text(
-            "---\ntype: literature\ncentral: smith2024\n---\n\n"
-            "## Concept edges\n\n"
-            f"- [target](/concepts/{concept_slug}.md) — SUPPORTS: grounds the claim\n",
-            encoding="utf-8",
-        )
-        # Central core (so the backbone resolves too — not the focus here,
-        # but keeps this test from tripping an unrelated dangling-central error).
+        # the overlay unwind (0.3.2): a literature note's
+        # '## Concept edges' section lives directly on the SHARED note
+        # (cfg.literature_root) — no overlay, no `central:` indirection.
         cfg.literature_root.mkdir(parents=True, exist_ok=True)
         (cfg.literature_root / "smith2024.md").write_text(
             "---\ntype: literature\ncitekey: smith2024\ntitle: Smith 2024\n---\n\n"
-            "## Result\n\nSome result.\n",
+            "## Result\n\nSome result.\n\n"
+            "## Concept edges\n\n"
+            f"- [target](/concepts/{concept_slug}.md) — SUPPORTS: grounds the claim\n",
             encoding="utf-8",
         )
 
@@ -169,20 +160,12 @@ class TestConceptEdgeResolution:
     def test_concept_edge_unresolved_when_slug_absent_from_shared_root(self, tmp_instance, cfg):
         from research_vault.review import check_link_resolution
 
-        proj_notes = cfg.project_notes_dir("demo-research")
-        lit_dir = proj_notes / "literature"
-        lit_dir.mkdir(parents=True, exist_ok=True)
-        overlay = lit_dir / "jones2024.md"
-        overlay.write_text(
-            "---\ntype: literature\ncentral: jones2024\n---\n\n"
-            "## Concept edges\n\n"
-            "- [target](/concepts/nonexistent-slug.md) — SUPPORTS: grounds the claim\n",
-            encoding="utf-8",
-        )
         cfg.literature_root.mkdir(parents=True, exist_ok=True)
         (cfg.literature_root / "jones2024.md").write_text(
             "---\ntype: literature\ncitekey: jones2024\ntitle: Jones 2024\n---\n\n"
-            "## Result\n\nSome result.\n",
+            "## Result\n\nSome result.\n\n"
+            "## Concept edges\n\n"
+            "- [target](/concepts/nonexistent-slug.md) — SUPPORTS: grounds the claim\n",
             encoding="utf-8",
         )
 

@@ -24,7 +24,9 @@ def cfg(tmp_instance):
 
 
 def _lit_dir(cfg):
-    return cfg.project_notes_dir("demo-research") / "literature"
+    """the overlay unwind (0.3.2): literature is shared-canonical —
+    every note `cmd_new` writes lands at cfg.literature_root directly."""
+    return cfg.literature_root
 
 
 def _stamp(path, **fields):
@@ -191,7 +193,6 @@ def test_migrate_within_batch_disambiguation(cfg):
 
 
 def test_cli_migrate_citekeys(cfg, capsys):
-    lit_dir = _lit_dir(cfg)
     p = note_mod.cmd_new("demo-research", "literature", "CLI Migrate Paper", config=cfg, note_id="cli-migrate")
     _stamp(p, title="CLI Migrate Paper", authors="Osei, Kofi", year="2015")
 
@@ -200,4 +201,8 @@ def test_cli_migrate_citekeys(cfg, capsys):
     assert result == 0
     out = capsys.readouterr().out
     assert "migrated" in out
-    assert (lit_dir / "_citekey_migration_ledger.json").exists()
+    # The migration LEDGER JSON is project-level bookkeeping (not an OKF
+    # note) — it stays at the project-scoped literature/ path even though
+    # the notes it tracks now live at cfg.literature_root (the overlay unwind (0.3.2)).
+    migration_ledger_dir = cfg.project_notes_dir("demo-research") / "literature"
+    assert (migration_ledger_dir / "_citekey_migration_ledger.json").exists()

@@ -313,6 +313,7 @@ def _build_phase2_manifest(
         equation_ledger = _equations.extract_equation_ledger(
             project_notes_dir, ms_type.equation_sources,
             literature_root=getattr(config, "literature_root", None),
+            concepts_root=getattr(config, "concepts_root", None),
         )
         tips = _equations.inject_equation_brief(
             tips, equation_ledger, ms_type.section_set, ms_type.equation_sources

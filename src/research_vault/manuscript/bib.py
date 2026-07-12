@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE as _WIKILINK_CITE_RE
-from research_vault.note import _extract_central_slug, _parse_frontmatter
+from research_vault.note import _parse_frontmatter
 
 # Matches the citekey out of a written references.md entry line:
 # "- **citekey** — Title...".
@@ -78,15 +78,16 @@ def _load_literature_bib_index(
     ``manuscript/bib.py`` stays a leaf module with a single dependency
     (``note.py``) — no cross-loop coupling for a 6-line convention.
 
-    citekey/authors/year/venue/doi/arxiv_id (everything a reference
-    entry renders) are intrinsic — CORE-only content. Iterating
-    ``literature_dir`` (the project's overlay) still defines the ADOPTED set
-    (this manuscript can only cite what its own project's corpus contains),
-    but each entry's rendered fields are resolved against ``literature_root``
-    (its ``central:`` pointer) when given. ``literature_root=None`` degrades
-    to reading ``literature_dir`` directly (a monolithic fixture that
-    happens to carry its own fields — not a violation, just a degrade path;
-    some hermetic tests do this on purpose).
+    the overlay unwind (0.3.2): literature is shared-canonical — a
+    note's own frontmatter already carries everything a reference entry
+    renders (citekey/authors/year/venue/doi/arxiv_id), no ``central:``
+    indirection to resolve. Every caller resolves ``literature_dir`` to
+    ``literature_root`` (``cfg.literature_root``) when it's given —
+    ``literature_root`` is kept as a parameter for call-site back-compat but
+    is unused here now; a caller with no ``literature_root`` degrades to
+    reading whatever dir it passed as ``literature_dir`` directly (still
+    correct — some hermetic tests deliberately pass a scratch dir with its
+    own fixture notes).
 
     Returns:
         dict mapping citekey (str) -> frontmatter fields dict. Empty dict if
@@ -101,19 +102,7 @@ def _load_literature_bib_index(
             text = note_path.read_text(encoding="utf-8")
         except OSError:
             continue
-        overlay_fields, _body = _parse_frontmatter(text)
-        fields = dict(overlay_fields)
-        central = _extract_central_slug(str(overlay_fields.get("central") or ""))
-        if literature_root is not None and central:
-            core_path = Path(literature_root) / f"{central}.md"
-            if core_path.exists():
-                try:
-                    core_fields, _ = _parse_frontmatter(
-                        core_path.read_text(encoding="utf-8")
-                    )
-                    fields = {**overlay_fields, **core_fields}
-                except OSError:
-                    pass
+        fields, _body = _parse_frontmatter(text)
         citekey = str(fields.get("citekey") or "").strip()
         if not citekey:
             citekey = note_path.stem
@@ -207,7 +196,11 @@ def build_references_md(
     references_path = tree_root / "references.md"
     errors: list[str] = []
 
-    literature_dir = project_notes_dir / "literature"
+    # the overlay unwind (0.3.2): literature is shared-canonical —
+    # prefer the caller-supplied literature_root (cfg.literature_root);
+    # degrade to the legacy project_notes_dir/literature path only when
+    # no literature_root was given (back-compat / hermetic fixtures).
+    literature_dir = literature_root if literature_root is not None else project_notes_dir / "literature"
     lit_index = _load_literature_bib_index(literature_dir, literature_root)
 
     if draft_files is None:
@@ -525,7 +518,11 @@ def build_references_bib(
     """
     references_bib_path = tree_root / "references.bib"
 
-    literature_dir = project_notes_dir / "literature"
+    # the overlay unwind (0.3.2): literature is shared-canonical —
+    # prefer the caller-supplied literature_root (cfg.literature_root);
+    # degrade to the legacy project_notes_dir/literature path only when
+    # no literature_root was given (back-compat / hermetic fixtures).
+    literature_dir = literature_root if literature_root is not None else project_notes_dir / "literature"
     lit_index = _load_literature_bib_index(literature_dir, literature_root)
 
     if draft_files is None:
@@ -584,7 +581,11 @@ def render_numbered_manuscript(
 
         draft_files = resolve_draft_files(tree_root)
 
-    literature_dir = project_notes_dir / "literature"
+    # the overlay unwind (0.3.2): literature is shared-canonical —
+    # prefer the caller-supplied literature_root (cfg.literature_root);
+    # degrade to the legacy project_notes_dir/literature path only when
+    # no literature_root was given (back-compat / hermetic fixtures).
+    literature_dir = literature_root if literature_root is not None else project_notes_dir / "literature"
     lit_index = _load_literature_bib_index(literature_dir, literature_root)
 
     ordered_keys, matched, errors = _resolve_citations(draft_files, lit_index)
@@ -677,7 +678,11 @@ def check_citation_resolve(
         literature_root=literature_root,
     )
 
-    literature_dir = project_notes_dir / "literature"
+    # the overlay unwind (0.3.2): literature is shared-canonical —
+    # prefer the caller-supplied literature_root (cfg.literature_root);
+    # degrade to the legacy project_notes_dir/literature path only when
+    # no literature_root was given (back-compat / hermetic fixtures).
+    literature_dir = literature_root if literature_root is not None else project_notes_dir / "literature"
     lit_index = _load_literature_bib_index(literature_dir, literature_root)
 
     if draft_files is None:

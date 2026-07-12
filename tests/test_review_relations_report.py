@@ -7,6 +7,12 @@ that surfaces it (mirrors ``coverage_report`` / ``rv review coverage``
 exactly, per the design doc's "reuse over create" + the anti-pattern
 "do NOT hand-stem-match... run the deterministic command").
 
+the overlay unwind (0.3.2): literature is shared-canonical — a
+citekey's edges are read straight off its own note at ``cfg.literature_root``;
+"this project's own corpus" (the ADOPTED set edges are scoped to) is now
+the mechanical corpus ledger's own source of truth — the review scope's
+frozen ``_corpus.md`` — never a per-project literature/ dir glob.
+
 sr: NG-lit-review-wave0 (PR-2)
 """
 from __future__ import annotations
@@ -19,22 +25,23 @@ import pytest
 from research_vault.config import load_config
 
 
-def _write_lit_note(cfg, literature_dir: Path, citekey: str, body: str) -> None:
-    """Write a two-layer pair: a thin overlay carrying a resolving
-    ``central:`` backbone link, and the matching central core (at
-    ``cfg.literature_root``) carrying the body — ``## Related papers`` is
-    core-only content (``relations_report`` resolves each overlay's
-    backbone link and reads edges from the resolved core, never the
-    overlay directly)."""
-    literature_dir.mkdir(parents=True, exist_ok=True)
-    overlay_text = (
-        "---\n"
-        "type: literature\n"
-        f"central: [{citekey}](okf:literature/{citekey}.md)\n"
-        "---\n"
+def _write_corpus_row(review_dir: Path, citekey: str) -> None:
+    """Append one `[NEW]` row for *citekey* to `_corpus.md` — the frozen
+    membership record ``relations_report``/``coverage_report`` both read as
+    "this project's own corpus" (the overlay unwind (0.3.2))."""
+    review_dir.mkdir(parents=True, exist_ok=True)
+    corpus_path = review_dir / "_corpus.md"
+    existing = corpus_path.read_text(encoding="utf-8") if corpus_path.exists() else (
+        "| Annotation | Citekey |\n|---|---|\n"
     )
-    (literature_dir / f"{citekey}.md").write_text(overlay_text, encoding="utf-8")
+    corpus_path.write_text(existing + f"| [NEW] | {citekey} |\n", encoding="utf-8")
 
+
+def _write_lit_note(cfg, review_dir: Path, citekey: str, body: str) -> None:
+    """Write a single shared-canonical literature note (the overlay unwind (0.3.2)) at
+    ``cfg.literature_root`` AND register it as a member of this review
+    scope's frozen ``_corpus.md`` (the mechanical membership record
+    ``relations_report`` now scopes "this project's corpus" against)."""
     cfg.literature_root.mkdir(parents=True, exist_ok=True)
     core_text = (
         "---\n"
@@ -45,6 +52,7 @@ def _write_lit_note(cfg, literature_dir: Path, citekey: str, body: str) -> None:
         f"{body}\n"
     )
     (cfg.literature_root / f"{citekey}.md").write_text(core_text, encoding="utf-8")
+    _write_corpus_row(review_dir, citekey)
 
 
 class TestRelationsReport:
@@ -58,11 +66,11 @@ class TestRelationsReport:
     def test_aggregates_edges_across_the_corpus(self, tmp_instance):
         from research_vault.review import relations_report
         cfg = load_config(reload=True)
-        literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
+        review_dir = cfg.project_notes_dir("demo-litreview") / "reviews" / "scope-any"
 
         _write_lit_note(
             cfg,
-            literature_dir,
+            review_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
             "- [huang2022](/literature/huang2022.md) — CONTRADICTS: huang2022 assumes a known safe "
@@ -70,7 +78,7 @@ class TestRelationsReport:
         )
         _write_lit_note(
             cfg,
-            literature_dir,
+            review_dir,
             "li2023",
             "## Related papers\n\n"
             "- [xiong2023-stepwise](/literature/xiong2023-stepwise.md) — SUPPORTS: replicates the same bound in "
@@ -91,8 +99,8 @@ class TestRelationsReport:
     def test_no_related_papers_section_contributes_nothing(self, tmp_instance):
         from research_vault.review import relations_report
         cfg = load_config(reload=True)
-        literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
-        _write_lit_note(cfg, literature_dir, "novel2024", "No relations section here.\n")
+        review_dir = cfg.project_notes_dir("demo-litreview") / "reviews" / "scope-any"
+        _write_lit_note(cfg, review_dir, "novel2024", "No relations section here.\n")
 
         report = relations_report("demo-litreview", "scope-any", config=cfg)
         assert report["edges"] == []
@@ -103,10 +111,10 @@ class TestRelationsReport:
         absorbed — even though the corpus also has 2 well-formed edges."""
         from research_vault.review import relations_report
         cfg = load_config(reload=True)
-        literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
+        review_dir = cfg.project_notes_dir("demo-litreview") / "reviews" / "scope-any"
         _write_lit_note(
             cfg,
-            literature_dir,
+            review_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
             "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the mechanism in a related setting.\n"
@@ -120,15 +128,18 @@ class TestRelationsReport:
         assert report["malformed"][0]["source"] == "xiong2023-stepwise"
 
     def test_dangling_edge_flagged_target_not_in_corpus(self, tmp_instance):
-        """Recommended (architect review): an edge whose target citekey has
-        no matching literature note in this project is flagged dangling —
-        mirrors coverage_report's orphan reporting."""
+        """Recommended (architect review): an edge whose target citekey is
+        NOT in this project's frozen corpus is flagged dangling — mirrors
+        coverage_report's orphan reporting. (0.3.2 (the overlay unwind): the target note
+        may well exist in the SHARED store under a different project's
+        corpus — "known" here means "in THIS corpus", not "materialized
+        anywhere".)"""
         from research_vault.review import relations_report
         cfg = load_config(reload=True)
-        literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
+        review_dir = cfg.project_notes_dir("demo-litreview") / "reviews" / "scope-any"
         _write_lit_note(
             cfg,
-            literature_dir,
+            review_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
             "- [never-ingested-2019](/literature/never-ingested-2019.md) — CONTRADICTS: a citekey with no note.\n",
@@ -141,15 +152,15 @@ class TestRelationsReport:
     def test_edge_to_a_real_corpus_paper_is_not_dangling(self, tmp_instance):
         from research_vault.review import relations_report
         cfg = load_config(reload=True)
-        literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
+        review_dir = cfg.project_notes_dir("demo-litreview") / "reviews" / "scope-any"
         _write_lit_note(
             cfg,
-            literature_dir,
+            review_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
             "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the mechanism in a related setting.\n",
         )
-        _write_lit_note(cfg, literature_dir, "li2023", "No relations here.\n")
+        _write_lit_note(cfg, review_dir, "li2023", "No relations here.\n")
         report = relations_report("demo-litreview", "scope-any", config=cfg)
         assert report["dangling"] == []
 
@@ -159,10 +170,10 @@ class TestRelationsReport:
         key_equations' ledger-wins-over-body-mirror precedent)."""
         from research_vault.review import relations_report
         cfg = load_config(reload=True)
-        literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
+        review_dir = cfg.project_notes_dir("demo-litreview") / "reviews" / "scope-any"
         _write_lit_note(
             cfg,
-            literature_dir,
+            review_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
             "- [huang2022](/literature/huang2022.md) — CONTRADICTS: removes the baseline assumption. (reciprocal)\n",
@@ -195,10 +206,10 @@ class TestRelationsVerb:
     def test_relations_presentation_reports_edges(self, tmp_instance, capsys):
         from research_vault.review import verbs as review_verbs
         cfg = load_config(reload=True)
-        literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
+        review_dir = cfg.project_notes_dir("demo-litreview") / "reviews" / "scope-any"
         _write_lit_note(
             cfg,
-            literature_dir,
+            review_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
             "- [li2023](/literature/li2023.md) — EXTENDS: generalizes the same result to a broader "
@@ -228,10 +239,10 @@ class TestRelationsVerb:
         silently absorbed into a clean-looking edge total."""
         from research_vault.review import verbs as review_verbs
         cfg = load_config(reload=True)
-        literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
+        review_dir = cfg.project_notes_dir("demo-litreview") / "reviews" / "scope-any"
         _write_lit_note(
             cfg,
-            literature_dir,
+            review_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
             "- [huang2022](/literature/huang2022.md) — CONTRADCTS: typo'd type, must be surfaced.\n",
@@ -246,10 +257,10 @@ class TestRelationsVerb:
     def test_relations_presentation_surfaces_dangling_edges(self, tmp_instance, capsys):
         from research_vault.review import verbs as review_verbs
         cfg = load_config(reload=True)
-        literature_dir = cfg.project_notes_dir("demo-litreview") / "literature"
+        review_dir = cfg.project_notes_dir("demo-litreview") / "reviews" / "scope-any"
         _write_lit_note(
             cfg,
-            literature_dir,
+            review_dir,
             "xiong2023-stepwise",
             "## Related papers\n\n"
             "- [never-ingested-2019](/literature/never-ingested-2019.md) — CONTRADICTS: a citekey with no note.\n",

@@ -60,33 +60,40 @@ literature` frontmatter AND answers the mandatory reading-discipline checklist
 **every in-scope paper gets a genuinely-read literature note before synthesis
 begins.**
 
-## The central two-layer literature store
+## The shared-canonical literature store
 
-`literature/<key>.md` is now **two layers** (the
-storage contract settled at 0.3.0 publish): a cross-project CENTRAL CORE
-(intrinsic paper facts — ids, `contribution_kind`, `## Result`, the
-paper->paper edge graph), distilled ONCE at `../literature/<citekey>.md`
-(a sibling of this project, `cfg.literature_root`), plus a THIN per-project
-OVERLAY at `notes/literature/<citekey>.md` (`role`/`position`/concept-edges
-+ a `central:` pointer). `rv note <project> new literature` writes both halves in one
-call; every reader routes through `note.load_literature_note`/
-`iter_literature_notes` — never hand-glob `literature/*.md` and parse
-frontmatter directly (the overlay alone is thin by design).
+`literature/<key>.md` is **shared-canonical** (the overlay unwind, 0.3.2 —
+earlier the store was two layers, a cross-project central core
+plus a thin per-project overlay glued by a `central:` pointer; that
+overlay is now dissolved): ONE note per paper at
+`../literature/<citekey>.md` (a sibling of this project,
+`cfg.literature_root`), carrying intrinsic paper facts (ids,
+`contribution_kind`, `## Result`) AND the typed edge graph (paper->paper
+`## Related papers`, paper->concept `## Concept edges`) directly. `rv note
+<project> new literature` writes (or, for an already-distilled paper,
+adopts) this ONE note; every reader routes through `note.cmd_list`/
+`note.cmd_check` against `cfg.literature_root` — never hand-assemble a
+"core + overlay" pair, that model is gone.
 
-This example ships `smith2024` and `jones2023` PRE-FILLED as a worked
-two-layer pair: the central cores live at `../literature/smith2024.md` /
-`../literature/jones2023.md`; their overlays at
-`notes/literature/smith2024.md` / `notes/literature/jones2023.md`. Because
-they already exist, the walkthrough below skips the `rv note <project> new literature`
-step for these two papers — a `relate-<key>` node just needs
-`rv dag complete` once its note is genuinely read (or, for a fresh third
-paper, run `rv note <project> new literature` first, exactly as before).
+**Corpus membership** ("this paper is in project X's corpus") lives in the
+project's mechanical corpus ledger (`review/ledger.py`), never a field on
+the note. **RQ-relative role/position** (methodological, counter-position…)
+is CURATED narration in a project MOC — see
+`notes/mocs/literature-roles.md`, this example's worked pair.
+
+This example ships `smith2024` and `jones2023` PRE-FILLED — the shared
+notes live at `../literature/smith2024.md` / `../literature/jones2023.md`.
+Because they already exist, the walkthrough below skips the `rv note
+<project> new literature` step for these two papers — a `relate-<key>`
+node just needs `rv dag complete` once its note is genuinely read (or, for
+a fresh third paper, run `rv note <project> new literature` first, exactly
+as before).
 
 `rv literature list demo-litreview` enumerates this project's adopted
-papers (the overlay dir — the per-project registry) enriched with each
-paper's resolving ids + citekey-conformance FROM the project's
-`_corpus_ledger.md` once a review has run (zero recomputation — see
-`literature.py`).
+papers — the union of every citekey in any `_corpus_ledger.md` this
+project has produced (mechanical membership, not a filesystem dir any
+more) — enriched with each paper's resolving ids + citekey-conformance
+FROM that same ledger (zero recomputation — see `literature.py`).
 
 ## Running the loop
 
@@ -107,11 +114,10 @@ rv dag complete lit-review-loop-topic review-curate
 # Approve Gate 2 (authorizes the Phase-2 fan-out)
 rv dag approve lit-review-loop-topic coverage-gate
 
-# Relate each in-scope paper. smith2024/jones2023 ship PRE-FILLED as this
-# example's worked two-layer pair (core + overlay already exist) — a fresh
-# review would instead run `rv note <project> new literature "<title>" --id <key>`
-# first (creates BOTH the central core and this project's thin overlay in
-# one call), then complete the reading-discipline checklist before this:
+# Relate each in-scope paper. smith2024/jones2023 ship PRE-FILLED — a
+# fresh review would instead run `rv note <project> new literature "<title>" --id <key>`
+# first (creates or adopts the ONE shared note, shared-canonical since
+# the overlay unwind (0.3.2)), then complete the reading-discipline checklist before this:
 rv dag complete lit-review-loop-topic relate-smith2024
 rv dag complete lit-review-loop-topic relate-jones2023
 
@@ -126,8 +132,8 @@ rv dag approve lit-review-loop-topic approve-review
 
 | Node | Produces | Directory |
 |------|----------|-----------|
-| relate-smith2024 | literature note (core + overlay, two-layer) | `../literature/` (core) + `notes/literature/` (overlay) |
-| relate-jones2023 | literature note (core + overlay, two-layer) | `../literature/` (core) + `notes/literature/` (overlay) |
+| relate-smith2024 | literature note (shared-canonical) | `../literature/` |
+| relate-jones2023 | literature note (shared-canonical) | `../literature/` |
 | review-synthesize | concepts (soft) | `notes/concepts/` |
 | review-synthesize | MOC links (soft) | `notes/mocs/` |
 

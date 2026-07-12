@@ -449,15 +449,19 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         sitting ready for the caller's own tick, so callers can assert on
         the SAME tick that resolves it)."""
         from research_vault.dag.verbs import cmd_tick
+        from research_vault.config import load_config
 
         rs = store.load(child_run_id)
         relate_ids = [nid for nid in rs.node_states if nid.startswith("relate-")]
         assert relate_ids, "expected at least one relate-<key> node in Phase-2"
 
-        project_notes_dir = review_dir.parent.parent
+        # the overlay unwind (0.3.2): a relate-<key> node's `produces:
+        # {"note": "literature/<key>.md"}` resolves against cfg.literature_root
+        # (shared-canonical), never project_notes_dir/literature.
+        cfg = load_config()
         for nid in relate_ids:
             citekey = nid[len("relate-"):]
-            lit_path = project_notes_dir / "literature" / f"{citekey}.md"
+            lit_path = cfg.literature_root / f"{citekey}.md"
             lit_path.parent.mkdir(parents=True, exist_ok=True)
             lit_path.write_text(
                 "---\n"
@@ -832,10 +836,10 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         rs2 = store.load(child_run_id)
         relate_ids = [nid for nid in rs2.node_states if nid.startswith("relate-")]
         assert relate_ids, "expected at least one relate-<key> node in Phase-2"
-        project_notes_dir = review_dir.parent.parent
+        # the overlay unwind (0.3.2): resolves against cfg.literature_root.
         for nid in relate_ids:
             citekey = nid[len("relate-"):]
-            lit_path = project_notes_dir / "literature" / f"{citekey}.md"
+            lit_path = cfg.literature_root / f"{citekey}.md"
             lit_path.parent.mkdir(parents=True, exist_ok=True)
             lit_path.write_text(
                 "---\ntype: literature\ncontribution_kind: application\nrole: empirical\n"

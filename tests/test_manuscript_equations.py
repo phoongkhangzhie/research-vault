@@ -373,8 +373,9 @@ def test_cmd_expand_wires_equation_ledger_into_section_spec(cfg):
     from research_vault.manuscript import cmd_new, cmd_expand
     from research_vault.config import Config
 
-    project_notes_dir = cfg.project_notes_dir("demo-research")
-    _write_note(project_notes_dir, "literature", "kingma2013.md", _LIT_NOTE_WITH_EQUATIONS)
+    # the overlay unwind (0.3.2): literature is shared-canonical —
+    # the equation-mining source is cfg.literature_root, not a per-project dir.
+    _write_note(cfg.literature_root.parent, "literature", "kingma2013.md", _LIT_NOTE_WITH_EQUATIONS)
 
     cmd_new("demo-research", "survey-eq-wiring", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-eq-wiring", config=cfg)

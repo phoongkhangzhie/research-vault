@@ -45,11 +45,13 @@ def cfg(tmp_instance):
     return load_config(reload=True)
 
 
-def _write_literature_note_with_equation(project_notes_dir: Path) -> None:
-    """A literature/ note carrying a marked-critical equation (PR-L1 shape,
-    consumed by manuscript/equations.py) + a citekey for the comparison
-    table (M6's source_transform)."""
-    lit_dir = project_notes_dir / "literature"
+def _write_literature_note_with_equation(literature_root: Path) -> None:
+    """A shared-canonical literature note (the overlay unwind (0.3.2))
+    carrying a marked-critical equation (PR-L1 shape, consumed by
+    manuscript/equations.py) + a citekey for the comparison table (M6's
+    source_transform). ``literature_root`` is ``cfg.literature_root``
+    directly — literature is shared, not project-scoped."""
+    lit_dir = literature_root
     lit_dir.mkdir(parents=True, exist_ok=True)
     (lit_dir / "kingma2013.md").write_text(
         "---\n"
@@ -110,7 +112,7 @@ def test_e2e_dangling_cite_blocks_dropped_equation_signals_transform_wired(cfg):
     slug = "survey-integration"
     project_notes_dir = cfg.project_notes_dir(project)
 
-    _write_literature_note_with_equation(project_notes_dir)
+    _write_literature_note_with_equation(cfg.literature_root)
 
     note_path, tree_root, _ = cmd_new(project, slug, ms_type_key="lit-review", config=cfg)
     _freeze_spine(note_path, spine_shape="pipeline", branches=["representation-learning"])
@@ -159,7 +161,10 @@ def test_e2e_dangling_cite_blocks_dropped_equation_signals_transform_wired(cfg):
     old_judge = os.environ.pop("RV_JUDGE_MODEL", None)
     old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
     try:
-        payload = build_approve_payload(tree_root, project_notes_dir, ms_type)
+        payload = build_approve_payload(
+            tree_root, project_notes_dir, ms_type,
+            literature_root=cfg.literature_root, concepts_root=cfg.concepts_root,
+        )
     finally:
         if old_judge is not None:
             os.environ["RV_JUDGE_MODEL"] = old_judge
@@ -196,7 +201,7 @@ def test_no_dangling_cite_and_equation_present_only_signals_or_clean(cfg):
     slug = "survey-clean"
     project_notes_dir = cfg.project_notes_dir(project)
 
-    _write_literature_note_with_equation(project_notes_dir)
+    _write_literature_note_with_equation(cfg.literature_root)
 
     note_path, tree_root, _ = cmd_new(project, slug, ms_type_key="lit-review", config=cfg)
     _freeze_spine(note_path, spine_shape="pipeline", branches=["representation-learning"])
@@ -214,7 +219,10 @@ def test_no_dangling_cite_and_equation_present_only_signals_or_clean(cfg):
     old_judge = os.environ.pop("RV_JUDGE_MODEL", None)
     old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
     try:
-        payload = build_approve_payload(tree_root, project_notes_dir, ms_type)
+        payload = build_approve_payload(
+            tree_root, project_notes_dir, ms_type,
+            literature_root=cfg.literature_root, concepts_root=cfg.concepts_root,
+        )
     finally:
         if old_judge is not None:
             os.environ["RV_JUDGE_MODEL"] = old_judge
@@ -339,7 +347,10 @@ class TestApproveManuscriptGateWiring:
         old = _set_run_env(tmp_path)
         try:
             project_notes_dir = tmp_path / "notes" / "projects" / "demo-research"
-            _write_literature_note_with_equation(project_notes_dir)
+            # the overlay unwind (0.3.2): literature is shared-canonical
+            # — notes_root/literature, not a per-project dir (see
+            # _approve_env_cfg_file: notes_root = tmp_path / "notes").
+            _write_literature_note_with_equation(tmp_path / "notes" / "literature")
 
             manifest_dir = project_notes_dir / "manuscripts" / "survey-wiring-block"
             _manuscript_note_for_wiring(
@@ -367,7 +378,10 @@ class TestApproveManuscriptGateWiring:
         old = _set_run_env(tmp_path)
         try:
             project_notes_dir = tmp_path / "notes" / "projects" / "demo-research"
-            _write_literature_note_with_equation(project_notes_dir)
+            # the overlay unwind (0.3.2): literature is shared-canonical
+            # — notes_root/literature, not a per-project dir (see
+            # _approve_env_cfg_file: notes_root = tmp_path / "notes").
+            _write_literature_note_with_equation(tmp_path / "notes" / "literature")
 
             manifest_dir = project_notes_dir / "manuscripts" / "survey-wiring-clean"
             _manuscript_note_for_wiring(

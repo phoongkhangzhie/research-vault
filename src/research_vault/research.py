@@ -273,29 +273,16 @@ def _note_citekey(fields: dict[str, Any], note_path: Path) -> str:
 def _resolve_intrinsic_fields(
     literature_root: Path | None, overlay_fields: dict[str, Any],
 ) -> dict[str, Any]:
-    """given a project's overlay ``fields`` (already parsed), resolve
-    its ``central:`` pointer against ``literature_root`` and merge in the
-    CENTRAL CORE's intrinsic fields (doi/arxiv_id/citekey/etc — core wins on
-    any collision). A missing pointer / absent core / ``literature_root is
-    None`` degrades to the overlay fields UNCHANGED (honest no-op, never a
-    fabricated id) — this keeps every caller below correct for both a
-    genuinely two-layer note AND a lone monolithic fixture that happens to
-    carry its own doi/arxiv_id directly (some hermetic tests do this on
-    purpose; not a violation, just a degrade path)."""
-    if literature_root is None:
-        return overlay_fields
-    from .note import _extract_central_slug, _parse_frontmatter
-    central = _extract_central_slug(str(overlay_fields.get("central") or ""))
-    if not central:
-        return overlay_fields
-    core_path = Path(literature_root) / f"{central}.md"
-    if not core_path.exists():
-        return overlay_fields
-    try:
-        core_fields, _ = _parse_frontmatter(core_path.read_text(encoding="utf-8"))
-    except OSError:
-        return overlay_fields
-    return {**overlay_fields, **core_fields}
+    """Return a literature note's own frontmatter fields, unchanged.
+
+    the overlay unwind (0.3.2): literature is shared-canonical — ONE
+    note, no per-project overlay and no ``central:`` pointer to resolve.
+    ``fields`` already carries every intrinsic field (doi/arxiv_id/citekey/
+    etc) directly. This function is now a pure identity pass-through — kept
+    (rather than deleted + call sites inlined) so every caller below stays
+    unchanged; ``literature_root`` is an unused back-compat parameter for
+    pre-unwind callers that still pass it."""
+    return overlay_fields
 
 
 def _load_notes_index(
@@ -332,10 +319,8 @@ def _load_notes_index(
         except OSError:
             continue
         overlay_fields, _ = _parse_frontmatter(text)
-        # doi/arxiv_id are CORE-only intrinsic fields — resolve the
-        # overlay's `central:` pointer against literature_root. Degrades to
-        # the overlay's own fields unchanged when literature_root is None
-        # or no pointer resolves (a monolithic fixture with its own doi:).
+        # doi/arxiv_id live directly on this note (the overlay unwind (0.3.2) — shared-
+        # canonical, no overlay/core split to resolve).
         fields = _resolve_intrinsic_fields(literature_root, overlay_fields)
         citekey = _note_citekey(fields, note_path)
         url = fields.get("url") or None
@@ -1016,8 +1001,8 @@ def cmd_add(args: argparse.Namespace) -> int:
     citekey = m.group(1)
 
     external_ids = _resolve_full_external_ids(args.ident)
-    # the external-id set is intrinsic (core-only) — stamp the
-    # CENTRAL CORE, not the per-project overlay.
+    # the external-id set is intrinsic — literature is shared-canonical
+    # (the overlay unwind (0.3.2)), so this is simply THE note.
     note_path = cfg.literature_root / f"{citekey}.md"
     if not external_ids:
         print(
@@ -1067,9 +1052,9 @@ def cmd_citekey(args: argparse.Namespace) -> int:
         print(f"rv research citekey: {e}", file=sys.stderr)
         return 1
 
-    # citekey/title/authors/year are intrinsic (core-only) — the
-    # note-id shares its slug with the central core (note._cmd_new_two_layer's
-    # convention), so this resolves + stamps the CORE, not the overlay.
+    # citekey/title/authors/year are intrinsic — literature is
+    # shared-canonical (the overlay unwind (0.3.2)); the note-id IS
+    # the note's filename under cfg.literature_root.
     note_path = cfg.literature_root / f"{args.note_id}.md"
     try:
         citekey = compute_and_stamp_citekey(note_path, cfg.literature_root)

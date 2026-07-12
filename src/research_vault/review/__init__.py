@@ -43,7 +43,6 @@ from research_vault.config import Config, load_config
 from research_vault.note import (
     OKF_RESERVED_FILENAMES,
     OKF_TYPES,
-    _extract_central_slug,
     _parse_frontmatter,
     _render_frontmatter,
     literature_core_path,
@@ -920,21 +919,19 @@ def check_corpus_all_accept_tagged(corpus_path: Path) -> dict[str, Any]:
 def _index_literature_notes_by_citekey(
     literature_dir: Path, literature_root: Path | None = None,
 ) -> dict[str, Path]:
-    """Build a citekey → note-path index from the project's literature/ OKF dir.
+    """Build a citekey → note-path index from the shared literature store.
 
     F17: identity is the ``citekey:`` frontmatter field (filename-agnostic).
     Falls back to the filename stem ONLY if the field is absent or empty.
     This allows descriptive filenames like ``zheng2023-pride-mc-selectors.md``
     while matching the corpus citekey ``zheng2023-pride`` without false-orphaning.
 
-    ``citekey:`` is intrinsic (core-only) content — when
-    ``literature_root`` is given, resolves each overlay's ``central:``
-    pointer and prefers the CORE's citekey field. ``literature_root=None``
-    (or no resolvable core) degrades to the overlay's own citekey field —
-    which for a two-layer note is normally absent, so this correctly falls
-    through to the filename-stem convention (still F17-correct, since the
-    core's filename and the overlay's filename share one slug by
-    construction — see ``note._cmd_new_two_layer``).
+    the overlay unwind (0.3.2): literature is shared-canonical — ONE
+    note per paper, read directly off its own ``citekey:`` field (no
+    ``central:`` indirection to resolve first). ``literature_root`` is kept
+    as a parameter for call-site back-compat (pre-unwind callers passed it to
+    resolve the two-layer core) but is unused now — the field is already on
+    the one note this function reads.
 
     Returns:
         dict mapping citekey (str) → Path of the corresponding literature note.
@@ -945,24 +942,14 @@ def _index_literature_notes_by_citekey(
 
     index: dict[str, Path] = {}
     for note_path in sorted(literature_dir.glob("*.md")):
+        if note_path.name in OKF_RESERVED_FILENAMES:
+            continue
         try:
             text = note_path.read_text(encoding="utf-8")
         except OSError:
             continue
         fields, _ = _parse_frontmatter(text)
         citekey = (fields.get("citekey") or "").strip()
-        if not citekey and literature_root is not None:
-            central = _extract_central_slug(fields.get("central") or "")
-            if central:
-                core_path = Path(literature_root) / f"{central}.md"
-                if core_path.exists():
-                    try:
-                        core_fields, _ = _parse_frontmatter(
-                            core_path.read_text(encoding="utf-8")
-                        )
-                        citekey = (core_fields.get("citekey") or "").strip()
-                    except OSError:
-                        pass
         # F17: prefer the citekey: field over the filename stem
         if not citekey:
             citekey = note_path.stem
@@ -1039,16 +1026,18 @@ def coverage_report(
     project_notes_dir = cfg.project_notes_dir(project)
     review_dir = _review_artifact_dir(project, scope, cfg)
     corpus_path = review_dir / "_corpus.md"
-    literature_dir = project_notes_dir / "literature"
+    # the overlay unwind (0.3.2): literature is shared-canonical —
+    # "materialized" means the shared store has the note, not that this
+    # project has an overlay for it. cfg.literature_root, not a per-project
+    # literature/ dir (there is no such dir any more).
+    literature_dir = cfg.literature_root
     mocs_dir = project_notes_dir / "mocs"
 
     # Source-of-truth: corpus citekeys (all annotated rows)
     corpus_citekeys: list[str] = _parse_corpus_citekeys(corpus_path)
 
     # Index literature notes by citekey: field (F17 — filename-agnostic)
-    lit_index: dict[str, Path] = _index_literature_notes_by_citekey(
-        literature_dir, literature_root=cfg.literature_root,
-    )
+    lit_index: dict[str, Path] = _index_literature_notes_by_citekey(literature_dir)
 
     # Index MOC mentions for orphan detection
     moc_mentions: set[str] = _collect_moc_citekey_mentions(mocs_dir)
@@ -1088,21 +1077,21 @@ def coverage_report(
 #
 # The Open Knowledge Format's own consumer-tolerance rule ("readers MUST
 # tolerate a broken link") is honored throughout rv's readers (never raise
-# on a dangling link — see ``note.load_literature_note``'s
-# ``core_resolved=False`` partial and this module's own ``relations_report``
+# on a dangling link — see this module's own ``relations_report``
 # ``dangling`` signal list). But tolerance at read-time does not mean the
 # system should never refuse a broken link — it means the REFUSAL belongs
 # at the point of curation, not at every read. This is that refusal.
 #
-# ``check_link_resolution`` resolves every intra-bundle link a literature
-# overlay's content carries — the cross-bundle backbone (``central:``), the
-# paper→paper edges in the resolved central core's '## Related papers', and
-# the paper→concept edges in the overlay's own '## Concept edges' — against
-# the resolvable bundle set (the central-literature store + this project's
-# own concepts directory). Unresolved targets are returned as ``errors``,
-# never raised. Whether an empty vs. non-empty ``errors`` list BLOCKS is the
-# caller's decision: during day-to-day authoring an unresolved forward
-# reference is tolerated (not-yet-written knowledge), but a curation gate
+# ``check_link_resolution`` resolves every intra-bundle link a shared
+# literature note carries (the overlay unwind (0.3.2) — one note, no
+# per-project overlay, no ``central:`` backbone to resolve first) — the
+# paper→paper edges in its own '## Related papers', the paper→concept
+# edges in its own '## Concept edges' — against the resolvable bundle set
+# (the shared literature store + the shared concepts store). Unresolved
+# targets are returned as ``errors``, never raised. Whether an empty vs.
+# non-empty ``errors`` list BLOCKS is the caller's decision: during
+# day-to-day authoring an unresolved forward reference is tolerated
+# (not-yet-written knowledge), but a curation gate
 # (reviewing a corpus for publication, or an explicit strict check) treats
 # the same finding as a hard refusal. One resolution pass, two postures.
 
@@ -1165,46 +1154,51 @@ def check_link_resolution(
     project_notes_dir: Path | None = None,
     config: Config | None = None,
 ) -> dict[str, Any]:
-    """Resolve every intra-bundle link + cross-bundle backbone a project's
-    literature notes carry, against the resolvable bundle set.
+    """Resolve every link a literature note carries — intra-shared
+    paper→paper/paper→concept edges, project→shared ``okf:...`` edges, and
+    artifact-targeted provenance edges — against the resolvable bundle set.
 
     Accepts EITHER a project slug (resolved via ``cfg.project_notes_dir``)
     OR an already-resolved ``project_notes_dir`` directly — mirroring the
     convention already used at the manuscript-loop's other gate call sites
     (``tree_root.parent.parent``). Exactly one of the two must be given.
+    ``project_notes_dir`` is still required (the concepts-orphan check + a
+    within-project edge's own resolution both need it) even though 0.3.2
+    the overlay unwind made the literature-scanning half of this
+    function project-INDEPENDENT — see below.
 
-    Checks, per literature overlay under ``project_notes_dir/literature/``:
-      1. the ``central:`` cross-bundle backbone link resolves to an
-         existing central-core note (``cfg.literature_root/<slug>.md``);
-      2. every paper→paper edge in the resolved core's '## Related papers'
+    0.3.2 (the overlay unwind): literature is shared-canonical — ONE note per paper, no
+    per-project overlay and no ``central:`` backbone to resolve first. So
+    this function's literature-scanning half is now project-independent —
+    it walks the WHOLE shared store (``cfg.literature_root``) once,
+    regardless of which project's ``cmd_check`` triggered the call:
+      1. every paper→paper edge in a note's own '## Related papers'
          section (``relate_check.parse_paper_relations``) targets a citekey
-         that exists as a central-core note;
-      3. every paper→concept edge in the overlay's own '## Concept edges'
+         that exists as a shared literature note;
+      2. every paper→concept edge in the note's own '## Concept edges'
          section (``relate_check.parse_concept_edges``) targets a slug that
          exists under ``cfg.concepts_root`` (concepts are shared-canonical
-         as of 0.3.2 — resolved against the shared store, never the
-         project's own notes dir);
-      4. every UNIFIED typed edge (``relate_check.parse_typed_edges``)
-         found in either body — cross-bundle ``okf:...`` edges (resolved via
-         ``cfg.resolve_bundle_link``, which ALSO covers ``okf:concepts/...``
-         — the ONE cross-bundle resolution path for a project→shared
-         concept edge), within-project edges (resolved against
-         ``project_notes_dir``), and artifact-targeted provenance edges
-         (resolved as a file path under ``project_notes_dir``, file-
-         existence only — never note-conformance).
+         too — 0.3.2's concepts move);
+      3. every UNIFIED typed edge (``relate_check.parse_typed_edges``)
+         found in the note's body — cross-bundle ``okf:...`` edges (resolved
+         via ``cfg.resolve_bundle_link``, which ALSO covers
+         ``okf:concepts/...``), within-project edges (resolved against the
+         CALLING project's ``project_notes_dir`` — a literature note
+         carrying one is atypical but not forbidden by the grammar), and
+         artifact-targeted provenance edges (file-existence only, never
+         note-conformance).
 
     A concept edge resolves against ``cfg.concepts_root`` EXACTLY ONCE,
-    never via both (3) and (4): ``relate_check._scan_edge_lines`` buckets
+    never via both (2) and (3): ``relate_check._scan_edge_lines`` buckets
     every edge LINE into exactly one of its four disjoint scopes by which
     named group of its target grammar matched — a bare ``/concepts/<slug>.md``
-    link is the INTRA-SHARED scope (bucket (3), ``parse_concept_edges``); an
-    ``okf:concepts/<slug>.md`` link is the CROSS-BUNDLE scope (bucket (4),
-    ``parse_typed_edges``). One scan, one bucket per line — (3) and (4) read
+    link is the INTRA-SHARED scope (bucket (2), ``parse_concept_edges``); an
+    ``okf:concepts/<slug>.md`` link is the CROSS-BUNDLE scope (bucket (3),
+    ``parse_typed_edges``). One scan, one bucket per line — (2) and (3) read
     disjoint buckets of the SAME single pass, so a line is never resolved
     twice and never falls through unresolved either.
 
-    Plus, project-wide (independent of whether any literature overlay
-    exists):
+    Plus, project-wide (independent of the literature-store scan above):
       4. ``project_notes_dir/concepts/`` (the LEGACY, pre-0.3.2 location)
          holds no orphaned notes. concepts became shared-canonical in
          0.3.2 — every reader (``note.cmd_list``/``note.cmd_check``, this
@@ -1220,15 +1214,6 @@ def check_link_resolution(
          directly) so it rides the SAME "day-to-day WARN / curation-time
          BLOCK" posture as every other finding in this function, with zero
          new mechanism.
-
-    An overlay whose ``central:`` link does not resolve is skipped for (2)
-    (no core body to read edges from) but still recorded as an error for
-    (1) — the two are surfaced as distinct findings, never conflated. An
-    overlay with NO ``central:`` field at all (entirely absent, not merely
-    unresolvable) is a correct no-op here — that is a required-field
-    completeness concern (``note.cmd_check``'s own per-note check) or the
-    documented flat, pre-two-layer "monolithic fixture" degrade path, never
-    a fabricated resolution error.
 
     Never raises: every unresolved target becomes one string in ``errors``.
     Malformed edge lines (the ``## Related papers``/``## Concept edges``
@@ -1255,7 +1240,8 @@ def check_link_resolution(
         project_notes_dir = cfg.project_notes_dir(project)
     else:
         cfg = config or load_config()
-    literature_dir = project_notes_dir / "literature"
+    # the overlay unwind (0.3.2): the shared store, project-independent.
+    literature_dir = cfg.literature_root
     # concepts is shared-canonical (0.3.2) — resolve against cfg.concepts_root,
     # never the project's own notes dir.
     concepts_dir = cfg.concepts_root
@@ -1264,93 +1250,46 @@ def check_link_resolution(
 
     # Item 4 above — checked FIRST and unconditionally (independent of
     # literature_dir's existence): a project can have orphaned legacy
-    # concepts with zero literature overlays.
+    # concepts with zero literature notes anywhere.
     errors.extend(_check_concepts_orphan(project_notes_dir, concepts_dir))
 
     if not literature_dir.exists():
         return {"ok": not errors, "errors": errors}
 
-    for overlay_path in sorted(literature_dir.glob("*.md")):
-        if overlay_path.name in OKF_RESERVED_FILENAMES:
+    for note_path in sorted(literature_dir.glob("*.md")):
+        if note_path.name in OKF_RESERVED_FILENAMES:
             continue
         try:
-            overlay_text = overlay_path.read_text(encoding="utf-8")
+            text = note_path.read_text(encoding="utf-8")
         except OSError:
             continue
-        overlay_fields, overlay_body = _parse_frontmatter(overlay_text)
+        _fields, body = _parse_frontmatter(text)
 
-        central_raw = str(overlay_fields.get("central") or "").strip()
-        central_slug = _extract_central_slug(central_raw)
-        core_body = ""
-        if not central_slug:
-            # An ENTIRELY ABSENT 'central:' field is a completeness
-            # concern (a required-field check — see note.cmd_check's own
-            # per-note "missing 'central:' pointer" violation), not a
-            # resolution concern: there is no link here to resolve. This
-            # is also the documented "monolithic fixture" degrade path
-            # (a flat, pre-two-layer literature note) — a correct no-op,
-            # never a fabricated resolution error.
-            pass
-        else:
-            core_path = literature_core_path(cfg, central_slug)
-            if not core_path.exists():
+        for edge in parse_paper_relations(body).edges:
+            target_path = literature_core_path(cfg, edge["target"])
+            if not target_path.exists():
                 errors.append(
-                    f"{overlay_path}: dangling cross-bundle backbone link "
-                    f"'central: {central_raw}' — no central core exists at "
-                    f"{core_path}."
+                    f"{note_path}: unresolved intra-bundle link in "
+                    f"'## Related papers' — target /literature/"
+                    f"{edge['target']}.md does not exist."
                 )
-            else:
-                try:
-                    _core_fields, core_body = _parse_frontmatter(
-                        core_path.read_text(encoding="utf-8")
-                    )
-                except OSError:
-                    core_body = ""
 
-        # Paper->paper edges live in the resolved core body (two-layer
-        # store); an unresolved backbone means there is no core body to
-        # read edges from, so this is a correct no-op for this overlay.
-        if core_body:
-            for edge in parse_paper_relations(core_body).edges:
-                target_path = literature_core_path(cfg, edge["target"])
-                if not target_path.exists():
-                    errors.append(
-                        f"{core_path}: unresolved intra-bundle link in "
-                        f"'## Related papers' — target /literature/"
-                        f"{edge['target']}.md does not exist."
-                    )
-
-        # Paper->concept edges live in the overlay's own body. concepts are
-        # shared-canonical: this is a project->shared resolution against
-        # cfg.concepts_root, not an intra-project lookup.
-        for edge in parse_concept_edges(overlay_body).edges:
+        for edge in parse_concept_edges(body).edges:
             target_path = concepts_dir / f"{edge['target']}.md"
             if not target_path.exists():
                 errors.append(
-                    f"{overlay_path}: unresolved cross-bundle link in "
+                    f"{note_path}: unresolved cross-bundle link in "
                     f"'## Concept edges' — target concepts/"
                     f"{edge['target']}.md does not exist in the shared "
                     f"concepts store ({concepts_dir})."
                 )
 
-        # Unified typed edges — cross-bundle / within-project /
-        # artifact — found in either body. Checked on BOTH the overlay
-        # body and the resolved core body (whichever has content): a
-        # project note may author either kind, this wave's grammar does
-        # not scope them to a particular file.
-        core_source_path = core_path if central_slug else None
-        for source_path, source_body in (
-            (overlay_path, overlay_body),
-            (core_source_path, core_body),
-        ):
-            if not source_body:
-                continue
-            for edge in parse_typed_edges(source_body).edges:
-                err = _resolve_typed_edge_target(
-                    edge, cfg=cfg, project_notes_dir=project_notes_dir,
-                )
-                if err is not None:
-                    errors.append(f"{source_path}: {err}")
+        for edge in parse_typed_edges(body).edges:
+            err = _resolve_typed_edge_target(
+                edge, cfg=cfg, project_notes_dir=project_notes_dir,
+            )
+            if err is not None:
+                errors.append(f"{note_path}: {err}")
 
     return {"ok": not errors, "errors": errors}
 
@@ -1424,14 +1363,14 @@ def relations_report(
     Reuse-over-create (charter §6): zero new edge mechanism — this is a
     corpus-wide fold of the SAME parser the presence check uses per-note.
 
-    Two-layer store: paper->paper edges live in the CENTRAL CORE
-    (cfg.literature_root), never the overlay — this walks the project's
-    overlay dir to enumerate the ADOPTED set (this project's own corpus
-    membership), but parses each entry's ``## Related papers`` section from
-    its RESOLVED core body, not the overlay's own body. An overlay whose
-    ``central:`` backbone link does not resolve contributes to
-    ``known_citekeys`` (by filename-stem fallback) but has no edges to add
-    — an honest zero, not a crash.
+    the overlay unwind (0.3.2): literature is shared-canonical — ONE
+    note per paper, no overlay, no ``central:`` indirection. "This
+    project's own corpus" (the ADOPTED set the report scopes edges to) is
+    now the mechanical corpus ledger's membership record — this project's
+    frozen ``_corpus.md`` (the same source of truth ``coverage_report``
+    reads) — never a per-project literature/ dir glob (there is no such
+    dir any more). Each adopted citekey's edges are parsed straight off
+    its own shared note's ``## Related papers`` section.
 
     Returns:
         dict with keys:
@@ -1457,54 +1396,36 @@ def relations_report(
     from .relate_check import parse_paper_relations
 
     cfg = config or load_config()
-    project_notes_dir = cfg.project_notes_dir(project)
-    literature_dir = project_notes_dir / "literature"
+    review_dir = _review_artifact_dir(project, scope, cfg)
+    corpus_path = review_dir / "_corpus.md"
+    # This project's adopted set — mechanical membership from the corpus
+    # ledger's own source of truth, not a per-project literature/ dir glob.
+    corpus_citekeys: list[str] = _parse_corpus_citekeys(corpus_path)
 
     edges: list[dict[str, Any]] = []
     malformed: list[dict[str, str]] = []
-    known_citekeys: set[str] = set()
-    if literature_dir.exists():
-        for note_path in sorted(literature_dir.glob("*.md")):
-            if note_path.name in OKF_RESERVED_FILENAMES:
-                continue
-            try:
-                text = note_path.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            fields, _overlay_body = _parse_frontmatter(text)
-            # citekey is intrinsic (core-only); '## Related papers' is
-            # ALSO core-only (two-layer store, edges write to the central
-            # core) — resolve the backbone link ONCE and read both from
-            # the same resolved core note.
-            source_citekey = (fields.get("citekey") or "").strip()
-            core_body = ""
-            central = _extract_central_slug(fields.get("central") or "")
-            if central:
-                core_path = cfg.literature_root / f"{central}.md"
-                if core_path.exists():
-                    try:
-                        core_fields, core_body = _parse_frontmatter(
-                            core_path.read_text(encoding="utf-8")
-                        )
-                        source_citekey = source_citekey or (
-                            core_fields.get("citekey") or ""
-                        ).strip()
-                    except OSError:
-                        pass
-            source_citekey = source_citekey or note_path.stem
-            known_citekeys.add(source_citekey)
-            parsed = parse_paper_relations(core_body)
-            for edge in parsed.edges:
-                edges.append({
-                    "source": source_citekey,
-                    "target": edge["target"],
-                    "tag": edge["tag"],
-                    "type": edge["type"],
-                    "reason": edge["reason"],
-                    "kind_mismatch": edge["kind_mismatch"],
-                })
-            for bad_line in parsed.malformed:
-                malformed.append({"source": source_citekey, "line": bad_line})
+    known_citekeys: set[str] = set(corpus_citekeys)
+    for source_citekey in sorted(corpus_citekeys):
+        note_path = literature_core_path(cfg, source_citekey)
+        if not note_path.exists():
+            continue  # unmaterialized — coverage_report's own concern, an honest zero here
+        try:
+            text = note_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        _fields, body = _parse_frontmatter(text)
+        parsed = parse_paper_relations(body)
+        for edge in parsed.edges:
+            edges.append({
+                "source": source_citekey,
+                "target": edge["target"],
+                "tag": edge["tag"],
+                "type": edge["type"],
+                "reason": edge["reason"],
+                "kind_mismatch": edge["kind_mismatch"],
+            })
+        for bad_line in parsed.malformed:
+            malformed.append({"source": source_citekey, "line": bad_line})
 
     by_pair: dict[tuple[str, str], dict[str, Any]] = {
         (e["source"], e["target"]): e for e in edges
@@ -1643,17 +1564,19 @@ def _build_phase1_manifest(
     # project_root=manifest_path.parent is at run/tick time).
     # Previously this returned a bare name like "literature" which resolved
     # relative to the manifest dir (reviews/<scope>/) — always wrong.
-    # concepts is shared-canonical (0.3.2) — routes to cfg.concepts_root,
-    # never project_notes_dir/concepts (which no longer holds concepts
-    # content). Config resolution is LAZY (only on the "concepts" branch,
+    # concepts/literature are shared-canonical (the earlier concepts move,
+    # then the overlay unwind
+    # literature — the overlay unwind) — both route to their own shared
+    # root, never project_notes_dir/<type> (which no longer holds that
+    # content). Config resolution is LAZY (only on the shared-type branch,
     # only when the caller didn't already supply a Config) — most callers
     # of _build_phase1_manifest never need a Config at all, and forcing an
     # eager load_config() here would break callers (and tests) that
     # deliberately run without a discoverable/valid config.
     def _rel(okf_type: str) -> str:
-        if okf_type == "concepts":
+        if okf_type in ("concepts", "literature"):
             _cfg_for_rel = config if isinstance(config, Config) else load_config()
-            return str(_cfg_for_rel.concepts_root)
+            return str(_cfg_for_rel.shared_type_root(okf_type))
         return str(project_notes_dir / okf_type)
 
     # Absolute path to review artifact dir (for produces: and watch: expressions)
@@ -2025,16 +1948,17 @@ def _build_phase2_manifest(
     # Absolute OKF type-dir pointers (emit absolute paths so the reads:-
     # grounding resolver finds the real OKF dirs regardless of what
     # project_root=manifest_path.parent is at run/tick time — same as
-    # Phase-1, see comment there). concepts is shared-canonical (0.3.2) —
-    # routes to cfg.concepts_root. Config resolution is LAZY (only on the
-    # "concepts" branch, only when the caller didn't already supply a
+    # Phase-1, see comment there). concepts/literature are shared-canonical
+    # (0.3.2's shared-canonical moves (concepts, then literature) — the overlay unwind) — both
+    # route to their own shared root. Config resolution is LAZY (only on the
+    # shared-type branch, only when the caller didn't already supply a
     # Config) — most callers of _build_phase2_manifest never need a Config
     # at all, and forcing an eager load_config() here would break callers
     # (and tests) that deliberately run without a discoverable/valid config.
     def _rel(okf_type: str) -> str:
-        if okf_type == "concepts":
+        if okf_type in ("concepts", "literature"):
             _cfg_for_rel = config if isinstance(config, Config) else load_config()
-            return str(_cfg_for_rel.concepts_root)
+            return str(_cfg_for_rel.shared_type_root(okf_type))
         return str(project_notes_dir / okf_type)
 
     protocol_path = str(review_dir / "_protocol.md")
@@ -2046,9 +1970,6 @@ def _build_phase2_manifest(
     for citekey in new_citekeys:
         node_id = f"relate-{citekey}"
         relate_ids.append(node_id)
-        lit_note_path = str(
-            (project_notes_dir / "literature" / f"{citekey}.md")
-        )
         nodes.append({
             "id": node_id,
             "type": "agent",

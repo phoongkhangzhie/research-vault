@@ -298,22 +298,23 @@ class Config:
             self.datasets_root = Path(raw["datasets_root"])
         else:
             self.datasets_root = self.notes_root / "datasets"
-        # literature_root — the central, cross-project two-layer literature
-        # store. Mirrors datasets_root exactly: default
-        # notes_root/literature (hub/instance level, sibling of
-        # datasets_root); override in research_vault.toml:
-        # literature_root = "/shared/literature". This is the store's ONE
-        # location — cfg.project_notes_dir(project)/literature/ holds the
-        # thin per-project overlays, never the core.
+        # literature_root — the shared-canonical, cross-project literature
+        # store (the overlay unwind (0.3.2) — pre-unwind this was a
+        # two-layer core+per-project-overlay split; the overlay is now
+        # dissolved). Mirrors datasets_root/concepts_root exactly: default
+        # notes_root/literature (hub/instance level); override in
+        # research_vault.toml: literature_root = "/shared/literature". This
+        # is the ONE location every literature note lives at — there is no
+        # per-project literature/ dir any more.
         if "literature_root" in raw:
             self.literature_root = Path(raw["literature_root"])
         else:
             self.literature_root = self.notes_root / "literature"
         # concepts_root — the shared-canonical cross-project concepts store.
-        # Mirrors datasets_root exactly (a plain shared bundle, ONE note per
-        # concept, no per-project overlay — unlike literature_root, which is
-        # still two-layer). Default: notes_root/concepts; override in
-        # research_vault.toml: concepts_root = "/shared/concepts".
+        # Mirrors datasets_root/literature_root exactly (a plain shared
+        # bundle, ONE note per concept, no per-project overlay). Default:
+        # notes_root/concepts; override in research_vault.toml:
+        # concepts_root = "/shared/concepts".
         if "concepts_root" in raw:
             self.concepts_root = Path(raw["concepts_root"])
         else:
@@ -430,15 +431,17 @@ class Config:
         """Resolve the shared-canonical root for a shared OKF type.
 
         SSOT for per-type shared-store resolution — ``"datasets"`` ->
-        ``datasets_root``, ``"concepts"`` -> ``concepts_root``. Extend the
-        mapping here (never a hardcoded fork at a call site) when a new
-        shared type is added. Callers gate on ``note_type in
-        note.OKF_SHARED_TYPES`` first; this raises ``KeyError`` for a
-        non-shared type.
+        ``datasets_root``, ``"concepts"`` -> ``concepts_root``, ``"literature"``
+        -> ``literature_root`` (joined the shared partition in the overlay unwind (0.3.2),
+        the overlay unwind). Extend the mapping here (never a hardcoded fork
+        at a call site) when a new shared type is added. Callers gate on
+        ``note_type in note.OKF_SHARED_TYPES`` first; this raises
+        ``KeyError`` for a non-shared type.
         """
         return {
             "datasets": self.datasets_root,
             "concepts": self.concepts_root,
+            "literature": self.literature_root,
         }[note_type]
 
     def resolve_bundle_link(self, link: str) -> Path | None:

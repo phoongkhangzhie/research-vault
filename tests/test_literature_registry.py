@@ -1,12 +1,17 @@
-"""test_literature_registry.py — PR-B: `rv literature list <project>`, the
-per-project two-layer literature registry (registry-as-pointer).
+"""test_literature_registry.py — `rv literature list <project>`, the
+project's adopted-literature registry.
 
-Design of record: docs/superpowers/specs/2026-07-10-central-note-store-
-cross-project-design.md §0.5 PR-B.
+Design of record: internal design note (the architect, 2026-07-10);
+re-derived for the overlay unwind (0.3.2 — literature became
+shared-canonical, no per-project overlay).
 
 Covers:
-  1. Registry = the overlay dir (filesystem-is-registry); no overlay dir ->
-     empty list, never an error.
+  1. Registry = mechanical corpus-ledger membership (the union of every
+     citekey across this project's `_corpus_ledger.md` files) — NOT a
+     filesystem dir any more. No ledger ever written -> empty list, never
+     an error. A note DISTILLED into the shared store but never recorded
+     in ANY ledger is correctly invisible (adoption is membership, not
+     mere existence in the shared store).
   2. Enrichment comes from an already-written `_corpus_ledger.md` — the
      resolving ids + conformance verdict are read back from the ledger's
      rendered table, not recomputed.
@@ -14,10 +19,13 @@ Covers:
      conformance functions are NEVER called by `literature.cmd_list` —
      patched to raise, cmd_list must still return correct enrichment
      (because it only re-parses the ledger's already-rendered table).
-  4. A citekey never seen by any ledger -> honest gap (resolving_ids="",
-     conformant=None, in_ledger=False), never a fabricated value.
-  5. A dangling `central:` pointer is surfaced (an `error` row), not
-     silently dropped from the list.
+  4. Every row here comes FROM a ledger by construction — `in_ledger` is
+     always True (there is no more "distilled but never ledgered, yet
+     still listed" honest-gap case; that state is now simply absent from
+     the list, not a listed-with-a-gap row).
+  5. A ledgered citekey whose shared note doesn't exist yet is surfaced
+     (an `error` row, "adopted but not materialized"), never silently
+     dropped.
 
 All hermetic (tmp_instance fixture from conftest.py). No ~/vault reads.
 """
@@ -36,32 +44,25 @@ def cfg(tmp_instance):
     return load_config(reload=True)
 
 
-def _make_adopted_paper(cfg, project, note_id, *, doi=None, role=None):
-    """Create a two-layer literature note + stamp doi/role, mirroring a
-    real relate-node distillation."""
-    overlay_path = note_mod.cmd_new(project, "literature", "A Paper", config=cfg, note_id=note_id)
-    core_path = cfg.literature_root / f"{note_id}.md"
+def _make_paper(cfg, note_id, *, doi=None):
+    """File a shared-canonical literature note (the overlay unwind, 0.3.2) + optionally
+    stamp its doi, mirroring a real relate-node distillation. Filing a
+    note alone is NOT adoption any more — membership comes from a ledger
+    (see ``_write_ledger_for``)."""
+    note_path = note_mod.cmd_new("demo-research", "literature", "A Paper", config=cfg, note_id=note_id)
     if doi is not None:
-        text = core_path.read_text(encoding="utf-8")
+        text = note_path.read_text(encoding="utf-8")
         text = text.replace("doi: \n", f"doi: {doi}\n")
-        core_path.write_text(text, encoding="utf-8")
-    if role is not None:
-        text = overlay_path.read_text(encoding="utf-8")
-        text = text.rstrip("\n") + f"\nrole: {role}\n"
-        # role must be in frontmatter, not appended after the body — rewrite properly.
-        lines = overlay_path.read_text(encoding="utf-8").splitlines()
-        assert lines[0] == "---"
-        end = lines[1:].index("---") + 1
-        lines.insert(end, f"role: {role}")
-        overlay_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return overlay_path, core_path
+        note_path.write_text(text, encoding="utf-8")
+    return note_path
 
 
 def _write_ledger_for(cfg, project, review_scope, citekeys):
     """A real, minimally-populated `_corpus_ledger.md` — genuinely produced
     by review.ledger.write_corpus_ledger (never hand-crafted), so the
     canonical-key map + accepted/in_corpus/new counts are the SAME
-    machinery a real review run produces."""
+    machinery a real review run produces. This is what makes a citekey
+    "adopted" under the overlay unwind's mechanical-membership model."""
     review_dir = cfg.project_notes_dir(project) / "reviews" / review_scope
     review_dir.mkdir(parents=True, exist_ok=True)
     corpus_lines = ["| Annotation | Citekey |", "|---|---|"]
@@ -77,24 +78,35 @@ def _write_ledger_for(cfg, project, review_scope, citekeys):
 
 
 # ---------------------------------------------------------------------------
-# 1. Registry = the overlay dir
+# 1. Registry = mechanical corpus-ledger membership
 # ---------------------------------------------------------------------------
 
-class TestRegistryIsOverlayDir:
-    def test_no_overlay_dir_is_empty_list_not_error(self, cfg):
+class TestRegistryIsLedgerMembership:
+    def test_no_ledger_is_empty_list_not_error(self, cfg):
         rows = literature_mod.cmd_list("demo-research", config=cfg)
         assert rows == []
 
-    def test_enumerates_every_adopted_overlay(self, cfg):
-        _make_adopted_paper(cfg, "demo-research", "smith2024")
-        _make_adopted_paper(cfg, "demo-research", "jones2023")
+    def test_distilled_but_never_ledgered_is_invisible(self, cfg):
+        """0.3.2 (the overlay unwind): filing a shared note is not itself adoption — with
+        no ledger ever written, membership is honestly empty, not a
+        fabricated row for a paper that merely exists in the shared
+        store."""
+        _make_paper(cfg, "smith2024")
+        rows = literature_mod.cmd_list("demo-research", config=cfg)
+        assert rows == []
+
+    def test_enumerates_every_ledgered_citekey(self, cfg):
+        _make_paper(cfg, "smith2024")
+        _make_paper(cfg, "jones2023")
+        _write_ledger_for(cfg, "demo-research", "scope1", ["smith2024", "jones2023"])
         rows = literature_mod.cmd_list("demo-research", config=cfg)
         assert sorted(r["citekey"] for r in rows) == ["jones2023", "smith2024"]
 
-    def test_distilled_but_not_adopted_is_invisible(self, cfg):
-        """A core with no overlay in THIS project never appears — a
-        different project's adoption doesn't leak into this list."""
-        _make_adopted_paper(cfg, "demo-litreview", "smith2024")
+    def test_another_projects_ledger_never_leaks_in(self, cfg):
+        """A ledger this project never wrote (a different project's
+        membership) never leaks into this project's registry."""
+        _make_paper(cfg, "smith2024")
+        _write_ledger_for(cfg, "demo-litreview", "scope1", ["smith2024"])
         rows = literature_mod.cmd_list("demo-research", config=cfg)
         assert rows == []
 
@@ -105,7 +117,7 @@ class TestRegistryIsOverlayDir:
 
 class TestLedgerEnrichmentZeroRecomputation:
     def test_enriched_from_real_ledger(self, cfg):
-        _make_adopted_paper(cfg, "demo-research", "smith2024", doi="10.1234/smith2024")
+        _make_paper(cfg, "smith2024", doi="10.1234/smith2024")
         _write_ledger_for(cfg, "demo-research", "scope1", ["smith2024"])
 
         rows = literature_mod.cmd_list("demo-research", config=cfg)
@@ -121,7 +133,7 @@ class TestLedgerEnrichmentZeroRecomputation:
         conformance functions to raise — cmd_list must still return the
         correct enrichment, because it only re-parses the ALREADY-WRITTEN
         ledger table, never re-derives it."""
-        _make_adopted_paper(cfg, "demo-research", "smith2024", doi="10.1234/smith2024")
+        _make_paper(cfg, "smith2024", doi="10.1234/smith2024")
         _write_ledger_for(cfg, "demo-research", "scope1", ["smith2024"])
 
         def _boom(*_a, **_kw):
@@ -135,28 +147,37 @@ class TestLedgerEnrichmentZeroRecomputation:
         assert rows[0]["conformant"] is True
 
     def test_nonconformant_citekey_surfaced_from_ledger(self, cfg):
-        _make_adopted_paper(cfg, "demo-research", "Not_A_Citekey")
+        _make_paper(cfg, "Not_A_Citekey")
         _write_ledger_for(cfg, "demo-research", "scope1", ["Not_A_Citekey"])
         rows = literature_mod.cmd_list("demo-research", config=cfg)
         assert rows[0]["conformant"] is False
 
 
 # ---------------------------------------------------------------------------
-# 4. Honest gaps — never fabricated
+# 4. Every row is in_ledger by construction; role is no longer mechanical
 # ---------------------------------------------------------------------------
 
-class TestHonestGaps:
-    def test_citekey_never_in_any_ledger_is_honest_gap(self, cfg):
-        _make_adopted_paper(cfg, "demo-research", "smith2024")
-        # No ledger ever written for this project.
+class TestRoleIsNoLongerAField:
+    def test_in_ledger_always_true(self, cfg):
+        """0.3.2 (the overlay unwind): since membership IS ledger membership, every row
+        this registry ever returns came from a ledger — there is no more
+        'listed but never ledgered' honest-gap row."""
+        _make_paper(cfg, "smith2024")
+        _write_ledger_for(cfg, "demo-research", "scope1", ["smith2024"])
         rows = literature_mod.cmd_list("demo-research", config=cfg)
-        assert rows[0]["resolving_ids"] == ""
-        assert rows[0]["conformant"] is None
-        assert rows[0]["in_ledger"] is False
+        assert rows[0]["in_ledger"] is True
+
+    def test_role_is_always_none(self, cfg):
+        """Role moved to curated project MOCs (the overlay unwind, 0.3.2) —
+        this mechanical registry never enumerates it."""
+        _make_paper(cfg, "smith2024")
+        _write_ledger_for(cfg, "demo-research", "scope1", ["smith2024"])
+        rows = literature_mod.cmd_list("demo-research", config=cfg)
+        assert rows[0]["role"] is None
 
     def test_multiple_ledgers_merge_across_scopes(self, cfg):
-        _make_adopted_paper(cfg, "demo-research", "smith2024", doi="10.1234/smith2024")
-        _make_adopted_paper(cfg, "demo-research", "jones2023")
+        _make_paper(cfg, "smith2024", doi="10.1234/smith2024")
+        _make_paper(cfg, "jones2023")
         _write_ledger_for(cfg, "demo-research", "scope-a", ["smith2024"])
         _write_ledger_for(cfg, "demo-research", "scope-b", ["jones2023"])
         rows = {r["citekey"]: r for r in literature_mod.cmd_list("demo-research", config=cfg)}
@@ -165,24 +186,20 @@ class TestHonestGaps:
 
 
 # ---------------------------------------------------------------------------
-# 5. Dangling pointer surfaced, never silently dropped
+# 5. Adopted-but-not-materialized surfaced, never silently dropped
 # ---------------------------------------------------------------------------
 
-class TestDanglingPointerSurfaced:
-    def test_dangling_central_pointer_is_an_error_row_not_a_silent_drop(self, cfg):
-        overlay_dir = cfg.project_notes_dir("demo-research") / "literature"
-        overlay_dir.mkdir(parents=True, exist_ok=True)
-        (overlay_dir / "ghost2024.md").write_text(
-            "---\ntype: literature\ntitle: Ghost\ncentral: ghost2024\n---\n\n"
-            "## Concept edges\n\n",
-            encoding="utf-8",
-        )
-        # No central core ever created — dangling.
+class TestAdoptedButNotMaterializedSurfaced:
+    def test_ledgered_citekey_with_no_shared_note_is_an_error_row(self, cfg):
+        """A citekey this project's ledger claims membership for, but
+        whose shared note was never filed (or was later removed) —
+        surfaced as an error row, never silently dropped from the list."""
+        _write_ledger_for(cfg, "demo-research", "scope1", ["ghost2024"])
         rows = literature_mod.cmd_list("demo-research", config=cfg)
         assert len(rows) == 1
         assert rows[0]["citekey"] == "ghost2024"
         assert rows[0]["error"] is not None
-        assert "dangling" in rows[0]["error"].lower() or "central" in rows[0]["error"].lower()
+        assert "not yet materialized" in rows[0]["error"].lower() or "no shared" in rows[0]["error"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +222,7 @@ class TestCLIWiring:
 
     def test_run_prints_enriched_rows(self, cfg, capsys):
         import argparse
-        _make_adopted_paper(cfg, "demo-research", "smith2024", doi="10.1234/smith2024")
+        _make_paper(cfg, "smith2024", doi="10.1234/smith2024")
         _write_ledger_for(cfg, "demo-research", "scope1", ["smith2024"])
         args = argparse.Namespace(literature_cmd="list", project="demo-research")
         rc = literature_mod.run(args)
@@ -222,8 +239,11 @@ class TestCLIWiring:
 
 
 # ---------------------------------------------------------------------------
-# PR-B acceptance item 3: `rv init` scaffolds literature_root + `rv project
-# new` scaffolds the per-project overlay dir.
+# `rv init` scaffolds literature_root (the shared store); `rv project new`
+# still scaffolds a project-scoped literature/ dir as part of the generic
+# OKF-type scaffold (note.scaffold_okf_dirs — unused for literature content
+# post-overlay-unwind, but harmless: an empty dir a shared type's project-side
+# reader never reads).
 # ---------------------------------------------------------------------------
 
 class TestScaffolding:
@@ -250,7 +270,7 @@ class TestScaffolding:
                 os.environ["RESEARCH_VAULT_CONFIG"] = old
             reset_config_cache()
 
-    def test_rv_project_new_scaffolds_overlay_dir(self, cfg, tmp_path):
+    def test_rv_project_new_scaffolds_generic_type_dirs(self, cfg, tmp_path):
         from research_vault import project as project_mod
 
         source_dir = tmp_path / "new-project-repo"
@@ -259,6 +279,9 @@ class TestScaffolding:
             config_path=None,
         )
         assert rc == 0
-        overlay_dir = source_dir / "literature"
-        assert overlay_dir.exists()
-        assert overlay_dir.is_dir()
+        # scaffold_okf_dirs creates every OKF_TYPES dir generically —
+        # this project-scoped literature/ dir is never read by a shared-
+        # type reader post-unwind, but scaffolding it is harmless.
+        literature_dir = source_dir / "literature"
+        assert literature_dir.exists()
+        assert literature_dir.is_dir()

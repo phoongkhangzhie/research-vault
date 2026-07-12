@@ -14,9 +14,11 @@ three wiring points:
      silently certified.
 
 Plus the consumer-tolerance regression: a reader over a corpus carrying a
-dangling link never raises — it returns the partial + a SIGNAL list (already
-built by an earlier PR; re-asserted here as a regression pin for this PR's
-producer-side work).
+dangling link never raises — it returns the partial + a SIGNAL list.
+
+the overlay unwind (0.3.2): literature is shared-canonical — every
+fixture here writes ONE note directly under ``cfg.literature_root``, no
+per-project overlay, no ``central:`` pointer.
 
 All hermetic (``tmp_instance`` fixture from conftest.py). No live-instance reads.
 """
@@ -30,38 +32,27 @@ from research_vault.config import load_config
 from research_vault import note as note_mod
 
 
-def _write_lit_pair(
+def _write_lit_note(
     cfg,
-    project: str,
     citekey: str,
     *,
     core_body: str = "",
     concept_edges_body: str = "",
 ) -> None:
-    """Write a resolving two-layer literature pair: a thin overlay (with an
-    optional ``## Concept edges`` section) + its central core (with an
-    optional ``## Related papers`` section)."""
-    overlay_dir = cfg.project_notes_dir(project) / "literature"
-    overlay_dir.mkdir(parents=True, exist_ok=True)
-    overlay_text = (
-        "---\n"
-        "type: literature\n"
-        f"central: [{citekey}](okf:literature/{citekey}.md)\n"
-        "---\n"
-        f"{concept_edges_body}\n"
-    )
-    (overlay_dir / f"{citekey}.md").write_text(overlay_text, encoding="utf-8")
-
+    """Write a single shared-canonical literature note (the overlay unwind (0.3.2)) —
+    optionally carrying a ``## Related papers`` section (``core_body``) and
+    a ``## Concept edges`` section (``concept_edges_body``)."""
     cfg.literature_root.mkdir(parents=True, exist_ok=True)
-    core_text = (
+    text = (
         "---\n"
         "type: literature\n"
         f"citekey: {citekey}\n"
         f"title: {citekey} title\n"
         "---\n"
         f"{core_body}\n"
+        f"{concept_edges_body}\n"
     )
-    (cfg.literature_root / f"{citekey}.md").write_text(core_text, encoding="utf-8")
+    (cfg.literature_root / f"{citekey}.md").write_text(text, encoding="utf-8")
 
 
 class TestCheckLinkResolution:
@@ -71,29 +62,16 @@ class TestCheckLinkResolution:
         from research_vault.review import check_link_resolution
 
         cfg = load_config(reload=True)
-        _write_lit_pair(cfg, "demo-research", "smith2024")
+        _write_lit_note(cfg, "smith2024")
         result = check_link_resolution("demo-research", config=cfg)
         assert result == {"ok": True, "errors": []}
-
-    def test_dangling_backbone_link_is_an_error(self, tmp_instance):
-        from research_vault.review import check_link_resolution
-
-        cfg = load_config(reload=True)
-        overlay_dir = cfg.project_notes_dir("demo-research") / "literature"
-        overlay_dir.mkdir(parents=True, exist_ok=True)
-        (overlay_dir / "ghost2025.md").write_text(
-            "---\ntype: literature\ncentral: ghost2025\n---\n\n", encoding="utf-8",
-        )
-        result = check_link_resolution("demo-research", config=cfg)
-        assert result["ok"] is False
-        assert any("dangling" in e.lower() and "ghost2025" in e for e in result["errors"])
 
     def test_dangling_paper_edge_target_is_an_error(self, tmp_instance):
         from research_vault.review import check_link_resolution
 
         cfg = load_config(reload=True)
-        _write_lit_pair(
-            cfg, "demo-research", "smith2024",
+        _write_lit_note(
+            cfg, "smith2024",
             core_body=(
                 "## Related papers\n\n"
                 "- [nonexistent](/literature/nonexistent.md) — SUPPORTS: a claim.\n"
@@ -109,8 +87,8 @@ class TestCheckLinkResolution:
         from research_vault.review import check_link_resolution
 
         cfg = load_config(reload=True)
-        _write_lit_pair(
-            cfg, "demo-research", "smith2024",
+        _write_lit_note(
+            cfg, "smith2024",
             concept_edges_body=(
                 "## Concept edges\n\n"
                 "- [ghost concept](/concepts/ghost-concept.md) — SUPPORTS: a claim.\n"
@@ -133,8 +111,8 @@ class TestCheckLinkResolution:
         (concepts_dir / "real-concept.md").write_text(
             "---\ntype: concepts\n---\n\nA real concept.\n", encoding="utf-8",
         )
-        _write_lit_pair(
-            cfg, "demo-research", "smith2024",
+        _write_lit_note(
+            cfg, "smith2024",
             concept_edges_body=(
                 "## Concept edges\n\n"
                 "- [real concept](/concepts/real-concept.md) — SUPPORTS: a claim.\n"
@@ -154,8 +132,8 @@ class TestCheckLinkResolution:
         from research_vault.review import check_link_resolution
 
         cfg = load_config(reload=True)
-        _write_lit_pair(
-            cfg, "demo-research", "smith2024",
+        _write_lit_note(
+            cfg, "smith2024",
             core_body=(
                 "## Related papers\n\n"
                 "- [nonexistent](/literature/nonexistent.md) — SUPPORTS: a claim.\n"
@@ -179,8 +157,8 @@ class TestNoteCheckDefaultWarnStrictBlock:
 
     def test_default_check_warns_and_does_not_block(self, tmp_instance):
         cfg = load_config(reload=True)
-        _write_lit_pair(
-            cfg, "demo-research", "smith2024",
+        _write_lit_note(
+            cfg, "smith2024",
             core_body=(
                 "## Related papers\n\n"
                 "- [nonexistent](/literature/nonexistent.md) — SUPPORTS: a claim.\n"
@@ -193,8 +171,8 @@ class TestNoteCheckDefaultWarnStrictBlock:
 
     def test_strict_links_blocks(self, tmp_instance):
         cfg = load_config(reload=True)
-        _write_lit_pair(
-            cfg, "demo-research", "smith2024",
+        _write_lit_note(
+            cfg, "smith2024",
             core_body=(
                 "## Related papers\n\n"
                 "- [nonexistent](/literature/nonexistent.md) — SUPPORTS: a claim.\n"
@@ -207,7 +185,7 @@ class TestNoteCheckDefaultWarnStrictBlock:
 
     def test_clean_corpus_no_link_findings_either_posture(self, tmp_instance):
         cfg = load_config(reload=True)
-        _write_lit_pair(cfg, "demo-research", "smith2024")
+        _write_lit_note(cfg, "smith2024")
         for strict in (False, True):
             violations = note_mod.cmd_check(
                 "demo-research", config=cfg, strict_links=strict,
@@ -219,8 +197,8 @@ class TestNoteCheckDefaultWarnStrictBlock:
         import argparse
 
         cfg = load_config(reload=True)
-        _write_lit_pair(
-            cfg, "demo-research", "smith2024",
+        _write_lit_note(
+            cfg, "smith2024",
             core_body=(
                 "## Related papers\n\n"
                 "- [nonexistent](/literature/nonexistent.md) — SUPPORTS: a claim.\n"
@@ -236,8 +214,8 @@ class TestNoteCheckDefaultWarnStrictBlock:
         import argparse
 
         cfg = load_config(reload=True)
-        _write_lit_pair(
-            cfg, "demo-research", "smith2024",
+        _write_lit_note(
+            cfg, "smith2024",
             core_body=(
                 "## Related papers\n\n"
                 "- [nonexistent](/literature/nonexistent.md) — SUPPORTS: a claim.\n"
@@ -260,30 +238,36 @@ class TestNoteCheckDefaultWarnStrictBlock:
 
 class TestConsumerNeverRaises:
     """Regression pin: no reader over a corpus with a dangling link raises
-    — it returns the partial (or a report) + a surfaced signal. This
-    behavior was already built by an earlier PR; re-asserted here so this
-    PR's producer-side work never regresses it."""
+    — it returns the partial (or a report) + a surfaced signal."""
 
-    def test_load_literature_note_tolerant_on_dangling_backbone(self, tmp_instance):
-        from research_vault.literature import load_literature_note
-
+    def test_cmd_check_tolerant_on_note_with_no_type_dir_match(self, tmp_instance):
+        """0.3.2 (the overlay unwind): the old two-layer 'dangling central: pointer'
+        tolerant-load case no longer exists (there is no backbone link to
+        dangle) — the closest surviving consumer-tolerance regression is a
+        malformed/incomplete note under the shared root never raising when
+        read through cmd_check."""
         cfg = load_config(reload=True)
-        overlay_dir = cfg.project_notes_dir("demo-research") / "literature"
-        overlay_dir.mkdir(parents=True, exist_ok=True)
-        (overlay_dir / "ghost2025.md").write_text(
-            "---\ntype: literature\ncentral: ghost2025\n---\n\n", encoding="utf-8",
+        cfg.literature_root.mkdir(parents=True, exist_ok=True)
+        (cfg.literature_root / "ghost2025.md").write_text(
+            "---\ntype: literature\n---\n\n", encoding="utf-8",
         )
-        with pytest.warns(UserWarning):
-            assembled = load_literature_note(cfg, "demo-research", "ghost2025")
-        assert assembled.core_resolved is False
-        assert assembled.core_path is None
+        # Reaching this line without an exception IS the regression pin.
+        violations = note_mod.cmd_check("demo-research", config=cfg)
+        assert isinstance(violations, list)
 
     def test_relations_report_surfaces_dangling_as_a_signal_list(self, tmp_instance):
         from research_vault.review import relations_report
 
         cfg = load_config(reload=True)
-        _write_lit_pair(
-            cfg, "demo-research", "smith2024",
+        review_dir = cfg.project_notes_dir("demo-research") / "reviews" / "scope-x"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        (review_dir / "_corpus.md").write_text(
+            "| Annotation | Citekey |\n|---|---|\n"
+            "| [IN-CORPUS] | smith2024 |\n",
+            encoding="utf-8",
+        )
+        _write_lit_note(
+            cfg, "smith2024",
             core_body=(
                 "## Related papers\n\n"
                 "- [nonexistent](/literature/nonexistent.md) — SUPPORTS: a claim.\n"
@@ -313,8 +297,8 @@ class TestApproveReviewBlocksOnUnresolvedLink:
         )
         (review_dir / "_corpus.md").write_text("", encoding="utf-8")
 
-        _write_lit_pair(
-            cfg, "demo-research", "smith2024",
+        _write_lit_note(
+            cfg, "smith2024",
             core_body=(
                 "## Related papers\n\n"
                 "- [nonexistent](/literature/nonexistent.md) — SUPPORTS: a claim.\n"
@@ -347,7 +331,7 @@ class TestApproveReviewBlocksOnUnresolvedLink:
         )
         (review_dir / "_corpus.md").write_text("", encoding="utf-8")
 
-        _write_lit_pair(cfg, "demo-research", "smith2024")
+        _write_lit_note(cfg, "smith2024")
 
         nodes_lookup = {
             "review-coverage-critic": {

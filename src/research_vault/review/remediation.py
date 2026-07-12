@@ -388,12 +388,12 @@ def run_directed_remediation_round(
     escalation — see that function + ``incremental_relate.py``). This is
     the wiring this PR closes: previously the round appended corpus rows
     only, and ``review.incremental_relate`` was never reached from here.
-    ``literature_dir`` defaults to the standard ``project_notes_dir/
-    literature`` layout derived from ``corpus_path`` (which lives at
-    ``project_notes_dir/reviews/<scope>/_corpus.md``) when not given.
-    ``core_dir``, when given, is passed straight through to
+    ``literature_dir`` defaults to ``cfg.literature_root`` (the overlay unwind (0.3.2), the
+    overlay unwind — literature is shared-canonical, no per-project
+    literature/ dir left to default to) when not given. ``core_dir``, when
+    given, is passed straight through to
     ``run_incremental_relate_for_new_citekeys`` as the edge-WRITE target
-    (the two-layer store's central core); ``None`` degrades to writing at
+    (the same shared store); ``None`` degrades to writing at
     ``literature_dir`` (back-compat only).
 
     ★ Sibling-bug fix (remediation corpus-bypass): this round used to
@@ -526,7 +526,16 @@ def run_directed_remediation_round(
     # never re-relates the existing baseline — ``existing_citekeys`` here is
     # the baseline BEFORE this round's additions, matching "against already-
     # distilled EXISTING notes" per incremental_relate.py's contract).
-    lit_dir = literature_dir if literature_dir is not None else corpus_path.parent.parent / "literature"
+    # the overlay unwind (0.3.2): literature is shared-canonical — the
+    # default (when the caller doesn't pass ``literature_dir`` explicitly)
+    # resolves against ``cfg.literature_root``, never a per-project
+    # literature/ dir (there is no such dir any more).
+    if literature_dir is not None:
+        lit_dir = literature_dir
+    else:
+        from ..config import load_config as _load_config_remediation
+        _cfg_for_lit = config if config is not None else _load_config_remediation()
+        lit_dir = _cfg_for_lit.literature_root
     related = run_incremental_relate_for_new_citekeys(
         added, literature_dir=lit_dir, baseline_citekeys=existing_citekeys,
         relate_fn=relate_fn, escalate_relate_fn=escalate_relate_fn,

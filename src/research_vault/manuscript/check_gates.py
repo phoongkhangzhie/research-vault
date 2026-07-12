@@ -734,6 +734,7 @@ def build_approve_payload(
     *,
     judge_fn: Callable[[str], str] | None = None,
     literature_root: Path | None = None,
+    concepts_root: Path | None = None,
 ) -> dict[str, Any]:
     """Assemble the manuscript-loop gates for ``approve-manuscript``.
 
@@ -754,11 +755,15 @@ def build_approve_payload(
         judge_fn: optional injectable LLM call for ``check_support_tally``
             (the ``(prompt: str) -> str`` shape it already accepts). Passing
             one counts as "judge configured" even absent env vars (test seam).
-        literature_root: ``cfg.literature_root`` — the central
-            two-layer store, threaded into the hermetic bib gates
-            (citekey/authors/year/doi/arxiv_id are CORE-only content).
-            ``None`` degrades to reading the project overlay dir directly
-            (a monolithic fixture — not a violation, just a degrade path).
+        literature_root: ``cfg.literature_root`` — the shared literature
+            store (the overlay unwind (0.3.2)), threaded into the
+            hermetic bib gates (citekey/authors/year/doi/arxiv_id live
+            directly on the shared note). ``None`` degrades to reading
+            ``project_notes_dir/literature`` directly (a legacy/hermetic
+            fixture dir — not a violation, just a degrade path).
+        concepts_root: ``cfg.concepts_root`` — the shared concepts store,
+            threaded into the equation-fidelity gate's ``"concepts"``
+            source (0.3.2's concepts move — concepts is ALSO shared-canonical).
 
     Returns:
         ``{"ok": bool, "blocking": [...], "signals": [...], "not_run": [...]}``
@@ -814,6 +819,7 @@ def build_approve_payload(
     if equation_sources:
         ledger = _equations.extract_equation_ledger(
             project_notes_dir, equation_sources, literature_root=literature_root,
+            concepts_root=concepts_root,
         )
         draft_text = _read_draft_text(tree_root)
         eq_findings = _equations.check_equation_fidelity(ledger, draft_text)

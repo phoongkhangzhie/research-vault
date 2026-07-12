@@ -778,16 +778,13 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
     Args:
         note_path: absolute path to the literature/<citekey>.md note (used
             for error messages, and to read from when ``text`` is None).
-        text: the two-layer literature store splits a note into
-            a central core (Move 1/3/4 intrinsic fields) + a thin per-project
-            overlay (Move 4's edges land here too, by explicit fast-follow
-            deferral — see note.check_two_layer_invariants) + role/position
-            (Move-4's split). Callers checking a two-layer note MUST pass
-            the ASSEMBLED (core+overlay merged) text here — reading
-            note_path alone would only see the overlay's thin fields and
-            false-FAIL on every core-only checklist item. When ``text`` is
-            None, falls back to reading ``note_path`` directly (single-file
-            callers / tests).
+        text: a literature note is shared-canonical (the overlay unwind (0.3.2), the
+            overlay unwind) — ONE note carries every Move's fields (Move
+            1/3 intrinsic facts, Move 4 edges, role/position). Pass the
+            note's own text directly (or omit it — ``text=None`` falls back
+            to reading ``note_path``). Kept as an explicit parameter for
+            back-compat with pre-unwind callers that used to pass an
+            assembled core+overlay text.
 
     Returns:
         RelatePresenceResult — .ok True iff no findings.

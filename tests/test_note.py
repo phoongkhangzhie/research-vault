@@ -125,13 +125,11 @@ def test_cli_note_check_clean(tmp_instance, capsys):
 # ---------------------------------------------------------------------------
 
 def test_literature_template_carries_citekey_placeholder(cfg):
-    """A freshly-scaffolded literature note's CENTRAL CORE (not the thin
-    per-project overlay `cmd_new` returns — PR-A two-layer split) carries a
-    blank `citekey:` field."""
-    overlay_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
-    overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
-    core_path = cfg.literature_root / f"{note_mod._extract_central_slug(overlay_fields['central'])}.md"
-    content = core_path.read_text()
+    """A freshly-scaffolded literature note (0.3.2 (the overlay unwind): shared-canonical,
+    a single note — no overlay to look past) carries a blank `citekey:`
+    field."""
+    note_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    content = note_path.read_text()
     assert "citekey:" in content
 
 
@@ -147,14 +145,12 @@ def test_check_warns_absent_citekey_never_blocks(cfg):
 
 
 def test_check_warns_non_conformant_citekey(cfg):
-    """A citekey that doesn't match familyShorttitleYear WARNs. The
-    citekey lives on the CENTRAL CORE (PR-A two-layer split), not the
-    per-project overlay `cmd_new` returns."""
-    overlay_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
-    overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
-    core_path = cfg.literature_root / f"{note_mod._extract_central_slug(overlay_fields['central'])}.md"
-    content = core_path.read_text().replace("citekey: ", "citekey: 2005.14165", 1)
-    core_path.write_text(content)
+    """A citekey that doesn't match familyShorttitleYear WARNs. 0.3.2 (the overlay unwind):
+    the citekey lives directly on the single shared note `cmd_new` returns
+    — no overlay indirection."""
+    note_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    content = note_path.read_text().replace("citekey: ", "citekey: 2005.14165", 1)
+    note_path.write_text(content)
 
     violations = note_mod.cmd_check("demo-research", config=cfg)
     assert any(
@@ -165,12 +161,10 @@ def test_check_warns_non_conformant_citekey(cfg):
 
 def test_check_conformant_citekey_no_warning(cfg):
     """A properly-conformant citekey produces zero citekey-lint violations.
-    The citekey lives on the CENTRAL CORE (PR-A two-layer split)."""
-    overlay_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
-    overlay_fields, _ = note_mod._parse_frontmatter(overlay_path.read_text())
-    core_path = cfg.literature_root / f"{note_mod._extract_central_slug(overlay_fields['central'])}.md"
-    content = core_path.read_text().replace("citekey: ", "citekey: smithStudyFooBar2023", 1)
-    core_path.write_text(content)
+    0.3.2 (the overlay unwind): the citekey lives directly on the single shared note."""
+    note_path = note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
+    content = note_path.read_text().replace("citekey: ", "citekey: smithStudyFooBar2023", 1)
+    note_path.write_text(content)
 
     violations = note_mod.cmd_check("demo-research", config=cfg)
     assert not any(v.startswith("[citekey-lint]") for v in violations)
@@ -218,11 +212,14 @@ def test_reserved_filenames_skipped_in_cmd_check(cfg):
     assert not any("index.md" in v for v in violations)
 
 
-def test_reserved_filenames_skipped_in_iter_literature_notes(cfg):
-    overlay_dir = cfg.project_notes_dir("demo-research") / "literature"
-    overlay_dir.mkdir(parents=True, exist_ok=True)
-    (overlay_dir / "index.md").write_text("not an OKF note\n", encoding="utf-8")
+def test_reserved_filenames_skipped_in_literature_cmd_list(cfg):
+    """0.3.2 (the overlay unwind): literature is shared-canonical — the reserved-filename
+    skip is exercised through cmd_list against cfg.literature_root, the
+    same seam every other shared type uses (iter_literature_notes no
+    longer exists — there is no per-project overlay to iterate)."""
+    (cfg.literature_root).mkdir(parents=True, exist_ok=True)
+    (cfg.literature_root / "index.md").write_text("not an OKF note\n", encoding="utf-8")
     note_mod.cmd_new("demo-research", "literature", "A real paper", config=cfg, note_id="real2024")
 
-    notes = list(note_mod.iter_literature_notes(cfg, "demo-research"))
-    assert {n.overlay_path.stem for n in notes} == {"real2024"}
+    notes = note_mod.cmd_list("demo-research", "literature", config=cfg)
+    assert {n["path"].stem for n in notes} == {"real2024"}

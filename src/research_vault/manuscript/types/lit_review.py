@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from research_vault.config import Config
-from research_vault.note import _extract_central_slug, _parse_frontmatter
+from research_vault.note import _parse_frontmatter
 
 from . import ManuscriptType, SectionSpec, register_type
 
@@ -711,7 +711,18 @@ def phase1_builder(
     def _afterok(from_id: str) -> dict[str, str]:
         return {"from": from_id, "edge": "afterok"}
 
+    # concepts/literature are shared-canonical (the earlier concepts move,
+    # then the overlay unwind
+    # literature — the overlay unwind) — route to their own shared root via
+    # the GIVEN config (never force a load_config() call here; some callers
+    # deliberately run config=None / a duck-typed config double — see the
+    # same degrade discipline at index_literature_rows' call site below).
+    # getattr, not a bare attribute access, for the same duck-typing reason.
     def _rel(okf_type: str) -> str:
+        if okf_type in ("concepts", "literature"):
+            _shared_root = getattr(config, f"{okf_type}_root", None)
+            if _shared_root is not None:
+                return str(_shared_root)
         return str(project_notes_dir / okf_type)
 
     corpus_hash_note = _compute_corpus_hash_note(project, slug, project_notes_dir)
@@ -974,57 +985,39 @@ def index_literature_rows(
     ``repo``/``artifacts`` fields (empty string when the note predates the
     enrichment or the paper ships no code — never a fabricated value).
 
-     FF-3 (fit-check hard gate carried onto): ``citekey``/``year``/
-    ``venue``/``repo`` are CORE-only content under the two-layer split — a
-    project's ``literature/`` dir now holds thin OVERLAYS (``central:``
-    pointer, ``role``/``position``), so reading overlay frontmatter alone
-    would silently return these fields empty for every two-layer note. When
-    ``literature_root`` is given, each overlay's ``central:`` pointer is
-    resolved against it and the core's fields win on any collision — the
-    SAME degrade-tolerant merge ``manuscript/bib.py``'s literature index
-    already uses (duplicated here, not unified fit-check FF-1 is the
-    tracked follow-up for a single shared merge primitive; out of scope for
-    this fix). ``literature_root=None`` degrades to reading
-    ``literature_dir`` directly — the pre- behavior, still correct for a
-    legacy monolithic note that carries its own fields (and for hermetic
-    tests that intentionally exercise that path).
+    the overlay unwind (0.3.2): literature is shared-canonical — a
+    note's own frontmatter already carries ``citekey``/``year``/``venue``/
+    ``repo`` directly, no ``central:`` indirection to resolve. Prefer the
+    caller-supplied ``literature_root`` (``cfg.literature_root``) when given
+    — degrades to reading ``literature_dir`` directly when it isn't (still
+    correct for hermetic tests that pass a scratch dir with its own
+    fixture notes).
 
     Args:
-        literature_dir: the project's ``literature/`` OKF dir (the overlay
-            dir under the two-layer split).
-        literature_root: the central store (``cfg.literature_root``) to
-            resolve each overlay's ``central:`` pointer against. ``None``
-            is an honest degrade (see above), never an error.
+        literature_dir: the shared literature dir to scan (typically
+            ``cfg.literature_root``, or a hermetic fixture dir in tests).
+        literature_root: when given, preferred over ``literature_dir`` as
+            the scan root (kept for call-site back-compat — pre-unwind
+            callers passed both).
 
     Returns:
-        Rows sorted by citekey (falls back to the overlay's filename stem
-        when no resolvable ``citekey:`` is found — mirrors
+        Rows sorted by citekey (falls back to the filename stem when no
+        ``citekey:`` field is found — mirrors
         ``review._index_literature_notes_by_citekey``'s F17 convention).
         Empty list if the dir does not exist.
 
     """
-    if not literature_dir.exists():
+    scan_dir = literature_root if literature_root is not None else literature_dir
+    if not scan_dir.exists():
         return []
 
     rows: list[dict[str, str]] = []
-    for note_path in sorted(literature_dir.glob("*.md")):
+    for note_path in sorted(scan_dir.glob("*.md")):
         try:
             text = note_path.read_text(encoding="utf-8")
         except OSError:
             continue
-        overlay_fields, _ = _parse_frontmatter(text)
-        fields = dict(overlay_fields)
-        central = _extract_central_slug(str(overlay_fields.get("central") or ""))
-        if literature_root is not None and central:
-            core_path = Path(literature_root) / f"{central}.md"
-            if core_path.exists():
-                try:
-                    core_fields, _ = _parse_frontmatter(
-                        core_path.read_text(encoding="utf-8")
-                    )
-                    fields = {**overlay_fields, **core_fields}
-                except OSError:
-                    pass
+        fields, _ = _parse_frontmatter(text)
         citekey = str(fields.get("citekey", "")).strip() or note_path.stem
         rows.append({
             "citekey": citekey,
@@ -1195,9 +1188,9 @@ def source_transform(
         deviations_path = project_notes_dir / "reviews" / slug / "_deviations.md"
         appendix_methods = render_prisma_ledger(coverage, deviations_path=deviations_path)
 
-    #  FF-3: resolve two-layer overlays' core-only fields (year/venue/
-    # repo/citekey) against the central store — never read the thin overlay
-    # alone (see index_literature_rows' docstring). Only resolve against a
+    # Literature is shared-canonical (the overlay unwind (0.3.2)) —
+    # prefer the shared literature_root when the config carries one (see
+    # index_literature_rows' docstring). Only resolve against a
     # GIVEN config — never force a load_config() call here (source_transform
     # is called by catalog/grounding paths with config=None and no config
     # file on disk; falling back to load_config() would turn an honest
@@ -1926,7 +1919,11 @@ def phase2_builder(
     preamble = get_manuscript_style_preamble(config=config)
 
     if LIT_REVIEW.equation_sources:
-        ledger = _equations.extract_equation_ledger(project_notes_dir, LIT_REVIEW.equation_sources)
+        ledger = _equations.extract_equation_ledger(
+            project_notes_dir, LIT_REVIEW.equation_sources,
+            literature_root=getattr(config, "literature_root", None),
+            concepts_root=getattr(config, "concepts_root", None),
+        )
         tips = _equations.inject_equation_brief(
             tips, ledger, LIT_REVIEW.section_set, LIT_REVIEW.equation_sources
         )
@@ -1964,7 +1961,15 @@ def phase2_builder(
     def _afterok(from_id: str) -> dict[str, str]:
         return {"from": from_id, "edge": "afterok"}
 
+    # concepts/literature are shared-canonical (the earlier concepts move,
+    # then the overlay unwind
+    # literature — the overlay unwind) — same routing as phase1_builder's
+    # own ``_rel`` above.
     def _rel(okf_type: str) -> str:
+        if okf_type in ("concepts", "literature"):
+            _shared_root = getattr(config, f"{okf_type}_root", None)
+            if _shared_root is not None:
+                return str(_shared_root)
         return str(project_notes_dir / okf_type)
 
     exemplar_bundle_dir = _exemplars.resolve_exemplar_bundle_path(LIT_REVIEW.exemplar_bundle)

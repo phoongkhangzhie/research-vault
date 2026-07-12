@@ -134,19 +134,15 @@ def test_outline_gate_no_frozen_branches_is_a_noop():
 # ---------------------------------------------------------------------------
 
 def _write_lit_note_with_relation(
-    cfg, literature_dir: Path, citekey: str, target: str, tag: str = "SUPPORTS", reason: str = "shares the method"
+    cfg, literature_dir: Path, citekey: str, target: str, tag: str = "SUPPORTS",
+    reason: str = "shares the method", *, project: str = "demo-research", scope: str = "any-scope",
 ) -> None:
-    """Write a two-layer pair: a thin overlay carrying a resolving
-    ``central:`` backbone link, and the matching central core (at
-    ``cfg.literature_root``) carrying '## Related papers' — core-only
-    content (relations_report resolves each overlay's backbone link and
-    reads edges from the resolved core, never the overlay directly)."""
-    literature_dir.mkdir(parents=True, exist_ok=True)
-    (literature_dir / f"{citekey}.md").write_text(
-        f"---\ntype: literature\ntitle: A Paper\n"
-        f"central: [{citekey}](okf:literature/{citekey}.md)\n---\n\n",
-        encoding="utf-8",
-    )
+    """Write a single shared-canonical literature note (the overlay unwind (0.3.2), the
+    overlay unwind) at ``cfg.literature_root`` carrying '## Related papers',
+    AND register it in *scope*'s frozen ``_corpus.md`` — the mechanical
+    membership record ``relations_report`` now scopes "this project's
+    corpus" against (no more per-project overlay dir to glob).
+    ``literature_dir`` is accepted for call-site back-compat but unused."""
     cfg.literature_root.mkdir(parents=True, exist_ok=True)
     (cfg.literature_root / f"{citekey}.md").write_text(
         "---\ntype: literature\ntitle: A Paper\ncitekey: " + citekey + "\n---\n\n"
@@ -154,6 +150,13 @@ def _write_lit_note_with_relation(
         f"- [{target}](/literature/{target}.md) — {tag}: {reason}\n",
         encoding="utf-8",
     )
+    review_dir = cfg.project_notes_dir(project) / "reviews" / scope
+    review_dir.mkdir(parents=True, exist_ok=True)
+    corpus_path = review_dir / "_corpus.md"
+    existing = corpus_path.read_text(encoding="utf-8") if corpus_path.exists() else (
+        "| Annotation | Citekey |\n|---|---|\n"
+    )
+    corpus_path.write_text(existing + f"| [NEW] | {citekey} |\n", encoding="utf-8")
 
 
 def test_render_relations_ledger_traverses_pr2_edges(tmp_path: Path):
@@ -163,18 +166,25 @@ def test_render_relations_ledger_traverses_pr2_edges(tmp_path: Path):
 
     # Build a minimal Config whose project_notes_dir resolves to project_notes_dir.
     # literature_root is pinned to a SIBLING dir, distinct from
-    # project_notes_dir/literature — the two-layer store's central core is
-    # never the same directory as a project's own overlay (a minimal config
-    # with no override would otherwise alias notes_root/literature onto this
-    # single project's own overlay dir, hiding the two-layer split).
+    # project_notes_dir/literature — the shared literature store (0.3.2
+    # the overlay unwind) is never the same directory as a project's own notes dir (a
+    # minimal config with no override would otherwise alias
+    # notes_root/literature onto this single project's own notes dir,
+    # hiding the shared-vs-project distinction the test wants to exercise).
     raw = _default_config()
     raw["projects"] = {"demo": {"source_dir": str(project_notes_dir)}}
     raw["literature_root"] = str(tmp_path / "central-literature")
     raw = _expand_paths(raw, tmp_path)
     cfg = _CfgCls(raw)
 
-    _write_lit_note_with_relation(cfg, project_notes_dir / "literature", "xiong2023", "smith2022", tag="SUPPORTS")
-    _write_lit_note_with_relation(cfg, project_notes_dir / "literature", "smith2022", "xiong2023", tag="CONTRADICTS")
+    _write_lit_note_with_relation(
+        cfg, project_notes_dir / "literature", "xiong2023", "smith2022", tag="SUPPORTS",
+        project="demo",
+    )
+    _write_lit_note_with_relation(
+        cfg, project_notes_dir / "literature", "smith2022", "xiong2023", tag="CONTRADICTS",
+        project="demo",
+    )
 
     ledger = render_relations_ledger("demo", "any-scope", config=cfg)
     assert "xiong2023" in ledger
@@ -289,8 +299,18 @@ def test_phase2_builder_draft_consumes_pr2_relations_ledger(cfg):
     from research_vault.manuscript import cmd_new, cmd_expand
 
     project_notes_dir = cfg.project_notes_dir("demo-research")
-    _write_lit_note_with_relation(cfg, project_notes_dir / "literature", "xiong2023", "smith2022", tag="SUPPORTS")
-    _write_lit_note_with_relation(cfg, project_notes_dir / "literature", "smith2022", "xiong2023", tag="CONTRADICTS")
+    # render_relations_ledger's `slug` (the manuscript slug) is passed
+    # straight through to relations_report as the review `scope` — the
+    # frozen `_corpus.md` these edges get scoped to must live under that
+    # SAME slug.
+    _write_lit_note_with_relation(
+        cfg, project_notes_dir / "literature", "xiong2023", "smith2022", tag="SUPPORTS",
+        scope="survey-ng7-relations",
+    )
+    _write_lit_note_with_relation(
+        cfg, project_notes_dir / "literature", "smith2022", "xiong2023", tag="CONTRADICTS",
+        scope="survey-ng7-relations",
+    )
 
     cmd_new("demo-research", "survey-ng7-relations", ms_type_key="lit-review", config=cfg)
     manifest = cmd_expand("demo-research", "survey-ng7-relations", config=cfg)
