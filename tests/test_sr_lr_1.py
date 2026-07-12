@@ -587,7 +587,7 @@ def test_phase1_reads_resolve_against_project_okf_dirs(cfg, tmp_instance):
     # (Note: _protocol.md errors are expected — that artifact is created at run-time
     # by the review-scope node, not available pre-run. This test only checks the
     # OKF-dir relative-base bug is gone.)
-    errors, warns = resolve_reads_pointers(manifest, project_root=project_root)
+    errors, warns, pending = resolve_reads_pointers(manifest, project_root=project_root)
     okf_errors = [
         e for e in errors
         if any(t in e for t in ("literature", "concepts", "mocs", "findings"))
@@ -632,7 +632,7 @@ def test_phase1_reads_grounding_is_nontrivial(cfg, tmp_instance):
 
     # After the fix, the reads: pointer for 'findings' is an absolute path that
     # no longer exists → must surface at least one error
-    errors, warns = resolve_reads_pointers(manifest, project_root=project_root)
+    errors, warns, pending = resolve_reads_pointers(manifest, project_root=project_root)
     # Filter to OKF-dir errors (exclude _protocol.md which is also absent in tests)
     assert any("findings" in e for e in errors), (
         "Grounding check must catch a missing 'findings' OKF dir. "
@@ -666,7 +666,7 @@ def test_phase2_reads_resolve_against_project_okf_dirs(cfg, tmp_instance, corpus
     # protocol_path is absolute; OKF dirs must also be absolute after the fix
     # Don't create the protocol file — it's an absolute path that won't exist;
     # so we only check that OKF-dir reads: errors (the relative-base bug) are gone.
-    errors, warns = resolve_reads_pointers(manifest, project_root=project_root)
+    errors, warns, pending = resolve_reads_pointers(manifest, project_root=project_root)
     okf_errors = [e for e in errors if any(
         t in e for t in ("literature", "concepts", "mocs", "findings")
     )]

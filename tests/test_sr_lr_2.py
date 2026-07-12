@@ -171,13 +171,16 @@ def test_gap_status_values():
 
 
 def test_gap_types_frozenset():
-    """2c. GAP_TYPES frozenset has all 3 gap type constants (absent_row removed)."""
+    """2c. GAP_TYPES frozenset has all 4 gap type constants (absent_row
+    removed; coverage_void added — the lit-review's own facet-coverage
+    detector, 0.3.2)."""
     from research_vault.review.gap_scan import GAP_TYPES
     assert "knowledge_void" in GAP_TYPES
     assert "contradictory" in GAP_TYPES
     assert "evaluation_void" in GAP_TYPES
+    assert "coverage_void" in GAP_TYPES
     assert "absent_row" not in GAP_TYPES  # removed
-    assert len(GAP_TYPES) == 3
+    assert len(GAP_TYPES) == 4
 
 
 # ---------------------------------------------------------------------------

@@ -220,20 +220,39 @@ def _resolve_reads_or_warn(
     manifest: dict[str, Any],
     project_root: Path,
     verb_prefix: str,
+    *,
+    node_states: dict[str, dict[str, Any]] | None = None,
 ) -> None:
-    """Resolve reads: pointers; print errors + warns to stdout/stderr.
+    """Resolve reads: pointers; print errors + warns + pending to stdout/stderr.
 
-    Hard errors (unresolvable pointers) are printed to stderr — they signal the
-    manifest's reading-scope is broken and the agent would re-ground blindly.
-    Soft warns (symbol not found) are printed to stdout.
+    Hard errors (a reads: pointer that no node in this manifest declares as
+    its produces: output) are printed to stderr — they signal the
+    manifest's reading-scope is genuinely broken and the agent would
+    re-ground blindly. Soft warns (symbol not found) are printed to
+    stdout. PENDING (a reads: pointer that a node in this SAME manifest
+    declares as its produces: output, whose producing node has not yet
+    succeeded) is printed to stdout as advisory, non-alarming information —
+    "this artifact does not exist yet because its producer hasn't run", not
+    "the manifest is wrong" (task #97).
+
+    ``node_states`` — pass the run's ``run_state.node_states`` so a
+    produces:-matched pointer can be resolved against the producing node's
+    ACTUAL status (still classified pending unless that node has already
+    succeeded, in which case a still-missing artifact is a genuine error —
+    see ``resolve_reads_pointers``). Omit on a fresh run with no state yet
+    (every producer is implicitly not-yet-succeeded).
 
     This is a non-blocking advisory pass — it does NOT abort the run/tick
     (the manifest already passed validate_manifest structurally). Surfacing the
     errors here is the run/tick equivalent of reconcile's artifact checks.
     """
-    errors, warns = resolve_reads_pointers(manifest, project_root=project_root)
+    errors, warns, pending = resolve_reads_pointers(
+        manifest, project_root=project_root, node_states=node_states,
+    )
     for w in warns:
         print(f"  ⚠ reads-scope: {w}")
+    for p in pending:
+        print(f"  ⏳ reads-scope: {p}")
     if errors:
         import sys as _sys
         for e in errors:
@@ -253,6 +272,7 @@ def _resolve_reads_or_warn(
 # _recompute_awaiting_go share exactly ONE definition (never drift).
 _AUTONOMOUS_GATE_IDS = frozenset({
     "coverage-gate", "approve-framework", "approve-manuscript", "approve-review",
+    "gap-coverage-gate",
 })
 
 _TOOL_AUTO_EXEC_MAX_PASSES = 100  # bounded loop guard — never spin forever
@@ -362,6 +382,7 @@ def _evaluate_autonomous_gate(
     nodes_lookup: dict[str, Any],
     manifest_path: Path,
     run_state: RunState,
+    manifest: dict[str, Any] | None = None,
 ) -> Any:
     """The SINGLE-SOURCED dispatch from a DAG node id to a
     ``review.autonomy`` disposition (previously duplicated inline
@@ -369,6 +390,13 @@ def _evaluate_autonomous_gate(
     always-on runner — now used by BOTH so the four autonomous gates
     resolve identically whether triggered by an explicit ``--auto`` flag
     or by the self-advancing runner in ``_recompute_awaiting_go``).
+
+    ``manifest`` (optional, default ``None``): the full manifest dict —
+    only needed by ``gap-coverage-gate`` (below), which reads the
+    manifest's top-level ``project`` field to resolve
+    ``project_notes_dir``. Every other branch derives everything it needs
+    from ``nodes_lookup``/``manifest_path``/``run_state`` alone; ``None``
+    is a correct default for those.
 
     ``coverage-gate`` additionally runs through a live
     coverage-deviation check (``classify_coverage_gate_with_deviation_check``)
@@ -470,6 +498,29 @@ def _evaluate_autonomous_gate(
                     f"rv dag approve: coverage-gate: _corpus_ledger.md assembly "
                     f"failed ({e}) — the gate's disposition is UNAFFECTED, but "
                     f"the ledger is stale/absent; re-run to retry.",
+                    file=_sys.stderr,
+                )
+
+            # gaps = RQ - coverage (0.3.2): the lit-review's own
+            # missing SECOND output. Run regardless of disposition (GO,
+            # GO-WITH-RESIDUE, or HALT-DECLARE) — the search+corpus has
+            # already happened by the time coverage-gate evaluates, so the
+            # facet-coverage record is available even on a HALT. Never lets
+            # a gap-emission failure affect the gate's own disposition
+            # (same non-fatal posture as the ledger assembly above).
+            try:
+                from ..review.gap_scan import emit_coverage_gaps as _emit_coverage_gaps
+
+                _emit_coverage_gaps(
+                    review_dir, review_dir.parent.parent, scope_id=review_dir.name,
+                )
+            except Exception as e:  # noqa: BLE001 — surfaced, never swallowed
+                import sys as _sys
+                print(
+                    f"rv dag approve: coverage-gate: coverage-gap emission "
+                    f"failed ({e}) — the gate's disposition is UNAFFECTED, but "
+                    f"no gaps/ notes were written for this scope this pass; "
+                    f"re-run to retry.",
                     file=_sys.stderr,
                 )
             return disposition
@@ -1213,6 +1264,50 @@ def _evaluate_autonomous_gate(
 
         return disposition
 
+    if node_id == "gap-coverage-gate":
+        # The spine's SECOND mechanical gate (0.3.2): the
+        # existing coverage-gate certifies the CORPUS; this one certifies
+        # that the research GAPS a plan committed to were actually closed
+        # (a finding's ANSWERS edge) or explicitly declared open
+        # (disposition: leaves-open + a reason) — never silently
+        # abandoned. Requires the manifest's own 'project' field to
+        # resolve project_notes_dir (research-loop.json-shaped experiment
+        # manifests declare it; see the top-level 'project' key).
+        project = manifest.get("project") if isinstance(manifest, dict) else None
+        if not project:
+            return _autonomy.DispositionResult(
+                _autonomy.HALT_DECLARE,
+                "gap-coverage-gate: cannot resolve a 'project' slug from "
+                "this manifest (no top-level 'project' field) — cannot "
+                "locate project_notes_dir to check gap coverage. Add "
+                "\"project\": \"<slug>\" to the manifest.",
+                {},
+            )
+
+        from ..review.gap_coverage_gate import check_gap_coverage_gate as _check_gap_cov
+
+        cfg = load_config()
+        project_notes_dir = cfg.project_notes_dir(project)
+        result = _check_gap_cov(project_notes_dir)
+
+        if result["ok"]:
+            return _autonomy.DispositionResult(
+                _autonomy.GO,
+                f"gap-coverage-gate: every open gap is closed (ANSWERS) or "
+                f"explicitly LEAVES-OPEN — {len(result['closed'])} closed, "
+                f"{len(result['leaves_open'])} leaves-open.",
+                result,
+            )
+        return _autonomy.DispositionResult(
+            _autonomy.HALT_DECLARE,
+            f"gap-coverage-gate: {len(result['open_uncovered'])} open "
+            f"gap(s) neither ANSWERED by a finding nor explicitly "
+            f"LEAVES-OPEN: {result['open_uncovered']!r}. Close each with a "
+            "finding's ANSWERS edge, or stamp disposition: leaves-open + "
+            "disposition_reason on the gap note.",
+            result,
+        )
+
     raise ValueError(f"_evaluate_autonomous_gate: {node_id!r} is not an autonomous gate id")
 
 
@@ -1516,7 +1611,9 @@ def _recompute_awaiting_go(
         if node_id in _AUTONOMOUS_GATE_IDS:
             from ..review import autonomy as _autonomy
 
-            disposition = _evaluate_autonomous_gate(node_id, nodes_lookup, manifest_path, run_state)
+            disposition = _evaluate_autonomous_gate(
+                node_id, nodes_lookup, manifest_path, run_state, manifest=manifest,
+            )
             mutated = True
             ns = run_state.node_states.setdefault(node_id, {})
             ns["decision_note"] = f"{disposition.disposition} (auto): {disposition.reason}"
@@ -1926,7 +2023,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     _print_manifest_warns(manifest)
 
     # Resolve reads: pointers (I/O pass — after pure validate)
-    _resolve_reads_or_warn(manifest, manifest_path.parent, "rv dag run")
+    _resolve_reads_or_warn(
+        manifest, manifest_path.parent, "rv dag run",
+        node_states=run_state.node_states,
+    )
 
     print(f"Run {run_id!r} started.")
     print(f"  manifest: {manifest_path}")
@@ -1971,7 +2071,10 @@ def cmd_tick(args: argparse.Namespace) -> int:
     _print_manifest_warns(manifest)
 
     # Resolve reads: pointers (I/O pass — after pure validate)
-    _resolve_reads_or_warn(manifest, manifest_path.parent, "rv dag tick")
+    _resolve_reads_or_warn(
+        manifest, manifest_path.parent, "rv dag tick",
+        node_states=run_state.node_states,
+    )
 
     print(f"Tick: run {run_id!r}")
     frontier = _recompute_awaiting_go(run_state, manifest, store)
@@ -2735,7 +2838,9 @@ def cmd_approve(args: argparse.Namespace) -> int:
     if auto and not reject and node_id in _AUTONOMOUS_GATE_IDS:
         from ..review import autonomy as _autonomy
 
-        _disposition_result = _evaluate_autonomous_gate(node_id, nodes_lookup, manifest_path, run_state)
+        _disposition_result = _evaluate_autonomous_gate(
+            node_id, nodes_lookup, manifest_path, run_state, manifest=manifest,
+        )
 
         print(
             f"rv dag approve --auto: {node_id!r} disposition = "

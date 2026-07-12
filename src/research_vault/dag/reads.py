@@ -237,6 +237,58 @@ def resolve_reads_pointer(
 
 
 # ---------------------------------------------------------------------------
+# Produces index — the pending-vs-error classification (task #97 fold-in)
+# ---------------------------------------------------------------------------
+#
+# On a FRESH run, a downstream node's reads: pointer to an upstream artifact
+# (e.g. review-screen reading review-scope's _protocol.md) is UNRESOLVABLE
+# purely because the producing node hasn't run yet — not because the
+# manifest's reads: field is wrong. The pre-fix behavior printed this as a
+# "reads-scope ERROR ... fix the reads: field" — alarming and misleading (an
+# adopter reads that and thinks the loop is broken). The fix: classify an
+# unresolved pointer against the manifest's OWN produces: declarations
+# before calling it an error — a pointer some node in this SAME manifest
+# declares as its produces: output is a forward reference to a
+# not-yet-produced artifact (PENDING), not a manifest mistake (ERROR).
+
+def _resolve_produces_value(value: str, project_root: Path) -> Path:
+    """Resolve a produces: value the SAME way a reads: file path resolves —
+    absolute as-is, else relative to project_root. This is what makes a
+    bare reads: pointer (e.g. "_protocol.md") match an equally-bare-
+    resolved produces: value emitted by the SAME loop builder (review/
+    __init__.py's node-id-keyed produces: dicts already emit ABSOLUTE
+    paths for review artifacts — see the note:-resolver-scope memory; this
+    also covers a hypothetical relative produces: value identically)."""
+    p = Path(value)
+    return p if p.is_absolute() else project_root / value
+
+
+def build_produces_index(
+    manifest: dict[str, Any], project_root: Path,
+) -> dict[str, str]:
+    """Map every node's declared produces: artifact (resolved to an
+    ABSOLUTE path string) to the node id that produces it.
+
+    A node with no produces: dict contributes nothing (a tool op with no
+    declared output, or a human-go/agent node with no artifact contract).
+    A non-string / empty produces: value is skipped defensively (already a
+    structural concern for validate_manifest, not this resolver's job).
+    """
+    index: dict[str, str] = {}
+    for node in manifest.get("nodes", []):
+        produces = node.get("produces")
+        if not isinstance(produces, dict):
+            continue
+        nid = node.get("id", "<unknown>")
+        for value in produces.values():
+            if not isinstance(value, str) or not value:
+                continue
+            resolved = _resolve_produces_value(value, project_root)
+            index[str(resolved)] = nid
+    return index
+
+
+# ---------------------------------------------------------------------------
 # Manifest-level resolution pass
 # ---------------------------------------------------------------------------
 
@@ -244,17 +296,38 @@ def resolve_reads_pointers(
     manifest: dict[str, Any],
     *,
     project_root: Path,
-) -> tuple[list[str], list[str]]:
+    node_states: dict[str, dict[str, Any]] | None = None,
+) -> tuple[list[str], list[str], list[str]]:
     """Resolve all reads: pointers in a manifest at run/tick time.
 
     This is the RESOLUTION pass — called by cmd_run / cmd_tick AFTER the pure
     validate_manifest structural check. It walks all agent nodes' reads: lists,
-    resolves each pointer, and accumulates hard errors and soft warns.
+    resolves each pointer, and accumulates hard errors, soft warns, and
+    pending-upstream classifications.
 
     Returns:
-      (errors, warns) — lists of strings.
-      errors: non-empty → manifest should fail hard at run/tick.
-      warns:  non-empty → soft issues (symbols not found etc.), surfaced non-fatally.
+      (errors, warns, pending) — lists of strings.
+      errors:  non-empty → a pointer that resolves to NO node's produces:
+               declaration anywhere in this manifest — a genuine manifest
+               mistake ("fix the reads: field").
+      warns:   soft issues (symbols not found etc.), surfaced non-fatally.
+      pending: an unresolved pointer that matches a produces: declaration
+               of a node in THIS manifest whose status is not yet
+               "succeeded" — an honest forward reference to an artifact
+               that will exist once its producing node runs, never a
+               mistake. Surfaced separately from errors so callers can
+               print it as advisory ("PENDING (produced upstream by
+               <node>)") rather than an alarming ERROR.
+
+      ``node_states`` (optional): ``{node_id: {"status": ...}}`` — when
+      given, a pointer matching a produces: declaration whose producing
+      node has ALREADY succeeded (and the file is STILL missing) is kept
+      as a genuine error (something is actually wrong — a claimed success
+      with no artifact on disk), never silently downgraded to pending.
+      When omitted (e.g. a pre-run manifest with no run state yet), any
+      produces:-matched pointer is classified pending — the producing
+      node's status is simply unknown, and "will be produced upstream" is
+      the honest, non-alarming default.
 
     human-go nodes are skipped (they carry no reads: and are decision gates).
     Nodes with no reads: field are skipped (optional field).
@@ -263,6 +336,8 @@ def resolve_reads_pointers(
 
     errors: list[str] = []
     warns: list[str] = []
+    pending: list[str] = []
+    produces_index = build_produces_index(manifest, project_root)
 
     for node in manifest.get("nodes", []):
         node_type = node.get("type", DEFAULT_NODE_TYPE)
@@ -285,11 +360,31 @@ def resolve_reads_pointers(
 
             err, warn = resolve_reads_pointer(ref, project_root=project_root)
             if err is not None:
+                file_part, _anchor, _symbol = _parse_pointer(ref)
+                resolved = _resolve_produces_value(file_part, project_root)
+                producing_nid = produces_index.get(str(resolved))
+                if producing_nid is not None:
+                    producing_status = (
+                        node_states.get(producing_nid, {}).get("status", "pending")
+                        if node_states is not None else "pending"
+                    )
+                    if producing_status != "succeeded":
+                        pending.append(
+                            f"node {nid!r}: reads pointer {ref!r} — PENDING "
+                            f"(produced upstream by node {producing_nid!r}, "
+                            f"not yet succeeded — status={producing_status!r})"
+                        )
+                        continue
+                    # The declared producer already succeeded, yet the
+                    # artifact is STILL missing — this is a genuine problem
+                    # (a claimed success with nothing on disk), never
+                    # silently downgraded. Falls through to the hard-error
+                    # append below.
                 errors.append(f"node {nid!r}: {err}")
             if warn is not None:
                 warns.append(f"node {nid!r}: {warn}")
 
-    return errors, warns
+    return errors, warns, pending
 
 
 # ---------------------------------------------------------------------------

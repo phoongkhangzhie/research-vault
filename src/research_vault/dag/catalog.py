@@ -197,12 +197,25 @@ LOOP_CATALOG: list[LoopEntry] = [
                 ),
                 freeze_action=None,
             ),
+            LoopGate(
+                node_id="gap-coverage-gate",
+                label=(
+                    "Every gap pre-registered against is either ANSWERED by a finding "
+                    "or explicitly LEAVES-OPEN (review.gap_coverage_gate) — autonomous "
+                    "gate, no human keypress needed"
+                ),
+                freeze_action=None,
+                autonomous=True,
+            ),
         ],
         topology_summary=(
-            "plan → plan-critic → [HG:human-go-plan] → "
+            "plan (gap-driven) → plan-critic → [HG:human-go-plan] → "
             "{per-main: harness→harness-review→[HG:human-go-harness-main<k>] → "
-            "run→score→analyze (+ablation-run→score→analyze)} → "
-            "[HG:human-go-conditionals-main*] → [HG:human-go-findings] → methods-update"
+            "run→run-register(PRODUCED)→score→score-register(PRODUCED)→"
+            "analyze→analyze-register(DERIVED-FROM/ADDRESSES/ANSWERS) "
+            "(+ablation-run→...→analyze-register)} → "
+            "[HG:human-go-conditionals-main*] → [HG:human-go-findings] → "
+            "gap-coverage-gate (auto-resolved) → methods-update"
         ),
     ),
 
