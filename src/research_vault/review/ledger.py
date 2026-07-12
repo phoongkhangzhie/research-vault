@@ -84,7 +84,7 @@ def _q_block(protocol_path: Path, walk_path: Path, gaps_path: Path) -> dict[str,
         distinct_query_count = 0
         matrix_band_ok = False
     else:
-        # 0.3.2 tiered-hash split: the ledger's Q block is about the ACTUAL
+        # 0.3.1 tiered-hash split: the ledger's Q block is about the ACTUAL
         # searched query matrix — repointed to the query-TEXT tier
         # (``hash_query_matrix_bytes``), which is what changes across a
         # ``within-facet-query-append`` remediation round. The frozen-tier

@@ -597,7 +597,7 @@ def _evaluate_autonomous_gate(
                     key=lambda r: _severity[r.disposition],
                 )
 
-            # 0.3.2 Layer 2/3: the explicit 3-tier fold (design item 2) —
+            # 0.3.1 Layer 2/3: the explicit 3-tier fold (design item 2) —
             # (1) any HALT already returned above / dominates unconditionally
             # (this branch is only reached with disposition != HALT_DECLARE);
             # (2) a thin pole + remediation budget remaining routes through
@@ -2401,7 +2401,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 if not in_band:
                     print(f"rv dag approve: approve-protocol SIGNAL: {band_msg}", file=sys.stderr)
 
-            # 0.3.2 Layer 1: the per-facet/per-pole generation-time breadth
+            # 0.3.1 Layer 1: the per-facet/per-pole generation-time breadth
             # floor — a real HARD BLOCK (unlike D-1's band SIGNAL above),
             # scoped to the nested D-3 facet form (mirrors D-7's own
             # scoping). N/M are config-driven, per-review-type overridable

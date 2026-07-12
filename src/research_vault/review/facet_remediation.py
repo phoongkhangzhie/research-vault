@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/facet_remediation.py — 0.3.2 Layer 3: the tiered-hash facet
+"""review/facet_remediation.py — 0.3.1 Layer 3: the tiered-hash facet
 re-search remediation loop (the "reborn remediation" — anti-fishing-fenced).
 
 Design of record: internal design note (operator-private, not shipped).
@@ -88,7 +88,7 @@ def resolve_facet_coverage(
 
     - ``facet_coverage_info`` is ``None`` or ``not facet_coverage_info.get
       ("declared")`` -> ``base`` unchanged (an honest no-op: a manifest
-      with no nested D-3 facets, or a pre-0.3.2 sweep, never computed
+      with no nested D-3 facets, or a pre-0.3.1 sweep, never computed
       facet-coverage at all — never a fabricated thin-pole signal).
     - no ``thin_poles`` -> ``base`` unchanged (nothing to remediate).
     - thin pole(s), remediation budget remaining -> ``FACET_REMEDIATE``

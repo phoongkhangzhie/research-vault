@@ -990,7 +990,7 @@ def get_critic_backtrack_max_rounds(config: Any = None) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Facet-breadth / facet-coverage config seam (0.3.2 — search-breadth +
+# Facet-breadth / facet-coverage config seam (0.3.1 — search-breadth +
 # facet-coverage redesign, "recall from queries"). All four knobs are
 # per-review-type overridable via an OPTIONAL nested
 # ``[review_style.by_type.<review_type>]`` sub-table checked BEFORE the

@@ -175,7 +175,7 @@ def parse_angle_matrix(protocol_text: str) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Layer 3 (0.3.2) — the append-only protocol-text writer. The COUNTERPART to
+# Layer 3 (0.3.1) — the append-only protocol-text writer. The COUNTERPART to
 # `parse_angle_matrix` above: appends new query strings under an ALREADY-
 # DECLARED ``(angle, stance)`` pole's ``- "..."`` list, in place, leaving
 # every other byte of the frontmatter untouched (never a full YAML
@@ -437,7 +437,7 @@ def validate_matrix_band(
 
 
 # ---------------------------------------------------------------------------
-# Layer 1 (0.3.2) — the generation-time facet-BREADTH floor, a HARD BLOCK at
+# Layer 1 (0.3.1) — the generation-time facet-BREADTH floor, a HARD BLOCK at
 # approve-protocol. `dedupe_near_duplicate_queries` above (query-time,
 # stdlib token-Jaccard, no domain-vocab awareness) is a rejects-only SCREEN
 # here — the real breadth guarantee is Layer 2 (result-pool distinct-paper
@@ -484,7 +484,7 @@ def check_facet_breadth_floor(
     min_per_pole: int = 2,
     near_dup_threshold: float = 0.9,
 ) -> tuple[bool, str]:
-    """Layer 1 (0.3.2): the generation-time facet-breadth HARD BLOCK.
+    """Layer 1 (0.3.1): the generation-time facet-breadth HARD BLOCK.
 
     Scoped to ``group_facet_stances``' output ONLY (the nested D-3
     thesis/counter facet form) — mirrors D-7's own scoping (a purely-legacy
@@ -562,7 +562,7 @@ def check_facet_breadth_floor(
 
 
 # ---------------------------------------------------------------------------
-# Layer 2 (0.3.2) — result-time facet-coverage: count result-pool-DEDUPED
+# Layer 2 (0.3.1) — result-time facet-coverage: count result-pool-DEDUPED
 # DISTINCT PAPERS per declared pole (never raw hit rows — 3 near-dup queries
 # returning the same 2 papers must read as 2, not 3; the load-bearing
 # breadth guarantee, unlike Layer 1's rejects-only query-count screen).
@@ -1054,7 +1054,7 @@ def write_search_hits(
         f"dark_sources: {', '.join(result.dark_sources)}",
     ]
     if facet_coverage is not None:
-        # 0.3.2 Layer 2: stamp the per-pole distinct-paper coverage +
+        # 0.3.1 Layer 2: stamp the per-pole distinct-paper coverage +
         # thin-pole markers so a LATER `coverage-gate` evaluation (a
         # different process invocation — the cells themselves are
         # ephemeral, never persisted) can read the facet-coverage disposition

@@ -56,7 +56,7 @@ def _norm_criteria_value(v: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 0.3.2 tiered-hash split (the search-breadth + facet-coverage redesign's
+# 0.3.1 tiered-hash split (the search-breadth + facet-coverage redesign's
 # crux). Precedent = ``plan/freeze.py``'s ``covers_hash`` vs
 # ``covers_retries_hash`` split — charter §6, a sibling shape, not a new
 # mechanism.
@@ -116,7 +116,7 @@ def canonicalize_frozen_criteria(protocol_text: str) -> str:
     (citekey set, may grow if declared) and "criteria" (these hashed bytes).
 
     question/inclusion/exclusion/coverage_claim/sources (unchanged from the
-    pre-0.3.2 ``canonicalize_criteria``) PLUS the facet KEY SET
+    pre-0.3.1 ``canonicalize_criteria``) PLUS the facet KEY SET
     (``_facet_key_set_canon``) — NEVER the individual query strings (see
     module-level tiered-hash note above).
     """
@@ -279,7 +279,7 @@ def stamp_corpus_freeze(
         "corpus_hash": hash_file(corpus_path) if corpus_path.exists() else "",
         "corpus_citekeys": citekeys,
         "criteria_hash": hash_criteria_bytes(protocol_path),
-        # 0.3.2 tiered-hash split: the query-text tier, tracked ALONGSIDE
+        # 0.3.1 tiered-hash split: the query-text tier, tracked ALONGSIDE
         # the frozen-tier `criteria_hash` (never merged into it) — see the
         # module-level tiered-hash note above `canonicalize_frozen_criteria`.
         "query_matrix_hash": hash_query_matrix_bytes(protocol_path),
@@ -331,7 +331,7 @@ def refresh(
       1. Load the ``corpus_freeze`` baseline. Absent -> BLOCK.
       2. Re-parse ``_corpus.md`` (the hardened parser — a malformed row
          raises ``CorpusSchemaError``, propagated, never silently skipped).
-      3. Criteria-hash check (0.3.2: the FROZEN TIER only —
+      3. Criteria-hash check (0.3.1: the FROZEN TIER only —
          ``hash_criteria_bytes``/``canonicalize_frozen_criteria`` — NEVER the
          query-text tier; see the module-level tiered-hash note): a changed
          frozen-tier hash with no human ``criteria-change`` deviation on

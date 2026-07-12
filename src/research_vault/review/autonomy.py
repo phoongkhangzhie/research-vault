@@ -95,7 +95,7 @@ HALT_DECLARE = "HALT-DECLARE"
 # bounded, pole-directed backtrack round, `review.remediation`).
 CRITIC_BACKTRACK = "CRITIC-BACKTRACK"
 
-# 0.3.2 (search-breadth + facet-coverage redesign): coverage-gate-only, a
+# 0.3.1 (search-breadth + facet-coverage redesign): coverage-gate-only, a
 # SEPARATE mechanism from CRITIC_BACKTRACK above (that one answers
 # approve-review's L-2 counter-position/thin-pole critic BLOCK on the
 # FINAL corpus; this one answers Layer 2's RESULT-TIME facet-coverage gate
@@ -499,7 +499,7 @@ def _parse_corpus_citekeys_helper(corpus_path: Path) -> list[str]:
 # is the ONLY kind the autonomous critic-backtrack remediation loop may
 # self-author — its invariant (pre==post criteria, no removals) is
 # asserted below, so the loop can never smuggle a criteria edit or a
-# removal through this kind. `within-facet-query-append` (0.3.2 — the
+# removal through this kind. `within-facet-query-append` (0.3.1 — the
 # search-breadth + facet-coverage redesign's Layer 3) is the SIBLING kind
 # the autonomous FACET remediation loop may self-author: pre==post
 # FROZEN-TIER criteria_hash (never the query-inclusive tier — see
@@ -544,7 +544,7 @@ def record_deviation(
         self-author a criteria edit or a removal — a violation raises
         ``ValueError`` rather than silently recording an out-of-invariant
         block.
-      - ``"within-facet-query-append"`` (0.3.2) — the SIBLING self-
+      - ``"within-facet-query-append"`` (0.3.1) — the SIBLING self-
         authorable kind for the FACET-remediation loop. Same
         ``pre_criteria == post_criteria and removed == []`` invariant
         (callers pass the FROZEN-TIER ``criteria_hash`` as pre/post-
@@ -750,7 +750,7 @@ def _op_sweep(
         notes_index = _load_notes_index(literature_dir, literature_root=cfg.literature_root)
         notes_title_index = _load_notes_title_index(literature_dir, literature_root=cfg.literature_root)
 
-    # 0.3.2 Layer 2: compute the per-pole distinct-paper facet-coverage
+    # 0.3.1 Layer 2: compute the per-pole distinct-paper facet-coverage
     # ONLY for a FULL sweep (angle_keys=None) — a DIRECTED/restricted
     # sweep (a critic-backtrack round, or a Layer-3 facet-remediation
     # round) never touched most of the matrix's poles this call, so a

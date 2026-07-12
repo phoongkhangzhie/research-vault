@@ -635,7 +635,7 @@ def check_source_coverage(
 
 
 # ---------------------------------------------------------------------------
-# 0.3.2 Layer 2 — facet-coverage read-back. The width-sweep's SweepCells are
+# 0.3.1 Layer 2 — facet-coverage read-back. The width-sweep's SweepCells are
 # ephemeral (never persisted); a LATER `coverage-gate` evaluation (a
 # different process invocation) reads the per-pole counts back from
 # `_search_hits.md`'s frontmatter (stamped by `sources.sweep.
@@ -652,7 +652,7 @@ def check_facet_coverage_from_search_hits(search_hits_path: Path) -> dict[str, A
       declared:          bool             — whether the sweep that wrote it
                                              computed facet coverage at all
                                              (a manifest with no nested D-3
-                                             facets, or a pre-0.3.2 sweep,
+                                             facets, or a pre-0.3.1 sweep,
                                              never stamps these fields — an
                                              honest no-op, never a fabricated
                                              empty-thin-poles GO; charter §2).
