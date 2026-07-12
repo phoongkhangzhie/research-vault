@@ -295,6 +295,8 @@ def _parse_frontmatter(
                     cast_list.append(new_item)
                 current_mapping_item = new_item
             else:
+                if remainder.startswith(("'", '"')) and len(remainder) >= 2 and remainder.endswith(remainder[0]):
+                    remainder = remainder[1:-1]
                 if isinstance(cast_list, list):
                     cast_list.append(remainder)
                 current_mapping_item = None

@@ -79,6 +79,45 @@ def test_outline_gate_complete_passes(tmp_path: Path):
     assert issues == []
 
 
+def test_outline_gate_normalizes_quoted_frozen_branch(tmp_path: Path):
+    """A frozen branch supplied with literal surrounding quotes (the parser-
+    origin bug: a YAML block-list item like `- "survey to behaviour"` used to
+    parse with the quote characters baked into the value) must still match a
+    PLAIN heading in the outline — the gate normalizes both sides (strip
+    quotes, casefold, collapse whitespace) before the containment check.
+    """
+    outline = tmp_path / "_outline.md"
+    outline.write_text(
+        "## survey to behaviour\n\n"
+        "Thesis: X unifies Y and Z. "
+        "Compares [[smith2023]] and [[jones2022]]. "
+        "Imitates e07 (comparison-synthesis move).\n",
+        encoding="utf-8",
+    )
+    issues_quoted = check_outline_gate(outline, ['"survey to behaviour"'])
+    assert issues_quoted == [], f"Expected no findings for quoted branch, got {issues_quoted}"
+
+    issues_bare = check_outline_gate(outline, ["survey to behaviour"])
+    assert issues_bare == [], f"Expected no findings for bare branch, got {issues_bare}"
+
+
+def test_outline_gate_still_rejects_genuinely_absent_branch(tmp_path: Path):
+    """Normalization must not neuter the gate: a branch truly absent from the
+    outline (not just differently-quoted) must still be flagged."""
+    outline = tmp_path / "_outline.md"
+    outline.write_text(
+        "## survey to behaviour\n\n"
+        "Thesis: X unifies Y and Z. "
+        "Compares [[smith2023]] and [[jones2022]]. "
+        "Imitates e07 (comparison-synthesis move).\n",
+        encoding="utf-8",
+    )
+    issues = check_outline_gate(outline, ['"a completely different branch"'])
+    assert any("completely different branch" in i for i in issues), (
+        f"Expected the genuinely-absent branch to still be flagged, got {issues}"
+    )
+
+
 def test_outline_gate_no_frozen_branches_is_a_noop():
     """No frozen branches -> nothing to anchor -> vacuously OK (never a
     forced failure on an empty spine — that's check_framework_gate's job)."""
