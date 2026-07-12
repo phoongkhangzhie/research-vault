@@ -55,6 +55,9 @@
 #      via _grep_re_py (mirrors class 10): shipped doctrine .md legitimately self-references
 #      its OWN numbered sections (agent-charter.md's "§N", note-conventions.md's "#N" list
 #      items) — those are real, shipped, non-dangling cross-references, out of scope here.
+#      A second wave (same class 12) added the adjacent NG-<n>/RD-<n>/D-CC-<n>/D-MS-<n>/
+#      "HR-craft rec <n>"/L-2/"Shape A"/"Shape B"/GD-D<n>/GD.<n> label family found woven
+#      through manuscript/sources/gates module docstrings.
 #
 # Self-exclusion: the scanner skips itself, ci.yml, and the test file
 # (all three intentionally list the marker strings). tests/test_git_discipline.py is also
@@ -610,6 +613,26 @@ _grep_re_py "devproc/design-of-record" "[Dd]esign of record|internal design note
 # Internal design-doc filenames (YYYY-MM-DD-...-design[.md]) — a dangling
 # pointer into an unshipped spec directory.
 _grep_re_py "devproc/design-doc-filename" "[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9-]*-design(\.md)?"
+
+# A second wave of the pre-publish scrub (0.3.1) found an adjacent family of
+# bare internal decision/wave labels — same shape as D-N/K-DN/SR-, just a
+# different prefix vocabulary — woven through manuscript/sources/gates
+# module docstrings as an internal wave-tracking scheme (NG-<n> = "next-gen"
+# wave, RD-<n> = "reader-doc" wave, D-CC-<n>/D-MS-<n> = per-module design
+# decisions, HR-craft rec <n> = an external-tool-derived craft recommendation,
+# L-2 = the anti-fishing gate's internal name, Shape A/Shape B = a design-
+# alternative comparison, GD-D<n>/GD.<n> = git-discipline design decisions).
+# Same rationale as the label classes above: genericize to the public
+# technical meaning, .py-scoped only (shipped doctrine may self-reference
+# its own numbered sections).
+_grep_re_py "devproc/ng-label" "\bNG-[0-9][A-Za-z0-9]*\b"
+_grep_re_py "devproc/rd-label" "\bRD-[0-9][A-Za-z0-9]*\b"
+_grep_re_py "devproc/d-cc-label" "\bD-CC-[0-9]+\b"
+_grep_re_py "devproc/d-ms-label" "\bD-MS-[0-9]+\b"
+_grep_re_py "devproc/hr-craft-rec" "HR-craft rec [0-9]+"
+_grep_re_py "devproc/l-2-label" "\bL-2\b"
+_grep_re_py "devproc/shape-label" "\bShape A\b|\bShape B\b"
+_grep_re_py "devproc/gd-label" "\bGD-D[0-9]+\b|\bGD\.[0-9]+\b"
 
 fi  # end CODENAMES_ONLY-skips-classes-2-11 block
 

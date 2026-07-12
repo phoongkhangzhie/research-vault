@@ -1233,3 +1233,127 @@ def test_green_on_class_12_tests_dir_exempt(tmp_path):
         filename="test_something.py",
     )
     assert_green(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Class 12 (second wave): the NG-/RD-/D-CC-/D-MS-/HR-craft-rec/L-2/Shape/
+# GD-D label family — same internal-dev-process-reference class, a
+# different prefix vocabulary, discovered woven through manuscript/
+# sources/gates module docstrings during the 0.3.1 pre-publish scrub.
+# ---------------------------------------------------------------------------
+
+
+def test_red_on_ng_label_in_py(tmp_path):
+    """A bare 'NG-4' internal wave label in .py source must be flagged."""
+    _write_py(tmp_path, '''\
+        # Emit the NG-4 cold-agent-judge fan-out task set.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_rd_label_in_py(tmp_path):
+    """A bare 'RD-1' internal wave label in .py source must be flagged."""
+    _write_py(tmp_path, '''\
+        # RD-1: single source of truth for which files make up the draft.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_d_cc_label_in_py(tmp_path):
+    """A bare 'D-CC-1' internal decision label in .py source must be
+    flagged."""
+    _write_py(tmp_path, '''\
+        """No *.ipynb under code/src/ — the library import path (D-CC-1)."""
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_d_ms_label_in_py(tmp_path):
+    """A bare 'D-MS-4' internal decision label in .py source must be
+    flagged."""
+    _write_py(tmp_path, '''\
+        # D-MS-4 RESOLVED: Opus-tier judge at runtime.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_hr_craft_rec_in_py(tmp_path):
+    """A bare 'HR-craft rec N' internal recommendation label in .py source
+    must be flagged."""
+    _write_py(tmp_path, '''\
+        # HR-craft rec 1 — integrate-by-scoping, don't append-as-caveat.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_l_2_label_in_py(tmp_path):
+    """A bare 'L-2' internal gate label in .py source must be flagged
+    (hyphenated form only — an 'L2 norm' math term without the hyphen is
+    untouched by this rule)."""
+    _write_py(tmp_path, '''\
+        # L-2 anti-fishing structural gate: counter-position enforcement.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_shape_label_in_py(tmp_path):
+    """A bare 'Shape B' internal design-alternative label in .py source
+    must be flagged."""
+    _write_py(tmp_path, '''\
+        # fix (Shape B): the round-stepping loop is driven here.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_gd_label_in_py(tmp_path):
+    """A bare 'GD-D6'/'GD.1' internal git-discipline design label in .py
+    source must be flagged."""
+    _write_py(tmp_path, '''\
+        # Multi-repo support (GD-D6): sets git config user.email.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+    _write_py(tmp_path, '''\
+        # Design: GD.1 (protect-main off structure not identity).
+        def fn(): pass
+    ''', filename="module2.py")
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_second_wave_scrubbed_module(tmp_path):
+    """A fully-genericized module (no second-wave internal-process
+    references) passes class 12 cleanly."""
+    _write_py(tmp_path, '''\
+        """module.py — something.
+
+        Emit the cold-agent-judge fan-out task set. Single source of truth
+        for which files make up the draft. The anti-fishing structural gate
+        enforces counter-position.
+        """
+        def fn(): pass
+    ''')
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_second_wave_tests_dir_exempt(tmp_path):
+    """tests/ is never shipped in the wheel — the second-wave rules also
+    do not fire on tests/*.py."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    _write_py(
+        tests_dir,
+        '''\
+        # NG-4, RD-1, D-CC-1, D-MS-4, HR-craft rec 1, L-2, Shape B, GD-D6
+        # all legitimately used in this test fixture.
+        def fn(): pass
+        ''',
+        filename="test_second_wave.py",
+    )
+    assert_green(run_scan(tmp_path))
