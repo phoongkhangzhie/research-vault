@@ -1130,7 +1130,7 @@ def check_link_resolution(
       3. every paper→concept edge in the overlay's own '## Concept edges'
          section (``relate_check.parse_concept_edges``) targets a slug that
          exists under ``project_notes_dir/concepts/``;
-      4. (PR-1) every UNIFIED typed edge (``relate_check.parse_typed_edges``)
+      4. every UNIFIED typed edge (``relate_check.parse_typed_edges``)
          found in either body — cross-bundle ``okf:...`` edges (resolved via
          ``cfg.resolve_bundle_link``), within-project edges (resolved
          against ``project_notes_dir``), and artifact-targeted provenance
@@ -1238,7 +1238,7 @@ def check_link_resolution(
                     f"{edge['target']}.md does not exist."
                 )
 
-        # (PR-1) unified typed edges — cross-bundle / within-project /
+        # Unified typed edges — cross-bundle / within-project /
         # artifact — found in either body. Checked on BOTH the overlay
         # body and the resolved core body (whichever has content): a
         # project note may author either kind, this wave's grammar does
@@ -1263,7 +1263,7 @@ def check_link_resolution(
 def _resolve_typed_edge_target(
     edge: dict[str, Any], *, cfg: Config, project_notes_dir: Path,
 ) -> str | None:
-    """Resolve one ``relate_check.parse_typed_edges`` edge (PR-1's
+    """Resolve one ``relate_check.parse_typed_edges`` edge (the
     cross-bundle / within-project / artifact scopes) against the
     resolvable set. Returns an error message string on an unresolved
     target, else ``None``. Never raises.

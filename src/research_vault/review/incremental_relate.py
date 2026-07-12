@@ -152,7 +152,7 @@ def append_bidirectional_edge(
     about both papers, the central-notes model — the corpus gains
     connections without re-relating).
 
-    DIRECTIONALITY (PR-1, ``relate_check._TAG_SYMMETRY``): the candidate's
+    DIRECTIONALITY (``relate_check._TAG_SYMMETRY``): the candidate's
     own edge direction, when the caller does not state one explicitly,
     is derived from ``new_tag``'s symmetry class — a SYMMETRIC/self-
     converse tag (``SUPPORTS``, ``CONTRADICTS``, ``PARTIAL``) mirrors with

@@ -185,7 +185,7 @@ _TAG_TO_KIND: dict[str, str] = {
     "CONTRADICTS": "refutational",
     "PARTIAL": "line-of-argument",
     "EXTENDS": "line-of-argument",
-    # FOUNDATION-FOR (PR-1, the converse of EXTENDS, auto-mirrored by
+    # FOUNDATION-FOR (the converse of EXTENDS, auto-mirrored by
     # incremental_relate.append_bidirectional_edge) is the same relation
     # viewed from the other paper — the Noblit & Hare KIND is about the
     # relation's shape, not its direction, so it shares EXTENDS' kind.
@@ -212,9 +212,10 @@ _TAG_TO_KIND: dict[str, str] = {
 # sub-tags ADDRESSES (asymmetric, converse ADDRESSED-BY) / ANSWERS
 # (asymmetric, converse ANSWERED-BY). A deferred/intentionally-open gap
 # uses the disposition LEAVES-OPEN (not a converse — no linked target);
-# LEAVES-OPEN's grammar is out of PR-1's scope (no gap-note edges exist
-# yet in this codebase) — the token is reserved here so the vocabulary is
-# whole, but the parser does not yet accept it as an edge-line tag.
+# LEAVES-OPEN's grammar is out of scope for the typed-edge grammar here
+# (no gap-note edges exist yet in this codebase) — the token is reserved
+# here so the vocabulary is whole, but the parser does not yet accept it
+# as an edge-line tag.
 #
 # Ontology honesty: CiTO ships first-class inverses for extends/
 # isExtendedBy and the symmetric agreesWith/disagreesWith; PROV-O ships
@@ -418,7 +419,7 @@ def _looks_like_tag_attempt(word: str) -> bool:
 
 
 # THE UNIFIED TARGET GRAMMAR — the three scopes + artifact targets (the
-# unified typed-edge model, PR-1). Each alternative is a distinct named
+# unified typed-edge model). Each alternative is a distinct named
 # group so ``_scan_edge_lines`` can classify scope without a second parse:
 #   i_bundle/i_slug  — intra-shared   /literature|concepts/<slug>.md
 #   x_bundle/x_path  — cross-bundle   okf:literature|concepts|datasets/<path>.md
@@ -547,9 +548,10 @@ class ParsedConceptEdges:
 @dataclass
 class ParsedTypedEdges:
     """The result of parsing a note body's UNIFIED typed edges outside the
-    original intra-shared paper→paper / paper→concept scope (PR-1's scope
-    + family extension): cross-bundle project→shared edges (``okf:...``),
-    within-project edges (``/experiments|findings|gaps|methodology/...``),
+    original intra-shared paper→paper / paper→concept scope (the typed-
+    edge family/scope extension): cross-bundle project→shared edges
+    (``okf:...``), within-project edges
+    (``/experiments|findings|gaps|methodology/...``),
     and artifact-targeted provenance edges (``results/runs|scores/...``).
 
     Each edge dict: {"scope", "family", "tag", "target", "reason",
@@ -577,7 +579,7 @@ def _scan_edge_lines(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Scan the FULL note body (never header-scoped — Defect #70) for
     edge-shaped lines, classifying each into paper→paper edges, paper→
-    concept edges, other-scope typed edges (PR-1), or malformed.
+    concept edges, other-scope typed edges, or malformed.
 
     Candidate detection (OKF conformance — relationship type is a prose
     token, not a link-prefix tag; see the module docstring):
@@ -599,7 +601,7 @@ def _scan_edge_lines(
     other bundle/URL with no type-token attempt nearby) and is never
     flagged.
 
-    FAMILY-SLOT VALIDATION (PR-1): the parser rejects a family-mismatched
+    FAMILY-SLOT VALIDATION: the parser rejects a family-mismatched
     tag in a slot — a claim-bearing intra-shared target (``/literature/``
     or ``/concepts/``) may only carry an ARGUMENTATIVE tag (a
     ``## Related papers``/``## Concept edges`` line); an artifact target
@@ -729,7 +731,7 @@ def parse_concept_edges(body: str) -> ParsedConceptEdges:
 
 
 def parse_typed_edges(body: str) -> ParsedTypedEdges:
-    """Parse the UNIFIED typed edges outside the intra-shared scope (PR-1):
+    """Parse the UNIFIED typed edges outside the intra-shared scope:
     cross-bundle project→shared edges, within-project edges, and
     artifact-targeted provenance edges (full-body scan — see
     ``_scan_edge_lines``).
