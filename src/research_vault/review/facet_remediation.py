@@ -79,6 +79,7 @@ def resolve_facet_coverage(
     remediation_state: dict[str, Any] | None = None,
     max_rounds: int | None = None,
     config: Any = None,
+    protocol_declares_facets: bool | None = None,
 ) -> DispositionResult:
     """Extend a coverage-gate ``base`` disposition with the Layer-2/3
     facet-coverage decision (the explicit 3-tier fold, item 2 of the
@@ -89,7 +90,8 @@ def resolve_facet_coverage(
     - ``facet_coverage_info`` is ``None`` or ``not facet_coverage_info.get
       ("declared")`` -> ``base`` unchanged (an honest no-op: a manifest
       with no nested D-3 facets, or a pre-0.3.1 sweep, never computed
-      facet-coverage at all — never a fabricated thin-pole signal).
+      facet-coverage at all — never a fabricated thin-pole signal) —
+      UNLESS ``protocol_declares_facets`` is explicitly ``True`` (below).
     - no ``thin_poles`` -> ``base`` unchanged (nothing to remediate).
     - thin pole(s), remediation budget remaining -> ``FACET_REMEDIATE``
       (dispatch one bounded round for the FIRST thin pole, deterministic
@@ -98,10 +100,37 @@ def resolve_facet_coverage(
     - budget exhausted -> ``HALT_DECLARE``, fail-closed (never fish
       further; a still-thin pole after R rounds needs a human call —
       widen the criteria, or accept the residue via a human decision).
+
+    Hardening (missing-SET fail-closed): the "not declared" no-op above is
+    correct for a genuinely legacy/non-faceted protocol, but gives no
+    signal if the PROTOCOL itself declared nested facets (see
+    ``sources.sweep.group_facet_stances``) and Layer-2's stamp onto
+    ``_search_hits.md`` silently failed to write — the breadth
+    guarantee would then be skipped with no trace. The CALLER may pass
+    ``protocol_declares_facets`` (``bool(group_facet_stances(parse_angle_
+    matrix(protocol_text)))``) to cross-check this. Left ``None`` (the
+    default), this cross-check is skipped — an honest "unknown", not a
+    silent pass — so existing callers/tests that never pass it keep the
+    prior no-op behavior. When it IS supplied as ``True`` and the sweep's
+    own coverage payload is absent/undeclared, that is treated as a
+    stamping failure, not a legacy protocol, and resolves ``HALT_DECLARE``
+    rather than falling through to ``base``.
     """
     if base.disposition == HALT_DECLARE:
         return base
     if not facet_coverage_info or not facet_coverage_info.get("declared"):
+        if protocol_declares_facets:
+            return DispositionResult(
+                HALT_DECLARE,
+                "Layer-2 facet-coverage: the protocol declares nested "
+                "facets/poles, but the sweep's _search_hits.md carries no "
+                "facet-coverage stamp (facet_pole_counts/declared) — this "
+                "is a stamping failure, not a legacy non-faceted protocol, "
+                "and the breadth guarantee cannot be silently skipped. "
+                "Re-run the sweep so Layer-2 coverage is computed and "
+                "stamped, or investigate why the stamp was dropped.",
+                {"facet_coverage_info": facet_coverage_info},
+            )
         return base
     thin_poles = facet_coverage_info.get("thin_poles") or []
     if not thin_poles:

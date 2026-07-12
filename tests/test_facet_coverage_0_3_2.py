@@ -321,7 +321,42 @@ counter-position: "persona-consistency literature"
 
 
 class TestRefreshGatesOnFrozenTierOnly:
-    def test_query_only_change_autonomously_refreshes_without_criteria_change_deviation(
+    def test_query_only_change_without_declared_deviation_blocks(
+        self, tmp_path,
+    ) -> None:
+        """Hardening: an out-of-band query-tier edit (never routed through
+        ``run_facet_query_append_round``/``record_deviation``) must BLOCK,
+        even though the frozen tier is untouched — closes the gap where
+        only the autonomous mutation site's own re-gate was enforced."""
+        protocol = tmp_path / "_protocol.md"
+        protocol.write_text(NESTED_PROTOCOL_FOR_FREEZE, encoding="utf-8")
+        corpus = tmp_path / "_corpus.md"
+        corpus.write_text(
+            "| annotation | citekey | title |\n|---|---|---|\n"
+            "| [NEW] | alpha2024 | Alpha |\n",
+            encoding="utf-8",
+        )
+        deviations = tmp_path / "_deviations.md"
+
+        meta: dict = {}
+        cf.stamp_corpus_freeze(meta, corpus_path=corpus, protocol_path=protocol)
+
+        # Append a NEW query under the ALREADY-declared counter pole — a
+        # query-matrix-tier-only change, no facet-key-set change — but
+        # NEVER declared via record_deviation(kind="within-facet-query-append").
+        amended = NESTED_PROTOCOL_FOR_FREEZE.replace(
+            '      - "persona stability multi-turn LLM"',
+            '      - "persona stability multi-turn LLM"\n'
+            '      - "value persistence long-horizon dialogue agent"',
+        )
+        protocol.write_text(amended, encoding="utf-8")
+
+        with pytest.raises(cf.RefreshBlocked, match="structural re-gate FAILED"):
+            cf.refresh(
+                meta, corpus_path=corpus, protocol_path=protocol, deviations_path=deviations,
+            )
+
+    def test_query_only_change_with_matching_declared_deviation_admits(
         self, tmp_path,
     ) -> None:
         protocol = tmp_path / "_protocol.md"
@@ -339,21 +374,30 @@ class TestRefreshGatesOnFrozenTierOnly:
         baseline_frozen = meta["corpus_freeze"]["criteria_hash"]
         baseline_query = meta["corpus_freeze"]["query_matrix_hash"]
 
-        # Append a NEW query under the ALREADY-declared counter pole — a
-        # query-matrix-tier-only change, no facet-key-set change.
+        new_query = "value persistence long-horizon dialogue agent"
         amended = NESTED_PROTOCOL_FOR_FREEZE.replace(
             '      - "persona stability multi-turn LLM"',
-            '      - "persona stability multi-turn LLM"\n'
-            '      - "value persistence long-horizon dialogue agent"',
+            f'      - "persona stability multi-turn LLM"\n'
+            f'      - "{new_query}"',
         )
         protocol.write_text(amended, encoding="utf-8")
+        post_query_hash = cf.hash_query_matrix_bytes(protocol)
 
-        # Never record a criteria-change deviation — this must succeed
-        # autonomously anyway, since the frozen tier is unaffected.
+        auto.record_deviation(
+            deviations,
+            version=2, pre_criteria=baseline_frozen, post_criteria=baseline_frozen,
+            removed=[], added=[],
+            rationale="test: within-facet-query-append",
+            kind=auto.DEVIATION_KIND_WITHIN_FACET_QUERY_APPEND,
+            facet_key="by-temporal.counter", new_queries=[new_query],
+            pre_query_matrix_hash=baseline_query, post_query_matrix_hash=post_query_hash,
+        )
+
         new_freeze = cf.refresh(
             meta, corpus_path=corpus, protocol_path=protocol, deviations_path=deviations,
         )
         assert new_freeze["criteria_hash"] == baseline_frozen
+        assert new_freeze["query_matrix_hash"] == post_query_hash
         assert new_freeze["query_matrix_hash"] != baseline_query
 
     def test_facet_key_set_change_still_blocks_without_human_deviation(self, tmp_path) -> None:
@@ -577,6 +621,49 @@ class TestResolveFacetCoverage:
         assert result is base
         result_none = fremed.resolve_facet_coverage(base, None)
         assert result_none is base
+        # protocol_declares_facets left at its default (None, "unknown")
+        # keeps the legacy no-op — a caller that never opts into the
+        # cross-check sees no behavior change.
+        result_unknown = fremed.resolve_facet_coverage(
+            base, {"declared": False}, protocol_declares_facets=None,
+        )
+        assert result_unknown is base
+        # a genuinely legacy/non-faceted protocol (cross-check explicitly
+        # False) is still a clean no-op.
+        result_legacy = fremed.resolve_facet_coverage(
+            base, {"declared": False}, protocol_declares_facets=False,
+        )
+        assert result_legacy is base
+
+    def test_declared_facets_but_unstamped_coverage_halts(self) -> None:
+        """Hardening (missing-SET fail-closed): the protocol declared
+        nested facets, but the sweep's own _search_hits.md carries no
+        facet-coverage stamp — a stamping failure, not a legacy protocol.
+        Must HALT-DECLARE, never silently fall through to GO."""
+        base = auto.DispositionResult(auto.GO, "clean")
+        result = fremed.resolve_facet_coverage(
+            base, {"declared": False}, protocol_declares_facets=True,
+        )
+        assert result.disposition == auto.HALT_DECLARE
+        assert result is not base
+
+        # Also covers the "no facet_coverage_info at all" (None) case —
+        # e.g. _search_hits.md missing entirely — with a declared-faceted
+        # protocol.
+        result_none_info = fremed.resolve_facet_coverage(
+            base, None, protocol_declares_facets=True,
+        )
+        assert result_none_info.disposition == auto.HALT_DECLARE
+
+    def test_declared_and_stamped_facet_coverage_proceeds_normally(self) -> None:
+        """The cross-check must never block a HEALTHY declared+stamped
+        run — only the missing-stamp case."""
+        base = auto.DispositionResult(auto.GO, "clean")
+        result = fremed.resolve_facet_coverage(
+            base, {"declared": True, "thin_poles": [], "min_hits_per_pole": 3},
+            protocol_declares_facets=True,
+        )
+        assert result is base
 
     def test_no_thin_poles_is_a_no_op(self) -> None:
         base = auto.DispositionResult(auto.GO, "clean")

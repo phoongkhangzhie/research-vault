@@ -614,9 +614,24 @@ def _evaluate_autonomous_gate(
             if disposition.disposition != _autonomy.HALT_DECLARE:
                 from ..review import facet_remediation as _fremed
 
+                # missing-SET fail-closed cross-check (hardening): derive
+                # whether the FROZEN protocol itself declared nested
+                # facets, independent of whatever `_search_hits.md`
+                # stamped — a declared-faceted protocol whose sweep never
+                # stamped Layer-2 coverage is a stamping failure, not a
+                # legacy protocol; see `resolve_facet_coverage`'s docstring.
+                protocol_declares_facets = False
+                if protocol_path.exists():
+                    protocol_declares_facets = bool(
+                        group_facet_stances(
+                            parse_angle_matrix(protocol_path.read_text(encoding="utf-8"))
+                        )
+                    )
+
                 disposition = _fremed.resolve_facet_coverage(
                     disposition, facet_coverage_info,
                     remediation_state=run_state.meta.get("facet_remediation_state"),
+                    protocol_declares_facets=protocol_declares_facets,
                 )
 
             if disposition.disposition == _autonomy.FACET_REMEDIATE:

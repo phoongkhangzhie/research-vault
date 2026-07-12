@@ -315,6 +315,123 @@ def _has_criteria_change_deviation(deviations_path: Path) -> bool:
     return False
 
 
+_DEVIATION_HEADER_RE = re.compile(r"^## Deviation v\d+ -> v\d+ \(.*?\)\s*$", re.MULTILINE)
+_FACET_KEY_LINE_RE = re.compile(r"^\*\*Facet key:\*\*\s*(.*)$", re.MULTILINE)
+_NEW_QUERIES_LINE_RE = re.compile(r'^\s*-\s*"(.*)"\s*$', re.MULTILINE)
+_PRE_QM_HASH_LINE_RE = re.compile(r"^\*\*Pre query_matrix_hash:\*\*\s*(.*)$", re.MULTILINE)
+_POST_QM_HASH_LINE_RE = re.compile(r"^\*\*Post query_matrix_hash:\*\*\s*(.*)$", re.MULTILINE)
+
+
+def _iter_within_facet_query_append_deviations(deviations_path: Path) -> list[dict[str, Any]]:
+    """Parse every ``kind: within-facet-query-append`` block out of
+    ``_deviations.md`` (scoped to the fixed field lines
+    ``record_deviation`` itself writes — same scoping discipline as
+    ``_has_criteria_change_deviation``/``_parse_deviation_citekey_deltas``,
+    never a general markdown parser).
+
+    Returns a list of ``{"facet_key", "new_queries", "pre_query_matrix_hash",
+    "post_query_matrix_hash"}`` dicts, one per declared block, in file
+    order. A block missing any of these fields is skipped (an honest
+    absence, not a fabricated partial record — ``record_deviation`` itself
+    never writes a partial ``within-facet-query-append`` block, see its own
+    fail-loud invariant)."""
+    if not deviations_path.exists():
+        return []
+    text = deviations_path.read_text(encoding="utf-8")
+    headers = list(_DEVIATION_HEADER_RE.finditer(text))
+    out: list[dict[str, Any]] = []
+    for i, h in enumerate(headers):
+        start = h.end()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+        block = text[start:end]
+        if "**Kind:** within-facet-query-append" not in block:
+            continue
+        facet_m = _FACET_KEY_LINE_RE.search(block)
+        pre_m = _PRE_QM_HASH_LINE_RE.search(block)
+        post_m = _POST_QM_HASH_LINE_RE.search(block)
+        if not facet_m or not pre_m or not post_m:
+            continue
+        new_queries = [m.group(1) for m in _NEW_QUERIES_LINE_RE.finditer(block)]
+        out.append({
+            "facet_key": facet_m.group(1).strip(),
+            "new_queries": new_queries,
+            "pre_query_matrix_hash": pre_m.group(1).strip(),
+            "post_query_matrix_hash": post_m.group(1).strip(),
+        })
+    return out
+
+
+def check_facet_query_append_re_gate_against_deviation_log(
+    protocol_path: Path,
+    deviations_path: Path,
+    *,
+    pre_query_matrix_hash: str,
+    post_query_matrix_hash: str,
+) -> tuple[bool, str]:
+    """The out-of-band-edit re-gate (defense-in-depth): ``refresh`` calls
+    this whenever the query-matrix tier moved while the frozen tier stayed
+    stable, to close the gap that only ``run_facet_query_append_round``'s
+    OWN structural re-gate (``check_facet_query_append_re_gate``) was
+    enforced at the autonomous-mutation site — an out-of-band MANUAL query
+    edit/removal (never routed through that function) would otherwise reach
+    ``refresh`` unre-gated.
+
+    Asserts, in order:
+      1. A ``within-facet-query-append`` deviation is on record whose
+         declared ``(pre_query_matrix_hash, post_query_matrix_hash)`` pair
+         is EXACTLY ``(pre_query_matrix_hash, post_query_matrix_hash)`` —
+         i.e. the declared block bridges the baseline's query-matrix hash
+         to the current one with no gap. Absent -> reject.
+      2. That deviation's declared ``new_queries`` are found as an
+         append-at-the-TAIL of the CURRENT protocol's query list for the
+         declared facet/pole (the same append-only invariant
+         ``check_facet_query_append_re_gate`` enforces at round-time,
+         re-verified here against the durable record rather than an
+         in-memory pre/post pair) — an edited, reordered, or short tail
+         -> reject.
+
+    Returns ``(ok, message)`` — never raises.
+    """
+    matches = [
+        d for d in _iter_within_facet_query_append_deviations(deviations_path)
+        if d["pre_query_matrix_hash"] == pre_query_matrix_hash
+        and d["post_query_matrix_hash"] == post_query_matrix_hash
+    ]
+    if not matches:
+        return False, (
+            "structural re-gate FAILED: the query-matrix tier changed "
+            f"(hash {pre_query_matrix_hash[:16]}... -> "
+            f"{post_query_matrix_hash[:16]}...) with no matching "
+            "'within-facet-query-append' deviation on record bridging "
+            "exactly that pair — an out-of-band manual query edit/removal "
+            "is not distinguishable from a declared append-only round."
+        )
+
+    dev = matches[-1]
+    m = _POLE_KEY_RE.match(dev["facet_key"]) if dev["facet_key"] else None
+    if not m:
+        return False, (
+            "structural re-gate FAILED: the matching deviation's facet key "
+            f"{dev['facet_key']!r} is not shaped '<angle>.(thesis|counter)'."
+        )
+    angle, stance = m.group("angle"), m.group("stance")
+    protocol_text = protocol_path.read_text(encoding="utf-8") if protocol_path.exists() else ""
+    current_facets = group_facet_stances(parse_angle_matrix(protocol_text))
+    post_list = current_facets.get(angle, {}).get(stance, [])
+    new_queries = dev["new_queries"]
+    if not new_queries or post_list[-len(new_queries):] != new_queries:
+        return False, (
+            f"structural re-gate FAILED: the declared new queries for "
+            f"{dev['facet_key']!r} are not an append-at-the-tail of the "
+            "CURRENT protocol's query list — edited, reordered, or "
+            "removed since the deviation was recorded."
+        )
+    return True, "OK"
+
+
+_POLE_KEY_RE = re.compile(r"^(?P<angle>[\w-]+)\.(?P<stance>thesis|counter)$")
+
+
 def refresh(
     run_state_meta: dict[str, Any],
     *,
@@ -337,7 +454,19 @@ def refresh(
          frozen-tier hash with no human ``criteria-change`` deviation on
          record -> BLOCK (the anti-fishing pin firing). A change confined to
          the query-matrix tier (a ``within-facet-query-append`` round) never
-         trips this BLOCK on its own.
+         trips this BLOCK on its own — BUT (defense-in-depth hardening) it
+         MUST still be re-gated: see 3b below.
+      3b. Query-matrix re-gate (hardening — closes the out-of-band-edit
+         gap): when the frozen tier is stable but the query-matrix hash
+         moved, ``refresh`` no longer admits the delta unconditionally —
+         it requires a matching ``within-facet-query-append`` deviation on
+         record AND re-runs the append-only structural invariant against
+         it (``check_facet_query_append_re_gate_against_deviation_log``).
+         Previously this tier's re-gate was enforced ONLY at the
+         autonomous mutation site (``run_facet_query_append_round``); an
+         out-of-band manual query edit never routed through that function
+         would reach here unre-gated. No matching deviation, or a failed
+         re-gate -> BLOCK, same teeth as the frozen-tier BLOCK above.
       4. Declared-delta check (``check_undeclared_deviation``, the SAME
          repurposed function the coverage-gate path uses — single-sourced).
          Any undeclared citekey delta -> BLOCK.
@@ -377,6 +506,20 @@ def refresh(
                 "deviation (record_deviation(..., kind='criteria-change')) "
                 "first, or revert the protocol edit."
             )
+    else:
+        current_query_matrix_hash = hash_query_matrix_bytes(protocol_path)
+        baseline_query_matrix_hash = baseline.get("query_matrix_hash")
+        if (
+            baseline_query_matrix_hash is not None
+            and current_query_matrix_hash != baseline_query_matrix_hash
+        ):
+            ok, msg = check_facet_query_append_re_gate_against_deviation_log(
+                protocol_path, deviations_path,
+                pre_query_matrix_hash=baseline_query_matrix_hash,
+                post_query_matrix_hash=current_query_matrix_hash,
+            )
+            if not ok:
+                raise RefreshBlocked(f"rv review refresh: BLOCKED — {msg}")
 
     ok, msg = check_undeclared_deviation(
         set(baseline["corpus_citekeys"]), current_citekeys, deviations_path,
