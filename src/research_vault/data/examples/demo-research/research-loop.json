@@ -331,7 +331,7 @@
       "label": "Update methods note if protocol changed (Ada/researcher — soft, non-blocking)",
       "role": "researcher",
       "spec": "task://demo-research#methods-update",
-      "produces": {"note": "methods/method-q1.md"},
+      "produces": {"note": "methodology/method-q1.md"},
       "needs": [{"from": "human-go-findings", "edge": "soft"}]
     }
   ]

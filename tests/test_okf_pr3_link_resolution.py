@@ -126,7 +126,9 @@ class TestCheckLinkResolution:
         from research_vault.review import check_link_resolution
 
         cfg = load_config(reload=True)
-        concepts_dir = cfg.project_notes_dir("demo-research") / "concepts"
+        # concepts is shared-canonical (0.3.2) — resolves against
+        # cfg.concepts_root, not project_notes_dir/concepts.
+        concepts_dir = cfg.concepts_root
         concepts_dir.mkdir(parents=True, exist_ok=True)
         (concepts_dir / "real-concept.md").write_text(
             "---\ntype: concepts\n---\n\nA real concept.\n", encoding="utf-8",

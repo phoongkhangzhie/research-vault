@@ -211,7 +211,7 @@ def _expand_paths(cfg: dict, instance_root: Path) -> dict:
     # datasets_root is included here so a toml-set value is expanded correctly.
     # When absent from the toml, Config.__init__ derives it from notes_root/datasets.
     path_keys = ("notes_root", "state_dir", "agents_dir", "tasks_dir", "control_dir",
-                 "datasets_root", "literature_root")
+                 "datasets_root", "literature_root", "concepts_root")
     for key in path_keys:
         if key in cfg:
             p = Path(cfg[key]).expanduser()
@@ -309,6 +309,15 @@ class Config:
             self.literature_root = Path(raw["literature_root"])
         else:
             self.literature_root = self.notes_root / "literature"
+        # concepts_root — the shared-canonical cross-project concepts store.
+        # Mirrors datasets_root exactly (a plain shared bundle, ONE note per
+        # concept, no per-project overlay — unlike literature_root, which is
+        # still two-layer). Default: notes_root/concepts; override in
+        # research_vault.toml: concepts_root = "/shared/concepts".
+        if "concepts_root" in raw:
+            self.concepts_root = Path(raw["concepts_root"])
+        else:
+            self.concepts_root = self.notes_root / "concepts"
         self.adapters: dict[str, str] = raw.get("adapters", {})
         # Observability config block (backend/run_logging/wandb_project).
         # Empty dict when absent so callers can .get(...) with defaults.
@@ -411,10 +420,26 @@ class Config:
         registry: dict[str, Path] = {
             "literature": self.literature_root,
             "datasets": self.datasets_root,
+            "concepts": self.concepts_root,
         }
         for slug in self.projects:
             registry[slug] = self.project_notes_dir(slug)
         return registry
+
+    def shared_type_root(self, note_type: str) -> Path:
+        """Resolve the shared-canonical root for a shared OKF type.
+
+        SSOT for per-type shared-store resolution — ``"datasets"`` ->
+        ``datasets_root``, ``"concepts"`` -> ``concepts_root``. Extend the
+        mapping here (never a hardcoded fork at a call site) when a new
+        shared type is added. Callers gate on ``note_type in
+        note.OKF_SHARED_TYPES`` first; this raises ``KeyError`` for a
+        non-shared type.
+        """
+        return {
+            "datasets": self.datasets_root,
+            "concepts": self.concepts_root,
+        }[note_type]
 
     def resolve_bundle_link(self, link: str) -> Path | None:
         """Resolve an rv cross-bundle ``okf:<bundle>/<path>.md`` link to an

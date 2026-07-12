@@ -74,7 +74,7 @@ def instance(tmp_path: Path):
     for proj in (proj_a, proj_b):
         proj.mkdir(parents=True)
         for okf_dir in ("experiments", "findings",
-                        "literature", "concepts", "methods", "mocs"):
+                        "literature", "concepts", "methodology", "mocs"):
             (proj / okf_dir).mkdir()
 
     cfg_path = tmp_path / "research_vault.toml"

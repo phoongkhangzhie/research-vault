@@ -388,8 +388,8 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
     #
     #   note:<project>/<type>/<id>  — first segment is a registered project slug
     #                                  → project_notes_dir(project) / "<type>/<id>"
-    #   note:datasets/<id>          — first segment is a shared OKF type (datasets)
-    #                                  → cfg.datasets_root / "<id>"
+    #   note:datasets/<id>          — first segment is a shared OKF type
+    #   note:concepts/<id>            (datasets, concepts) → cfg.shared_type_root(type) / "<id>"
     #   note:<type>/<id>  (legacy)  — first segment is NOT a project slug
     #                                  → cfg.notes_root / path  (backward compat)
     #
@@ -417,8 +417,8 @@ def resolve_watch(watch: str, *, registered_ts: float | None = None) -> dict[str
                 # Project-scoped: note:<project>/<type>/<id>
                 p = _cfg.project_notes_dir(first_seg) / rest_after_first
             elif first_seg in OKF_SHARED_TYPES:
-                # Shared OKF type (currently only "datasets"): route to datasets_root
-                p = _cfg.datasets_root / rest_after_first
+                # Shared OKF type (datasets, concepts): route to its own shared root
+                p = _cfg.shared_type_root(first_seg) / rest_after_first
             else:
                 # Legacy / fallback: resolve relative to notes_root
                 p = _cfg.notes_root / rest

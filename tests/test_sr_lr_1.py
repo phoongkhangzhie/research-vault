@@ -573,13 +573,17 @@ def test_phase1_reads_resolve_against_project_okf_dirs(cfg, tmp_instance):
     manifest_path = review_dir / "phase1-dag.json"
     project_root = manifest_path.parent
 
-    # Create the project OKF dirs so the resolution CAN succeed (post-fix)
+    # Create the project OKF dirs so the resolution CAN succeed (post-fix).
+    # concepts is shared-canonical (0.3.2) — its reads: pointer resolves
+    # against cfg.concepts_root, not the project notes dir.
     project_notes_dir = cfg.project_notes_dir("demo-research")
-    for okf_dir in ("literature", "concepts", "mocs", "findings"):
+    for okf_dir in ("literature", "mocs", "findings"):
         (project_notes_dir / okf_dir).mkdir(parents=True, exist_ok=True)
+    cfg.concepts_root.mkdir(parents=True, exist_ok=True)
 
     # After the fix: OKF-dir reads: pointers are absolute → they resolve against the
-    # real project OKF dirs, not the manifest's parent dir.
+    # real project OKF dirs (or the shared concepts root), not the manifest's
+    # parent dir.
     # (Note: _protocol.md errors are expected — that artifact is created at run-time
     # by the review-scope node, not available pre-run. This test only checks the
     # OKF-dir relative-base bug is gone.)
@@ -652,10 +656,12 @@ def test_phase2_reads_resolve_against_project_okf_dirs(cfg, tmp_instance, corpus
     manifest_path = review_dir / "phase2-dag.json"
     project_root = manifest_path.parent
 
-    # Create OKF dirs
+    # Create OKF dirs. concepts is shared-canonical (0.3.2) — resolves
+    # against cfg.concepts_root, not the project notes dir.
     project_notes_dir = cfg.project_notes_dir("demo-research")
-    for okf_dir in ("literature", "concepts", "mocs", "findings"):
+    for okf_dir in ("literature", "mocs", "findings"):
         (project_notes_dir / okf_dir).mkdir(parents=True, exist_ok=True)
+    cfg.concepts_root.mkdir(parents=True, exist_ok=True)
 
     # protocol_path is absolute; OKF dirs must also be absolute after the fix
     # Don't create the protocol file — it's an absolute path that won't exist;

@@ -1,7 +1,8 @@
 # Project folder structure — the CS-project convention
 
-rv already owns the **OKF note types** (`literature/ concepts/ methods/ experiments/
-findings/ mocs/ gaps/` + shared `datasets/`) and their frontmatter/lint contract. This page
+rv already owns the **OKF note types** (`literature/ concepts/ methodology/ experiments/
+findings/ mocs/ gaps/` — `literature/`/`concepts/` shared-canonical, `datasets/` shared) and
+their frontmatter/lint contract. This page
 owns the layer above: how those notes sit next to **code, data, results, figures, and
 manuscripts** in a project repo, and how a note *links* to a result or a dataset as a
 **stable graph** rather than a brittle path string.
@@ -24,7 +25,7 @@ user's deliverable — plus the **mechanical roots** that supply their raw mater
 
 - **`notes/` — the reasoning pillar.** The crew-facing OKF knowledge base: atoms built by
   the knowledge loops (`experiment`, `lit-review`, …). This is *how the crew thinks* —
-  literature notes, concepts, methods, experiments, findings, MOCs, gaps.
+  literature notes, concepts, methodology, experiments, findings, MOCs, gaps.
 - **`manuscripts/` — the deliverable pillar.** The user-facing layer: papers, surveys, and
   reports the human actually reads. Built by the **manuscript loop**, which transforms
   `notes/` into a submittable document **by type** (`type: lit-review` today; a future
@@ -62,9 +63,10 @@ project repo — the project repo carries only its own content.
 ```
 <project>/                        # git repo root = the OKF vault (source_dir = ./notes)
 ├── notes/                        # OKF knowledge base — the ONLY note store
-│   ├── literature/                 (rv OKF_TYPES; project-scoped)
-│   ├── concepts/
-│   ├── methods/
+│   ├── literature/                 (rv OKF_TYPES; per-project overlay of the shared core)
+│   ├── methodology/                project-scoped (this project's own approach/protocol —
+│                                    a general/reusable methodological idea belongs in the
+│                                    shared concepts/ instead; there is no shared methods/ bundle)
 │   ├── experiments/               pre-registration + results-provenance notes
 │   ├── findings/
 │   ├── mocs/
@@ -72,8 +74,9 @@ project repo — the project repo carries only its own content.
 │   ├── log/                       dated reasoning log (project-log baseline)
 │   ├── index.md                   overview + live questions
 │   └── _templates/                 note templates
-│                                 # NOTE: datasets/ is SHARED — it lives in the rv
-│                                 # instance's datasets_root, NOT here. See §"Linkage" P3.
+│                                 # NOTE: datasets/ and concepts/ are SHARED — they live in
+│                                 # the rv instance's datasets_root/concepts_root, NOT here.
+│                                 # See §"Linkage" P3.
 ├── code/                         # ALL source + tests + project tooling
 │   ├── src/…                       package(s) — freely refactorable (nothing links INTO here)
 │   ├── tests/
@@ -112,7 +115,7 @@ per-manuscript-folder convention, below.
 ## The per-manuscript folder (not an OKF taxonomy)
 
 `manuscripts/` holds **one self-contained folder per manuscript** — deliberately *not* a
-typed taxonomy the way `notes/` is (`literature/ concepts/ methods/ …`). There won't be
+typed taxonomy the way `notes/` is (`literature/ concepts/ methodology/ …`). There won't be
 enough manuscripts in a project to warrant one; a flat per-slug folder is the right grain.
 
 ```

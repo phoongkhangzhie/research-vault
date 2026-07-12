@@ -263,7 +263,7 @@ class TestSlugCollisionGuard:
         "experiments",
         "literature",
         "concepts",
-        "methods",
+        "methodology",
         "findings",
         "mocs",
         # SR-RM-FIGMS: figures and manuscript removed from OKF_TYPES
@@ -403,13 +403,18 @@ class TestOKFSharedTypesSelfConsumption:
         assert path.parent == expected_parent
 
     def test_routing_condition_uses_membership_not_equality(self):
-        """The if-condition that routes notes to cfg.datasets_root must use
+        """The if-condition that routes notes to a shared root must use
         `in OKF_SHARED_TYPES`, never `== "datasets"` (a hardcoded string comparison).
 
-        Strategy: parse each function with AST, find every `if X: <var> = cfg.datasets_root`
-        node, extract ONLY the condition source via ast.get_source_segment (comment-free by
-        definition — AST nodes carry no comment text), then assert the hardcoded equality
-        pattern is absent.
+        0.3.2 added a second shared type (concepts), so the routing sites now
+        dispatch to `cfg.shared_type_root(t)` (a per-type lookup) instead of the
+        single hardcoded `cfg.datasets_root` attribute access. This test detects
+        the (now more general) `if X: <var> = cfg.shared_type_root(...)` shape.
+
+        Strategy: parse each function with AST, find every such routing node,
+        extract ONLY the condition source via ast.get_source_segment (comment-free
+        by definition — AST nodes carry no comment text), then assert the
+        hardcoded equality pattern is absent.
 
         Non-vacuousness: this test FAILS if any routing branch is reverted to
         `== "datasets"` — comments containing 'OKF_SHARED_TYPES' cannot rescue it
@@ -423,7 +428,7 @@ class TestOKFSharedTypesSelfConsumption:
 
         def _routing_if_conditions(func):
             """Return comment-free source segments of if-conditions that route to
-            cfg.datasets_root (i.e. `if X: <something> = cfg.datasets_root`)."""
+            cfg.shared_type_root(...) (i.e. `if X: <something> = cfg.shared_type_root(t)`)."""
             src = inspect.getsource(func)
             src = textwrap.dedent(src)
             tree = ast.parse(src)
@@ -436,10 +441,11 @@ class TestOKFSharedTypesSelfConsumption:
                         continue
                     val = stmt.value
                     if (
-                        isinstance(val, ast.Attribute)
-                        and val.attr == "datasets_root"
-                        and isinstance(val.value, ast.Name)
-                        and val.value.id == "cfg"
+                        isinstance(val, ast.Call)
+                        and isinstance(val.func, ast.Attribute)
+                        and val.func.attr == "shared_type_root"
+                        and isinstance(val.func.value, ast.Name)
+                        and val.func.value.id == "cfg"
                     ):
                         cond_src = ast.get_source_segment(src, node.test) or ""
                         found.append(cond_src)
@@ -453,7 +459,7 @@ class TestOKFSharedTypesSelfConsumption:
             conditions = _routing_if_conditions(func)
             assert conditions, (
                 f"{func_name}: no routing if-condition found — expected at least one "
-                f"`if X: <var> = cfg.datasets_root` block"
+                f"`if X: <var> = cfg.shared_type_root(...)` block"
             )
             for cond in conditions:
                 assert '== "datasets"' not in cond and "== 'datasets'" not in cond, (

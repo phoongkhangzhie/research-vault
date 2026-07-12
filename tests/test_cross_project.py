@@ -278,10 +278,10 @@ def test_corroborate_provenance_carries_anchor(
     """Provenance carries @slug:note_rel:anchor (Slice 5 format)."""
     cfg = two_project_cfg_with_edge
     source_b = Path(cfg.projects["project-beta"]["source_dir"])
-    note = source_b / "methods" / "transformer-arch.md"
+    note = source_b / "methodology" / "transformer-arch.md"
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text(
-        "---\ntype: methods\ntitle: Transformer Architecture\n---\n\n"
+        "---\ntype: methodology\ntitle: Transformer Architecture\n---\n\n"
         "## Self-Attention\n\n"
         "The transformer architecture uses self-attention mechanisms.\n",
         encoding="utf-8",
@@ -417,10 +417,10 @@ def test_ranker_beats_substring_coincidental_hit(
     source_b = Path(cfg.projects["project-beta"]["source_dir"])
 
     # High-relevance note: densely about "transformer attention mechanisms"
-    relevant = source_b / "methods" / "attention-deep-dive.md"
+    relevant = source_b / "methodology" / "attention-deep-dive.md"
     relevant.parent.mkdir(parents=True, exist_ok=True)
     relevant.write_text(
-        "---\ntype: methods\ntitle: Attention Deep Dive\n---\n\n"
+        "---\ntype: methodology\ntitle: Attention Deep Dive\n---\n\n"
         "## Attention Mechanisms\n\n"
         "Transformer attention mechanisms compute query, key, value projections. "
         "Self-attention allows each position to attend to all other positions in the sequence. "
@@ -570,7 +570,7 @@ def test_paraphrase_claim_surfaces_relevant_note(
     # Relevant note body: shares key vocabulary (attention, mechanisms, performance,
     # sequence, modeling) but does NOT contain the claim phrase verbatim (no "boost").
     relevant_text = (
-        "---\ntype: methods\ntitle: Self-Attention for Sequential Data\n---\n\n"
+        "---\ntype: methodology\ntitle: Self-Attention for Sequential Data\n---\n\n"
         "## Attention in Neural Architectures\n\n"
         "Self-attention mechanisms allow transformer models to process sequential data effectively. "
         "Attention mechanisms capture long-range dependencies across the input sequence. "
@@ -596,7 +596,7 @@ def test_paraphrase_claim_surfaces_relevant_note(
         "otherwise this test does not prove the substring pre-filter is gone."
     )
 
-    relevant = source_b / "methods" / "paraphrase-relevant.md"
+    relevant = source_b / "methodology" / "paraphrase-relevant.md"
     relevant.parent.mkdir(parents=True, exist_ok=True)
     relevant.write_text(relevant_text, encoding="utf-8")
 

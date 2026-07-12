@@ -662,15 +662,15 @@ def _build_experiment_manifest(
             f"1. Compare the approved plan (experiments/{exp_id}-plan.md) against "
             f"the actual run notes (experiments/{exp_id}-main*.md) to identify any "
             f"protocol deviations.\n"
-            f"2. If there were NO deviations: write methods/method-{exp_id}.md "
-            f"(type: methods) with a brief summary confirming adherence.\n"
+            f"2. If there were NO deviations: write methodology/method-{exp_id}.md "
+            f"(type: methodology) with a brief summary confirming adherence.\n"
             f"3. If there WERE deviations: document them explicitly — what changed, "
             f"why, and what downstream interpretation impact they carry. "
-            f"Tag deviations as 'stance: exploratory' in the methods note.\n"
+            f"Tag deviations as 'stance: exploratory' in the methodology note.\n"
             f"4. Return ⟦RETURN⟧ then: "
             f"rv dag complete <run_id> methods-update"
         ),
-        "produces": {"note": f"methods/method-{exp_id}.md"},
+        "produces": {"note": f"methodology/method-{exp_id}.md"},
         "needs": [{"from": "human-go-findings", "edge": "soft"}],
         "reads": [_abs("experiments"), _abs("findings")],
     })

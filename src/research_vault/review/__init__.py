@@ -1107,6 +1107,58 @@ def coverage_report(
 # the same finding as a hard refusal. One resolution pass, two postures.
 
 
+def _check_concepts_orphan(
+    project_notes_dir: Path, concepts_root: Path,
+) -> list[str]:
+    """Detect concept notes stranded at the LEGACY (pre-0.3.2) per-project
+    location — ``project_notes_dir/concepts/`` — now that concepts is
+    shared-canonical and every reader resolves against ``concepts_root``.
+
+    On a single-instance/no-``source_dir`` topology the two paths can
+    coincide (nothing to detect); on a multi-tier instance (a registered
+    project with its own ``source_dir`` — e.g. a real code-repo project)
+    they are always different directories, and a note left at the legacy
+    path is invisible to every shared-root reader with NO error unless
+    this check exists. Returns one error string per orphaned note's
+    directory (a single summary line, not one per file — the file names
+    are folded into the message) — empty list when there is nothing to
+    migrate.
+
+    Never raises: an unreadable legacy dir degrades to "nothing found"
+    (the orphan, if any, is still there on disk — a later run will catch
+    it; this is a detection pass, not the source of truth).
+    """
+    legacy_dir = project_notes_dir / "concepts"
+    if not legacy_dir.exists():
+        return []
+    try:
+        if legacy_dir.resolve() == concepts_root.resolve():
+            # Explicitly configured to coincide — nothing orphaned.
+            return []
+    except OSError:
+        pass
+    try:
+        orphans = sorted(
+            p for p in legacy_dir.glob("*.md")
+            if p.name not in OKF_RESERVED_FILENAMES
+        )
+    except OSError:
+        return []
+    if not orphans:
+        return []
+    names = ", ".join(p.name for p in orphans[:5])
+    more = f" (+{len(orphans) - 5} more)" if len(orphans) > 5 else ""
+    return [
+        f"{legacy_dir}: {len(orphans)} concept note(s) stranded at the "
+        f"legacy project-scoped location ({names}{more}) — concepts is "
+        f"shared-canonical as of 0.3.2; every reader (cmd_list/cmd_check/"
+        f"the manuscript and review-loop reads:) now resolves concepts "
+        f"against {concepts_root}, so these notes are INVISIBLE until "
+        f"relocated. Fix: relocate_legacy_concepts(project_notes_dir, "
+        f"concepts_root) (see also the CLI 'rv note relocate-concepts')."
+    ]
+
+
 def check_link_resolution(
     project: str | None = None,
     *,
@@ -1129,13 +1181,45 @@ def check_link_resolution(
          that exists as a central-core note;
       3. every paper→concept edge in the overlay's own '## Concept edges'
          section (``relate_check.parse_concept_edges``) targets a slug that
-         exists under ``project_notes_dir/concepts/``;
+         exists under ``cfg.concepts_root`` (concepts are shared-canonical
+         as of 0.3.2 — resolved against the shared store, never the
+         project's own notes dir);
       4. every UNIFIED typed edge (``relate_check.parse_typed_edges``)
          found in either body — cross-bundle ``okf:...`` edges (resolved via
-         ``cfg.resolve_bundle_link``), within-project edges (resolved
-         against ``project_notes_dir``), and artifact-targeted provenance
-         edges (resolved as a file path under ``project_notes_dir``, file-
+         ``cfg.resolve_bundle_link``, which ALSO covers ``okf:concepts/...``
+         — the ONE cross-bundle resolution path for a project→shared
+         concept edge), within-project edges (resolved against
+         ``project_notes_dir``), and artifact-targeted provenance edges
+         (resolved as a file path under ``project_notes_dir``, file-
          existence only — never note-conformance).
+
+    A concept edge resolves against ``cfg.concepts_root`` EXACTLY ONCE,
+    never via both (3) and (4): ``relate_check._scan_edge_lines`` buckets
+    every edge LINE into exactly one of its four disjoint scopes by which
+    named group of its target grammar matched — a bare ``/concepts/<slug>.md``
+    link is the INTRA-SHARED scope (bucket (3), ``parse_concept_edges``); an
+    ``okf:concepts/<slug>.md`` link is the CROSS-BUNDLE scope (bucket (4),
+    ``parse_typed_edges``). One scan, one bucket per line — (3) and (4) read
+    disjoint buckets of the SAME single pass, so a line is never resolved
+    twice and never falls through unresolved either.
+
+    Plus, project-wide (independent of whether any literature overlay
+    exists):
+      4. ``project_notes_dir/concepts/`` (the LEGACY, pre-0.3.2 location)
+         holds no orphaned notes. concepts became shared-canonical in
+         0.3.2 — every reader (``note.cmd_list``/``note.cmd_check``, this
+         function's own concept-edge resolution above, and the manuscript/
+         review-loop reads: pointers) now resolves concepts against
+         ``cfg.concepts_root``, NOT ``project_notes_dir/concepts``. On a
+         multi-tier instance (a registered project with its own
+         ``source_dir``) those two directories are different paths — a
+         note left at the legacy location becomes silently invisible to
+         every one of those readers, with no error. This is exactly the
+         class of defect charter §2 forbids: a green check that could be
+         green-and-empty. Surfaced here (never in cmd_list/cmd_check
+         directly) so it rides the SAME "day-to-day WARN / curation-time
+         BLOCK" posture as every other finding in this function, with zero
+         new mechanism.
 
     An overlay whose ``central:`` link does not resolve is skipped for (2)
     (no core body to read edges from) but still recorded as an error for
@@ -1172,11 +1256,19 @@ def check_link_resolution(
     else:
         cfg = config or load_config()
     literature_dir = project_notes_dir / "literature"
-    concepts_dir = project_notes_dir / "concepts"
+    # concepts is shared-canonical (0.3.2) — resolve against cfg.concepts_root,
+    # never the project's own notes dir.
+    concepts_dir = cfg.concepts_root
 
     errors: list[str] = []
+
+    # Item 4 above — checked FIRST and unconditionally (independent of
+    # literature_dir's existence): a project can have orphaned legacy
+    # concepts with zero literature overlays.
+    errors.extend(_check_concepts_orphan(project_notes_dir, concepts_dir))
+
     if not literature_dir.exists():
-        return {"ok": True, "errors": errors}
+        return {"ok": not errors, "errors": errors}
 
     for overlay_path in sorted(literature_dir.glob("*.md")):
         if overlay_path.name in OKF_RESERVED_FILENAMES:
@@ -1228,14 +1320,17 @@ def check_link_resolution(
                         f"{edge['target']}.md does not exist."
                     )
 
-        # Paper->concept edges live in the overlay's own body.
+        # Paper->concept edges live in the overlay's own body. concepts are
+        # shared-canonical: this is a project->shared resolution against
+        # cfg.concepts_root, not an intra-project lookup.
         for edge in parse_concept_edges(overlay_body).edges:
             target_path = concepts_dir / f"{edge['target']}.md"
             if not target_path.exists():
                 errors.append(
-                    f"{overlay_path}: unresolved intra-bundle link in "
-                    f"'## Concept edges' — target /concepts/"
-                    f"{edge['target']}.md does not exist."
+                    f"{overlay_path}: unresolved cross-bundle link in "
+                    f"'## Concept edges' — target concepts/"
+                    f"{edge['target']}.md does not exist in the shared "
+                    f"concepts store ({concepts_dir})."
                 )
 
         # Unified typed edges — cross-bundle / within-project /
@@ -1548,7 +1643,17 @@ def _build_phase1_manifest(
     # project_root=manifest_path.parent is at run/tick time).
     # Previously this returned a bare name like "literature" which resolved
     # relative to the manifest dir (reviews/<scope>/) — always wrong.
+    # concepts is shared-canonical (0.3.2) — routes to cfg.concepts_root,
+    # never project_notes_dir/concepts (which no longer holds concepts
+    # content). Config resolution is LAZY (only on the "concepts" branch,
+    # only when the caller didn't already supply a Config) — most callers
+    # of _build_phase1_manifest never need a Config at all, and forcing an
+    # eager load_config() here would break callers (and tests) that
+    # deliberately run without a discoverable/valid config.
     def _rel(okf_type: str) -> str:
+        if okf_type == "concepts":
+            _cfg_for_rel = config if isinstance(config, Config) else load_config()
+            return str(_cfg_for_rel.concepts_root)
         return str(project_notes_dir / okf_type)
 
     # Absolute path to review artifact dir (for produces: and watch: expressions)
@@ -1917,8 +2022,19 @@ def _build_phase2_manifest(
     def _afterok(from_id: str) -> dict[str, Any]:
         return {"from": from_id, "edge": "afterok"}
 
-    # Absolute OKF type-dir pointers (Fix #34 — same as Phase-1; see comment there)
+    # Absolute OKF type-dir pointers (emit absolute paths so the reads:-
+    # grounding resolver finds the real OKF dirs regardless of what
+    # project_root=manifest_path.parent is at run/tick time — same as
+    # Phase-1, see comment there). concepts is shared-canonical (0.3.2) —
+    # routes to cfg.concepts_root. Config resolution is LAZY (only on the
+    # "concepts" branch, only when the caller didn't already supply a
+    # Config) — most callers of _build_phase2_manifest never need a Config
+    # at all, and forcing an eager load_config() here would break callers
+    # (and tests) that deliberately run without a discoverable/valid config.
     def _rel(okf_type: str) -> str:
+        if okf_type == "concepts":
+            _cfg_for_rel = config if isinstance(config, Config) else load_config()
+            return str(_cfg_for_rel.concepts_root)
         return str(project_notes_dir / okf_type)
 
     protocol_path = str(review_dir / "_protocol.md")

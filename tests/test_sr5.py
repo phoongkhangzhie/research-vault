@@ -80,7 +80,7 @@ def tmp_cfg(tmp_path: Path):
     notes_root.mkdir()
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for d in ("experiments", "findings", "methods", "literature", "concepts", "mocs"):
+    for d in ("experiments", "findings", "methodology", "literature", "concepts", "mocs"):
         (notes_root / d).mkdir()
 
     cfg_path = tmp_path / "research_vault.toml"
@@ -530,7 +530,7 @@ def test_rv_init_creates_instance_structure(tmp_path):
 
     # Notes root with OKF type dirs
     assert (target / "notes").is_dir(), "notes/ must be created"
-    for note_type in ("experiments", "findings", "methods", "literature", "concepts", "mocs"):
+    for note_type in ("experiments", "findings", "methodology", "literature", "concepts", "mocs"):
         assert (target / "notes" / note_type).is_dir(), (
             f"notes/{note_type}/ must be created"
         )
