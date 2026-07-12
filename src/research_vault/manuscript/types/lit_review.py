@@ -1735,8 +1735,8 @@ def check_outline_gate(
     Plus (MOC-entry invariant) — when ``mocs_dir`` is supplied (the
     project's ``mocs/`` directory):
       5. the manuscript enters shared knowledge THROUGH a curated MOC, never
-         a bare `concepts/`/`literature/` glob (§2.6 of the model this gate
-         enforces). At least one ``mocs/<region>`` reference must appear in
+         a bare `concepts/`/`literature/` glob (the MOC-entry invariant).
+         At least one ``mocs/<region>`` reference must appear in
          the outline, AND every ``mocs/<region>`` reference named must
          resolve to a real file under ``mocs_dir`` — a named region with no
          real target is exactly the "curated path" collapsing to a rumour,
