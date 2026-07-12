@@ -291,3 +291,24 @@ def test_check_filled_description_no_warning(cfg):
 
     violations = note_mod.cmd_check("demo-research", config=cfg)
     assert not any(v.startswith("[description-lint]") for v in violations)
+
+
+# ---------------------------------------------------------------------------
+# `timestamp:` + `resource:` OKF sibling fields — additive scaffold
+# ---------------------------------------------------------------------------
+
+def test_new_scaffolds_timestamp_and_resource_fields(cfg):
+    """cmd_new scaffolds a non-empty ISO-date `timestamp:` (auto-stamped at
+    creation) and a present-but-empty `resource:` field — additive siblings
+    of `description`, no new check-gate."""
+    path = note_mod.cmd_new(
+        "demo-research", "findings", "A finding", config=cfg, note_id="sib-fields"
+    )
+    fields, _ = note_mod._parse_frontmatter(path.read_text(encoding="utf-8"))
+    assert "timestamp" in fields
+    assert fields["timestamp"] != ""
+    import datetime
+
+    datetime.date.fromisoformat(fields["timestamp"])  # raises if not ISO-date
+    assert "resource" in fields
+    assert fields["resource"] == ""

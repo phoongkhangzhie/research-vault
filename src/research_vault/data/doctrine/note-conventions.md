@@ -92,6 +92,19 @@ extension point):
   tolerates `okf:` as an unrecognized (but well-formed) link scheme; rv resolves it via
   a bundle registry (named bundle -> root path). A dangling or malformed backbone link is
   tolerated by every consumer (never raises) — see the resolver's own docstring.
+- **OKF field-alignment — additive per-note metadata.** Riding the spec's own
+  unknown-field tolerance, every OKF type scaffolds three additive frontmatter fields
+  that are uniform raw material for a future knowledge map: `description` — a
+  one-sentence summary, scaffolded **empty** (never fabricated from `title`; the author
+  fills it in by hand); `timestamp` — an ISO-date last-modified marker, **auto-stamped**
+  at creation (honest, since last-modified == created at that point — there is no
+  edit-bump mechanism yet, so it currently only ever reflects creation time), sitting
+  alongside `created` (birth) rather than replacing it; `resource` — a canonical asset
+  URI pointing at the primary artifact the note is *about* (a paper's PDF/DOI, a
+  concept's canonical source, a dataset's co-located bytes), scaffolded **empty**. For
+  `datasets` notes specifically, `location`/`hash` already capture the artifact-of-record
+  — `resource` is optional-redundant there and may be left empty. None of the three ever
+  block `rv note check`; `description` alone carries a WARN-only lint when absent.
 
 ## Profiles — the hub's optimization
 
