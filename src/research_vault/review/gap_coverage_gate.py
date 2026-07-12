@@ -2,10 +2,10 @@
 """review/gap_coverage_gate.py — the spine's MISSING mechanical gate:
 findings cover gaps.
 
-0.3.2 spec §2.4 / §3 PR-4: the lit-review coverage gate (EXISTING —
-review.autonomy's coverage-gate branch) certifies the CORPUS; nothing
-mechanically certified that the RESEARCH GAPS a corpus/plan committed to
-were ever actually closed. This module is that second gate.
+The lit-review coverage gate (review.autonomy's coverage-gate branch)
+certifies the CORPUS; nothing mechanically certified that the RESEARCH GAPS
+a corpus/plan committed to were ever actually closed. This module is that
+second gate.
 
 THE CONTRACT (rejects-only, fail-closed — mirrors check_framework_gate /
 check_coverage_allocation_gate's native structural enforcement, never an
