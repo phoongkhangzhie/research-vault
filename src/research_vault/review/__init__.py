@@ -1597,23 +1597,32 @@ def _parse_new_citekeys(corpus_path: Path) -> list[str]:
       | [NEW] | citekey | title |
       | [IN-CORPUS:old2019] | old2019 | ... |
 
-    Only rows with annotation exactly ``[NEW]`` (case-insensitive; tolerates
-    extra whitespace and table-pipe variants) are returned as citekeys for the
-    Phase-2 fan-out.  ``[IN-CORPUS:*]`` rows are deliberately excluded — do NOT
-    widen this to include them.
+    Rows carrying a ``NEW`` tag (bare ``[NEW]`` or compound, e.g.
+    ``[LEG-1][NEW] {tags}``) are returned as citekeys for the Phase-2
+    fan-out — see ``_parse_new_citekeys_from_text``. ``[IN-CORPUS:*]`` rows
+    are deliberately excluded — do NOT widen this to include them.
     """
     text = corpus_path.read_text(encoding="utf-8")
     return _parse_new_citekeys_from_text(text)
 
 
 def _parse_new_citekeys_from_text(text: str) -> list[str]:
-    """Parse a _corpus.md text and return citekeys annotated [NEW].
+    """Parse a _corpus.md text and return citekeys for rows that are NEW
+    (to be re-verified) rather than already ``IN-CORPUS``.
 
-    Tolerates: extra whitespace in columns, mixed case ``[new]``/``[NEW]``,
-    leading/trailing spaces around the pipe delimiters, and varying column count.
+    Tolerates: extra whitespace in columns, leading/trailing spaces around
+    the pipe delimiters, varying column count, AND a compound annotation
+    like ``[LEG-1][NEW] {tags}`` (a real ``review-curate`` shape, not just
+    the bare legacy ``[NEW]``). Classification delegates to
+    ``review.relevance._annotation_is_new`` — the ONE shared
+    bracket-annotation grammar (see that function's docstring) — never a
+    fifth independent re-implementation.
 
-    Strict: only ``[NEW]`` (or case variant) passes — ``[IN-CORPUS:*]`` is excluded.
+    ``[IN-CORPUS:*]`` rows are deliberately excluded — do NOT widen this to
+    include them.
     """
+    from .relevance import _annotation_is_new
+
     citekeys: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
@@ -1624,11 +1633,12 @@ def _parse_new_citekeys_from_text(text: str) -> list[str]:
         if len(cols) < 2:
             continue
         annotation = cols[0]
-        # Case-insensitive exact match on [NEW]
-        if annotation.upper() == "[NEW]":
+        if _annotation_is_new(annotation):
             citekey = cols[1]
-            # Validate: citekey must look like a valid identifier
-            if re.match(r"^[A-Za-z0-9_:\-\.]+$", citekey):
+            # Citekey charset includes "/" — a real DOI-shaped citekey
+            # (e.g. "10.1016/j.knosys.2026.116598") is common in a curated
+            # corpus; a "/"-less charset silently drops every DOI row.
+            if re.match(r"^[A-Za-z0-9_:/\-\.]+$", citekey):
                 citekeys.append(citekey)
     return citekeys
 
