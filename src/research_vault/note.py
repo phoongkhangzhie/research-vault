@@ -661,7 +661,7 @@ def _cmd_new_two_layer(
         # The cross-bundle backbone link (rv's OKF extension — see
         # note-conventions.md) — resolved via cfg.resolve_bundle_link /
         # literature_core_path by the resolver. A dangling link is
-        # tolerated (OKF MUST-tolerate, charter §2): load_literature_note
+        # tolerated (OKF's own consumer-MUST-tolerate rule): load_literature_note
         # returns a surfaced, overlay-only AssembledNote rather than
         # raising — see load_literature_note's docstring.
         "central": f"[{slug}](okf:literature/{slug}.md)",
@@ -709,8 +709,8 @@ class AssembledNote:
     docstring. ``core_resolved is False`` means the backbone link did not
     resolve (absent, malformed, or dangling); ``core_path`` is ``None``,
     ``fields``/``body`` carry the overlay ONLY, and
-    ``core_resolve_issue`` is the human-readable reason — surfaced, never
-    silently dropped (charter §2).
+    ``core_resolve_issue`` is the human-readable reason — surfaced via
+    ``UserWarning``, never silently dropped.
     """
 
     citekey: str
@@ -750,10 +750,10 @@ def load_literature_note(cfg: Config, project: str, citekey: str) -> AssembledNo
     Instead it returns an ``AssembledNote`` with ``core_resolved=False``,
     ``core_path=None``, overlay-only ``fields``/``body``, and
     ``core_resolve_issue`` set to a human-readable reason — plus a
-    ``UserWarning`` so the gap is surfaced (charter §2), never silently
-    swallowed. A caller that needs a hard gate on this (e.g. a curation-time
-    producer check) inspects ``core_resolved`` explicitly, rather than the
-    resolver itself refusing to return.
+    ``UserWarning`` so the gap is surfaced, never silently swallowed. A
+    caller that needs a hard gate on this (e.g. a curation-time producer
+    check) inspects ``core_resolved`` explicitly, rather than the resolver
+    itself refusing to return.
     """
     overlay_path = literature_overlay_path(cfg, project, citekey)
     if not overlay_path.exists():
