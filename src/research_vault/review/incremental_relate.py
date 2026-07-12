@@ -65,7 +65,7 @@ def note_concepts(note_path: Path) -> set[str]:
     """The set of concept slugs a literature note is tagged with — read
     from its own ``## Concept edges`` body section (paper->concept typed
     edges, Defect #70's OKF markdown-link format). A note with no concept
-    edges (Move 5's mandatory gating is deferred — engineer memory) or a
+    edges (Move 5's mandatory gating is deferred) or a
     note that does not exist returns an empty set, never an error — an
     empty concept set correctly means "this paper has no concept-graph
     candidates" rather than crashing the whole batch."""

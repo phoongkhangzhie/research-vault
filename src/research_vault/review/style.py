@@ -41,8 +41,8 @@ SEAM CONTRACT
   into, never the default.
 
 Two halves independently mergeable:
-  - Engineer ships this module (plumbing).
-  - The researcher owns the default payload — the retrieval-grounded prose strings.
+  - The module plumbing (this file).
+  - The default payload — the retrieval-grounded prose strings.
   Keep ``get_review_tips`` / ``get_review_style_preamble`` signatures stable.
 
 Stdlib only.
@@ -86,7 +86,7 @@ _DEFAULT_PREAMBLE: str = (
 # ---------------------------------------------------------------------------
 # Default payload — researcher's review-prompt content
 # ---------------------------------------------------------------------------
-# The architect owns the keys/shape; the researcher owns the prose.
+# The keys/shape are fixed by REVIEW_TIPS_KEYS; the prose is the payload.
 # Each string is the prompt guidance for that node of the review DAG.
 
 _DEFAULT_REVIEW_TIPS: dict[str, str] = {

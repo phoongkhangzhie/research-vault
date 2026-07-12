@@ -1477,9 +1477,9 @@ SECTION_SET: tuple[SectionSpec, ...] = (
 # now inject into ONE brief + the outline").
 # ---------------------------------------------------------------------------
 
-# The engineer's build-time number (D3: "start conservative,
+# The default build-time number ("start conservative" —
 # e.g. the point where the whole draft + injected inputs approaches the
-# drafter's context budget"). Override via research_vault.toml:
+# drafter's context budget). Override via research_vault.toml:
 #   [manuscript_lit_review]
 #   single_pass_corpus_ceiling = 60
 _DEFAULT_SINGLE_PASS_CORPUS_CEILING = 40

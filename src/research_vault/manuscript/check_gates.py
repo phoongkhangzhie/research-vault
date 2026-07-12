@@ -143,8 +143,8 @@ _LEAK_ARTIFACT_FILENAME_RE = re.compile(r"\b_[a-z][a-z-]*\.md\b")
 # paper<->concept edges, e.g. `[SUPPORTS] concepts/x.md — reason` (an
 # earlier link-prefix-tag convention) or `[x](/literature/y.md) — SUPPORTS:
 # reason` (the current OKF-conformant prose-token convention)) — these are
-# OKF-internal relation vocabulary, never reader-facing prose (hub bake-off:
-# missed class 1/3, a downstream project's manuscript). Both the earlier
+# OKF-internal relation vocabulary, never reader-facing prose (a prior audit
+# missed this class in a downstream project's manuscript). Both the earlier
 # bracket-prefix shape AND the current trailing `TYPE:` prose-token shape
 # are matched — a leaked edge line from either note vintage must still trip
 # this gate.
@@ -461,8 +461,8 @@ def check_coverage_gate(
 # already reads — charter §6, no new grammar); fuller narrative rationale lives
 # in the note's prose body (not read by this gate).
 #
-# Design decision (flagged for the architect's fit-check): the brief says
-# "machine-checkable allocation in frontmatter, reasons in prose." The reason
+# Design decision: the requirement is "machine-checkable allocation in
+# frontmatter, reasons in prose." The reason
 # for a clustered/deferred entry MUST be machine-checkable for the gate to
 # fail-closed on its absence, so a short reason rides in the frontmatter
 # mapping-list record (`reason:`), where this gate reads it; the note's prose
@@ -838,9 +838,9 @@ def build_approve_payload(
         else:
             signals.extend(f"[support-matcher:PARTIAL] {w}" for w in support_result["warnings"])
     elif _cold_fanout_dirs_present(tree_root):
-        # NG-4 (PRIMARY path): no live judge_fn/env, but a
-        # hub-orchestrated cold-agent-judge fan-out was emitted for this
-        # manuscript (``judge/support-matcher/_judge-tasks.json`` present)
+        # NG-4 (PRIMARY path): no live judge_fn/env, but an
+        # orchestrator-dispatched cold-agent-judge fan-out was emitted for
+        # this manuscript (``judge/support-matcher/_judge-tasks.json`` present)
         # — ingest whatever verdicts landed instead of falling into the
         # generic "not configured" not_run bucket below. A CanaryAbortError
         # here (the fan-out judge failed its planted probe) or a halt (the
@@ -887,7 +887,7 @@ def build_approve_payload(
             "manuscript), and no test judge_fn was supplied. This is NOT a "
             "pass: the citation-fidelity FLOOR (support-matcher) has NOT been "
             "checked on this manuscript. Emit a judge-fanout task set "
-            "(`rv manuscript judge-emit`), let the hub fan out "
+            "(`rv manuscript judge-emit`), fan out "
             "the cold judges, and re-run `rv dag approve` before trusting "
             "this manuscript's citation fidelity. (the in-process API "
             "judge path was deleted — the fan-out is the only production path.)"

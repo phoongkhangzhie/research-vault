@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """review/relate_check.py relate presence check (Wave 0).
 
-Design of record: internal design note.
-
 WHAT THIS IS
 ============
 The 5-move principled paper-reading protocol (the researcher's design,
@@ -43,10 +41,10 @@ that strength; the strongest permissible type at that retrieval tier is
 `PARTIAL`. Fail-closed: an absent/unstamped `read_basis` is treated as
 NOT full-text — never a free pass to claim full strength by omission.
 
- (role/position split) is checked alongside: `role` must be one of
+The (role/position split) is checked alongside: `role` must be one of
 ROLE_TYPES; `position` must be present and non-trivial.
 
-WHY WHITELIST, NEVER BLACKLIST (engineer memory, PR delta)
+WHY WHITELIST, NEVER BLACKLIST
 =================================================================
 `result_reported` / `paper_relations_sought` are agent-stamped free-ish
 fields.  The presence check accepts EXACTLY `"yes"` / `"no"` (case/whitespace
@@ -63,8 +61,7 @@ CONTENT of the reasoning is never judged. A bare tag with no reasoning is
 rejected (too thin); the reasoning's quality is left entirely to the
 subagent's judgment (never over-rigidified).
 
-THE TAG IS AUTHORITATIVE, `(kind)` IS AN OPTIONAL MIRROR (architect review,
-PR delta)
+THE TAG IS AUTHORITATIVE, `(kind)` IS AN OPTIONAL MIRROR
 ================================================================================
 The prose TYPE token (`SUPPORTS:`/`CONTRADICTS:`/`PARTIAL:`/`EXTENDS:`) is
 required and derives the Noblit & Hare relation kind mechanically
@@ -78,8 +75,7 @@ disagreement is surfaced, never silently resolved one way. Requiring
 the WHOLE edge — the single most likely malformation maximized silent
 loss. Optional-and-derived closes that hole.
 
-SURFACE MALFORMED EDGES, NEVER SILENTLY SKIP (architect review, the load-bearing
-fix)
+SURFACE MALFORMED EDGES, NEVER SILENTLY SKIP (the load-bearing fix)
 ================================================================================
 An earlier `parse_paper_relations` used `finditer` over a strict regex and
 silently dropped any non-matching line — a note with 3 edges where 1 is
@@ -95,7 +91,7 @@ that is neither a candidate edge target nor accompanied by a plausible
 type-token attempt, is legitimate prose and is never flagged — see
 `_looks_like_tag_attempt`, the false-positive-free signal that separates a
 broken edge attempt from prose once scanning is no longer header-scoped
-(coordinator clarification, PR delta 2, extended for full-body scan).
+(extended for full-body scan).
 
 DEFECT #70 — FULL-BODY SCAN, NOT HEADER-SCOPED
 ================================================================================
@@ -181,7 +177,7 @@ _RELATION_TAGS: frozenset[str] = frozenset({
 })
 
 # The type token derives the kind mechanically — SSOT for the derivation
-# (architect review: "the type is authoritative"). A stated (kind) suffix
+# ("the type is authoritative"). A stated (kind) suffix
 # that disagrees with this mapping is a mirror-mismatch, never a second
 # source of truth.
 _TAG_TO_KIND: dict[str, str] = {
@@ -353,7 +349,7 @@ _COLON_TOKEN_RE = re.compile(r"\b([A-Za-z]+):")
 #   - [Baltaji 2024](/literature/baltaji2024.md) — SUPPORTS: <reason>
 #   - [WEIRD default](/concepts/western-consensus-default.md) — SUPPORTS: <reason>
 # The trailing `(reciprocal|refutational|line-of-argument)` mirror is
-# OPTIONAL (architect review, PR delta) and only meaningful for
+# OPTIONAL and only meaningful for
 # paper→paper edges — a concept edge has no Noblit & Hare kind mapping.
 _EDGE_LINE_RE = re.compile(
     r"^-\s*\[([^\]]+)\]\(/(literature|concepts)/([A-Za-z0-9][A-Za-z0-9_.\-]*)\.md\)\s*"
@@ -391,7 +387,7 @@ class ParsedRelations:
                     attempted typed edge — a typo'd type, a missing/broken
                     link, a non-OKF bare-citekey/path, etc.) that did NOT
                     parse to a valid edge. NEVER silently dropped
-                    (architect review, the load-bearing fix) — a caller
+                    (the load-bearing fix) — a caller
                     that ignores this list re-introduces the exact
                     silent-loss defect the fix closes. Free-form prose
                     (including unrelated bracket markers like ``[TODO]``)
@@ -737,7 +733,7 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
                 "(the over-rigidity guard, caveat)"
             )
 
-    # Architect review (the load-bearing fix): a malformed edge-shaped line
+    # The load-bearing fix: a malformed edge-shaped line
     # is a hard FAIL unconditionally — surfacing it never depends on the
     # yes/no answer (or even on that field being well-formed), because an
     # edge-shaped line is unambiguously an attempted edge regardless of
