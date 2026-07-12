@@ -76,6 +76,21 @@ _STOPWORDS: frozenset[str] = frozenset({
     "method", "methods", "work", "paper's", "authors",
 })
 
+# Cross-domain-generic terms (B2 hardening): a term that shows up in the
+# vocabulary of MANY unrelated fields, so a single shared hit is weak
+# evidence of true topical overlap — e.g. a review whose counter-position
+# talks about "variance collapse" or a "value survey" shares the bare
+# tokens "collapse"/"survey" with an unrelated astrophysics abstract about
+# quantum-state collapse or a galaxy survey. Stoplisted alongside
+# ``_STOPWORDS`` so overlap is measured on the DISTINCTIVE terms of the
+# frozen criteria, not on a generic-noun collision (grounded in the
+# remediation corpus-bypass off-domain field-leak: 103 physics papers
+# admitted on exactly this class of collision).
+_CROSS_DOMAIN_GENERIC: frozenset[str] = frozenset({
+    "collapse", "survey", "field", "dynamics", "network", "model",
+    "simulation", "agent", "population", "sample", "observation", "search",
+})
+
 
 def _tokenize(text: str) -> set[str]:
     """Lowercase word tokens (len >= 4), stopwords excluded.
@@ -86,7 +101,7 @@ def _tokenize(text: str) -> set[str]:
     check cannot.
     """
     tokens = re.findall(r"[a-zA-Z][a-zA-Z\-]{3,}", text.lower())
-    return {t for t in tokens if t not in _STOPWORDS}
+    return {t for t in tokens if t not in _STOPWORDS and t not in _CROSS_DOMAIN_GENERIC}
 
 
 def _domain_vocabulary(criteria: dict[str, Any]) -> set[str]:
@@ -405,6 +420,23 @@ def build_canary_rows(criteria: dict[str, Any]) -> list[dict[str, str]]:
 _BRACKET_TOKEN_RE = re.compile(r"\[([^\[\]]+)\]")
 
 
+def corpus_row_annotation_tags(annotation: str) -> list[str]:
+    """Case-normalized bracket-delimited tokens in a ``_corpus.md`` row's
+    annotation cell — the ONE shared grammar for classifying that cell.
+
+    Convergence note (remediation corpus-bypass fix): this repo had grown
+    THREE independent re-implementations of "scan every ``[...]`` token in
+    the annotation column" (this module's own ``_annotation_is_new``,
+    ``review.__init__._corpus_row_tags``, and ``review.ledger._corpus_rows``'s
+    exact-string-match, which silently diverged and undercounted a compound
+    annotation like ``[LEG-1][NEW]``). Every consumer that needs to
+    classify a corpus-row annotation cell calls this function (directly, or
+    via a thin local re-export kept for import-cycle reasons) — never a
+    fourth re-implementation.
+    """
+    return [t.strip().upper() for t in _BRACKET_TOKEN_RE.findall(annotation)]
+
+
 def _annotation_is_new(annotation: str) -> bool:
     """Whether an ``_corpus.md`` row's annotation column marks it ``NEW``
     (to be re-verified) rather than ``IN-CORPUS`` (already vetted in a prior
@@ -426,10 +458,20 @@ def _annotation_is_new(annotation: str) -> bool:
     are excluded regardless of any other tag present — same design as the
     legacy check: already-vetted papers are not re-verified here.
     """
-    tokens = [t.strip().upper() for t in _BRACKET_TOKEN_RE.findall(annotation)]
+    tokens = corpus_row_annotation_tags(annotation)
     if any(t.startswith("IN-CORPUS") for t in tokens):
         return False
     return any(t == "NEW" for t in tokens)
+
+
+def annotation_needs_curate(annotation: str) -> bool:
+    """True iff the row's annotation cell carries a ``[NEEDS-CURATE]``
+    token — a mechanically-screened-in remediation/facet-remediation
+    append (``review.facet_remediation.screen_and_append_facet_hits``'s own
+    tag) that a re-curate pass has NOT yet processed. Used by
+    ``review.check_corpus_all_accept_tagged`` — never bypass it by adding a
+    fifth ad hoc ``"NEEDS-CURATE" in annotation`` check elsewhere."""
+    return "NEEDS-CURATE" in corpus_row_annotation_tags(annotation)
 
 
 def parse_corpus_table_with_abstract(text: str) -> list[dict[str, str]]:

@@ -597,6 +597,33 @@ def _evaluate_autonomous_gate(
                     key=lambda r: _severity[r.disposition],
                 )
 
+            # Corpus-tagging invariant (remediation corpus-bypass hardening):
+            # any row still tagged [NEEDS-CURATE] (a mechanically-screened-in
+            # but not-yet-leg-classified remediation/facet-remediation
+            # append — review.facet_remediation.screen_and_append_facet_hits'
+            # own tag) means a re-curate pass has not happened for it yet.
+            # coverage-gate must never certify (GO/GO-WITH-RESIDUE) while
+            # such a row is sitting in the corpus — folded in the SAME
+            # most-severe-wins pattern, always as a hard HALT (never a
+            # residue-able downgrade: an un-recurated row isn't a known,
+            # bounded gap, it's an unfinished pipeline step).
+            from ..review import check_corpus_all_accept_tagged as _check_corpus_tagged
+
+            tagging_info = _check_corpus_tagged(corpus_path)
+            if tagging_info["exists"] and not tagging_info["all_tagged"]:
+                disposition = _autonomy.DispositionResult(
+                    _autonomy.HALT_DECLARE,
+                    "coverage-gate: corpus-tagging invariant violated — "
+                    f"{len(tagging_info['untagged_citekeys'])} row(s) still "
+                    "tagged [NEEDS-CURATE] (a remediation/facet-remediation "
+                    "append pending a re-curate pass): "
+                    f"{tagging_info['untagged_citekeys']!r}. A run cannot "
+                    "self-certify while these rows sit unclassified — "
+                    "re-curate them (leg-classify or drop) before "
+                    "re-evaluating.",
+                    {"untagged_citekeys": tagging_info["untagged_citekeys"]},
+                )
+
             # 0.3.1 Layer 2/3: the explicit 3-tier fold (design item 2) —
             # (1) any HALT already returned above / dominates unconditionally
             # (this branch is only reached with disposition != HALT_DECLARE);
@@ -1123,6 +1150,33 @@ def _evaluate_autonomous_gate(
                     "fail-closed rather than loop unboundedly.",
                     {},
                 )
+
+        # Corpus-tagging invariant (remediation corpus-bypass hardening,
+        # SAME check as the coverage-gate branch above): a critic-backtrack
+        # round appends to THIS review's ``_corpus.md`` too — a row it
+        # screened-in but tagged [NEEDS-CURATE] must never let approve-review
+        # certify a GO/GO-WITH-RESIDUE into Phase-2's manuscript emission
+        # while it sits unclassified. Checked unconditionally (whether or
+        # not a CRITIC_BACKTRACK round ran this call) — a mixed BLOCK/REVISE
+        # path never touches the corpus, so this is a correct no-op there.
+        if disposition.disposition != _autonomy.HALT_DECLARE:
+            from ..review import check_corpus_all_accept_tagged as _check_corpus_tagged
+
+            tagging_info = _check_corpus_tagged(review_dir / "_corpus.md")
+            if tagging_info["exists"] and not tagging_info["all_tagged"]:
+                disposition = _autonomy.DispositionResult(
+                    _autonomy.HALT_DECLARE,
+                    "approve-review: corpus-tagging invariant violated — "
+                    f"{len(tagging_info['untagged_citekeys'])} row(s) still "
+                    "tagged [NEEDS-CURATE] (a critic-backtrack/facet-"
+                    "remediation append pending a re-curate pass): "
+                    f"{tagging_info['untagged_citekeys']!r}. Phase-2 cannot "
+                    "be authorized while these rows sit unclassified — "
+                    "re-curate them (leg-classify or drop) before "
+                    "re-evaluating.",
+                    {"untagged_citekeys": tagging_info["untagged_citekeys"]},
+                )
+
         return disposition
 
     raise ValueError(f"_evaluate_autonomous_gate: {node_id!r} is not an autonomous gate id")

@@ -249,6 +249,24 @@ def _parse_corpus_citekeys_safe(corpus_path: Path) -> list[str]:
     return _parse_corpus_citekeys(corpus_path)
 
 
+def _corpus_tagging_safe(corpus_path: Path) -> dict[str, Any]:
+    """Informational-only snapshot of the corpus-tagging invariant
+    (``review.check_corpus_all_accept_tagged``) at freeze/refresh time —
+    NEVER a BLOCK here. ``stamp_corpus_freeze``/``refresh`` must still
+    succeed unconditionally right after a facet-remediation/critic-
+    backtrack round appends ``[NEEDS-CURATE]`` rows (both round drivers
+    call ``refresh`` immediately after their own append, by design — see
+    ``review.facet_remediation.run_facet_query_append_round`` and
+    ``review.remediation.run_directed_remediation_round``); the CERTIFYING
+    gates (``coverage-gate``/``approve-review``, wired in ``dag/verbs.py``)
+    are the ones that HALT on this, not the freeze baseline itself. Kept
+    here purely so a human/agent inspecting ``run_state.meta["corpus_
+    freeze"]`` can see the tagging state without a second round-trip."""
+    from . import check_corpus_all_accept_tagged  # lazy — avoids a module-load cycle
+
+    return check_corpus_all_accept_tagged(corpus_path)
+
+
 # ---------------------------------------------------------------------------
 # The explicit, versioned corpus_freeze baseline
 # ---------------------------------------------------------------------------
@@ -274,6 +292,7 @@ def stamp_corpus_freeze(
         return existing
 
     citekeys = sorted(_parse_corpus_citekeys_safe(corpus_path))
+    tagging = _corpus_tagging_safe(corpus_path)
     freeze = {
         "version": 1,
         "corpus_hash": hash_file(corpus_path) if corpus_path.exists() else "",
@@ -286,6 +305,9 @@ def stamp_corpus_freeze(
         "corpus_path": str(corpus_path.resolve()) if corpus_path.exists() else str(corpus_path),
         "protocol_path": str(protocol_path.resolve()) if protocol_path.exists() else str(protocol_path),
         "frozen_at": now if now is not None else time.time(),
+        # informational only (see _corpus_tagging_safe) — never a block here.
+        "all_accept_tagged": tagging["all_tagged"],
+        "untagged_citekeys": tagging["untagged_citekeys"],
     }
     run_state_meta["corpus_freeze"] = freeze
     run_state_meta.setdefault("frozen_corpus_citekeys", citekeys)
@@ -527,6 +549,7 @@ def refresh(
     if not ok:
         raise RefreshBlocked(f"rv review refresh: BLOCKED — {msg}")
 
+    tagging = _corpus_tagging_safe(corpus_path)
     new_freeze = {
         "version": baseline["version"] + 1,
         "corpus_hash": hash_file(corpus_path),
@@ -536,6 +559,9 @@ def refresh(
         "corpus_path": str(corpus_path.resolve()),
         "protocol_path": str(protocol_path.resolve()) if protocol_path.exists() else str(protocol_path),
         "frozen_at": now if now is not None else time.time(),
+        # informational only (see _corpus_tagging_safe) — never a block here.
+        "all_accept_tagged": tagging["all_tagged"],
+        "untagged_citekeys": tagging["untagged_citekeys"],
     }
     run_state_meta["corpus_freeze"] = new_freeze
     run_state_meta["frozen_corpus_citekeys"] = new_freeze["corpus_citekeys"]
