@@ -20,7 +20,7 @@ typed-edge foundation):
      intra-shared ``/literature/...`` one. Provenance/structural edges
      (USES/PRODUCED/DERIVED-FROM/GROUNDED-IN/ADDRESSES/ANSWERS) get NO cap.
 
-Plant-the-failure discipline (charter §9): both classes below include a
+Plant-the-failure discipline: both classes below include a
 test that directly demonstrates what the PRE-FIX code path would have
 done (uncapped cross-bundle CONTRADICTS; a same-token within-project
 mirror) and asserts the REAL code does NOT do that.
@@ -95,7 +95,7 @@ class TestWithinProjectBidirectionalWrite:
         exp_text = experiment.read_text(encoding="utf-8")
         assert "[experiments/exp1.md" not in finding_text  # sanity: no double-nesting
         assert "(/experiments/exp1.md) — DERIVED-FROM: the finding derives" in finding_text
-        # THE GUARD (mirrors PR-1's guard test): the reciprocal edge on the
+        # THE GUARD (mirrors the guard test): the reciprocal edge on the
         # experiment note carries the CONVERSE, never the same token.
         assert "(/findings/finding1.md) — SHOWS: the finding derives" in exp_text
         assert "— DERIVED-FROM:" not in exp_text
@@ -208,7 +208,7 @@ class TestAppendTypedEdgeGeneralMechanism:
         assert "[baltaji2024](okf:literature/baltaji2024.md) — USES:" in text
 
     def test_append_related_papers_edge_still_byte_identical(self, tmp_path):
-        """Golden discipline (PR-1): the literature-specific wrapper must
+        """Golden discipline: the literature-specific wrapper must
         still write EXACTLY the same bytes as before this PR."""
         note = tmp_path / "literature" / "a.md"
         note.parent.mkdir(parents=True)
