@@ -1010,6 +1010,102 @@ def _op_relations(*, project: str, scope: str, config: Any = None, **_: Any) -> 
     return relations_report(project, scope, config=cfg)
 
 
+def _op_register_provenance(
+    *, project: str, edges: list[dict[str, Any]], config: Any = None, **_: Any,
+) -> Any:
+    """The ``register_provenance`` tool op — the mechanical half of the
+    0.3.2 spine's "registration = provenance edges" move: a run/
+    score/analyze node's completion is followed by a DETERMINISTIC tool
+    node that AUTHORS the provenance edge(s) the completed step implies,
+    rather than declaring a bare ``produces:`` path contract. Thin call-
+    through to ``review.incremental_relate``'s within-project / artifact
+    typed-edge writers (charter §6 — no new write mechanism; the
+    existing writers, unchanged).
+
+    ``edges`` is a list of edge specs, each one of two shapes (dispatched
+    by ``kind``):
+
+      ``kind="within-project"`` — a reciprocal edge between two project
+        notes (``append_within_project_bidirectional_edge``). Requires
+        ``source_type``/``source_id``/``target_type``/``target_id``/
+        ``tag``/``reason``. ``tag`` MUST be in
+        ``relate_check._TAG_SYMMETRY`` (e.g. ``DERIVED-FROM``,
+        ``ADDRESSES``, ``ANSWERS``) — never a one-way tag (that raises
+        ``ValueError`` from the writer itself, never silently degrades to
+        a single-edge write).
+
+      ``kind="artifact"`` — one one-way edge from a project note to an
+        artifact path (``append_typed_edge``). Requires ``source_type``/
+        ``source_id``/``tag``/``reason``/``artifact``. ``tag`` MUST be a
+        never-auto-mirrored provenance tag (``PRODUCED``) — a symmetric/
+        asymmetric argumentative or coverage tag here would silently
+        create an edge FROM an artifact were it ever mirrored, which
+        ``append_typed_edge`` itself has no mirroring to do (it only
+        writes the ONE edge, on the source note) — the caller is
+        responsible for using the right tag family for an artifact
+        target; the resolver's family-slot check catches a
+        mismatched tag at curation time regardless.
+
+    Multiple edges in ONE tool node (e.g. an analyze-register node writing
+    finding-DERIVED-FROM-experiment + experiment-ADDRESSES-gap +
+    finding-ANSWERS-gap in a single call) avoids proliferating one tool
+    node per edge in the DAG manifest — one node, one op call, N writes.
+
+    Returns ``{"edges_written": [...]}`` — every edge written, in order.
+    Never silently no-ops: an unresolvable source/target note (per the
+    writers' own ``FileNotFoundError`` contract) or a caller bug (a
+    one-way tag on a within-project edge, or an unknown ``kind``)
+    propagates as a loud exception — the DAG's tool-node executor
+    (``_auto_execute_tool_nodes``) already treats a raised exception as
+    node -> blocked, never a silent retry (charter §2).
+    """
+    from research_vault.config import load_config
+    from research_vault.review.incremental_relate import (
+        append_typed_edge, append_within_project_bidirectional_edge,
+    )
+
+    cfg = config if config is not None else load_config()
+    notes_dir = cfg.project_notes_dir(project)
+
+    written: list[dict[str, Any]] = []
+    for edge in edges:
+        kind = edge.get("kind")
+        tag = edge["tag"]
+        reason = edge["reason"]
+        source_type = edge["source_type"]
+        source_id = edge["source_id"]
+
+        if kind == "within-project":
+            target_type = edge["target_type"]
+            target_id = edge["target_id"]
+            append_within_project_bidirectional_edge(
+                notes_dir, source_type, source_id, target_type, target_id,
+                tag=tag, reason=reason,
+            )
+            written.append({
+                "kind": kind, "source": f"{source_type}/{source_id}",
+                "target": f"{target_type}/{target_id}", "tag": tag,
+            })
+        elif kind == "artifact":
+            artifact = edge["artifact"]
+            source_note = notes_dir / source_type / f"{source_id}.md"
+            append_typed_edge(
+                source_note, display=artifact, target_link=artifact,
+                tag=tag, reason=reason,
+            )
+            written.append({
+                "kind": kind, "source": f"{source_type}/{source_id}",
+                "artifact": artifact, "tag": tag,
+            })
+        else:
+            raise ValueError(
+                f"register_provenance op: edge {edge!r} has unknown "
+                f"kind {kind!r} (expected 'within-project' or 'artifact')"
+            )
+
+    return {"edges_written": written}
+
+
 OP_REGISTRY: dict[str, Callable[..., Any]] = {
     "sweep": _op_sweep,
     "snowball": _op_snowball,
@@ -1017,6 +1113,7 @@ OP_REGISTRY: dict[str, Callable[..., Any]] = {
     "relevance_verify_prep": _op_relevance_verify_prep,
     "coverage": _op_coverage,
     "relations": _op_relations,
+    "register_provenance": _op_register_provenance,
 }
 
 

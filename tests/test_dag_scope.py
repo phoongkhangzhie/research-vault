@@ -426,20 +426,20 @@ class TestReadsResolution:
                 {"ref": "file1.py", "why": "for reference"},
             ])
         ])
-        errors, warns = resolve_reads_pointers(m, project_root=tmp_path)
+        errors, warns, pending = resolve_reads_pointers(m, project_root=tmp_path)
         assert errors == [], f"Unexpected errors: {errors}"
 
     def test_resolve_reads_pointers_with_missing_file(self, tmp_path):
         """resolve_reads_pointers with one missing file → error returned."""
         m = _manifest([_agent("a", reads=["missing_file.py"])])
-        errors, warns = resolve_reads_pointers(m, project_root=tmp_path)
+        errors, warns, pending = resolve_reads_pointers(m, project_root=tmp_path)
         assert len(errors) >= 1
         assert any("missing_file.py" in e for e in errors)
 
     def test_resolve_reads_pointers_no_reads_no_errors(self, tmp_path):
         """Nodes with no reads: field → no errors from resolution pass."""
         m = _manifest([_agent("a")])  # no reads
-        errors, warns = resolve_reads_pointers(m, project_root=tmp_path)
+        errors, warns, pending = resolve_reads_pointers(m, project_root=tmp_path)
         assert errors == []
 
     def test_resolve_reads_pointers_human_go_skipped(self, tmp_path):
@@ -448,7 +448,7 @@ class TestReadsResolution:
             _agent("a", spec="task://t#a"),
             _human_go("gate", needs=[_need("a")]),
         ])
-        errors, warns = resolve_reads_pointers(m, project_root=tmp_path)
+        errors, warns, pending = resolve_reads_pointers(m, project_root=tmp_path)
         assert errors == []
 
     def test_resolve_reads_symbol_warn_accumulates(self, tmp_path):
@@ -456,7 +456,7 @@ class TestReadsResolution:
         f = tmp_path / "module.py"
         f.write_text("# stub\n")
         m = _manifest([_agent("a", reads=["module.py:MissingSymbol"])])
-        errors, warns = resolve_reads_pointers(m, project_root=tmp_path)
+        errors, warns, pending = resolve_reads_pointers(m, project_root=tmp_path)
         assert errors == []
         assert len(warns) >= 1
 
@@ -466,6 +466,82 @@ class TestReadsResolution:
         f.write_text("# stub")
         err, warn = resolve_reads_pointer(str(f), project_root=Path("/some/other/dir"))
         assert err is None, f"Unexpected error for absolute path: {err}"
+
+
+# ===========================================================================
+# 5b. Pending-vs-error classification (task #97 fold-in) — a reads: pointer
+#     to an artifact this SAME manifest declares as some node's produces:
+#     output is PENDING (an honest forward reference), not an ERROR (a
+#     manifest mistake). Only a pointer NO node produces is a real error.
+# ===========================================================================
+
+class TestReadsPendingVsError:
+    def test_upstream_not_yet_produced_is_pending_not_error(self, tmp_path):
+        """A fresh-run manifest: node B reads an artifact node A declares
+        as its produces: output, but A hasn't run yet — PENDING, not ERROR."""
+        m = _manifest([
+            _agent("scope", produces={"_protocol.md": "_protocol.md"}),
+            _agent("search", reads=["_protocol.md"], needs=[_need("scope")]),
+        ])
+        errors, warns, pending = resolve_reads_pointers(m, project_root=tmp_path)
+        assert errors == [], f"Unexpected hard errors: {errors}"
+        assert len(pending) == 1
+        assert "_protocol.md" in pending[0]
+        assert "'scope'" in pending[0]
+
+    def test_genuinely_unproduced_pointer_stays_error(self, tmp_path):
+        """A reads: pointer NO node in the manifest declares as its
+        produces: output is a genuine manifest mistake — stays ERROR."""
+        m = _manifest([
+            _agent("scope", produces={"_protocol.md": "_protocol.md"}),
+            _agent("search", reads=["typo-protocol.md"], needs=[_need("scope")]),
+        ])
+        errors, warns, pending = resolve_reads_pointers(m, project_root=tmp_path)
+        assert pending == []
+        assert len(errors) == 1
+        assert "typo-protocol.md" in errors[0]
+
+    def test_pending_downgrades_to_error_when_producer_already_succeeded(self, tmp_path):
+        """If the producing node has ALREADY succeeded and the artifact is
+        STILL missing, that's a genuine problem — never silently downgraded
+        to pending just because it matches a produces: declaration."""
+        m = _manifest([
+            _agent("scope", produces={"_protocol.md": "_protocol.md"}),
+            _agent("search", reads=["_protocol.md"], needs=[_need("scope")]),
+        ])
+        node_states = {"scope": {"status": "succeeded"}}
+        errors, warns, pending = resolve_reads_pointers(
+            m, project_root=tmp_path, node_states=node_states,
+        )
+        assert pending == []
+        assert len(errors) == 1
+        assert "_protocol.md" in errors[0]
+
+    def test_pending_when_producer_still_running(self, tmp_path):
+        """A producing node that is running (not yet succeeded) still
+        classifies the downstream pointer as pending."""
+        m = _manifest([
+            _agent("scope", produces={"_protocol.md": "_protocol.md"}),
+            _agent("search", reads=["_protocol.md"], needs=[_need("scope")]),
+        ])
+        node_states = {"scope": {"status": "running"}}
+        errors, warns, pending = resolve_reads_pointers(
+            m, project_root=tmp_path, node_states=node_states,
+        )
+        assert errors == []
+        assert len(pending) == 1
+
+    def test_produced_artifact_that_already_exists_is_neither_pending_nor_error(self, tmp_path):
+        """Once the artifact is actually on disk, resolution succeeds
+        normally — no pending, no error."""
+        (tmp_path / "_protocol.md").write_text("# protocol\n")
+        m = _manifest([
+            _agent("scope", produces={"_protocol.md": "_protocol.md"}),
+            _agent("search", reads=["_protocol.md"], needs=[_need("scope")]),
+        ])
+        errors, warns, pending = resolve_reads_pointers(m, project_root=tmp_path)
+        assert errors == []
+        assert pending == []
 
 
 # ===========================================================================

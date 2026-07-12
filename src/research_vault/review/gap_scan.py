@@ -93,11 +93,21 @@ _RUN_SECTIONS: frozenset[str] = frozenset({
 GAP_TYPE_KNOWLEDGE_VOID = "knowledge_void"
 GAP_TYPE_CONTRADICTORY = "contradictory"
 GAP_TYPE_EVALUATION_VOID = "evaluation_void"
+# coverage_void — the lit-review loop's own MISSING second output
+# (gaps = RQ - coverage): a facet the frozen protocol committed to
+# searching but whose corpus support ended up "thin" (below the
+# facet-coverage floor already computed at review-search time —
+# review.check_facet_coverage_from_search_hits' thin_poles). Distinct
+# provenance from the other three (which scan the OKF corpus post-hoc,
+# findings/concepts); this one reads the review loop's OWN Layer-2
+# facet-coverage record — see _detect_coverage_void / emit_coverage_gaps.
+GAP_TYPE_COVERAGE_VOID = "coverage_void"
 
 GAP_TYPES: frozenset[str] = frozenset({
     GAP_TYPE_KNOWLEDGE_VOID,
     GAP_TYPE_CONTRADICTORY,
     GAP_TYPE_EVALUATION_VOID,
+    GAP_TYPE_COVERAGE_VOID,
 })
 
 # Valid closure statuses
@@ -200,6 +210,8 @@ def suggest_route(gap_type: str, meta: dict[str, Any]) -> str:
         return ROUTE_LITERATURE
     if gap_type == GAP_TYPE_EVALUATION_VOID:
         return ROUTE_EXPERIMENT
+    if gap_type == GAP_TYPE_COVERAGE_VOID:
+        return ROUTE_LITERATURE  # a thin RQ facet is closed by MORE targeted search first
     # Unknown type → safe default
     return ROUTE_TRIAGE
 
@@ -348,6 +360,136 @@ def _detect_evaluation_void(notes_dir: Path) -> list[GapRecord]:
     return gaps
 
 
+
+
+def _detect_coverage_void(
+    review_dir: Path,
+    *,
+    scope_id: str,
+    protocol_path: Path | None = None,
+    search_hits_path: Path | None = None,
+) -> list[GapRecord]:
+    """Detect Coverage Void gaps: RQ facets (counter-position poles) the
+    lit-review's own width-sweep surfaced too FEW distinct papers for.
+
+    This is the lit-review loop's missing SECOND output (0.3.2):
+    ``gaps = RQ - coverage``. Reuses the Layer-2 facet-coverage record
+    ALREADY computed at review-search time
+    (``review.check_facet_coverage_from_search_hits`` — the SAME
+    ``thin_poles``/``pole_counts`` the coverage-gate's own facet-remediation
+    branch reads) rather than re-deriving anything — charter §6, one SSOT
+    for "which facet is thin."
+
+    A protocol with no nested D-3 facets (legacy flat ``seed_queries:``, or
+    a sweep that never computed facet coverage) declares no poles at all —
+    an honest no-op, never a fabricated gap (charter §2): ``declared:
+    False`` or an empty ``thin_poles`` list both return ``[]``.
+
+    ``anchor`` points at the review's own ``_search_hits.md`` (without the
+    ``.md`` suffix — ``note.check_gap_anchor`` appends it), so the gap's
+    live-anchor hygiene check (vanished-anchor WARN) works exactly like
+    every other gap type's anchor.
+    """
+    from research_vault.review import check_facet_coverage_from_search_hits
+
+    protocol_path = protocol_path or (review_dir / "_protocol.md")
+    search_hits_path = search_hits_path or (review_dir / "_search_hits.md")
+
+    coverage = check_facet_coverage_from_search_hits(search_hits_path)
+    if not coverage["declared"] or not coverage["thin_poles"]:
+        return []
+
+    question = ""
+    if protocol_path.exists():
+        try:
+            fields, _ = _pfm(protocol_path.read_text(encoding="utf-8"))
+            question = str(fields.get("question", "")).strip()
+        except OSError:
+            pass
+
+    # anchor is relative to project_notes_dir; review_dir's own shape is
+    # project_notes_dir/reviews/<scope_id> (review._review_artifact_dir).
+    anchor = f"reviews/{scope_id}/_search_hits"
+
+    gaps: list[GapRecord] = []
+    for pole in coverage["thin_poles"]:
+        count = coverage["pole_counts"].get(pole, 0)
+        min_hits = coverage["min_hits_per_pole"]
+        claim = f"{question} — facet {pole!r}" if question else f"facet {pole!r}"
+        gaps.append(GapRecord(
+            type=GAP_TYPE_COVERAGE_VOID,
+            anchor=anchor,
+            claim=claim,
+            why=(
+                f"facet {pole!r} surfaced {count} distinct paper(s), below "
+                f"the required floor of {min_hits} — this piece of the "
+                f"research question is under-covered by the frozen corpus"
+            ),
+            status="open",
+            _meta={
+                "pole": pole, "count": count,
+                "min_hits_per_pole": min_hits, "scope_id": scope_id,
+            },
+        ))
+    return gaps
+
+
+def emit_coverage_gaps(
+    review_dir: Path,
+    project_notes_dir: Path,
+    *,
+    scope_id: str | None = None,
+) -> list[GapRecord]:
+    """Emit Coverage Void gaps/<id>.md notes from a review scope's OWN
+    facet-coverage record — the lit-review loop's missing second output
+    (0.3.2). Path-based (no Config dependency) so the DAG runner's
+    coverage-gate evaluation (which already resolves ``review_dir`` from
+    the manifest) can call this directly.
+
+    Idempotent — runs through the SAME dedup/reopen-signal machinery as
+    ``cmd_gap_scan``: a facet already recorded as a gap is never
+    re-created; a reopen signal on a machine-closed gap is checked exactly
+    like the other three detectors.
+
+    Returns the list of newly-written GapRecords (never including
+    pre-existing ones).
+    """
+    scope_id = scope_id or review_dir.name
+
+    detected = _detect_coverage_void(review_dir, scope_id=scope_id)
+    existing = _existing_gap_ids(project_notes_dir)
+
+    new_gaps: list[GapRecord] = []
+    for rec in detected:
+        gid = _gap_id(rec.type, rec.anchor, rec.claim)
+        if gid in existing:
+            _check_reopen_signal(
+                rec=rec, gid=gid, existing_status=existing[gid], pnd=project_notes_dir,
+            )
+            continue
+        rec.suggested_route = suggest_route(rec.type, rec._meta)
+        _write_gap_note(rec, gid, project_notes_dir)
+        new_gaps.append(rec)
+
+    return new_gaps
+
+
+def cmd_gap_scan_coverage(
+    project: str,
+    scope_id: str,
+    *,
+    config: Any = None,
+) -> list[GapRecord]:
+    """CLI-callable wrapper: resolve ``project``/``scope_id`` to paths via
+    Config, then call ``emit_coverage_gaps`` (the path-based SSOT the DAG
+    runner also calls). See ``emit_coverage_gaps`` for the mechanism.
+    """
+    from research_vault.config import load_config as _load_config
+
+    cfg = config or _load_config()
+    pnd = cfg.project_notes_dir(project)
+    review_dir = pnd / "reviews" / scope_id
+    return emit_coverage_gaps(review_dir, pnd, scope_id=scope_id)
 
 
 # ---------------------------------------------------------------------------

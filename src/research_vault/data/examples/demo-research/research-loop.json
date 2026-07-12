@@ -1,19 +1,21 @@
 {
   "run_id": "research-loop-q1",
   "name": "Research loop — Q1 (pre-registration: 2 mains, ablations, conditionals)",
+  "project": "demo-research",
   "global_cap": 4,
   "nodes": [
     {
       "id": "plan",
       "type": "agent",
-      "label": "Plan experiments + write pre-registration master + child stubs (Ada/researcher)",
+      "label": "Plan experiments + write pre-registration master + child stubs (Ada/researcher) — gap-driven",
       "role": "researcher",
       "spec": "task://demo-research#plan",
       "produces": {"note": "experiments/q1-plan.md"},
       "needs": [],
       "reads": [
         "doctrine/plan-critic-spec.md#plan-critic spec",
-        "doctrine/roles/researcher.md"
+        "doctrine/roles/researcher.md",
+        "gaps/"
       ]
     },
     {
@@ -80,12 +82,48 @@
       "reads": ["doctrine/compute-run-recipe.md#how to run here"]
     },
     {
+      "id": "q1-main1-run-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main1 run artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main1",
+            "tag": "PRODUCED", "reason": "q1-main1's run artifact",
+            "artifact": "results/runs/q1-main1.jsonl"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main1-run", "edge": "afterok"}]
+    },
+    {
       "id": "q1-main1-score",
       "type": "agent",
       "label": "Score Exp 1 main 1 (Ada/researcher)",
       "role": "researcher",
       "spec": "task://demo-research#score",
       "needs": [{"from": "q1-main1-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main1-score-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main1 scores artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main1",
+            "tag": "PRODUCED", "reason": "q1-main1's scores artifact",
+            "artifact": "results/scores/q1-main1.csv"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main1-score", "edge": "afterok"}]
     },
     {
       "id": "q1-main1-analyze",
@@ -95,6 +133,36 @@
       "spec": "task://demo-research#analyze",
       "produces": {"note": "findings/q1-main1.md"},
       "needs": [{"from": "q1-main1-score", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main1-analyze-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register provenance edges — q1-main1 finding DERIVED-FROM its run; experiment ADDRESSES + finding ANSWERS the gap it pre-registered against",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "within-project",
+            "source_type": "findings", "source_id": "q1-main1",
+            "target_type": "experiments", "target_id": "q1-main1",
+            "tag": "DERIVED-FROM", "reason": "this finding is derived from the q1-main1 run"
+          },
+          {
+            "kind": "within-project",
+            "source_type": "experiments", "source_id": "q1-main1",
+            "target_type": "gaps", "target_id": "q1-gap-main1",
+            "tag": "ADDRESSES", "reason": "q1-main1 pre-registered against this gap (see experiments/q1-plan.md)"
+          },
+          {
+            "kind": "within-project",
+            "source_type": "findings", "source_id": "q1-main1",
+            "target_type": "gaps", "target_id": "q1-gap-main1",
+            "tag": "ANSWERS", "reason": "q1-main1's finding closes this gap"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main1-analyze", "edge": "afterok"}]
     },
 
     {
@@ -111,12 +179,48 @@
       "reads": ["doctrine/compute-run-recipe.md#how to run here"]
     },
     {
+      "id": "q1-main1-abl-A-run-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main1-abl-A run artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main1-abl-A",
+            "tag": "PRODUCED", "reason": "q1-main1-abl-A's run artifact",
+            "artifact": "results/runs/q1-main1-abl-A.jsonl"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main1-abl-A-run", "edge": "afterok"}]
+    },
+    {
       "id": "q1-main1-abl-A-score",
       "type": "agent",
       "label": "Score ablation A of main 1 (Ada/researcher)",
       "role": "researcher",
       "spec": "task://demo-research#score",
       "needs": [{"from": "q1-main1-abl-A-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main1-abl-A-score-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main1-abl-A scores artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main1-abl-A",
+            "tag": "PRODUCED", "reason": "q1-main1-abl-A's scores artifact",
+            "artifact": "results/scores/q1-main1-abl-A.csv"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main1-abl-A-score", "edge": "afterok"}]
     },
     {
       "id": "q1-main1-abl-A-analyze",
@@ -126,6 +230,24 @@
       "spec": "task://demo-research#analyze",
       "produces": {"note": "findings/q1-main1-abl-A.md"},
       "needs": [{"from": "q1-main1-abl-A-score", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main1-abl-A-analyze-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register provenance edge — q1-main1-abl-A finding DERIVED-FROM its run (ablation: no independent gap registration; scoped under q1-main1's pre-registration)",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "within-project",
+            "source_type": "findings", "source_id": "q1-main1-abl-A",
+            "target_type": "experiments", "target_id": "q1-main1-abl-A",
+            "tag": "DERIVED-FROM", "reason": "this finding is derived from the q1-main1-abl-A run"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main1-abl-A-analyze", "edge": "afterok"}]
     },
 
     {
@@ -156,12 +278,48 @@
       "reads": ["doctrine/compute-run-recipe.md#how to run here"]
     },
     {
+      "id": "q1-main1-cabl-Y-run-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main1-cabl-Y run artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main1-cabl-Y",
+            "tag": "PRODUCED", "reason": "q1-main1-cabl-Y's run artifact",
+            "artifact": "results/runs/q1-main1-cabl-Y.jsonl"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main1-cabl-Y-run", "edge": "afterok"}]
+    },
+    {
       "id": "q1-main1-cabl-Y-score",
       "type": "agent",
       "label": "Score conditional ablation Y of main 1 (Ada/researcher)",
       "role": "researcher",
       "spec": "task://demo-research#score",
       "needs": [{"from": "q1-main1-cabl-Y-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main1-cabl-Y-score-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main1-cabl-Y scores artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main1-cabl-Y",
+            "tag": "PRODUCED", "reason": "q1-main1-cabl-Y's scores artifact",
+            "artifact": "results/scores/q1-main1-cabl-Y.csv"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main1-cabl-Y-score", "edge": "afterok"}]
     },
     {
       "id": "q1-main1-cabl-Y-analyze",
@@ -171,6 +329,24 @@
       "spec": "task://demo-research#analyze",
       "produces": {"note": "findings/q1-main1-cabl-Y.md"},
       "needs": [{"from": "q1-main1-cabl-Y-score", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main1-cabl-Y-analyze-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register provenance edge — q1-main1-cabl-Y finding DERIVED-FROM its run",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "within-project",
+            "source_type": "findings", "source_id": "q1-main1-cabl-Y",
+            "target_type": "experiments", "target_id": "q1-main1-cabl-Y",
+            "tag": "DERIVED-FROM", "reason": "this finding is derived from the q1-main1-cabl-Y run"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main1-cabl-Y-analyze", "edge": "afterok"}]
     },
 
     {
@@ -218,12 +394,48 @@
       "reads": ["doctrine/compute-run-recipe.md#how to run here"]
     },
     {
+      "id": "q1-main2-run-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main2 run artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main2",
+            "tag": "PRODUCED", "reason": "q1-main2's run artifact",
+            "artifact": "results/runs/q1-main2.jsonl"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main2-run", "edge": "afterok"}]
+    },
+    {
       "id": "q1-main2-score",
       "type": "agent",
       "label": "Score Exp 2 main 2 (Ada/researcher)",
       "role": "researcher",
       "spec": "task://demo-research#score",
       "needs": [{"from": "q1-main2-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main2-score-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main2 scores artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main2",
+            "tag": "PRODUCED", "reason": "q1-main2's scores artifact",
+            "artifact": "results/scores/q1-main2.csv"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main2-score", "edge": "afterok"}]
     },
     {
       "id": "q1-main2-analyze",
@@ -233,6 +445,36 @@
       "spec": "task://demo-research#analyze",
       "produces": {"note": "findings/q1-main2.md"},
       "needs": [{"from": "q1-main2-score", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main2-analyze-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register provenance edges — q1-main2 finding DERIVED-FROM its run; experiment ADDRESSES + finding ANSWERS the gap it pre-registered against",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "within-project",
+            "source_type": "findings", "source_id": "q1-main2",
+            "target_type": "experiments", "target_id": "q1-main2",
+            "tag": "DERIVED-FROM", "reason": "this finding is derived from the q1-main2 run"
+          },
+          {
+            "kind": "within-project",
+            "source_type": "experiments", "source_id": "q1-main2",
+            "target_type": "gaps", "target_id": "q1-gap-main2",
+            "tag": "ADDRESSES", "reason": "q1-main2 pre-registered against this gap (see experiments/q1-plan.md)"
+          },
+          {
+            "kind": "within-project",
+            "source_type": "findings", "source_id": "q1-main2",
+            "target_type": "gaps", "target_id": "q1-gap-main2",
+            "tag": "ANSWERS", "reason": "q1-main2's finding closes this gap"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main2-analyze", "edge": "afterok"}]
     },
 
     {
@@ -249,12 +491,48 @@
       "reads": ["doctrine/compute-run-recipe.md#how to run here"]
     },
     {
+      "id": "q1-main2-abl-B-run-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main2-abl-B run artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main2-abl-B",
+            "tag": "PRODUCED", "reason": "q1-main2-abl-B's run artifact",
+            "artifact": "results/runs/q1-main2-abl-B.jsonl"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main2-abl-B-run", "edge": "afterok"}]
+    },
+    {
       "id": "q1-main2-abl-B-score",
       "type": "agent",
       "label": "Score ablation B of main 2 (Ada/researcher)",
       "role": "researcher",
       "spec": "task://demo-research#score",
       "needs": [{"from": "q1-main2-abl-B-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main2-abl-B-score-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main2-abl-B scores artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main2-abl-B",
+            "tag": "PRODUCED", "reason": "q1-main2-abl-B's scores artifact",
+            "artifact": "results/scores/q1-main2-abl-B.csv"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main2-abl-B-score", "edge": "afterok"}]
     },
     {
       "id": "q1-main2-abl-B-analyze",
@@ -264,6 +542,24 @@
       "spec": "task://demo-research#analyze",
       "produces": {"note": "findings/q1-main2-abl-B.md"},
       "needs": [{"from": "q1-main2-abl-B-score", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main2-abl-B-analyze-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register provenance edge — q1-main2-abl-B finding DERIVED-FROM its run (ablation: no independent gap registration; scoped under q1-main2's pre-registration)",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "within-project",
+            "source_type": "findings", "source_id": "q1-main2-abl-B",
+            "target_type": "experiments", "target_id": "q1-main2-abl-B",
+            "tag": "DERIVED-FROM", "reason": "this finding is derived from the q1-main2-abl-B run"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main2-abl-B-analyze", "edge": "afterok"}]
     },
 
     {
@@ -294,12 +590,48 @@
       "reads": ["doctrine/compute-run-recipe.md#how to run here"]
     },
     {
+      "id": "q1-main2-cabl-Z-run-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main2-cabl-Z run artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main2-cabl-Z",
+            "tag": "PRODUCED", "reason": "q1-main2-cabl-Z's run artifact",
+            "artifact": "results/runs/q1-main2-cabl-Z.jsonl"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main2-cabl-Z-run", "edge": "afterok"}]
+    },
+    {
       "id": "q1-main2-cabl-Z-score",
       "type": "agent",
       "label": "Score conditional ablation Z of main 2 (Ada/researcher)",
       "role": "researcher",
       "spec": "task://demo-research#score",
       "needs": [{"from": "q1-main2-cabl-Z-run", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main2-cabl-Z-score-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register PRODUCED provenance edge — q1-main2-cabl-Z scores artifact",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "artifact",
+            "source_type": "experiments", "source_id": "q1-main2-cabl-Z",
+            "tag": "PRODUCED", "reason": "q1-main2-cabl-Z's scores artifact",
+            "artifact": "results/scores/q1-main2-cabl-Z.csv"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main2-cabl-Z-score", "edge": "afterok"}]
     },
     {
       "id": "q1-main2-cabl-Z-analyze",
@@ -309,6 +641,24 @@
       "spec": "task://demo-research#analyze",
       "produces": {"note": "findings/q1-main2-cabl-Z.md"},
       "needs": [{"from": "q1-main2-cabl-Z-score", "edge": "afterok"}]
+    },
+    {
+      "id": "q1-main2-cabl-Z-analyze-register",
+      "type": "tool",
+      "op": "register_provenance",
+      "label": "Register provenance edge — q1-main2-cabl-Z finding DERIVED-FROM its run",
+      "args": {
+        "project": "demo-research",
+        "edges": [
+          {
+            "kind": "within-project",
+            "source_type": "findings", "source_id": "q1-main2-cabl-Z",
+            "target_type": "experiments", "target_id": "q1-main2-cabl-Z",
+            "tag": "DERIVED-FROM", "reason": "this finding is derived from the q1-main2-cabl-Z run"
+          }
+        ]
+      },
+      "needs": [{"from": "q1-main2-cabl-Z-analyze", "edge": "afterok"}]
     },
 
     {
@@ -326,13 +676,24 @@
     },
 
     {
+      "id": "gap-coverage-gate",
+      "type": "human-go",
+      "label": "Gate: every gap pre-registered against (q1-gap-main1, q1-gap-main2) is either ANSWERED by a finding or explicitly LEAVES-OPEN — auto-resolved (review.gap_coverage_gate; see _AUTONOMOUS_GATE_IDS). Distinguishes gap-CLOSED (ANSWERS) from gap-SPAWNED (a finding surfacing a NEW gaps/<id>.md note is a separate, downstream researcher act this gate has no opinion on).",
+      "needs": [
+        {"from": "q1-main1-analyze-register", "edge": "afterok"},
+        {"from": "q1-main2-analyze-register", "edge": "afterok"},
+        {"from": "human-go-findings", "edge": "afterok"}
+      ]
+    },
+
+    {
       "id": "methods-update",
       "type": "agent",
       "label": "Update methods note if protocol changed (Ada/researcher — soft, non-blocking)",
       "role": "researcher",
       "spec": "task://demo-research#methods-update",
       "produces": {"note": "methodology/method-q1.md"},
-      "needs": [{"from": "human-go-findings", "edge": "soft"}]
+      "needs": [{"from": "gap-coverage-gate", "edge": "soft"}]
     }
   ]
 }
