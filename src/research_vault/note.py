@@ -382,6 +382,15 @@ def cmd_new(project: str, note_type: str, title: str, *,
         "type": note_type,
         "title": title,
         "created": _today(),
+        # OKF field-alignment `description` — a one-sentence summary of the
+        # note, additive (scaffolded across ALL OKF types so the knowledge
+        # map has uniform raw material). Scaffolded EMPTY, not fabricated
+        # from the title: a title is a label, not a summary, and stamping
+        # one as a fake "description" would defeat the field's purpose
+        # (grounding — never fabricate). The author fills it in by hand;
+        # absence is never a cmd_check violation (same optional-field
+        # precedent as literature's doi/arxiv_id).
+        "description": "",  # fill in: a one-sentence summary of this note
     }
 
     # datasets notes carry provenance-specific placeholder fields
@@ -640,6 +649,8 @@ def cmd_check(
     - datasets notes (scanned from cfg.datasets_root) have non-empty
       `location` and `hash` fields. The type-dir check is skipped for datasets
       since datasets_root may have any directory name.
+    - every note (all OKF types) has a non-empty `description:` field —
+      WARN-only, never blocks (``check_description_lint``).
 
     Note: datasets are SHARED across projects. cmd_check scans
     cfg.datasets_root for the datasets type (same root for all projects);
@@ -716,6 +727,12 @@ def cmd_check(
             if note_type not in OKF_TYPES:
                 violations.append(f"{p}: unknown type {note_type!r}")
                 continue
+
+            # description-lint: universal across all OKF types (not
+            # type-specific like citekey-lint) — WARN-only, never blocks.
+            # A missing description degrades the knowledge map to a
+            # title-only fallback, not a broken artifact.
+            violations.extend(check_description_lint(p, fields))
 
             if t in OKF_SHARED_TYPES:
                 # For shared types, the directory name may differ from the type name
@@ -1003,6 +1020,28 @@ def check_citekey_conformance(
             f"not conform to the familyShorttitleYear convention — re-run "
             f"`rv research citekey <project> {lit_note_path.stem}` or "
             f"`rv research migrate-citekeys <project>` to fix it"
+        ]
+    return []
+
+
+def check_description_lint(
+    note_path: Path,
+    fields: dict[str, str],
+) -> list[str]:
+    """WARN when a note's ``description:`` frontmatter field is absent or empty.
+
+    Additive, universal across all OKF types (unlike ``check_citekey_conformance``,
+    which is literature-only): the knowledge map's per-note summary rolls up
+    from this field, falling back to ``title:`` when absent. A missing
+    description degrades the map's usefulness, not the note's validity —
+    WARN-only, dev-tolerant (a WIP note may not have one yet), never flips
+    ``rv note check``'s exit code.
+    """
+    description = (fields.get("description") or "").strip()
+    if not description:
+        return [
+            f"[description-lint] WARN: {note_path.name}: missing or empty "
+            f"'description' field — fill in a one-sentence summary of the note"
         ]
     return []
 
@@ -1760,9 +1799,13 @@ def run(args: argparse.Namespace) -> int:
             #     written knowledge). Note: "[link-lint] BLOCK:" (only
             #     emitted when --strict-links is passed) does NOT match this
             #     prefix, so it stays hard — see cmd_check's strict_links arg.
+            #   [description-lint] WARN: — missing/empty 'description' field,
+            #     universal across all OKF types (unlike citekey-lint, which
+            #     is literature-only). Dev-tolerant: a WIP note may not have
+            #     one yet.
             _WARN_PREFIXES = (
                 "[repro-lint]", "[gap-hygiene]", "[dataset-provenance]", "[citekey-lint]",
-                "[two-layer-lint] WARN:", "[link-lint] WARN:",
+                "[two-layer-lint] WARN:", "[link-lint] WARN:", "[description-lint]",
             )
             hard = [v for v in violations if not v.startswith(_WARN_PREFIXES)]
             warnings = [v for v in violations if v.startswith(_WARN_PREFIXES)]

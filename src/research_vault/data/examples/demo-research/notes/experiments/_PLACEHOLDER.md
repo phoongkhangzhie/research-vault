@@ -15,6 +15,7 @@ The research loop enforces that this note is filed BEFORE the run node fires.
 type: experiments
 citekey: exp-<id>
 title: <Experiment title>
+description: <one-sentence summary of the note (optional; WARN if empty)>
 ---
 ```
 

@@ -14,5 +14,6 @@ The synthesize node soft-couples to this directory (critic-judged, not file-gate
 ---
 type: concepts
 title: <Concept title>
+description: <one-sentence summary of the note (optional; WARN if empty)>
 ---
 ```

@@ -201,6 +201,8 @@ class TestCmdListCmdCheck:
         )
         text = note_path.read_text(encoding="utf-8").replace(
             "citekey: \n", "citekey: clean2024\n"
+        ).replace(
+            "description: \n", "description: A clean, conformant paper.\n"
         )
         note_path.write_text(text, encoding="utf-8")
         violations = note_mod.cmd_check("demo-research", config=cfg)

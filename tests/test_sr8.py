@@ -47,6 +47,7 @@ def _write_dataset_note(
     location: str = "",
     hash_val: str = "",
     title: str = "Test dataset",
+    description: str = "",
 ) -> Path:
     """Write a datasets provenance note DIRECTLY in datasets_root/. Returns path.
 
@@ -59,6 +60,8 @@ def _write_dataset_note(
         lines.append(f"location: {location}")
     if hash_val:
         lines.append(f"hash: {hash_val}")
+    if description:
+        lines.append(f"description: {description}")
     lines += ["---", "", "<!-- provenance note -->", ""]
     p = datasets_root / f"{note_id}.md"
     p.write_text("\n".join(lines), encoding="utf-8")
@@ -193,6 +196,7 @@ class TestDatasetsOkfType:
             "check-ok",
             location=str(data_file),
             hash_val=h,
+            description="A tiny 2-row CSV fixture for the check-ok test.",
         )
         violations = note_mod.cmd_check("demo-research", config=cfg)
         assert violations == [], f"Expected no violations, got: {violations}"

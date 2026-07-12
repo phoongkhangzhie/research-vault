@@ -388,6 +388,7 @@ class TestOKFSharedTypesSelfConsumption:
         content = path.read_text()
         content = content.replace("location: ", "location: /data/file.csv")
         content = content.replace("hash: ", "hash: sha256:abc123")
+        content = content.replace("description: ", "description: A valid dataset fixture.")
         path.write_text(content)
         violations = note_mod.cmd_check("demo-research", config=cfg)
         assert not violations, f"Unexpected violations: {violations}"

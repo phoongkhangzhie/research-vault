@@ -77,8 +77,9 @@ def test_list_returns_notes_by_type(cfg):
 
 
 def test_check_valid_notes_passes(cfg):
-    """cmd_check returns empty list when notes are valid."""
-    note_mod.cmd_new("demo-research", "experiments", "Experiment plan", config=cfg)
+    """cmd_check returns empty list when notes are valid (description filled)."""
+    path = note_mod.cmd_new("demo-research", "experiments", "Experiment plan", config=cfg)
+    path.write_text(path.read_text().replace("description: ", "description: A test experiment plan.", 1))
     violations = note_mod.cmd_check("demo-research", config=cfg)
     assert violations == []
 
@@ -223,3 +224,70 @@ def test_reserved_filenames_skipped_in_literature_cmd_list(cfg):
 
     notes = note_mod.cmd_list("demo-research", "literature", config=cfg)
     assert {n["path"].stem for n in notes} == {"real2024"}
+
+
+# ---------------------------------------------------------------------------
+# `description:` OKF frontmatter field — additive scaffold + WARN lint
+# ---------------------------------------------------------------------------
+
+def test_new_scaffolds_description_field_for_all_types(cfg):
+    """cmd_new scaffolds an empty `description:` field for EVERY OKF type
+    (uniform raw material for the knowledge-map roll-up)."""
+    for t in note_mod.OKF_TYPES:
+        path = note_mod.cmd_new(
+            "demo-research", t, f"Note of type {t}", config=cfg, note_id=f"desc-{t}"
+        )
+        fields, _ = note_mod._parse_frontmatter(path.read_text(encoding="utf-8"))
+        assert "description" in fields, f"{t} note missing scaffolded 'description' field"
+        assert fields["description"] == ""
+
+
+def test_legacy_note_without_description_still_parses(cfg):
+    """A pre-existing note authored before this field existed (no
+    `description:` line at all) still parses cleanly — additive,
+    back-compatible."""
+    path = note_mod.cmd_new("demo-research", "findings", "Legacy finding", config=cfg)
+    content = path.read_text(encoding="utf-8")
+    # Simulate a pre-field-addition note: strip the description line entirely.
+    legacy_content = "\n".join(
+        line for line in content.splitlines() if not line.startswith("description:")
+    ) + "\n"
+    assert "description:" not in legacy_content
+    path.write_text(legacy_content, encoding="utf-8")
+
+    fields, _ = note_mod._parse_frontmatter(path.read_text(encoding="utf-8"))
+    assert fields.get("type") == "findings"
+    assert fields.get("description", "") == ""  # absent field reads as empty, never crashes
+
+    # cmd_check tolerates the absent field too — only a WARN, never a crash/BLOCK.
+    violations = note_mod.cmd_check("demo-research", config=cfg)
+    assert any(v.startswith("[description-lint] WARN:") for v in violations)
+    from research_vault.cli import main
+    result = main(["note", "demo-research", "check"])
+    assert result == 0  # WARN-class, never blocks
+
+
+def test_check_warns_empty_description_never_blocks(cfg):
+    """A note with an empty `description:` WARNs but does not flip the exit code."""
+    note_mod.cmd_new("demo-research", "concepts", "A concept", config=cfg)
+    violations = note_mod.cmd_check("demo-research", config=cfg)
+    assert any(
+        v.startswith("[description-lint] WARN:") and "missing or empty" in v
+        for v in violations
+    )
+
+    from research_vault.cli import main
+    result = main(["note", "demo-research", "check"])
+    assert result == 0  # WARN-class, never blocks
+
+
+def test_check_filled_description_no_warning(cfg):
+    """A filled-in description produces zero description-lint violations."""
+    path = note_mod.cmd_new("demo-research", "concepts", "A concept", config=cfg)
+    content = path.read_text(encoding="utf-8").replace(
+        "description: ", "description: A durable conceptual claim.", 1
+    )
+    path.write_text(content, encoding="utf-8")
+
+    violations = note_mod.cmd_check("demo-research", config=cfg)
+    assert not any(v.startswith("[description-lint]") for v in violations)

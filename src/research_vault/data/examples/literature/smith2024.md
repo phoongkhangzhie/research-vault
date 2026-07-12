@@ -2,6 +2,7 @@
 type: literature
 citekey: smith2024
 title: A Framework for Retrieval-Augmented Reasoning
+description: Interleaves retrieval and reasoning steps to beat a dense-retrieval-only baseline by 4.2 points.
 created: 2026-01-15
 distilled: 2026-01-15
 read_basis: full-text
