@@ -483,7 +483,7 @@ def check_equation_fidelity(
                 f"({'marked critical' if critical else 'unmarked' if critical is None else 'marked non-critical'}) "
                 f"from {entry.get('note', '?')} not found in the draft (deterministic match"
                 f"{' + judge' if judge_fn is not None else ''} both missed) — SIGNAL, not BLOCK "
-                f": surfaced for the review loop, build not failed."
+                f"surfaced for the review loop, build not failed."
             ),
         })
 

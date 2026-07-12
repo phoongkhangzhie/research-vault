@@ -75,7 +75,7 @@ def check_notebook_in_src(code_dir: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# CHECK-5 — environment pinned (repo-plane, WARN — soft, , researcher F1.2)
+# CHECK-5 — environment pinned (repo-plane, WARN — soft)
 # ---------------------------------------------------------------------------
 
 #: (filename, "how we know it's pinned") — checked at repo root, in order.
@@ -347,9 +347,9 @@ _SPDX_SIGNATURES: list[tuple[str, str]] = [
     # readability since rv itself ships AGPL-3.0 (2026-07-08 relicense).
     ("AGPL-3.0", "GNU AFFERO GENERAL PUBLIC LICENSE"),
     ("GPL-3.0", "GNU GENERAL PUBLIC LICENSE"),
-    ("GP.0", "GNU GENERAL PUBLIC LICENSE"),
+    ("GPL-2.0", "GNU GENERAL PUBLIC LICENSE"),
     ("LGPL-3.0", "GNU LESSER GENERAL PUBLIC LICENSE"),
-    ("MP.0", "Mozilla Public License"),
+    ("MPL-2.0", "Mozilla Public License"),
     ("Unlicense", "This is free and unencumbered software"),
 ]
 
