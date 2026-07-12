@@ -308,11 +308,28 @@ def migrate_pair(
 
 def main(argv: list[str]) -> int:
     dry_run = "--dry-run" in argv
-    positional = [a for a in argv if a != "--dry-run" and not a.startswith("--moc-slug")]
     moc_slug = "literature-roles"
-    for a in argv:
+    positional: list[str] = []
+    skip_next = False
+    for i, a in enumerate(argv):
+        if skip_next:
+            skip_next = False
+            continue
+        if a == "--dry-run":
+            continue
         if a.startswith("--moc-slug="):
             moc_slug = a.split("=", 1)[1]
+            continue
+        if a == "--moc-slug":
+            # space form: consume the NEXT token as the value, and make sure
+            # it never leaks into `positional` (else the arg count check
+            # below sees a phantom 4th positional and falls through to the
+            # docstring/return-1 path).
+            if i + 1 < len(argv):
+                moc_slug = argv[i + 1]
+                skip_next = True
+            continue
+        positional.append(a)
     if len(positional) != 3:
         print(__doc__, file=sys.stderr)
         return 1

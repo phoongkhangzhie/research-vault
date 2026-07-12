@@ -382,6 +382,15 @@ def cmd_new(project: str, note_type: str, title: str, *,
         "type": note_type,
         "title": title,
         "created": _today(),
+        # OKF field-alignment `timestamp` — ISO-date last-modified, additive
+        # and universal (all OKF types). Unlike `description` this is
+        # AUTO-STAMPED at creation: at creation time last-modified ==
+        # created, so stamping `_today()` here is honest (not fabricated) —
+        # it sits alongside `created` (birth) as the note's last-touch
+        # marker. There is no edit-bump mechanism yet (a note's `timestamp`
+        # is not refreshed on subsequent edits) — that's a future
+        # follow-up; for now it only ever reflects creation time.
+        "timestamp": _today(),
         # OKF field-alignment `description` — a one-sentence summary of the
         # note, additive (scaffolded across ALL OKF types so the knowledge
         # map has uniform raw material). Scaffolded EMPTY, not fabricated
@@ -391,6 +400,16 @@ def cmd_new(project: str, note_type: str, title: str, *,
         # absence is never a cmd_check violation (same optional-field
         # precedent as literature's doi/arxiv_id).
         "description": "",  # fill in: a one-sentence summary of this note
+        # OKF field-alignment `resource` — canonical asset URI: a pointer to
+        # the primary artifact this note is ABOUT (a paper's PDF/DOI, a
+        # concept's canonical source, a dataset's co-located bytes).
+        # Additive, universal, scaffolded EMPTY (same never-fabricate
+        # precedent as `description`). For `datasets` notes specifically,
+        # `location:`/`hash:` below already capture the artifact-of-record
+        # (path/URL/DOI + content hash) — `resource:` is optional-redundant
+        # there and may be left empty; it is NOT a replacement for
+        # location/hash, which stay as the datasets provenance fields.
+        "resource": "",  # fill in: canonical URI of the primary artifact this note is about
     }
 
     # datasets notes carry provenance-specific placeholder fields
