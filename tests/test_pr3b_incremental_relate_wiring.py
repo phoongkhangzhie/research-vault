@@ -52,7 +52,7 @@ _N_BASELINE = 20
 def _write_lit_note(literature_dir: Path, citekey: str, *, concepts: list[str]) -> None:
     literature_dir.mkdir(parents=True, exist_ok=True)
     edges = "\n".join(
-        f"- [SUPPORTS] [{c}](/concepts/{c}.md) — this paper touches {c}"
+        f"- [{c}](/concepts/{c}.md) — SUPPORTS: this paper touches {c}"
         for c in concepts
     )
     text = (

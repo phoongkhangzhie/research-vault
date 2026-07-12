@@ -65,7 +65,7 @@ def note_concepts(note_path: Path) -> set[str]:
     """The set of concept slugs a literature note is tagged with — read
     from its own ``## Concept edges`` body section (paper->concept typed
     edges, Defect #70's OKF markdown-link format). A note with no concept
-    edges (Move 5's mandatory gating is deferred — engineer memory) or a
+    edges (Move 5's mandatory gating is deferred) or a
     note that does not exist returns an empty set, never an error — an
     empty concept set correctly means "this paper has no concept-graph
     candidates" rather than crashing the whole batch."""
@@ -98,10 +98,11 @@ def append_related_papers_edge(
     note_path: Path, *, display: str, target: str, tag: str, reason: str,
 ) -> None:
     """Append one OKF-conformant paper->paper edge line
-    (``[TAG] [display](/literature/<target>.md) — reason``) to
-    ``note_path``'s body — creating the ``## Related papers`` heading if
-    absent. Round-trips through ``relate_check.parse_paper_relations``
-    unchanged (same grammar, ``_EDGE_LINE_RE``).
+    (``[display](/literature/<target>.md) — TAG: reason`` — relationship
+    type as a prose token, not a link-prefix tag) to ``note_path``'s body —
+    creating the ``## Related papers`` heading if absent. Round-trips
+    through ``relate_check.parse_paper_relations`` unchanged (same
+    grammar, ``_EDGE_LINE_RE``).
 
     Raises ``FileNotFoundError`` if ``note_path`` does not exist — a
     candidate/target note absent from disk is an integrity issue (the
@@ -116,7 +117,7 @@ def append_related_papers_edge(
             "(new or candidate) must already be a full-distilled literature note."
         )
     text = note_path.read_text(encoding="utf-8")
-    line = f"- [{tag}] [{display}](/literature/{target}.md) — {reason}"
+    line = f"- [{display}](/literature/{target}.md) — {tag}: {reason}"
     if not text.endswith("\n"):
         text += "\n"
     if _RELATED_PAPERS_HEADING_RE.search(text):

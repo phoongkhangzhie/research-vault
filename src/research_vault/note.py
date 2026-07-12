@@ -505,7 +505,7 @@ def _literature_core_body() -> str:
         "<!-- Leave this section empty for papers with no pivotal equations. -->\n\n"
         "## Related papers\n\n"
         "<!-- Typed paper->paper edges (Move 4), e.g.: -->\n"
-        "<!-- - [SUPPORTS] [Baltaji 2024](/literature/baltaji2024.md) — reason -->\n"
+        "<!-- - [Baltaji 2024](/literature/baltaji2024.md) — SUPPORTS: reason -->\n"
     )
 
 
@@ -522,7 +522,7 @@ def _literature_overlay_body() -> str:
         "\n"
         "## Concept edges\n\n"
         "<!-- Paper->concept typed edges, THIS project's concepts/ only, e.g.: -->\n"
-        "<!-- - [links-to] [my-concept](/concepts/my-concept.md) — reason -->\n"
+        "<!-- - [my-concept](/concepts/my-concept.md) — SUPPORTS: reason -->\n"
     )
 
 

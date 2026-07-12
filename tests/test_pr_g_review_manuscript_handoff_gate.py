@@ -271,7 +271,7 @@ class TestNotYetDistilledCount:
         if related_to is not None:
             body += (
                 "\n## Related papers\n"
-                f"- [SUPPORTS] [{related_to}](/literature/{related_to}.md) — corroborates.\n"
+                f"- [{related_to}](/literature/{related_to}.md) — SUPPORTS: corroborates.\n"
             )
         (lit_dir / f"{citekey}.md").write_text(body, encoding="utf-8")
 
@@ -350,7 +350,7 @@ _N_BASELINE = 20
 def _write_lit_note(literature_dir: Path, citekey: str, *, concepts: list[str]) -> None:
     literature_dir.mkdir(parents=True, exist_ok=True)
     edges = "\n".join(
-        f"- [SUPPORTS] [{c}](/concepts/{c}.md) — this paper touches {c}" for c in concepts
+        f"- [{c}](/concepts/{c}.md) — SUPPORTS: this paper touches {c}" for c in concepts
     )
     (literature_dir / f"{citekey}.md").write_text(
         f"---\ncitekey: {citekey}\n---\n\n## Concept edges\n{edges}\n", encoding="utf-8",

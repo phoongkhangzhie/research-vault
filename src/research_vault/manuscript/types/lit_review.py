@@ -1246,14 +1246,15 @@ _THEMATIC_BRIEF = (
     "3. Relationships ('X builds on Y', 'X contradicts Y') are GROUNDED in — "
     "but never SURFACED as — note link-fields (`role`/`position`) and "
     "the typed paper→paper edges a `## Related papers` section carries "
-    "(`[SUPPORTS]/[CONTRADICTS]/[PARTIAL]/[EXTENDS]`, Wave 0). Read the "
-    "edges and note paths directly, verbatim, from each `literature/<key>.md` "
-    "note's `## Related papers` section rather than re-deriving from prose — "
-    "but they are grounding INPUTS ONLY: NEVER quote the edge tag, the "
-    "bracket syntax, or the target note's path in the drafted prose. Turn "
+    "(a leading `SUPPORTS:`/`CONTRADICTS:`/`PARTIAL:`/`EXTENDS:` prose "
+    "token after the markdown link, Wave 0). Read the edges and note paths "
+    "directly, verbatim, from each `literature/<key>.md` note's "
+    "`## Related papers` section rather than re-deriving from prose — but "
+    "they are grounding INPUTS ONLY: NEVER quote the edge type token, the "
+    "link syntax, or the target note's path in the drafted prose. Turn "
     "the edge into an ARGUED sentence stating WHY: 'Smith's benchmark "
     "extends Jones's protocol by adding a held-out split' — never 'Smith "
-    "carries a [SUPPORTS] edge to Jones' or 'Smith supports "
+    "carries a SUPPORTS edge to Jones' or 'Smith supports "
     "literature/jones2022.md'. NEVER invented. The support-matcher "
     "re-fires this (enacted, gold-settled).\n"
     "4. Every cited claim carries a provenance pointer to its source note(s) — "
@@ -1476,9 +1477,9 @@ SECTION_SET: tuple[SectionSpec, ...] = (
 # now inject into ONE brief + the outline").
 # ---------------------------------------------------------------------------
 
-# The engineer's build-time number (D3: "start conservative,
+# The default build-time number ("start conservative" —
 # e.g. the point where the whole draft + injected inputs approaches the
-# drafter's context budget"). Override via research_vault.toml:
+# drafter's context budget). Override via research_vault.toml:
 #   [manuscript_lit_review]
 #   single_pass_corpus_ceiling = 60
 _DEFAULT_SINGLE_PASS_CORPUS_CEILING = 40

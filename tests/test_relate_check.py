@@ -70,11 +70,13 @@ _RESULT_BODY = (
 
 # OKF-conformant markdown-link edge (Defect #69): the display text is a
 # human-readable label, the link is an absolute bundle-relative path
-# resolved against the project notes dir (the bundle root), and the [TAG]
-# prefix is rv's extension for mechanical Noblit & Hare traversal.
+# resolved against the project notes dir (the bundle root), and the leading
+# `TYPE:` prose token (OKF conformance: relationship type belongs in
+# prose, not a link-prefix tag) is rv's extension for mechanical Noblit &
+# Hare traversal.
 _RELATED_BODY = (
     "## Related papers\n\n"
-    "- [CONTRADICTS] [huang2022](/literature/huang2022.md) — huang2022 claims "
+    "- [huang2022](/literature/huang2022.md) — CONTRADICTS: huang2022 claims "
     "near-free safe exploration under a known safe baseline; this paper's "
     "bound shows that assumption is load-bearing. (refutational)\n"
 )
@@ -109,10 +111,10 @@ class TestParsePaperRelations:
     def test_multiple_edges_all_parsed(self):
         body = (
             "## Related papers\n\n"
-            "- [SUPPORTS] [li2023](/literature/li2023.md) — replicates the "
+            "- [li2023](/literature/li2023.md) — SUPPORTS: replicates the "
             "same bound in a related setting, agreeing on the core "
             "mechanism. (reciprocal)\n"
-            "- [PARTIAL] [liu2021](/literature/liu2021.md) — extends the "
+            "- [liu2021](/literature/liu2021.md) — PARTIAL: extends the "
             "argument to stochastic rewards, a special case of the general "
             "claim. (line-of-argument)\n"
         )
@@ -126,10 +128,10 @@ class TestParsePaperRelations:
         # as a paper->paper edge (different link-target directory).
         body = (
             "## Concept edges\n\n"
-            "- [SUPPORTS] [exploration](/concepts/exploration.md) — directly "
+            "- [exploration](/concepts/exploration.md) — SUPPORTS: directly "
             "supports the exploration concept.\n\n"
             "## Related papers\n\n"
-            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on "
+            "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on "
             "mechanism, same regime tested. (reciprocal)\n"
         )
         parsed = parse_paper_relations(body)
@@ -151,26 +153,44 @@ class TestParsePaperRelations:
         assert len(parsed.malformed) == 1
         assert "li2023" in parsed.malformed[0]
 
+    def test_old_link_prefix_tag_grammar_is_now_malformed(self):
+        """The earlier link-PREFIX-tag grammar (`- [TAG] [display](/path) —
+        reason`, type encoded ahead of the link) is non-OKF-conformant —
+        the spec requires the relationship type IN PROSE, not attached to
+        the link. Since the parser now REQUIRES the prose-token form, the
+        old shape no longer parses as a valid edge (surfaced as malformed,
+        secondary recovery — never silently dropped, never silently
+        accepted)."""
+        body = (
+            "## Related papers\n\n"
+            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "mechanism.\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert parsed.edges == []
+        assert len(parsed.malformed) == 1
+        assert "li2023" in parsed.malformed[0]
+
     def test_display_text_is_captured_but_target_is_the_citekey_from_the_link(self):
         body = (
             "## Related papers\n\n"
-            "- [SUPPORTS] [Baltaji 2024]"
-            "(/literature/baltajipersonainconstancymulti2024.md) — same "
-            "persona-drift mechanism, different population.\n"
+            "- [Baltaji 2024]"
+            "(/literature/baltajipersonainconstancymulti2024.md) — SUPPORTS: "
+            "same persona-drift mechanism, different population.\n"
         )
         parsed = parse_paper_relations(body)
         assert len(parsed.edges) == 1
         assert parsed.edges[0]["target"] == "baltajipersonainconstancymulti2024"
 
-    # -- architect review, PR #178 delta: (kind) optional, [TAG] authoritative --
+    # -- architect review, PR #178 delta: (kind) optional, TYPE authoritative --
 
     def test_kind_suffix_is_optional(self):
         """A valid edge with NO trailing (kind) mirror must still parse fully
-        — the pre-review regex REQUIRED it, silently losing an otherwise-valid
+        — an earlier regex REQUIRED it, silently losing an otherwise-valid
         edge that simply omitted it (the most likely malformation)."""
         body = (
             "## Related papers\n\n"
-            "- [EXTENDS] [li2023](/literature/li2023.md) — generalizes the "
+            "- [li2023](/literature/li2023.md) — EXTENDS: generalizes the "
             "earlier special case to a broader class of MDPs.\n"
         )
         parsed = parse_paper_relations(body)
@@ -178,7 +198,7 @@ class TestParsePaperRelations:
         assert len(parsed.edges) == 1
         e = parsed.edges[0]
         assert e["target"] == "li2023"
-        assert e["type"] == "line-of-argument"  # derived from [EXTENDS]
+        assert e["type"] == "line-of-argument"  # derived from EXTENDS
         assert e["kind_mismatch"] is None
 
     def test_tag_derives_kind_for_every_tag(self):
@@ -191,7 +211,7 @@ class TestParsePaperRelations:
         for tag, expected_kind in mapping.items():
             body = (
                 "## Related papers\n\n"
-                f"- [{tag}] [li2023](/literature/li2023.md) — some real "
+                f"- [li2023](/literature/li2023.md) — {tag}: some real "
                 "reasoning about the relation.\n"
             )
             parsed = parse_paper_relations(body)
@@ -201,7 +221,7 @@ class TestParsePaperRelations:
     def test_stated_kind_agreeing_with_tag_no_mismatch(self):
         body = (
             "## Related papers\n\n"
-            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism. (reciprocal)\n"
         )
         parsed = parse_paper_relations(body)
@@ -209,27 +229,31 @@ class TestParsePaperRelations:
 
     def test_stated_kind_disagreeing_with_tag_surfaces_mismatch_tag_wins(self):
         """Ledger-wins precedent (mirrors key_equations' critical: flag vs its
-        *(critical)* body mirror): [TAG] is authoritative; a disagreeing
-        (kind) mirror is surfaced, not silently resolved either way."""
+        *(critical)* body mirror): the TYPE token is authoritative; a
+        disagreeing (kind) mirror is surfaced, not silently resolved either
+        way."""
         body = (
             "## Related papers\n\n"
-            "- [CONTRADICTS] [huang2022](/literature/huang2022.md) — the "
+            "- [huang2022](/literature/huang2022.md) — CONTRADICTS: the "
             "bound removes the known-baseline assumption huang2022 relies "
             "on. (reciprocal)\n"  # mismatched on purpose
         )
         parsed = parse_paper_relations(body)
         assert len(parsed.edges) == 1
         e = parsed.edges[0]
-        # Tag wins: CONTRADICTS derives 'refutational', not the stated 'reciprocal'.
+        # Type wins: CONTRADICTS derives 'refutational', not the stated 'reciprocal'.
         assert e["type"] == "refutational"
         assert e["kind_mismatch"] == {"stated": "reciprocal", "derived": "refutational"}
 
     # -- architect review, the LOAD-BEARING fix: surface malformed, never drop --
 
-    def test_typo_tag_is_surfaced_as_malformed_not_silently_dropped(self):
-        """The exact defect the architect flagged: a bracket-tag-shaped line
-        with a typo'd tag must be SURFACED in .malformed, never silently
-        skipped by a finditer-style scan. RED-before-green regression test."""
+    def test_old_link_prefix_typo_tag_recovered_as_malformed(self):
+        """The old link-prefix-tag shape with a typo'd tag (secondary
+        recovery — the link is 'broken' relative to the new grammar since
+        the type sits in the wrong position) must be SURFACED in
+        .malformed, never silently skipped by a finditer-style scan.
+        RED-before-green regression test (architect review, the load-
+        bearing fix)."""
         body = (
             "## Related papers\n\n"
             "- [SUPRTS] [xiong2023-stepwise](/literature/xiong2023-stepwise.md) "
@@ -240,6 +264,36 @@ class TestParsePaperRelations:
         assert parsed.edges == []
         assert len(parsed.malformed) == 1
         assert "SUPRTS" in parsed.malformed[0]
+
+    def test_typo_type_token_with_valid_link_is_surfaced_as_malformed(self):
+        """Primary path (fork 5): a well-formed markdown link to
+        `/literature/` with a typo'd `TYPE:` prose token — the link itself
+        makes this unambiguously a candidate edge, but the type doesn't
+        parse. Must be surfaced, never silently dropped."""
+        body = (
+            "## Related papers\n\n"
+            "- [xiong2023-stepwise](/literature/xiong2023-stepwise.md) — "
+            "SUPRTS: the bound removes the known-baseline assumption the "
+            "other paper relies on.\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert parsed.edges == []
+        assert len(parsed.malformed) == 1
+        assert "SUPRTS" in parsed.malformed[0]
+
+    def test_missing_type_token_with_valid_link_is_surfaced_as_malformed(self):
+        """Fork 5: a bulleted markdown link to `/literature/` whose prose
+        carries NO `TYPE:` token at all — an edge candidate (the link is
+        the primary signal) whose type is simply absent."""
+        body = (
+            "## Related papers\n\n"
+            "- [li2023](/literature/li2023.md) — agrees on the mechanism, "
+            "no type token here.\n"
+        )
+        parsed = parse_paper_relations(body)
+        assert parsed.edges == []
+        assert len(parsed.malformed) == 1
+        assert "li2023" in parsed.malformed[0]
 
     def test_missing_target_is_surfaced_as_malformed(self):
         body = "## Related papers\n\n- [SUPPORTS] — no link given here.\n"
@@ -252,11 +306,11 @@ class TestParsePaperRelations:
         malformed line is surfaced — neither silently absorbs the other."""
         body = (
             "## Related papers\n\n"
-            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism in a related setting.\n"
-            "- [CONTRADCTS] [huang2022](/literature/huang2022.md) — typo'd "
-            "tag, should be surfaced.\n"
-            "- [EXTENDS] [liu2021](/literature/liu2021.md) — generalizes to "
+            "- [huang2022](/literature/huang2022.md) — CONTRADCTS: typo'd "
+            "type, should be surfaced.\n"
+            "- [liu2021](/literature/liu2021.md) — EXTENDS: generalizes to "
             "a broader class of MDPs.\n"
         )
         parsed = parse_paper_relations(body)
@@ -265,12 +319,13 @@ class TestParsePaperRelations:
         assert "CONTRADCTS" in parsed.malformed[0]
 
     def test_plain_prose_bullet_is_not_flagged_malformed(self):
-        """Coordinator clarification: a plain '- ' bullet with NO bracket is
-        legitimate free-form prose in this section — it must NEVER be
-        surfaced as malformed (that would be a false positive)."""
+        """Coordinator clarification: a plain '- ' bullet with no markdown
+        link to `/literature/`|`/concepts/` is legitimate free-form prose
+        in this section — it must NEVER be surfaced as malformed (that
+        would be a false positive)."""
         body = (
             "## Related papers\n\n"
-            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism.\n"
             "- Also worth noting: both papers share the same benchmark suite.\n"
         )
@@ -281,13 +336,13 @@ class TestParsePaperRelations:
     # -- Defect #70: full-body scan + the tag-attempt false-positive guard --
 
     def test_edge_under_a_misplaced_heading_is_still_found(self):
-        """The pre-fix parser was scoped to exactly the '## Related papers'
+        """An earlier parser was scoped to exactly the '## Related papers'
         heading's slice — an edge placed under any OTHER heading was
         silently invisible (not even malformed). The full-body scan finds
         it regardless of which heading it sits under."""
         body = (
             "## Notes\n\n"
-            "- [SUPPORTS] [li2023](/literature/li2023.md) — misplaced under "
+            "- [li2023](/literature/li2023.md) — SUPPORTS: misplaced under "
             "the wrong heading but still a well-formed edge.\n"
         )
         parsed = parse_paper_relations(body)
@@ -298,7 +353,7 @@ class TestParsePaperRelations:
     def test_malformed_edge_under_a_misplaced_heading_is_still_surfaced(self):
         body = (
             "## Notes\n\n"
-            "- [SUPRTS] [li2023](/literature/li2023.md) — typo'd tag, "
+            "- [li2023](/literature/li2023.md) — SUPRTS: typo'd type, "
             "under the wrong heading.\n"
         )
         parsed = parse_paper_relations(body)
@@ -327,8 +382,9 @@ class TestParseConceptEdges:
     def test_parses_a_typed_concept_edge(self):
         body = (
             "## Concept edges\n\n"
-            "- [SUPPORTS] [WEIRD default](/concepts/western-consensus-"
-            "default.md) — directly supports the WEIRD-default concept.\n"
+            "- [WEIRD default](/concepts/western-consensus-"
+            "default.md) — SUPPORTS: directly supports the WEIRD-default "
+            "concept.\n"
         )
         parsed = parse_concept_edges(body)
         assert len(parsed.edges) == 1
@@ -340,10 +396,10 @@ class TestParseConceptEdges:
     def test_concept_edge_distinct_from_paper_edge(self):
         body = (
             "## Related papers\n\n"
-            "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism.\n\n"
             "## Concept edges\n\n"
-            "- [CONTRADICTS] [exploration](/concepts/exploration.md) — "
+            "- [exploration](/concepts/exploration.md) — CONTRADICTS: "
             "contradicts the naive framing.\n"
         )
         parsed = parse_concept_edges(body)
@@ -353,7 +409,7 @@ class TestParseConceptEdges:
     def test_concept_edge_found_regardless_of_heading(self):
         body = (
             "## Notes\n\n"
-            "- [PARTIAL] [exploration](/concepts/exploration.md) — partially "
+            "- [exploration](/concepts/exploration.md) — PARTIAL: partially "
             "bears on this, placed under the wrong heading.\n"
         )
         parsed = parse_concept_edges(body)
@@ -610,7 +666,7 @@ class TestMove4PaperRelationsSought:
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPPORTS] [li2023](/literature/li2023.md) — yes. (reciprocal)\n"
+            + "- [li2023](/literature/li2023.md) — SUPPORTS: yes. (reciprocal)\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
         result = check_relate_presence(note)
@@ -632,16 +688,16 @@ class TestMove4PaperRelationsSought:
 
 class TestMove4MalformedEdgeSurfacing:
     """Architect review, PR #178 delta — the LOAD-BEARING fix: a malformed
-    bracket-tag-shaped line must FAIL the presence check, never silently
-    pass. RED-before-green: this class asserts the behavior the pre-fix
+    edge-shaped line must FAIL the presence check, never silently pass.
+    RED-before-green: this class asserts the behavior an earlier
     `finditer`-and-skip implementation did NOT have."""
 
-    def test_typo_tag_line_fails_the_presence_check(self, tmp_path):
+    def test_typo_type_token_line_fails_the_presence_check(self, tmp_path):
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPRTS] [xiong2023-stepwise](/literature/xiong2023-stepwise"
-            ".md) — the bound removes the known-baseline assumption the "
+            + "- [xiong2023-stepwise](/literature/xiong2023-stepwise.md) — "
+            "SUPRTS: the bound removes the known-baseline assumption the "
             "other paper relies on.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
@@ -656,11 +712,11 @@ class TestMove4MalformedEdgeSurfacing:
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            + "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism in a related setting.\n"
-            + "- [CONTRADCTS] [huang2022](/literature/huang2022.md) — "
-            "typo'd tag.\n"
-            + "- [EXTENDS] [liu2021](/literature/liu2021.md) — generalizes "
+            + "- [huang2022](/literature/huang2022.md) — CONTRADCTS: "
+            "typo'd type.\n"
+            + "- [liu2021](/literature/liu2021.md) — EXTENDS: generalizes "
             "to a broader class of MDPs.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
@@ -669,16 +725,16 @@ class TestMove4MalformedEdgeSurfacing:
         assert any("malformed" in f.lower() and "CONTRADCTS" in f for f in result.findings)
 
     def test_malformed_line_fails_even_when_sought_is_no(self, tmp_path):
-        """A bracket-tag-shaped line is unambiguously an attempted edge
-        regardless of what 'paper_relations_sought' claims — the malformed
-        check is not conditioned on the yes/no answer."""
+        """An edge-shaped line is unambiguously an attempted edge regardless
+        of what 'paper_relations_sought' claims — the malformed check is
+        not conditioned on the yes/no answer."""
         fields = dict(_COMPLETE_FIELDS)
         fields["paper_relations_sought"] = "no"
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPRTS] [xiong2023-stepwise](/literature/xiong2023-stepwise"
-            ".md) — typo'd tag even though sought=no.\n"
+            + "- [xiong2023-stepwise](/literature/xiong2023-stepwise.md) — "
+            "SUPRTS: typo'd type even though sought=no.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
         result = check_relate_presence(note)
@@ -686,13 +742,13 @@ class TestMove4MalformedEdgeSurfacing:
         assert any("malformed" in f.lower() for f in result.findings)
 
     def test_plain_prose_bullet_does_not_fail_the_presence_check(self, tmp_path):
-        """A plain '- ' bullet with no bracket is legitimate prose commentary
-        and must NOT be flagged — this is the false-positive-free boundary
-        the coordinator's '- [' clarification establishes."""
+        """A plain '- ' bullet with no markdown link is legitimate prose
+        commentary and must NOT be flagged — this is the false-positive-
+        free boundary the coordinator's clarification establishes."""
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            + "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism in a related setting.\n"
             + "- Also worth noting: both papers share the same benchmark suite.\n"
         )
@@ -702,11 +758,11 @@ class TestMove4MalformedEdgeSurfacing:
 
     def test_kind_optional_edge_passes_without_the_kind_suffix(self, tmp_path):
         """A valid edge omitting the OPTIONAL (kind) mirror must pass cleanly
-        — the pre-review regex required it and silently lost the edge."""
+        — an earlier regex required it and silently lost the edge."""
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [EXTENDS] [li2023](/literature/li2023.md) — generalizes the "
+            + "- [li2023](/literature/li2023.md) — EXTENDS: generalizes the "
             "earlier special case to a broader class of MDPs.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
@@ -728,7 +784,7 @@ class TestDefect70HeadingEnforcement:
         body = (
             _RESULT_BODY
             + "## Related Work\n\n"  # wrong heading name on purpose
-            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            + "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism in a related setting.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", _COMPLETE_FIELDS, body=body)
@@ -752,7 +808,7 @@ class TestDefect70HeadingEnforcement:
         body = (
             _RESULT_BODY
             + "## Some Other Section\n\n"
-            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            + "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism in a related setting, misplaced under the wrong "
             "heading.\n"
         )
@@ -770,7 +826,7 @@ class TestDefect70HeadingEnforcement:
         fields["paper_relations_sought"] = "no"
         body = (
             "## Verified concept edges\n\n"  # old, non-canonical heading name
-            "- [SUPPORTS] [exploration](/concepts/exploration.md) — "
+            "- [exploration](/concepts/exploration.md) — SUPPORTS: "
             "supports the concept.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
@@ -787,7 +843,7 @@ class TestDefect70HeadingEnforcement:
         fields["result_reported"] = "no"
         body = (
             "## Concept edges\n\n"
-            "- [SUPPORTS] [exploration](/concepts/exploration.md) — "
+            "- [exploration](/concepts/exploration.md) — SUPPORTS: "
             "supports the concept.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
@@ -806,7 +862,7 @@ class TestDefect71RetrievalTierGate:
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            + "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism in a related setting.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
@@ -822,7 +878,7 @@ class TestDefect71RetrievalTierGate:
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [CONTRADICTS] [li2023](/literature/li2023.md) — disagrees "
+            + "- [li2023](/literature/li2023.md) — CONTRADICTS: disagrees "
             "with the core claim.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
@@ -839,7 +895,7 @@ class TestDefect71RetrievalTierGate:
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            + "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism in a related setting.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
@@ -853,7 +909,7 @@ class TestDefect71RetrievalTierGate:
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [SUPPORTS] [li2023](/literature/li2023.md) — agrees on the "
+            + "- [li2023](/literature/li2023.md) — SUPPORTS: agrees on the "
             "mechanism in a related setting.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
@@ -868,7 +924,7 @@ class TestDefect71RetrievalTierGate:
         body = (
             _RESULT_BODY
             + "## Related papers\n\n"
-            + "- [PARTIAL] [li2023](/literature/li2023.md) — partially "
+            + "- [li2023](/literature/li2023.md) — PARTIAL: partially "
             "bears on the mechanism, not confirmed at this retrieval tier.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)
@@ -877,14 +933,14 @@ class TestDefect71RetrievalTierGate:
 
     def test_abstract_only_concept_supports_edge_is_capped(self, tmp_path):
         """The retrieval-tier gate applies to BOTH edge kinds — a
-        paper→concept [SUPPORTS] edge is capped the same as a paper→paper
+        paper→concept SUPPORTS edge is capped the same as a paper→paper
         one."""
         fields = dict(_COMPLETE_FIELDS)
         fields["paper_relations_sought"] = "no"
         fields["read_basis"] = "abstract-only"
         body = (
             "## Concept edges\n\n"
-            "- [SUPPORTS] [exploration](/concepts/exploration.md) — "
+            "- [exploration](/concepts/exploration.md) — SUPPORTS: "
             "supports the concept.\n"
         )
         note = _write_note(tmp_path / "literature" / "a.md", fields, body=body)

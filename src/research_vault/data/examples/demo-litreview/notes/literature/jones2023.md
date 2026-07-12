@@ -16,4 +16,4 @@ position: "The paper's own discussion (Section 6) is the closest thing to a coun
 
 ## Concept edges
 
-- [links-to] [retrieval-augmented-reasoning](/concepts/retrieval-augmented-reasoning.md) — the paper this review's organizing concept is defined against.
+- [retrieval-augmented-reasoning](/concepts/retrieval-augmented-reasoning.md) — PARTIAL: the paper this review's organizing concept is defined against.

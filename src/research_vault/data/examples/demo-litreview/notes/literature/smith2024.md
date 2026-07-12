@@ -16,4 +16,4 @@ position: "Directly answers this review's RQ — the interleaved retrieval-reaso
 
 ## Concept edges
 
-- [links-to] [retrieval-augmented-reasoning](/concepts/retrieval-augmented-reasoning.md) — the paper's central mechanism is this review's organizing concept.
+- [retrieval-augmented-reasoning](/concepts/retrieval-augmented-reasoning.md) — SUPPORTS: the paper's central mechanism is this review's organizing concept.
