@@ -14,5 +14,6 @@ Orphan notes (not linked in any MOC) are flagged by the synthesis critic but not
 ---
 type: mocs
 title: <MOC title>
+description: <one-sentence summary of the note (optional; WARN if empty)>
 ---
 ```

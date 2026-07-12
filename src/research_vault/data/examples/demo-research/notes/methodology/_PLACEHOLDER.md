@@ -15,5 +15,6 @@ The research loop soft-couples the methods-update node here.
 type: methodology
 citekey: method-<id>
 title: <Method title>
+description: <one-sentence summary of the note (optional; WARN if empty)>
 ---
 ```

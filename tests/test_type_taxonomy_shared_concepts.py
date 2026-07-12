@@ -117,7 +117,8 @@ class TestConceptsRouting:
         assert notes[0]["path"].parent == cfg.concepts_root
 
     def test_cmd_check_reports_no_violation_for_valid_concept_note(self, tmp_instance, cfg):
-        note_mod.cmd_new("demo-research", "concepts", "Valid Concept", config=cfg)
+        path = note_mod.cmd_new("demo-research", "concepts", "Valid Concept", config=cfg)
+        path.write_text(path.read_text().replace("description: ", "description: A valid concept.", 1))
         violations = note_mod.cmd_check("demo-research", config=cfg)
         assert not violations, f"Unexpected violations: {violations}"
 
@@ -199,7 +200,8 @@ class TestMethodologyRename:
         assert path.parent == expected_parent
 
     def test_cmd_check_reports_no_violation_for_valid_methodology_note(self, tmp_instance, cfg):
-        note_mod.cmd_new("demo-research", "methodology", "Valid Method", config=cfg)
+        path = note_mod.cmd_new("demo-research", "methodology", "Valid Method", config=cfg)
+        path.write_text(path.read_text().replace("description: ", "description: A valid method.", 1))
         violations = note_mod.cmd_check("demo-research", config=cfg)
         assert not violations, f"Unexpected violations: {violations}"
 

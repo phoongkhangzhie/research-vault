@@ -163,8 +163,10 @@ def test_literature_scaffold_passes_check(cfg):
     test_check_warns_absent_citekey_never_blocks in test_note.py)."""
     note_mod.cmd_new("demo-research", "literature", "A paper", config=cfg)
     violations = note_mod.cmd_check("demo-research", config=cfg)
-    assert all(v.startswith("[citekey-lint]") for v in violations)
-    assert len(violations) == 1
+    # WARN-only violations: citekey-lint (blank citekey) + description-lint
+    # (blank description) — both scaffolded-empty, optional fields.
+    assert all(v.startswith(("[citekey-lint]", "[description-lint]")) for v in violations)
+    assert len(violations) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -211,9 +213,12 @@ def test_pre_enrichment_literature_note_parses_and_checks_unchanged(cfg, tmp_ins
     assert "key_equations" not in fields  # absent entirely — not even empty
     assert "repo" not in fields
     assert "artifacts" not in fields
+    assert "description" not in fields  # pre-field-addition note — additive, back-compat
 
     violations = note_mod.cmd_check("demo-research", config=cfg)
-    assert violations == []
+    # Additive back-compat: a pre-description-field note parses/checks fine —
+    # only the (WARN-class, never-blocking) description-lint fires.
+    assert all(v.startswith("[description-lint]") for v in violations)
 
 
 # ---------------------------------------------------------------------------

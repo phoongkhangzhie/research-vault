@@ -120,7 +120,12 @@ def test_open_gap_dead_anchor_warns(tmp_instance):
     assert "gap-dead" in w              # gap id is named
     assert "findings/deleted-finding" in w  # dead anchor is named
     # Degrade-to-warn: cmd_check must NOT return exit-1 level (no hard violation)
-    hard = [v for v in violations if not v.startswith("[repro-lint]") and not v.startswith("[gap-hygiene]")]
+    hard = [
+        v for v in violations
+        if not v.startswith("[repro-lint]")
+        and not v.startswith("[gap-hygiene]")
+        and not v.startswith("[description-lint]")
+    ]
     assert hard == [], f"Dead anchor must not produce a hard BLOCK; got: {hard}"
 
 

@@ -2,6 +2,7 @@
 type: literature
 citekey: jones2023
 title: Static Dense Retrieval Indices at Scale
+description: A pre-built dense index that scales sub-linearly in query latency up to 50M documents, but cannot incorporate reasoning-time context.
 created: 2026-01-10
 distilled: 2026-01-10
 read_basis: full-text
