@@ -138,6 +138,38 @@ def test_planted_edge_tag_extends_blocks():
     assert any("[EXTENDS]" in e for e in result["errors"])
 
 
+# -- OKF-conformant prose-token edge grammar (type moved out of the
+# -- link-prefix tag, into a trailing prose token) — the leak gate must
+# -- catch a leaked edge line in EITHER note vintage.
+
+def test_planted_prose_token_edge_supports_blocks():
+    body = "[Baltaji 2024](/literature/baltaji2024.md) — SUPPORTS: the claim."
+    result = check_reader_hygiene(body)
+    assert result["ok"] is False
+    assert any("SUPPORTS:" in e for e in result["errors"])
+
+
+def test_planted_prose_token_edge_contradicts_blocks():
+    body = "As the corpus notes, — CONTRADICTS: the earlier survey's framing."
+    result = check_reader_hygiene(body)
+    assert result["ok"] is False
+    assert any("CONTRADICTS:" in e for e in result["errors"])
+
+
+def test_planted_prose_token_edge_partial_blocks():
+    body = "This note — PARTIAL: matches the claimed effect."
+    result = check_reader_hygiene(body)
+    assert result["ok"] is False
+    assert any("PARTIAL:" in e for e in result["errors"])
+
+
+def test_planted_prose_token_edge_extends_blocks():
+    body = "The follow-up work — EXTENDS: the original finding."
+    result = check_reader_hygiene(body)
+    assert result["ok"] is False
+    assert any("EXTENDS:" in e for e in result["errors"])
+
+
 def test_planted_okf_path_fragment_blocks():
     """A note-path fragment like 'concepts/foo.md' -> BLOCK, a NEW marker
     since the existing _LEAK_ARTIFACT_FILENAME_RE only matches

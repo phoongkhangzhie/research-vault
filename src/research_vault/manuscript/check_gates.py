@@ -139,11 +139,19 @@ _LEAK_SHA256_RE = re.compile(r"\bsha256:[0-9a-fA-F]+\b")
 # Loop/control-artifact filenames (the review/manuscript control notes) —
 # never a reader-facing citation; a real citekey never starts with '_'.
 _LEAK_ARTIFACT_FILENAME_RE = re.compile(r"\b_[a-z][a-z-]*\.md\b")
-# Literal bracketed epistemic edge tags (review/relate paper<->paper and
-# paper<->concept edges, e.g. `[SUPPORTS] concepts/x.md — reason`) — these
-# are OKF-internal relation vocabulary, never reader-facing prose (
-# hub bake-off: missed class 1/3, a downstream project's manuscript).
-_LEAK_EDGE_TAG_RE = re.compile(r"\[(?:SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS)\]")
+# Literal epistemic edge type markers (review/relate paper<->paper and
+# paper<->concept edges, e.g. `[SUPPORTS] concepts/x.md — reason` (an
+# earlier link-prefix-tag convention) or `[x](/literature/y.md) — SUPPORTS:
+# reason` (the current OKF-conformant prose-token convention)) — these are
+# OKF-internal relation vocabulary, never reader-facing prose (hub bake-off:
+# missed class 1/3, a downstream project's manuscript). Both the earlier
+# bracket-prefix shape AND the current trailing `TYPE:` prose-token shape
+# are matched — a leaked edge line from either note vintage must still trip
+# this gate.
+_LEAK_EDGE_TAG_RE = re.compile(
+    r"\[(?:SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS)\]"
+    r"|\b(?:SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS):"
+)
 # OKF note-path fragments (a path SEGMENT shape, `word/...` — NOT the bare
 # word) — the bare words "literature"/"concepts"/"reviews"/"gaps"/"mocs" are
 # ordinary English and must never trip this; only the literal path-fragment
