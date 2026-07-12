@@ -402,6 +402,36 @@ def build_canary_rows(criteria: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+_BRACKET_TOKEN_RE = re.compile(r"\[([^\[\]]+)\]")
+
+
+def _annotation_is_new(annotation: str) -> bool:
+    """Whether an ``_corpus.md`` row's annotation column marks it ``NEW``
+    (to be re-verified) rather than ``IN-CORPUS`` (already vetted in a prior
+    review cycle).
+
+    Root-cause fix (relevance-verify-prep probe-only defect): a real
+    ``review-curate`` run does NOT always emit the bare literal ``[NEW]``
+    the original exact-match check required — it commonly emits a COMPOUND
+    annotation like ``[LEG-1][NEW] {SF,silicon-sampling,CR}`` (leg tag +
+    status tag + a trailing concept-tag set). An exact ``annotation == "[NEW]"``
+    check silently matched ZERO rows against that real shape — the entire
+    264-paper curated corpus vanished from the verify input, leaving only
+    the two canary probes (the corpus_verify_input.md observed on the live
+    cultural-actor-fidelity run). This scans EVERY bracket-delimited token
+    in the annotation column for an exact (case-insensitive) ``NEW`` token,
+    so it matches both the bare legacy form and the compound form.
+
+    ``[IN-CORPUS...]`` rows (any bracket token starting with ``IN-CORPUS``)
+    are excluded regardless of any other tag present — same design as the
+    legacy check: already-vetted papers are not re-verified here.
+    """
+    tokens = [t.strip().upper() for t in _BRACKET_TOKEN_RE.findall(annotation)]
+    if any(t.startswith("IN-CORPUS") for t in tokens):
+        return False
+    return any(t == "NEW" for t in tokens)
+
+
 def parse_corpus_table_with_abstract(text: str) -> list[dict[str, str]]:
     """Parse a final ``_corpus.md`` table, tolerating an OPTIONAL trailing
     Abstract/TL;DR column (``| Annotation | Citekey | Title | Abstract |``)
@@ -410,9 +440,12 @@ def parse_corpus_table_with_abstract(text: str) -> list[dict[str, str]]:
     no abstract column gets ``abstract: ""`` — never a crash, never a
     fabricated abstract.
 
-    Only ``[NEW]``-annotated rows are returned (mirrors
-    ``review._parse_new_citekeys_from_text`` — ``[IN-CORPUS:*]`` papers were
-    already vetted in a prior review cycle and are not re-verified here).
+    Only rows carrying a ``NEW`` status tag are returned (see
+    ``_annotation_is_new`` — tolerates both the bare ``[NEW]`` legacy shape
+    and a real compound annotation like ``[LEG-1][NEW] {tags}``).
+    ``[IN-CORPUS:*]``-tagged papers were already vetted in a prior review
+    cycle and are not re-verified here (mirrors
+    ``review._parse_new_citekeys_from_text``).
     """
     rows: list[dict[str, str]] = []
     for line in text.splitlines():
@@ -427,15 +460,78 @@ def parse_corpus_table_with_abstract(text: str) -> list[dict[str, str]]:
         if len(cols) < 2:
             continue
         annotation = cols[0]
-        if annotation.upper() != "[NEW]":
+        if not _annotation_is_new(annotation):
             continue
         citekey = cols[1] if len(cols) > 1 else ""
         title = cols[2] if len(cols) > 2 else ""
         abstract = cols[3] if len(cols) > 3 else ""
-        if not re.match(r"^[A-Za-z0-9_:\-\.]+$", citekey):
+        # DOI-shaped citekeys (e.g. "10.48550/arXiv.2604.19787",
+        # "10.1038/s44482-026-00026-6") are common in a real curated corpus
+        # — the legacy charset omitted "/" and silently dropped every DOI
+        # row too (same class of bug as the annotation exact-match: a real
+        # shape the strict regex never accounted for).
+        if not re.match(r"^[A-Za-z0-9_:/\-\.]+$", citekey):
             continue
         rows.append({"citekey": citekey, "title": title, "abstract": abstract})
     return rows
+
+
+class DegenerateVerifyInputError(RuntimeError):
+    """Raised by ``build_verify_input`` when ZERO real (non-canary) rows
+    were parsed out of ``_corpus.md`` — a probe-only input.
+
+    A rejects-only cold verifier fed ONLY the two canary rows still
+    reports a clean canary-pass, but exercises no real curation at all
+    (retro'd on the live cultural-actor-fidelity run: a 264-paper curated
+    corpus produced a ``_corpus_verify_input.md`` with the two canary rows
+    and nothing else). That must never look like a clean pass — this is a
+    loud, HALT-shaped failure (charter §2), raised here so the tool-node
+    runner (``dag/verbs.py::_auto_execute_tool_nodes``) surfaces it as a
+    ``blocked`` node rather than writing an artifact that silently
+    satisfies the downstream ``needs: artifact:...+fresh`` edge.
+    """
+
+
+def _interleave_canaries_deterministic(
+    real_rows: list[dict[str, str]],
+    canary_rows: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Interleave *canary_rows* among *real_rows* at evenly-spaced,
+    deterministic positions — NEVER appended after every real row.
+
+    A canary always trailing the real rows is itself a positional tell (an
+    adversarial or merely pattern-matching judge could learn "the last N
+    rows are probes"). Evenly-spacing them among the real rows (same
+    deterministic-spacing formula as
+    ``gates.judge_seam.interleave_with_canaries``) removes that tell while
+    staying reproducible given the same inputs (idempotent re-emit).
+    """
+    n_real = len(real_rows)
+    n_canary = len(canary_rows)
+    total = n_real + n_canary
+    if n_canary == 0:
+        return list(real_rows)
+    if n_real == 0:
+        return list(canary_rows)
+
+    raw_positions = [round(total * (k + 1) / (n_canary + 1)) for k in range(n_canary)]
+    used: set[int] = set()
+    fixed_positions: list[int] = []
+    for p in raw_positions:
+        p = max(0, min(p, total))
+        while p in used and p <= total:
+            p += 1
+        while p in used and p >= 0:
+            p -= 1
+        used.add(p)
+        fixed_positions.append(p)
+    fixed_positions.sort()
+
+    combined = list(real_rows)
+    for pos, row in zip(fixed_positions, canary_rows):
+        insert_at = min(pos, len(combined))
+        combined.insert(insert_at, row)
+    return combined
 
 
 def build_verify_input(
@@ -444,22 +540,42 @@ def build_verify_input(
     out_path: Path,
 ) -> dict[str, Any]:
     """The ``relevance_verify_prep`` TOOL op: build the cold verifier's
-    input artifact — every ``[NEW]`` row of the final ``_corpus.md`` PLUS
-    the two unmarked canary rows (b — canary-verified).
+    input artifact — every ``NEW``-tagged row of the final ``_corpus.md``
+    interleaved with the two unmarked canary rows at deterministic,
+    non-trailing positions (b — canary-verified).
 
-    Returns ``{"real_citekeys": [...], "canary_citekeys": [...]}`` (the
-    canary citekeys are always the two fixed constants — returned here only
-    for the audit trail, never as a secret the caller must thread through).
+    Raises ``DegenerateVerifyInputError`` if ZERO real rows were parsed —
+    a probe-only input silently defeats the whole point of the gate (see
+    that exception's docstring). This is a loud tool-op failure, not a
+    written-but-empty artifact.
+
+    Returns ``{"real_citekeys": [...], "canary_citekeys": [...],
+    "real_row_count": int}`` (the canary citekeys are always the two fixed
+    constants — returned here only for the audit trail, never as a secret
+    the caller must thread through).
     """
     text = corpus_path.read_text(encoding="utf-8") if corpus_path.exists() else ""
     real_rows = parse_corpus_table_with_abstract(text)
+
+    if not real_rows:
+        raise DegenerateVerifyInputError(
+            f"relevance_verify_prep: {corpus_path} yielded ZERO real "
+            "(NEW-tagged) rows — the verify input would contain only the "
+            "two canary probes. A rejects-only verifier over a probe-only "
+            "input verifies the judge but checks no real curation "
+            "(charter §2/§10). Halting rather than writing a probe-only "
+            "artifact that would look like a clean pass downstream."
+        )
+
     criteria, _counter_position = parse_protocol_criteria(protocol_path)
     canary_rows = build_canary_rows(criteria)
 
-    all_rows = real_rows + canary_rows
+    all_rows = _interleave_canaries_deterministic(real_rows, canary_rows)
+    real_row_count = len(real_rows)
 
     lines: list[str] = [
         "# Relevance-verify input\n",
+        f"<!-- real_row_count: {real_row_count} -->\n",
         "Judge EACH row IN/OFF_DOMAIN/UNCERTAIN per the relevance-gate "
         "calibration below. Judge every row identically, on its own "
         "substance alone.\n",
@@ -476,11 +592,14 @@ def build_verify_input(
     return {
         "real_citekeys": [r["citekey"] for r in real_rows],
         "canary_citekeys": sorted(_CANARY_CITEKEYS),
+        "real_row_count": real_row_count,
     }
 
 
+# DOI-shaped citekeys (e.g. "10.48550/arXiv.2604.19787") carry a "/" —
+# same charset fix as parse_corpus_table_with_abstract's citekey regex.
 _VERDICT_ROW_RE = re.compile(
-    r"^\|\s*([A-Za-z0-9_:\-\.]+)\s*\|\s*(IN|OFF_DOMAIN|UNCERTAIN)\s*\|",
+    r"^\|\s*([A-Za-z0-9_:/\-\.]+)\s*\|\s*(IN|OFF_DOMAIN|UNCERTAIN)\s*\|",
     re.IGNORECASE,
 )
 
@@ -515,7 +634,7 @@ def parse_relevance_verdict_table(text: str) -> tuple[dict[str, str], list[str]]
         # that look like a genuine data row (2+ pipe-delimited columns,
         # first column citekey-shaped) — never the header/separator rows.
         cols = [c.strip() for c in stripped.split("|") if c.strip()]
-        if len(cols) >= 2 and re.match(r"^[A-Za-z0-9_:\-\.]+$", cols[0]) and cols[0].lower() not in (
+        if len(cols) >= 2 and re.match(r"^[A-Za-z0-9_:/\-\.]+$", cols[0]) and cols[0].lower() not in (
             "citekey",
         ):
             if not re.match(r"^-+$", cols[0]):

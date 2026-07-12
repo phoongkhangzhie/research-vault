@@ -311,6 +311,132 @@ class TestCanaryAndVerdictParsing:
         # visible text (it would tip off the judge).
         assert "canary" not in text.lower()
 
+    def test_build_verify_input_interleaves_real_corpus_rows_with_canaries(
+        self, tmp_path: Path,
+    ):
+        """The relevance-verify-prep bug (live cultural-actor-fidelity run):
+        a real ``review-curate`` output uses a COMPOUND annotation
+        (``[LEG-1][NEW] {concept,tags}``) and DOI-shaped citekeys
+        (``10.48550/arXiv.2604.19787``) — neither matched the old exact
+        ``annotation == "[NEW]"`` check nor the old citekey charset, so
+        ``_corpus_verify_input.md`` came out probe-only (2 canary rows,
+        ZERO real rows). This reproduces that exact shape and asserts the
+        real rows now survive alongside the canaries."""
+        corpus_path = tmp_path / "_corpus.md"
+        corpus_path.write_text(
+            "| Annotation | Citekey / id | Title | Abstract |\n"
+            "|---|---|---|---|\n"
+            "| [LEG-1][NEW] {SF,persona-binding} | 10.48550/arXiv.2604.19787 "
+            "| Persona-seeded fidelity study | Measures LLM cultural values "
+            "against a human baseline. |\n"
+            "| [LEG-2][NEW] {applied-sim} | jones2023 | Culture-as-a-variable "
+            "agent sim | LLM agents in a multicultural social simulation. |\n"
+            "| [LEG-1][IN-CORPUS] {SF} | old2019 | Already-vetted paper "
+            "| Prior-cycle paper, must not be re-verified. |\n",
+            encoding="utf-8",
+        )
+        protocol_path = tmp_path / "_protocol.md"
+        _write_protocol(protocol_path)
+        out_path = tmp_path / "_corpus_verify_input.md"
+
+        result = rel.build_verify_input(corpus_path, protocol_path, out_path)
+
+        # The two compound-annotated NEW rows survive; the IN-CORPUS row
+        # (already vetted in a prior cycle) is correctly excluded.
+        assert set(result["real_citekeys"]) == {
+            "10.48550/arXiv.2604.19787", "jones2023",
+        }
+        assert result["real_row_count"] == 2
+        assert set(result["canary_citekeys"]) == {
+            rel.CANARY_IN_SCOPE_CITEKEY, rel.CANARY_OFF_DOMAIN_CITEKEY,
+        }
+
+        text = out_path.read_text(encoding="utf-8")
+        assert "10.48550/arXiv.2604.19787" in text
+        assert "jones2023" in text
+        assert "old2019" not in text
+        assert rel.CANARY_IN_SCOPE_CITEKEY in text
+        assert rel.CANARY_OFF_DOMAIN_CITEKEY in text
+        assert "canary" not in text.lower()
+
+        # Interleaved, not trailing: at least one real citekey must appear
+        # AFTER a canary citekey in the emitted row order (proves the
+        # canaries are not simply appended after every real row).
+        lines = [ln for ln in text.splitlines() if ln.startswith("|")]
+        row_lines = lines[2:]  # skip header + separator
+        row_citekeys = [ln.split("|")[1].strip() for ln in row_lines]
+        canary_idx = min(
+            row_citekeys.index(rel.CANARY_IN_SCOPE_CITEKEY),
+            row_citekeys.index(rel.CANARY_OFF_DOMAIN_CITEKEY),
+        )
+        assert canary_idx < len(row_citekeys) - 1, (
+            "canary row must not be positioned after ALL real rows"
+        )
+
+    def test_build_verify_input_raises_loud_on_probe_only_corpus(
+        self, tmp_path: Path,
+    ):
+        """Zero real (NEW-tagged) rows -> DegenerateVerifyInputError, never
+        a silently-written probe-only artifact that could pass a cold,
+        rejects-only canary check while vetting nothing real."""
+        corpus_path = tmp_path / "_corpus.md"
+        corpus_path.write_text(
+            "| Annotation | Citekey | Title | Abstract |\n|---|---|---|---|\n"
+            "| [IN-CORPUS:old2019] | old2019 | Already vetted | prior cycle |\n",
+            encoding="utf-8",
+        )
+        protocol_path = tmp_path / "_protocol.md"
+        _write_protocol(protocol_path)
+        out_path = tmp_path / "_corpus_verify_input.md"
+
+        with pytest.raises(rel.DegenerateVerifyInputError):
+            rel.build_verify_input(corpus_path, protocol_path, out_path)
+        # No artifact must be written on the loud-failure path — a
+        # partial/probe-only file left on disk could still satisfy a
+        # downstream artifact-exists check.
+        assert not out_path.exists()
+
+    def test_build_verify_input_raises_on_missing_corpus(self, tmp_path: Path):
+        corpus_path = tmp_path / "_corpus.md"  # never created
+        protocol_path = tmp_path / "_protocol.md"
+        _write_protocol(protocol_path)
+        out_path = tmp_path / "_corpus_verify_input.md"
+
+        with pytest.raises(rel.DegenerateVerifyInputError):
+            rel.build_verify_input(corpus_path, protocol_path, out_path)
+
+    def test_parse_corpus_table_with_abstract_compound_annotation_and_doi(self):
+        """Direct unit coverage on the parser: compound annotation +
+        DOI-shaped citekey (the exact live-bug shape) both parse."""
+        text = (
+            "| Annotation | Citekey | Title | Abstract |\n|---|---|---|---|\n"
+            "| [LEG-3][NEW] {WVS} | 10.1038/s44482-026-00026-6 | Ground-truth "
+            "study | Human cross-cultural baseline. |\n"
+        )
+        rows = rel.parse_corpus_table_with_abstract(text)
+        assert len(rows) == 1
+        assert rows[0]["citekey"] == "10.1038/s44482-026-00026-6"
+
+    def test_parse_corpus_table_with_abstract_legacy_bare_new_still_works(self):
+        """Backward compat: the original bare ``[NEW]`` shape still parses
+        (no regression on the pre-existing behavior/tests)."""
+        text = (
+            "| Annotation | Citekey | Title | Abstract |\n|---|---|---|---|\n"
+            "| [NEW] | smith2024 | A paper | An abstract. |\n"
+        )
+        rows = rel.parse_corpus_table_with_abstract(text)
+        assert rows == [
+            {"citekey": "smith2024", "title": "A paper", "abstract": "An abstract."},
+        ]
+
+    def test_annotation_is_new_excludes_compound_in_corpus(self):
+        assert rel._annotation_is_new("[LEG-1][NEW] {SF,silicon-sampling}") is True
+        assert rel._annotation_is_new("[LEG-1][IN-CORPUS] {SF}") is False
+        assert rel._annotation_is_new("[IN-CORPUS:old2019]") is False
+        assert rel._annotation_is_new("[NEW]") is True
+        assert rel._annotation_is_new("[WEIRD]") is False
+        assert rel._annotation_is_new("---") is False
+
     def test_parse_relevance_verdict_table(self):
         text = (
             "Reasoning prose here.\n\n"
@@ -323,6 +449,17 @@ class TestCanaryAndVerdictParsing:
         verdicts, malformed = rel.parse_relevance_verdict_table(text)
         assert verdicts["smith2024"] == "IN"
         assert verdicts[rel.CANARY_OFF_DOMAIN_CITEKEY] == "OFF_DOMAIN"
+        assert malformed == []
+
+    def test_parse_relevance_verdict_table_doi_citekey(self):
+        """A DOI-shaped citekey (the real curated-corpus shape) must parse
+        as a well-formed verdict row, not fall through to ``malformed``."""
+        text = (
+            "| Citekey | Verdict |\n|---|---|\n"
+            "| 10.48550/arXiv.2604.19787 | IN |\n"
+        )
+        verdicts, malformed = rel.parse_relevance_verdict_table(text)
+        assert verdicts["10.48550/arXiv.2604.19787"] == "IN"
         assert malformed == []
 
     def test_malformed_verdict_row_surfaced_not_dropped(self):
