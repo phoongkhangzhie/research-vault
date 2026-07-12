@@ -576,7 +576,10 @@ class TestMultiRoundBacktrack:
         p2_edges = parse_paper_relations((literature_dir / f"{p2_ck}.md").read_text(encoding="utf-8"))
         base5_edges = parse_paper_relations((literature_dir / "base5drift2020.md").read_text(encoding="utf-8"))
         assert any(e["target"] == "base5drift2020" and e["tag"] == "EXTENDS" for e in p2_edges.edges)
-        assert any(e["target"] == p2_ck and e["tag"] == "EXTENDS" for e in base5_edges.edges)
+        # EXTENDS is asymmetric (PR-1 relate_check._TAG_SYMMETRY) — the
+        # auto-mirror on the candidate side carries the CONVERSE token
+        # FOUNDATION-FOR, never the same EXTENDS token.
+        assert any(e["target"] == p2_ck and e["tag"] == "FOUNDATION-FOR" for e in base5_edges.edges)
 
         # Both newcomers are in the corpus; three backtrack rounds were used.
         corpus_cks = set(_parse_corpus_citekeys(review_dir / "_corpus.md"))

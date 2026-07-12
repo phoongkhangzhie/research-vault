@@ -185,6 +185,101 @@ _TAG_TO_KIND: dict[str, str] = {
     "CONTRADICTS": "refutational",
     "PARTIAL": "line-of-argument",
     "EXTENDS": "line-of-argument",
+    # FOUNDATION-FOR (the converse of EXTENDS, auto-mirrored by
+    # incremental_relate.append_bidirectional_edge) is the same relation
+    # viewed from the other paper — the Noblit & Hare KIND is about the
+    # relation's shape, not its direction, so it shares EXTENDS' kind.
+    "FOUNDATION-FOR": "line-of-argument",
+}
+
+# ---------------------------------------------------------------------------
+# The unified typed-edge vocabulary (two families, three scopes).
+#
+# ARGUMENTATIVE — claim edges (a finding/paper asserting something about
+# another claim-bearing note): SUPPORTS/CONTRADICTS (self-converse,
+# anchored to the symmetric CiTO properties agreesWith/disagreesWith, not
+# the asymmetric cito:supports), EXTENDS (asymmetric, converse
+# FOUNDATION-FOR — cito:extends/isExtendedBy), PARTIAL (a qualifier, not a
+# relation of its own — inherits the symmetry of whichever relation it
+# qualifies; treated as self-converse here since it is used standalone as
+# a weaker SUPPORTS/CONTRADICTS cousin).
+#
+# STRUCTURAL / PROVENANCE — registration edges: USES (project→shared,
+# one-way), PRODUCED (artifact-targeted, one-way; PROV-O prov:generated —
+# covers BOTH a runs artifact and a scores artifact, one tag, SCORED
+# dropped as redundant), DERIVED-FROM (within-project, asymmetric,
+# converse SHOWS), GROUNDED-IN (project→shared, one-way), and the coverage
+# sub-tags ADDRESSES (asymmetric, converse ADDRESSED-BY) / ANSWERS
+# (asymmetric, converse ANSWERED-BY). A deferred/intentionally-open gap
+# uses the disposition LEAVES-OPEN (not a converse — no linked target);
+# LEAVES-OPEN's grammar is out of scope for the typed-edge grammar here
+# (no gap-note edges exist yet in this codebase) — the token is reserved
+# here so the vocabulary is whole, but the parser does not yet accept it
+# as an edge-line tag.
+#
+# Ontology honesty: CiTO ships first-class inverses for extends/
+# isExtendedBy and the symmetric agreesWith/disagreesWith; PROV-O ships
+# only prov:generated as a first-class inverse. So FOUNDATION-FOR has a
+# real ontology anchor, but SHOWS/ADDRESSED-BY/ANSWERED-BY are honestly
+# rv-coined converses — not implying an ontology backing that isn't there.
+# ---------------------------------------------------------------------------
+
+_TAG_FAMILY: dict[str, str] = {
+    # argumentative — claim edges
+    "SUPPORTS": "argumentative",
+    "CONTRADICTS": "argumentative",
+    "PARTIAL": "argumentative",
+    "EXTENDS": "argumentative",
+    "FOUNDATION-FOR": "argumentative",  # converse of EXTENDS
+    # structural / provenance — registration edges
+    "USES": "structural",
+    "PRODUCED": "structural",
+    "DERIVED-FROM": "structural",
+    "SHOWS": "structural",              # converse of DERIVED-FROM
+    "GROUNDED-IN": "structural",
+    "ADDRESSES": "structural",
+    "ADDRESSED-BY": "structural",       # converse of ADDRESSES
+    "ANSWERS": "structural",
+    "ANSWERED-BY": "structural",        # converse of ANSWERS
+}
+
+# A coverage disposition — reserved vocabulary, not yet wired into the edge
+# parser (see the vocabulary comment above). Kept here so `_TAG_FAMILY`'s
+# and any future gap-coverage-gate code's notion of "the whole vocabulary"
+# has one SSOT to grow from.
+_COVERAGE_DISPOSITIONS: frozenset[str] = frozenset({"LEAVES-OPEN"})
+
+# All tags the edge-line grammar accepts as the TYPE: token — base tags
+# plus their converses (a converse is a first-class token once written by
+# the auto-mirror, and must round-trip through the SAME parser unchanged).
+_ALL_TAGS: tuple[str, ...] = tuple(_TAG_FAMILY.keys())
+
+# The converse map (directionality). Auto-mirroring is decided PER-TAG, not
+# per-scope:
+#   symmetric / self-converse (same token on both stored edges) — SUPPORTS,
+#     CONTRADICTS, and PARTIAL (inherits self-converse, see above).
+#   asymmetric (mirror carries the CONVERSE token, never the same token) —
+#     EXTENDS<->FOUNDATION-FOR, DERIVED-FROM<->SHOWS, ADDRESSES<->
+#     ADDRESSED-BY, ANSWERS<->ANSWERED-BY.
+#   never auto-mirrored (absent from this map) — USES, GROUNDED-IN (forced
+#     one-way by the shared-never-refs-project invariant), PRODUCED (the
+#     artifact target holds no edge at all).
+# The map is symmetric in the sense that looking up either side of an
+# asymmetric pair yields the other — so a converse edge, if ever fed back
+# through this map, mirrors to the ORIGINAL token, not a third token.
+_TAG_SYMMETRY: dict[str, str] = {
+    "SUPPORTS": "SUPPORTS",
+    "CONTRADICTS": "CONTRADICTS",
+    "PARTIAL": "PARTIAL",
+    "EXTENDS": "FOUNDATION-FOR",
+    "FOUNDATION-FOR": "EXTENDS",
+    "DERIVED-FROM": "SHOWS",
+    "SHOWS": "DERIVED-FROM",
+    "ADDRESSES": "ADDRESSED-BY",
+    "ADDRESSED-BY": "ADDRESSES",
+    "ANSWERS": "ANSWERED-BY",
+    "ANSWERED-BY": "ANSWERS",
+    # USES, GROUNDED-IN, PRODUCED intentionally absent — never auto-mirrored.
 }
 
 _YES_NO: frozenset[str] = frozenset({"yes", "no"})
@@ -293,39 +388,59 @@ _CONCEPT_EDGES_HEADING_RE = re.compile(
     r"^#{2,3}\s+Concept edges\s*$", re.IGNORECASE | re.MULTILINE
 )
 
-# The four rv-typed relation tags (SSOT — see also _TAG_TO_KIND below).
-_KNOWN_TAGS: tuple[str, ...] = ("SUPPORTS", "CONTRADICTS", "PARTIAL", "EXTENDS")
+# All rv-typed relation tags, base + converse (SSOT — see also _TAG_TO_KIND
+# below, and _TAG_FAMILY/_TAG_SYMMETRY above). Sorted longest-first so the
+# regex alternation below never partial-matches a shorter tag as a prefix
+# of a longer one (e.g. neither ADDRESSES/ADDRESSED-BY collide, but this
+# keeps the ordering invariant explicit for any future additions).
+_KNOWN_TAGS: tuple[str, ...] = tuple(sorted(_ALL_TAGS, key=len, reverse=True))
 
 
 def _looks_like_tag_attempt(word: str) -> bool:
     """True iff ``word`` is a plausible (mis-spelled) attempt at one of the
-    four known relation types — NOT an unrelated word that happens to be
+    known relation types — NOT an unrelated word that happens to be
     followed by a colon elsewhere in a note body (e.g. ``note:``, ``e.g.:``).
 
     Defect #70 (full-body scan): once edge detection is no longer confined
     to the '## Related papers' / '## Concept edges' sections, the bare
     "any '- [' bullet is an edge attempt" heuristic (safe when scoped to a
     single known section) becomes too broad across an entire note body.
-    Requiring near-similarity (``difflib`` ratio) to one of the four known
+    Requiring near-similarity (``difflib`` ratio) to one of the known
     types keeps the true positive (a typo'd type: 'SUPRTS', 'CONTRADCTS')
     while excluding unrelated colon-terminated prose words, which sit far
     below the similarity cutoff.
     """
     word = word.strip().upper()
-    if not word or not word.isalpha():
+    if not word or not word.replace("-", "").isalpha():
         return False
     if word in _KNOWN_TAGS:
         return True
     return bool(difflib.get_close_matches(word, _KNOWN_TAGS, n=1, cutoff=0.6))
 
 
+# THE UNIFIED TARGET GRAMMAR — the three scopes + artifact targets (the
+# unified typed-edge model). Each alternative is a distinct named
+# group so ``_scan_edge_lines`` can classify scope without a second parse:
+#   i_bundle/i_slug  — intra-shared   /literature|concepts/<slug>.md
+#   x_bundle/x_path  — cross-bundle   okf:literature|concepts|datasets/<path>.md
+#                      (project→shared; resolved via cfg.resolve_bundle_link)
+#   p_type/p_slug    — within-project /experiments|findings|gaps|methodology/<id>.md
+#   a_path           — artifact       results/runs|scores/<id>.jsonl|csv
+#                      (provenance-only targets; no note conformance)
+_TARGET_RE = re.compile(
+    r"(?P<target>"
+    r"/(?P<i_bundle>literature|concepts)/(?P<i_slug>[A-Za-z0-9][A-Za-z0-9_.\-]*)\.md"
+    r"|okf:(?P<x_bundle>literature|concepts|datasets)/(?P<x_path>[A-Za-z0-9][A-Za-z0-9_.\-/]*\.md)"
+    r"|/(?P<p_type>experiments|findings|gaps|methodology)/(?P<p_slug>[A-Za-z0-9][A-Za-z0-9_.\-]*)\.md"
+    r"|(?P<a_path>results/(?:runs|scores)/[A-Za-z0-9][A-Za-z0-9_.\-/]*\.(?:jsonl|csv))"
+    r")"
+)
+
 # The PRIMARY candidate signal (OKF conformance: relationship type moved
 # out of a link-prefix tag into a prose token — see the module docstring).
-# A bulleted markdown link whose target is `/literature/` or `/concepts/`
-# is unambiguously an attempted edge, regardless of what follows it.
-_LINK_PROBE_RE = re.compile(
-    r"^-\s*\[[^\]]+\]\(/(?:literature|concepts)/[A-Za-z0-9][A-Za-z0-9_.\-]*\.md\)"
-)
+# A bulleted markdown link whose target matches any of the four scopes
+# above is unambiguously an attempted edge, regardless of what follows it.
+_LINK_PROBE_RE = re.compile(r"^-\s*\[[^\]]+\]\(" + _TARGET_RE.pattern + r"\)")
 
 # A lax "is this line even bracket-bulleted" probe — the SECONDARY recovery
 # signal (fork 5): a bracket-opened bullet whose link is missing/broken but
@@ -340,21 +455,25 @@ _FIRST_BRACKET_RE = re.compile(r"^-\s*\[([^\]]*)\]")
 
 # Any colon-terminated word in the line — candidates for the secondary
 # recovery's type-token similarity check.
-_COLON_TOKEN_RE = re.compile(r"\b([A-Za-z]+):")
+_COLON_TOKEN_RE = re.compile(r"\b([A-Za-z][A-Za-z\-]*):")
 
-# THE OKF EDGE LINE GRAMMAR — one regex covers BOTH edge kinds (paper→paper
-# and paper→concept); they are distinguished after the fact by which bundle
-# directory the link targets (`literature/` vs `concepts/`). Relationship
-# type is a PROSE TOKEN (OKF-conformant), not a link-prefix tag:
+# THE UNIFIED EDGE LINE GRAMMAR — one regex covers all scopes and both
+# families; scope is distinguished by which ``_TARGET_RE`` named group
+# matched, family by ``_TAG_FAMILY[tag]``. Relationship type is a PROSE
+# TOKEN (OKF-conformant), not a link-prefix tag:
 #   - [Baltaji 2024](/literature/baltaji2024.md) — SUPPORTS: <reason>
 #   - [WEIRD default](/concepts/western-consensus-default.md) — SUPPORTS: <reason>
+#   - [q1-main1](okf:literature/baltaji2024.md) — USES: <reason>
+#   - [q1-main1](/experiments/q1-main1.md) — DERIVED-FROM: <reason>
+#   - [scores](results/scores/hfs.csv) — PRODUCED: <reason>
 # The trailing `(reciprocal|refutational|line-of-argument)` mirror is
-# OPTIONAL and only meaningful for
-# paper→paper edges — a concept edge has no Noblit & Hare kind mapping.
+# OPTIONAL and only meaningful for paper→paper argumentative edges — a
+# concept/provenance edge has no Noblit & Hare kind mapping.
+_TAG_ALTERNATION = "|".join(re.escape(t) for t in _KNOWN_TAGS)
 _EDGE_LINE_RE = re.compile(
-    r"^-\s*\[([^\]]+)\]\(/(literature|concepts)/([A-Za-z0-9][A-Za-z0-9_.\-]*)\.md\)\s*"
-    r"(?:—|-)\s*(SUPPORTS|CONTRADICTS|PARTIAL|EXTENDS):\s*(.+?)\s*"
-    r"(?:\((reciprocal|refutational|line-of-argument)\))?\s*$"
+    r"^-\s*\[(?P<display>[^\]]+)\]\(" + _TARGET_RE.pattern + r"\)\s*"
+    r"(?:—|-)\s*(?P<tag>" + _TAG_ALTERNATION + r"):\s*(?P<reason>.+?)\s*"
+    r"(?:\((?P<kind>reciprocal|refutational|line-of-argument)\))?\s*$"
 )
 
 
@@ -426,24 +545,54 @@ class ParsedConceptEdges:
     edges: list[dict[str, Any]] = field(default_factory=list)
 
 
+@dataclass
+class ParsedTypedEdges:
+    """The result of parsing a note body's UNIFIED typed edges outside the
+    original intra-shared paper→paper / paper→concept scope (the typed-
+    edge family/scope extension): cross-bundle project→shared edges
+    (``okf:...``), within-project edges
+    (``/experiments|findings|gaps|methodology/...``),
+    and artifact-targeted provenance edges (``results/runs|scores/...``).
+
+    Each edge dict: {"scope", "family", "tag", "target", "reason",
+    "kind_mismatch"}. ``scope`` is one of "cross-bundle" / "within-project"
+    / "artifact". ``family`` is "argumentative" or "structural"
+    (``_TAG_FAMILY``). ``target`` is the raw matched target string (e.g.
+    ``okf:literature/smith2024.md``, ``/experiments/q1-main1.md``,
+    ``results/scores/hfs.csv``) — resolution is scope-specific and left to
+    the caller (``check_link_resolution``). ``kind_mismatch`` mirrors
+    ``ParsedRelations`` but is always ``None`` here — the Noblit & Hare
+    kind mirror only applies to intra-shared argumentative edges.
+
+    Intra-shared edges (literature/concepts targets) are NOT included here
+    — they stay in ``ParsedRelations``/``ParsedConceptEdges`` exactly as
+    before (byte-identical golden behavior). A family-slot violation (e.g.
+    an argumentative tag on an artifact target) is a malformed line, not an
+    edge here — see ``ParsedRelations.malformed``.
+    """
+
+    edges: list[dict[str, Any]] = field(default_factory=list)
+
+
 def _scan_edge_lines(
     body: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Scan the FULL note body (never header-scoped — Defect #70) for
     edge-shaped lines, classifying each into paper→paper edges, paper→
-    concept edges, or malformed.
+    concept edges, other-scope typed edges, or malformed.
 
     Candidate detection (OKF conformance — relationship type is a prose
     token, not a link-prefix tag; see the module docstring):
 
-      PRIMARY  — a bulleted markdown link whose target is `/literature/`
-                 or `/concepts/` (``_LINK_PROBE_RE``) is unambiguously an
-                 attempted edge, regardless of what follows the link.
+      PRIMARY  — a bulleted markdown link whose target matches any of the
+                 unified grammar's four scopes (``_LINK_PROBE_RE`` /
+                 ``_TARGET_RE``) is unambiguously an attempted edge,
+                 regardless of what follows the link.
       SECONDARY (fork 5, "over-rigidity" recovery) — a line that opens
                  ``- [`` (a bracket-opened bullet, so plausibly an edge
                  attempt) but whose link is missing/broken still surfaces
                  as malformed if the line ALSO carries a colon-terminated
-                 word that closely resembles one of the four known types
+                 word that closely resembles one of the known types
                  (``_looks_like_tag_attempt``) — never silently treated as
                  ordinary prose just because the link itself is broken.
 
@@ -452,10 +601,24 @@ def _scan_edge_lines(
     other bundle/URL with no type-token attempt nearby) and is never
     flagged.
 
-    Returns (paper_edges, concept_edges, malformed_lines).
+    FAMILY-SLOT VALIDATION: the parser rejects a family-mismatched
+    tag in a slot — a claim-bearing intra-shared target (``/literature/``
+    or ``/concepts/``) may only carry an ARGUMENTATIVE tag (a
+    ``## Related papers``/``## Concept edges`` line); an artifact target
+    may only carry a STRUCTURAL tag (a registration edge — an artifact is
+    not claim-bearing, it cannot be SUPPORTS'd or CONTRADICTS'd). A
+    mismatched tag in either slot is a malformed line (surfaced, never
+    silently dropped), matching the load-bearing surface-don't-drop
+    discipline this module already applies to every other malformation.
+    Cross-bundle and within-project targets accept either family — a
+    project note may make a claim about (argumentative) or register
+    provenance against (structural) either scope.
+
+    Returns (paper_edges, concept_edges, other_edges, malformed_lines).
     """
     paper_edges: list[dict[str, Any]] = []
     concept_edges: list[dict[str, Any]] = []
+    other_edges: list[dict[str, Any]] = []
     malformed: list[str] = []
 
     for raw_line in body.splitlines():
@@ -482,24 +645,59 @@ def _scan_edge_lines(
             malformed.append(line)
             continue
 
-        _display, kind_dir, slug, tag, reason, stated_kind = m.groups()
-        reason = reason.strip()
-        if kind_dir == "literature":
-            derived_kind = _TAG_TO_KIND[tag]
-            kind_mismatch = None
-            if stated_kind is not None and stated_kind != derived_kind:
-                kind_mismatch = {"stated": stated_kind, "derived": derived_kind}
-            paper_edges.append({
-                "tag": tag,
-                "target": slug,
-                "reason": reason,
-                "type": derived_kind,
-                "kind_mismatch": kind_mismatch,
-            })
-        else:  # kind_dir == "concepts"
-            concept_edges.append({"tag": tag, "target": slug, "reason": reason})
+        tag = m.group("tag")
+        reason = m.group("reason").strip()
+        stated_kind = m.group("kind")
+        family = _TAG_FAMILY[tag]
 
-    return paper_edges, concept_edges, malformed
+        if m.group("i_bundle") is not None:
+            # intra-shared — the original literature/concepts scope.
+            slug = m.group("i_slug")
+            if family != "argumentative":
+                # family-slot violation: a structural tag on a claim-
+                # bearing intra-shared target. Surfaced, never silently
+                # accepted or dropped.
+                malformed.append(line)
+                continue
+            if m.group("i_bundle") == "literature":
+                derived_kind = _TAG_TO_KIND[tag]
+                kind_mismatch = None
+                if stated_kind is not None and stated_kind != derived_kind:
+                    kind_mismatch = {"stated": stated_kind, "derived": derived_kind}
+                paper_edges.append({
+                    "tag": tag,
+                    "target": slug,
+                    "reason": reason,
+                    "type": derived_kind,
+                    "kind_mismatch": kind_mismatch,
+                })
+            else:  # i_bundle == "concepts"
+                concept_edges.append({"tag": tag, "target": slug, "reason": reason})
+            continue
+
+        target_raw = m.group("target")
+        if m.group("a_path") is not None:
+            scope = "artifact"
+            if family != "structural":
+                # family-slot violation: an argumentative tag on an
+                # artifact — an artifact is not claim-bearing.
+                malformed.append(line)
+                continue
+        elif m.group("x_bundle") is not None:
+            scope = "cross-bundle"
+        else:  # m.group("p_type") is not None
+            scope = "within-project"
+
+        other_edges.append({
+            "scope": scope,
+            "family": family,
+            "tag": tag,
+            "target": target_raw,
+            "reason": reason,
+            "kind_mismatch": None,
+        })
+
+    return paper_edges, concept_edges, other_edges, malformed
 
 
 def parse_paper_relations(body: str) -> ParsedRelations:
@@ -517,7 +715,7 @@ def parse_paper_relations(body: str) -> ParsedRelations:
     Returns ``ParsedRelations(edges=[], malformed=[])`` if no bracket-tag
     lines are found anywhere in the body.
     """
-    edges, _concept_edges, malformed = _scan_edge_lines(body)
+    edges, _concept_edges, _other_edges, malformed = _scan_edge_lines(body)
     return ParsedRelations(edges=edges, malformed=malformed)
 
 
@@ -528,8 +726,21 @@ def parse_concept_edges(body: str) -> ParsedConceptEdges:
     Each edge dict: {"tag", "target", "reason"}. ``target`` is the concept
     slug extracted from the OKF markdown link ``/concepts/<slug>.md``.
     """
-    _paper_edges, edges, _malformed = _scan_edge_lines(body)
+    _paper_edges, edges, _other_edges, _malformed = _scan_edge_lines(body)
     return ParsedConceptEdges(edges=edges)
+
+
+def parse_typed_edges(body: str) -> ParsedTypedEdges:
+    """Parse the UNIFIED typed edges outside the intra-shared scope:
+    cross-bundle project→shared edges, within-project edges, and
+    artifact-targeted provenance edges (full-body scan — see
+    ``_scan_edge_lines``).
+
+    Each edge dict: {"scope", "family", "tag", "target", "reason",
+    "kind_mismatch"} — see ``ParsedTypedEdges``.
+    """
+    _paper_edges, _concept_edges, edges, _malformed = _scan_edge_lines(body)
+    return ParsedTypedEdges(edges=edges)
 
 
 # ---------------------------------------------------------------------------
