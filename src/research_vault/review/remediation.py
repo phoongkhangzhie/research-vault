@@ -1,36 +1,34 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/remediation.py — NG-6a piece 2: the autonomous, bounded
-coverage-gap remediation loop.
+"""review/remediation.py — the pole-directed critic-backtrack loop (D-5a).
 
-Design of record: internal design note.
-Extends the coverage-gate disposition (``review.autonomy.classify_coverage_gate``,
-already wired into ``dag/verbs.py`` via
-``classify_coverage_gate_with_deviation_check``) with a REMEDIATE decision —
-gated on backstop (frontier open), never on genuine saturation (
-composition rule: a corpus that hit the primary 2-consecutive-zero rule is
-exhausted, more waves find nothing; a gap under real saturation needs a
-criteria change, which is a human decision, never auto-remediation).
+★ NOTE (0.3.1): the coverage-gate saturation-remediation machinery that
+used to live in this module (``resolve_coverage_gate``'s REMEDIATE upgrade,
+``run_remediation_round``, ``run_bounded_remediation``, the outer-loop
+guard) was DELETED along with the saturation-gated snowball. The
+citation-neighbor relevance walk is depth-bounded by design
+(``relevance_hops``), which makes auto-re-expanding a "backstop-terminated"
+corpus contradictory — depth-bounding IS the design, not a shortfall to
+remediate. What remains below (the counter-position/
+thin-pole critic backtrack, ``resolve_coverage_critic`` +
+``run_directed_remediation_round``) is an UNRELATED mechanism — it answers
+a completely different gate (``approve-review``'s L-2 counter-position
+critic BLOCK), not the walk's own terminal — and is untouched by this
+deletion.
 
 The anti-fishing spine is mechanical on three independent layers, ALL
 enforced by this module's construction, not by convention:
-  1. Source restriction — ``run_remediation_round`` invokes ONLY frozen-
-     protocol-keyed deterministic tool-ops (``review.autonomy.run_tool_op``,
-     "sweep"). There is no code path here to inject a new seed or source.
+  1. Source restriction — ``run_directed_remediation_round`` invokes ONLY
+     frozen-protocol-keyed deterministic tool-ops
+     (``review.autonomy.run_tool_op``, "sweep"/"snowball"). There is no
+     code path here to inject a new seed or source.
   2. Criteria-hash pin — every round ends with ``corpus_freeze.refresh``,
-     which re-verifies the criteria hash is unchanged (step 3).
+     which re-verifies the criteria hash is unchanged.
   3. Declared-denominator BLOCK — every round's append is declared via
      ``record_deviation(..., kind="within-criteria-append")``, whose
      invariant (``pre==post`` criteria, ``removed==[]``) means this loop
      structurally cannot self-author a criteria change or a removal.
 
-Termination (three independent bounds — any ONE alone guarantees the
-loop cannot run forever):
-  1. Zero-new saturation — a round that appends nothing stops immediately.
-  2. Remediation-round cap (``review.style.get_remediation_max_rounds``).
-  3. Snowball backstop — each round's tool-op calls are single-shot
-     (bounded by construction, not a further internal loop).
-
-Stdlib only (+ intra-package imports). sr: NG-6a
+Stdlib only (+ intra-package imports). sr: NG-6a / D-5a
 """
 from __future__ import annotations
 
@@ -41,97 +39,18 @@ from typing import Any, Callable
 from ..cite import _make_citekey
 from .autonomy import (
     CRITIC_BACKTRACK,
-    GO_WITH_RESIDUE,
     HALT_DECLARE,
-    REMEDIATE,
     REVISE,
     DispositionResult,
-    classify_coverage_gate_with_deviation_check,
     record_deviation,
     run_tool_op,
 )
 from .corpus_freeze import hash_criteria_bytes, refresh, stamp_corpus_freeze
-from .style import get_critic_backtrack_max_rounds, get_remediation_max_rounds
-
-# An independent hard cap on the outer resolve<->remediate loop, distinct
-# from `remediation_max_rounds` (which bounds remediation ROUNDS specifically
-# — this bounds the outer disposition-resolution loop itself, a defence-in-
-# depth backstop in case a future disposition wiring bug ever made rounds_used
-# fail to increment; should be unreachable under a correctly-configured
-# max_rounds).
-_OUTER_LOOP_GUARD = 10
+from .style import get_critic_backtrack_max_rounds
 
 
 # ---------------------------------------------------------------------------
-# The REMEDIATE decision — pure, unit-testable
-# ---------------------------------------------------------------------------
-
-def resolve_coverage_gate(
-    base: DispositionResult,
-    saturation_info: dict[str, Any],
-    *,
-    remediation_state: dict[str, Any] | None = None,
-    max_rounds: int | None = None,
-) -> DispositionResult:
-    """Extend a ``classify_coverage_gate``-shaped ``base`` disposition with
-    the REMEDIATE decision (composition table).
-
-    - HALT-DECLARE / GO -> unchanged (nothing to remediate: either fatally
-      malformed, or already fully saturated-and-clean).
-    - GO-WITH-RESIDUE, but NOT backstop-terminated -> unchanged (defensive;
-      ``classify_coverage_gate`` only ever returns GO-WITH-RESIDUE for a
-      backstop-terminated saturation record, but this function stays honest
-      about the precondition rather than assuming it).
-    - GO-WITH-RESIDUE, backstop-terminated:
-        - remediation budget remaining AND the last wave found something new
-          (or no round has run yet) -> REMEDIATE.
-        - budget exhausted OR the last wave found zero-new -> unchanged
-          (GO-WITH-RESIDUE — declare residue, the honest "can't close this
-          without a criteria change" outcome).
-
-    ``remediation_state`` is the ``run_state.meta["remediation_state"]``
-    dict (``{"rounds_used": int, "last_wave_added_count": int | None}``);
-    ``None``/absent means "no round has run yet" (first evaluation).
-    """
-    if base.disposition != GO_WITH_RESIDUE:
-        return base
-    if not saturation_info.get("is_backstop"):
-        return base
-
-    rs = remediation_state or {}
-    rounds_used = int(rs.get("rounds_used", 0))
-    cap = max_rounds if max_rounds is not None else get_remediation_max_rounds()
-    last_added = rs.get("last_wave_added_count")  # None | int
-
-    budget_remaining = rounds_used < cap
-    last_wave_found_new = last_added is None or last_added > 0
-
-    if budget_remaining and last_wave_found_new:
-        return DispositionResult(
-            REMEDIATE,
-            f"backstop-terminated (open frontier), remediation budget "
-            f"remaining ({rounds_used}/{cap} rounds used) and the last wave "
-            f"found new in-scope papers (last_wave_added_count={last_added!r})"
-            " — dispatch one bounded within-criteria remediation round.",
-            {"rounds_used": rounds_used, "max_rounds": cap, "stop_reason": saturation_info.get("stop_reason")},
-        )
-    reason = (
-        "remediation budget exhausted"
-        if not budget_remaining
-        else "the last remediation wave found zero new in-scope papers "
-        "(frozen protocol exhausted)"
-    )
-    return DispositionResult(
-        GO_WITH_RESIDUE,
-        f"backstop-terminated but {reason} — declaring residue "
-        "(closing this gap needs a criteria change, a human decision, not "
-        "auto-remediation).",
-        {**base.evidence, "rounds_used": rounds_used, "max_rounds": cap},
-    )
-
-
-# ---------------------------------------------------------------------------
-# One bounded remediation round — all reuse, no new discovery machinery
+# One bounded critic-backtrack round — all reuse, no new discovery machinery
 # ---------------------------------------------------------------------------
 
 def _norm_title(title: str) -> str:
@@ -221,186 +140,6 @@ def _append_new_corpus_rows(
         corpus_path.write_text(text, encoding="utf-8")
 
     return sorted(added_citekeys)
-
-
-def run_remediation_round(
-    run_state_meta: dict[str, Any],
-    *,
-    protocol_path: Path,
-    corpus_path: Path,
-    deviations_path: Path,
-    config: Any = None,
-    tool_op_fn: Callable[..., Any] | None = None,
-    now: float | None = None,
-) -> dict[str, Any]:
-    """Execute ONE bounded remediation round (steps 1-4). Mutates
-    ``run_state_meta`` in place: ``remediation_state`` (rounds_used,
-    last_wave_added_count), and — on a non-empty round —
-    ``corpus_freeze``/``frozen_corpus_citekeys`` via ``corpus_freeze.refresh``.
-
-    Returns a summary dict: ``{"round": int, "added": [...], "stopped": str | None}``.
-    ``stopped == "zero-new"`` means the round found nothing (bound 1) —
-    the caller's disposition-resolution loop will see
-    ``last_wave_added_count == 0`` on its next ``resolve_coverage_gate`` call
-    and correctly decline to REMEDIATE again.
-
-    ``tool_op_fn`` is injectable (``None`` resolves to the module-global
-    ``run_tool_op`` at CALL time, not at function-definition time — a
-    late-bound default rather than a bound-once default arg, so
-    ``monkeypatch.setattr(review.remediation, "run_tool_op", fake)`` works
-    even though ``dag/verbs.py``'s real wiring never passes ``tool_op_fn``
-    explicitly). Mirrors the existing op-registry's own test seams (charter
-    ).
-    """
-    if tool_op_fn is None:
-        tool_op_fn = run_tool_op
-    rs_state = run_state_meta.setdefault(
-        "remediation_state",
-        {"rounds_used": 0, "last_wave_added_count": None},
-    )
-
-    baseline = run_state_meta.get("corpus_freeze")
-    if baseline is None:
-        baseline = stamp_corpus_freeze(
-            run_state_meta, corpus_path=corpus_path, protocol_path=protocol_path, now=now,
-        )
-
-    from . import _parse_corpus_citekeys  # lazy — module-load-cycle safety
-
-    existing_citekeys = set(_parse_corpus_citekeys(corpus_path))
-
-    # 1. Search more, within frozen criteria — deterministic tool-op only,
-    #    frozen-protocol-keyed (layer 1: no agent node, no new seeds).
-    hits: list[Any] = []
-    try:
-        sweep_result = tool_op_fn("sweep", protocol=str(protocol_path))
-        hits = _extract_hits(sweep_result)
-    except Exception:
-        # A sweep failure degrades this round to "found nothing new" —
-        # never crashes the remediation loop (charter §2: surface via the
-        # zero-new stop, not via an uncaught exception that would look like
-        # a HALT-DECLARE-worthy integrity failure).
-        hits = []
-
-    # 2. Dedup + annotate + append (step 2).
-    added = _append_new_corpus_rows(corpus_path, hits, existing_citekeys)
-
-    rs_state["rounds_used"] = int(rs_state.get("rounds_used", 0)) + 1
-    rs_state["last_wave_added_count"] = len(added)
-
-    if not added:
-        return {"round": rs_state["rounds_used"], "added": [], "stopped": "zero-new"}
-
-    # 3. Declare the denominator growth (step 3, layer 2/3). The
-    #    criteria snapshot is the SAME string for pre/post — trivially
-    #    satisfies the within-criteria-append invariant (this loop cannot
-    #    author a criteria edit; it never even constructs two different
-    #    criteria strings).
-    criteria_snapshot = hash_criteria_bytes(protocol_path)
-    record_deviation(
-        deviations_path,
-        version=baseline["version"] + 1,
-        pre_criteria=criteria_snapshot,
-        post_criteria=criteria_snapshot,
-        removed=[],
-        added=added,
-        rationale=(
-            "autonomous within-criteria remediation wave; frozen protocol "
-            "re-run (sweep) to close a coverage gap on a backstop-"
-            "terminated (open frontier) corpus."
-        ),
-        kind="within-criteria-append",
-    )
-
-    # 4. Refresh — bumps corpus_freeze + keeps frozen_corpus_citekeys in
-    #    sync, so the next coverage-gate evaluation reads the
-    #    refreshed set instead of re-tripping the undeclared-delta BLOCK.
-    refresh(
-        run_state_meta,
-        corpus_path=corpus_path,
-        protocol_path=protocol_path,
-        deviations_path=deviations_path,
-        now=now,
-    )
-
-    return {"round": rs_state["rounds_used"], "added": added, "stopped": None}
-
-
-# ---------------------------------------------------------------------------
-# The bounded outer loop (wiring target: dag/verbs.py's coverage-gate
-# --auto branch calls this once `resolve_coverage_gate` first returns
-# REMEDIATE)
-# ---------------------------------------------------------------------------
-
-def run_bounded_remediation(
-    run_state_meta: dict[str, Any],
-    initial: DispositionResult,
-    saturation_info: dict[str, Any],
-    *,
-    protocol_path: Path,
-    corpus_path: Path,
-    deviations_path: Path,
-    coverage_gaps_path: Path | None = None,
-    config: Any = None,
-    tool_op_fn: Callable[..., Any] | None = None,
-    max_rounds: int | None = None,
-) -> DispositionResult:
-    """Drive the resolve -> remediate -> re-resolve cycle to a non-REMEDIATE
-    disposition. Every iteration runs exactly one bounded
-    round; the loop terminates the moment ``resolve_coverage_gate`` stops
-    returning REMEDIATE (zero-new, round-cap, or non-backstop/HALT).
-
-    ``tool_op_fn=None`` late-binds to the module-global ``run_tool_op`` at
-    call time (see ``run_remediation_round``'s docstring for why this
-    matters for monkeypatching).
-
-    ``_OUTER_LOOP_GUARD`` is a defence-in-depth backstop, not the primary
-    bound — the primary bound is ``remediation_state["rounds_used"]`` vs
-    ``max_rounds`` inside ``resolve_coverage_gate`` itself (bound 2).
-    """
-    if tool_op_fn is None:
-        tool_op_fn = run_tool_op
-    disposition = initial
-    for _ in range(_OUTER_LOOP_GUARD):
-        if disposition.disposition != REMEDIATE:
-            return disposition
-
-        run_remediation_round(
-            run_state_meta,
-            protocol_path=protocol_path,
-            corpus_path=corpus_path,
-            deviations_path=deviations_path,
-            config=config,
-            tool_op_fn=tool_op_fn,
-        )
-
-        base = classify_coverage_gate_with_deviation_check(
-            run_state_meta,
-            saturation_info,
-            corpus_path=corpus_path,
-            deviations_path=deviations_path,
-            coverage_gaps_path=coverage_gaps_path,
-        )
-        if base.disposition == HALT_DECLARE:
-            return base
-
-        disposition = resolve_coverage_gate(
-            base,
-            saturation_info,
-            remediation_state=run_state_meta.get("remediation_state"),
-            max_rounds=max_rounds,
-        )
-
-    # Unreachable under a correctly-configured max_rounds (bound 2 always
-    # fires first) — fail-closed rather than silently looping forever if it
-    # somehow is reached (a defence-in-depth backstop).
-    return DispositionResult(
-        HALT_DECLARE,
-        "remediation outer-loop guard exhausted — this should be "
-        "unreachable under a correctly-configured remediation_max_rounds; "
-        "fail-closed rather than loop unboundedly.",
-        {},
-    )
 
 
 # ---------------------------------------------------------------------------

@@ -69,12 +69,12 @@ def run_env(tmp_path: Path, monkeypatch):
     reset_config_cache()
 
 
-def _saturation_note(path: Path, *, stop_reason: str) -> None:
+def _walk_note(path: Path, *, stop_reason: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"---\nstop_reason: {stop_reason}\n---\n\nSaturation curve.\n", encoding="utf-8")
+    path.write_text(f"---\nstop_reason: {stop_reason}\n---\n\nCitation-neighbor relevance walk.\n", encoding="utf-8")
 
 
-def _coverage_gate_manifest(run_id: str, saturation_path: Path) -> dict:
+def _coverage_gate_manifest(run_id: str, walk_path: Path) -> dict:
     return {
         "run_id": run_id,
         "name": "test review",
@@ -82,7 +82,7 @@ def _coverage_gate_manifest(run_id: str, saturation_path: Path) -> dict:
         "nodes": [
             {
                 "id": "review-snowball", "type": "agent", "spec": "task://demo#snowball",
-                "produces": {"_saturation.md": str(saturation_path)}, "needs": [],
+                "produces": {"_walk.md": str(walk_path)}, "needs": [],
             },
             {
                 "id": "coverage-gate", "type": "human-go", "label": "Gate 2",
@@ -109,12 +109,12 @@ def _make_awaiting_run(tmp_path: Path, run_id: str, manifest: dict, gate_node_id
 
 
 class TestCoverageGateAuto:
-    def test_saturated_auto_approves_without_human_presence(self, run_env: Path):
+    def test_walk_complete_auto_approves_without_human_presence(self, run_env: Path):
         from research_vault.dag.verbs import cmd_approve
 
-        saturation_path = run_env / "reviews" / "scope-a" / "_saturation.md"
-        _saturation_note(saturation_path, stop_reason="saturated")
-        manifest = _coverage_gate_manifest("auto-run-1", saturation_path)
+        walk_path = run_env / "reviews" / "scope-a" / "_walk.md"
+        _walk_note(walk_path, stop_reason="walk-complete:1-hops")
+        manifest = _coverage_gate_manifest("auto-run-1", walk_path)
         store = _make_awaiting_run(run_env, "auto-run-1", manifest, "coverage-gate")
 
         args = argparse.Namespace(run_id="auto-run-1", node_id="coverage-gate", auto=True)
@@ -127,9 +127,9 @@ class TestCoverageGateAuto:
     def test_malformed_stop_reason_auto_rejects(self, run_env: Path, capsys):
         from research_vault.dag.verbs import cmd_approve
 
-        saturation_path = run_env / "reviews" / "scope-b" / "_saturation.md"
-        _saturation_note(saturation_path, stop_reason="backstop-3-waves")  # non-canonical
-        manifest = _coverage_gate_manifest("auto-run-2", saturation_path)
+        walk_path = run_env / "reviews" / "scope-b" / "_walk.md"
+        _walk_note(walk_path, stop_reason="walk-complete-1-hops")  # non-canonical
+        manifest = _coverage_gate_manifest("auto-run-2", walk_path)
         store = _make_awaiting_run(run_env, "auto-run-2", manifest, "coverage-gate")
 
         args = argparse.Namespace(run_id="auto-run-2", node_id="coverage-gate", auto=True)
@@ -143,14 +143,14 @@ class TestCoverageGateAuto:
         assert "HALT-DECLARE" in rs.node_states["coverage-gate"].get("decision_note", "")
         assert "HALT-DECLARE" in captured.err
 
-    def test_backstop_with_declared_residue_goes_with_residue(self, run_env: Path):
+    def test_budget_with_declared_residue_goes_with_residue(self, run_env: Path):
         from research_vault.dag.verbs import cmd_approve
 
         review_dir = run_env / "reviews" / "scope-c"
-        saturation_path = review_dir / "_saturation.md"
-        _saturation_note(saturation_path, stop_reason="backstop:3-waves")
+        walk_path = review_dir / "_walk.md"
+        _walk_note(walk_path, stop_reason="budget:200-calls")
         (review_dir / "_coverage-gaps.md").write_text("open frontier\n", encoding="utf-8")
-        manifest = _coverage_gate_manifest("auto-run-3", saturation_path)
+        manifest = _coverage_gate_manifest("auto-run-3", walk_path)
         store = _make_awaiting_run(run_env, "auto-run-3", manifest, "coverage-gate")
 
         args = argparse.Namespace(run_id="auto-run-3", node_id="coverage-gate", auto=True)

@@ -100,9 +100,9 @@ class TestSnowballOpSeedIdsBypass:
         captured = {}
 
         class _FakeResult:
-            stop_reason = "saturated"
+            stop_reason = "walk-complete:1-hops"
 
-        def fake_run_snowball_to_saturation(seed_ids, **kwargs):
+        def fake_run_citation_neighbor_walk(seed_ids, **kwargs):
             captured["seed_ids"] = seed_ids
             return _FakeResult()
 
@@ -110,22 +110,22 @@ class TestSnowballOpSeedIdsBypass:
             path.write_text("| annotation | id | title | venue | year | abstract | flags |\n", encoding="utf-8")
             return path
 
-        def fake_write_saturation(result, path):
-            path.write_text("---\nstop_reason: saturated\n---\n", encoding="utf-8")
+        def fake_write_walk_report(result, path):
+            path.write_text("---\nstop_reason: walk-complete:1-hops\n---\n", encoding="utf-8")
             return path
 
         monkeypatch.setattr(
-            "research_vault.sources.snowball.run_snowball_to_saturation",
-            fake_run_snowball_to_saturation,
+            "research_vault.sources.snowball.run_citation_neighbor_walk",
+            fake_run_citation_neighbor_walk,
         )
         monkeypatch.setattr("research_vault.sources.snowball.write_corpus_raw", fake_write_corpus_raw)
-        monkeypatch.setattr("research_vault.sources.snowball.write_saturation", fake_write_saturation)
+        monkeypatch.setattr("research_vault.sources.snowball.write_walk_report", fake_write_walk_report)
 
         out_dir = tmp_path / "out"
         out_dir.mkdir()
         result = run_tool_op("snowball", seed_ids=["10.1/x", "2401.00002"], out_dir=str(out_dir))
         assert captured["seed_ids"] == ["10.1/x", "2401.00002"]
-        assert result["stop_reason"] == "saturated"
+        assert result["stop_reason"] == "walk-complete:1-hops"
 
     def test_both_seed_and_seed_ids_raises(self, tmp_path):
         from research_vault.review.autonomy import run_tool_op

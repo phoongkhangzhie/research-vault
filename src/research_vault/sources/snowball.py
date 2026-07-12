@@ -1,23 +1,28 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""sources/snowball.py — the both-direction, multi-round snowball-to-
-saturation walk (Option C hybrid — the review-loop node-kind drift fix).
+"""sources/snowball.py — the citation-neighbor relevance walk (0.3.1;
+replaces the saturation-gated snowball). Corpus = the vetted core
+(``review-screen`` output) plus its immediate citation neighborhood
+(default 1 hop, deeper via ``relevance_hops``).
 
-Mirrors ``sweep.py``'s shape: fetch (both directions, each round) -> dedup
+Recall/precision division: recall is owned by the SEARCH (broad facet
+queries directly retrieve relevant + recent + cross-community work);
+precision is owned by the 1-hop bound + ``review-screen``. Deep citation
+snowballing was a poor recall tool — it drifts into adjacent fields, which
+is the noise this design removes. Removing the old saturation loop does not
+sacrifice recall, it RELOCATES it to query breadth (search-facet coverage).
+
+Mirrors ``sweep.py``'s shape: fetch (both directions, each hop) -> dedup
 -> derivative discount -> compose. Reuses ``sources/derivative.py``
 (``mark_derivatives``/``count_independent``) and ``sources/dedup.py`` — no
 mechanism is reimplemented (charter §6).
 
-★ Known, DECLARED caveat (spec -B — do not let this silently vanish):
-the shipped ``review_snowball_tips`` prose's stop rule is "0 new
-independent citekeys AND 0 new concept-tags" for 2 consecutive rounds.
-Concept-tags are an LLM signal with no mechanical detector, so THIS
-mechanical op stops on the CITEKEY HALF ONLY (0 new independent papers,
-2 consecutive rounds). The concept-tag half of the rule is enforced
-downstream by the ``review-curate`` agent node, which may flag a
-"tag-under-counting / premature-plateau" residue in ``_coverage-gaps.md``
-if verified concept-tags were still growing at the mechanical stop. This
-is a deliberate, logged narrowing of where that half of the rule is
-enforced — never a silent regression of the saturation discipline.
+★ Known, DECLARED caveat (carried over from the prior saturation design —
+do not let this silently vanish): the shipped ``review_snowball_tips``
+prose used to describe a concept-tag half of a stop rule. That framing is
+retired along with saturation — this walk is depth-bounded, not plateau-
+detected — but the underlying concern (verified concept-tags still
+expanding when the walk stops) is still worth an agent's eye at
+``review-curate`` time; see ``review/style.py``'s ``review_curate_tips``.
 
 Stdlib only (+ intra-package imports); network access is entirely through
 the injected ``adapter`` (a ``SourceAdapter``), so this module is hermetic
@@ -52,15 +57,22 @@ from .dedup import DedupedHit, dedup_hits, identity_key
 from .derivative import count_independent, mark_derivatives
 from .sweep import _evidence_snippet  # reuse, not reinvent — charter §6
 
-DEFAULT_BACKSTOP_WAVES = 2
+DEFAULT_RELEVANCE_HOPS = 1
+# Deprecated alias — one-release back-compat only (0.3.1). Use
+# DEFAULT_RELEVANCE_HOPS. Kept numerically distinct from history on purpose:
+# the old backstop-wave default was 2 (a plateau-detection cap); the new
+# relevance-hop default is 1 (a citation-neighbor bound) — these are
+# different knobs with different intents, not a renamed constant with the
+# same value.
+DEFAULT_BACKSTOP_WAVES = DEFAULT_RELEVANCE_HOPS
 
 # Breadth x depth bounds (2026-07-09 — a broad-topic downstream-project validation walk ran
 # unbounded for 1+ hour: per_round_limit only capped fetches PER PAPER, never
-# the number of frontier papers, so the walk grew O(per_round_limit^waves).
-# These three, plus backstop_waves=2 above, are the closed set of knobs that
+# the number of frontier papers, so the walk grew O(per_round_limit^hops)).
+# These three, plus relevance_hops=1 above, are the closed set of knobs that
 # bound total work: seed_cap bounds the STARTING width, frontier_cap bounds
-# each round's re-seeding width, fetch_budget is the hard backstop-of-
-# backstops on total asta calls regardless of waves/width.
+# each hop's re-seeding width, fetch_budget is the hard backstop-of-
+# backstops on total asta calls regardless of hops/width.
 DEFAULT_SEED_CAP = 25
 DEFAULT_FRONTIER_CAP = 25
 DEFAULT_FETCH_BUDGET = 200
@@ -69,17 +81,19 @@ DEFAULT_FETCH_BUDGET = 200
 # mismatched version is treated exactly like "no checkpoint" (start fresh),
 # never a crash on an old/foreign file (charter §5: reversible, never trust
 # a stale/foreign artifact blindly). Bumped 1->2 for the fetch-budget
-# addition (total_calls must be resumed, not reset to 0 — a pre-existing
-# checkpoint from before this feature can't supply it, so it's dropped and
-# the walk restarts fresh, same as any other incompatible-shape checkpoint).
-_CHECKPOINT_VERSION = 2
+# addition (total_calls must be resumed, not reset to 0). Bumped 2->3 for
+# the 0.3.1 relevance-hops rename (the checkpoint dict's match-key changed
+# from "backstop_waves" to "relevance_hops") — a pre-2->3 checkpoint is
+# treated as absent/foreign and the walk restarts fresh, same as any other
+# incompatible-shape checkpoint.
+_CHECKPOINT_VERSION = 3
 
 # Every key the resume path reads directly off a loaded checkpoint dict. A
 # checkpoint missing ANY of these (truncated write, hand-edited, a foreign
 # file that happens to parse as JSON) must be treated as absent/corrupt —
 # i.e. a fresh start — never a KeyError crash (charter §5: same "never trust
 # a stale/foreign artifact blindly" reversibility this module already
-# applies to the version/seed_ids/backstop_waves mismatch case).
+# applies to the version/seed_ids/relevance_hops mismatch case).
 _REQUIRED_CHECKPOINT_KEYS = (
     "seen_identities", "visited_pids", "all_hits", "errors", "rounds",
     "unresolvable_ids", "unresolvable_seen", "frontier", "consecutive_zero",
@@ -136,7 +150,8 @@ def _load_checkpoint(path: Path) -> dict[str, Any] | None:
 
 @dataclass
 class SnowballRoundRecord:
-    """One row of the saturation curve — the ``_saturation.md`` body table."""
+    """One hop of the citation-neighbor relevance walk — the ``_walk.md``
+    body table row."""
 
     round_num: int
     new_forward: int
@@ -160,8 +175,14 @@ class SnowballResult:
     unresolvable_ids: list[str] = field(default_factory=list)
 
     @property
-    def is_backstop(self) -> bool:
-        return self.stop_reason.lower().startswith("backstop:")
+    def walk_complete(self) -> bool:
+        """True iff the walk ran every relevance hop cleanly to depth
+        (``walk-complete:N-hops``) — the normal, expected terminal at the
+        default depth-bounded design. False for ``neighborhood-exhausted``
+        (a hop added zero new before depth — also a clean GO, just via the
+        other whitelisted path), ``budget:N-calls`` (bounded, residue-
+        required), or ``no-seeds-resolved``."""
+        return self.stop_reason.lower().startswith("walk-complete:")
 
 
 def _paper_id_of(external_ids: dict[str, str]) -> str | None:
@@ -183,11 +204,12 @@ def _paper_id_of(external_ids: dict[str, str]) -> str | None:
     )
 
 
-def run_snowball_to_saturation(
+def run_citation_neighbor_walk(
     seed_ids: list[str],
     *,
     adapter: SourceAdapter | None = None,
-    backstop_waves: int = DEFAULT_BACKSTOP_WAVES,
+    relevance_hops: int = DEFAULT_RELEVANCE_HOPS,
+    backstop_waves: int | None = None,
     derivative_threshold: float = 0.6,
     per_round_limit: int = 20,
     seed_cap: int = DEFAULT_SEED_CAP,
@@ -196,8 +218,10 @@ def run_snowball_to_saturation(
     checkpoint_path: Path | str | None = None,
     progress_cb: Callable[[str], None] | None = None,
 ) -> SnowballResult:
-    """Both-direction, multi-round snowball walk to saturation (or the
-    guaranteed-termination backstop).
+    """The citation-neighbor relevance walk (0.3.1) — corpus = the vetted
+    core plus its immediate citation neighborhood, depth-bounded by
+    ``relevance_hops`` (default 1). Replaces the saturation-gated snowball;
+    see the module docstring for the recall/precision division this rests on.
 
     Args:
         seed_ids: paper IDENTIFIERS (DOI/arXiv/S2 id) resolvable by the
@@ -207,8 +231,15 @@ def run_snowball_to_saturation(
         adapter: the ``SourceAdapter`` to fan out both directions on.
             Defaults to ``SemanticScholarAdapter()`` (the only adapter with
             a citation graph in the D4 default-on set today).
-        backstop_waves: the guaranteed-termination cap for the saturation
-            backstop.
+        relevance_hops: the depth bound on the citation-neighbor walk
+            (default 1 — the vetted core plus its immediate neighborhood).
+            Deeper (2+) trades precision for recall; the default keeps the
+            walk a tight, high-precision bound, per the recall/precision
+            division in the module docstring.
+        backstop_waves: DEPRECATED alias for ``relevance_hops`` — accepted
+            for one release (0.3.1) for callers not yet migrated. A
+            ``DeprecationWarning`` fires when given. If both are given and
+            disagree, ``relevance_hops`` wins (also warned).
         derivative_threshold: passed through to ``mark_derivatives``.
         per_round_limit: per-paper fetch limit each round — FORWARD
             (``cited_by``) ONLY (REWRITE, 2026-07-10). Backward
@@ -241,20 +272,20 @@ def run_snowball_to_saturation(
             a paper from the corpus (discount, never delete — the same
             discipline ``derivative_of`` already uses).
         fetch_budget: hard ceiling on total ``cited_by``/``references``
-            calls across the whole walk (both directions, every round). A
-            broad-topic neighborhood that never saturates and outlives even
-            ``backstop_waves`` still terminates here — the backstop-of-
-            backstops. Checked before each call; the walk stops as soon as
-            the budget would be exceeded (never over-shoots), finishes
-            processing the partial round's already-fetched hits, then sets
+            calls across the whole walk (both directions, every hop). A
+            broad-topic neighborhood that outlives even ``relevance_hops``
+            still terminates here — the backstop-of-backstops. Checked
+            before each call; the walk stops as soon as the budget would be
+            exceeded (never over-shoots), finishes processing the partial
+            hop's already-fetched hits, then sets
             ``stop_reason == f"budget:{fetch_budget}-calls"`` and returns —
-            never a crash, never silently truncated without a distinct,
-            non-``"saturated"`` stop reason (charter §2).
-        checkpoint_path: when given, round-granularity walk state is
-            persisted here after every completed round, and a PRIOR
+            never a crash, never silently truncated without a distinct stop
+            reason (charter §2).
+        checkpoint_path: when given, hop-granularity walk state is
+            persisted here after every completed hop, and a PRIOR
             checkpoint at this same path (matching ``seed_ids`` +
-            ``backstop_waves``) is loaded and RESUMED from — the walk
-            continues from the next round rather than re-fetching anything
+            ``relevance_hops``) is loaded and RESUMED from — the walk
+            continues from the next hop rather than re-fetching anything
             already visited. The running ``total_calls`` fetch-count is
             part of that persisted state, so a resumed walk's fetch_budget
             check starts from where the killed walk left off — never
@@ -265,25 +296,25 @@ def run_snowball_to_saturation(
             disables checkpointing entirely — unchanged, backward-compatible
             in-memory-only walk.
         progress_cb: called with one human-readable line after each
-            completed round (``"round N/backstop: frontier=.. new=..
+            completed hop (``"hop N/relevance_hops: frontier=.. new=..
             unresolvable=.. corpus=.."``) — liveness for an operator
             watching a long walk. Defaults to printing to stderr.
 
     Returns:
-        A ``SnowballResult`` whose ``stop_reason`` is exactly ``"saturated"``
-        (2 consecutive rounds with 0 new independent papers),
-        ``f"backstop:{backstop_waves}-waves"``,
-        ``f"budget:{fetch_budget}-calls"`` (the total-fetch ceiling fired —
-        a bounded, non-saturated corpus), or ``"no-seeds-resolved"`` (every
-        seed id failed to resolve on BOTH directions — an all-seeds lookup
-        failure, never mislabeled as genuine saturation; see below) — never
-        anything else, and never left blank (charter §2). Like
-        ``"backstop:N-waves"``, ``"budget:N-calls"`` does NOT start with
-        ``"backstop:"`` so ``is_backstop`` is False for it — the
+        A ``SnowballResult`` whose ``stop_reason`` is exactly one of:
+        ``f"walk-complete:{relevance_hops}-hops"`` (the walk ran every hop
+        cleanly to depth — the normal, expected terminal),
+        ``"neighborhood-exhausted"`` (2 consecutive hops with 0 new
+        independent papers — the neighborhood plateaued before depth was
+        reached; also a clean GO), ``f"budget:{fetch_budget}-calls"`` (the
+        total-fetch ceiling fired — a bounded corpus, residue-required), or
+        ``"no-seeds-resolved"`` (every seed id failed to resolve on BOTH
+        directions — an all-seeds lookup failure; see below) — never
+        anything else, and never left blank (charter §2). Only
+        ``walk-complete:N-hops`` sets ``walk_complete`` True; the
         coverage-gate whitelist (``review.autonomy.classify_coverage_gate``)
-        therefore fail-closes on it (HALT-DECLARE) exactly like any other
-        non-canonical, non-``"saturated"`` value; it is not wired into the
-        ``GO_WITH_RESIDUE`` backstop branch (confirmed unchanged).
+        fail-closes (HALT-DECLARE) on anything outside this exact 4-value
+        set.
 
     An adapter direction that raises ``NotSupported`` for a given paper id is
     skipped for that (paper, direction) this round — graceful degradation,
@@ -305,6 +336,27 @@ def run_snowball_to_saturation(
     ``cited_by``/``references`` call: a bare arXiv id 404s on asta where the
     ``ARXIV:``-prefixed form resolves (verified live, 2026-07-09).
     """
+    if backstop_waves is not None:
+        import warnings
+
+        if relevance_hops != DEFAULT_RELEVANCE_HOPS:
+            warnings.warn(
+                "run_citation_neighbor_walk: both 'relevance_hops' and the "
+                "deprecated 'backstop_waves' were given — 'relevance_hops' "
+                "wins.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        else:
+            warnings.warn(
+                "run_citation_neighbor_walk: 'backstop_waves' is deprecated "
+                "— use 'relevance_hops' instead. Will be removed in a "
+                "future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            relevance_hops = backstop_waves
+
     if adapter is None:
         from .semantic_scholar import SemanticScholarAdapter
 
@@ -333,14 +385,14 @@ def run_snowball_to_saturation(
     if loaded is not None and (
         loaded.get("version") != _CHECKPOINT_VERSION
         or set(loaded.get("seed_ids", [])) != set(seed_ids)
-        or loaded.get("backstop_waves") != backstop_waves
+        or loaded.get("relevance_hops") != relevance_hops
         or loaded.get("seed_cap") != seed_cap
         or loaded.get("frontier_cap") != frontier_cap
         or loaded.get("fetch_budget") != fetch_budget
     ):
         progress(
             "snowball: checkpoint present but does not match this walk's "
-            "seed_ids/backstop_waves/seed_cap/frontier_cap/fetch_budget — "
+            "seed_ids/relevance_hops/seed_cap/frontier_cap/fetch_budget — "
             "ignoring it, starting fresh"
         )
         loaded = None
@@ -365,8 +417,8 @@ def run_snowball_to_saturation(
         total_calls = loaded["total_calls"]
         start_round = loaded["completed_round"] + 1
         progress(
-            f"snowball: resuming from checkpoint after round "
-            f"{loaded['completed_round']}/{backstop_waves} "
+            f"snowball: resuming from checkpoint after hop "
+            f"{loaded['completed_round']}/{relevance_hops} "
             f"(cumulative so far: {len(all_hits)} hits, "
             f"{total_calls}/{fetch_budget} asta calls used)"
         )
@@ -384,7 +436,7 @@ def run_snowball_to_saturation(
 
     stop_reason = ""
 
-    for round_num in range(start_round, backstop_waves + 1):
+    for round_num in range(start_round, relevance_hops + 1):
         round_frontier_size = len(frontier)
         round_hits: list[PaperHit] = []
         directions_by_identity: dict[str, set[str]] = {}
@@ -510,35 +562,35 @@ def run_snowball_to_saturation(
             consecutive_zero = 0
 
         progress(
-            f"round {round_num}/{backstop_waves}: frontier={round_frontier_size}, "
+            f"hop {round_num}/{relevance_hops}: frontier={round_frontier_size}, "
             f"new={independent_new}, unresolvable={len(unresolvable_ids)}, "
             f"corpus={cumulative_independent}"
         )
 
         if consecutive_zero >= 2:
-            stop_reason = "saturated"
+            stop_reason = "neighborhood-exhausted"
             break
 
         if budget_exhausted:
-            # Total-fetch ceiling (backstop-of-backstops): a bounded,
-            # NOT-saturated corpus — distinct from both "saturated" and
-            # "backstop:N-waves" so the coverage-gate whitelist fail-closes
-            # on it (never mislabeled as convergence).
+            # Total-fetch ceiling (backstop-of-backstops): a bounded corpus
+            # — distinct from both "neighborhood-exhausted" and
+            # "walk-complete:N-hops" so the coverage-gate whitelist demands
+            # its residue note (the one surviving residue case).
             stop_reason = f"budget:{fetch_budget}-calls"
             break
 
         frontier = new_frontier_ids
 
-        # Log-as-you-go (round-granularity checkpoint): persist everything
-        # needed to resume from the NEXT round without re-fetching anything
-        # already visited. Written after the round is fully processed (never
-        # mid-round) — a kill anywhere in round N+1's fetch loop resumes
-        # cleanly at round N+1, re-doing at most the in-flight round.
+        # Log-as-you-go (hop-granularity checkpoint): persist everything
+        # needed to resume from the NEXT hop without re-fetching anything
+        # already visited. Written after the hop is fully processed (never
+        # mid-hop) — a kill anywhere in hop N+1's fetch loop resumes
+        # cleanly at hop N+1, re-doing at most the in-flight hop.
         if ckpt_file is not None:
             _atomic_write_json(ckpt_file, {
                 "version": _CHECKPOINT_VERSION,
                 "seed_ids": seed_ids,
-                "backstop_waves": backstop_waves,
+                "relevance_hops": relevance_hops,
                 "seed_cap": seed_cap,
                 "frontier_cap": frontier_cap,
                 "fetch_budget": fetch_budget,
@@ -556,25 +608,25 @@ def run_snowball_to_saturation(
             })
 
         if not frontier:
-            # Nothing left to crawl from — the NEXT round would fetch zero
+            # Nothing left to crawl from — the NEXT hop would fetch zero
             # from an empty frontier anyway; let the consecutive-zero count
             # keep accumulating naturally rather than special-casing here.
             continue
     else:
-        stop_reason = f"backstop:{backstop_waves}-waves"
+        stop_reason = f"walk-complete:{relevance_hops}-hops"
 
     if not stop_reason:
         # Defensive — should be unreachable (the for/else above always sets
         # it), but never leave the field blank (charter §2).
-        stop_reason = f"backstop:{backstop_waves}-waves"
+        stop_reason = f"walk-complete:{relevance_hops}-hops"
 
     # Every original seed failed to resolve on BOTH directions and zero hits
-    # were ever obtained — an all-seeds lookup failure, not a genuine
-    # saturation plateau (which would otherwise get mislabeled "saturated"
-    # here, since 0-hits-for-2-rounds is exactly the saturation signature).
-    # This must be surfaced distinctly so the coverage-gate's whitelist-only
-    # check (review.autonomy.classify_coverage_gate) fails closed on it
-    # instead of silently GO-ing on a corpus that never actually ran.
+    # were ever obtained — an all-seeds lookup failure, never a clean walk
+    # terminal (which would otherwise get mislabeled "neighborhood-exhausted"
+    # here, since 0-hits-for-2-hops is exactly that signature). This must be
+    # surfaced distinctly so the coverage-gate's whitelist-only check
+    # (review.autonomy.classify_coverage_gate) fails closed on it instead of
+    # silently GO-ing on a corpus that never actually ran.
     if seed_ids and not all_hits and set(seed_ids) <= _unresolvable_seen:
         stop_reason = "no-seeds-resolved"
 
@@ -600,7 +652,7 @@ def run_snowball_to_saturation(
 
 
 # ---------------------------------------------------------------------------
-# Artifact rendering — _corpus_raw.md + _saturation.md
+# Artifact rendering — _corpus_raw.md + _walk.md
 # ---------------------------------------------------------------------------
 
 def _annotate_hit(
@@ -693,15 +745,17 @@ def write_corpus_raw(
     return out_path
 
 
-def write_saturation(result: SnowballResult, out_path: Path) -> Path:
-    """Render the saturation curve to ``_saturation.md``.
+def write_walk_report(result: SnowballResult, out_path: Path) -> Path:
+    """Render the citation-neighbor walk's per-hop coverage report to
+    ``_walk.md`` (0.3.1; renamed from ``write_saturation``/``_saturation.md``).
 
     Stamps flat frontmatter with the REQUIRED ``stop_reason:`` field —
-    exactly ``saturated``, ``backstop:N-waves``, or ``no-seeds-resolved``
-    (the saturation-backstop contract, ``review.check_saturation_backstop``
-    reads this verbatim) — followed by the round-by-round curve body and an
-    "Unresolvable ids" count (2026-07-09 live-asta fix: surface, never
-    silently drop, a seed/frontier id that 404'd — charter §2).
+    exactly ``walk-complete:N-hops``, ``neighborhood-exhausted``,
+    ``budget:N-calls``, or ``no-seeds-resolved`` (the walk-terminal contract,
+    ``review.check_walk_terminal`` reads this verbatim) — followed by the
+    per-hop body table and an "Unresolvable ids" count (2026-07-09 live-asta
+    fix: surface, never silently drop, a seed/frontier id that 404'd —
+    charter §2).
     """
     lines: list[str] = [
         "---",
@@ -709,9 +763,9 @@ def write_saturation(result: SnowballResult, out_path: Path) -> Path:
         f"unresolvable_count: {len(result.unresolvable_ids)}",
         "---",
         "",
-        "# Saturation curve",
+        "# Citation-neighbor relevance walk",
         "",
-        "| Round | New (forward) | New (backward) | New independent | Cumulative | Direction-starved |",
+        "| Hop | New (forward) | New (backward) | New independent | Cumulative | Direction-starved |",
         "|---|---|---|---|---|---|",
     ]
     for r in result.rounds:
@@ -732,3 +786,16 @@ def write_saturation(result: SnowballResult, out_path: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines), encoding="utf-8")
     return out_path
+
+
+# ---------------------------------------------------------------------------
+# Deprecated aliases (0.3.1) — one-release back-compat only.
+# ---------------------------------------------------------------------------
+
+#: Deprecated alias for ``run_citation_neighbor_walk``. Will be removed in a
+#: future release.
+run_snowball_to_saturation = run_citation_neighbor_walk
+
+#: Deprecated alias for ``write_walk_report``. Will be removed in a future
+#: release.
+write_saturation = write_walk_report

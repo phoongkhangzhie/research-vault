@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review — staged, pre-registered, saturation-gated literature review loop.
+"""review — staged, pre-registered literature review loop using a
+citation-neighbor relevance walk (0.3.1).
 
 The review loop is the manuscript loop's sibling — it composes the DAG engine with zero
 new walker/schema mechanism.  The fan-out over a runtime-discovered corpus is resolved
@@ -48,7 +49,7 @@ from research_vault.note import (
 from research_vault.review.style import (
     get_review_tips,
     get_review_style_preamble,
-    get_saturation_backstop_waves,
+    get_relevance_hops,
 )
 
 # Corpus helpers imported directly (not scraping stdout)
@@ -485,79 +486,90 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Saturation backstop — coverage-gate surfacing
+# Citation-neighbor walk terminal — coverage-gate surfacing (0.3.1)
 # ---------------------------------------------------------------------------
 
-def check_saturation_backstop(saturation_path: Path) -> dict[str, Any]:
-    """Read the snowball loop's ``stop_reason:`` off ``_saturation.md``.
+def check_walk_terminal(walk_path: Path) -> dict[str, Any]:
+    """Read the citation-neighbor relevance walk's ``stop_reason:`` off
+    ``_walk.md`` (0.3.1; renamed from ``check_saturation_backstop``/
+    ``_saturation.md``).
 
-    The saturation loop is the deterministic ``snowball`` tool op (an
-    INTERNAL loop inside the ``review-snowball`` TOOL node — no per-round DAG
-    nodes). It stamps flat
-    frontmatter at the top of ``_saturation.md`` recording which stop rule
-    fired:
-      - ``stop_reason: saturated``          — PRIMARY rule: 2-consecutive-zero
-        rounds (genuine saturation plateau).
-      - ``stop_reason: backstop:<N>-waves`` — BACKSTOP rule:
-        the wave cap (``saturation_backstop_waves``, default 3) fired WITHOUT
-        the primary rule converging first. The corpus is bounded, NOT
-        saturated.
-      - ``stop_reason: no-seeds-resolved``   — every seed id failed to
+    The walk is the deterministic ``snowball`` tool op (an INTERNAL loop
+    inside the ``review-snowball`` TOOL node — no per-hop DAG nodes). It
+    stamps flat frontmatter at the top of ``_walk.md`` recording which stop
+    rule fired:
+      - ``stop_reason: walk-complete:<N>-hops`` — the walk ran every
+        relevance hop cleanly to the declared depth bound (the normal,
+        expected terminal). GO — no residue note demanded.
+      - ``stop_reason: neighborhood-exhausted``  — 2 consecutive hops found
+        0 new independent papers before the depth bound was reached. GO —
+        also a clean terminal, no residue note demanded.
+      - ``stop_reason: budget:<N>-calls``        — the total-fetch ceiling
+        fired before the walk reached its declared depth/neighborhood
+        bound. GO-WITH-RESIDUE, IFF the required ``_coverage-gaps.md``
+        residue note exists — the one surviving residue case.
+      - ``stop_reason: no-seeds-resolved``       — every seed id failed to
         resolve on both directions (e.g. all-404) and zero hits were ever
-        obtained (2026-07-09 live-asta fix) — NOT genuine saturation; falls
-        through the whitelist below to HALT-DECLARE, same as any other
-        non-canonical value.
+        obtained — NOT a clean terminal; falls through the whitelist below
+        to HALT-DECLARE, same as any other non-canonical value.
 
     Uses ``note._parse_frontmatter`` (the canonical parser) — no re-rolled
     YAML/regex logic (charter §6: reuse over create), mirroring
     ``check_protocol_gate``'s use of the same parser on ``_protocol.md``.
 
     Args:
-        saturation_path: path to the review's ``_saturation.md`` artifact.
+        walk_path: path to the review's ``_walk.md`` artifact.
 
     Returns:
         dict with keys:
-          exists:      bool       — whether _saturation.md was found.
-          stop_reason: str        — the raw stamped value ("" if absent/missing).
-          is_backstop: bool       — True iff stop_reason starts with "backstop:".
-          wave_count:  int | None — parsed N from "backstop:N-waves", else None.
+          exists:       bool       — whether _walk.md was found.
+          stop_reason:  str        — the raw stamped value ("" if absent/missing).
+          walk_complete: bool      — True iff stop_reason starts with "walk-complete:".
+          hop_count:    int | None — parsed N from "walk-complete:N-hops", else None.
 
     charter §2 (surface, never silently drop): this function never fabricates
-    ``"saturated"`` for anything it can't confirm. A MISSING field returns
-    ``stop_reason == ""``; a NON-CANONICAL value (e.g. ``"backstop-3-waves"``
-    with a dash, free prose, or garbage) is returned VERBATIM, not blanked —
-    ``is_backstop`` is simply False for it, same as for an empty string. It is
-    the CALLER's job (the ``coverage-gate`` human-go wiring in ``dag/verbs.py``)
-    to treat "anything that isn't the exact string 'saturated'" as needing a
-    loud SIGNAL — a WHITELIST on the one recognized-good value, not a
-    blacklist on the one recognized-bad prefix. A blacklist here would fail
-    OPEN: agent-stamped free prose has no fixed vocabulary, so every
-    non-``backstop:``-prefixed spelling of a non-saturated outcome would sail
-    through silently and look identical to genuine saturation at the gate.
+    ``"walk-complete:N-hops"`` for anything it can't confirm. A MISSING field
+    returns ``stop_reason == ""``; a NON-CANONICAL value (e.g. a dash instead
+    of a colon, free prose, garbage, or a legacy ``"saturated"``/
+    ``"backstop:N-waves"`` string from a pre-0.3.1 ``_saturation.md``) is
+    returned VERBATIM, not blanked — ``walk_complete`` is simply False for
+    it, same as for an empty string. It is the CALLER's job (the
+    ``coverage-gate`` human-go wiring in ``dag/verbs.py``) to treat
+    "anything outside the whitelisted 4-value set" as needing a loud SIGNAL
+    — a WHITELIST on the recognized-good values, not a blacklist on
+    recognized-bad prefixes. A blacklist here would fail OPEN: agent-stamped
+    free prose has no fixed vocabulary, so every non-canonical spelling
+    would sail through silently and look identical to a genuine terminal at
+    the gate.
     """
-    if not saturation_path.exists():
-        return {"exists": False, "stop_reason": "", "is_backstop": False, "wave_count": None}
+    if not walk_path.exists():
+        return {"exists": False, "stop_reason": "", "walk_complete": False, "hop_count": None}
 
-    text = saturation_path.read_text(encoding="utf-8")
+    text = walk_path.read_text(encoding="utf-8")
     fields, _ = _parse_frontmatter(text)
     stop_reason = fields.get("stop_reason", "")
     if isinstance(stop_reason, list):
         stop_reason = " ".join(str(item) for item in stop_reason)
     stop_reason = str(stop_reason).strip()
 
-    is_backstop = stop_reason.lower().startswith("backstop:")
-    wave_count: int | None = None
-    if is_backstop:
-        m = re.match(r"^backstop:(\d+)-waves?$", stop_reason, re.IGNORECASE)
+    walk_complete = stop_reason.lower().startswith("walk-complete:")
+    hop_count: int | None = None
+    if walk_complete:
+        m = re.match(r"^walk-complete:(\d+)-hops?$", stop_reason, re.IGNORECASE)
         if m:
-            wave_count = int(m.group(1))
+            hop_count = int(m.group(1))
 
     return {
         "exists": True,
         "stop_reason": stop_reason,
-        "is_backstop": is_backstop,
-        "wave_count": wave_count,
+        "walk_complete": walk_complete,
+        "hop_count": hop_count,
     }
+
+
+#: Deprecated alias for ``check_walk_terminal``. Will be removed in a future
+#: release.
+check_saturation_backstop = check_walk_terminal
 
 
 # ---------------------------------------------------------------------------
@@ -645,16 +657,45 @@ class CorpusSchemaError(ValueError):
     """
 
 
+_CORPUS_ROW_BRACKET_TOKEN_RE = re.compile(r"\[([^\[\]]+)\]")
+
+
+def _corpus_row_tags(annotation: str) -> list[str]:
+    """Case-normalized bracket-delimited tokens in a corpus row's
+    annotation column.
+
+    Coverage-path twin of ``review.relevance._annotation_is_new`` (kept
+    consistent with it, per the same root-cause fix — a real
+    ``review-curate`` run emits a COMPOUND annotation like
+    ``[LEG-1][NEW] {SF,silicon-sampling}``, not just the bare legacy
+    ``[NEW]`` form; an exact-match/whole-cell-bracket check on that shape
+    silently drops the row, undercounting the corpus this feeds into
+    ``coverage_report``/the coverage-gate). Scans EVERY bracket-delimited
+    token in the annotation cell rather than requiring the whole cell to be
+    exactly one bracket pair.
+    """
+    return [t.strip().upper() for t in _CORPUS_ROW_BRACKET_TOKEN_RE.findall(annotation)]
+
+
 def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
-    """Return ALL citekeys in _corpus.md (both [NEW] and [IN-CORPUS:*]).
+    """Return ALL citekeys in _corpus.md (both NEW and IN-CORPUS rows).
 
     Used by coverage_report as the source-of-truth key set.
     The corpus is the frozen manifest — it is always right.
 
-    Raises ``CorpusSchemaError`` (loud reject) on a bracket-shaped column-0
-    annotation that is neither ``[NEW]`` nor ``[IN-CORPUS:*]`` — see
-    ``CorpusSchemaError``. Non-table prose and header/separator
-    rows (column-0 is NOT bracket-shaped) are still a correct, silent skip.
+    Tolerates a COMPOUND annotation (``[LEG-1][NEW] {tags}``, a real
+    ``review-curate`` shape — see ``_corpus_row_tags``), not just the bare
+    legacy ``[NEW]``/``[IN-CORPUS:*]`` forms. Raises ``CorpusSchemaError``
+    (loud reject) when the annotation cell carries at least one bracket
+    token but none of them is a recognized NEW/IN-CORPUS tag — see
+    ``CorpusSchemaError``. Non-table prose and header/separator rows
+    (column-0 carries NO bracket token at all) are still a correct, silent
+    skip.
+
+    Citekeys are validated against a charset that includes ``/`` — a real
+    DOI-shaped citekey (e.g. ``10.48550/arXiv.2604.19787``) is common in a
+    curated corpus; the legacy charset silently dropped every DOI row too
+    (same class of undercounting bug as the annotation exact-match).
     """
     if not corpus_path.exists():
         return []
@@ -668,21 +709,24 @@ def _parse_corpus_citekeys(corpus_path: Path) -> list[str]:
         if len(cols) < 2:
             continue
         annotation = cols[0]
-        # Both [NEW] and [IN-CORPUS:*] rows carry a citekey in column 2
-        if annotation.upper() == "[NEW]" or re.match(r"^\[IN-CORPUS:", annotation, re.IGNORECASE):
+        tags = _corpus_row_tags(annotation)
+        is_new = "NEW" in tags
+        is_in_corpus = any(t.startswith("IN-CORPUS") for t in tags)
+        # Both NEW and IN-CORPUS rows carry a citekey in column 2
+        if is_new or is_in_corpus:
             citekey = cols[1]
-            if re.match(r"^[A-Za-z0-9_:\-\.]+$", citekey):
+            if re.match(r"^[A-Za-z0-9_:/\-\.]+$", citekey):
                 citekeys.append(citekey)
             continue
-        if re.match(r"^\[.*\]$", annotation):
-            # Bracket-shaped but not a recognized tag — a schema violation.
-            # Loud reject, never a silent skip.
+        if tags:
+            # At least one bracket token present but none recognized — a
+            # schema violation. Loud reject, never a silent skip.
             raise CorpusSchemaError(
                 f"{corpus_path}:{lineno}: malformed corpus row annotation "
-                f"{annotation!r} — expected '[NEW]' or '[IN-CORPUS:<citekey>]'. "
-                f"Row: {stripped!r}"
+                f"{annotation!r} — expected a 'NEW' or 'IN-CORPUS:<citekey>' "
+                f"bracket tag (bare or compound). Row: {stripped!r}"
             )
-        # Not bracket-shaped at all (header row, separator row, free prose
+        # No bracket token at all (header row, separator row, free prose
         # bullet inside the table region) — a correct, silent skip.
     return citekeys
 
@@ -988,6 +1032,7 @@ def _build_phase1_manifest(
     *,
     tip_override: dict[str, str] | None = None,
     config: Any = None,
+    relevance_hops: int | None = None,
 ) -> dict[str, Any]:
     """Build the Phase-1 DAG manifest.
 
@@ -1010,8 +1055,9 @@ def _build_phase1_manifest(
                           applies inclusion/exclusion, produces _screen.md
                           (the accepted seed frontier)
       - review-snowball:  TOOL (op "snowball"); needs afterok+watch on _screen.md;
-                          produces _corpus_raw.md + _saturation.md (the both-
-                          direction multi-round saturation walk — no LLM)
+                          produces _corpus_raw.md + _walk.md (the
+                          citation-neighbor relevance walk, depth-bounded
+                          by relevance_hops — no LLM)
       - review-relevance-screen: TOOL (op "relevance_screen"); needs
                           afterok+watch on _corpus_raw.md; mechanically
                           rejects high-confidence off-domain candidates
@@ -1021,10 +1067,10 @@ def _build_phase1_manifest(
                           query-scoping can't help it); produces
                           _corpus_raw_screened.md (no LLM).
       - review-curate:    agent (thin judgment layer); reads
-                          _corpus_raw_screened.md + _saturation.md,
+                          _corpus_raw_screened.md + _walk.md,
                           concept-tags + applies inclusion/exclusion,
                           produces _corpus.md WITH an abstract column (+
-                          _coverage-gaps.md on backstop-termination)
+                          _coverage-gaps.md on budget-termination)
       - review-relevance-verify-prep: TOOL (op "relevance_verify_prep");
                           needs afterok+watch on _corpus.md; builds the
                           canary-seeded per-paper input for the cold
@@ -1049,7 +1095,7 @@ def _build_phase1_manifest(
 
     Why split each of review-search/review-snowball into tool+agent: the
     mechanical fraction (fetch/dedup/derivative-discount/rank/graph-walk/
-    saturation-curve) is large and fully deterministic — it lives in
+    per-hop coverage report) is large and fully deterministic — it lives in
     ``review.autonomy``'s tool-op registry, invoked IN-PROCESS by the DAG
     runner (D4, verb-consolidation). The irreducibly-LLM fraction (applying
     inclusion/exclusion judgment, concept-tagging, honest residue prose) is
@@ -1088,7 +1134,7 @@ def _build_phase1_manifest(
     screen_path = str(review_dir / "_screen.md")
     corpus_raw_path = str(review_dir / "_corpus_raw.md")
     corpus_raw_screened_path = str(review_dir / "_corpus_raw_screened.md")
-    saturation_path = str(review_dir / "_saturation.md")
+    walk_path = str(review_dir / "_walk.md")
     corpus_path = str(review_dir / "_corpus.md")
     corpus_verify_input_path = str(review_dir / "_corpus_verify_input.md")
     relevance_verdict_path = str(review_dir / "_relevance-verdict.md")
@@ -1170,23 +1216,26 @@ def _build_phase1_manifest(
         ],
     })
 
-    # 5. review-snowball — TOOL node (D4 op "snowball"): the deterministic
-    #    both-direction, multi-round saturation walk's mechanical half — see
-    #    review.autonomy.run_snowball_to_saturation's declared
-    #    concept-tag-half caveat. Produces _corpus_raw.md (raw candidates)
-    #    + _saturation.md (the plateau curve, stop_reason:).
+    # 5. review-snowball — TOOL node (D4 op "snowball"): the citation-
+    #    neighbor relevance walk's mechanical half (0.3.1) — depth-bounded
+    #    by relevance_hops, see review.autonomy._op_snowball /
+    #    sources.snowball.run_citation_neighbor_walk. Produces
+    #    _corpus_raw.md (raw candidates) + _walk.md (per-hop coverage
+    #    report, stop_reason:).
     nodes.append({
         "id": "review-snowball",
         "type": "tool",
         "op": "snowball",
-        "label": "Both-direction multi-round snowball walk to saturation (deterministic)",
+        "label": "Citation-neighbor relevance walk, depth-bounded (deterministic)",
         "args": {
             "seed": screen_path,
             "out_dir": str(review_dir),
-            "backstop_waves": get_saturation_backstop_waves(config=config),
+            "relevance_hops": (
+                relevance_hops if relevance_hops is not None else get_relevance_hops(config=config)
+            ),
             "project": project,
         },
-        "produces": {"_corpus_raw.md": corpus_raw_path, "_saturation.md": saturation_path},
+        "produces": {"_corpus_raw.md": corpus_raw_path, "_walk.md": walk_path},
         "needs": [
             {
                 "from": "review-screen",
@@ -1225,7 +1274,7 @@ def _build_phase1_manifest(
 
     # 7. review-curate — thin AGENT judgment layer: concept-tag the
     #    RELEVANCE-SCREENED corpus, apply inclusion/exclusion, emit the
-    #    FINAL _corpus.md (+ _coverage-gaps.md on backstop-termination or a
+    #    FINAL _corpus.md (+ _coverage-gaps.md on budget-termination or a
     #    tag-under-counting concern — the declared concept-tag-half caveat).
     nodes.append({
         "id": "review-curate",
@@ -1238,7 +1287,7 @@ def _build_phase1_manifest(
             _rel("mocs"),
             protocol_path,
             corpus_raw_screened_path,
-            saturation_path,
+            walk_path,
         ],
         "produces": {"_corpus.md": corpus_path},
         "needs": [
@@ -1300,14 +1349,14 @@ def _build_phase1_manifest(
     #    see _AUTONOMOUS_GATE_IDS in dag/verbs.py). Reads
     #    review-relevance-verify's structured verdict (c: below
     #    ~15-20% off-domain -> auto-prune + declare, run proceeds; at/above
-    #    -> HALT-DECLARE) IN FRONT OF the saturation-based disposition.
+    #    -> HALT-DECLARE) IN FRONT OF the walk-terminal-based disposition.
     #    Operator confirms "these are the papers" before N parallel relates dispatch.
     #    On approval → Phase-2 auto-emits (rv review expand is HARD-REMOVED, D1).
     nodes.append({
         "id": "coverage-gate",
         "type": "human-go",
         "label": (
-            "Gate 2: Approve discovered corpus (_corpus.md + _saturation.md); "
+            "Gate 2: Approve discovered corpus (_corpus.md + _walk.md); "
             "assert every [NEW] citekey has a relate slot or is recorded MENTION-ONLY "
             "(coverage is checked by the 'coverage' tool node-op — do not eyeball). "
             "On approval, Phase-2 auto-emits (relate-* fan-out) — no hand-run step."
@@ -1482,13 +1531,14 @@ def _build_phase2_manifest(
     })
 
     # review-coverage-critic — rejects-only, reviewer role
-    # Judges: saturation-real vs premature, orphan concepts, protocol-adherence,
-    # AND L-2 counter-position PRESENT and SOUGHT (hard [BLOCK] if absent or ignored).
+    # Judges: walk-coverage genuine-vs-premature, orphan concepts,
+    # protocol-adherence, AND L-2 counter-position PRESENT and SOUGHT (hard
+    # [BLOCK] if absent or ignored).
     nodes.append({
         "id": "review-coverage-critic",
         "type": "agent",
         "label": (
-            "Coverage critic (rejects-only): plateau-reality + protocol-adherence + "
+            "Coverage critic (rejects-only): walk-coverage genuineness + protocol-adherence + "
             "counter-position present-and-sought (L-2) → [PASS]/[BLOCK]"
         ),
         "spec": _spec("review_critic_tips"),
@@ -1496,7 +1546,7 @@ def _build_phase2_manifest(
             _rel("literature"),
             _rel("concepts"),
             _rel("mocs"),
-            str(review_dir / "_saturation.md"),
+            str(review_dir / "_walk.md"),
             protocol_path,
         ],
         # Single-human-gate design (2026-07-09): approve-review reads this
@@ -1546,19 +1596,22 @@ def cmd_new(
     question: str,
     config: Config | None = None,
     tip_override: dict[str, str] | None = None,
+    relevance_hops: int | None = None,
 ) -> tuple[Path, Path, dict[str, Any]]:
     """Scaffold a review OKF note + reviews/<scope>/ dir + Phase-1 DAG manifest.
 
     When to use: use ``rv review new <project> <scope> --question '...'`` to
-    start a pre-registered, saturation-gated literature review.
+    start a pre-registered literature review using a citation-neighbor
+    relevance walk.
 
-    This is the ONLY path that creates the protocol-freeze + saturation-curve +
-    coverage-critic framework. A hand-run literature scan gets no ``_protocol.md``
-    freeze, no saturation curve, and no rejects-only critic.
+    This is the ONLY path that creates the protocol-freeze + citation-neighbor
+    walk + coverage-critic framework. A hand-run literature scan gets no
+    ``_protocol.md`` freeze, no per-hop walk coverage report, and no
+    rejects-only critic.
 
     Anti-pattern: do NOT hand-collect papers and hand-write a literature section —
-    run ``rv review new`` so every paper traces to the corpus index, the saturation
-    is measured, and the coverage gate is structural.
+    run ``rv review new`` so every paper traces to the corpus index, the
+    citation neighborhood is walked, and the coverage gate is structural.
 
     Args:
         project:     project slug (must be registered in config).
@@ -1566,6 +1619,9 @@ def cmd_new(
         question:    the review research question (frozen in _protocol.md).
         config:      optional Config (loaded if None).
         tip_override: optional per-key tip override (testing / venue customization).
+        relevance_hops: optional override for the citation-neighbor walk's
+            depth bound (default: ``get_relevance_hops(config)``, itself
+            defaulting to 1). Passed through to ``review-snowball``'s node args.
 
     Returns:
         (note_path, review_dir, manifest) where:
@@ -1609,7 +1665,7 @@ def cmd_new(
         "<!-- The review artifacts live in reviews/<scope>/: -->\n"
         "<!--   _protocol.md  — frozen search protocol (pre-registration) -->\n"
         "<!--   _corpus.md    — discovered [NEW] citekey list (snowball output) -->\n"
-        "<!--   _saturation.md — saturation curve (rounds × new citekeys) -->\n"
+        "<!--   _walk.md — citation-neighbor walk coverage report (hops × new citekeys) -->\n"
         "<!-- Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json -->\n"
         "<!-- Phase-2 auto-emits when coverage-gate GOes — no hand-run step. -->\n"
         "\n"
@@ -1633,6 +1689,7 @@ def cmd_new(
         project_notes_dir=project_notes_dir,
         tip_override=tip_override,
         config=cfg,
+        relevance_hops=relevance_hops,
     )
 
     manifest_path = review_dir / "phase1-dag.json"

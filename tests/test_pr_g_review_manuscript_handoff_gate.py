@@ -75,7 +75,7 @@ def assert_four_handoff_properties(ledger_path: Path) -> dict[str, Any]:
 
     - LEDGERED  — the ledger exists AND its own ``ledger_complete`` flag is
       true. Reads the FLAG, not file existence (the mutation-check proves it).
-    - COMPLETE  — search angles + a saturation stop-reason + the open-poles
+    - COMPLETE  — search angles + a walk-terminal stop-reason + the open-poles
       field are all present/derivable.
     - CLEAN     — a relevance disposition is recorded, with off-domain and
       prune counts (a GO-class disposition, never HALT).
@@ -95,11 +95,11 @@ def assert_four_handoff_properties(ledger_path: Path) -> dict[str, Any]:
             "INCOMPLETE."
         )
 
-    # --- COMPLETE (angles + saturation + open poles) ---
+    # --- COMPLETE (angles + walk-terminal stop_reason + open poles) ---
     if not str(fields.get("angles_searched", "")).strip():
         raise HandoffPropertyError("COMPLETE: angles_searched is empty.")
     if not str(fields.get("stop_reason", "")).strip():
-        raise HandoffPropertyError("COMPLETE: saturation stop_reason is empty.")
+        raise HandoffPropertyError("COMPLETE: walk-terminal stop_reason is empty.")
     if "open_counter_poles" not in fields:
         raise HandoffPropertyError("COMPLETE: open_counter_poles field absent.")
 
@@ -170,10 +170,11 @@ def _build_clean_scope(tmp_path: Path, name: str = "gate-scope") -> tuple[Path, 
         "| by-outcome | arxiv | 3 |  |\n\nTotal hits fetched: 8\n",
         encoding="utf-8",
     )
-    (review_dir / "_saturation.md").write_text(
-        "---\nstop_reason: saturated\nunresolvable_count: 0\n---\n\n# Saturation\n\n"
-        "| Round | New (forward) | New (backward) | New independent | Cumulative | Direction-starved |\n"
-        "|---|---|---|---|---|---|\n| 1 | 4 | 2 | 5 | 5 |  |\n| 2 | 0 | 0 | 0 | 5 |  |\n",
+    (review_dir / "_walk.md").write_text(
+        "---\nstop_reason: walk-complete:1-hops\nunresolvable_count: 0\n---\n\n"
+        "# Citation-neighbor relevance walk\n\n"
+        "| Hop | New (forward) | New (backward) | New independent | Cumulative | Direction-starved |\n"
+        "|---|---|---|---|---|---|\n| 1 | 4 | 2 | 5 | 5 |  |\n",
         encoding="utf-8",
     )
     (review_dir / "_corpus.md").write_text(
@@ -503,7 +504,7 @@ class TestMultiRoundBacktrack:
                     independent_count=len(hits), total_hits_fetched=len(hits), cells=[], errors=[],
                 )
             if op == "snowball":
-                return {"corpus_raw": None, "saturation": None, "stop_reason": "saturated"}
+                return {"corpus_raw": None, "walk": None, "stop_reason": "walk-complete:1-hops"}
             raise AssertionError(f"unexpected op {op!r}")
 
         # --- CALL 1: phase-1 round 1 emits fan-out for p1, HALT.
@@ -584,7 +585,7 @@ class TestRelateFanoutCycleAndGenericContract:
                     total_hits_fetched=1, cells=[], errors=[],
                 )
             if op == "snowball":
-                return {"corpus_raw": None, "saturation": None, "stop_reason": "saturated"}
+                return {"corpus_raw": None, "walk": None, "stop_reason": "walk-complete:1-hops"}
             raise AssertionError(op)
 
         return review_dir, literature_dir, baseline, connected_ck, fake_tool_op

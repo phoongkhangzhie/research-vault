@@ -46,8 +46,11 @@ def _corpus_note(path: Path, citekeys: list[str]) -> None:
     )
 
 
-def _saturation_info(*, stop_reason: str = "saturated") -> dict:
-    return {"exists": True, "stop_reason": stop_reason, "is_backstop": stop_reason.startswith("backstop:")}
+def _walk_info(*, stop_reason: str = "walk-complete:1-hops") -> dict:
+    return {
+        "exists": True, "stop_reason": stop_reason,
+        "walk_complete": stop_reason.startswith("walk-complete:"),
+    }
 
 
 class TestCoverageGateDeviationCheck:
@@ -58,7 +61,7 @@ class TestCoverageGateDeviationCheck:
         deviations_path = tmp_path / "reviews" / "s1" / "_deviations.md"
 
         result = auto.classify_coverage_gate_with_deviation_check(
-            meta, _saturation_info(), corpus_path=corpus_path, deviations_path=deviations_path,
+            meta, _walk_info(), corpus_path=corpus_path, deviations_path=deviations_path,
         )
         assert result.disposition == auto.GO
         assert meta["frozen_corpus_citekeys"] == sorted(["paperA2024", "paperB2024"])
@@ -70,7 +73,7 @@ class TestCoverageGateDeviationCheck:
         meta = {"frozen_corpus_citekeys": ["paperA2024", "paperB2024"]}
 
         result = auto.classify_coverage_gate_with_deviation_check(
-            meta, _saturation_info(), corpus_path=corpus_path, deviations_path=deviations_path,
+            meta, _walk_info(), corpus_path=corpus_path, deviations_path=deviations_path,
         )
         assert result.disposition == auto.GO
 
@@ -84,7 +87,7 @@ class TestCoverageGateDeviationCheck:
         meta = {"frozen_corpus_citekeys": ["paperA2024", "paperB2024"]}
 
         result = auto.classify_coverage_gate_with_deviation_check(
-            meta, _saturation_info(), corpus_path=corpus_path, deviations_path=deviations_path,
+            meta, _walk_info(), corpus_path=corpus_path, deviations_path=deviations_path,
         )
         assert result.disposition == auto.HALT_DECLARE
         assert "undeclared" in result.reason.lower()
@@ -105,21 +108,21 @@ class TestCoverageGateDeviationCheck:
         )
 
         result = auto.classify_coverage_gate_with_deviation_check(
-            meta, _saturation_info(), corpus_path=corpus_path, deviations_path=deviations_path,
+            meta, _walk_info(), corpus_path=corpus_path, deviations_path=deviations_path,
         )
         assert result.disposition == auto.GO
 
-    def test_undeclared_delta_short_circuits_before_saturation_check(self, tmp_path: Path):
-        """An undeclared deviation HALTs even when the saturation record
+    def test_undeclared_delta_short_circuits_before_walk_terminal_check(self, tmp_path: Path):
+        """An undeclared deviation HALTs even when the walk-terminal record
         itself would have cleanly GO'd — the deviation check is a fail-closed
-        gate in front of, not behind, the saturation disposition."""
+        gate in front of, not behind, the walk-terminal disposition."""
         corpus_path = tmp_path / "reviews" / "s5" / "_corpus.md"
         deviations_path = tmp_path / "reviews" / "s5" / "_deviations.md"
         _corpus_note(corpus_path, ["paperA2024", "paperC2024"])  # added + removed vs frozen
         meta = {"frozen_corpus_citekeys": ["paperA2024", "paperB2024"]}
 
         result = auto.classify_coverage_gate_with_deviation_check(
-            meta, _saturation_info(stop_reason="saturated"), corpus_path=corpus_path,
+            meta, _walk_info(stop_reason="walk-complete:1-hops"), corpus_path=corpus_path,
             deviations_path=deviations_path,
         )
         assert result.disposition == auto.HALT_DECLARE
@@ -263,8 +266,8 @@ class TestSelfAdvancingRunner:
                 "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
                 encoding="utf-8",
             )
-            (out / "_saturation.md").write_text(
-                f"---\nstop_reason: {stop_reason}\n---\n\nSaturation curve.\n", encoding="utf-8",
+            (out / "_walk.md").write_text(
+                f"---\nstop_reason: {stop_reason}\n---\n\nCitation-neighbor relevance walk.\n", encoding="utf-8",
             )
             return {"stop_reason": stop_reason}
 
@@ -308,14 +311,14 @@ class TestSelfAdvancingRunner:
         assert rs.node_status("review-snowball") == "succeeded"
 
         # review-curate (agent) "completes": writes the FINAL _corpus.md
-        # (+ _coverage-gaps.md on backstop-termination).
+        # (+ _coverage-gaps.md on budget-termination).
         corpus_path = review_dir / "_corpus.md"
         corpus_path.write_text(
             "| annotation | citekey | title |\n|---|---|---|\n"
             "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
             encoding="utf-8",
         )
-        if stop_reason.startswith("backstop:"):
+        if stop_reason.startswith("budget:"):
             (review_dir / "_coverage-gaps.md").write_text("open frontier\n", encoding="utf-8")
         cmd_tick(argparse.Namespace(run_id=run_id))
         _mark_succeeded(store, run_id, "review-curate")
@@ -327,7 +330,7 @@ class TestSelfAdvancingRunner:
 
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-go")
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops", monkeypatch=monkeypatch)
 
         # THE claim: a plain tick (no --auto anywhere) resolves coverage-gate.
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
@@ -358,7 +361,7 @@ class TestSelfAdvancingRunner:
 
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-residue")
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="backstop:3-waves", monkeypatch=monkeypatch)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="budget:200-calls", monkeypatch=monkeypatch)
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
@@ -368,7 +371,7 @@ class TestSelfAdvancingRunner:
         # Still proceeds — Phase-2 emitted exactly as the clean-GO case.
         assert "emitted_next_phase_run_id" in rs.node_states["coverage-gate"]
 
-    def test_malformed_saturation_halts_never_emits_phase2(self, tmp_instance: Path, monkeypatch):
+    def test_malformed_walk_terminal_halts_never_emits_phase2(self, tmp_instance: Path, monkeypatch):
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick
 
@@ -398,7 +401,7 @@ class TestSelfAdvancingRunner:
 
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-leak")
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops", monkeypatch=monkeypatch)
 
         from research_vault.dag.verbs import cmd_tick
         cmd_tick(argparse.Namespace(run_id=run_id))
@@ -503,7 +506,7 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         cfg = load_config()
         scope = "scope-chain"
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch, deliverable="manuscript")
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops", monkeypatch=monkeypatch, deliverable="manuscript")
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
@@ -649,7 +652,7 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         cfg = load_config()
         scope = "scope-chain-residue"
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="backstop:3-waves", monkeypatch=monkeypatch, deliverable="manuscript")
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="budget:200-calls", monkeypatch=monkeypatch, deliverable="manuscript")
         cmd_tick(argparse.Namespace(run_id=run_id))
         rs = store.load(run_id)
         child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
@@ -667,7 +670,7 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         cfg = load_config()
         scope = "scope-chain-halt"
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops", monkeypatch=monkeypatch)
         cmd_tick(argparse.Namespace(run_id=run_id))
         rs = store.load(run_id)
         child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
@@ -700,7 +703,7 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         cfg = load_config()
         scope = "scope-chain-revise"
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops", monkeypatch=monkeypatch)
         cmd_tick(argparse.Namespace(run_id=run_id))
         rs = store.load(run_id)
         child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
@@ -741,7 +744,7 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         scope = "scope-deliv-default"
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
         # deliverable=None (default) — no field written into _protocol.md.
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops", monkeypatch=monkeypatch)
         cmd_tick(argparse.Namespace(run_id=run_id))
         rs = store.load(run_id)
         child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
@@ -771,7 +774,7 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         cfg = load_config()
         scope = "scope-deliv-explicit-review"
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch, deliverable="review")
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops", monkeypatch=monkeypatch, deliverable="review")
         cmd_tick(argparse.Namespace(run_id=run_id))
         rs = store.load(run_id)
         child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
@@ -812,7 +815,7 @@ class TestApproveReviewAutoChainsToManuscript(TestSelfAdvancingRunner):
         cfg = load_config()
         scope = "scope-full-adopt"
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch, deliverable="manuscript")
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops", monkeypatch=monkeypatch, deliverable="manuscript")
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
         rs = store.load(run_id)
@@ -928,7 +931,7 @@ class TestDeliverableGateHasTeeth(TestApproveReviewAutoChainsToManuscript):
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope=scope)
         # deliverable=None (default review) written into _protocol.md — but
         # the neutralized read always reports "manuscript".
-        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch)
+        self._drive_to_coverage_gate(run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops", monkeypatch=monkeypatch)
         cmd_tick(argparse.Namespace(run_id=run_id))
         rs = store.load(run_id)
         child_run_id = rs.node_states["coverage-gate"]["emitted_next_phase_run_id"]
@@ -1080,8 +1083,8 @@ class TestCoverageGateSourceDarkAutoWiring(TestSelfAdvancingRunner):
                 "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
                 encoding="utf-8",
             )
-            (out / "_saturation.md").write_text(
-                f"---\nstop_reason: {stop_reason}\n---\n\nSaturation curve.\n", encoding="utf-8",
+            (out / "_walk.md").write_text(
+                f"---\nstop_reason: {stop_reason}\n---\n\nCitation-neighbor relevance walk.\n", encoding="utf-8",
             )
             return {"stop_reason": stop_reason}
 
@@ -1111,7 +1114,7 @@ class TestCoverageGateSourceDarkAutoWiring(TestSelfAdvancingRunner):
             "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
             encoding="utf-8",
         )
-        if stop_reason.startswith("backstop:"):
+        if stop_reason.startswith("budget:"):
             (review_dir / "_coverage-gaps.md").write_text("open frontier\n", encoding="utf-8")
         cmd_tick(argparse.Namespace(run_id=run_id))
         _mark_succeeded(store, run_id, "review-curate")
@@ -1124,7 +1127,7 @@ class TestCoverageGateSourceDarkAutoWiring(TestSelfAdvancingRunner):
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-src-dark")
         self._drive_to_coverage_gate_with_sources(
-            run_id, review_dir, store, cfg, stop_reason="saturated",
+            run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops",
             declared_sources=["semantic-scholar", "arxiv"], dark_sources=["arxiv"],
             monkeypatch=monkeypatch,
         )
@@ -1144,7 +1147,7 @@ class TestCoverageGateSourceDarkAutoWiring(TestSelfAdvancingRunner):
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-src-healthy")
         self._drive_to_coverage_gate_with_sources(
-            run_id, review_dir, store, cfg, stop_reason="saturated",
+            run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops",
             declared_sources=["semantic-scholar", "arxiv"], dark_sources=[],
             monkeypatch=monkeypatch,
         )
@@ -1165,7 +1168,7 @@ class TestCoverageGateSourceDarkAutoWiring(TestSelfAdvancingRunner):
         cfg = load_config()
         run_id, review_dir, store = self._kick_review(tmp_instance, cfg, scope="scope-src-undeclared")
         self._drive_to_coverage_gate_with_sources(
-            run_id, review_dir, store, cfg, stop_reason="saturated",
+            run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops",
             declared_sources=["semantic-scholar", "arxiv"], dark_sources=["pubmed"],
             monkeypatch=monkeypatch,
         )

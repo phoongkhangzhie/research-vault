@@ -281,7 +281,7 @@ class TestDirectedRemediationRound:
                 )
             if op == "snowball":
                 assert set(kwargs["seed_ids"]) == {"10.1/huang2024", "2401.00001"}
-                return {"corpus_raw": None, "saturation": None, "stop_reason": "saturated"}
+                return {"corpus_raw": None, "walk": None, "stop_reason": "walk-complete:1-hops"}
             raise AssertionError(f"unexpected op {op!r}")
 
         result = rem.run_directed_remediation_round(
@@ -359,7 +359,7 @@ class TestDagVerbsApproveReviewWiring:
             if op == "sweep":
                 return SweepResult(kept=[_deduped(huang)], independent_count=1, total_hits_fetched=1, cells=[], errors=[])
             if op == "snowball":
-                return {"corpus_raw": None, "saturation": None, "stop_reason": "saturated"}
+                return {"corpus_raw": None, "walk": None, "stop_reason": "walk-complete:1-hops"}
             raise AssertionError(op)
 
         monkeypatch.setattr(rem, "run_tool_op", fake_run_tool_op)

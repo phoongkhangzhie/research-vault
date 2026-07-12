@@ -1,6 +1,6 @@
 {
   "run_id": "lit-review-loop-topic",
-  "name": "Lit-review loop — topic (pre-registered, saturation-gated)",
+  "name": "Lit-review loop — topic (pre-registered, citation-neighbor relevance walk)",
   "global_cap": 3,
   "nodes": [
     {
@@ -56,7 +56,7 @@
       "id": "review-snowball",
       "type": "tool",
       "op": "snowball",
-      "label": "Both-direction multi-round snowball walk to saturation (deterministic)",
+      "label": "Citation-neighbor relevance walk, depth-bounded (deterministic)",
       "args": {
         "seed": "reviews/topic/_screen.md",
         "out_dir": "reviews/topic",
@@ -64,7 +64,7 @@
       },
       "produces": {
         "_corpus_raw.md": "reviews/topic/_corpus_raw.md",
-        "_saturation.md": "reviews/topic/_saturation.md"
+        "_walk.md": "reviews/topic/_walk.md"
       },
       "needs": [
         {
@@ -85,14 +85,14 @@
         {
           "from": "review-snowball",
           "edge": "afterok",
-          "watch": "artifact:reviews/topic/_saturation.md+fresh"
+          "watch": "artifact:reviews/topic/_walk.md+fresh"
         }
       ]
     },
     {
       "id": "coverage-gate",
       "type": "human-go",
-      "label": "Gate 2: Approve discovered corpus (_corpus.md + _saturation.md); every [NEW] citekey has a relate slot or is MENTION-ONLY. Phase-2 fan-out authorized here.",
+      "label": "Gate 2: Approve discovered corpus (_corpus.md + _walk.md); every [NEW] citekey has a relate slot or is MENTION-ONLY. Phase-2 fan-out authorized here.",
       "needs": [{"from": "review-curate", "edge": "afterok"}]
     },
     {
@@ -127,7 +127,7 @@
     {
       "id": "review-coverage-critic",
       "type": "agent",
-      "label": "Coverage critic (rejects-only): plateau-reality + protocol-adherence + counter-position present-and-sought (L-2) -> [PASS]/[BLOCK]",
+      "label": "Coverage critic (rejects-only): walk-coverage genuineness + protocol-adherence + counter-position present-and-sought (L-2) -> [PASS]/[BLOCK]",
       "role": "reviewer",
       "spec": "doctrine/roles/reviewer.md",
       "needs": [{"from": "review-synthesize", "edge": "afterok"}]

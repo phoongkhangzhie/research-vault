@@ -181,7 +181,7 @@ def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
 
     When to use: run over the ASSEMBLED reader body (the joined, rendered
     survey text a reader will actually see — never the internal control
-    artifacts like ``_framework-candidates.md``/``_saturation.md``, which are
+    artifacts like ``_framework-candidates.md``/``_walk.md``, which are
     ALLOWED to carry these handles). Fail-closed, rv-style: any hit BLOCKs
     declare-final; a clean body passes with zero errors.
 

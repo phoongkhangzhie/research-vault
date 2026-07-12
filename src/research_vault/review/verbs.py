@@ -2,16 +2,16 @@
 """review/verbs.py — rv review subcommand dispatcher.
 
 When to use: use ``rv review new <project> <scope> --question '...'`` to start a
-pre-registered, saturation-gated literature review.  Phase-2 (the ``relate-*`` fan-out)
-is HARD-REMOVED as a hand-run verb — it auto-emits when ``coverage-gate`` GOes (D1,
-verb consolidation).  ``rv review list`` enumerates all reviews for a project.
-``rv review gap-scan`` detects typed research gaps from the OKF corpus and/or a
-manuscript critic report (the loop-closer).  ``rv review gap-scope`` (or the
-alias ``gap-route``) auto-authors the remedy scope: literature (Part-1 review) OR
-experiment (pre-registration plan), routed by error-asymmetry.
+pre-registered literature review using a citation-neighbor relevance walk.  Phase-2
+(the ``relate-*`` fan-out) is HARD-REMOVED as a hand-run verb — it auto-emits when
+``coverage-gate`` GOes (D1, verb consolidation).  ``rv review list`` enumerates all
+reviews for a project.  ``rv review gap-scan`` detects typed research gaps from the
+OKF corpus and/or a manuscript critic report (the loop-closer).  ``rv review
+gap-scope`` (or the alias ``gap-route``) auto-authors the remedy scope: literature
+(Part-1 review) OR experiment (pre-registration plan), routed by error-asymmetry.
 
-This is the ONLY path that creates the closed protocol-freeze + saturation-curve +
-coverage-critic framework.  A hand-run literature scan gets none of these gates.
+This is the ONLY path that creates the closed protocol-freeze + citation-neighbor
+walk + coverage-critic framework.  A hand-run literature scan gets none of these gates.
 
 Subcommands:
   rv review <project> new <scope> --question "..."
@@ -24,8 +24,9 @@ Subcommands:
           → coverage-gate (auto-resolved).
       ``review-scope`` MUST file a ``_protocol.md`` with a non-empty ``counter-position``
       field (L-2 gate) — ``review-search`` is gated on the protocol artifact.
-      ``review-snowball`` runs an internal saturation loop (both forward + backward
-      citation directions) and produces ``_corpus_raw.md`` + ``_saturation.md``.
+      ``review-snowball`` runs an internal citation-neighbor relevance walk (both
+      forward + backward citation directions, depth-bounded by ``--relevance-hops``,
+      default 1) and produces ``_corpus_raw.md`` + ``_walk.md``.
       The relevance gate (design 2026-07-10-trustworthy-curation-relevance-gate-design.md
       ) mechanically screens + a cold agent re-verifies every ``[NEW]`` paper for
       off-domain contamination before the expensive Phase-2 fan-out: below
@@ -92,7 +93,7 @@ Subcommands (the gap-driven pass):
       (the honesty backstop that polices its own promotions).
 
 Anti-pattern: do NOT hand-collect papers without running ``rv review new`` — a
-hand-collected corpus has no ``_protocol.md`` freeze, no saturation measurement,
+hand-collected corpus has no ``_protocol.md`` freeze, no citation-neighbor walk,
 and no rejects-only coverage critic.
 
 Anti-pattern: do NOT auto-fire a gap-driven review pass — ``gap-scan`` is a
@@ -120,17 +121,19 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     """Build the argument parser for the ``review`` verb.
 
     When to use: use ``rv review new <project> <scope> --question '...'`` to scaffold
-    a pre-registered, saturation-gated literature review with protocol-freeze,
-    internal saturation loop, and coverage-critic gates.
+    a pre-registered literature review with protocol-freeze, an internal
+    citation-neighbor relevance walk, and coverage-critic gates.
 
     Anti-pattern: do NOT hand-collect papers without ``rv review new`` — the hand-run
-    path has no protocol-freeze (anti-fishing), no saturation curve, and no rejects-only
-    critic (the coverage gate cannot fire without the artifacts ``rv review new`` scaffolds).
+    path has no protocol-freeze (anti-fishing), no citation-neighbor walk, and no
+    rejects-only critic (the coverage gate cannot fire without the artifacts ``rv
+    review new`` scaffolds).
     """
     desc = (
-        "Staged, pre-registered, saturation-gated literature review loop.\n"
+        "Staged, pre-registered literature review loop using a citation-neighbor\n"
+        "relevance walk.\n"
         "'rv review new' is the ONLY path that creates the protocol-freeze +\n"
-        "saturation-curve + coverage-critic framework.\n"
+        "citation-neighbor walk + coverage-critic framework.\n"
         "Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json\n"
         "Phase-2 auto-emits when coverage-gate GOes — no hand-run 'expand' step;\n"
         "then drive it with: rv dag run reviews/<scope>/phase2-dag.json"
@@ -138,7 +141,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     if parent is not None:
         p = parent.add_parser(
             "review",
-            help="Staged literature review loop (pre-registered, saturation-gated).",
+            help="Staged literature review loop (pre-registered, citation-neighbor walk).",
             description=desc,
         )
     else:
@@ -173,6 +176,19 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
             "Example: 'What are the coverage limits of LLM-based evaluation benchmarks?'"
         ),
     )
+    new_p.add_argument(
+        "--relevance-hops",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Depth bound (in relevance hops) on the citation-neighbor walk — corpus = "
+            "the vetted core (review-screen output) plus its immediate citation "
+            "neighborhood. Default: config's [review_style] relevance_hops, itself "
+            "defaulting to 1. Deeper (2+) trades precision for recall; the default "
+            "keeps the walk a tight, high-precision bound."
+        ),
+    )
 
     # ── run (D2, verb consolidation) ───────────────────────────────────────
     # The one-call autonomous-loop kick: fuses `review new` + `dag run`.
@@ -204,6 +220,13 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         required=True,
         metavar="QUESTION",
         help="The review research question (same as `review new --question`).",
+    )
+    run_p.add_argument(
+        "--relevance-hops",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Same as `review new --relevance-hops` (depth bound on the citation-neighbor walk).",
     )
 
     # ── expand — D1 HARD-REMOVED (verb consolidation) ─────────────────────
@@ -544,6 +567,7 @@ def _run_new(args: argparse.Namespace) -> int:
             args.scope,
             question=args.question,
             config=cfg,
+            relevance_hops=getattr(args, "relevance_hops", None),
         )
         n_nodes = len(manifest["nodes"])
         print(f"rv review: created note: {note_path}")
@@ -579,6 +603,7 @@ def _run_run(args: argparse.Namespace) -> int:
             args.scope,
             question=args.question,
             config=cfg,
+            relevance_hops=getattr(args, "relevance_hops", None),
         )
     except Exception as e:
         print(f"rv review run: error scaffolding review: {e}", file=sys.stderr)

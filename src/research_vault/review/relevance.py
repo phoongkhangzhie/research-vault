@@ -47,7 +47,7 @@ from research_vault.note import _parse_frontmatter
 
 # ---------------------------------------------------------------------------
 # 1. The fixed 3-value vocabulary (charter §2: whitelist, never a heuristic
-#    blacklist — see review.check_saturation_backstop's identical rationale)
+#    blacklist — see review.check_walk_terminal's identical rationale)
 # ---------------------------------------------------------------------------
 
 IN = "IN"

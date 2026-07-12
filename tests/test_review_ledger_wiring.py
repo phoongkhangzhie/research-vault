@@ -4,11 +4,11 @@ self-advancing DAG runner (mirrors ``test_ng4b_autonomy_wiring.py``'s
 ``TestSelfAdvancingRunner`` harness — reused, not reinvented).
 
 Coverage:
-  - GO (saturated): coverage-gate resolves, ledger written, ledger_complete
+  - GO (walk-complete): coverage-gate resolves, ledger written, ledger_complete
     true (once the literature note fixtures + relevance verdict exist).
-  - GO-WITH-RESIDUE (backstop): ledger written, ledger_complete still true
-    (all sources present) but stop_reason/bounded_not_saturated reflect the
-    backstop residue.
+  - GO-WITH-RESIDUE (budget-terminated): ledger written, ledger_complete still
+    true (all sources present) but stop_reason/walk_bounded reflect the
+    budget residue.
   - HALT-DECLARE (malformed stop_reason): ledger STILL written, with
     ledger_complete: false and the HALT reason surfaced verbatim.
 """
@@ -88,7 +88,7 @@ class TestCoverageGateWritesLedger:
                 "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
                 encoding="utf-8",
             )
-            (out / "_saturation.md").write_text(
+            (out / "_walk.md").write_text(
                 f"---\nstop_reason: {stop_reason}\n---\n\n"
                 "| Round | New (forward) | New (backward) | New independent | Cumulative | Direction-starved |\n"
                 "|---|---|---|---|---|---|\n"
@@ -130,9 +130,9 @@ class TestCoverageGateWritesLedger:
             "| [NEW] | alpha2024 | Alpha paper |\n| [NEW] | beta2024 | Beta paper |\n",
             encoding="utf-8",
         )
-        if stop_reason.startswith("backstop:"):
+        if stop_reason.startswith("budget:"):
             (review_dir / "_coverage-gaps.md").write_text(
-                "terminated by backstop after 3 waves.\n\n- open frontier remains\n",
+                "terminated by the total-fetch budget.\n\n- open frontier remains\n",
                 encoding="utf-8",
             )
         cmd_tick(argparse.Namespace(run_id=run_id))
@@ -160,7 +160,7 @@ class TestCoverageGateWritesLedger:
             "---\ntype: literature\ncentral: beta2024\n---\n", encoding="utf-8",
         )
 
-    def test_go_saturated_writes_complete_ledger(self, tmp_instance: Path, monkeypatch):
+    def test_go_walk_complete_writes_complete_ledger(self, tmp_instance: Path, monkeypatch):
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick
 
@@ -168,7 +168,7 @@ class TestCoverageGateWritesLedger:
         self._write_literature_notes(cfg)
         run_id, review_dir, store = self._kick_review(cfg, scope="scope-ledger-go")
         self._drive_to_coverage_gate(
-            run_id, review_dir, store, cfg, stop_reason="saturated", monkeypatch=monkeypatch,
+            run_id, review_dir, store, cfg, stop_reason="walk-complete:1-hops", monkeypatch=monkeypatch,
         )
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
@@ -181,13 +181,13 @@ class TestCoverageGateWritesLedger:
         assert ledger_path.exists(), "coverage-gate GO must write _corpus_ledger.md"
         fields, text = _parse_frontmatter(ledger_path.read_text(encoding="utf-8"))
         assert fields["type"] == "corpus-ledger"
-        assert fields["stop_reason"] == "saturated"
-        assert str(fields["bounded_not_saturated"]).strip().lower() == "false"
+        assert fields["stop_reason"] == "walk-complete:1-hops"
+        assert str(fields["walk_bounded"]).strip().lower() == "false"
         assert str(fields["ledger_complete"]).strip().lower() == "true", text
         assert int(fields["accepted"]) == 2
         assert "alpha2024" in text and "doi:10.1/alpha2024" in text
 
-    def test_go_with_residue_backstop_reflected_in_ledger(self, tmp_instance: Path, monkeypatch):
+    def test_go_with_residue_budget_reflected_in_ledger(self, tmp_instance: Path, monkeypatch):
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick
 
@@ -195,7 +195,7 @@ class TestCoverageGateWritesLedger:
         self._write_literature_notes(cfg)
         run_id, review_dir, store = self._kick_review(cfg, scope="scope-ledger-residue")
         self._drive_to_coverage_gate(
-            run_id, review_dir, store, cfg, stop_reason="backstop:3-waves", monkeypatch=monkeypatch,
+            run_id, review_dir, store, cfg, stop_reason="budget:200-calls", monkeypatch=monkeypatch,
         )
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
@@ -207,10 +207,10 @@ class TestCoverageGateWritesLedger:
         ledger_path = review_dir / "_corpus_ledger.md"
         assert ledger_path.exists()
         fields, text = _parse_frontmatter(ledger_path.read_text(encoding="utf-8"))
-        assert fields["stop_reason"] == "backstop:3-waves"
-        assert str(fields["bounded_not_saturated"]).strip().lower() == "true"
+        assert fields["stop_reason"] == "budget:200-calls"
+        assert str(fields["walk_bounded"]).strip().lower() == "true"
         assert "open frontier remains" in fields["open_counter_poles"]
-        assert "backstop after 3 waves" in text  # verbatim residue section
+        assert "total-fetch budget" in text  # verbatim residue section
 
     def test_halt_declare_writes_incomplete_ledger_with_reason(self, tmp_instance: Path, monkeypatch):
         from research_vault.config import load_config
@@ -237,8 +237,8 @@ class TestCoverageGateWritesLedger:
         assert "[LEDGER-GAP] HALT:" in text
 
 
-class TestMissingSaturationProducerWritesLedger:
-    """PR-5 fix-round CHANGE 1 (acceptance f): the missing-``_saturation.md``-
+class TestMissingWalkProducerWritesLedger:
+    """PR-5 fix-round CHANGE 1 (acceptance f): the missing-``_walk.md``-
     producer HALT (``review-snowball`` node missing/malformed from the
     manifest) used to ``return`` directly, bypassing ``_write_ledger_final_act``
     entirely -- the ONE coverage-gate HALT path that never wrote a ledger
@@ -268,13 +268,13 @@ class TestMissingSaturationProducerWritesLedger:
             "coverage-gate", nodes_lookup, manifest_path, run_state,
         )
         assert disposition.disposition == _auto.HALT_DECLARE
-        assert "no _saturation.md producer found" in disposition.reason
+        assert "no _walk.md producer found" in disposition.reason
 
         ledger_path = review_dir / "_corpus_ledger.md"
         assert ledger_path.exists(), (
-            "the missing-saturation-producer HALT must STILL write a "
+            "the missing-walk-producer HALT must STILL write a "
             "ledger snapshot, not silently bypass it"
         )
         fields, text = _parse_frontmatter(ledger_path.read_text(encoding="utf-8"))
         assert str(fields["ledger_complete"]).strip().lower() == "false"
-        assert "no _saturation.md producer found" in text
+        assert "no _walk.md producer found" in text

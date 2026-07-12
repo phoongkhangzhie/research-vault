@@ -4,12 +4,13 @@
 SEAM CONTRACT
   ``get_review_tips(config=None)`` is the call-point for the review DAG nodes'
   spec/prompt.  The shipped default is the researcher's retrieval-grounded prose:
-  the saturation loop, counter-position/L-2 gate, and disconfirming obligation, each
-  anchored to the systematic-review methodology it operationalizes (protocol
-  pre-registration, both-direction snowballing, saturation-as-plateau, concept-centric
-  synthesis).  Adopters override per lab/venue via the ``[review_style]`` section in
-  ``research_vault.toml``.  Method anchors are attributed inline to their sources; a
-  consolidated design-references bibliography is compiled at publish.
+  the citation-neighbor relevance walk (0.3.1), counter-position/L-2 gate, and
+  disconfirming obligation, each anchored to the systematic-review methodology it
+  operationalizes (protocol pre-registration, both-direction citation-neighbor
+  walking, concept-centric synthesis).  Adopters override per lab/venue via the
+  ``[review_style]`` section in ``research_vault.toml``.  Method anchors are
+  attributed inline to their sources; a consolidated design-references
+  bibliography is compiled at publish.
 
   Shape:
     review_tips = {
@@ -30,17 +31,14 @@ SEAM CONTRACT
   every node spec string — adopted via ``[review_style] preamble = "..."`` in
   ``research_vault.toml``.
 
-  ``get_saturation_backstop_waves(config=None)`` returns the wave-count cap for
-  the review-snowball loop's TERMINATION BACKSTOP — a
-  guaranteed-termination escape hatch for when the primary saturation rule
-  (2-consecutive-zero rounds) doesn't converge (an exploding-intersection RQ
-  where every wave keeps finding more).  Adopted via
-  ``[review_style] saturation_backstop_waves = <int>`` in
-  ``research_vault.toml``; default 3.  This is additive, NOT a weakening of the
-  primary rule — the primary rule still fires first whenever it converges; the
-  backstop only fires when it doesn't, and the corpus is then recorded as
-  ``backstop-terminated`` (bounded, NOT saturated), never conflated with a
-  genuine saturation plateau.
+  ``get_relevance_hops(config=None)`` returns the DEPTH BOUND (in relevance
+  hops) for the review-snowball citation-neighbor walk — corpus = the vetted
+  core (``review-screen`` output) plus its immediate citation neighborhood.
+  Adopted via ``[review_style] relevance_hops = <int>`` in
+  ``research_vault.toml``; default 1.  Recall is owned by the SEARCH (broad
+  facet queries); precision is owned by this 1-hop bound + ``review-screen``.
+  Deeper (2+) is a deliberate recall/precision tradeoff an adopter can opt
+  into, never the default.
 
 Two halves independently mergeable:
   - Engineer ships this module (plumbing).
@@ -72,8 +70,9 @@ REVIEW_TIPS_KEYS: frozenset[str] = frozenset({
 # ---------------------------------------------------------------------------
 
 _DEFAULT_PREAMBLE: str = (
-    "You are conducting a structured, pre-registered, saturation-gated literature review "
-    "following the Research Vault structured literature review protocol.\n"
+    "You are conducting a structured, pre-registered literature review using a "
+    "citation-neighbor relevance walk (0.3.1), following the Research Vault "
+    "structured literature review protocol.\n"
     "Anti-fabrication spine: every claim must trace to a citekey in the corpus; "
     "every citekey must resolve to a `literature/` OKF note; "
     "no invented references, no paraphrased-without-citation claims.\n"
@@ -253,13 +252,13 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "else inside it."
     ),
     "review_curate_tips": (
-        "★ The both-direction, multi-round saturation walk itself is now a "
+        "★ The citation-neighbor relevance walk itself is now a "
         "deterministic TOOL node (`review-snowball`, op `snowball`) — it ran "
         "automatically before this node and wrote `_corpus_raw.md` + "
-        "`_saturation.md`. This node is a thin judgment layer on top: "
+        "`_walk.md`. This node is a thin judgment layer on top: "
         "concept-tag the raw corpus, "
         "apply inclusion/exclusion, and emit the FINAL `_corpus.md` (+ "
-        "`_coverage-gaps.md` on backstop-termination).\n\n"
+        "`_coverage-gaps.md` when the walk was budget-terminated).\n\n"
         "★ RELEVANCE-GATE PREVENTION (mandatory, cheap — do this FIRST, "
         "before concept-tagging): `_corpus_raw.md` has ALREADY been through "
         "the mechanical snowball-screen relevance gate (off-domain "
@@ -280,27 +279,20 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "WHY (methodology): two named disciplines back the walk you're now "
         "curating.\n"
         "  - Both-direction snowballing (Wohlin, 2014): the tool op already "
-        "followed BOTH backward references and forward citations each round — "
+        "followed BOTH backward references and forward citations each hop — "
         "a database keyword search alone misses the citation neighbourhood.\n"
-        "  - Saturation-as-plateau: theoretical saturation (Glaser & Strauss, "
-        "1967) operationalized as a MEASURABLE stopping rule (Saunders et al., "
-        "2018). The tool op's mechanical stop reads `_saturation.md`'s "
-        "`stop_reason:` — exactly `saturated` (2 consecutive rounds, 0 new "
-        "independent papers) or `backstop:N-waves` (the guaranteed-"
-        "termination cap fired first).\n\n"
-        "★ DECLARED CAVEAT (do not silently drop this — it is load-bearing): "
-        "the FULL saturation stop rule this loop was designed against is '0 "
-        "new independent papers AND 0 new concept-tags' for 2 consecutive "
-        "rounds. Concept-tags are an LLM signal with no mechanical detector, "
-        "so the tool op's mechanical stop covers the PAPER half only. YOU are "
-        "responsible for the concept-tag half here: if verified concept-edges "
-        "(from the upcoming `relate-<key>` fan-out) would plausibly have kept "
-        "growing past the mechanical stop point — i.e. the corpus stopped "
-        "gathering NEW papers but the CONCEPTS those papers would touch were "
-        "still expanding — flag this as tag-under-counting / premature-"
-        "plateau residue in `_coverage-gaps.md`, even when `stop_reason == "
-        "saturated`. Do not wait for backstop-termination to raise this "
-        "concern if you see it.\n\n"
+        "  - Citation-neighbor relevance walk (0.3.1): the corpus is the "
+        "vetted core (this project's `review-screen` output) plus its "
+        "immediate citation neighborhood, DEPTH-BOUNDED by `relevance_hops` "
+        "(default 1 — deeper is a deliberate recall/precision tradeoff, "
+        "never the default). Recall is owned by the SEARCH (broad facet "
+        "queries), NOT by chasing citations deep — deep snowballing drifts "
+        "into adjacent fields, which is noise, not coverage. The tool op's "
+        "mechanical stop reads `_walk.md`'s `stop_reason:` — exactly "
+        "`walk-complete:N-hops` (ran every hop cleanly to the bound), "
+        "`neighborhood-exhausted` (2 consecutive hops found 0 new "
+        "independent papers before the bound), or `budget:N-calls` (the "
+        "total-fetch ceiling fired first, bounded corpus).\n\n"
         "  - Each `_corpus_raw.md` candidate now also carries an "
         "Abstract/TL;DR snippet + Venue + Year (mirrors `_search_hits.md`'s "
         "evidence columns) — apply inclusion/exclusion on THAT evidence, "
@@ -318,27 +310,27 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "or `mocs/` regions does its abstract touch? (cheap signal; verified "
         "edges come later in the `relate-<key>` fan-out).\n"
         "  3. `[DERIVATIVE-OF:*]`-flagged candidates stay in the corpus "
-        "(discount, never delete — provenance preserved) but are NOT double-"
-        "counted against the concept/tag caveat above.\n\n"
-        "Direction-starvation check: if `_saturation.md` shows a round flagged "
+        "(discount, never delete — provenance preserved).\n\n"
+        "Direction-starvation check: if `_walk.md` shows a hop flagged "
         "`DIRECTION-STARVED` (one direction consistently 0 while the other is "
         "active), flag this as a premature-plateau risk in `_coverage-gaps.md` "
         "regardless of `stop_reason`.\n\n"
-        "On BACKSTOP-TERMINATION (`stop_reason: backstop:N-waves`), emit "
+        "On BUDGET-TERMINATION (`stop_reason: budget:N-calls`), emit "
         "`_coverage-gaps.md` — the honest residue note. This is the anti-"
-        "fabrication move: a bounded-not-saturated corpus must DECLARE its "
+        "fabrication move: a budget-bounded corpus must DECLARE its "
         "incompleteness, not hide it behind a green gate. Required contents:\n"
-        "  1. A plain statement: 'terminated by backstop after N waves; "
-        "corpus is bounded-not-saturated.'\n"
+        "  1. A plain statement: 'terminated by the total-fetch budget; "
+        "corpus is bounded, not depth-complete.'\n"
         "  2. Which `counter-position` sub-literature (from `_protocol.md`) "
         "remains open/under-explored, if any.\n"
         "  3. Which `concepts/`/`mocs/` regions were still growing (new "
         "concept-tags still appearing) at termination.\n"
         "  4. The un-screened candidate count: how many citation-graph hits "
-        "were discovered in the final round but not yet round-processed.\n"
-        "Do NOT emit `_coverage-gaps.md` on genuine `saturated` termination "
-        "UNLESS the concept-tag caveat above applies — its presence signals "
-        "an open frontier, so only write it when one genuinely remains.\n\n"
+        "were discovered in the final hop but not yet processed.\n"
+        "Do NOT emit `_coverage-gaps.md` on `walk-complete:N-hops` or "
+        "`neighborhood-exhausted` termination — both are clean, expected "
+        "terminals at the walk's design-time bound; no residue is owed "
+        "there.\n\n"
         "Output: `_corpus.md` — the FINAL, concept-tagged citekey list "
         "(table: annotation | citekey | title | abstract), replacing the "
         "raw candidate list. CARRY the Abstract/TL;DR text VERBATIM from "
@@ -349,14 +341,12 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "alone; a blank abstract here degrades that check to UNCERTAIN "
         "(keep+flag) for that paper, so only leave it blank when "
         "`_corpus_raw.md` itself had no abstract for that candidate. "
-        "`_corpus.md` and `_saturation.md` (and `_coverage-gaps.md` when "
+        "`_corpus.md` and `_walk.md` (and `_coverage-gaps.md` when "
         "present) are the phase-boundary artifacts: the `coverage-gate` "
         "human-go reads them before authorizing Phase-2. `rv dag approve "
         "<run> coverage-gate` structurally reads `stop_reason:` from "
-        "`_saturation.md` and, on backstop-termination, LOUDLY flags it to "
-        "the approving human (⚠ backstop-terminated, NOT saturated) — a "
-        "bounded corpus must never look identical to a saturated one at this "
-        "gate."
+        "`_walk.md` — adequacy is judged by relevance-verify + source-"
+        "coverage downstream, not by this walk terminal alone."
     ),
     "review_relevance_verify_tips": (
         "You are the COLD final-corpus relevance verifier (design "
@@ -682,23 +672,24 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "You are the coverage critic (reviewer role). You are a REJECTS-ONLY reviewer: "
         "a `[PASS]` does NOT certify coverage, it only fails to find a blocking hole.\n\n"
         "WHY (methodology): your two hardest axes have named backing. Axis 1 tests "
-        "whether the plateau meets theoretical-saturation criteria (Glaser & Strauss, "
-        "1967) as operationalized into a measurable stopping rule (Saunders et al., "
-        "2018) — a plateau that is direction-starved (one snowball direction dry; cf. "
-        "Wohlin, 2014) or tag-under-counted is PREMATURE, not saturated. Axis 4 "
-        "enforces the disconfirming obligation: a review that only confirms is "
-        "fishing, so the pre-registered counter-position must be sought, not merely "
-        "declared.\n\n"
+        "whether the citation-neighbor walk's coverage is genuine or premature — a walk "
+        "that hit `neighborhood-exhausted` while direction-starved (one snowball "
+        "direction dry; cf. Wohlin, 2014) or tag-under-counted is PREMATURE, not a clean "
+        "terminal. Axis 4 enforces the disconfirming obligation: a review that only "
+        "confirms is fishing, so the pre-registered counter-position must be sought, not "
+        "merely declared.\n\n"
         "Judge FOUR axes (each can independently issue `[BLOCK]`):\n\n"
-        "1. SATURATION PLATEAU — is it real or premature?\n"
-        "   Read the `_saturation.md` curve. Check:\n"
-        "   - Did the curve plateau at round K with 0 new citekeys AND 0 new concept-tags "
-        "for 2 consecutive rounds? (genuine saturation)\n"
-        "   - OR did it plateau while one direction (forward OR backward) stayed dry? "
+        "1. WALK COVERAGE — is the citation neighborhood genuinely covered, or premature?\n"
+        "   Read the `_walk.md` hop table + `stop_reason:`. Check:\n"
+        "   - Did the walk reach `walk-complete:N-hops` cleanly (every hop ran to the "
+        "declared depth bound)? (genuinely complete — nothing to flag here)\n"
+        "   - OR did it stop at `neighborhood-exhausted` while one direction (forward OR "
+        "backward) stayed dry across the hops? "
         "(direction-starved — flag as `DIRECTION-STARVED` and issue `[BLOCK]`)\n"
         "   - OR did verified concept-edges (from `relate-<key>` notes) consistently "
         "outrun the cheap concept-tags? (tag-under-counting — issue `[BLOCK]`)\n"
-        "   A plateau reached with direction-starvation or tag-under-counting is PREMATURE.\n\n"
+        "   A `neighborhood-exhausted` terminal reached with direction-starvation or "
+        "tag-under-counting is PREMATURE.\n\n"
         "2. ORPHAN CONCEPTS/MOCS — soft flag (do not block, but list)\n"
         "   Do NOT hand-stem-match note filenames to corpus citekeys — run "
         "`rv review <project> coverage <scope>` for the deterministic orphan list "
@@ -849,40 +840,44 @@ def get_review_style_preamble(config: Any = None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Saturation backstop config seam
+# Relevance-hops config seam (0.3.1 — citation-neighbor relevance walk)
 # ---------------------------------------------------------------------------
 
-DEFAULT_SATURATION_BACKSTOP_WAVES: int = 2
+DEFAULT_RELEVANCE_HOPS: int = 1
 
-# Breadth x depth bounds (2026-07-09): lowered 3 -> 2, alongside
-# sources.snowball's own DEFAULT_BACKSTOP_WAVES (the SSOT for a caller
-# invoking run_snowball_to_saturation directly, e.g. tests). Kept the two
-# constants numerically in sync rather than only overriding one call site —
-# a broad-topic downstream-project validation walk ran unbounded for 1+ hour; combined with
-# the new seed_cap/frontier_cap/fetch_budget knobs (sources/snowball.py),
-# this is the closed set of breadth x depth bounds on the snowball walk.
+# Deprecated alias — one-release back-compat only (0.3.1).
+DEFAULT_SATURATION_BACKSTOP_WAVES: int = DEFAULT_RELEVANCE_HOPS
+
+# Breadth x depth bounds: this default is kept numerically in sync with
+# sources.snowball's own DEFAULT_RELEVANCE_HOPS (the SSOT for a caller
+# invoking run_citation_neighbor_walk directly, e.g. tests) rather than only
+# overriding one call site — combined with the seed_cap/frontier_cap/
+# fetch_budget knobs (sources/snowball.py), this is the closed set of
+# breadth x depth bounds on the walk.
 
 
-def get_saturation_backstop_waves(config: Any = None) -> int:
-    """Return the review-snowball TERMINATION BACKSTOP wave-count cap.
+def get_relevance_hops(config: Any = None) -> int:
+    """Return the review-snowball citation-neighbor relevance walk's DEPTH
+    BOUND (in relevance hops).
 
-    The primary saturation stop-rule (2-consecutive-zero rounds) is
-    principled but not guaranteed to converge — an exploding-intersection
-    review question (every wave finds more) can run it unboundedly.  This
-    backstop is HyperResearch's termination guarantee, additively grafted
-    onto rv's principled primary rule (rv keeps the primary rule as the
-    preferred stop; HR has no saturation notion at all and just caps at N
-    waves, "proceeding anyway, marking gaps thin" — rv's backstop mirrors
-    that cap but ALSO requires the honest residue declaration in
-    ``_coverage-gaps.md``, backstop-terminated).
+    Corpus = the vetted core (``review-screen`` output) plus its immediate
+    citation neighborhood. Recall is owned by the SEARCH (broad facet
+    queries); precision is owned by this depth bound + ``review-screen`` —
+    deep citation snowballing was a poor recall tool (drifts into adjacent
+    fields, which is noise, not coverage), so the default stays tight (1
+    hop). Deeper (2+) is a deliberate recall/precision tradeoff an adopter
+    can opt into per venue/RQ, never the shipped default.
 
     Args:
         config: a loaded Config instance (or None for the shipped default).
-                If the config has ``[review_style] saturation_backstop_waves = N``
-                (a positive int), that value overrides the default.
+                If the config has ``[review_style] relevance_hops = N``
+                (a positive int), that value overrides the default. The
+                legacy key ``saturation_backstop_waves`` is accepted as a
+                DEPRECATED alias for one release if ``relevance_hops`` is
+                absent.
 
     Returns:
-        The wave-count cap (int, >= 1).  Default 2.  A non-int, non-positive,
+        The hop-count cap (int, >= 1).  Default 1.  A non-int, non-positive,
         or missing override falls back to the default (never a crash, never a
         silently-accepted nonsensical cap like 0 or a negative number).
     """
@@ -890,10 +885,27 @@ def get_saturation_backstop_waves(config: Any = None) -> int:
         raw = getattr(config, "_raw", {})
         override = raw.get("review_style", {})
         if isinstance(override, dict):
-            value = override.get("saturation_backstop_waves")
+            value = override.get("relevance_hops")
             if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
                 return value
-    return DEFAULT_SATURATION_BACKSTOP_WAVES
+            legacy = override.get("saturation_backstop_waves")
+            if isinstance(legacy, int) and not isinstance(legacy, bool) and legacy >= 1:
+                import warnings
+
+                warnings.warn(
+                    "[review_style] saturation_backstop_waves is deprecated "
+                    "— use relevance_hops instead. Will be removed in a "
+                    "future release.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                return legacy
+    return DEFAULT_RELEVANCE_HOPS
+
+
+#: Deprecated alias for ``get_relevance_hops``. Will be removed in a future
+#: release.
+get_saturation_backstop_waves = get_relevance_hops
 
 
 # ---------------------------------------------------------------------------

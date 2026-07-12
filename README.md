@@ -143,11 +143,13 @@ into a submittable document (the user-facing deliverable pillar).
 
 ### Literature review (`rv review`)
 
-A pre-registered, saturation-gated review. The protocol must be approved before
-search fires (L-2 anti-fishing gate); a deterministic width-sweep (`review-search`)
-is screened by a thin agent judgment layer (`review-screen`) before the
-deterministic snowball walks forward (cited-by) and backward (references)
-(`review-snowball`). The raw corpus then passes a **relevance gate**: a
+A pre-registered review using a citation-neighbor relevance walk. The protocol must
+be approved before search fires (L-2 anti-fishing gate); a deterministic width-sweep
+(`review-search`) is screened by a thin agent judgment layer (`review-screen`) before
+the deterministic citation-neighbor walk fans forward (cited-by) and backward
+(references) (`review-snowball`), depth-bounded by `--relevance-hops` (default 1 —
+the vetted core plus its immediate citation neighborhood; recall is owned by the
+search, not deep snowballing). The raw corpus then passes a **relevance gate**: a
 mechanical off-domain pre-filter (`review-relevance-screen`) ahead of concept-tagging
 and curation (`review-curate`), then a **cold, canary-verified re-check**
 (`review-relevance-verify`) of every `[NEW]` paper before `coverage-gate` — below a

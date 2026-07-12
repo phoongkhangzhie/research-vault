@@ -375,35 +375,37 @@ def _evaluate_autonomous_gate(
     — the frozen-corpus stamp lives in ``run_state.meta``, which is why this
     function (unlike the pre-existing inline block) takes ``run_state``.
 
-    This extends the coverage-gate branch further: after
-    ``classify_coverage_gate_with_deviation_check`` resolves a base
-    disposition, ``review.remediation.resolve_coverage_gate`` may upgrade a
-    backstop GO-WITH-RESIDUE to REMEDIATE (budget + last-wave signal); a
-    REMEDIATE disposition is immediately driven to completion in-process by
-    ``review.remediation.run_bounded_remediation`` (one or more bounded
-    rounds, bounded by three independent termination limits) before this
-    function returns — the caller (``_recompute_awaiting_go``/
-    ``cmd_approve``) only ever sees a terminal (non-REMEDIATE) disposition.
+    ★ NOTE (0.3.1): the coverage-gate branch used to extend further here —
+    ``review.remediation.resolve_coverage_gate`` could upgrade a backstop
+    GO-WITH-RESIDUE to REMEDIATE and drive it to completion in-process via
+    ``review.remediation.run_bounded_remediation``. That machinery was
+    DELETED along with the saturation-gated snowball: the citation-neighbor
+    relevance walk is depth-bounded by design (``relevance_hops``), which
+    makes auto-re-expanding a "budget-terminated" corpus contradictory. This
+    function now only ever returns whatever ``classify_coverage_gate_with_
+    deviation_check`` resolves (GO / GO-WITH-RESIDUE / HALT-DECLARE), folded
+    with the relevance-verify residue below.
+
     A ``CorpusSchemaError`` (a malformed corpus row) raised
     anywhere in this path is caught here and surfaced as HALT-DECLARE —
     never an uncaught exception that would crash the runner, and never a
     silent stale-subset GO (the exact green-but-stale hole this fixes).
     """
     from ..review import autonomy as _autonomy
-    from ..review import check_saturation_backstop
+    from ..review import check_walk_terminal
     from ..review import CorpusSchemaError as _CorpusSchemaError
 
     if node_id == "coverage-gate":
         snowball_node = nodes_lookup.get("review-snowball")
-        saturation_ref = None
+        walk_ref = None
         if snowball_node is not None:
             produces = snowball_node.get("produces")
             if isinstance(produces, dict):
-                saturation_ref = produces.get("_saturation.md")
+                walk_ref = produces.get("_walk.md")
 
-        # review_dir: normally derived from the saturation producer's path
-        # (Path(saturation_ref).parent). When that producer is missing/
-        # malformed (saturation_ref is falsy) we can't derive it that way —
+        # review_dir: normally derived from the walk producer's path
+        # (Path(walk_ref).parent). When that producer is missing/
+        # malformed (walk_ref is falsy) we can't derive it that way —
         # but THIS node's own manifest_path is always
         # `<review_dir>/phase1-dag.json` (review._review_artifact_dir /
         # review.cmd_new write it there directly), so manifest_path.parent
@@ -411,7 +413,7 @@ def _evaluate_autonomous_gate(
         # still route through `_write_ledger_final_act` (fix-round CHANGE 1
         # — fixes acceptance (f): every HALT writes a ledger_complete:
         # false snapshot, never a silent bypass of the ledger).
-        review_dir = Path(saturation_ref).parent if saturation_ref else manifest_path.parent
+        review_dir = Path(walk_ref).parent if walk_ref else manifest_path.parent
         gaps_path = review_dir / "_coverage-gaps.md"
         corpus_path = review_dir / "_corpus.md"
         protocol_path = review_dir / "_protocol.md"
@@ -443,8 +445,14 @@ def _evaluate_autonomous_gate(
                     literature_dir=literature_dir_for_ledger,
                     literature_root=literature_root_for_ledger,
                     relevance_payload=relevance_payload_for_ledger,
+                    # 0.3.1: this coverage-gate node has no remediation
+                    # round-counter of its own anymore (deleted with the
+                    # saturation-gated snowball) — read the critic-backtrack
+                    # loop's OWN state key (approve-review's REVISE path,
+                    # an unrelated mechanism) rather than the now-dead
+                    # "remediation_state" key this used to (mis)read.
                     critic_backtrack_rounds=int(
-                        (run_state.meta.get("remediation_state") or {}).get("rounds_used", 0)
+                        (run_state.meta.get("critic_backtrack_state") or {}).get("rounds_used", 0)
                     ),
                     halt_reason=(
                         disposition.reason
@@ -464,17 +472,17 @@ def _evaluate_autonomous_gate(
                 )
             return disposition
 
-        if not saturation_ref:
+        if not walk_ref:
             return _write_ledger_final_act(
                 _autonomy.DispositionResult(
                     _autonomy.HALT_DECLARE,
-                    "coverage-gate --auto: no _saturation.md producer found upstream "
+                    "coverage-gate --auto: no _walk.md producer found upstream "
                     "(review-snowball node missing/malformed) — cannot self-certify.",
                 ),
                 None,
             )
 
-        info = check_saturation_backstop(Path(saturation_ref))
+        info = check_walk_terminal(Path(walk_ref))
 
         search_hits_node = nodes_lookup.get("review-search")
         search_hits_path = None
@@ -494,8 +502,8 @@ def _evaluate_autonomous_gate(
         # Optional-collaborator pattern (mirrors approve-manuscript's
         # board-result handling, above): a manifest that never wired
         # ``review-relevance-verify`` (a pre- manifest, or a minimal
-        # hand-built test manifest exercising the saturation disposition in
-        # isolation) is an honest no-op — proceed exactly as before this
+        # hand-built test manifest exercising the walk-terminal disposition
+        # in isolation) is an honest no-op — proceed exactly as before this
         # feature, never a forced HALT for a node that was never supposed
         # to be there. A manifest that DOES declare the node but never
         # produced its artifact IS a floor-gate failure (see
@@ -548,7 +556,7 @@ def _evaluate_autonomous_gate(
             # Source-coverage fail-closed (pre-publish hardening batch,
             # 2026-07-09 downstream e2e-run finding): a source declared in
             # the protocol's `sources:` list that went DARK this sweep must
-            # BLOCK certification, checked BEFORE the saturation-based
+            # BLOCK certification, checked BEFORE the walk-terminal-based
             # disposition (`classify_coverage_gate` short-circuits on it).
             source_coverage_info = (
                 check_source_coverage(Path(search_hits_path), protocol_path)
@@ -556,7 +564,12 @@ def _evaluate_autonomous_gate(
                 else {"exists": False, "dark_sources": [], "declared_dark": []}
             )
 
-            base = _autonomy.classify_coverage_gate_with_deviation_check(
+            # 0.3.1: classify_coverage_gate_with_deviation_check's own
+            # disposition IS the final structural disposition here — no
+            # REMEDIATE upgrade/bounded-loop step anymore (deleted with the
+            # saturation-gated snowball; see review/remediation.py's module
+            # docstring).
+            disposition = _autonomy.classify_coverage_gate_with_deviation_check(
                 run_state.meta,
                 info,
                 corpus_path=corpus_path,
@@ -564,21 +577,6 @@ def _evaluate_autonomous_gate(
                 coverage_gaps_path=gaps_path,
                 source_coverage_info=source_coverage_info,
             )
-            from ..review import remediation as _remediation
-
-            disposition = _remediation.resolve_coverage_gate(
-                base, info, remediation_state=run_state.meta.get("remediation_state"),
-            )
-            if disposition.disposition == _autonomy.REMEDIATE:
-                disposition = _remediation.run_bounded_remediation(
-                    run_state.meta,
-                    disposition,
-                    info,
-                    protocol_path=protocol_path,
-                    corpus_path=corpus_path,
-                    deviations_path=deviations_path,
-                    coverage_gaps_path=gaps_path,
-                )
 
             # Fold in the relevance-verify residue: most-severe-wins,
             # same pattern approve-framework/approve-manuscript already use
@@ -586,7 +584,7 @@ def _evaluate_autonomous_gate(
             # gate's disposition. By construction relevance_result here is
             # never HALT-DECLARE (that already returned above) — only GO or
             # GO-WITH-RESIDUE reach this point, so this can only ever ADD a
-            # residue annotation, never downgrade a saturation-based GO.
+            # residue annotation, never downgrade a walk-terminal-based GO.
             if relevance_result is not None:
                 _severity = {
                     _autonomy.HALT_DECLARE: 3, _autonomy.GO_WITH_RESIDUE: 2,
@@ -2379,34 +2377,36 @@ def cmd_approve(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
-    # Saturation backstop surfacing: the review loop's
-    # ``coverage-gate`` node (phase boundary) reads ``stop_reason:`` off
-    # the ``review-snowball`` node's ``_saturation.md`` and, when the corpus
-    # terminated via the wave-count backstop (bounded, NOT the primary
-    # 2-consecutive-zero saturation rule), LOUDLY flags it to the approving
-    # human — a backstop-terminated corpus must never look identical to a
-    # genuinely-saturated one at this gate. Non-blocking (mirrors the
-    # approve-manuscript SIGNAL pattern above): the backstop is a deliberate,
-    # additive escape hatch, not a failure — approval still proceeds, but the
-    # human authorizes it informed. --reject bypasses entirely (an abandoned
-    # gate has nothing to surface).
+    # Walk-terminal surfacing (0.3.1): the review loop's ``coverage-gate``
+    # node (phase boundary) reads ``stop_reason:`` off the ``review-snowball``
+    # node's ``_walk.md`` and, when the corpus terminated via the total-fetch
+    # BUDGET (bounded, before the walk reached its declared depth/
+    # neighborhood bound), LOUDLY flags it to the approving human — a
+    # budget-terminated corpus must never look identical to a clean
+    # ``walk-complete``/``neighborhood-exhausted`` terminal at this gate.
+    # Non-blocking (mirrors the approve-manuscript SIGNAL pattern above):
+    # the budget-terminal is a bounded, honest escape hatch, not a failure —
+    # approval still proceeds, but the human authorizes it informed.
+    # ``walk-complete:N-hops``/``neighborhood-exhausted`` are silent (the
+    # normal, expected terminals — nothing to surface). --reject bypasses
+    # entirely (an abandoned gate has nothing to surface).
     if node_id == "coverage-gate" and not reject:
         snowball_node = nodes_lookup.get("review-snowball")
-        saturation_ref = None
+        walk_ref = None
         if snowball_node is not None:
             produces = snowball_node.get("produces")
             if isinstance(produces, dict):
-                saturation_ref = produces.get("_saturation.md")
-        if saturation_ref:
-            from ..review import check_saturation_backstop, check_source_coverage
+                walk_ref = produces.get("_walk.md")
+        if walk_ref:
+            from ..review import check_walk_terminal, check_source_coverage
 
             # Source-coverage fail-closed (pre-publish hardening batch,
             # 2026-07-09 downstream e2e-run finding): checked FIRST and
-            # BLOCKS (unlike the backstop SIGNAL below) — a source declared
-            # in the protocol's `sources:` list that went DARK this sweep
-            # must never be certified saturated, whether resolved via
-            # --auto or a manual `rv dag approve`.
-            review_dir_manual = Path(saturation_ref).parent
+            # BLOCKS (unlike the budget-terminal SIGNAL below) — a source
+            # declared in the protocol's `sources:` list that went DARK this
+            # sweep must never be certified, whether resolved via --auto or
+            # a manual `rv dag approve`.
+            review_dir_manual = Path(walk_ref).parent
             search_hits_node_manual = nodes_lookup.get("review-search")
             search_hits_ref_manual = None
             if search_hits_node_manual is not None:
@@ -2417,8 +2417,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
                 # --auto is handled by classify_coverage_gate's own
                 # source_coverage_info short-circuit (wired below via
                 # `_evaluate_autonomous_gate`) — never duplicate the BLOCK
-                # here, or a manual `return 1` would bypass the disposition/
-                # remediation machinery the auto path is supposed to run.
+                # here, or a manual `return 1` would bypass the disposition
+                # the auto path is supposed to resolve.
                 source_info = check_source_coverage(
                     Path(search_hits_ref_manual), review_dir_manual / "_protocol.md",
                 )
@@ -2429,56 +2429,58 @@ def cmd_approve(args: argparse.Namespace) -> int:
                         f"this sweep — {', '.join(source_info['declared_dark'])} "
                         "— every cell for each errored or returned zero hits "
                         "across ALL angles. The corpus cannot be certified "
-                        "saturated while a declared source was never actually "
+                        "while a declared source was never actually "
                         "reached; re-run the sweep once the source is "
                         "reachable before re-evaluating this gate.",
                         file=sys.stderr,
                     )
                     return 1
 
-            info = check_saturation_backstop(Path(saturation_ref))
-            if info["exists"] and info["is_backstop"]:
-                gaps_path = Path(saturation_ref).parent / "_coverage-gaps.md"
+            info = check_walk_terminal(Path(walk_ref))
+            if info["exists"] and info["stop_reason"].lower().startswith("budget:"):
+                gaps_path = Path(walk_ref).parent / "_coverage-gaps.md"
                 print(
-                    "rv dag approve: coverage-gate SIGNAL: ⚠ backstop-terminated, "
-                    "NOT saturated — the review-snowball loop hit the wave cap "
-                    f"({info['stop_reason']}) before the primary 2-consecutive-zero "
-                    "saturation rule converged. You are authorizing a BOUNDED "
-                    f"corpus, not a complete one. See {gaps_path} for the declared "
-                    "open frontier.",
+                    "rv dag approve: coverage-gate SIGNAL: ⚠ budget-terminated — "
+                    "the review-snowball walk hit the total-fetch ceiling "
+                    f"({info['stop_reason']}) before reaching its declared "
+                    "depth/neighborhood bound. You are authorizing a BOUNDED "
+                    f"corpus, not a depth-complete one. See {gaps_path} for the "
+                    "declared open frontier.",
                     file=sys.stderr,
                 )
                 if not gaps_path.exists():
                     print(
                         "rv dag approve: coverage-gate SIGNAL: the residue note is "
-                        f"REQUIRED on backstop-termination but was not found at "
+                        f"REQUIRED on budget-termination but was not found at "
                         f"{gaps_path} — the open frontier was never declared "
-                        "(see review_curate_tips's saturation-backstop guidance).",
+                        "(see review_curate_tips's walk-budget guidance).",
                         file=sys.stderr,
                     )
-            elif info["exists"] and info["stop_reason"].strip().lower() != "saturated":
-                # WHITELIST, not a blacklist (independent reviewer's PR delta):
-                # ``stop_reason`` is agent-stamped free prose — a blacklist that
-                # only recognizes the literal ``backstop:`` prefix fails OPEN on
-                # every other spelling (``backstop-3-waves``, ``backstop after
-                # 3 waves``, bare ``backstop``, garbage, ...) — those would sail
-                # through SILENTLY and look identical to a genuine saturated
-                # corpus at the gate, defeating the whole point of the backstop
-                # surfacing. The only value that may stay silent is the exact
-                # canonical ``saturated`` string; anything else — empty,
-                # malformed backstop variants, or unrecognized text — trips this
-                # catch-all SIGNAL (the ``is_backstop`` branch above already
-                # gave the sharper backstop-specific message when it recognizes
-                # the canonical ``backstop:N-waves`` form; this is the residual
-                # net for everything it doesn't).
+            elif info["exists"] and not (
+                info["stop_reason"].lower().startswith("walk-complete:")
+                or info["stop_reason"] == "neighborhood-exhausted"
+            ):
+                # WHITELIST, not a blacklist: ``stop_reason`` is agent/tool-
+                # stamped free-ish text — a blacklist that only recognizes
+                # known-bad prefixes fails OPEN on every other spelling
+                # (a dash instead of a colon, free prose, garbage, or a
+                # legacy ``saturated``/``backstop:N-waves`` string from a
+                # pre-0.3.1 ``_saturation.md``). Those would sail through
+                # SILENTLY and look identical to a genuine clean terminal at
+                # the gate, defeating the whole point of this surfacing. Only
+                # the two whitelisted clean terminals
+                # (``walk-complete:N-hops``/``neighborhood-exhausted``) stay
+                # silent; ``budget:N-calls`` already got its sharper message
+                # above; everything else — including empty — trips this
+                # catch-all SIGNAL.
                 print(
-                    "rv dag approve: coverage-gate SIGNAL: _saturation.md's "
-                    f"stop_reason is {info['stop_reason']!r}, not the exact "
-                    "string 'saturated' — cannot confirm whether the corpus is "
-                    "genuinely saturated or backstop-terminated under a "
-                    "non-canonical spelling. Verify _coverage-gaps.md and the "
-                    "saturation curve by hand before treating this corpus as "
-                    "genuinely saturated.",
+                    "rv dag approve: coverage-gate SIGNAL: _walk.md's "
+                    f"stop_reason is {info['stop_reason']!r}, not a recognized "
+                    "citation-neighbor walk terminal ('walk-complete:N-hops' / "
+                    "'neighborhood-exhausted' / 'budget:N-calls') — cannot "
+                    "confirm this corpus's completeness under a non-canonical "
+                    "spelling. Verify _coverage-gaps.md and the walk report by "
+                    "hand before treating this corpus as complete.",
                     file=sys.stderr,
                 )
 

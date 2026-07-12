@@ -22,7 +22,7 @@ reuse-over-create) for TWO things that were previously a human keypress at
      HALT-DECLARE, by FAILURE CLASS. Adapters (``evaluation_from_*``) turn the
      existing gate payload shapes (``check_gates.build_approve_payload``,
      ``review_board.run_review_board``, ``check_framework_gate``,
-     ``check_saturation_backstop``) into the normalized ``GateEvaluation``
+     ``check_walk_terminal``) into the normalized ``GateEvaluation``
      input, so no existing gate is reimplemented — only consumed.
 
   2. **The deviation log** (D2) — ``record_deviation`` writes the
@@ -73,14 +73,14 @@ GO = "GO"
 GO_WITH_RESIDUE = "GO-WITH-RESIDUE"
 REVISE = "REVISE"
 HALT_DECLARE = "HALT-DECLARE"
-# A coverage-gate-only disposition — backstop-terminated (open
-# frontier) + remediation budget remaining + the last wave found something
-# new. Never returned by `classify_coverage_gate`/`classify_disposition`
-# (the general gate-policy engine); only by
-# `review.remediation.resolve_coverage_gate`, which extends the coverage-gate
-# disposition specifically. `dag/verbs.py` is the sole consumer that acts on
-# it (dispatches one bounded remediation round, `review.remediation`).
-REMEDIATE = "REMEDIATE"
+# NOTE (0.3.1): the coverage-gate-only REMEDIATE disposition (backstop-
+# terminated + remediation budget remaining + the last wave found something
+# new) was REMOVED along with the saturation-gated snowball and its
+# `review.remediation.resolve_coverage_gate`/`run_bounded_remediation`/
+# `run_remediation_round` — depth-bounding the citation-neighbor relevance
+# walk makes auto-re-expansion contradictory. CRITIC_BACKTRACK below is
+# UNRELATED to this deletion (a separate mechanism — the counter-position/
+# thin-pole critic backtrack — untouched by the walk redesign) and remains.
 # An approve-review-only disposition (D-5a) — a PURE counter-position/
 # thin-pole critic BLOCK (``remediation_target_expected`` on the
 # ``check_coverage_critic_verdict`` payload), a valid ``remediation_target``
@@ -96,7 +96,7 @@ REMEDIATE = "REMEDIATE"
 CRITIC_BACKTRACK = "CRITIC-BACKTRACK"
 
 _VALID_DISPOSITIONS: frozenset[str] = frozenset(
-    {GO, GO_WITH_RESIDUE, REVISE, HALT_DECLARE, REMEDIATE, CRITIC_BACKTRACK}
+    {GO, GO_WITH_RESIDUE, REVISE, HALT_DECLARE, CRITIC_BACKTRACK}
 )
 
 
@@ -292,28 +292,42 @@ def evaluation_from_framework_critic(payload: dict[str, Any]) -> GateEvaluation:
 
 
 def classify_coverage_gate(
-    saturation_info: dict[str, Any],
+    walk_info: dict[str, Any],
     *,
     coverage_gaps_path: Path | None = None,
     source_coverage_info: dict[str, Any] | None = None,
 ) -> DispositionResult:
-    """the coverage-gate disposition, keyed to the EXACT shipped
-    0.2.4+ ``_saturation.md`` ``stop_reason:`` contract
-    (``review.check_saturation_backstop``'s return shape).
+    """the coverage-gate disposition, keyed to the 0.3.1 citation-neighbor
+    relevance walk's ``_walk.md`` ``stop_reason:`` contract
+    (``review.check_walk_terminal``'s return shape).
+
+    Adequacy is owned by relevance-verify + source-coverage, NOT this walk
+    terminal — the walk terminal only fails closed on a missing/truncated/
+    garbled record. A ``walk-complete``/``neighborhood-exhausted`` corpus is
+    NOT itself a certification of relevance; ``_evaluate_autonomous_gate``
+    folds in ``review-relevance-verify``'s disposition (most-severe-wins)
+    on top of whatever this function returns.
 
     - a DECLARED protocol source is DARK this sweep (``source_coverage_info
       ["declared_dark"]`` non-empty, ``review.check_source_coverage``)
-      -> HALT-DECLARE, fail-closed, BEFORE the saturation logic below runs
-      at all — a corpus can never be certified saturated while a source
-      named in the protocol's ``sources:`` was never actually reached
-      (pre-publish hardening batch, 2026-07-09 downstream e2e-run finding:
-      a dark source looked identical to a healthy sweep at this gate).
-    - ``stop_reason == "saturated"``               -> GO.
-    - ``stop_reason == "backstop:N-waves"``         -> GO-WITH-RESIDUE, IFF
+      -> HALT-DECLARE, fail-closed, BEFORE the walk-terminal logic below runs
+      at all — a corpus can never be certified while a source named in the
+      protocol's ``sources:`` was never actually reached (pre-publish
+      hardening batch, 2026-07-09 downstream e2e-run finding: a dark source
+      looked identical to a healthy sweep at this gate).
+    - ``stop_reason == "walk-complete:N-hops"``     -> GO. The normal,
+      expected terminal at the default depth-bounded design — NO residue
+      note demanded (0.3.1: depth-bounding makes "declare the open frontier"
+      contradictory; the bound IS the design, not a shortfall).
+    - ``stop_reason == "neighborhood-exhausted"``   -> GO. A hop added zero
+      new before depth was reached — also a clean terminal, no residue.
+    - ``stop_reason == "budget:N-calls"``           -> GO-WITH-RESIDUE, IFF
       the required ``_coverage-gaps.md`` residue note exists; its absence is
-      itself a HALT-DECLARE (the open frontier was never declared).
+      itself a HALT-DECLARE (the one surviving residue case — the total-
+      fetch ceiling fired before the walk reached its declared depth/
+      neighborhood bound, and that must be declared, not hidden).
     - absent / malformed / anything else            -> HALT-DECLARE,
-      fail-closed (never treat an unparseable stop-reason as saturated —
+      fail-closed (never treat an unparseable stop-reason as complete —
       charter §2 whitelist-not-blacklist).
     """
     if source_coverage_info is not None and source_coverage_info.get("declared_dark"):
@@ -323,61 +337,76 @@ def classify_coverage_gate(
             "coverage-gate: source(s) declared in the protocol's `sources:` "
             f"list were DARK this sweep — {', '.join(declared_dark)} — every "
             "cell for each errored or returned zero hits across ALL angles. "
-            "The corpus cannot be certified saturated while a declared "
-            "source was never actually reached; re-run the sweep once the "
-            "source is reachable before re-evaluating this gate.",
+            "The corpus cannot be certified while a declared source was "
+            "never actually reached; re-run the sweep once the source is "
+            "reachable before re-evaluating this gate.",
             {"declared_dark_sources": declared_dark},
         )
 
-    if not saturation_info.get("exists", False):
+    if not walk_info.get("exists", False):
         return DispositionResult(
             HALT_DECLARE,
-            "no _saturation.md found — the saturation record is missing, "
-            "cannot self-certify coverage-gate.",
+            "no _walk.md found — the citation-neighbor walk record is "
+            "missing, cannot self-certify coverage-gate.",
             {"stop_reason": ""},
         )
 
-    stop_reason = str(saturation_info.get("stop_reason", "")).strip()
+    stop_reason = str(walk_info.get("stop_reason", "")).strip()
 
-    if stop_reason == "saturated":
+    if stop_reason.lower().startswith("walk-complete:"):
         return DispositionResult(
             GO,
-            "stop_reason == 'saturated' (2-consecutive-zero rule fired).",
+            f"stop_reason == {stop_reason!r} — the citation-neighbor walk "
+            "ran every relevance hop cleanly to depth. No residue note "
+            "demanded (depth-bounding is the design, not a shortfall).",
             {"stop_reason": stop_reason},
         )
 
-    if saturation_info.get("is_backstop"):
+    if stop_reason == "neighborhood-exhausted":
+        return DispositionResult(
+            GO,
+            "stop_reason == 'neighborhood-exhausted' (2-consecutive-hop "
+            "zero-new rule fired before depth was reached) — a clean "
+            "terminal, no residue note demanded.",
+            {"stop_reason": stop_reason},
+        )
+
+    if stop_reason.lower().startswith("budget:"):
         if coverage_gaps_path is not None and not coverage_gaps_path.exists():
             return DispositionResult(
                 HALT_DECLARE,
-                "backstop-terminated but the REQUIRED _coverage-gaps.md "
+                "budget-terminated but the REQUIRED _coverage-gaps.md "
                 f"residue note is missing at {coverage_gaps_path} — the "
                 "open frontier was never declared.",
                 {"stop_reason": stop_reason},
             )
         return DispositionResult(
             GO_WITH_RESIDUE,
-            f"stop_reason == {stop_reason!r} (backstop-terminated, NOT "
-            "saturated) — declared non-convergence residue; the whitelist-"
-            "SIGNAL trips loudly but does not block.",
+            f"stop_reason == {stop_reason!r} (total-fetch budget fired "
+            "before the walk reached its declared depth/neighborhood "
+            "bound) — declared, bounded residue; the whitelist-SIGNAL "
+            "trips loudly but does not block.",
             {"stop_reason": stop_reason},
         )
 
-    # Neither the exact "saturated" string nor a recognized "backstop:N-waves"
-    # form — a non-canonical spelling, free prose, or garbage. Fail-closed:
-    # this must NEVER be silently treated as saturated (charter §2).
+    # Neither a recognized "walk-complete:N-hops"/"neighborhood-exhausted"/
+    # "budget:N-calls" form — a non-canonical spelling, free prose, or
+    # garbage (including the legacy "saturated"/"backstop:N-waves" strings a
+    # pre-0.3.1 _saturation.md might still carry). Fail-closed: this must
+    # NEVER be silently treated as complete (charter §2).
     return DispositionResult(
         HALT_DECLARE,
-        f"stop_reason {stop_reason!r} is neither the exact string "
-        "'saturated' nor a recognized 'backstop:N-waves' form — the "
-        "saturation record is untrustworthy/malformed, fail-closed.",
+        f"stop_reason {stop_reason!r} is not a recognized citation-neighbor "
+        "walk terminal ('walk-complete:N-hops' / 'neighborhood-exhausted' / "
+        "'budget:N-calls') — the walk record is untrustworthy/malformed, "
+        "fail-closed.",
         {"stop_reason": stop_reason},
     )
 
 
 def classify_coverage_gate_with_deviation_check(
     run_state_meta: dict[str, Any],
-    saturation_info: dict[str, Any],
+    walk_info: dict[str, Any],
     *,
     corpus_path: Path,
     deviations_path: Path,
@@ -386,7 +415,7 @@ def classify_coverage_gate_with_deviation_check(
 ) -> DispositionResult:
     """The LIVE coverage-deviation BLOCK — wires
     ``check_undeclared_deviation`` (D2) into the coverage-gate --auto
-    path, in front of (not behind) the saturation disposition.
+    path, in front of (not behind) the walk-terminal disposition.
 
     The frozen corpus citekey-set is stamped into ``run_state_meta`` (a
     mutable dict — the caller passes ``run_state.meta`` directly and is
@@ -399,7 +428,7 @@ def classify_coverage_gate_with_deviation_check(
     "fixed" by an autonomous revise round, per the transparency-not-
     permission contract). A fully declared delta (recorded via
     ``record_deviation`` into ``deviations_path``) passes through to the
-    normal ``classify_coverage_gate`` saturation-based disposition.
+    normal ``classify_coverage_gate`` walk-terminal-based disposition.
 
     ★ Engineering note (grounded against the actual Phase-1 DAG
     shape — review-scope -> approve-protocol -> review-search ->
@@ -430,7 +459,7 @@ def classify_coverage_gate_with_deviation_check(
             )
 
     return classify_coverage_gate(
-        saturation_info,
+        walk_info,
         coverage_gaps_path=coverage_gaps_path,
         source_coverage_info=source_coverage_info,
     )
@@ -743,7 +772,8 @@ def _op_snowball(
     seed: str | None = None,
     seed_ids: list[str] | None = None,
     out_dir: str,
-    backstop_waves: int = 2,
+    relevance_hops: int = 1,
+    backstop_waves: int | None = None,
     seed_cap: int | None = None,
     frontier_cap: int | None = None,
     fetch_budget: int | None = None,
@@ -751,11 +781,11 @@ def _op_snowball(
     config: Any = None,
     **_: Any,
 ) -> Any:
-    """The ``snowball`` tool op: run the both-
-    direction, multi-round saturation walk AND write ``_corpus_raw.md`` +
-    ``_saturation.md`` — replaces the removed single-paper, single-direction
-    ``snowball-forward``/``snowball-backward`` ops (D4 predecessor, which
-    never looped, never wrote an artifact, and had no stopping rule).
+    """The ``snowball`` tool op: run the citation-neighbor relevance walk
+    AND write ``_corpus_raw.md`` + ``_walk.md`` — replaces the removed
+    single-paper, single-direction ``snowball-forward``/``snowball-backward``
+    ops (D4 predecessor, which never looped, never wrote an artifact, and
+    had no stopping rule).
 
     ``seed`` is the path to the review-screen agent's ``_screen.md`` —
     parsed here (via ``_extract_seed_ids_from_screen``) for its accepted
@@ -771,18 +801,24 @@ def _op_snowball(
     one of ``seed``/``seed_ids`` must be given (fail loud, never silently
     resolve an empty frontier from the wrong source).
 
+    ``relevance_hops`` (0.3.1, default 1): the depth bound on the
+    citation-neighbor walk. ``backstop_waves`` is a DEPRECATED alias
+    (one-release back-compat) — thin call-through to
+    ``run_citation_neighbor_walk``'s own alias handling, never resolved
+    here.
+
     ``seed_cap``/``frontier_cap``/``fetch_budget``: breadth x depth bounds
     (2026-07-09 — a broad-topic downstream-project validation walk ran unbounded for 1+
     hour). ``None`` (the manifest's default) lets
-    ``run_snowball_to_saturation`` apply its own shipped defaults
+    ``run_citation_neighbor_walk`` apply its own shipped defaults
     (``DEFAULT_SEED_CAP``/``DEFAULT_FRONTIER_CAP``/``DEFAULT_FETCH_BUDGET``
     — 25/25/200); passed through explicitly only when the DAG manifest
     overrides them.
     """
     from research_vault.sources.snowball import (
-        run_snowball_to_saturation,
+        run_citation_neighbor_walk,
         write_corpus_raw,
-        write_saturation,
+        write_walk_report,
     )
 
     if (seed is None) == (seed_ids is None):
@@ -800,10 +836,10 @@ def _op_snowball(
             resolved_seed_ids = _extract_seed_ids_from_screen(seed_path.read_text(encoding="utf-8"))
     seed_ids = resolved_seed_ids
 
-    # Resumable / log-as-you-go (2026-07-09): a long snowball walk that gets
-    # dropped mid-flight resumes from its last completed round instead of
-    # restarting from scratch — the checkpoint lives alongside the other
-    # review-dir artifacts and is removed automatically on clean completion.
+    # Resumable / log-as-you-go (2026-07-09): a long walk that gets dropped
+    # mid-flight resumes from its last completed hop instead of restarting
+    # from scratch — the checkpoint lives alongside the other review-dir
+    # artifacts and is removed automatically on clean completion.
     out_dir_path = Path(out_dir)
     checkpoint_path = out_dir_path / "_snowball_checkpoint.json"
 
@@ -815,9 +851,9 @@ def _op_snowball(
     if fetch_budget is not None:
         cap_kwargs["fetch_budget"] = fetch_budget
 
-    result = run_snowball_to_saturation(
-        seed_ids, backstop_waves=backstop_waves, checkpoint_path=checkpoint_path,
-        **cap_kwargs,
+    result = run_citation_neighbor_walk(
+        seed_ids, relevance_hops=relevance_hops, backstop_waves=backstop_waves,
+        checkpoint_path=checkpoint_path, **cap_kwargs,
     )
 
     notes_index = None
@@ -835,10 +871,10 @@ def _op_snowball(
         result, out_dir_path / "_corpus_raw.md",
         notes_index=notes_index, notes_title_index=notes_title_index,
     )
-    saturation_path = write_saturation(result, out_dir_path / "_saturation.md")
+    walk_path = write_walk_report(result, out_dir_path / "_walk.md")
     return {
         "corpus_raw": str(corpus_raw_path),
-        "saturation": str(saturation_path),
+        "walk": str(walk_path),
         "stop_reason": result.stop_reason,
     }
 
