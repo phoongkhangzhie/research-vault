@@ -1185,6 +1185,32 @@ def _evaluate_autonomous_gate(
                     {"untagged_citekeys": tagging_info["untagged_citekeys"]},
                 )
 
+        # Producer-strict link resolution: a curation gate (approve-review
+        # certifies a corpus into Phase-2's manuscript emission) never
+        # authorizes an unresolved cross-bundle backbone or intra-bundle
+        # edge link — the same finding a plain ``rv note check`` only
+        # WARNs on (day-to-day authoring tolerance) is a hard refusal here
+        # (``review.check_link_resolution``'s "one resolution pass, two
+        # postures"). Checked unconditionally, same gating as the
+        # corpus-tagging invariant above.
+        if disposition.disposition != _autonomy.HALT_DECLARE:
+            from ..review import check_link_resolution as _check_link_resolution
+
+            link_result = _check_link_resolution(
+                project_notes_dir=review_dir.parent.parent
+            )
+            if not link_result["ok"]:
+                disposition = _autonomy.DispositionResult(
+                    _autonomy.HALT_DECLARE,
+                    "approve-review: unresolved link(s) — the cross-bundle "
+                    "backbone or an intra-bundle edge in this corpus does "
+                    "not resolve against the resolvable bundle set: "
+                    f"{link_result['errors']!r}. Phase-2 cannot be "
+                    "authorized while a producer-strict link is unresolved "
+                    "— fix the link or remove the edge before re-evaluating.",
+                    {"unresolved_links": link_result["errors"]},
+                )
+
         return disposition
 
     raise ValueError(f"_evaluate_autonomous_gate: {node_id!r} is not an autonomous gate id")

@@ -917,6 +917,17 @@ def build_approve_payload(
         heading_result = check_heading_order(hygiene_draft_text, READING_ORDER)
         signals.extend(f"[heading-order] {w}" for w in heading_result["warnings"])
 
+    # ── 8. Producer-strict link resolution — deterministic, ALWAYS runs,
+    #      hard BLOCK. A manuscript is a publish-time curation artifact
+    #      (mirrors the review-approval gate's SAME posture): the
+    #      cross-bundle backbone + intra-bundle edges in the project's
+    #      literature corpus must resolve against the resolvable bundle
+    #      set, same finding a plain ``rv note check`` only WARNs on. ──
+    from research_vault.review import check_link_resolution as _check_link_resolution
+
+    link_result = _check_link_resolution(project_notes_dir=project_notes_dir)
+    blocking.extend(f"[link-lint] {e}" for e in link_result["errors"])
+
     return {
         "ok": not blocking,
         "blocking": blocking,

@@ -46,6 +46,7 @@ from research_vault.note import (
     _extract_central_slug,
     _parse_frontmatter,
     _render_frontmatter,
+    literature_core_path,
     scaffold_okf_dirs,
 )
 from research_vault.review.style import (
@@ -1079,6 +1080,159 @@ def coverage_report(
             "mention_only": 0,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Producer-strict link resolution: the curation-time gate
+# ---------------------------------------------------------------------------
+#
+# The Open Knowledge Format's own consumer-tolerance rule ("readers MUST
+# tolerate a broken link") is honored throughout rv's readers (never raise
+# on a dangling link — see ``note.load_literature_note``'s
+# ``core_resolved=False`` partial and this module's own ``relations_report``
+# ``dangling`` signal list). But tolerance at read-time does not mean the
+# system should never refuse a broken link — it means the REFUSAL belongs
+# at the point of curation, not at every read. This is that refusal.
+#
+# ``check_link_resolution`` resolves every intra-bundle link a literature
+# overlay's content carries — the cross-bundle backbone (``central:``), the
+# paper→paper edges in the resolved central core's '## Related papers', and
+# the paper→concept edges in the overlay's own '## Concept edges' — against
+# the resolvable bundle set (the central-literature store + this project's
+# own concepts directory). Unresolved targets are returned as ``errors``,
+# never raised. Whether an empty vs. non-empty ``errors`` list BLOCKS is the
+# caller's decision: during day-to-day authoring an unresolved forward
+# reference is tolerated (not-yet-written knowledge), but a curation gate
+# (reviewing a corpus for publication, or an explicit strict check) treats
+# the same finding as a hard refusal. One resolution pass, two postures.
+
+
+def check_link_resolution(
+    project: str | None = None,
+    *,
+    project_notes_dir: Path | None = None,
+    config: Config | None = None,
+) -> dict[str, Any]:
+    """Resolve every intra-bundle link + cross-bundle backbone a project's
+    literature notes carry, against the resolvable bundle set.
+
+    Accepts EITHER a project slug (resolved via ``cfg.project_notes_dir``)
+    OR an already-resolved ``project_notes_dir`` directly — mirroring the
+    convention already used at the manuscript-loop's other gate call sites
+    (``tree_root.parent.parent``). Exactly one of the two must be given.
+
+    Checks, per literature overlay under ``project_notes_dir/literature/``:
+      1. the ``central:`` cross-bundle backbone link resolves to an
+         existing central-core note (``cfg.literature_root/<slug>.md``);
+      2. every paper→paper edge in the resolved core's '## Related papers'
+         section (``relate_check.parse_paper_relations``) targets a citekey
+         that exists as a central-core note;
+      3. every paper→concept edge in the overlay's own '## Concept edges'
+         section (``relate_check.parse_concept_edges``) targets a slug that
+         exists under ``project_notes_dir/concepts/``.
+
+    An overlay whose ``central:`` link does not resolve is skipped for (2)
+    (no core body to read edges from) but still recorded as an error for
+    (1) — the two are surfaced as distinct findings, never conflated. An
+    overlay with NO ``central:`` field at all (entirely absent, not merely
+    unresolvable) is a correct no-op here — that is a required-field
+    completeness concern (``note.cmd_check``'s own per-note check) or the
+    documented flat, pre-two-layer "monolithic fixture" degrade path, never
+    a fabricated resolution error.
+
+    Never raises: every unresolved target becomes one string in ``errors``.
+    Malformed edge lines (the ``## Related papers``/``## Concept edges``
+    grammar failing to parse) are a SEPARATE surfaced concern
+    (``relations_report``'s ``malformed`` list) — out of scope here, which
+    is resolution-only.
+
+    Returns:
+        ``{"ok": bool, "errors": [...]}`` — ``ok`` is False iff ``errors``
+        is non-empty. Callers decide whether a non-empty ``errors`` list
+        BLOCKs (curation-time) or degrades to a SIGNAL (day-to-day
+        authoring) — this function only resolves, it never classifies
+        severity.
+    """
+    from .relate_check import parse_concept_edges, parse_paper_relations
+
+    if project_notes_dir is None:
+        if project is None:
+            raise ValueError(
+                "check_link_resolution requires either 'project' or "
+                "'project_notes_dir'."
+            )
+        cfg = config or load_config()
+        project_notes_dir = cfg.project_notes_dir(project)
+    else:
+        cfg = config or load_config()
+    literature_dir = project_notes_dir / "literature"
+    concepts_dir = project_notes_dir / "concepts"
+
+    errors: list[str] = []
+    if not literature_dir.exists():
+        return {"ok": True, "errors": errors}
+
+    for overlay_path in sorted(literature_dir.glob("*.md")):
+        if overlay_path.name in OKF_RESERVED_FILENAMES:
+            continue
+        try:
+            overlay_text = overlay_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        overlay_fields, overlay_body = _parse_frontmatter(overlay_text)
+
+        central_raw = str(overlay_fields.get("central") or "").strip()
+        central_slug = _extract_central_slug(central_raw)
+        core_body = ""
+        if not central_slug:
+            # An ENTIRELY ABSENT 'central:' field is a completeness
+            # concern (a required-field check — see note.cmd_check's own
+            # per-note "missing 'central:' pointer" violation), not a
+            # resolution concern: there is no link here to resolve. This
+            # is also the documented "monolithic fixture" degrade path
+            # (a flat, pre-two-layer literature note) — a correct no-op,
+            # never a fabricated resolution error.
+            pass
+        else:
+            core_path = literature_core_path(cfg, central_slug)
+            if not core_path.exists():
+                errors.append(
+                    f"{overlay_path}: dangling cross-bundle backbone link "
+                    f"'central: {central_raw}' — no central core exists at "
+                    f"{core_path}."
+                )
+            else:
+                try:
+                    _core_fields, core_body = _parse_frontmatter(
+                        core_path.read_text(encoding="utf-8")
+                    )
+                except OSError:
+                    core_body = ""
+
+        # Paper->paper edges live in the resolved core body (two-layer
+        # store); an unresolved backbone means there is no core body to
+        # read edges from, so this is a correct no-op for this overlay.
+        if core_body:
+            for edge in parse_paper_relations(core_body).edges:
+                target_path = literature_core_path(cfg, edge["target"])
+                if not target_path.exists():
+                    errors.append(
+                        f"{core_path}: unresolved intra-bundle link in "
+                        f"'## Related papers' — target /literature/"
+                        f"{edge['target']}.md does not exist."
+                    )
+
+        # Paper->concept edges live in the overlay's own body.
+        for edge in parse_concept_edges(overlay_body).edges:
+            target_path = concepts_dir / f"{edge['target']}.md"
+            if not target_path.exists():
+                errors.append(
+                    f"{overlay_path}: unresolved intra-bundle link in "
+                    f"'## Concept edges' — target /concepts/"
+                    f"{edge['target']}.md does not exist."
+                )
+
+    return {"ok": not errors, "errors": errors}
 
 
 # ---------------------------------------------------------------------------
