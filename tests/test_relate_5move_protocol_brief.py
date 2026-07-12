@@ -41,9 +41,9 @@ class TestFiveMoveProtocolBrief:
         for word in ("reciprocal", "refutational", "line-of-argument"):
             assert word in tip
 
-    def test_move4_bracket_edge_vocabulary_present(self):
+    def test_move4_prose_token_edge_vocabulary_present(self):
         tip = get_review_tips()["per_paper_relate_tips"]
-        for tag in ("[SUPPORTS", "[CONTRADICTS", "[PARTIAL", "[EXTENDS"):
+        for tag in ("SUPPORTS", "CONTRADICTS", "PARTIAL", "EXTENDS"):
             assert tag in tip
 
     def test_move4_over_rigidity_guard_stated(self):
@@ -63,7 +63,7 @@ class TestFiveMoveProtocolBrief:
         strength."""
         tip = get_review_tips()["per_paper_relate_tips"]
         assert "read_basis" in tip
-        assert "[PARTIAL]" in tip
+        assert "PARTIAL" in tip
         assert "abstract-only" in tip.lower()
 
     def test_move4_names_how_the_edges_are_traversed_downstream(self):
@@ -90,7 +90,7 @@ class TestFiveMoveProtocolBrief:
     def test_move5_unchanged_concept_edges_still_present(self):
         tip = get_review_tips()["per_paper_relate_tips"]
         assert "/concepts/<slug>.md" in tip
-        assert "[SUPPORTS] [" in tip
+        assert "SUPPORTS:" in tip
         assert "## Concept edges" in tip
 
 

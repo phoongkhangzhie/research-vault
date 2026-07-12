@@ -36,11 +36,11 @@ THE 5 MOVES → what is checked
 RETRIEVAL-TIER GATES EDGE STRENGTH (Defect #71)
 ================================================================================
 A note whose `read_basis` is not exactly `"full-text"` (abstract-only,
-title-only, any other value, or unstamped) cannot carry a `[SUPPORTS]` or
-`[CONTRADICTS]` edge — of EITHER kind (paper→paper or paper→concept). The
+title-only, any other value, or unstamped) cannot carry a `SUPPORTS` or
+`CONTRADICTS` edge — of EITHER kind (paper→paper or paper→concept). The
 paper was never read at the fidelity needed to assert or refute a claim at
-that strength; the strongest permissible tag at that retrieval tier is
-`[PARTIAL]`. Fail-closed: an absent/unstamped `read_basis` is treated as
+that strength; the strongest permissible type at that retrieval tier is
+`PARTIAL`. Fail-closed: an absent/unstamped `read_basis` is treated as
 NOT full-text — never a free pass to claim full strength by omission.
 
  (role/position split) is checked alongside: `role` must be one of
@@ -769,12 +769,12 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
 
     # ── Defect #71: retrieval-tier gates edge strength ─────────────────────
     # A note read at less than full-text (abstract-only/title-only/any other
-    # or unstamped read_basis) must not carry a [SUPPORTS]/[CONTRADICTS] edge
-    # of EITHER kind (paper→paper or paper→concept) — the paper was never
-    # read at the fidelity needed to assert or refute a claim; cap the
-    # strongest permissible tag at [PARTIAL]. Fail-closed: an absent or
-    # unstamped 'read_basis' is treated as NOT full-text (never a free pass
-    # to claim full strength by simply omitting the field).
+    # or unstamped read_basis) must not carry a SUPPORTS/CONTRADICTS edge of
+    # EITHER kind (paper→paper or paper→concept) — the paper was never read
+    # at the fidelity needed to assert or refute a claim; cap the strongest
+    # permissible type at PARTIAL. Fail-closed: an absent or unstamped
+    # 'read_basis' is treated as NOT full-text (never a free pass to claim
+    # full strength by simply omitting the field).
     read_basis = _get_scalar(fields, "read_basis").lower()
     if read_basis != "full-text":
         strong_tags = ("SUPPORTS", "CONTRADICTS")

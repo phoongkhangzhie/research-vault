@@ -48,5 +48,5 @@ central claim turns on (Section 3.2) — a plain dense-similarity baseline
 
 ## Related papers
 
-- [EXTENDS] [jones2023](/literature/jones2023.md) — extends jones2023's
+- [jones2023](/literature/jones2023.md) — EXTENDS: extends jones2023's
   static retrieval index with the interleaved reasoning loop above.

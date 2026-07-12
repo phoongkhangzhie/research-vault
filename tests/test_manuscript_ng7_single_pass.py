@@ -140,7 +140,7 @@ def _write_lit_note_with_relation(
     (literature_dir / f"{citekey}.md").write_text(
         "---\ntype: literature\ntitle: A Paper\ncitekey: " + citekey + "\n---\n\n"
         "## Related papers\n\n"
-        f"- [{tag}] [{target}](/literature/{target}.md) — {reason}\n",
+        f"- [{target}](/literature/{target}.md) — {tag}: {reason}\n",
         encoding="utf-8",
     )
 
