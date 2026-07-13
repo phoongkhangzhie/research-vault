@@ -185,8 +185,16 @@ def test_stale_vault_updates_meta_and_manifest_version(vault):
 # ---------------------------------------------------------------------------
 
 def test_user_owned_files_byte_identical_after_update(vault):
-    """notes/, research_vault.toml projects, DEVLOG.md, control/, architecture.md."""
+    """notes/, research_vault.toml projects, DEVLOG.md, control/, architecture.md.
+
+    `notes/findings/` is NOT part of the instance scaffold (project-scoped
+    OKF types live under a project's own source_dir, never the instance —
+    see the instance-scaffold-drift fix) — a user planting content there is
+    still a legitimate, arbitrary user-owned path `rv update` must leave
+    byte-identical, so the dir is created here rather than assumed present.
+    """
     # Plant user content.
+    (vault / "notes" / "findings").mkdir(parents=True, exist_ok=True)
     (vault / "notes" / "findings" / "my-finding.md").write_text("USER FINDING\n", encoding="utf-8")
     (vault / "architecture.md").write_text("MY CUSTOM ARCHITECTURE MAP\n", encoding="utf-8")
     (vault / "DEVLOG.md").write_text("MY DEVLOG\n", encoding="utf-8")

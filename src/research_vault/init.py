@@ -53,7 +53,7 @@ import sys
 from pathlib import Path
 
 from . import scaffold
-from .note import scaffold_okf_dirs
+from .note import OKF_SHARED_TYPES, scaffold_okf_dirs
 
 
 # ---------------------------------------------------------------------------
@@ -386,9 +386,12 @@ def cmd_init_in_dir(target_dir: str, *, verbose: bool = False) -> int:
         d.mkdir(parents=True, exist_ok=True)
         vprint(f"  created: {d.relative_to(target)}/")
 
-    # ── Create OKF note type dirs ────────────────────────────────────────────
-    scaffold_okf_dirs(notes_root)
-    for note_type in sorted({"experiments", "findings", "methodology", "literature", "concepts", "mocs"}):
+    # ── Create shared-canonical OKF dirs (literature/concepts/datasets) ─────
+    # The instance owns ONLY the shared-canonical bundles — never the
+    # project-scoped types (experiments/findings/gaps/methodology/mocs),
+    # which belong under a project's own source_dir (see `rv project new`).
+    scaffold_okf_dirs(notes_root, types=OKF_SHARED_TYPES)
+    for note_type in sorted(OKF_SHARED_TYPES):
         vprint(f"  created: notes/{note_type}/")
 
     # ── Write research_vault.toml ────────────────────────────────────────────

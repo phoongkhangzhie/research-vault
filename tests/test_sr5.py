@@ -528,11 +528,19 @@ def test_rv_init_creates_instance_structure(tmp_path):
         "rv init must NOT scaffold examples/ (demo projects removed)"
     )
 
-    # Notes root with OKF type dirs
+    # Notes root with the shared-canonical OKF type dirs only. The instance
+    # owns just the shared bundles (literature/concepts/datasets) — project-
+    # scoped types (experiments/findings/gaps/methodology/mocs) belong under
+    # a project's own source_dir, never the instance (instance-scaffold-drift
+    # fix — this assertion previously pinned the bug it now guards against).
     assert (target / "notes").is_dir(), "notes/ must be created"
-    for note_type in ("experiments", "findings", "methodology", "literature", "concepts", "mocs"):
+    for note_type in ("literature", "concepts", "datasets"):
         assert (target / "notes" / note_type).is_dir(), (
             f"notes/{note_type}/ must be created"
+        )
+    for note_type in ("experiments", "findings", "gaps", "methodology", "mocs"):
+        assert not (target / "notes" / note_type).exists(), (
+            f"notes/{note_type}/ must NOT be created at the instance level"
         )
 
 
