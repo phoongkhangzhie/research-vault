@@ -181,13 +181,20 @@ REPRO_LINT_REQUIRED: list[str] = (
 )
 
 
-def scaffold_okf_dirs(base: Path) -> None:
+def scaffold_okf_dirs(base: Path, types: frozenset[str] = OKF_TYPES) -> None:
     """Create OKF note-type subdirectories under *base*.
 
     This is the canonical helper — callers (init, project new) MUST use this
     instead of re-listing the types, so note.OKF_TYPES stays the SSOT.
+
+    *types* defaults to the full OKF_TYPES set (project scaffolding — a
+    project owns every note type). Instance-level scaffolding (`rv init`)
+    must pass OKF_SHARED_TYPES explicitly: the instance root owns only the
+    shared-canonical bundles (literature/concepts/datasets); the project-
+    scoped types (experiments/findings/gaps/methodology/mocs) belong under
+    a project's own source_dir, never the instance.
     """
-    for note_type in OKF_TYPES:
+    for note_type in types:
         (base / note_type).mkdir(parents=True, exist_ok=True)
 
 
