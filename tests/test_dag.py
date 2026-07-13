@@ -1032,6 +1032,52 @@ class TestOKFTypedArtifact:
         issues = _check_okf_note_type("experiments/nonexistent.md", tmp_path)
         assert len(issues) > 0
 
+    def test_shared_type_flat_note_accepted_via_shared_root(self, tmp_instance: Path):
+        """A flat literature note living directly under literature_root
+        passes, resolved structurally against cfg.shared_type_root — not by
+        immediate-parent-name equality."""
+        from research_vault.config import load_config
+
+        cfg = load_config()
+        cfg.literature_root.mkdir(parents=True, exist_ok=True)
+        note = cfg.literature_root / "smith2024.md"
+        note.write_text("---\ntype: literature\ntitle: OK\n---\n", encoding="utf-8")
+
+        issues = _check_okf_note_type(str(note), cfg.notes_root, cfg=cfg)
+        assert issues == [], f"Expected no issues, got: {issues}"
+
+    def test_shared_type_formerly_nesting_doi_note_accepted(self, tmp_instance: Path):
+        """A DOI-derived literature note (sanitized flat filename, dashes in
+        place of the DOI's '/') still resolves under literature_root and
+        passes — this is the exact shape that used to structurally fail
+        the immediate-parent-name check."""
+        from research_vault.config import load_config
+
+        cfg = load_config()
+        cfg.literature_root.mkdir(parents=True, exist_ok=True)
+        note = cfg.literature_root / "10.1093-pnasnexus-pgae346.md"
+        note.write_text("---\ntype: literature\ntitle: DOI paper\n---\n", encoding="utf-8")
+
+        issues = _check_okf_note_type(str(note), cfg.notes_root, cfg=cfg)
+        assert issues == [], f"Expected no issues, got: {issues}"
+
+    def test_shared_type_wrong_root_still_rejected(self, tmp_instance: Path):
+        """A note declaring type: literature but living OUTSIDE
+        literature_root (e.g. under a project's own notes dir) is still
+        correctly rejected — the shared-root membership check does not
+        become a rubber stamp for any literature-typed note anywhere."""
+        from research_vault.config import load_config
+
+        cfg = load_config()
+        wrong_dir = cfg.notes_root / "not-literature"
+        wrong_dir.mkdir(parents=True, exist_ok=True)
+        note = wrong_dir / "smith2024.md"
+        note.write_text("---\ntype: literature\ntitle: Misplaced\n---\n", encoding="utf-8")
+
+        issues = _check_okf_note_type(str(note), cfg.notes_root, cfg=cfg)
+        assert len(issues) > 0
+        assert any("shared root" in i or "type mismatch" in i for i in issues)
+
     def test_dag_complete_rejects_wrong_type_produces(self, tmp_instance: Path, capsys):
         """dag complete with produces node fails if the note type:dir is wrong."""
         note_dir = tmp_instance / "notes" / "experiments"

@@ -1644,12 +1644,31 @@ def _recompute_awaiting_go(
 # OKF note type-directory check
 # ---------------------------------------------------------------------------
 
-def _check_okf_note_type(note_path_str: str, notes_root: Path) -> list[str]:
-    """Validate that an OKF note's type: frontmatter matches its parent directory.
+def _check_okf_note_type(
+    note_path_str: str, notes_root: Path, cfg: Any = None,
+) -> list[str]:
+    """Validate that an OKF note's type: frontmatter matches where it lives.
 
     Returns a list of issue strings (empty = OK).
     This is the vault check gate for produces-typed nodes:
       A node that writes the WRONG type dir fails this check.
+
+    Two membership rules, by declared type:
+      - A SHARED type (OKF_SHARED_TYPES — datasets/concepts/literature)
+        must resolve UNDER its shared-type root (``cfg.shared_type_root``),
+        checked structurally via ``Path.is_relative_to`` — never by
+        immediate-parent-name string equality. A citekey-derived filename
+        can legitimately sit flat under its shared root; requiring the
+        immediate parent dir name to literally equal the type name breaks
+        for any citekey that (pre-sanitization) contained a "/" (e.g. a
+        DOI), since the immediate parent then becomes the DOI's own suffix
+        segment, not "literature". ``cfg`` is required for this branch —
+        callers that omit it (legacy call sites with no Config in scope)
+        fall back to the project-scoped check below, which is still
+        correct for the common flat-under-notes_root case.
+      - A PROJECT-scoped type must have its note's immediate parent
+        directory name equal the declared type (unchanged, pre-existing
+        behavior).
     """
     note_path = Path(note_path_str)
     if not note_path.is_absolute():
@@ -1682,7 +1701,24 @@ def _check_okf_note_type(note_path_str: str, notes_root: Path) -> list[str]:
     if not declared_type:
         return [f"note missing 'type' frontmatter: {note_path.name}"]
 
-    # The type must match the parent directory name
+    if cfg is not None:
+        from ..note import OKF_SHARED_TYPES as _OKF_SHARED_TYPES_CHECK
+        if declared_type in _OKF_SHARED_TYPES_CHECK:
+            try:
+                shared_root = cfg.shared_type_root(declared_type).resolve()
+            except KeyError:
+                shared_root = None
+            if shared_root is not None:
+                if note_path.resolve().is_relative_to(shared_root):
+                    return []
+                return [
+                    f"note type mismatch: type={declared_type!r} is a "
+                    f"shared type but {note_path} does not resolve under "
+                    f"its shared root ({shared_root})"
+                ]
+
+    # Project-scoped fallback: the type must match the immediate parent
+    # directory name.
     parent_dir = note_path.parent.name
     if declared_type != parent_dir:
         return [
@@ -1865,7 +1901,7 @@ def _check_project_scoped_note(
         proj_notes = note_path.parent.parent  # best-effort fallback
 
     # _check_okf_note_type takes an absolute path; notes_root unused for absolute.
-    return _check_okf_note_type(str(note_path), proj_notes)
+    return _check_okf_note_type(str(note_path), proj_notes, cfg=cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -2322,7 +2358,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
                 else:
                     _note_root = cfg.notes_root
                 _resolved_note_path = _note_rel
-            issues = _check_okf_note_type(_resolved_note_path, _note_root)
+            issues = _check_okf_note_type(_resolved_note_path, _note_root, cfg=cfg)
             if issues:
                 print(f"rv dag complete: OKF vault check FAILED for node {node_id!r}:", file=sys.stderr)
                 for issue in issues:

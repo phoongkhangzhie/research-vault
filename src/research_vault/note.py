@@ -363,7 +363,18 @@ def cmd_new(project: str, note_type: str, title: str, *,
         notes_dir = cfg.project_notes_dir(project) / note_type
     notes_dir.mkdir(parents=True, exist_ok=True)
 
-    slug = note_id or _slugify(title)
+    # Literature notes are filed by CITEKEY identity, not free-text title —
+    # the canonical invocation is `rv note <project> new literature
+    # <citekey>` (citekey passed positionally, no --id) with `--id
+    # <citekey>` an equivalent explicit form. Either way, run the identity
+    # (note_id if given, else the title positional) through
+    # sanitize_citekey_for_filename (the SSOT mechanical mapping) rather
+    # than _slugify — _slugify strips dots (breaking arXiv ids like
+    # "2505.18562") and would let a DOI's "/" nest a subdirectory.
+    if note_type == "literature":
+        slug = sanitize_citekey_for_filename(note_id or title)
+    else:
+        slug = note_id or _slugify(title)
     note_path = notes_dir / f"{slug}.md"
     if note_path.exists():
         if note_type == "literature":
@@ -605,13 +616,54 @@ def _literature_body() -> str:
     )
 
 
+def sanitize_citekey_for_filename(citekey: str) -> str:
+    """Deterministic, mechanical citekey -> filename-stem mapping.
+
+    The SSOT for every place a literature citekey becomes a filename
+    (``literature_core_path``, ``cmd_new``'s literature branch, the relate
+    ``produces`` pointer). The citekey itself is ALWAYS preserved verbatim
+    in the note's own ``citekey:`` frontmatter field — this function only
+    controls the on-disk filename, and exists so a citekey shaped like a
+    DOI or an arXiv id can never create a nested directory or otherwise
+    escape its shared-type root.
+
+    Pure and deterministic (same input -> same output every call); replaces
+    ONLY filesystem-reserved separators and preserves everything else
+    (case, digits, dots) so the mapping stays legible:
+      - ``/`` and ``\\`` -> ``-``   (a DOI's registrant/suffix separator)
+      - a leading run of ``.`` characters is stripped (never produce a
+        hidden dot-file)
+
+    Not guaranteed globally reversible (a "-" in the sanitized output could
+    have come from a literal "-" or a "/" in the source) but IS
+    collision-free for the id shapes rv actually files under: arXiv ids
+    (single dot, no slash), DOIs (exactly one registrant/suffix slash, no
+    other reserved chars), and BibTeX-style familyShorttitleYear citekeys
+    (see cite.CITEKEY_RE — already flat, sanitize is a no-op on those).
+
+    Examples::
+
+        sanitize_citekey_for_filename("2505.18562")
+            -> "2505.18562"
+        sanitize_citekey_for_filename("10.1093/pnasnexus/pgae346")
+            -> "10.1093-pnasnexus-pgae346"
+        sanitize_citekey_for_filename("10.1126/science.1153808")
+            -> "10.1126-science.1153808"
+    """
+    s = (citekey or "").replace("\\", "-").replace("/", "-")
+    s = s.lstrip(".")
+    return s or "note"
+
+
 def literature_core_path(cfg: Config, citekey: str) -> Path:
     """The shared literature note path for *citekey* —
-    cfg.literature_root/<citekey>.md. Named ``literature_core_path`` for
-    back-compat with pre-unwind callers (fulltext.py, review/__init__.py) —
-    there is no "core" vs. "overlay" distinction left to resolve; this is
-    simply the ONE note's path."""
-    return cfg.literature_root / f"{citekey}.md"
+    cfg.literature_root/<sanitized-citekey>.md. Named ``literature_core_path``
+    for back-compat with pre-unwind callers (fulltext.py, review/__init__.py)
+    — there is no "core" vs. "overlay" distinction left to resolve; this is
+    simply the ONE note's path. Filename is derived via
+    ``sanitize_citekey_for_filename`` (the SSOT) so a DOI- or arXiv-shaped
+    citekey can never create a nested directory under ``literature_root``."""
+    return cfg.literature_root / f"{sanitize_citekey_for_filename(citekey)}.md"
 
 
 def cmd_list(project: str, note_type: str | None = None, *,

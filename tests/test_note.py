@@ -312,3 +312,73 @@ def test_new_scaffolds_timestamp_and_resource_fields(cfg):
     datetime.date.fromisoformat(fields["timestamp"])  # raises if not ISO-date
     assert "resource" in fields
     assert fields["resource"] == ""
+
+
+# ---------------------------------------------------------------------------
+# sanitize_citekey_for_filename — mechanical citekey -> filename mapping
+# ---------------------------------------------------------------------------
+
+def test_sanitize_preserves_arxiv_dots():
+    """An arXiv id's dot is preserved verbatim (no dot-stripping)."""
+    assert note_mod.sanitize_citekey_for_filename("2505.18562") == "2505.18562"
+
+
+def test_sanitize_doi_slash_becomes_dash_no_nesting():
+    """A DOI's registrant/suffix '/' becomes '-', never a nested directory."""
+    result = note_mod.sanitize_citekey_for_filename("10.1093/pnasnexus/pgae346")
+    assert result == "10.1093-pnasnexus-pgae346"
+    assert "/" not in result
+
+
+def test_sanitize_doi_with_dot_in_suffix_preserves_dot():
+    """A DOI suffix that itself contains a dot keeps that dot; only '/' is replaced."""
+    result = note_mod.sanitize_citekey_for_filename("10.1126/science.1153808")
+    assert result == "10.1126-science.1153808"
+
+
+def test_sanitize_already_safe_token_is_idempotent():
+    """A citekey with no reserved characters passes through unchanged, and
+    sanitizing twice gives the same result as sanitizing once (idempotent)."""
+    once = note_mod.sanitize_citekey_for_filename("smith2024")
+    twice = note_mod.sanitize_citekey_for_filename(once)
+    assert once == "smith2024"
+    assert once == twice
+
+
+def test_sanitize_is_deterministic_and_collision_free_for_distinct_dois():
+    """Two distinct DOIs never sanitize to the same filename stem."""
+    a = note_mod.sanitize_citekey_for_filename("10.1093/pnasnexus/pgae346")
+    b = note_mod.sanitize_citekey_for_filename("10.1093/pnasnexus/pgae999")
+    assert a != b
+
+
+def test_sanitize_strips_leading_dots():
+    """A leading run of dots is stripped so a citekey can never produce a
+    hidden dot-file."""
+    assert note_mod.sanitize_citekey_for_filename("...weird") == "weird"
+
+
+# ---------------------------------------------------------------------------
+# Shared-type (literature) write resolution — always literature_root, never
+# project-local, and filenames are flat (no nesting) regardless of citekey
+# shape.
+# ---------------------------------------------------------------------------
+
+def test_new_literature_arxiv_citekey_writes_to_literature_root(cfg):
+    """`rv note new literature <arxiv-id>` writes a flat file directly under
+    literature_root — not a project-local dir — with the dot preserved."""
+    path = note_mod.cmd_new("demo-research", "literature", "2505.18562", config=cfg)
+    assert path.parent == cfg.literature_root
+    assert path.name == "2505.18562.md"
+    assert "demo-research" not in str(path)
+
+
+def test_new_literature_doi_citekey_writes_flat_no_nesting(cfg):
+    """`rv note new literature <doi>` writes a flat file under literature_root
+    — the DOI's '/' must never create a subdirectory."""
+    path = note_mod.cmd_new(
+        "demo-research", "literature", "10.1093/pnasnexus/pgae346", config=cfg
+    )
+    assert path.parent == cfg.literature_root
+    assert path.name == "10.1093-pnasnexus-pgae346.md"
+    assert path.exists()
