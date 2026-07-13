@@ -46,6 +46,7 @@ from research_vault.note import (
     _parse_frontmatter,
     _render_frontmatter,
     literature_core_path,
+    sanitize_citekey_for_filename,
     scaffold_okf_dirs,
 )
 from research_vault.review.style import (
@@ -1980,7 +1981,11 @@ def _build_phase2_manifest(
                 _rel("concepts"),
                 _rel("mocs"),
             ],
-            "produces": {"note": f"literature/{citekey}.md"},
+            # sanitize_citekey_for_filename (the SSOT mechanical mapping,
+            # note.py) so a DOI-shaped citekey's "/" can't be read as a
+            # produces subdirectory — this must agree with the filename
+            # `rv note new literature <citekey>` actually writes.
+            "produces": {"note": f"literature/{sanitize_citekey_for_filename(citekey)}.md"},
             "needs": [],  # all parallel; no upstream within Phase-2
         })
 

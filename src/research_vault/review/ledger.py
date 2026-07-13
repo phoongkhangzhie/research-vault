@@ -257,7 +257,8 @@ def _literature_note_for_citekey(literature_root: Path | None, citekey: str) -> 
     if not lit_root.exists():
         return None
 
-    direct = lit_root / f"{citekey}.md"
+    from ..note import sanitize_citekey_for_filename
+    direct = lit_root / f"{sanitize_citekey_for_filename(citekey)}.md"
     if direct.exists():
         return direct
 
