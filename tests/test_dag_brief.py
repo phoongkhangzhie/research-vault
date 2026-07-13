@@ -691,6 +691,117 @@ class TestSSOT:
             f"SSOT BROKEN: gate_path={gate_path} != brief_path={brief_paths[0]}"
         )
 
+    def test_produces_note_shared_type_literature_resolves_under_shared_root(
+        self, tmp_path: Path
+    ):
+        """produces.note for a shared-canonical type (literature) must resolve
+        under cfg.shared_type_root('literature') — NOT the project's
+        source_dir — even when a manifest 'project' field is set.
+        """
+        proj_dir = tmp_path / "projects" / "my-proj"
+        proj_dir.mkdir(parents=True)
+        (tmp_path / "notes").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "state").mkdir(exist_ok=True)
+        raw = {
+            "instance_root": str(tmp_path),
+            "notes_root": str(tmp_path / "notes"),
+            "state_dir": str(tmp_path / "state"),
+            "agents_dir": str(tmp_path / ".agents"),
+            "tasks_dir": str(tmp_path / "tasks"),
+            "control_dir": str(tmp_path / "control"),
+            "adapters": {"notifier": "file", "backend": "local", "secrets": "env"},
+            "projects": {
+                "my-proj": {
+                    "source_dir": str(proj_dir),
+                    "tasks_dir": str(tmp_path / "tasks" / "my-proj"),
+                },
+            },
+        }
+        cfg = Config(raw)
+
+        node = _make_agent_node(produces={"note": "literature/2402.10811.md"})
+        paths = resolve_produces_paths(node, cfg, manifest_project="my-proj")
+
+        assert len(paths) == 1
+        expected = cfg.shared_type_root("literature") / "2402.10811.md"
+        assert paths[0] == expected
+        # Must NOT resolve under the project's source_dir (the drift bug).
+        assert not str(paths[0]).startswith(str(proj_dir))
+
+        # Must be IDENTICAL to the write-side path (note.note_path's own
+        # resolution) — same shared-type routing.
+        from research_vault.note import OKF_SHARED_TYPES
+        assert "literature" in OKF_SHARED_TYPES
+        write_side_dir = cfg.shared_type_root("literature")
+        assert paths[0].parent == write_side_dir
+
+    def test_produces_note_shared_type_concepts_resolves_under_shared_root(
+        self, tmp_path: Path
+    ):
+        """Same shared-type resolution for 'concepts' (not just 'literature')."""
+        proj_dir = tmp_path / "projects" / "my-proj"
+        proj_dir.mkdir(parents=True)
+        (tmp_path / "notes").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "state").mkdir(exist_ok=True)
+        raw = {
+            "instance_root": str(tmp_path),
+            "notes_root": str(tmp_path / "notes"),
+            "state_dir": str(tmp_path / "state"),
+            "agents_dir": str(tmp_path / ".agents"),
+            "tasks_dir": str(tmp_path / "tasks"),
+            "control_dir": str(tmp_path / "control"),
+            "adapters": {"notifier": "file", "backend": "local", "secrets": "env"},
+            "projects": {
+                "my-proj": {
+                    "source_dir": str(proj_dir),
+                    "tasks_dir": str(tmp_path / "tasks" / "my-proj"),
+                },
+            },
+        }
+        cfg = Config(raw)
+
+        node = _make_agent_node(produces={"note": "concepts/some-concept.md"})
+        paths = resolve_produces_paths(node, cfg, manifest_project="my-proj")
+
+        assert len(paths) == 1
+        expected = cfg.shared_type_root("concepts") / "some-concept.md"
+        assert paths[0] == expected
+        assert not str(paths[0]).startswith(str(proj_dir))
+
+    def test_produces_note_project_scoped_type_still_uses_project_dir(
+        self, tmp_path: Path
+    ):
+        """A project-scoped type (e.g. findings) is UNCHANGED by the shared-type
+        fix — it must still resolve under project_notes_dir(manifest_project).
+        """
+        proj_dir = tmp_path / "projects" / "my-proj"
+        proj_dir.mkdir(parents=True)
+        (tmp_path / "notes").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "state").mkdir(exist_ok=True)
+        raw = {
+            "instance_root": str(tmp_path),
+            "notes_root": str(tmp_path / "notes"),
+            "state_dir": str(tmp_path / "state"),
+            "agents_dir": str(tmp_path / ".agents"),
+            "tasks_dir": str(tmp_path / "tasks"),
+            "control_dir": str(tmp_path / "control"),
+            "adapters": {"notifier": "file", "backend": "local", "secrets": "env"},
+            "projects": {
+                "my-proj": {
+                    "source_dir": str(proj_dir),
+                    "tasks_dir": str(tmp_path / "tasks" / "my-proj"),
+                },
+            },
+        }
+        cfg = Config(raw)
+
+        node = _make_agent_node(produces={"note": "findings/q1.md"})
+        paths = resolve_produces_paths(node, cfg, manifest_project="my-proj")
+
+        assert len(paths) == 1
+        expected = cfg.project_notes_dir("my-proj") / "findings/q1.md"
+        assert paths[0] == expected
+
     def test_parse_pointer_ssot_no_inline_scheme_tuples(self):
         """PIN: resolve_reads_paths must NOT contain an inline scheme tuple.
 

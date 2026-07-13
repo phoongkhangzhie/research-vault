@@ -1953,6 +1953,10 @@ def resolve_produces_paths(
 
     paths: list[Path] = []
 
+    # Call-time import (see the sibling call sites in this module) — avoids
+    # a module-level circular import between dag.verbs and note.
+    from ..note import OKF_SHARED_TYPES
+
     # Determine note root for produces.note
     if manifest_project:
         try:
@@ -1967,10 +1971,25 @@ def resolve_produces_paths(
             continue
 
         if key == "note":
-            # Relative note path within notes_root (same rule as cmd_complete gate)
+            # Relative note path within notes_root (same rule as cmd_complete gate).
+            #
+            # Shared-canonical types (OKF_SHARED_TYPES — datasets/concepts/
+            # literature) live under their own shared root
+            # (cfg.shared_type_root(type)), NOT under the project's
+            # source_dir — same routing note.note_path uses to WRITE the
+            # note and _check_okf_note_type uses to GATE it. Detect a
+            # shared-type prefix on the produces.note value and resolve
+            # directly against the shared root (stripping the type-dir
+            # segment — the shared root's own directory listing IS the
+            # type, no further <type>/ subdir) so this stays IDENTICAL to
+            # both the write side and the gate side by construction.
             p = Path(value)
             if not p.is_absolute():
-                p = note_root / value
+                type_seg, sep, rest = value.partition("/")
+                if type_seg in OKF_SHARED_TYPES and sep:
+                    p = cfg.shared_type_root(type_seg) / rest
+                else:
+                    p = note_root / value
             paths.append(p)
 
         elif key == "dataset":

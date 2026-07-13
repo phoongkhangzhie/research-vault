@@ -44,8 +44,9 @@ OKF_TYPES = frozenset({
 # lives in cfg.literature_root (joined the shared partition in the overlay unwind (0.3.2),
 # the overlay unwind — a paper's facts are project-independent too, and the
 # per-project overlay that used to carry role/position/membership is
-# dissolved: role now lives in curated project MOCs, membership in the
-# mechanical corpus ledger — see review/ledger.py). Per-type root
+# dissolved: role/position are now first-class fields on the shared note
+# itself (the 5-move relate protocol's mandatory checklist), membership
+# lives in the mechanical corpus ledger — see review/ledger.py). Per-type root
 # resolution goes through `cfg.shared_type_root(t)` (config.py) — never a
 # hardcoded root. All other OKF types are PROJECT-SCOPED
 # (cfg.project_notes_dir / type_dir).
@@ -490,6 +491,36 @@ def cmd_new(project: str, note_type: str, title: str, *,
         fields["repo"] = ""           # fill in: the paper's code repo URL (empty if none)
         fields["artifacts"] = ""      # fill in: scalar list of "label: url" pointers
 
+        # The 5-move relate-<key> protocol's mandatory checklist fields
+        # (review.relate_check.check_relate_presence is the rejects-only
+        # presence gate — a relate node BLOCKs on any of these missing;
+        # scaffolded here EMPTY so the field names/shape are never
+        # hand-invented from the brief). Absence is never a `rv note check`
+        # violation (same optional-field precedent as doi/arxiv_id above) —
+        # check_relate_presence is a separate, stricter gate run by the
+        # relate node itself, not by cmd_check.
+        #
+        # Move 2 (exact-arrow) — free-form, never mechanically checked:
+        fields["claim"] = ""      # fill in: the paper's central claim, in one sentence
+        fields["method"] = ""     # fill in: how the claim was tested (design/data/models)
+        fields["evidence"] = ""   # fill in: the specific result(s) that ground the claim
+        # Move 1 (orient/classify) — must be one of
+        # review.relate_check.CONTRIBUTION_KINDS:
+        fields["contribution_kind"] = ""  # fill in: mechanism|theory-bound|benchmark|survey|application
+        # role/position split — must be one of review.relate_check.ROLE_TYPES:
+        fields["role"] = ""       # fill in: methodological|empirical|theoretical|counter-position
+        fields["position"] = ""   # fill in: how this paper relates to the review question (free-form)
+        # Move 3 (result-with-magnitude) — mandatory whitelist answer,
+        # exactly "yes" or "no" (fail-closed on any other spelling):
+        fields["result_reported"] = ""  # fill in: "yes" if the paper reports a quantitative result, else "no"
+        # Move 4 (relate to corpus) — mandatory whitelist answer, exactly
+        # "yes" or "no":
+        fields["paper_relations_sought"] = ""  # fill in: "yes" if this paper bears on any corpus paper, else "no"
+        # Move 5 (concept edges) — free-form notes on candidate concept
+        # slugs (the body's "## Concept edges" section carries the actual
+        # typed edges once concepts/ nodes exist to link to):
+        fields["concepts"] = ""   # fill in: candidate concept slugs this paper relates to
+
     if tags:
         fields["tags"] = "[" + ", ".join(tags) + "]"
 
@@ -573,8 +604,11 @@ def cmd_new(project: str, note_type: str, title: str, *,
 # exactly like `datasets`/`concepts` — ONE note per paper at
 # cfg.literature_root/<citekey>.md, written by the generic cmd_new path
 # above (see the `note_type == "literature"` field/body branches). The
-# former overlay content moves to two existing, non-overlay homes:
-#   - role/position (RQ-relative narration)  -> curated project MOCs
+# former overlay content now lives on the shared note itself, or in one
+# other existing non-overlay home:
+#   - role/position (RQ-relative narration) -> `role:`/`position:`
+#     frontmatter fields on the shared note (the 5-move relate protocol's
+#     mandatory checklist — review.relate_check.check_relate_presence)
 #   - membership ("this paper is in X's corpus") -> the mechanical corpus
 #     ledger (review/ledger.py — already the SSOT, never stamped on the
 #     shared note)
@@ -588,9 +622,12 @@ def _literature_body() -> str:
         "\n"
         "<!-- Literature note — SHARED-CANONICAL (one note per paper, no -->\n"
         "<!-- per-project overlay — 0.3.2). This file is shared across every -->\n"
-        "<!-- project that cites this paper; RQ-relative content (this -->\n"
-        "<!-- project's role for the paper, e.g. counter-position/ -->\n"
-        "<!-- methodological) belongs in a project MOC, not here. Corpus -->\n"
+        "<!-- project that cites this paper. RQ-relative content for THIS -->\n"
+        "<!-- project (its role for the paper, e.g. counter-position/ -->\n"
+        "<!-- methodological) is the role:/position: frontmatter fields -->\n"
+        "<!-- above (5-move relate protocol, Move 1 role/position split) -- -->\n"
+        "<!-- a paper cited by more than one project keeps the LAST project's -->\n"
+        "<!-- role/position (shared-canonical, no per-project split). Corpus -->\n"
         "<!-- membership is recorded mechanically in the corpus ledger -->\n"
         "<!-- (review/ledger.py) — never stamped on this note either. -->\n"
         "<!-- key_equations: is a criticality ledger keyed by label -- fill by hand as: -->\n"

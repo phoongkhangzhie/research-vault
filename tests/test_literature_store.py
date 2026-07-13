@@ -129,15 +129,68 @@ class TestCmdNewSharedCanonical:
         fields, _ = note_mod._parse_frontmatter(note_path.read_text(encoding="utf-8"))
         for intrinsic_key in ("citekey", "doi", "arxiv_id", "key_equations", "repo", "artifacts"):
             assert intrinsic_key in fields, f"{intrinsic_key} missing from the shared note"
-        # No overlay-only fields ever existed here — no `central`, no `role`.
+        # The pre-unwind two-layer overlay's `central:` backbone pointer is
+        # gone for good — there is no core/overlay split left to resolve.
         assert "central" not in fields
-        assert "role" not in fields
+        # `role` is now a first-class field on the shared note itself (the
+        # 5-move relate protocol's role/position split, checked by
+        # review.relate_check.check_relate_presence) — NOT the dissolved
+        # per-project overlay's field of the same name.
+        assert "role" in fields
 
     def test_returned_path_matches_legacy_shape(self, cfg):
         """cmd_new must still return a path whose parent.name == note_type
         (test_new_all_types_accepted in test_note.py relies on this)."""
         path = note_mod.cmd_new("demo-research", "literature", "Another Paper", config=cfg)
         assert path.parent.name == "literature"
+
+    def test_scaffold_carries_all_five_move_fields(self, cfg):
+        """A freshly-scaffolded literature note must carry EMPTY placeholders
+        for every 5-move field the relate-<key> protocol expects
+        (review.relate_check.check_relate_presence + the free-form Move
+        2 fields) — an agent authoring the note by hand should never need
+        to invent the field names/shape from the brief.
+        """
+        note_path = note_mod.cmd_new(
+            "demo-research", "literature", "A Paper", config=cfg, note_id="paper2025"
+        )
+        fields, _ = note_mod._parse_frontmatter(note_path.read_text(encoding="utf-8"))
+        five_move_fields = (
+            "claim",
+            "method",
+            "evidence",
+            "contribution_kind",
+            "role",
+            "position",
+            "result_reported",
+            "paper_relations_sought",
+            "concepts",
+        )
+        for key in five_move_fields:
+            assert key in fields, f"{key} missing from the freshly-scaffolded note"
+            # Scaffolded EMPTY (never fabricated) — same never-guess
+            # precedent as description/resource above.
+            assert fields[key] == "", f"{key} should scaffold empty, got {fields[key]!r}"
+
+    def test_scaffold_passes_note_check(self, cfg):
+        """The freshly-scaffolded literature note (empty-but-present 5-move
+        placeholders) must not introduce any new BLOCKing `rv note check`
+        violation — cmd_check validates the generic OKF shape (not the
+        stricter relate-protocol presence gate), and the 5-move fields are
+        not check_relate_presence's business here. Pre-existing WARN-only
+        findings for other optional fields (description/citekey — same
+        never-a-cmd_check-violation precedent as doi/arxiv_id) are expected
+        and are not this test's concern.
+        """
+        note_mod.cmd_new(
+            "demo-research", "literature", "A Paper", config=cfg, note_id="paper2026"
+        )
+        violations = note_mod.cmd_check("demo-research", config=cfg)
+        literature_violations = [
+            v for v in violations
+            if "paper2026" in v and "WARN" not in v
+        ]
+        assert literature_violations == [], f"unexpected cmd_check violations: {literature_violations}"
 
     def test_body_carries_all_former_core_and_overlay_sections(self, cfg):
         note_path = note_mod.cmd_new(
