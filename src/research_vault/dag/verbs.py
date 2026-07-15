@@ -600,6 +600,38 @@ def _evaluate_autonomous_gate(
                     corpus_path, off_domain_citekeys, review_dir / "_relevance-residue.md",
                 )
 
+            # C (task #86): the deterministic, stratified corpus-bound
+            # selection — run AFTER the off-domain prune (mirrors that
+            # step's own placement comment: any auto-mutation must be
+            # folded into the VERY FIRST frozen baseline below, never
+            # flagged as an undeclared deviation against its own bound on
+            # a later re-evaluation — ``apply_corpus_bound`` is idempotent
+            # by construction, same discipline as
+            # ``prune_off_domain_from_corpus``).
+            #
+            # Requires a real verdict set to rank on (the composite's
+            # PRIMARY signal is the verify-verdict tier) — a manifest that
+            # never wired ``review-relevance-verify`` (relevance_result is
+            # None) is an honest no-op here, same optional-collaborator
+            # posture the relevance-verify block above documents.
+            if relevance_result is not None and relevance_payload_for_ledger is not None:
+                from ..review import corpus_bound as _corpus_bound
+                from ..review import style as _review_style
+
+                _cfg_for_bound = load_config()
+                _project = manifest.get("project") if isinstance(manifest, dict) else None
+                _concepts_dir = (
+                    _cfg_for_bound.shared_type_root("concepts") if _project else None
+                )
+                _corpus_bound.apply_corpus_bound(
+                    corpus_path,
+                    verdicts=relevance_payload_for_ledger.get("verdicts", {}),
+                    corpus_bound=_review_style.get_corpus_bound(_cfg_for_bound),
+                    min_hits_per_pole=_review_style.get_min_hits_per_pole(_cfg_for_bound),
+                    concepts_dir=_concepts_dir,
+                    residue_path=review_dir / "_corpus-bound-residue.md",
+                )
+
         try:
             from ..review import corpus_freeze as _corpus_freeze
             from ..review import check_source_coverage

@@ -391,14 +391,14 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "terminals at the walk's design-time bound; no residue is owed "
         "there.\n\n"
         "Output: `_corpus.md` — the FINAL, concept-tagged citekey list "
-        "(table: annotation | citekey | title | abstract | rerank), "
+        "(table: annotation | citekey | title | abstract | rerank | poles), "
         "replacing the raw candidate list. The annotation column MUST use "
         "exactly one of two bracket tags: `[NEW]` for a fresh accept "
         "(optionally leg-prefixed, e.g. `[LEG-1][NEW]`, when you're "
         "tracking a legs/facets structure), or `[IN-CORPUS:<citekey>]` for "
         "a paper already materialized in a prior review cycle. Example "
         "accept row: "
-        "`| [NEW] | smith2024 | A Study of X | An abstract snippet... | 0.734 |`. "
+        "`| [NEW] | smith2024 | A Study of X | An abstract snippet... | 0.734 | believability.thesis |`. "
         "Any other annotation spelling (e.g. `[ACCEPT]`) is not recognized "
         "downstream and will silently drop the row from the Phase-2 fan-out. "
         "CARRY the Abstract/TL;DR text VERBATIM from "
@@ -416,7 +416,16 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "score exists for that candidate (e.g. it was discovered by the "
         "citation-neighbor walk, not by search) — copy that dash through "
         "unchanged rather than inventing a number or leaving the cell "
-        "truly blank. "
+        "truly blank. Likewise CARRY the Poles value VERBATIM from "
+        "`_corpus_raw.md`'s own 9th (`Poles`) column into this new 6th "
+        "column — the DECLARED facet-pole(s) (`<angle>.<stance>`, comma-"
+        "joined) this candidate matched at sweep time. This is the "
+        "stratification-bucket signal the corpus-bound curation step reads "
+        "(which pole's quota a paper counts against) — copy it through "
+        "unchanged, never infer or reassign a pole yourself. A bare `—` "
+        "dash means the candidate carried no pole tag at sweep time (e.g. "
+        "a citation-neighbor-walk discovery) — copy that dash through "
+        "unchanged too, never leave the cell truly blank. "
         "`_corpus.md` and `_walk.md` (and `_coverage-gaps.md` when "
         "present) are the phase-boundary artifacts: the `coverage-gate` "
         "human-go reads them before authorizing Phase-2. `rv dag approve "
@@ -1171,3 +1180,40 @@ def get_max_facet_remediation_rounds(config: Any = None, *, review_type: str | N
         config, "max_facet_remediation_rounds", review_type=review_type,
     )
     return override if override is not None else DEFAULT_MAX_FACET_REMEDIATION_ROUNDS
+
+
+# ---------------------------------------------------------------------------
+# Corpus-bound config seam (Section C, task #86) — sibling of
+# relevance_hops: the curated-corpus size cap the coverage-gate's
+# stratified selection reads. See review.corpus_bound for the selection
+# algorithm this knob feeds.
+# ---------------------------------------------------------------------------
+
+DEFAULT_CORPUS_BOUND: int = 100
+
+
+def get_corpus_bound(config: Any = None, *, review_type: str | None = None) -> int:
+    """Return the curated-corpus size bound (Section C, task #86).
+
+    Principle 2: "a survey is ~100 well-chosen papers, not an exhaustive
+    net." This is the ``N`` the stratified largest-remainder selection
+    (``review.corpus_bound.select_bounded_corpus``) targets — the total
+    count of ``[NEW]`` rows promoted into the frozen corpus this review
+    cycle, INCLUDING any protected-stratum pins (so the bound stays a true
+    bound, never silently exceeded by pinning).
+
+    Args:
+        config: a loaded Config instance (or None for the shipped default).
+                If the config has ``[review_style] corpus_bound = N`` (a
+                positive int), that value overrides the default. A per-
+                review-type override under ``[review_style.by_type.<type>]``
+                is checked first (same 2-tier lookup every other knob in
+                this module uses).
+
+    Returns:
+        The corpus-size cap (int, >= 1). Default 100. A non-int,
+        non-positive, or missing override falls back to the default —
+        fail-closed, never unbounded.
+    """
+    override = _review_style_int_override(config, "corpus_bound", review_type=review_type)
+    return override if override is not None else DEFAULT_CORPUS_BOUND

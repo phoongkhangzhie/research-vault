@@ -483,11 +483,14 @@ class TestCanaryAndVerdictParsing:
             "| [NEW] | smith2024 | A paper | An abstract. |\n"
         )
         rows = rel.parse_corpus_table_with_abstract(text)
-        # A1 (task #86): rows also carry an optional "rerank" key now
-        # (defaults to "" when the row has no 5th Rerank column) — an
-        # additive field, not a break of the legacy 4-column shape itself.
+        # A1/C (task #86): rows also carry optional "rerank"/"poles" keys
+        # now (default "" when the row has no 5th/6th column) — additive
+        # fields, not a break of the legacy 4-column shape itself.
         assert rows == [
-            {"citekey": "smith2024", "title": "A paper", "abstract": "An abstract.", "rerank": ""},
+            {
+                "citekey": "smith2024", "title": "A paper", "abstract": "An abstract.",
+                "rerank": "", "poles": "",
+            },
         ]
 
     def test_annotation_is_new_excludes_compound_in_corpus(self):

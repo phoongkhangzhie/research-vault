@@ -115,6 +115,19 @@ class PaperHit:
     # every other optional PaperHit field already follows.
     rerank_score: float | None = field(default=None, compare=False)
 
+    # C (lit-review search-primary redesign, task #86): the DECLARED
+    # facet-pole(s) (``"<angle>.<stance>"`` keys, ``sweep.compute_facet_
+    # pole_coverage``'s own key shape) whose cell(s) surfaced this hit at
+    # sweep-fetch time — the stratification-bucket signal Section C's
+    # corpus-bound curation reads (which pole's quota a candidate counts
+    # against) AND part of the composite strength order (more poles
+    # matched = stronger). Empty frozenset (never a fabricated pole) means
+    # this hit never went through a facet-tagged sweep cell — e.g. a
+    # citation-neighbor-walk discovery (no cell/angle context at all) or a
+    # legacy flat (non-thesis/counter) angle matrix, which carries no pole
+    # structure to tag. Stamped by ``sweep.compose_sweep_result``.
+    poles: frozenset[str] = field(default_factory=frozenset, compare=False)
+
 
 # A1: the honest-blank sentinel a "Rerank" table column renders when a hit's
 # ``rerank_score`` is ``None`` — deliberately NON-EMPTY (never a bare ""),
@@ -123,6 +136,10 @@ class PaperHit:
 # ``review._parse_corpus_citekeys``) never silently shifts a later column's
 # index because of a blank score cell.
 RERANK_NO_SCORE = "—"
+
+# C: the same honest-blank sentinel, reused verbatim (charter §6) for the
+# "Poles" table column when a hit's ``poles`` is empty.
+POLES_NONE = "—"
 
 
 def format_rerank_score(score: float | None) -> str:
@@ -137,6 +154,29 @@ def format_rerank_score(score: float | None) -> str:
     if score is None:
         return RERANK_NO_SCORE
     return f"{score:.3f}"
+
+
+def format_poles(poles: frozenset[str] | set[str] | None) -> str:
+    """Render a ``PaperHit.poles`` set for a markdown table cell.
+
+    Empty/``None`` -> ``POLES_NONE`` (never a blank cell — same positional-
+    column-safety reasoning as ``format_rerank_score``). A non-empty set
+    renders as a comma-joined, sorted list of pole keys (deterministic,
+    reproducible across re-renders).
+    """
+    if not poles:
+        return POLES_NONE
+    return ", ".join(sorted(poles))
+
+
+def parse_poles_cell(cell: str) -> frozenset[str]:
+    """Inverse of ``format_poles`` — parse a "Poles" table cell back into a
+    pole-key frozenset. ``POLES_NONE`` (or any blank/whitespace-only cell)
+    parses to the empty frozenset — never a crash, never a fabricated pole."""
+    text = (cell or "").strip()
+    if not text or text == POLES_NONE:
+        return frozenset()
+    return frozenset(p.strip() for p in text.split(",") if p.strip())
 
 
 @runtime_checkable
