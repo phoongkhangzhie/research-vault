@@ -23,6 +23,9 @@ Stdlib only (``os`` + a lazy ``keyring`` import).
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+from typing import Callable
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
@@ -142,6 +145,82 @@ def get_key(key_id: str) -> KeySpec:
 
 
 # ---------------------------------------------------------------------------
+# asta liveness — a rejects-only ping, not a presence check.
+# ---------------------------------------------------------------------------
+# asta is an OAuth-session credential (refresh-token based), not a static API
+# key — the local key can be PRESENT while the session is DEAD server-side
+# (e.g. a revoked/expired refresh token → invalid_grant).  A presence check
+# alone reports [OK] on a dead session; ``rv check`` must instead ping the
+# session live before calling it available.
+
+_ASTA_NOT_AUTHENTICATED_MARKERS = ("Not authenticated",)
+# A network/connection failure while verifying is NOT proof the session is
+# dead — these markers must be checked BEFORE the generic "Invalid" match, or
+# an offline run would be mis-reported as a dead session.
+_ASTA_NETWORK_ERROR_MARKERS = ("Connection error", "Verification failed:")
+
+
+def _run_asta_auth_status(asta_path: str) -> tuple[int, str]:
+    """Run ``asta auth status`` and return (returncode, combined stdout+stderr).
+
+    Isolated as its own function (rather than inlining ``subprocess.run``) so
+    tests can monkeypatch the subprocess call directly. Never raises —
+    ``subprocess.TimeoutExpired`` / ``OSError`` are handled by the caller.
+    """
+    r = subprocess.run(
+        [asta_path, "auth", "status"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+def asta_liveness_probe() -> tuple[str, str]:
+    """Rejects-only liveness ping for the asta OAuth session.
+
+    asta is NOT a pip package — this shells out to the ``asta`` CLI's own
+    ``auth status`` (which round-trips the access token against the asta
+    gateway server) rather than importing anything or re-implementing OAuth.
+    Never raises; never reports "live" without an actual server confirmation.
+
+    Returns ``(status, detail)`` where ``status`` is one of:
+      "live"       — the gateway server confirmed the session is valid.
+      "dead"       — no local session, or the server REJECTED it (expired /
+                     revoked refresh token, invalid_grant, etc.) — fail closed.
+      "unverified" — could not confirm either way (CLI missing, timed out, or
+                     a connection error reaching the gateway — e.g. offline).
+                     NEVER conflated with "live".
+    """
+    asta_path = shutil.which("asta")
+    if not asta_path:
+        return "unverified", "`asta` CLI not found on PATH — cannot verify session liveness"
+
+    try:
+        _rc, out = _run_asta_auth_status(asta_path)
+    except subprocess.TimeoutExpired:
+        return "unverified", "liveness ping timed out (network may be unreachable)"
+    except OSError as exc:
+        return "unverified", f"could not run `asta auth status` ({exc})"
+
+    if any(m in out for m in _ASTA_NOT_AUTHENTICATED_MARKERS):
+        return "dead", "no local session — run `asta auth login`"
+
+    if any(m in out for m in _ASTA_NETWORK_ERROR_MARKERS):
+        return "unverified", "gateway unreachable — could not verify session (offline?)"
+
+    for line in out.splitlines():
+        if "Server Verification" in line:
+            if "Invalid" in line:
+                return "dead", "gateway rejected the session — run `asta auth login` to reauthenticate"
+            if "Valid" in line:
+                return "live", "gateway confirmed the session is live"
+            break
+
+    return "unverified", "liveness ping produced unrecognized output — could not verify session"
+
+
+# ---------------------------------------------------------------------------
 # Feature catalog (what rv check + rv onboard render / walk)
 # ---------------------------------------------------------------------------
 
@@ -150,12 +229,18 @@ class Feature:
     """A capability a fresh adopter can unlock.
 
     ``kind``:
-      - ``"key"``      — backed by one-or-more keyring keys (``keys``); present
-                          when ANY of them resolves.
-      - ``"package"``  — a Python package the adopter installs (``import_name``);
-                          present when importable.
-      - ``"handoff"``  — a guided sub-flow (``handoff_cmd``, e.g. ``rv compute init``);
-                          present when its manifest exists (checked by the caller).
+      - ``"key"``          — backed by one-or-more keyring keys (``keys``); present
+                              when ANY of them resolves. Presence-only — use this
+                              only when there is no cheap way to verify liveness.
+      - ``"key_liveness"``  — like ``"key"``, but a present key is verified with a
+                              rejects-only ping (``liveness_probe``) before the
+                              feature is reported unlocked. Use for session /
+                              refresh-token credentials (OAuth) that can go stale
+                              while the local key material is still present.
+      - ``"package"``      — a Python package the adopter installs (``import_name``);
+                              present when importable.
+      - ``"handoff"``      — a guided sub-flow (``handoff_cmd``, e.g. ``rv compute init``);
+                              present when its manifest exists (checked by the caller).
     """
 
     id: str
@@ -167,6 +252,7 @@ class Feature:
     note: str = ""
     import_name: str = ""
     handoff_cmd: str = ""
+    liveness_probe: Callable[[], tuple[str, str]] | None = None
     cls: str = field(default=CLASS_FEATURE_REQUIRED)
 
 
@@ -194,9 +280,13 @@ FEATURES: tuple[Feature, ...] = (
         id="asta",
         title="asta",
         unlocks="`rv research find` and `rv research find --deep`",
-        kind="key",
+        kind="key_liveness",
         keys=(ASTA_KEY,),
         request_url=ASTA_KEY.request_url,
+        # Indirected through a lambda (not the bound function object) so tests
+        # can monkeypatch module-level `asta_liveness_probe` and have this
+        # already-constructed Feature pick it up at call time.
+        liveness_probe=lambda: asta_liveness_probe(),
         note=(
             "the access request needs an institutional email (not a personal "
             "gmail); see allenai.org/asta/resources/mcp"
