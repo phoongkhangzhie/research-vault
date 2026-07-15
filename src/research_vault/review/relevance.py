@@ -257,17 +257,22 @@ def parse_protocol_criteria(protocol_path: Path) -> tuple[dict[str, Any], str]:
 
 def parse_corpus_raw_rows(text: str) -> list[dict[str, str]]:
     """Parse a ``_corpus_raw.md``-shaped table:
-    ``| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags |``
+    ``| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags | Rerank |``
     (``sources.snowball.write_corpus_raw``'s exact header).
 
-    Tolerant of extra/missing trailing columns (Venue/Year/Abstract/Flags
-    may be blank strings — the honest-blank convention already documented
-    on ``write_corpus_raw``). Header/separator rows and any row whose
-    column-0 isn't bracket-shaped (``[...]``) are silently skipped — the
-    same narrow structural signal ``review._parse_corpus_citekeys`` uses.
+    Tolerant of extra/missing trailing columns (Venue/Year/Abstract/Flags/
+    Rerank may be blank strings — the honest-blank convention already
+    documented on ``write_corpus_raw``). Header/separator rows and any row
+    whose column-0 isn't bracket-shaped (``[...]``) are silently skipped —
+    the same narrow structural signal ``review._parse_corpus_citekeys`` uses.
+
+    A1 (task #86): the trailing ``Rerank`` column (8th) is OPTIONAL — a
+    legacy 7-column row (written before A1 shipped) parses exactly as
+    before, with ``rerank`` defaulting to ``""``. Pure append, no
+    positional-format break.
 
     Returns a list of dicts with keys: annotation, paper_id, title, venue,
-    year, abstract, flags (all raw strings, "" when absent).
+    year, abstract, flags, rerank (all raw strings, "" when absent).
     """
     rows: list[dict[str, str]] = []
     for line in text.splitlines():
@@ -292,6 +297,7 @@ def parse_corpus_raw_rows(text: str) -> list[dict[str, str]]:
             "year": cols[4] if len(cols) > 4 else "",
             "abstract": cols[5] if len(cols) > 5 else "",
             "flags": cols[6] if len(cols) > 6 else "",
+            "rerank": cols[7] if len(cols) > 7 else "",
         })
     return rows
 
@@ -301,7 +307,7 @@ def _render_corpus_raw_row(row: dict[str, str]) -> str:
         f"| {row.get('annotation', '')} | {row.get('paper_id', '')} | "
         f"{row.get('title', '')} | {row.get('venue', '')} | "
         f"{row.get('year', '')} | {row.get('abstract', '')} | "
-        f"{row.get('flags', '')} |"
+        f"{row.get('flags', '')} | {row.get('rerank', '')} |"
     )
 
 
@@ -358,8 +364,8 @@ def screen_corpus_raw(
         f"Relevance gate: {counts['total']} candidate(s), "
         f"{counts['in']} in-scope, {counts['uncertain']} uncertain "
         f"(kept+flagged), {counts['off_domain']} off-domain (rejected).\n",
-        "| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags |",
-        "|---|---|---|---|---|---|---|",
+        "| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags | Rerank |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for row in kept:
         lines.append(_render_corpus_raw_row(row))
@@ -509,6 +515,13 @@ def parse_corpus_table_with_abstract(text: str) -> list[dict[str, str]]:
     no abstract column gets ``abstract: ""`` — never a crash, never a
     fabricated abstract.
 
+    A1 (task #86): a further OPTIONAL 5th ``Rerank`` column
+    (``| Annotation | Citekey | Title | Abstract | Rerank |``) — the
+    curate agent's tips (``review.style``'s ``review_curate_tips``)
+    instruct it to carry the score verbatim from ``_corpus_raw.md``. A row
+    with no 5th column gets ``rerank: ""`` — pure append, no positional-
+    format break on either the legacy 3- or 4-column shape.
+
     Only rows carrying a ``NEW`` status tag are returned (see
     ``_annotation_is_new`` — tolerates both the bare ``[NEW]`` legacy shape
     and a real compound annotation like ``[LEG-1][NEW] {tags}``).
@@ -534,6 +547,7 @@ def parse_corpus_table_with_abstract(text: str) -> list[dict[str, str]]:
         citekey = cols[1] if len(cols) > 1 else ""
         title = cols[2] if len(cols) > 2 else ""
         abstract = cols[3] if len(cols) > 3 else ""
+        rerank = cols[4] if len(cols) > 4 else ""
         # DOI-shaped citekeys (e.g. "10.48550/arXiv.2604.19787",
         # "10.1038/s44482-026-00026-6") are common in a real curated corpus
         # — the legacy charset omitted "/" and silently dropped every DOI
@@ -541,7 +555,7 @@ def parse_corpus_table_with_abstract(text: str) -> list[dict[str, str]]:
         # shape the strict regex never accounted for).
         if not re.match(r"^[A-Za-z0-9_:/\-\.]+$", citekey):
             continue
-        rows.append({"citekey": citekey, "title": title, "abstract": abstract})
+        rows.append({"citekey": citekey, "title": title, "abstract": abstract, "rerank": rerank})
     return rows
 
 
