@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from .base import NotSupported, PaperHit, SourceAdapter, format_rerank_score
+from .base import NotSupported, PaperHit, SourceAdapter, format_poles, format_rerank_score
 from .dedup import DedupedHit, dedup_hits, identity_key
 from .derivative import count_independent, mark_derivatives
 from .ranker import UtilityScore, rank_and_select, score_hit
@@ -890,6 +890,17 @@ def compose_sweep_result(
     mark_derivatives([d.hit for d in deduped], threshold=derivative_threshold)
     independent_count = count_independent([d.hit for d in deduped])
 
+    # C (task #86): per-identity DECLARED facet-pole membership, reusing
+    # ``compute_facet_pole_coverage`` (charter §6 — the SAME pole-key
+    # derivation Layer 2's facet-coverage check already uses, never a
+    # second, drifting implementation). A legacy flat (non-thesis/counter)
+    # angle matrix's cells never match ``_FACET_KEY_RE`` and contribute no
+    # poles — the honest "no pole structure to tag" case.
+    poles_by_identity: dict[str, set[str]] = {}
+    for pole, identities in compute_facet_pole_coverage(cells).items():
+        for ident in identities:
+            poles_by_identity.setdefault(ident, set()).add(pole)
+
     scores: dict[int, UtilityScore] = {}
     for d in deduped:
         angles = angles_by_identity.get(identity_key(d.hit), set())
@@ -905,6 +916,7 @@ def compose_sweep_result(
             angle_category_count=len(angles),
             is_derivative=d.hit.derivative_of is not None,
         )
+        d.hit.poles = frozenset(poles_by_identity.get(identity_key(d.hit), set()))
 
     kept = rank_and_select(deduped, budget=budget, floor=floor, scores=scores)
     dark_sources = detect_dark_sources(cells)
@@ -1202,8 +1214,8 @@ def write_search_hits(
             "the whole kept set as boundary-sourced; the snowball walk "
             "should chase all of it.\n"
         )
-    lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags | Rerank |")
-    lines.append("|---|---|---|---|---|---|---|---|")
+    lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags | Rerank | Poles |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
     for d in result.kept:
         hit = d.hit
         annotation = _annotate_hit(
@@ -1232,8 +1244,13 @@ def write_search_hits(
         # reads. Honest-blank sentinel (never a fabricated number) when
         # this hit never went through a rerank pass.
         rerank = format_rerank_score(hit.rerank_score)
+        # C (task #86): the DECLARED facet-pole(s) this hit matched — the
+        # stratification-bucket signal. Honest-blank sentinel (never a
+        # fabricated pole) when this hit's sweep cell carried no pole
+        # structure (legacy flat matrix).
+        poles = format_poles(hit.poles)
         lines.append(
-            f"| {annotation} | {pid} | {title} | {venue} | {year} | {evidence} | {' '.join(flags)} | {rerank} |"
+            f"| {annotation} | {pid} | {title} | {venue} | {year} | {evidence} | {' '.join(flags)} | {rerank} | {poles} |"
         )
     lines.append("")
 

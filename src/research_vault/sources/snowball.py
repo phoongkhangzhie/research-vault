@@ -52,7 +52,14 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from .base import AdapterFetchError, NotSupported, PaperHit, SourceAdapter, format_rerank_score
+from .base import (
+    AdapterFetchError,
+    NotSupported,
+    PaperHit,
+    SourceAdapter,
+    format_poles,
+    format_rerank_score,
+)
 from .dedup import DedupedHit, dedup_hits, identity_key
 from .derivative import count_independent, mark_derivatives
 from .sweep import _evidence_snippet  # reuse, not reinvent — charter §6
@@ -106,6 +113,17 @@ def _default_progress(msg: str) -> None:
     that parses this process's stdout; mirrors the CLI's own
     ``print(..., file=sys.stderr)`` convention elsewhere in this codebase)."""
     print(msg, file=sys.stderr, flush=True)
+
+
+def _hit_to_json_dict(hit: PaperHit) -> dict[str, Any]:
+    """``asdict(hit)`` with ``poles`` (a ``frozenset``, not JSON-
+    serializable) converted to a sorted list. C (task #86): everything
+    else on ``PaperHit`` is already a JSON-safe scalar/dict/list — only the
+    new pole set needs this treatment. ``_load_checkpoint``'s reload path
+    converts it back to a frozenset explicitly (see that call site)."""
+    d = asdict(hit)
+    d["poles"] = sorted(hit.poles)
+    return d
 
 
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
@@ -407,7 +425,16 @@ def run_citation_neighbor_walk(
     if loaded is not None:
         seen_identities = set(loaded["seen_identities"])
         visited_pids = set(loaded["visited_pids"])
-        all_hits = [PaperHit(**h) for h in loaded["all_hits"]]
+        # C (task #86): ``poles`` is a ``frozenset`` on a live ``PaperHit``
+        # but a checkpoint round-trips it through JSON as a sorted list
+        # (see the ``_atomic_write_json`` call site below) — reconstruct
+        # the frozenset explicitly here rather than silently leaving it a
+        # plain list (a type the rest of this module never expects to see
+        # on ``hit.poles``).
+        all_hits = [
+            PaperHit(**{**h, "poles": frozenset(h.get("poles") or ())})
+            for h in loaded["all_hits"]
+        ]
         errors = list(loaded["errors"])
         rounds = [SnowballRoundRecord(**r) for r in loaded["rounds"]]
         unresolvable_ids = list(loaded["unresolvable_ids"])
@@ -604,7 +631,7 @@ def run_citation_neighbor_walk(
                 "unresolvable_ids": unresolvable_ids,
                 "errors": errors,
                 "rounds": [asdict(r) for r in rounds],
-                "all_hits": [asdict(h) for h in all_hits],
+                "all_hits": [_hit_to_json_dict(h) for h in all_hits],
             })
 
         if not frontier:
@@ -749,8 +776,8 @@ def write_corpus_raw(
             f"{id_stats['unresolved']} still unresolved after the attempt "
             "(flagged `[NO-ID]` below; a counted drop, not a silent one).\n"
         )
-    lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags | Rerank |")
-    lines.append("|---|---|---|---|---|---|---|---|")
+    lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags | Rerank | Poles |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
     for d in result.kept:
         hit = d.hit
         annotation = _annotate_hit(
@@ -773,8 +800,12 @@ def write_corpus_raw(
         # FRESH PaperHit — never scored — and renders the honest sentinel,
         # never a fabricated number (see PaperHit.rerank_score docstring).
         rerank = format_rerank_score(hit.rerank_score)
+        # C (task #86): same honest-blank discipline for the DECLARED
+        # facet-pole(s) this hit matched — a walk discovery is a FRESH
+        # PaperHit with no cell/angle context, so it renders the sentinel.
+        poles = format_poles(hit.poles)
         lines.append(
-            f"| {annotation} | {pid} | {title} | {venue} | {year} | {evidence} | {' '.join(flags)} | {rerank} |"
+            f"| {annotation} | {pid} | {title} | {venue} | {year} | {evidence} | {' '.join(flags)} | {rerank} | {poles} |"
         )
     lines.append("")
 
