@@ -76,6 +76,22 @@ _STOPWORDS: frozenset[str] = frozenset({
     "method", "methods", "work", "paper's", "authors",
 })
 
+# B1 hardening (2026-07-12 design, "search-primary" redesign): the
+# original gate admitted a candidate on a SINGLE shared len>=4 content
+# token (``tokens & domain_vocab`` non-empty). That single-token OR-match
+# is the documented root cause of a real 212-paper physics/chem/bio
+# FACET_REMEDIATE flood (211 of 212 adds were off-domain, admitted on
+# one incidental shared word like "behavior" or "field"). Requiring >=2
+# DISTINCT overlapping tokens (not a ratio — a fixed count is simpler,
+# threshold-stable across abstract lengths, and matches the spec's literal
+# ask) closes that flood at the source while keeping the gate a cheap
+# mechanical pre-screen (no NLP, no semantic judgment — that's still the
+# LLM placements' job). Module constant, not a config knob: this is a
+# calibration constant of the mechanical gate itself, not a per-review
+# tunable (mirrors ``OFF_DOMAIN_HALT_THRESHOLD``'s own module-constant
+# convention below).
+_MIN_DISTINCTIVE_TOKEN_OVERLAP = 2
+
 # Cross-domain-generic terms (B2 hardening): a term that shows up in the
 # vocabulary of MANY unrelated fields, so a single shared hit is weak
 # evidence of true topical overlap — e.g. a review whose counter-position
@@ -146,12 +162,23 @@ def relevance_gate(
     Returns:
         ``OFF_DOMAIN`` only when the candidate has ENOUGH substance to
         judge (>= ``_MIN_WORDS_FOR_CONFIDENT_JUDGMENT`` words) AND shares
-        zero topical-vocabulary overlap with the frozen criteria AND is not
-        a named counter-position match. ``UNCERTAIN`` when there isn't
-        enough substance to judge confidently, or the criteria carry no
-        vocabulary to judge against. ``IN`` otherwise (topically plausible,
-        including any boundary/disconfirming match) — the permissive,
-        recall-safe default.
+        FEWER than ``_MIN_DISTINCTIVE_TOKEN_OVERLAP`` (2) distinct topical
+        tokens with the frozen criteria AND is not a named counter-position
+        match. ``UNCERTAIN`` when there isn't enough substance to judge
+        confidently, or the criteria carry no vocabulary to judge against.
+        ``IN`` otherwise (topically plausible, including any
+        boundary/disconfirming match, or >=2 distinctive-token overlap) —
+        the permissive, recall-safe default.
+
+        The counter-position (disconfirming-protection) branch is
+        deliberately NOT subject to the >=2-token floor: it exists to
+        protect a small, deliberately-named contrast anchor from being
+        stripped by the domain-vocabulary reject path, and a counter-
+        position field is often short/single-concept prose (e.g. one named
+        phenomenon) — requiring 2+ tokens there would defeat the exact
+        recall-protection the field exists for. The >=2-token floor applies
+        ONLY to the domain-vocabulary accept/reject decision (the flood's
+        actual root cause).
     """
     title = str(candidate.get("title", "") or "").strip()
     abstract = str(
@@ -181,7 +208,7 @@ def relevance_gate(
         # reject anything (fail toward keep+flag, never a silent OFF_DOMAIN).
         return UNCERTAIN
 
-    if tokens & domain_vocab:
+    if len(tokens & domain_vocab) >= _MIN_DISTINCTIVE_TOKEN_OVERLAP:
         return IN
 
     return OFF_DOMAIN

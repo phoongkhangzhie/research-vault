@@ -138,6 +138,64 @@ class TestRelevanceGateCalibration:
         verdict = rel.relevance_gate(candidate, {}, "")
         assert verdict == rel.UNCERTAIN
 
+    def test_single_shared_token_flood_case_rejected(self):
+        """B1 (the actual csb-dogfood flood cause): a detector-physics
+        candidate that shares exactly ONE non-generic token
+        (``behavior``) with the domain vocabulary — everything else is
+        detector/materials jargon with zero overlap. Under the pre-B1 gate
+        (``tokens & domain_vocab`` non-empty -> IN) this single OR-match
+        admitted the candidate; that is the documented root cause of the
+        212-paper physics/chem/bio FACET_REMEDIATE flood. B1 requires >=2
+        distinctive-token overlap, so a lone incidental match now rejects."""
+        candidate = {
+            "title": "Anomalous transport behavior in cryogenic dark matter detectors",
+            "abstract": (
+                "We characterize anomalous transport behavior in cryogenic "
+                "bolometric dark matter detector arrays, analyzing phonon "
+                "collection efficiency and quenching factors across varying "
+                "substrate temperatures."
+            ),
+        }
+        verdict = rel.relevance_gate(candidate, _DEMO_CRITERIA, _COUNTER_POSITION)
+        assert verdict == rel.OFF_DOMAIN
+
+    def test_two_distinctive_token_overlap_still_admits(self):
+        """The positive edge of the B1 threshold: a candidate sharing
+        exactly TWO distinctive tokens (``cultural``, ``behavior``) with
+        the domain vocabulary, and nothing else, still passes IN — B1
+        requires >=2 overlap, not >2."""
+        candidate = {
+            "title": "Cultural transmission and imitation behavior in wild chimpanzee troops",
+            "abstract": (
+                "We document cultural transmission and imitation behavior "
+                "in wild chimpanzee troops via longitudinal field "
+                "observation of tool-use variants across isolated "
+                "populations."
+            ),
+        }
+        verdict = rel.relevance_gate(candidate, _DEMO_CRITERIA, _COUNTER_POSITION)
+        assert verdict == rel.IN
+
+    def test_recall_trade_documented_single_distinctive_term_now_dropped(self):
+        """Documents the accepted recall trade (spec 2026-07-12 B1): a
+        candidate that is plausibly in-scope but shares only ONE highly
+        distinctive term (``psychometric``) with the domain vocabulary is
+        now OFF_DOMAIN under the tightened gate, where the pre-B1 gate
+        would have kept it IN. This is a deliberate, spec'd precision-for-
+        recall trade (kills the 212-paper flood), not a bug — recorded
+        here so a future reader sees it was a conscious choice, not an
+        accidental regression."""
+        candidate = {
+            "title": "A psychometric scale for cross-species trust attribution",
+            "abstract": (
+                "We develop and validate a novel psychometric scale "
+                "measuring trust attribution toward robotic agents in a "
+                "human-robot interaction laboratory setting."
+            ),
+        }
+        verdict = rel.relevance_gate(candidate, _DEMO_CRITERIA, _COUNTER_POSITION)
+        assert verdict == rel.OFF_DOMAIN
+
     def test_verdict_always_in_fixed_vocab(self):
         for candidate in (
             {"title": "x", "abstract": "y" * 50},
