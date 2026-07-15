@@ -274,6 +274,39 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help="Review scope identifier slug (the corpus_freeze baseline to re-freeze).",
     )
 
+    # ── declare-delta (Section F(a)) ────────────────────────────────────────
+    declare_delta_p = sub.add_parser(
+        "declare-delta",
+        help=(
+            "Compute baseline - current corpus citekeys and write a "
+            "DECLARED, human-authored 'criteria-change' deviation capturing "
+            "the removed set. Automates the keystrokes of hand-writing a "
+            "removed-set into _deviations.md — a HUMAN-invoked convenience "
+            "verb only; never grants the autonomous loop removal power."
+        ),
+        description=(
+            "Section F(a) of the lit-review redesign: the corpus-freeze "
+            "guard (check_undeclared_deviation) already accepts a DECLARED "
+            "removal — this verb just automates writing that declaration. "
+            "It does NOT decide to remove anything (the removal must "
+            "already be reflected in _corpus.md) and it never runs inside "
+            "the autonomous remediation loop. Writes nothing if the delta "
+            "is empty. Run `rv review refresh` afterward to move the "
+            "corpus_freeze baseline forward."
+        ),
+    )
+    declare_delta_p.add_argument(
+        "scope",
+        metavar="<scope>",
+        help="Review scope identifier slug.",
+    )
+    declare_delta_p.add_argument(
+        "--rationale",
+        metavar="<text>",
+        required=True,
+        help="Human-supplied rationale for the removal (required — never auto-fabricated).",
+    )
+
     # ── tips ─────────────────────────────────────────────────────────────────
     tips_p = sub.add_parser(
         "tips",
@@ -514,6 +547,8 @@ def run(args: argparse.Namespace) -> int:
         return _run_list(args)
     elif subcommand == "refresh":
         return _run_refresh(args)
+    elif subcommand == "declare-delta":
+        return _run_declare_delta(args)
     elif subcommand == "tips":
         return _run_tips(args)
     elif subcommand == "judge-emit":
@@ -537,6 +572,8 @@ def run(args: argparse.Namespace) -> int:
             "Use `rv review <project> new <scope> --question '...'` (or the "
             "fused `rv review <project> run <scope> --question '...'`, D2), "
             "`rv review <project> list`, `rv review <project> refresh <scope>` (NG-6a), "
+            "`rv review <project> declare-delta <scope> --rationale '...'` "
+            "(declare a corpus-shrink delta before refresh), "
             "`rv review <project> tips`, "
             "`rv review <project> gap-scan`, `rv review <project> gap-scope [--target …]`, "
             "`rv review <project> gap-route [--target …]` (alias for gap-scope), "
@@ -719,6 +756,53 @@ def _run_refresh(args: argparse.Namespace) -> int:
         f"v{new_freeze['version']} — {len(new_freeze['corpus_citekeys'])} "
         f"citekey(s), corpus_hash={new_freeze['corpus_hash'][:23]}..., "
         f"criteria_hash={new_freeze['criteria_hash'][:23]}..."
+    )
+    return 0
+
+
+def _run_declare_delta(args: argparse.Namespace) -> int:
+    """Section F(a): human-invoked convenience — declare a corpus delta."""
+    from research_vault.config import load_config
+    from research_vault.review.corpus_freeze import RefreshBlocked, cmd_declare_delta
+    from research_vault.dag.store import StoreError
+    from research_vault.review import CorpusSchemaError
+
+    try:
+        cfg = load_config()
+    except Exception as e:
+        print(f"rv review declare-delta: config error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        result = cmd_declare_delta(args.project, args.scope, args.rationale, config=cfg)
+    except RefreshBlocked as e:
+        print(f"rv review declare-delta: {e}", file=sys.stderr)
+        return 1
+    except CorpusSchemaError as e:
+        print(f"rv review declare-delta: {e}", file=sys.stderr)
+        return 1
+    except StoreError as e:
+        print(f"rv review declare-delta: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"rv review declare-delta: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"rv review declare-delta: error: {e}", file=sys.stderr)
+        return 1
+
+    if result is None:
+        print(
+            f"rv review declare-delta ({args.project}/{args.scope}): no delta "
+            "vs the frozen baseline — nothing written."
+        )
+        return 0
+
+    print(
+        f"rv review declare-delta ({args.project}/{args.scope}): declared "
+        f"{len(result['removed'])} removed citekey(s) — "
+        f"{', '.join(result['removed'])}. Run `rv review {args.project} "
+        f"refresh {args.scope}` to move the corpus_freeze baseline forward."
     )
     return 0
 
