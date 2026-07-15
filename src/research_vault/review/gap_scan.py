@@ -159,6 +159,15 @@ class GapRecord:
       claim   — verbatim claim text from the anchor (becomes the review question)
       why     — brief reason the detector flagged this (honest surface, charter §2)
       status  — one of GAP_STATUSES
+      disposition        — "" (unset) or "leaves-open" (Section E: binds a
+                            genuinely-sparse coverage_void gap to
+                            gap_coverage_gate.check_gap_coverage_gate's
+                            existing leaves-open bucket — never a fabricated
+                            escape hatch; see disposition_reason).
+      disposition_reason — non-empty iff disposition == "leaves-open" (a
+                            stated-but-empty reason is NOT a valid escape
+                            hatch downstream — mirrors gap_coverage_gate's
+                            own malformed_disposition check).
     """
 
     type: str       # noqa: A003  (shadowing builtin is intentional here — matches frontmatter key)
@@ -169,6 +178,9 @@ class GapRecord:
     # suggested_route is written to the gap note frontmatter at scan time.
     # Set by suggest_route() in cmd_gap_scan; "" means not yet computed.
     suggested_route: str = ""
+    # Section E (thin-pole-as-finding): "" (default, no-op) or "leaves-open".
+    disposition: str = ""
+    disposition_reason: str = ""
     # Optional: extra context from the detector (not written to frontmatter by default)
     _meta: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
@@ -368,6 +380,7 @@ def _detect_coverage_void(
     scope_id: str,
     protocol_path: Path | None = None,
     search_hits_path: Path | None = None,
+    sparse_pole_dispositions: dict[str, str] | None = None,
 ) -> list[GapRecord]:
     """Detect Coverage Void gaps: RQ facets (counter-position poles) the
     lit-review's own width-sweep surfaced too FEW distinct papers for.
@@ -389,6 +402,18 @@ def _detect_coverage_void(
     ``.md`` suffix — ``note.check_gap_anchor`` appends it), so the gap's
     live-anchor hygiene check (vanished-anchor WARN) works exactly like
     every other gap type's anchor.
+
+    ``sparse_pole_dispositions`` (Section E, optional): a ``{pole: reason}``
+    map — the SAME evidence
+    ``review.facet_remediation.resolve_facet_coverage`` returns when its
+    anti-gaming teeth confirm a still-thin pole was genuinely, mechanically
+    searched (never a self-report). A pole present here gets
+    ``disposition: leaves-open`` + that non-empty ``disposition_reason``
+    stamped onto its gap note, so ``gap_coverage_gate.check_gap_coverage_gate``
+    resolves it into the ``leaves_open`` bucket instead of
+    ``open_uncovered`` — no ``ANSWERS`` edge required. A pole absent from
+    the map (or the map itself ``None``) gets the plain ``status: open``
+    gap, as before.
     """
     from research_vault.review import check_facet_coverage_from_search_hits
 
@@ -411,11 +436,13 @@ def _detect_coverage_void(
     # project_notes_dir/reviews/<scope_id> (review._review_artifact_dir).
     anchor = f"reviews/{scope_id}/_search_hits"
 
+    sparse_pole_dispositions = sparse_pole_dispositions or {}
     gaps: list[GapRecord] = []
     for pole in coverage["thin_poles"]:
         count = coverage["pole_counts"].get(pole, 0)
         min_hits = coverage["min_hits_per_pole"]
         claim = f"{question} — facet {pole!r}" if question else f"facet {pole!r}"
+        reason = sparse_pole_dispositions.get(pole, "")
         gaps.append(GapRecord(
             type=GAP_TYPE_COVERAGE_VOID,
             anchor=anchor,
@@ -426,6 +453,8 @@ def _detect_coverage_void(
                 f"research question is under-covered by the frozen corpus"
             ),
             status="open",
+            disposition="leaves-open" if reason else "",
+            disposition_reason=reason,
             _meta={
                 "pole": pole, "count": count,
                 "min_hits_per_pole": min_hits, "scope_id": scope_id,
@@ -439,6 +468,7 @@ def emit_coverage_gaps(
     project_notes_dir: Path,
     *,
     scope_id: str | None = None,
+    sparse_pole_dispositions: dict[str, str] | None = None,
 ) -> list[GapRecord]:
     """Emit Coverage Void gaps/<id>.md notes from a review scope's OWN
     facet-coverage record — the lit-review loop's missing second output
@@ -451,12 +481,17 @@ def emit_coverage_gaps(
     re-created; a reopen signal on a machine-closed gap is checked exactly
     like the other three detectors.
 
+    ``sparse_pole_dispositions`` (Section E, optional): forwarded verbatim
+    to ``_detect_coverage_void`` — see its docstring.
+
     Returns the list of newly-written GapRecords (never including
     pre-existing ones).
     """
     scope_id = scope_id or review_dir.name
 
-    detected = _detect_coverage_void(review_dir, scope_id=scope_id)
+    detected = _detect_coverage_void(
+        review_dir, scope_id=scope_id, sparse_pole_dispositions=sparse_pole_dispositions,
+    )
     existing = _existing_gap_ids(project_notes_dir)
 
     new_gaps: list[GapRecord] = []
@@ -567,6 +602,14 @@ def _render_gap_note(rec: GapRecord, gap_id: str) -> str:
         f"status: {rec.status}",
         f"suggested_route: {route}",
         f"detected: {today}",
+    ]
+    if rec.disposition:
+        lines.append(f"disposition: {rec.disposition}")
+        if rec.disposition_reason:
+            lines.append(
+                f"disposition_reason: \"{rec.disposition_reason.replace(chr(34), chr(39))}\""
+            )
+    lines += [
         "---",
         "",
         f"# Gap: {gap_id}",

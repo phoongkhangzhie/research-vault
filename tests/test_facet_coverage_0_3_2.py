@@ -811,6 +811,9 @@ class TestRunFacetQueryAppendRound:
         return protocol, corpus, deviations, search_hits, relevance_verdict
 
     def test_full_round_screens_tags_declares_refreshes_invalidates(self, tmp_path) -> None:
+        """B2: candidates pause for a cold relevance-verify pass BEFORE
+        landing — the round only APPLIES on a second call, once the
+        verdict file exists."""
         protocol, corpus, deviations, search_hits, relevance_verdict = self._setup(tmp_path)
 
         def fake_tool_op(op, **kwargs):
@@ -826,6 +829,34 @@ class TestRunFacetQueryAppendRound:
             return [_Hit()]
 
         meta: dict = {}
+        first = fremed.run_facet_query_append_round(
+            meta, pole="by-temporal.counter", new_queries=["persona rigidity long dialogue"],
+            protocol_path=protocol, corpus_path=corpus, deviations_path=deviations,
+            out_dir=tmp_path, search_hits_path=search_hits,
+            relevance_verdict_path=relevance_verdict, min_hits_per_pole=3,
+            tool_op_fn=fake_tool_op,
+        )
+        assert first["phase"] == "awaiting_cold_verify"
+        assert "persona rigidity long dialogue" in parse_angle_matrix(
+            protocol.read_text(encoding="utf-8")
+        ).values()
+        # never appended, never declared, never invalidated while pending
+        assert "Persona Stability" not in corpus.read_text()
+        assert not deviations.exists() or "within-facet-query-append" not in deviations.read_text()
+        assert relevance_verdict.exists()
+
+        task_dir = fremed.facet_task_dir(tmp_path, "by-temporal.counter")
+        (real_citekey,) = first["candidates"]
+        verdict_path = task_dir / fremed._REMEDIATION_VERIFY_VERDICT_FILENAME
+        from research_vault.review import relevance as rel
+        verdict_path.write_text(
+            "| Citekey | Verdict |\n|---|---|\n"
+            f"| {real_citekey} | IN |\n"
+            f"| {rel.CANARY_IN_SCOPE_CITEKEY} | IN |\n"
+            f"| {rel.CANARY_OFF_DOMAIN_CITEKEY} | OFF_DOMAIN |\n",
+            encoding="utf-8",
+        )
+
         result = fremed.run_facet_query_append_round(
             meta, pole="by-temporal.counter", new_queries=["persona rigidity long dialogue"],
             protocol_path=protocol, corpus_path=corpus, deviations_path=deviations,
@@ -834,10 +865,8 @@ class TestRunFacetQueryAppendRound:
             tool_op_fn=fake_tool_op,
         )
 
+        assert result["phase"] == "applied"
         assert len(result["added"]) == 1
-        assert "persona rigidity long dialogue" in parse_angle_matrix(
-            protocol.read_text(encoding="utf-8")
-        ).values()
         assert "within-facet-query-append" in deviations.read_text()
         # the cold verify artifact must be invalidated (a round added rows)
         assert not relevance_verdict.exists()
@@ -942,13 +971,16 @@ class TestFacetRemediateEndToEndWiring:
         task_dir = fremed.facet_task_dir(review_dir, "by-temporal.counter")
         assert (task_dir / fremed._TASK_FILENAME).exists()
 
-    def test_second_call_after_response_applies_round_and_halts_for_recurate(self, tmp_path) -> None:
+    def test_second_call_after_response_screens_and_halts_for_cold_verify(self, tmp_path) -> None:
+        """B2: the second call (query response present) only mechanically
+        screens + emits the cold-verify input — it does NOT apply the
+        round yet. A THIRD call, after the verdict exists, applies it."""
         review_dir = self._setup_review_dir(tmp_path)
         nodes_lookup = self._nodes_lookup(review_dir)
         manifest_path = review_dir / "phase1-dag.json"
         run_state = RunState(run_id="r1", manifest_path=str(manifest_path))
 
-        # First call emits the task.
+        # First call emits the query-authoring task.
         _evaluate_autonomous_gate("coverage-gate", nodes_lookup, manifest_path, run_state)
         task_dir = fremed.facet_task_dir(review_dir, "by-temporal.counter")
         (task_dir / fremed._RESPONSE_FILENAME).write_text(
@@ -969,8 +1001,37 @@ class TestFacetRemediateEndToEndWiring:
             disposition = _evaluate_autonomous_gate("coverage-gate", nodes_lookup, manifest_path, run_state)
 
         assert disposition.disposition == auto.HALT_DECLARE
-        assert "AWAITING a re-curate pass" in disposition.reason
+        assert "AWAITING a cold relevance-verify pass" in disposition.reason
+        # never appended yet — B2, the candidate has not been cold-verified
+        assert "[NEW][NEEDS-CURATE]" not in (review_dir / "_corpus.md").read_text()
+        assert run_state.meta["facet_remediation_state"]["rounds_used"] == 0
+        # the round-state persists so a repeat evaluation doesn't re-sweep
+        # (idempotent poll) — the query task/response are cleared only once
+        # the round fully APPLIES, below.
+        ns = run_state.node_states["coverage-gate"]
+        assert ns.get("facet_remediate_task_dir") == str(task_dir)
+
+        (real_citekey,) = disposition.evidence["candidates"]
+        from research_vault.review import relevance as rel
+
+        verdict_path = task_dir / fremed._REMEDIATION_VERIFY_VERDICT_FILENAME
+        verdict_path.write_text(
+            "| Citekey | Verdict |\n|---|---|\n"
+            f"| {real_citekey} | IN |\n"
+            f"| {rel.CANARY_IN_SCOPE_CITEKEY} | IN |\n"
+            f"| {rel.CANARY_OFF_DOMAIN_CITEKEY} | OFF_DOMAIN |\n",
+            encoding="utf-8",
+        )
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setitem(auto.OP_REGISTRY, "sweep", fake_tool_op)
+            final_disposition = _evaluate_autonomous_gate(
+                "coverage-gate", nodes_lookup, manifest_path, run_state,
+            )
+
+        assert final_disposition.disposition == auto.HALT_DECLARE
+        assert "AWAITING a re-curate pass" in final_disposition.reason
         assert "[NEW][NEEDS-CURATE]" in (review_dir / "_corpus.md").read_text()
         assert run_state.meta["facet_remediation_state"]["rounds_used"] == 1
-        # task consumed
-        assert not (task_dir / fremed._TASK_FILENAME).exists()
+        ns = run_state.node_states["coverage-gate"]
+        assert "facet_remediate_task_dir" not in ns
