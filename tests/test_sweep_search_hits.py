@@ -270,6 +270,128 @@ def test_write_search_hits_flags_no_id_when_truly_unresolvable(tmp_path):
     assert "[NO-ID" in row
 
 
+def test_write_search_hits_defaults_to_no_backfill_no_network(tmp_path):
+    """Default call (no attempt_id_backfill, no backfill_adapters) must
+    never attempt a lookup — hermetic, zero-behavior-change from before A3."""
+    hit = PaperHit(
+        title="Untitled Preprint With No Ids", year=2024, authors=["A"],
+        external_ids={}, abstract="", citation_count=0, source="openalex",
+    )
+    kept = [DedupedHit(hit=hit, sources={"openalex"}, external_ids={})]
+    result = SweepResult(kept=kept, independent_count=1, total_hits_fetched=1, cells=[], errors=[])
+    out = write_search_hits(result, tmp_path / "_search_hits.md", notes_index={})
+    text = out.read_text()
+    assert "id_backfill_missing: 1" in text
+    assert "id_backfill_resolved: 0" in text
+    assert "id_backfill_unresolved: 1" in text
+
+
+# ---------------------------------------------------------------------------
+# A3: id-resolution must not silently drop canonical papers (spec A3,
+# the Herrmann-2008 case: a 3000-cite paper [NO-ID]-dropped on messy
+# search-hit metadata is an id-resolution failure, not search-vs-walk).
+# ---------------------------------------------------------------------------
+
+class _StubBackfillAdapter:
+    """No-network stand-in for a SourceAdapter, injected via
+    ``backfill_adapters`` — proves ``write_search_hits`` actually wires the
+    backfill attempt through to ``identifiers.backfill_missing_ids``."""
+
+    def __init__(self, hits):
+        self.name = "stub"
+        self._hits = hits
+
+    def search(self, query, *, limit=20):
+        return self._hits
+
+
+def test_write_search_hits_backfills_herrmann_style_candidate_and_keeps_it(tmp_path):
+    """A messy-metadata candidate (no id) with a resolvable title/year gets
+    backfilled — the row carries the resolved id, and [NO-ID] never fires."""
+    hit = PaperHit(
+        title="Economic Man in Cross-Cultural Perspective", year=2008,
+        authors=["J. Herrmann"], external_ids={}, abstract="",
+        citation_count=3000, source="openalex",
+    )
+    kept = [DedupedHit(hit=hit, sources={"openalex"}, external_ids={})]
+    result = SweepResult(kept=kept, independent_count=1, total_hits_fetched=1, cells=[], errors=[])
+
+    resolver_hit = PaperHit(
+        title="Economic Man in Cross-Cultural Perspective", year=2008,
+        authors=["J. Herrmann"], external_ids={"doi": "10.1126/science.herrmann2008"},
+        abstract="", citation_count=3000, source="openalex",
+    )
+    adapter = _StubBackfillAdapter([resolver_hit])
+
+    out = write_search_hits(
+        result, tmp_path / "_search_hits.md", notes_index={},
+        backfill_adapters=[adapter],
+    )
+    text = out.read_text()
+    row = next(line for line in text.splitlines() if "Economic Man" in line)
+    assert "10.1126/science.herrmann2008" in row
+    assert "[NO-ID" not in row
+    assert "id_backfill_missing: 1" in text
+    assert "id_backfill_resolved: 1" in text
+    assert "id_backfill_unresolved: 0" in text
+    assert "Id-resolution:" in text
+
+
+def test_write_search_hits_genuinely_unresolvable_still_flagged_but_counted(tmp_path):
+    """A candidate backfill genuinely can't resolve is STILL [NO-ID]-flagged
+    — but the resolution-rate metric records the attempt, not a silent 0."""
+    hit = PaperHit(
+        title="A Truly Untraceable Preprint", year=2024, authors=["A"],
+        external_ids={}, abstract="", citation_count=0, source="openalex",
+    )
+    kept = [DedupedHit(hit=hit, sources={"openalex"}, external_ids={})]
+    result = SweepResult(kept=kept, independent_count=1, total_hits_fetched=1, cells=[], errors=[])
+    adapter = _StubBackfillAdapter([])  # no match found anywhere
+
+    out = write_search_hits(
+        result, tmp_path / "_search_hits.md", notes_index={},
+        backfill_adapters=[adapter],
+    )
+    text = out.read_text()
+    row = next(line for line in text.splitlines() if "Untraceable" in line)
+    assert "[NO-ID" in row
+    assert "id_backfill_missing: 1" in text
+    assert "id_backfill_resolved: 0" in text
+    assert "id_backfill_unresolved: 1" in text
+
+
+def test_write_search_hits_backfill_degrades_past_dead_adapter(tmp_path):
+    """One dead adapter in the backfill chain must not abort the render —
+    the next adapter in the chain still resolves the id."""
+    hit = PaperHit(
+        title="Economic Man in Cross-Cultural Perspective", year=2008,
+        authors=["J. Herrmann"], external_ids={}, abstract="",
+        citation_count=3000, source="openalex",
+    )
+    kept = [DedupedHit(hit=hit, sources={"openalex"}, external_ids={})]
+    result = SweepResult(kept=kept, independent_count=1, total_hits_fetched=1, cells=[], errors=[])
+
+    class _DeadAdapter:
+        name = "dead"
+
+        def search(self, query, *, limit=20):
+            raise RuntimeError("adapter down")
+
+    resolver_hit = PaperHit(
+        title="Economic Man in Cross-Cultural Perspective", year=2008,
+        authors=["J. Herrmann"], external_ids={"doi": "10.1126/science.herrmann2008"},
+        abstract="", citation_count=3000, source="openalex",
+    )
+    out = write_search_hits(
+        result, tmp_path / "_search_hits.md", notes_index={},
+        backfill_adapters=[_DeadAdapter(), _StubBackfillAdapter([resolver_hit])],
+    )
+    text = out.read_text()
+    row = next(line for line in text.splitlines() if "Economic Man" in line)
+    assert "10.1126/science.herrmann2008" in row
+    assert "[NO-ID" not in row
+
+
 # ---------------------------------------------------------------------------
 # Dark-source signal rendering (pre-publish hardening batch)
 # ---------------------------------------------------------------------------

@@ -11,14 +11,24 @@ Covers:
      placeholder fields (Fix #32's empty doi:/arxiv_id: scaffold) never
      round-trip as present ids.
   3. Round-trip: write(x) -> read() == x for the full id set.
+  4. resolve_missing_id / backfill_missing_ids — id-resolution must not
+     silently drop a canonical paper on a missing-id technicality: a
+     messy-metadata candidate with a resolvable title/year gets its id
+     backfilled via a title-lookup adapter chain before any caller would
+     flag it unresolvable; a genuinely-unresolvable candidate is still
+     unresolved but COUNTED; one adapter erroring degrades to the next.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
+from research_vault.sources.base import PaperHit
+from research_vault.sources.dedup import DedupedHit
 from research_vault.sources.identifiers import (
     FRONTMATTER_FIELD_MAP,
+    backfill_missing_ids,
     read_external_ids_from_note,
+    resolve_missing_id,
     write_external_ids_to_note,
 )
 
@@ -205,4 +215,164 @@ class TestRoundTrip:
             "openalex": "openalex",
             "pmid": "pmid",
             "s2": "s2",
+        }
+
+
+# ---------------------------------------------------------------------------
+# A3: id-resolution must not silently drop canonical papers (spec section A3)
+# ---------------------------------------------------------------------------
+
+class _StubAdapter:
+    """A minimal SourceAdapter stub — no network, canned .search() results."""
+
+    def __init__(self, name: str, hits: list[PaperHit] | None = None, *, raises: bool = False):
+        self.name = name
+        self._hits = hits or []
+        self._raises = raises
+        self.search_calls = 0
+
+    def search(self, query: str, *, limit: int = 20) -> list[PaperHit]:
+        self.search_calls += 1
+        if self._raises:
+            raise RuntimeError(f"{self.name} adapter down (simulated)")
+        return self._hits
+
+    def cited_by(self, paper_id: str, *, limit: int = 20) -> list[PaperHit]:
+        raise NotImplementedError
+
+    def references(self, paper_id: str, *, limit: int = 20) -> list[PaperHit]:
+        raise NotImplementedError
+
+
+def _messy_herrmann_hit() -> PaperHit:
+    """The Herrmann-2008-shaped case: a real, canonical paper whose search
+    hit carries no doi/arxiv/openalex/s2 id (messy source metadata) — but a
+    clean title + year an adapter CAN resolve by title lookup."""
+    return PaperHit(
+        title="Economic Man in Cross-Cultural Perspective",
+        year=2008, authors=["J. Herrmann"], external_ids={},
+        abstract="", citation_count=3000, source="openalex",
+    )
+
+
+class TestResolveMissingId:
+    def test_resolves_id_from_title_lookup_when_match_found(self) -> None:
+        resolver_hit = PaperHit(
+            title="Economic Man in Cross-Cultural Perspective",
+            year=2008, authors=["J. Herrmann"],
+            external_ids={"doi": "10.1126/science.herrmann2008"},
+            abstract="", citation_count=3000, source="openalex",
+        )
+        adapter = _StubAdapter("openalex", hits=[resolver_hit])
+        got = resolve_missing_id(
+            "Economic Man in Cross-Cultural Perspective", 2008, adapters=[adapter],
+        )
+        assert got == {"doi": "10.1126/science.herrmann2008"}
+        assert adapter.search_calls == 1
+
+    def test_returns_none_when_no_adapter_matches_title(self) -> None:
+        adapter = _StubAdapter("openalex", hits=[])
+        got = resolve_missing_id("A Truly Untraceable Preprint", 2024, adapters=[adapter])
+        assert got is None
+
+    def test_year_mismatch_beyond_tolerance_is_rejected(self) -> None:
+        wrong_year_hit = PaperHit(
+            title="Same Title Different Paper", year=1999, authors=[],
+            external_ids={"doi": "10.1/wrong-year"}, abstract="",
+            citation_count=0, source="openalex",
+        )
+        adapter = _StubAdapter("openalex", hits=[wrong_year_hit])
+        got = resolve_missing_id("Same Title Different Paper", 2024, adapters=[adapter])
+        assert got is None
+
+    def test_degrades_past_a_failing_adapter_to_the_next(self) -> None:
+        """One adapter erroring (stale OAuth, network blip) must not abort
+        the backfill attempt — the next adapter in the chain is tried."""
+        dead = _StubAdapter("semantic-scholar", raises=True)
+        resolver_hit = PaperHit(
+            title="A Resolvable Title", year=2020, authors=[],
+            external_ids={"arxiv": "2001.00001"}, abstract="",
+            citation_count=0, source="openalex",
+        )
+        alive = _StubAdapter("openalex", hits=[resolver_hit])
+        got = resolve_missing_id("A Resolvable Title", 2020, adapters=[dead, alive])
+        assert got == {"arxiv": "2001.00001"}
+        assert dead.search_calls == 1
+        assert alive.search_calls == 1
+
+    def test_blank_title_never_attempted(self) -> None:
+        adapter = _StubAdapter("openalex", hits=[])
+        assert resolve_missing_id("", 2024, adapters=[adapter]) is None
+        assert adapter.search_calls == 0
+
+
+class TestBackfillMissingIds:
+    def test_herrmann_case_backfilled_and_kept(self) -> None:
+        """RED-before-GREEN pin: a messy-metadata candidate (no id) with a
+        resolvable title/year is backfilled and KEPT — it must end up
+        carrying a real id after the pass, never silently dropped."""
+        hit = _messy_herrmann_hit()
+        deduped = DedupedHit(hit=hit, sources={"openalex"}, external_ids={})
+        resolver_hit = PaperHit(
+            title="Economic Man in Cross-Cultural Perspective",
+            year=2008, authors=["J. Herrmann"],
+            external_ids={"doi": "10.1126/science.herrmann2008"},
+            abstract="", citation_count=3000, source="openalex",
+        )
+        adapter = _StubAdapter("openalex", hits=[resolver_hit])
+
+        stats = backfill_missing_ids([deduped], adapters=[adapter])
+
+        assert deduped.external_ids.get("doi") == "10.1126/science.herrmann2008"
+        assert stats == {"missing": 1, "backfilled": 1, "unresolved": 0}
+
+    def test_genuinely_unresolvable_candidate_still_dropped_but_counted(self) -> None:
+        hit = PaperHit(
+            title="An Untraceable Preprint With No Metadata Trail", year=2024,
+            authors=[], external_ids={}, abstract="", citation_count=0,
+            source="openalex",
+        )
+        deduped = DedupedHit(hit=hit, sources={"openalex"}, external_ids={})
+        adapter = _StubAdapter("openalex", hits=[])
+
+        stats = backfill_missing_ids([deduped], adapters=[adapter])
+
+        assert deduped.external_ids == {}
+        assert stats == {"missing": 1, "backfilled": 0, "unresolved": 1}
+
+    def test_adapter_failure_during_backfill_degrades_gracefully(self) -> None:
+        """A2 discipline extended to backfill: one adapter down must not
+        abort the resolution pass for the rest of the kept set."""
+        hit_a = _messy_herrmann_hit()
+        deduped_a = DedupedHit(hit=hit_a, sources={"openalex"}, external_ids={})
+        resolver_hit = PaperHit(
+            title="Economic Man in Cross-Cultural Perspective", year=2008,
+            authors=["J. Herrmann"], external_ids={"doi": "10.1126/science.herrmann2008"},
+            abstract="", citation_count=3000, source="openalex",
+        )
+        dead = _StubAdapter("semantic-scholar", raises=True)
+        alive = _StubAdapter("openalex", hits=[resolver_hit])
+
+        stats = backfill_missing_ids([deduped_a], adapters=[dead, alive])
+
+        assert stats["backfilled"] == 1
+        assert deduped_a.external_ids.get("doi") == "10.1126/science.herrmann2008"
+
+    def test_already_id_bearing_candidate_is_never_re_resolved(self) -> None:
+        hit = PaperHit(
+            title="Already Has An Id", year=2020, authors=[],
+            external_ids={"doi": "10.1/already"}, abstract="",
+            citation_count=0, source="openalex",
+        )
+        deduped = DedupedHit(hit=hit, sources={"openalex"}, external_ids={"doi": "10.1/already"})
+        adapter = _StubAdapter("openalex", hits=[])
+
+        stats = backfill_missing_ids([deduped], adapters=[adapter])
+
+        assert stats == {"missing": 0, "backfilled": 0, "unresolved": 0}
+        assert adapter.search_calls == 0
+
+    def test_empty_kept_list_is_a_noop(self) -> None:
+        assert backfill_missing_ids([], adapters=[]) == {
+            "missing": 0, "backfilled": 0, "unresolved": 0,
         }
