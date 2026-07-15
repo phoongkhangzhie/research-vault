@@ -690,6 +690,27 @@ class TestResolveFacetCoverage:
         )
         assert result.disposition == auto.HALT_DECLARE
 
+    def test_thin_pole_teeth_still_fire_when_walk_absent(self) -> None:
+        """Coverage-gate refactor (search-primary redesign): E's thin-pole
+        teeth must flow through IDENTICALLY whether the base GO originated
+        from a walk-terminal (the pre-refactor world) or from
+        ``classify_coverage_gate``'s own walk-absent GO (the surgical-walk
+        steady state) — ``resolve_facet_coverage`` only ever reads the
+        ``base`` disposition + facet-coverage payload, never the walk
+        provenance, so this must not regress."""
+        no_walk_info = {"exists": False, "stop_reason": "", "walk_complete": False, "hop_count": None}
+        base = auto.classify_coverage_gate(no_walk_info)
+        assert base.disposition == auto.GO
+        assert base.evidence.get("walk_ran") is False
+
+        result = fremed.resolve_facet_coverage(
+            base,
+            {"declared": True, "thin_poles": ["by-a.counter"], "min_hits_per_pole": 3},
+            remediation_state={"rounds_used": 0}, max_rounds=2,
+        )
+        assert result.disposition == auto.FACET_REMEDIATE
+        assert result.evidence["target_pole"] == "by-a.counter"
+
 
 class TestFacetTaskEmitIngest:
     def test_emit_then_pending_then_ingest(self, tmp_path) -> None:
