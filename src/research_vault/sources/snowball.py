@@ -689,6 +689,8 @@ def write_corpus_raw(
     *,
     notes_index: dict[str, str] | None = None,
     notes_title_index: dict[str, list[tuple[str, str]]] | None = None,
+    attempt_id_backfill: bool = False,
+    backfill_adapters: Any = None,
 ) -> Path:
     """Render the RAW (pre-curation) snowball corpus to ``_corpus_raw.md``.
 
@@ -707,10 +709,46 @@ def write_corpus_raw(
     never title-visible. A blank Venue/Abstract cell means the adapter
     genuinely didn't return one (same honest-blank convention as the sweep's
     evidence column) — never a reason to drop the row or its id.
+
+    Id-resolution (same discipline as
+    ``sweep.write_search_hits``): a candidate with no doi/arxiv/openalex/s2
+    id gets one targeted title/year backfill attempt (via
+    ``sources.identifiers.backfill_missing_ids``) BEFORE it is flagged
+    ``[NO-ID]`` below — a resolvable-but-messy hit is kept, never silently
+    dropped. ``attempt_id_backfill``/``backfill_adapters`` mirror
+    ``write_search_hits``'s contract exactly: default False/None means no
+    network (hermetic, unchanged prior behavior); an explicit
+    ``backfill_adapters`` list (including ``[]``) opts in. The resolution
+    rate is always counted and surfaced (frontmatter + a prose line),
+    never silently swallowed.
     """
-    lines: list[str] = ["# Corpus (raw, pre-curation)\n"]
+    from .identifiers import backfill_missing_ids
+
+    resolve_with = (
+        backfill_adapters if backfill_adapters is not None
+        else (None if attempt_id_backfill else [])
+    )
+    id_stats = backfill_missing_ids(result.kept, adapters=resolve_with)
+
+    lines: list[str] = [
+        "---",
+        f"id_backfill_missing: {id_stats['missing']}",
+        f"id_backfill_resolved: {id_stats['backfilled']}",
+        f"id_backfill_unresolved: {id_stats['unresolved']}",
+        "---",
+        "",
+        "# Corpus (raw, pre-curation)\n",
+    ]
     lines.append(f"Seed count: {result.seed_count}\n")
     lines.append(f"Stop reason: {result.stop_reason}\n")
+    if id_stats["missing"]:
+        lines.append(
+            "> Id-resolution: "
+            f"{id_stats['missing']} candidate(s) carried no doi/arxiv/openalex/s2 "
+            f"id — {id_stats['backfilled']} backfilled via a title/year lookup, "
+            f"{id_stats['unresolved']} still unresolved after the attempt "
+            "(flagged `[NO-ID]` below; a counted drop, not a silent one).\n"
+        )
     lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags |")
     lines.append("|---|---|---|---|---|---|---|")
     for d in result.kept:
