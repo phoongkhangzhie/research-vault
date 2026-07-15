@@ -511,8 +511,16 @@ def _evaluate_autonomous_gate(
             try:
                 from ..review.gap_scan import emit_coverage_gaps as _emit_coverage_gaps
 
+                # Section E: a pole this evaluation resolved SPARSE (anti-
+                # gaming teeth satisfied) is bound here via
+                # disposition: leaves-open — never a second HALT downstream
+                # at gap-coverage-gate.
                 _emit_coverage_gaps(
                     review_dir, review_dir.parent.parent, scope_id=review_dir.name,
+                    sparse_pole_dispositions=(
+                        run_state.node_states.get(node_id, {}).get("sparse_pole_dispositions")
+                        if hasattr(run_state, "node_states") else None
+                    ),
                 )
             except Exception as e:  # noqa: BLE001 — surfaced, never swallowed
                 import sys as _sys
@@ -710,7 +718,33 @@ def _evaluate_autonomous_gate(
                     disposition, facet_coverage_info,
                     remediation_state=run_state.meta.get("facet_remediation_state"),
                     protocol_declares_facets=protocol_declares_facets,
+                    # Section E anti-gaming teeth: budget-exhausted-but-
+                    # genuinely-searched resolves to a PASS-with-gap, never a
+                    # human HALT — but ONLY when a within-facet-query-append
+                    # round for that exact pole is mechanically on record.
+                    deviations_path=deviations_path,
                 )
+
+                # Section E: bind the autonomous sparse-pole PASS to the gap
+                # note the (unconditional, below) coverage-gap emission is
+                # about to write — disposition: leaves-open + a non-empty
+                # disposition_reason, so gap_coverage_gate resolves it
+                # cleanly instead of re-blocking on a second HALT.
+                sparse_pole_dispositions = disposition.evidence.get("sparse_pole_dispositions")
+                if sparse_pole_dispositions and hasattr(run_state, "node_states"):
+                    run_state.node_states.setdefault(node_id, {})[
+                        "sparse_pole_dispositions"
+                    ] = sparse_pole_dispositions
+
+            # `run_state.node_states` may be absent on a minimal test
+            # double that only implements `.meta` — the tick auto-reopen
+            # stamp is best-effort bookkeeping, never load-bearing for the
+            # disposition itself, so degrade to a throwaway dict rather
+            # than crash a caller that never wired the full RunState shape.
+            ns = (
+                run_state.node_states.setdefault(node_id, {})
+                if hasattr(run_state, "node_states") else {}
+            )
 
             if disposition.disposition == _autonomy.FACET_REMEDIATE:
                 target_pole = disposition.evidence["target_pole"]
@@ -721,12 +755,10 @@ def _evaluate_autonomous_gate(
 
                 response = _fremed.read_facet_query_response(task_dir)
                 if response is not None:
-                    # Phase 2: an agent already authored the new queries —
-                    # apply the round (screen+tag+append, never raw; see
-                    # review.facet_remediation's module docstring), then
-                    # re-derive the disposition to see if ANOTHER round is
-                    # needed. relevance_verify_node's produces gives the
-                    # cold-verify artifact path to invalidate on any add.
+                    # Phase 2+ (B2): apply the round — a TWO-PHASE call
+                    # itself now (see review.facet_remediation's module
+                    # docstring): a candidate never lands in _corpus.md
+                    # until a COLD relevance-verify pass confirms it.
                     relevance_ref = (
                         relevance_verify_node.get("produces", {}).get("_relevance-verdict.md")
                         if relevance_verify_node is not None else None
@@ -742,7 +774,52 @@ def _evaluate_autonomous_gate(
                         min_hits_per_pole=(facet_coverage_info or {}).get("min_hits_per_pole")
                         or _get_min_hits(load_config()),
                     )
+
+                    if round_result["phase"] == "awaiting_cold_verify":
+                        # B2: the round's mechanically-screened candidates
+                        # are cold-verify-pending — stamp so tick
+                        # auto-reopens once the verdict file exists (no
+                        # manual redo).
+                        ns["facet_remediate_task_dir"] = str(task_dir)
+                        return _write_ledger_final_act(
+                            _autonomy.DispositionResult(
+                                _autonomy.HALT_DECLARE,
+                                f"coverage-gate: facet-remediation round for "
+                                f"pole {target_pole!r} mechanically screened "
+                                f"{len(round_result['candidates'])} "
+                                f"candidate(s) (capped: "
+                                f"{len(round_result['capped'])}, off-domain: "
+                                f"{len(round_result['off_domain'])}) — "
+                                "AWAITING a cold relevance-verify pass "
+                                f"under {task_dir} BEFORE any lands in "
+                                "_corpus.md. Emit the cold-judge fan-out and "
+                                "re-evaluate.",
+                                round_result,
+                            ),
+                            relevance_payload_for_ledger,
+                        )
+
+                    if round_result["phase"] == "canary_aborted":
+                        ns["facet_remediate_task_dir"] = str(task_dir)
+                        return _write_ledger_final_act(
+                            _autonomy.DispositionResult(
+                                _autonomy.HALT_DECLARE,
+                                f"coverage-gate: facet-remediation round for "
+                                f"pole {target_pole!r} — the cold "
+                                "relevance-verify CANARY ABORTED "
+                                f"({round_result.get('canary_detail', '')}) "
+                                "— the judge is blind, NOTHING was added. "
+                                "The stale verdict was cleared; re-run the "
+                                "cold-judge fan-out and re-evaluate.",
+                                round_result,
+                            ),
+                            relevance_payload_for_ledger,
+                        )
+
+                    # phase == "applied": the round is genuinely complete —
+                    # the ONE remediation attempt is now consumed.
                     _fremed.clear_facet_task(task_dir)
+                    ns.pop("facet_remediate_task_dir", None)
                     fr_state["rounds_used"] = int(fr_state.get("rounds_used", 0)) + 1
 
                     return _write_ledger_final_act(
@@ -750,7 +827,7 @@ def _evaluate_autonomous_gate(
                             _autonomy.HALT_DECLARE,
                             f"coverage-gate: facet-remediation round for pole "
                             f"{target_pole!r} complete — {len(round_result['added'])} "
-                            "screened-in paper(s) added, tagged [NEEDS-CURATE] "
+                            "cold-verified paper(s) added, tagged [NEEDS-CURATE] "
                             "(never a bare/leg-tagged row) and the cold "
                             "relevance-verify artifact was invalidated on any "
                             "add. AWAITING a re-curate pass (leg-classification) "
@@ -781,6 +858,9 @@ def _evaluate_autonomous_gate(
                         current_count=current_count,
                     )
 
+                # Section E: a blocked FACET_REMEDIATE gate must re-evaluate
+                # on tick once the response exists — no manual redo.
+                ns["facet_remediate_task_dir"] = str(task_dir)
                 return _write_ledger_final_act(
                     _autonomy.DispositionResult(
                         _autonomy.HALT_DECLARE,
@@ -793,6 +873,7 @@ def _evaluate_autonomous_gate(
                     relevance_payload_for_ledger,
                 )
 
+            ns.pop("facet_remediate_task_dir", None)
             return _write_ledger_final_act(disposition, relevance_payload_for_ledger)
         except _CorpusSchemaError as e:
             return _write_ledger_final_act(_autonomy.DispositionResult(
@@ -1554,6 +1635,41 @@ def _emit_next_phase(
         ns["phase_transition_error"] = str(e)[:2000]
 
 
+def _reopen_facet_remediate_blocked_gates(run_state: RunState) -> bool:
+    """Section E: a coverage-gate node blocked awaiting a facet-remediation
+    response (the agent-authored query response, or — B2 — the cold
+    relevance-verify verdict) must re-open AUTOMATICALLY once that response
+    now exists, so the normal frontier/autonomous-gate re-evaluation below
+    picks it up — no manual ``rv dag redo`` required.
+
+    Narrowly scoped: only a node stamped with ``facet_remediate_task_dir``
+    (set ONLY on the three facet-remediation-awaiting-a-response HALT
+    branches in ``_evaluate_autonomous_gate``'s coverage-gate handler, and
+    popped once that path is left) is eligible. Every OTHER blocked-halt
+    reason — source-coverage dark, malformed corpus schema, "awaiting a
+    re-curate pass" (a genuine human/agent action, not a single response
+    file), an unproven-teeth budget-exhausted HALT, etc. — is left
+    untouched; ``blocked`` stays terminal for those, same as before.
+    """
+    from ..review import facet_remediation as _fremed
+
+    reopened = False
+    for node_id, ns in list(run_state.node_states.items()):
+        if node_id not in _AUTONOMOUS_GATE_IDS:
+            continue
+        if ns.get("status") != "blocked":
+            continue
+        task_dir_str = ns.get("facet_remediate_task_dir")
+        if not task_dir_str:
+            continue
+        if _fremed.facet_remediation_awaiting_response(Path(task_dir_str)):
+            continue  # still genuinely awaiting a response file
+        run_state.set_node_status(node_id, "pending")
+        ns.pop("facet_remediate_task_dir", None)
+        reopened = True
+    return reopened
+
+
 def _recompute_awaiting_go(
     run_state: RunState,
     manifest: dict[str, Any],
@@ -1586,6 +1702,7 @@ def _recompute_awaiting_go(
     resolutions/phase-emissions.
     """
     tool_executed = _auto_execute_tool_nodes(run_state, manifest, store)
+    reopened = _reopen_facet_remediate_blocked_gates(run_state)
 
     manifest_path = Path(run_state.manifest_path)
     nodes_lookup = manifest_nodes_by_id(manifest)
@@ -1631,7 +1748,7 @@ def _recompute_awaiting_go(
             run_state.set_node_status(node_id, "awaiting-go")
             mutated = True
 
-    if mutated or tool_executed:
+    if mutated or tool_executed or reopened:
         store.save(run_state)
 
     # Recompute after promotion (awaiting-go nodes are now non-advanceable,

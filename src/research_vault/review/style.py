@@ -1106,7 +1106,13 @@ def _review_style_int_override(
 DEFAULT_MIN_QUERIES_PER_FACET: int = 3
 DEFAULT_MIN_QUERIES_PER_POLE: int = 2
 DEFAULT_MIN_HITS_PER_POLE: int = 3
-DEFAULT_MAX_FACET_REMEDIATION_ROUNDS: int = 2
+# Search-primary redesign (thin-pole-as-finding): ONE bounded remediation
+# attempt, then an autonomous under-searched-vs-sparse judgment — never a
+# second/third fishing round. A still-thin pole after the one attempt is
+# resolved by review.facet_remediation.resolve_facet_coverage's anti-gaming
+# teeth (a recorded within-facet-query-append round proves genuine seeking),
+# not by more budget.
+DEFAULT_MAX_FACET_REMEDIATION_ROUNDS: int = 1
 
 
 def get_min_queries_per_facet(config: Any = None, *, review_type: str | None = None) -> int:
@@ -1142,8 +1148,15 @@ def get_min_hits_per_pole(config: Any = None, *, review_type: str | None = None)
 
 def get_max_facet_remediation_rounds(config: Any = None, *, review_type: str | None = None) -> int:
     """Layer 3 bound (R) — the facet re-search remediation loop's global
-    round cap; after R rounds a still-thin pole HALT-DECLAREs to a human
-    rather than fishing further. Default 2.
+    round cap. One remediation attempt (default R=1), then an autonomous
+    under-searched-vs-sparse judgment (``review.facet_remediation.
+    resolve_facet_coverage``): a pole still thin after the attempt is
+    either an under-searched retry target (never reached — R=1 means no
+    second round) or a genuinely-sparse pole, recorded as a gap and passed
+    (GO/GO-WITH-RESIDUE) — never a human HALT, UNLESS the anti-gaming
+    teeth (a recorded ``within-facet-query-append`` round for that exact
+    pole) find no evidence a round for it ever actually ran, in which case
+    it still HALT-DECLAREs ("never genuinely searched").
     """
     override = _review_style_int_override(
         config, "max_facet_remediation_rounds", review_type=review_type,
