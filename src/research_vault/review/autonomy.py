@@ -775,7 +775,7 @@ def _op_sweep(
 
     written = write_search_hits(
         result, Path(out), notes_index=notes_index, notes_title_index=notes_title_index,
-        facet_coverage=facet_coverage,
+        facet_coverage=facet_coverage, attempt_id_backfill=True,
     )
     return str(written)
 
@@ -954,6 +954,7 @@ def _op_snowball(
     corpus_raw_path = write_corpus_raw(
         result, out_dir_path / "_corpus_raw.md",
         notes_index=notes_index, notes_title_index=notes_title_index,
+        attempt_id_backfill=True,
     )
     walk_path = write_walk_report(result, out_dir_path / "_walk.md")
     return {
