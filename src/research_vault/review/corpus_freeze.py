@@ -573,6 +573,118 @@ def refresh(
 # remediation loop must not shell out)
 # ---------------------------------------------------------------------------
 
+def declare_delta(
+    run_state_meta: dict[str, Any],
+    *,
+    corpus_path: Path,
+    deviations_path: Path,
+    rationale: str,
+    now: Any = None,
+) -> dict[str, Any] | None:
+    """Section F(a) — a HUMAN-invoked convenience verb, never called from
+    the autonomous remediation loop. Computes ``baseline_citekeys -
+    current_citekeys`` (the corpus rows dropped since the last freeze) and
+    writes a DECLARED, human-authored ``kind="criteria-change"`` deviation
+    block capturing exactly that removed set — automating the keystrokes of
+    hand-writing a removed-set into ``_deviations.md`` (the run's actual
+    pain point; see the design note above ``RefreshBlocked``).
+
+    This does NOT give the autonomous loop shrink power. It reuses
+    ``record_deviation``/``check_undeclared_deviation`` VERBATIM — no gate
+    is loosened, no new autonomous deviation ``kind`` is added. The two
+    self-authorable kinds (``within-criteria-append``,
+    ``within-facet-query-append``) still assert ``removed == []`` inside
+    ``record_deviation`` itself (D2's structural invariant, untouched by
+    this function) — a removal can ONLY ever be written as
+    ``criteria-change``, and this function only ever calls
+    ``record_deviation`` with that kind, from a human-invoked CLI path
+    (``rv review declare-delta``), never from ``review.remediation`` /
+    ``review.facet_remediation``'s autonomous rounds.
+
+    ``rationale`` is REQUIRED and must be human-supplied — never
+    auto-fabricated (charter §1: no invented justification for a removal).
+
+    Returns ``None`` (writes NOTHING — no vacuous deviation) when the delta
+    is empty. Otherwise returns ``{"removed": [...], "block": <appended
+    text>}``. Does not itself re-freeze — the human's next
+    ``rv review refresh`` call moves the baseline forward once the delta is
+    declared (mirrors the existing declare-then-refresh flow every other
+    deviation kind already uses).
+    """
+    if not rationale or not rationale.strip():
+        raise ValueError(
+            "declare_delta: a human-supplied rationale is required — "
+            "refusing to auto-fabricate one for a corpus removal."
+        )
+
+    baseline = run_state_meta.get("corpus_freeze")
+    if baseline is None:
+        raise RefreshBlocked(
+            "rv review declare-delta: BLOCKED — no corpus_freeze baseline "
+            "in run_state.meta. Run coverage-gate at least once to "
+            "establish the initial freeze before declaring a delta."
+        )
+
+    baseline_citekeys = set(baseline["corpus_citekeys"])
+    current_citekeys = set(_parse_corpus_citekeys_safe(corpus_path))  # CorpusSchemaError propagates
+    removed = sorted(baseline_citekeys - current_citekeys)
+    if not removed:
+        return None
+
+    from .autonomy import DEVIATION_KIND_CRITERIA_CHANGE, record_deviation
+
+    criteria_snapshot = baseline.get("criteria_hash", "")
+    block = record_deviation(
+        deviations_path,
+        version=int(baseline.get("version", 1)) + 1,
+        pre_criteria=criteria_snapshot,
+        post_criteria=criteria_snapshot,
+        removed=removed,
+        added=[],
+        rationale=rationale.strip(),
+        kind=DEVIATION_KIND_CRITERIA_CHANGE,
+        now=now,
+    )
+    return {"removed": removed, "block": block}
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point — `rv review declare-delta <scope>` (Section F(a))
+# ---------------------------------------------------------------------------
+
+def cmd_declare_delta(
+    project: str, scope: str, rationale: str, *, config: Any = None,
+) -> dict[str, Any] | None:
+    """Resolve the review run's ``run_state``, call ``declare_delta``. Never
+    persists ``run_state`` — ``declare_delta`` does not mutate
+    ``run_state.meta`` (it only appends to ``_deviations.md``; the actual
+    baseline re-freeze remains ``rv review refresh``'s job).
+
+    Raises ``RefreshBlocked`` (propagated) on no baseline;
+    ``research_vault.dag.store.StoreError`` if the run isn't found;
+    ``ValueError`` on a missing/blank rationale.
+    """
+    from ..config import load_config
+    from ..dag.store import RunStore
+    from . import _review_artifact_dir
+
+    cfg = config or load_config()
+    run_id = f"review-{scope}-phase1"
+    store = RunStore.from_config(cfg)
+    run_state = store.load(run_id)
+
+    review_dir = _review_artifact_dir(project, scope, cfg)
+    corpus_path = review_dir / "_corpus.md"
+    deviations_path = review_dir / "_deviations.md"
+
+    return declare_delta(
+        run_state.meta,
+        corpus_path=corpus_path,
+        deviations_path=deviations_path,
+        rationale=rationale,
+    )
+
+
 def cmd_refresh(project: str, scope: str, *, config: Any = None) -> dict[str, Any]:
     """Resolve the review run's ``run_state``, call ``refresh``, persist.
 
