@@ -139,7 +139,7 @@ class TestRelevanceGateCalibration:
         assert verdict == rel.UNCERTAIN
 
     def test_single_shared_token_flood_case_rejected(self):
-        """B1 (the actual csb-dogfood flood cause): a detector-physics
+        """B1 (the actual dogfood flood cause): a detector-physics
         candidate that shares exactly ONE non-generic token
         (``behavior``) with the domain vocabulary — everything else is
         detector/materials jargon with zero overlap. Under the pre-B1 gate
