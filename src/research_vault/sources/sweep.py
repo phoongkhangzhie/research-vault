@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from .base import NotSupported, PaperHit, SourceAdapter
+from .base import NotSupported, PaperHit, SourceAdapter, format_rerank_score
 from .dedup import DedupedHit, dedup_hits, identity_key
 from .derivative import count_independent, mark_derivatives
 from .ranker import UtilityScore, rank_and_select, score_hit
@@ -656,6 +656,40 @@ class SweepCell:
     error: str | None = None
 
 
+def _stamp_rerank_scores(hits: list[PaperHit], query: str) -> None:
+    """A1 (task #86): TF-IDF-rerank ``hits`` against ``query`` and stamp
+    each hit's ``rerank_score`` in place.
+
+    Reuses ``cross_project.rank_candidates`` — the SAME TF-IDF cosine-
+    similarity scorer ``rv research find``'s existing ``--rerank`` already
+    applies at ad-hoc search time (charter §6: one scorer, not two
+    diverging re-implementations). ``min_score=0.0``/``top_k=len(hits)``
+    means every hit is scored and none is dropped — this call only
+    ANNOTATES a strength signal, it must never filter/reorder the sweep's
+    own kept set (that stays ``ranker.rank_and_select``'s job).
+
+    A hit whose title+abstract is empty gets an empty TF-IDF document —
+    ``rank_candidates`` still returns a (typically 0.0) score for it, never
+    a crash; that is a REAL (if weak) score, distinct from the ``None``
+    "never went through a rerank pass at all" sentinel other code paths
+    (e.g. the citation-neighbor walk) use.
+    """
+    if not hits:
+        return
+    from ..cross_project import rank_candidates  # lazy — avoid a needless import at module load
+
+    candidates = [
+        {
+            "idx": i,
+            "body": (h.title or "") + ("\n" + h.abstract if h.abstract else ""),
+        }
+        for i, h in enumerate(hits)
+    ]
+    scored = rank_candidates(query, candidates, min_score=0.0, top_k=len(candidates))
+    for c in scored:
+        hits[c["idx"]].rerank_score = c["score"]
+
+
 def _fetch_cell(
     angle: str,
     query: str,
@@ -688,6 +722,15 @@ def _fetch_cell(
     for attempt in range(retry_attempts):
         try:
             hits = adapter.search(query, limit=limit)
+            # A1 (task #86): rerank at the source — TF-IDF-score each hit
+            # against the query that fetched it, so a strength signal
+            # survives all the way to `_corpus.md` (Section C). Stamping
+            # here, not in `compose_sweep_result`, means the score is
+            # always against the SPECIFIC angle-query that surfaced this
+            # exact hit (a paper surfaced by two cells gets two candidate
+            # scores; dedup's first-seen-wins keeps whichever one the
+            # representative hit carried — documented on `dedup_hits`).
+            _stamp_rerank_scores(hits, query)
             return SweepCell(angle=angle, query=query, source=source, hits=hits)
         except NotSupported as e:
             return SweepCell(angle=angle, query=query, source=source, error=str(e))
@@ -1159,8 +1202,8 @@ def write_search_hits(
             "the whole kept set as boundary-sourced; the snowball walk "
             "should chase all of it.\n"
         )
-    lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags |")
-    lines.append("|---|---|---|---|---|---|---|")
+    lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags | Rerank |")
+    lines.append("|---|---|---|---|---|---|---|---|")
     for d in result.kept:
         hit = d.hit
         annotation = _annotate_hit(
@@ -1183,8 +1226,14 @@ def write_search_hits(
         venue = (hit.venue or "").replace("|", "/")
         year = str(hit.year) if hit.year is not None else ""
         evidence = _evidence_snippet(hit)
+        # A1 (task #86): the TF-IDF rerank score this hit scored against
+        # the angle query that surfaced it — stamped by `_fetch_cell` at
+        # fetch time, the strength signal Section C's curation bound
+        # reads. Honest-blank sentinel (never a fabricated number) when
+        # this hit never went through a rerank pass.
+        rerank = format_rerank_score(hit.rerank_score)
         lines.append(
-            f"| {annotation} | {pid} | {title} | {venue} | {year} | {evidence} | {' '.join(flags)} |"
+            f"| {annotation} | {pid} | {title} | {venue} | {year} | {evidence} | {' '.join(flags)} | {rerank} |"
         )
     lines.append("")
 

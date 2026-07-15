@@ -102,6 +102,42 @@ class PaperHit:
     # what's there, never fabricate a venue.
     venue: str | None = field(default=None, compare=False)
 
+    # A1 (lit-review search-primary redesign, task #86): the TF-IDF rerank
+    # score (``cross_project.rank_candidates``'s cosine-similarity ``score``,
+    # roughly 0-1) this hit scored against the query that surfaced it —
+    # stamped by ``sweep._fetch_cell`` at fetch time. This is the strength
+    # signal Section C's corpus-bound curation is meant to read; without it
+    # persisted through ``_search_hits.md`` -> ``_corpus_raw.md`` ->
+    # ``_corpus.md``, there is no rankable score anywhere downstream of
+    # search. ``None`` — never a fabricated 0.0 — means this hit never went
+    # through a TF-IDF rerank pass at all (e.g. a citation-neighbor-walk
+    # discovery, or a ``--no-rerank`` fetch); the honest-blank convention
+    # every other optional PaperHit field already follows.
+    rerank_score: float | None = field(default=None, compare=False)
+
+
+# A1: the honest-blank sentinel a "Rerank" table column renders when a hit's
+# ``rerank_score`` is ``None`` — deliberately NON-EMPTY (never a bare ""),
+# so every existing positional table reader in this codebase that drops
+# empty cells (``[c for c in cols if c.strip()]``, e.g.
+# ``review._parse_corpus_citekeys``) never silently shifts a later column's
+# index because of a blank score cell.
+RERANK_NO_SCORE = "—"
+
+
+def format_rerank_score(score: float | None) -> str:
+    """Render a ``PaperHit.rerank_score`` for a markdown table cell.
+
+    ``None`` -> ``RERANK_NO_SCORE`` (never a fabricated number). A real
+    score is rendered to 3 decimal places — enough precision to rank on,
+    stable across re-renders. Shared by ``sweep.write_search_hits`` and
+    ``snowball.write_corpus_raw`` (charter §6 — one formatter, not two
+    diverging re-implementations).
+    """
+    if score is None:
+        return RERANK_NO_SCORE
+    return f"{score:.3f}"
+
 
 @runtime_checkable
 class SourceAdapter(Protocol):

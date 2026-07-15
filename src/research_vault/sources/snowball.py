@@ -52,7 +52,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from .base import AdapterFetchError, NotSupported, PaperHit, SourceAdapter
+from .base import AdapterFetchError, NotSupported, PaperHit, SourceAdapter, format_rerank_score
 from .dedup import DedupedHit, dedup_hits, identity_key
 from .derivative import count_independent, mark_derivatives
 from .sweep import _evidence_snippet  # reuse, not reinvent — charter §6
@@ -749,8 +749,8 @@ def write_corpus_raw(
             f"{id_stats['unresolved']} still unresolved after the attempt "
             "(flagged `[NO-ID]` below; a counted drop, not a silent one).\n"
         )
-    lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags |")
-    lines.append("|---|---|---|---|---|---|---|")
+    lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags | Rerank |")
+    lines.append("|---|---|---|---|---|---|---|---|")
     for d in result.kept:
         hit = d.hit
         annotation = _annotate_hit(
@@ -767,8 +767,14 @@ def write_corpus_raw(
         venue = (hit.venue or "").replace("|", "/")
         year = str(hit.year) if hit.year is not None else ""
         evidence = _evidence_snippet(hit)
+        # A1 (task #86): carry the rerank score through when the hit has
+        # one (e.g. a search-accepted seed re-emitted into the corpus by a
+        # future merge step). A citation-neighbor-walk discovery is a
+        # FRESH PaperHit — never scored — and renders the honest sentinel,
+        # never a fabricated number (see PaperHit.rerank_score docstring).
+        rerank = format_rerank_score(hit.rerank_score)
         lines.append(
-            f"| {annotation} | {pid} | {title} | {venue} | {year} | {evidence} | {' '.join(flags)} |"
+            f"| {annotation} | {pid} | {title} | {venue} | {year} | {evidence} | {' '.join(flags)} | {rerank} |"
         )
     lines.append("")
 
