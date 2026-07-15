@@ -45,6 +45,7 @@ from .keys import (
     PROVIDER_KEYS,
     WANDB_KEY,
     ZOTERO_KEY,
+    asta_liveness_probe,
     resolve_any,
     resolve_key,
 )
@@ -220,18 +221,39 @@ def _check_asta() -> tuple[bool, str, bool]:
     """Return (ok, message, required) for the asta check.
 
     asta is the Allen AI MCP research server (asta-tools.allen.ai/mcp/v1,
-    x-api-key header).  Detection: resolve the asta API key via the SecretStore
-    (env ASTA_MCP_KEY → keyring "asta-mcp-key").  No pip import — asta is NOT
-    a Python package.
+    x-api-key header) — but the credential itself is an OAuth session
+    (refresh-token based), not a static API key: the local key material can
+    be PRESENT while the session is DEAD server-side (revoked/expired refresh
+    token, invalid_grant). So this is a rejects-only LIVENESS ping, not a
+    presence check — ``ok=True`` only when the asta gateway confirms the
+    session is live; a present-but-dead or present-but-unverifiable session
+    is reported as unavailable (fail-closed), never a false [OK].
+
+    Detection: resolve the asta API key via the SecretStore (env
+    ASTA_MCP_KEY → keyring "asta-mcp-key"), then, if present, ping liveness
+    via ``asta auth status`` (the asta CLI's own auth check — no pip import,
+    asta is NOT a Python package).
     """
     present, source, masked = resolve_key(ASTA_KEY)
-    if present:
-        return True, f"asta: available (key via {source} — {masked})", False
+    if not present:
+        return False, (
+            "asta: no access"
+            " (optional — enables `rv research find` and `rv research find --deep`;"
+            f" request a key at {ASTA_KEY.request_url}"
+            " — institutional email required; see allenai.org/asta/resources/mcp)"
+        ), False
+
+    live_status, live_detail = asta_liveness_probe()
+    if live_status == "live":
+        return True, f"asta: available, session live (key via {source} — {masked}; {live_detail})", False
+    if live_status == "dead":
+        return False, (
+            f"asta: session DEAD (key present via {source} — {masked}) — {live_detail}"
+        ), False
+    # "unverified" — could not confirm either way (offline, CLI missing, timeout).
+    # Fail closed: never report [OK] on an unverified session.
     return False, (
-        "asta: no access"
-        " (optional — enables `rv research find` and `rv research find --deep`;"
-        f" request a key at {ASTA_KEY.request_url}"
-        " — institutional email required; see allenai.org/asta/resources/mcp)"
+        f"asta: present via {source} ({masked}), liveness NOT verified — {live_detail}"
     ), False
 
 
@@ -391,6 +413,31 @@ def _feature_status(feature: Any, *, manifest_present: bool) -> dict[str, Any]:
             spec, source, masked = hits[0]
             extra = "" if len(hits) == 1 else f" (+{len(hits) - 1} more)"
             detail = f"{spec.label} ({masked}){extra}"
+    elif feature.kind == "key_liveness":
+        # Presence is necessary but NOT sufficient — a session/refresh-token
+        # credential can be present locally while dead server-side. Only
+        # "live" unlocks the feature; "dead"/"unverified" both stay locked
+        # (fail-closed — never a false [OK]).
+        present, hits = resolve_any(feature.keys)
+        if present:
+            spec, source, masked = hits[0]
+            extra = "" if len(hits) == 1 else f" (+{len(hits) - 1} more)"
+            if feature.liveness_probe is None:
+                # No cheap ping wired for this credential — presence-only,
+                # but say so explicitly rather than a bare unlocked/[OK].
+                status = "unlocked"
+                detail = f"{spec.label} ({masked}){extra} — present, not liveness-verified"
+            else:
+                live_status, live_detail = feature.liveness_probe()
+                if live_status == "live":
+                    status = "unlocked"
+                    detail = f"{spec.label} ({masked}){extra} — session live ({live_detail})"
+                elif live_status == "dead":
+                    status = "locked"
+                    detail = f"{spec.label} ({masked}){extra} — session DEAD: {live_detail}"
+                else:  # "unverified" — never claim live
+                    status = "locked"
+                    detail = f"{spec.label} ({masked}){extra} — present, not liveness-verified: {live_detail}"
     elif feature.kind == "package":
         if _probe_import(feature.import_name):
             status, source = "unlocked", "package"

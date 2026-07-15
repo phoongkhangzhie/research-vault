@@ -313,7 +313,7 @@ def cmd_onboard(
     step_no = 2
     for feature in FEATURES:
         fs = features_by_id[feature.id]
-        if feature.kind == "key":
+        if feature.kind in ("key", "key_liveness"):
             _step_key_feature(
                 fs, feature,
                 interactive=interactive,

@@ -211,12 +211,17 @@ def test_feature_catalog_order():
 
 
 def test_asta_feature_is_key_not_package():
-    """asta is the Allen AI MCP server — detected by key, never by import."""
+    """asta is the Allen AI MCP server — detected by key (+ liveness ping), never by import."""
     from research_vault.keys import get_feature, ASTA_KEY
     asta = get_feature("asta")
-    assert asta.kind == "key", (
-        "asta must be kind='key' — it is NOT a pip package (no import asta)"
+    # Section G: a present key is not sufficient on its own — asta is an
+    # OAuth-session credential, so its kind is 'key_liveness' (key presence +
+    # a rejects-only liveness ping), not the presence-only 'key'.
+    assert asta.kind == "key_liveness", (
+        "asta must be kind='key_liveness' — it is NOT a pip package (no import asta), "
+        "and its session can go stale while the key material is still present"
     )
+    assert asta.liveness_probe is not None, "asta must have a liveness_probe wired"
     assert not asta.import_name, "asta.import_name must be empty — no pip probe"
     assert asta.keys == (ASTA_KEY,), "asta feature must reference ASTA_KEY"
     assert "institutional" in asta.note.lower()
