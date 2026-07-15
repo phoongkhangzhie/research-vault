@@ -1025,6 +1025,8 @@ def write_search_hits(
     notes_index: dict[str, str] | None = None,
     notes_title_index: dict[str, list[tuple[str, str]]] | None = None,
     facet_coverage: dict[str, Any] | None = None,
+    attempt_id_backfill: bool = False,
+    backfill_adapters: Any = None,
 ) -> Path:
     """Render the width-sweep result to ``_search_hits.md`` (Option C -A).
 
@@ -1048,10 +1050,33 @@ def write_search_hits(
     when a source declared in the protocol's ``sources:`` list never
     actually contributed a hit (pre-publish hardening batch, a downstream project's live-e2e-run
     finding 2026-07-09).
+
+    Id-resolution: before a candidate is flagged
+    ``[NO-ID]`` below, ``sources.identifiers.backfill_missing_ids`` gets one
+    targeted title/year lookup attempt at it — a resolvable-but-messy hit
+    (a real paper with no doi/arxiv/openalex/s2 in its search-hit metadata)
+    is backfilled and kept, never silently dropped. ``attempt_id_backfill``
+    is False by default (no network — a caller opts in explicitly);
+    ``backfill_adapters`` (an explicit adapter list, including ``[]``) both
+    opts in AND fixes the adapter chain (test injection). The resolution
+    rate (missing / backfilled / unresolved) is ALWAYS counted (zero-cost
+    when nothing is missing) and surfaced — both a prose line and
+    machine-readable frontmatter — never silently swallowed.
     """
+    from .identifiers import backfill_missing_ids
+
+    resolve_with = (
+        backfill_adapters if backfill_adapters is not None
+        else (None if attempt_id_backfill else [])
+    )
+    id_stats = backfill_missing_ids(result.kept, adapters=resolve_with)
+
     fm_lines = [
         "---",
         f"dark_sources: {', '.join(result.dark_sources)}",
+        f"id_backfill_missing: {id_stats['missing']}",
+        f"id_backfill_resolved: {id_stats['backfilled']}",
+        f"id_backfill_unresolved: {id_stats['unresolved']}",
     ]
     if facet_coverage is not None:
         # 0.3.1 Layer 2: stamp the per-pole distinct-paper coverage +
@@ -1068,6 +1093,16 @@ def write_search_hits(
     fm_lines.append("---")
 
     lines: list[str] = [*fm_lines, "", "# Search hits\n"]
+
+    if id_stats["missing"]:
+        lines.append(
+            "> Id-resolution: "
+            f"{id_stats['missing']} candidate(s) carried no doi/arxiv/openalex/s2 "
+            f"id at fetch time — {id_stats['backfilled']} backfilled via a "
+            f"title/year lookup, {id_stats['unresolved']} still unresolved after "
+            "the attempt (flagged `[NO-ID]` below; a counted drop, not a silent "
+            "one).\n"
+        )
 
     if facet_coverage is not None and facet_coverage.get("thin_poles"):
         lines.append(
