@@ -403,6 +403,20 @@ def _evaluate_autonomous_gate(
     — the frozen-corpus stamp lives in ``run_state.meta``, which is why this
     function (unlike the pre-existing inline block) takes ``run_state``.
 
+    ★ RE-BASED (search-primary redesign, coverage-gate refactor): the
+    citation-neighbor walk is demoted from a blanket-default to a surgical
+    mechanism (fires only to fill a proven-thin pole or chase a named,
+    resolved-id anchor), so ``coverage-gate`` no longer keys its
+    certification on ``_walk.md``'s ``stop_reason:`` as the primary input.
+    The real certification basis, folded in below (most-severe-wins): the
+    source-coverage dark-check + walk-terminal (``classify_coverage_gate``,
+    now walk-CONDITIONAL — an absent ``_walk.md`` is a valid no-walk-ran
+    state, not a failure), the relevance-verify disposition, the corpus
+    corpus-tagging invariant, and (further below) the facet-coverage
+    resolution (``resolve_facet_coverage``). A walk record, when one exists,
+    still contributes its terminal — it is simply no longer the gate's sole
+    or primary signal.
+
     ★ NOTE (0.3.1): the coverage-gate branch used to extend further here —
     ``review.remediation.resolve_coverage_gate`` could upgrade a backstop
     GO-WITH-RESIDUE to REMEDIATE and drive it to completion in-process via

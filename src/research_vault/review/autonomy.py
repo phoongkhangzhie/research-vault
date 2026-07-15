@@ -312,16 +312,42 @@ def classify_coverage_gate(
     coverage_gaps_path: Path | None = None,
     source_coverage_info: dict[str, Any] | None = None,
 ) -> DispositionResult:
-    """the coverage-gate disposition, keyed to the 0.3.1 citation-neighbor
-    relevance walk's ``_walk.md`` ``stop_reason:`` contract
-    (``review.check_walk_terminal``'s return shape).
+    """the coverage-gate disposition.
 
-    Adequacy is owned by relevance-verify + source-coverage, NOT this walk
-    terminal — the walk terminal only fails closed on a missing/truncated/
-    garbled record. A ``walk-complete``/``neighborhood-exhausted`` corpus is
-    NOT itself a certification of relevance; ``_evaluate_autonomous_gate``
-    folds in ``review-relevance-verify``'s disposition (most-severe-wins)
-    on top of whatever this function returns.
+    ★ RE-BASED (search-primary redesign, coverage-gate refactor):
+    certification rests on **facet-coverage + source-coverage +
+    relevance-verify + deviation-check** — the citation-neighbor walk was
+    demoted from blanket-default to surgical-only (fires only to fill a
+    proven-thin pole or chase a named, resolved-id anchor), so its
+    ``_walk.md``/``stop_reason:`` record is no longer this gate's primary
+    input. This function itself only ever owns the source-coverage
+    dark-check and the (now-conditional) walk-terminal read; facet-coverage
+    (``resolve_facet_coverage``), relevance-verify
+    (``classify_relevance_verdict``), and the corpus-deviation BLOCK
+    (``classify_coverage_gate_with_deviation_check``'s wrapper) are each
+    folded in independently by the caller (``dag/verbs.py``'s
+    ``_evaluate_autonomous_gate``, most-severe-wins) — this function does
+    not re-derive them, only stays correct when they're absent.
+
+    **The walk-terminal is a CONDITIONAL contributor, consulted only when a
+    walk actually ran this evaluation** — signalled structurally by
+    ``walk_info["exists"]`` (whether ``_walk.md`` was found on disk), not a
+    separate flag. Both worlds are correct:
+
+    - **A walk ran** (today: the blanket walk always fires; after the
+      surgical-walk follow-up: a proven-thin-pole fill or a named-anchor
+      chase fired) — ``walk_info["exists"]`` is True, and the existing
+      ``stop_reason:`` whitelist below applies exactly as before.
+    - **No walk ran** (the surgical-walk follow-up's expected steady state:
+      no thin pole needed filling, no anchor needed chasing) —
+      ``walk_info["exists"]`` is False. This is a **valid, expected state,
+      NOT a failure** — the corpus's adequacy is already certified by the
+      facet/source/relevance/deviation signals folded in around this
+      function; an absent walk record contributes nothing and does not
+      block. Fail-closed is reserved for a walk record that exists but is
+      malformed/unrecognized (see the whitelist below) — that is a
+      genuinely untrustworthy signal, distinct from "no walk was expected
+      to run."
 
     - a DECLARED protocol source is DARK this sweep (``source_coverage_info
       ["declared_dark"]`` non-empty, ``review.check_source_coverage``)
@@ -330,6 +356,9 @@ def classify_coverage_gate(
       protocol's ``sources:`` was never actually reached (pre-publish
       hardening batch, 2026-07-09 downstream e2e-run finding: a dark source
       looked identical to a healthy sweep at this gate).
+    - **walk absent** (``walk_info["exists"]`` False)  -> GO. No walk ran
+      this evaluation (surgical-only default) — not a failure; certification
+      rests on the caller-folded facet/source/relevance/deviation signals.
     - ``stop_reason == "walk-complete:N-hops"``     -> GO. The normal,
       expected terminal at the default depth-bounded design — NO residue
       note demanded (0.3.1: depth-bounding makes "declare the open frontier"
@@ -341,9 +370,10 @@ def classify_coverage_gate(
       itself a HALT-DECLARE (the one surviving residue case — the total-
       fetch ceiling fired before the walk reached its declared depth/
       neighborhood bound, and that must be declared, not hidden).
-    - absent / malformed / anything else            -> HALT-DECLARE,
+    - walk EXISTS but malformed/unrecognized       -> HALT-DECLARE,
       fail-closed (never treat an unparseable stop-reason as complete —
-      charter §2 whitelist-not-blacklist).
+      charter §2 whitelist-not-blacklist). A record that exists is a
+      trustworthiness claim; garbling it is different from never writing one.
     """
     if source_coverage_info is not None and source_coverage_info.get("declared_dark"):
         declared_dark = source_coverage_info["declared_dark"]
@@ -359,11 +389,24 @@ def classify_coverage_gate(
         )
 
     if not walk_info.get("exists", False):
+        # No walk ran this evaluation. Under the search-primary redesign
+        # this is the EXPECTED steady state (surgical-only walk: no thin
+        # pole needed filling, no named anchor needed chasing) — NOT a
+        # failure. The walk-terminal is a conditional contributor; absent,
+        # it contributes nothing, and certification rests entirely on the
+        # facet-coverage/source-coverage/relevance-verify/deviation-check
+        # signals the caller folds in around this function (most-severe-
+        # wins). Do NOT fail-closed here — that was the pre-redesign
+        # contract, made obsolete by demoting the blanket citation-neighbor
+        # walk to a surgical-only mechanism.
         return DispositionResult(
-            HALT_DECLARE,
-            "no _walk.md found — the citation-neighbor walk record is "
-            "missing, cannot self-certify coverage-gate.",
-            {"stop_reason": ""},
+            GO,
+            "no _walk.md found — no citation-neighbor walk ran this "
+            "evaluation (surgical-only default: no thin pole needed "
+            "filling, no named anchor needed chasing). This is not a "
+            "failure; certification rests on facet-coverage + "
+            "source-coverage + relevance-verify + deviation-check.",
+            {"stop_reason": "", "walk_ran": False},
         )
 
     stop_reason = str(walk_info.get("stop_reason", "")).strip()

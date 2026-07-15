@@ -141,10 +141,17 @@ class TestClassifyCoverageGate:
         result = auto.classify_coverage_gate(info, coverage_gaps_path=gaps)
         assert result.disposition == auto.HALT_DECLARE
 
-    def test_missing_walk_file_halts(self):
+    def test_walk_absent_is_not_a_failure_certifies_go(self):
+        """Coverage-gate refactor (search-primary redesign): a walk is now
+        surgical-only, so no ``_walk.md`` this evaluation is the EXPECTED
+        steady state (no thin pole needed filling, no anchor needed
+        chasing) — NOT a failure. ``classify_coverage_gate`` alone (source-
+        coverage clean, no walk record) must certify GO; it never fail-
+        closes just because the walk-terminal contributor is absent."""
         info = {"exists": False, "stop_reason": "", "walk_complete": False, "hop_count": None}
         result = auto.classify_coverage_gate(info)
-        assert result.disposition == auto.HALT_DECLARE
+        assert result.disposition == auto.GO
+        assert result.evidence.get("walk_ran") is False
 
     @pytest.mark.parametrize(
         "stop_reason",
@@ -198,6 +205,18 @@ class TestClassifyCoverageGateSourceDark:
         call sites) must behave exactly as before this feature."""
         result = auto.classify_coverage_gate(self.WALK_COMPLETE_INFO, source_coverage_info=None)
         assert result.disposition == auto.GO
+
+    def test_declared_dark_source_halts_even_when_walk_absent(self):
+        """The dark-source check must short-circuit BEFORE the (now
+        walk-conditional) terminal logic runs, regardless of whether a walk
+        ran at all this evaluation — a genuinely-missing required signal
+        (a declared source never reached) must still fail-closed even in
+        the surgical-walk-absent steady state."""
+        no_walk_info = {"exists": False, "stop_reason": "", "walk_complete": False, "hop_count": None}
+        source_info = {"exists": True, "dark_sources": ["arxiv"], "declared_dark": ["arxiv"]}
+        result = auto.classify_coverage_gate(no_walk_info, source_coverage_info=source_info)
+        assert result.disposition == auto.HALT_DECLARE
+        assert "arxiv" in result.reason
 
 
 # ---------------------------------------------------------------------------
