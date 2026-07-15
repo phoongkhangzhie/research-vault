@@ -119,7 +119,7 @@ def test_f2_every_feature_shows_request_url_when_locked():
         with patch("shutil.which", return_value="/usr/bin/claude"):
             result = run_preflight()
     for feat in result["features"]:
-        if feat["status"] == "locked" and feat["kind"] in ("key", "package"):
+        if feat["status"] == "locked" and feat["kind"] in ("key", "key_liveness", "package"):
             assert feat["urls"], f"{feat['id']} locked but no request URL shown"
             for u in feat["urls"]:
                 assert u["url"].startswith("https://")
@@ -168,11 +168,12 @@ def test_check_asta_uses_no_import():
 
 
 def test_check_asta_available_when_key_present(monkeypatch):
-    """_check_asta reports available when ASTA_MCP_KEY is set."""
+    """_check_asta reports available when ASTA_MCP_KEY is set AND the session pings live."""
     monkeypatch.setenv("ASTA_MCP_KEY", "testastakey123")
     monkeypatch.setenv("VAULT_SKIP_KEYRING", "1")
-    from research_vault.check import _check_asta
-    ok, msg, required = _check_asta()
+    import research_vault.check as check_mod
+    monkeypatch.setattr(check_mod, "asta_liveness_probe", lambda: ("live", "gateway confirmed"))
+    ok, msg, required = check_mod._check_asta()
     assert ok is True
     assert "available" in msg.lower()
     assert required is False
@@ -209,9 +210,10 @@ def test_check_asta_round_trip_via_keyring(monkeypatch):
     # Write the key exactly as onboard does.
     store_key(ASTA_KEY, "my-asta-key-value")
 
-    # _check_asta must find it.
-    from research_vault.check import _check_asta
-    ok, msg, _ = _check_asta()
+    # _check_asta must find it AND ping it live (presence alone is not enough).
+    import research_vault.check as check_mod
+    monkeypatch.setattr(check_mod, "asta_liveness_probe", lambda: ("live", "gateway confirmed"))
+    ok, msg, _ = check_mod._check_asta()
     assert ok is True, f"round-trip failed — _check_asta returned: {msg}"
     assert "keyring" in msg.lower()
 
@@ -224,11 +226,16 @@ def test_asta_feature_status_locked_without_key(monkeypatch):
             result = run_preflight()
     asta = next(f for f in result["features"] if f["id"] == "asta")
     assert asta["status"] == "locked"
-    assert asta["kind"] == "key", "asta feature kind must be 'key' after the fix"
+    # Section G: asta is an OAuth-session credential, verified by a rejects-only
+    # liveness ping (not presence-only) — its feature kind is 'key_liveness'.
+    assert asta["kind"] == "key_liveness"
 
 
 def test_asta_feature_status_unlocked_with_key(monkeypatch):
-    """The asta feature status is 'unlocked' when ASTA_MCP_KEY is present."""
+    """The asta feature status is 'unlocked' only when the key is present AND the
+    liveness ping confirms the session is live — presence alone is not enough."""
+    import research_vault.keys as keys_mod
+    monkeypatch.setattr(keys_mod, "asta_liveness_probe", lambda: ("live", "gateway confirmed"))
     from research_vault.check import run_preflight
     env = _env_without_any_keys()
     env["ASTA_MCP_KEY"] = "testastakey123"
@@ -237,6 +244,192 @@ def test_asta_feature_status_unlocked_with_key(monkeypatch):
             result = run_preflight()
     asta = next(f for f in result["features"] if f["id"] == "asta")
     assert asta["status"] == "unlocked"
+    assert "session live" in asta["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Section G — asta liveness (rejects-only, not presence). The load-bearing fix:
+# a key present but a DEAD session must be reported LOCKED, never [OK].
+# ---------------------------------------------------------------------------
+
+def test_asta_feature_status_locked_when_session_dead(monkeypatch):
+    """Key present + gateway rejects the session (invalid_grant/expired) → locked, not unlocked."""
+    import research_vault.keys as keys_mod
+    monkeypatch.setattr(
+        keys_mod, "asta_liveness_probe",
+        lambda: ("dead", "gateway rejected the session — run `asta auth login` to reauthenticate"),
+    )
+    from research_vault.check import run_preflight
+    env = _env_without_any_keys()
+    env["ASTA_MCP_KEY"] = "testastakey123"
+    with patch.dict(os.environ, env, clear=True):
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            result = run_preflight()
+    asta = next(f for f in result["features"] if f["id"] == "asta")
+    assert asta["status"] == "locked", (
+        "a present-but-DEAD asta session must be LOCKED, never unlocked/[OK]"
+    )
+    assert "DEAD" in asta["detail"]
+    assert result["asta"] is False
+
+
+def test_check_asta_reports_fail_when_session_dead(monkeypatch):
+    """_check_asta's ok field is False when the key is present but the session is dead."""
+    monkeypatch.setenv("ASTA_MCP_KEY", "testastakey123")
+    monkeypatch.setenv("VAULT_SKIP_KEYRING", "1")
+    import research_vault.check as check_mod
+    monkeypatch.setattr(
+        check_mod, "asta_liveness_probe",
+        lambda: ("dead", "gateway rejected the session — run `asta auth login` to reauthenticate"),
+    )
+    ok, msg, required = check_mod._check_asta()
+    assert ok is False, "a DEAD session must never report ok=True"
+    assert "dead" in msg.lower()
+    assert required is False
+
+
+def test_asta_feature_status_locked_when_offline_unverified(monkeypatch):
+    """Key present + liveness ping can't confirm (offline/timeout) → locked with an
+    honest 'not liveness-verified' label — never a crash, never a false [OK]."""
+    import research_vault.keys as keys_mod
+    monkeypatch.setattr(
+        keys_mod, "asta_liveness_probe",
+        lambda: ("unverified", "gateway unreachable — could not verify session (offline?)"),
+    )
+    from research_vault.check import run_preflight
+    env = _env_without_any_keys()
+    env["ASTA_MCP_KEY"] = "testastakey123"
+    with patch.dict(os.environ, env, clear=True):
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            result = run_preflight()  # must not raise
+    asta = next(f for f in result["features"] if f["id"] == "asta")
+    assert asta["status"] == "locked"
+    assert "not liveness-verified" in asta["detail"]
+    assert result["asta"] is False
+
+
+def test_check_asta_reports_fail_when_offline_unverified(monkeypatch):
+    """_check_asta's ok field is False (never True) when liveness could not be confirmed."""
+    monkeypatch.setenv("ASTA_MCP_KEY", "testastakey123")
+    monkeypatch.setenv("VAULT_SKIP_KEYRING", "1")
+    import research_vault.check as check_mod
+    monkeypatch.setattr(
+        check_mod, "asta_liveness_probe",
+        lambda: ("unverified", "gateway unreachable — could not verify session (offline?)"),
+    )
+    ok, msg, required = check_mod._check_asta()
+    assert ok is False
+    assert "not verified" in msg.lower() or "unverified" in msg.lower()
+    assert required is False
+
+
+def test_asta_liveness_probe_no_cli_reports_unverified(monkeypatch):
+    """asta_liveness_probe: `asta` CLI missing from PATH → 'unverified', never raises."""
+    import research_vault.keys as keys_mod
+    monkeypatch.setattr(keys_mod.shutil, "which", lambda name: None)
+    status, detail = keys_mod.asta_liveness_probe()
+    assert status == "unverified"
+    assert "PATH" in detail
+
+
+def test_asta_liveness_probe_not_authenticated_is_dead(monkeypatch):
+    """asta_liveness_probe: no local session ('Not authenticated') → 'dead'."""
+    import research_vault.keys as keys_mod
+    monkeypatch.setattr(keys_mod.shutil, "which", lambda name: "/usr/local/bin/asta")
+    monkeypatch.setattr(
+        keys_mod, "_run_asta_auth_status",
+        lambda path: (0, "❌ Not authenticated\n   Run asta auth login to authenticate\n"),
+    )
+    status, detail = keys_mod.asta_liveness_probe()
+    assert status == "dead"
+
+
+def test_asta_liveness_probe_invalid_grant_is_dead(monkeypatch):
+    """asta_liveness_probe: gateway rejects the session (invalid_grant-style) → 'dead'."""
+    import research_vault.keys as keys_mod
+    monkeypatch.setattr(keys_mod.shutil, "which", lambda name: "/usr/local/bin/asta")
+    fake_output = (
+        "Local Token Status   | ✅ Valid\n"
+        "Server Verification  | ❌ Invalid\n"
+        "   HTTP 401: invalid_grant\n"
+    )
+    monkeypatch.setattr(keys_mod, "_run_asta_auth_status", lambda path: (0, fake_output))
+    status, detail = keys_mod.asta_liveness_probe()
+    assert status == "dead"
+
+
+def test_asta_liveness_probe_valid_is_live(monkeypatch):
+    """asta_liveness_probe: gateway confirms → 'live' (the healthy real-world shape)."""
+    import research_vault.keys as keys_mod
+    monkeypatch.setattr(keys_mod.shutil, "which", lambda name: "/usr/local/bin/asta")
+    fake_output = (
+        "Local Token Status   | ✅ Valid\n"
+        "Server Verification  | ✅ Valid\n"
+        "Email                | someone@example.edu\n"
+    )
+    monkeypatch.setattr(keys_mod, "_run_asta_auth_status", lambda path: (0, fake_output))
+    status, detail = keys_mod.asta_liveness_probe()
+    assert status == "live"
+
+
+def test_asta_liveness_probe_connection_error_is_unverified_not_dead(monkeypatch):
+    """A network/connection failure during verification must NOT be mis-reported as
+    a dead session — it's genuinely unknown (e.g. offline)."""
+    import research_vault.keys as keys_mod
+    monkeypatch.setattr(keys_mod.shutil, "which", lambda name: "/usr/local/bin/asta")
+    fake_output = (
+        "Local Token Status   | ✅ Valid\n"
+        "Server Verification  | ❌ Invalid\n"
+        "   Connection error: [Errno 8] nodename nor servname provided\n"
+    )
+    monkeypatch.setattr(keys_mod, "_run_asta_auth_status", lambda path: (0, fake_output))
+    status, detail = keys_mod.asta_liveness_probe()
+    assert status == "unverified", (
+        "a connection error must degrade to 'unverified', never a false 'dead'"
+    )
+
+
+def test_asta_liveness_probe_timeout_is_unverified_not_crash(monkeypatch):
+    """A liveness-ping timeout degrades gracefully to 'unverified' — never raises."""
+    import subprocess
+    import research_vault.keys as keys_mod
+    monkeypatch.setattr(keys_mod.shutil, "which", lambda name: "/usr/local/bin/asta")
+
+    def _raise_timeout(path):
+        raise subprocess.TimeoutExpired(cmd="asta auth status", timeout=15)
+
+    monkeypatch.setattr(keys_mod, "_run_asta_auth_status", _raise_timeout)
+    status, detail = keys_mod.asta_liveness_probe()  # must not raise
+    assert status == "unverified"
+
+
+def test_asta_liveness_probe_oserror_is_unverified_not_crash(monkeypatch):
+    """An OSError running the CLI degrades gracefully to 'unverified' — never raises."""
+    import research_vault.keys as keys_mod
+    monkeypatch.setattr(keys_mod.shutil, "which", lambda name: "/usr/local/bin/asta")
+
+    def _raise_oserror(path):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(keys_mod, "_run_asta_auth_status", _raise_oserror)
+    status, detail = keys_mod.asta_liveness_probe()  # must not raise
+    assert status == "unverified"
+
+
+def test_asta_liveness_probe_never_imports_asta_module():
+    """asta_liveness_probe must NOT `import asta` — asta is a CLI, not a pip package."""
+    import ast
+    import inspect
+    import textwrap
+    from research_vault.keys import asta_liveness_probe as fn
+    src = textwrap.dedent(inspect.getsource(fn))
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert alias.name != "asta"
+        if isinstance(node, ast.ImportFrom):
+            assert node.module != "asta"
 
 
 # ---------------------------------------------------------------------------
