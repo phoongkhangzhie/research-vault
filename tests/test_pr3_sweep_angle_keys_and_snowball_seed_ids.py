@@ -110,7 +110,7 @@ class TestSnowballOpSeedIdsBypass:
             path.write_text("| annotation | id | title | venue | year | abstract | flags |\n", encoding="utf-8")
             return path
 
-        def fake_write_walk_report(result, path):
+        def fake_write_walk_report(result, path, **kwargs):
             path.write_text("---\nstop_reason: walk-complete:1-hops\n---\n", encoding="utf-8")
             return path
 

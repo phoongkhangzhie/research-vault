@@ -233,30 +233,33 @@ def _complete_relevance_verify(run_id, review_dir, store, real_citekeys: list[st
 
 
 class TestRealRunnerEndToEnd:
-    """Items 1-3: build -> run through the real runner; no removed verb
-    shelled; the three tool-written artifacts land on disk with the
-    expected shape."""
+    """Items 1-3 (search-primary redesign, Section D retarget): build -> run
+    through the real runner; no removed verb shelled; the tool-written
+    artifacts land on disk with the expected shape — AT THE SHIPPED DEFAULT,
+    which no longer runs a citation-neighbor walk at all (surgical-only).
+    ``_walk.md`` is never written by ``review-snowball`` on this path;
+    ``_corpus_raw.md`` is built entirely from the screen-accepted seed
+    frontier's OWN row, carried through from ``_search_hits.md`` (the
+    seed-row merge this PR adds — the load-bearing substrate for "search
+    owns recall" to hold once the walk stops firing by default)."""
 
-    def test_neighborhood_exhausted_path_writes_all_tool_artifacts_no_removed_verb_shelled(
+    def test_default_no_walk_path_writes_corpus_from_seed_merge_no_removed_verb_shelled(
         self, tmp_instance: Path, monkeypatch, subprocess_spy,
     ):
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick, cmd_complete
         from research_vault.dag.store import RunStore
         from research_vault.review import cmd_new
-        from research_vault.review import style as review_style
 
         cfg = load_config()
 
-        # Hop 1 finds one genuinely new paper; hops 2+3 find nothing ->
-        # 2-consecutive-zero -> "neighborhood-exhausted". This scenario
-        # needs >= 3 hops available (1 to find something + 2 to plateau) —
-        # the shipped DEFAULT is now 1 (0.3.1 citation-neighbor walk), so
-        # bump it to 3 for THIS test only (it's specifically exercising the
-        # neighborhood-exhausted path, not the default hop count — that's
-        # covered by test_review_walk_terminal.py + the sibling
-        # default-1-hop test in this file).
-        monkeypatch.setattr(review_style, "DEFAULT_RELEVANCE_HOPS", 3)
+        # The seed accepted by review-screen (10.1000/searchhit1, matching
+        # _drive_through_screen's seed_line override below) IS one of the
+        # search hits — its full row (title/venue/year/abstract) must be
+        # carried through into _corpus_raw.md via the seed-row merge, with
+        # NO citation-neighbor walk ever firing (graph_script is present
+        # but must NEVER be consulted — proven by _assert_removed_verbs_
+        # never_shelled below AND the _walk.md-absent assert).
         _register_fake_adapter(
             monkeypatch,
             search_hits=[_hit("A Width-Swept Paper", "10.1000/searchhit1")],
@@ -273,7 +276,7 @@ class TestRealRunnerEndToEnd:
         run_id = phase1["run_id"]
         store = RunStore.from_config(cfg)
 
-        _drive_through_screen(run_id, review_dir, store)
+        _drive_through_screen(run_id, review_dir, store, seed_line="10.1000/searchhit1\n")
 
         rs = store.load(run_id)
         assert rs.node_status("review-snowball") == "succeeded", rs.node_states.get("review-snowball")
@@ -288,31 +291,47 @@ class TestRealRunnerEndToEnd:
 
         corpus_raw_path = review_dir / "_corpus_raw.md"
         assert corpus_raw_path.exists()
-        assert "A Snowballed Paper" in corpus_raw_path.read_text(encoding="utf-8")
+        corpus_raw_text = corpus_raw_path.read_text(encoding="utf-8")
+        # The seed's OWN row (from _search_hits.md) — carried through, not
+        # a walk discovery (the walk never ran on this path).
+        assert "A Width-Swept Paper" in corpus_raw_text
+        assert "seed_rows_merged: 1" in corpus_raw_text
+        # The citation-neighbor walk's own graph_script paper is NEVER
+        # discovered on this path — the walk (which would have found it)
+        # never fired.
+        assert "A Snowballed Paper" not in corpus_raw_text
 
+        # ★ The new default: NO _walk.md at all (surgical-only; no thin
+        # pole to fill, no anchor to chase) — the D-1 walk-absent GO state,
+        # made real by this PR's manifest default flip.
         walk_path = review_dir / "_walk.md"
-        assert walk_path.exists()
-        walk_text = walk_path.read_text(encoding="utf-8")
-        assert "stop_reason: neighborhood-exhausted" in walk_text
+        assert not walk_path.exists(), (
+            "review-snowball wrote _walk.md on the DEFAULT path — the "
+            "blanket walk must not fire by default post-redesign"
+        )
 
         # review-curate (agent) writes the FINAL _corpus.md.
         corpus_path = review_dir / "_corpus.md"
         corpus_path.write_text(
             "| annotation | citekey | title |\n|---|---|---|\n"
-            "| [NEW] | snowballed2024 | A Snowballed Paper |\n",
+            "| [NEW] | widthswept2024 | A Width-Swept Paper |\n",
             encoding="utf-8",
         )
         rc = cmd_complete(argparse.Namespace(run_id=run_id, node_id="review-curate", status="succeeded"))
         assert rc == 0
 
-        _complete_relevance_verify(run_id, review_dir, store, ["snowballed2024"])
+        _complete_relevance_verify(run_id, review_dir, store, ["widthswept2024"])
 
         rc = cmd_tick(argparse.Namespace(run_id=run_id))
         assert rc == 0
         rs = store.load(run_id)
         assert rs.node_status("coverage-gate") == "succeeded"
-        assert "GO" in rs.node_states["coverage-gate"]["decision_note"]
-        # Phase-2 auto-emitted — coverage-gate's producer lookup resolved.
+        decision_note = rs.node_states["coverage-gate"]["decision_note"]
+        assert "GO" in decision_note
+        assert "HALT" not in decision_note
+        # Phase-2 auto-emitted — coverage-gate's producer lookup resolved
+        # even with _walk.md absent (D-1's walk-CONDITIONAL contract, made
+        # real end-to-end by this PR's manifest change).
         assert (review_dir / "phase2-dag.json").exists()
 
         # --- Assert 2: no removed verb was ever shelled, anywhere in the run ---
@@ -365,29 +384,33 @@ class TestProducesEnforcementRealPath:
         assert "seed_queries" in rs.node_states["review-search"].get("tool_error", "")
 
 
-class TestDefaultOneHopWalkCompletePath:
-    """Item 5 (0.3.1 retarget): a never-plateauing fake neighborhood driven
-    through the REAL runner at the SHIPPED DEFAULT (no relevance_hops
-    override) — confirming the load-bearing 0.3.1 invariant: a 1-hop run
-    GOes cleanly through coverage-gate end-to-end, stop_reason
-    walk-complete:1-hops, NO _coverage-gaps.md demanded (depth-bounding is
-    the design, not a shortfall)."""
+class TestSurgicalTriggerWalkCompletePath:
+    """Item 5 (search-primary redesign, Section D retarget): the walk is
+    surgical-only now — this class proves an EXPLICIT, named trigger
+    (``run_thin_pole_fill``) still reaches the SAME clean terminal
+    (``walk-complete:N-hops``, no residue demanded) the old blanket-default
+    test exercised, now fired deliberately rather than automatically. Runs
+    against a REAL ``review_dir`` the real DAG runner already produced up
+    through ``review-snowball`` (the default no-walk node), so the trigger
+    is proven against real on-disk state, not a hand-built fixture."""
 
-    def test_default_one_hop_walk_complete_goes_no_residue_demanded(
+    def test_thin_pole_fill_trigger_walk_complete_goes_no_residue_demanded(
         self, tmp_instance: Path, monkeypatch,
     ):
         from research_vault.config import load_config
         from research_vault.dag.verbs import cmd_tick, cmd_approve, cmd_complete, cmd_run
         from research_vault.dag.store import RunStore
         from research_vault.review import cmd_new
+        from research_vault.review.autonomy import run_thin_pole_fill
 
         cfg = load_config()
 
         # Every round would yield a genuinely distinct, non-derivative new
-        # paper (never 2-consecutive-zero) — at relevance_hops=1 (the
-        # shipped default, no override here), the walk runs exactly ONE hop
-        # cleanly to depth and stops with "walk-complete:1-hops" — round 2's
-        # script entry is deliberately present to prove it's NEVER reached.
+        # paper (never 2-consecutive-zero) — at relevance_hops=1, the
+        # explicitly-triggered walk runs exactly ONE hop cleanly to depth
+        # and stops with "walk-complete:1-hops" — round 2's script entry is
+        # deliberately present to prove it's NEVER reached (the walk still
+        # respects its depth bound when triggered surgically).
         _register_fake_adapter(
             monkeypatch,
             search_hits=[_hit("Seed Search Hit", "10.1000/searchhit2")],
@@ -406,17 +429,31 @@ class TestDefaultOneHopWalkCompletePath:
         run_id = phase1["run_id"]
         store = RunStore.from_config(cfg)
 
-        _drive_through_screen(run_id, review_dir, store)
+        _drive_through_screen(run_id, review_dir, store, seed_line="10.1000/searchhit2\n")
 
         rs = store.load(run_id)
         assert rs.node_status("review-snowball") == "succeeded", rs.node_states.get("review-snowball")
+        # The default no-walk node ran first — no _walk.md yet.
+        assert not (review_dir / "_walk.md").exists()
+
+        # An explicit thin-pole-fill trigger, fired directly (not a DAG
+        # node — the caller is a remediation round, see
+        # run_thin_pole_fill's docstring) — walks ONLY from the pole's own
+        # seed(s), never the review's full frontier.
+        result = run_thin_pole_fill(
+            pole_seed_ids=["10.1000/searchhit2"], out_dir=str(review_dir), relevance_hops=1,
+        )
+        assert result["walk_ran"] is True
+        assert result["stop_reason"] == "walk-complete:1-hops"
 
         walk_path = review_dir / "_walk.md"
         walk_text = walk_path.read_text(encoding="utf-8")
         assert "stop_reason: walk-complete:1-hops" in walk_text
+        assert "walk_trigger: thin-pole-fill" in walk_text
         # Round 2's script entry (Distinct Paper Beta) was never reached —
         # the walk stopped at the 1-hop bound, not because it ran dry.
         assert "Distinct Paper Beta" not in (review_dir / "_corpus_raw.md").read_text(encoding="utf-8")
+        assert "Distinct Paper Alpha" in (review_dir / "_corpus_raw.md").read_text(encoding="utf-8")
 
         # review-curate (agent) writes the FINAL _corpus.md — NO
         # _coverage-gaps.md needed at walk-complete:N-hops (a clean,

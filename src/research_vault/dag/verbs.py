@@ -295,12 +295,25 @@ def _missing_produces_artifacts(node: dict[str, Any]) -> list[str]:
     ``relations`` ops that return an in-memory report, not a file). A
     ``produces:`` value that isn't a path-shaped string (rare, defensive) is
     skipped rather than false-flagged.
+
+    ``produces_optional`` (search-primary redesign, Section D — surgical
+    walk): an optional list of ``produces:`` KEYS that are legitimately
+    absent on a normal, successful run — e.g. ``review-snowball``'s
+    ``_walk.md``, which is only written when a surgical chase actually
+    fires (D-1: an absent walk record is a valid GO state, not a failure).
+    The key still lives in ``produces:`` as a STATIC path pointer (so
+    ``coverage-gate``'s own wiring can resolve where ``_walk.md`` WOULD be),
+    it is simply exempt from this "must exist" enforcement — a tool node
+    that legitimately produces nothing for an optional key must not block.
     """
     produces = node.get("produces")
     if not isinstance(produces, dict) or not produces:
         return []
+    optional_keys = set(node.get("produces_optional") or [])
     missing: list[str] = []
     for key, value in produces.items():
+        if key in optional_keys:
+            continue
         if not isinstance(value, str) or not value:
             continue
         if not Path(value).exists():
