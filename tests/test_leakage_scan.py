@@ -155,6 +155,11 @@ def test_red_on_dossier_codename(tmp_path):
     assert_red(run_scan(tmp_path))
 
 
+def test_red_on_explore_rl_codename(tmp_path):
+    write_doc(tmp_path, "A lesson carried over from the explore-rl project.\n")
+    assert_red(run_scan(tmp_path))
+
+
 def test_green_on_scrubbed_codename(tmp_path):
     write_doc(
         tmp_path,
@@ -1072,3 +1077,103 @@ def test_red_on_codenames_only_does_not_broadly_exempt_other_tests_files(tmp_pat
     assert_red(result)
     assert "test_experiment_run.py" in result.stdout
     assert "test_leakage_scan.py:" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Class 12: Dev-process internal references in Python source
+# ---------------------------------------------------------------------------
+# Shipped src/**.py docstrings/comments must reference PUBLIC concepts only —
+# never internal task/PR-tracker numbers, build-time SR-tags, or unshipped
+# internal design-doc filenames. Scoped like class 10: .py-only, tests/
+# excluded (tests/ is never shipped in the wheel).
+
+
+def test_red_on_task_number_in_py_docstring(tmp_path):
+    """'task #NN' in a Python docstring must be flagged."""
+    _write_py(tmp_path, '''\
+        """module.py — something (task #86).
+        """
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_fix_number_in_py_comment(tmp_path):
+    """'Fix #NN' in a Python comment must be flagged."""
+    _write_py(tmp_path, '''\
+        # Fix #32: literature notes are invisible to the corpus index.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_defect_number_in_py_comment(tmp_path):
+    """'Defect #NN' in a Python comment must be flagged."""
+    _write_py(tmp_path, '''\
+        # Defect #70: full-body scan, not header-scoped.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_pr_number_in_py_comment(tmp_path):
+    """'PR #NN' in a Python comment must be flagged."""
+    _write_py(tmp_path, '''\
+        # killed the "forgot to activate the role" bug (PR #5).
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_sr_tag_in_py_comment(tmp_path):
+    """An SR-tag (e.g. an internal build-time story reference) in a Python
+    comment must be flagged."""
+    _write_py(tmp_path, '''\
+        # ''' + "SR-XPB" + ''': ranker-defeats-filter pattern.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_design_doc_filename_in_py_docstring(tmp_path):
+    """An internal '*-design.md' filename reference in a Python docstring
+    must be flagged."""
+    _write_py(tmp_path, '''\
+        """module.py — see the trustworthy-curation-relevance-gate-design.md
+        design for background.
+        """
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_public_concepts_in_py(tmp_path):
+    """Python source describing PUBLIC concepts (no tracker numbers, no
+    internal design-doc filenames) passes class 12."""
+    _write_py(tmp_path, '''\
+        """module.py — implements the trustworthy-curation relevance-gate
+        design: a mechanical pre-filter followed by a cold verifier.
+        """
+        def fn(): pass
+    ''')
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_task_number_in_md_not_py(tmp_path):
+    """A .md file with a 'task #NN' reference is NOT flagged — class 12 is
+    .py-only (doctrine .md files legitimately carry dev-facing refs;
+    rule 9 in lint.py governs adopter-facing shipped docs separately)."""
+    doc = tmp_path / "notes.md"
+    doc.write_text("Implements task #86 (search-primary redesign).\n")
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_task_number_in_tests_dir(tmp_path):
+    """A 'task #NN' reference inside tests/ is NOT flagged — tests/ is never
+    shipped in the wheel (mirrors class 10's tests/ exclusion)."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_thing.py").write_text(
+        "# regression pin for task #86\ndef test_fn(): pass\n"
+    )
+    assert_green(run_scan(tmp_path))

@@ -850,8 +850,8 @@ def _get_package_path() -> str:
       - wheel install: ``site-packages/`` (contains ``research_vault/``)
 
     The old code used three parents (repo root in dev, ``lib/python3.x/`` in
-    wheel) — neither is a valid sys.path entry for the package. Task #22 part 2
-    audit. Tested by test_task22_wheel_audit.py.
+    wheel) — neither is a valid sys.path entry for the package. Verified by
+    a wheel-install audit test.
     """
     return str(Path(__file__).parent.parent)
 
@@ -872,7 +872,7 @@ def _launch_background_poller(
     # research_vault/), site-packages/ in a wheel install (also contains
     # research_vault/). Three parents up (the old code) gave the repo root in dev
     # or lib/python3.x/ in wheel — neither is a valid sys.path entry for the
-    # package. See task #22 part 2 audit; also tested by test_task22_wheel_audit.py.
+    # package. Verified by a wheel-install audit test.
     package_path = str(_get_package_path())
 
     script = _POLLER_SCRIPT_TEMPLATE.format(

@@ -237,13 +237,13 @@ def _parse_frontmatter(
       ``key:``-shaped items, so they are wholly untouched by this extension.
     - Inline ``key: []`` syntax stays as the literal string ``"[]"`` (not a list).
 
-    #26 convergence: this canonical parser now replaces the local
-    ``gap_scan._parse_frontmatter_gap`` duplicate (STOP decision lifted).
+    Parser convergence: this canonical parser now replaces the local
+    ``gap_scan._parse_frontmatter_gap`` duplicate (an earlier STOP decision lifted).
     The extension is backwards-compatible for all existing callers: callers that
     do ``.strip()`` on results only access SCALAR fields (``synthesized_okf``,
     ``confidence``, ``plan_kind``, etc.); none of them access list-valued fields
     (``backed_by``, ``supported_by``, ``contradicted_by``), which are exclusively
-    used by gap_scan.  Audit verified in #26 grep-before-extend pass.
+    used by gap_scan.  Verified by a grep-before-extend caller audit.
 
     Return: (fields_dict, body_text)
     """
@@ -465,7 +465,7 @@ def cmd_new(project: str, note_type: str, title: str, *,
     # (0.3.2 (the overlay unwind): shared-canonical, single note — these used to be
     # CORE-only content on the two-layer store's central note; there is now
     # only one note, so they are stamped here like any other type's
-    # placeholders). Fix #32: doi/arxiv_id placeholders enable the notes-based
+    # placeholders). doi/arxiv_id placeholders enable the notes-based
     # corpus-dedup index (research._load_notes_index) to match an S2
     # candidate to a filed note without requiring Zotero library.json sync.
     if note_type == "literature":

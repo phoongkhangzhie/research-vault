@@ -25,7 +25,7 @@
 #                     landing in tests/test_config.py etc.) needs only class 1's narrower net.
 #
 # Marker classes:
-#   1. Private project codenames  (cultural-social-sim, csb, dossier)
+#   1. Private project codenames  (cultural-social-sim, csb, dossier, explore-rl)
 #   2. Private identity strings   (operator name + handles)
 #   3. Private site / URLs        (operator's personal domain)
 #   4. Private cluster paths      (/juice2/, /scr2/)
@@ -47,6 +47,10 @@
 #      boundary-safety comments in Python source are an established, accepted development-
 #      history convention, out of scope here). No grandfather exemption (PR-C2: DEVLOG.md,
 #      the only file that carried one, is now untracked and out of the scanned surface).
+#  12. Dev-process internal references in .py (task/PR-tracker numbers, build-time SR-tags,
+#      internal design-doc filenames) — the class rule 9 (see lint.py's check_shipped_doc_noise)
+#      already enforces for adopter-facing shipped DOCS, extended here to shipped Python
+#      SOURCE, which rule 9 never scanned. Scoped like class 10 (.py-only, tests/ excluded).
 #
 # Self-exclusion: the scanner skips itself, ci.yml, and the test file
 # (all three intentionally list the marker strings). tests/test_git_discipline.py is also
@@ -298,6 +302,29 @@ _grep_py_word() {
     fi
 }
 
+_grep_py_re() {
+    # _grep_py_re LABEL ERE_PATTERN  — regex, .py files only, tests/ excluded.
+    # Used for class 12 (dev-process internal refs) — mirrors _grep_py_word's
+    # .py-only + tests/-excluded scoping (see its comment for the rationale:
+    # tests/ is never shipped in the wheel, so a dev-process ref there cannot
+    # leak into the published package).
+    local label="$1" pattern="$2"
+    local found
+    local TESTS_EXCLUDE='(^|/)tests/'
+    if [ "$STAGED" -eq 1 ]; then
+        found=$(echo "$STAGED_FILES" | grep '\.py$' | xargs -I{} grep -nH -E "$pattern" {} 2>/dev/null \
+                | grep -Ev "$SKIP_PATTERN" | grep -Ev "$TESTS_EXCLUDE" || true)
+    else
+        found=$(grep -rn --include="*.py" -E "$pattern" "$TARGET" 2>/dev/null \
+                | grep -Ev "$SKIP_PATTERN" | grep -Ev "$TESTS_EXCLUDE" || true)
+    fi
+    if [ -n "$found" ]; then
+        echo "$found"
+        echo "FAIL [$label]: dev-process internal reference matched regex '$pattern' (.py)"
+        FAIL=1
+    fi
+}
+
 _grep_literal_non_py() {
     # _grep_literal_non_py LABEL LITERAL
     # Like _grep_literal but EXCLUDES .py files entirely — internal dev-path
@@ -410,6 +437,7 @@ if [ "$SECRETS_ONLY" -eq 0 ]; then
 _grep_literal "codename/cultural-social-sim" "cultural-social-sim"
 _grep_word    "codename/csb"                 "csb"
 _grep_word    "codename/dossier"             "dossier"
+_grep_word    "codename/explore-rl"          "explore-rl"
 
 # ── Classes 2-11: skipped in --codenames-only (see flag doc above) ──────────
 if [ "$CODENAMES_ONLY" -eq 0 ]; then
@@ -526,7 +554,27 @@ _grep_py_word "crew-name/atlas"  "atlas"
 _grep_literal_non_py "path/tilde-vault"       "~/vault"
 _grep_literal         "path/docs-superpowers"  "docs/superpowers/"
 
-fi  # end CODENAMES_ONLY-skips-classes-2-11 block
+# ── Class 12: Dev-process internal references in Python source ──────────────
+# Shipped src/**.py docstrings/comments must reference PUBLIC concepts only
+# (feature/version/algorithm names, dates) — never dev-process internals:
+# internal task/PR-tracker numbers, internal build-time story tags, or
+# unshipped internal design-doc filenames. An adopter reading these
+# docstrings has no tracker to resolve "task #86" or "SR-XPB" against, and
+# no local copy of "2026-07-10-foo-design.md" to open — a dangling
+# pointer into the operator's own dev process.
+#
+# .py-only (via _grep_py_re, tests/ excluded — same rationale as class 10:
+# tests/ is never shipped in the wheel). Doctrine .md files legitimately
+# carry SR-tags/task-refs in their own dev-facing sections (rule 9's
+# adopter-facing-doc-only SR-tag lint already governs *that* surface) —
+# class 12 is deliberately narrower and does not re-scan .md at all.
+_grep_py_re "dev-ref/task-number"   '\btask #[0-9]+'
+_grep_py_re "dev-ref/fix-defect-number" '\b(Fix|Defect) #[0-9]+'
+_grep_py_re "dev-ref/pr-number"     '\bPR #[0-9]+'
+_grep_py_re "dev-ref/sr-tag"        '\bSR-[A-Z0-9]+(-[A-Z0-9]+)*\b'
+_grep_py_re "dev-ref/design-doc-filename" '[A-Za-z0-9_-]+-design\.md'
+
+fi  # end CODENAMES_ONLY-skips-classes-2-12 block
 
 fi  # end SECRETS_ONLY=0 block
 

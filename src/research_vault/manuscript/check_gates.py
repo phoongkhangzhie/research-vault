@@ -875,7 +875,7 @@ def build_approve_payload(
             # gate NOT RUN" failure class, NOT a fixable BLOCK — it belongs
             # in `not_run` (-> HALT-DECLARE, priority 2) so the gate-policy
             # engine never dispatches a bounded auto-revise against a floor
-            # that never actually ran (explore-rl #3: a floor gate that
+            # that never actually ran (a floor gate that
             # didn't run must never look like an ordinary fixable finding).
             not_run.extend(f"[support-matcher] {e}" for e in support_result["errors"])
             not_run.append(

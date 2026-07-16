@@ -27,8 +27,8 @@ Subcommands:
       ``review-snowball`` runs an internal citation-neighbor relevance walk (both
       forward + backward citation directions, depth-bounded by ``--relevance-hops``,
       default 1) and produces ``_corpus_raw.md`` + ``_walk.md``.
-      The relevance gate (design 2026-07-10-trustworthy-curation-relevance-gate-design.md
-      ) mechanically screens + a cold agent re-verifies every ``[NEW]`` paper for
+      The relevance gate (the trustworthy-curation relevance-gate design)
+      mechanically screens + a cold agent re-verifies every ``[NEW]`` paper for
       off-domain contamination before the expensive Phase-2 fan-out: below
       ``OFF_DOMAIN_HALT_THRESHOLD`` (0.30) it auto-prunes + declares and the run
       proceeds; at/above threshold it HALT-DECLAREs at ``coverage-gate``.

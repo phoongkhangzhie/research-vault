@@ -28,10 +28,10 @@ THE 5 MOVES → what is checked
   5. Concept edges → mandatory gating unchanged this wave (deferred
                            to ride NG-6a's refresh verb), but the edge FORMAT
                            was migrated to OKF markdown links alongside paper
-                           edges (Defect #70), and `parse_concept_edges` now
+                           edges, and `parse_concept_edges` now
                            mechanically parses them (previously prose-only).
 
-RETRIEVAL-TIER GATES EDGE STRENGTH (Defect #71)
+RETRIEVAL-TIER GATES EDGE STRENGTH
 ================================================================================
 A note whose `read_basis` is not exactly `"full-text"` (abstract-only,
 title-only, any other value, or unstamped) cannot carry a `SUPPORTS` or
@@ -82,7 +82,7 @@ silently dropped any non-matching line — a note with 3 edges where 1 is
 typo'd would pass with that edge invisibly lost, and since
 `review_synthesize_tips` instructs "traverse, don't re-derive," a lost edge
 was gone for good. Now: any edge-shaped line found ANYWHERE in the body
-(full-body scan, Defect #70 — not scoped to a heading) that does not parse
+(a full-body scan, not scoped to a heading) that does not parse
 to a valid edge is collected into `ParsedRelations.malformed` — surfaced by
 `parse_paper_relations`, `relations_report`, AND `check_relate_presence` (a
 hard FAIL, matching this module's existing rejects-only-FAIL posture). A
@@ -93,7 +93,7 @@ type-token attempt, is legitimate prose and is never flagged — see
 broken edge attempt from prose once scanning is no longer header-scoped
 (extended for full-body scan).
 
-DEFECT #70 — FULL-BODY SCAN, NOT HEADER-SCOPED
+FULL-BODY SCAN, NOT HEADER-SCOPED
 ================================================================================
 The pre-fix parser only looked inside the exact `## Related papers`
 heading's slice — an agent that misspelled the heading (or a heading that
@@ -106,7 +106,7 @@ canonical heading's presence is checked SEPARATELY and unconditionally by
 missing/misspelled heading is still flagged even when the full-body scan
 recovers the edges.
 
-OKF-CONFORMANT MARKDOWN-LINK EDGE FORMAT (the real #69 root cause)
+OKF-CONFORMANT MARKDOWN-LINK EDGE FORMAT (the real root cause)
 ================================================================================
 See the "Body-section parsing" section below for the full grounding. In
 short: relate agents naturally write OKF-conformant markdown links
@@ -353,7 +353,8 @@ def _block_scalar_hint(field_key: str, raw_val: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Body-section parsing
 #
-# OKF-CONFORMANT EDGE FORMAT (Defects #69/#70/#71 hardening; relationship
+# OKF-CONFORMANT EDGE FORMAT (markdown-link-format, full-body-scan, and
+# retrieval-tier edge-strength hardening; relationship
 # type as a prose token, not a link-prefix tag)
 # ================================================================================
 # Google Cloud's OKF spec cross-links notes with STANDARD MARKDOWN LINKS —
@@ -369,7 +370,7 @@ def _block_scalar_hint(field_key: str, raw_val: str) -> str | None:
 # so a mechanical Noblit & Hare traversal is possible while a plain OKF
 # reader still sees a valid markdown link followed by an ordinary sentence.
 #
-# THE REAL #69 ROOT CAUSE: relate agents naturally write markdown links —
+# THE ROOT CAUSE: relate agents naturally write markdown links —
 # e.g. `- [Baltaji 2024](/literature/baltajipersonainconstancymulti2024.md)
 # — SUPPORTS: reason`, which is OKF-conformant — but an earlier parser
 # demanded a BARE citekey token and silently rejected the (correct)
@@ -381,7 +382,7 @@ _RESULT_HEADING_RE = re.compile(r"^#{2,3}\s+Result\s*$", re.IGNORECASE | re.MULT
 _RELATED_PAPERS_HEADING_RE = re.compile(
     r"^#{2,3}\s+Related papers\s*$", re.IGNORECASE | re.MULTILINE
 )
-# Canonical concept-edges heading (Defect #70 migration): was "## Verified
+# Canonical concept-edges heading (migrated): was "## Verified
 # concept edges" in the old bare-path brief; canonicalized to "## Concept
 # edges" alongside the OKF markdown-link format.
 _CONCEPT_EDGES_HEADING_RE = re.compile(
@@ -401,7 +402,7 @@ def _looks_like_tag_attempt(word: str) -> bool:
     known relation types — NOT an unrelated word that happens to be
     followed by a colon elsewhere in a note body (e.g. ``note:``, ``e.g.:``).
 
-    Defect #70 (full-body scan): once edge detection is no longer confined
+    Full-body scan: once edge detection is no longer confined
     to the '## Related papers' / '## Concept edges' sections, the bare
     "any '- [' bullet is an edge attempt" heuristic (safe when scoped to a
     single known section) becomes too broad across an entire note body.
@@ -513,7 +514,7 @@ class ParsedRelations:
                     is excluded from this list — see
                     ``_looks_like_tag_attempt``.
 
-    Defect #70 (full-body scan): this is a FULL-BODY scan, not scoped to
+    This is a FULL-BODY scan, not scoped to
     the '## Related papers' heading — a misplaced/misspelled section
     header can no longer silently drop a well-formed edge. The canonical
     heading's PRESENCE is checked separately (see
@@ -577,7 +578,7 @@ class ParsedTypedEdges:
 def _scan_edge_lines(
     body: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
-    """Scan the FULL note body (never header-scoped — Defect #70) for
+    """Scan the FULL note body (never header-scoped) for
     edge-shaped lines, classifying each into paper→paper edges, paper→
     concept edges, other-scope typed edges, or malformed.
 
@@ -702,7 +703,7 @@ def _scan_edge_lines(
 
 def parse_paper_relations(body: str) -> ParsedRelations:
     """Parse paper→paper typed edges from a note body (full-body scan
-    — Defect #70; see ``_scan_edge_lines``).
+    — see ``_scan_edge_lines``).
 
     Each edge dict: {"tag", "target", "reason", "type", "kind_mismatch"}.
     ``target`` is the citekey extracted from the OKF markdown link
@@ -721,7 +722,7 @@ def parse_paper_relations(body: str) -> ParsedRelations:
 
 def parse_concept_edges(body: str) -> ParsedConceptEdges:
     """Parse Move 5 paper→concept typed edges from a note body (full-body
-    scan — Defect #70; see ``_scan_edge_lines``).
+    scan — see ``_scan_edge_lines``).
 
     Each edge dict: {"tag", "target", "reason"}. ``target`` is the concept
     slug extracted from the OKF markdown link ``/concepts/<slug>.md``.
@@ -883,8 +884,8 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
                 "record the magnitude, conditions, and stated limitations"
             )
 
-    # Parsed once — full-body scan (Defect #70), shared by Move 4 (paper
-    # edges + malformed) and the Defect #71 retrieval-tier gate below (all
+    # Parsed once — full-body scan, shared by Move 4 (paper
+    # edges + malformed) and the retrieval-tier gate below (all
     # three edge buckets: paper→paper, paper→concept, and the unified
     # typed-edge engine's cross-bundle/within-project/artifact scopes —
     # the family-keyed cap generalization).
@@ -912,7 +913,7 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
             )
         )
     elif relations_sought == "yes":
-        # Defect #70(a): the canonical heading is required as an independent
+        # The canonical heading is required as an independent
         # structural signal — even though the full-body scan below already
         # finds edge-shaped lines anywhere, downstream traversal
         # (review.relations_report / review-synthesize) expects this exact
@@ -923,7 +924,7 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
                 "papers' heading found — the heading is required even though "
                 "a full-body scan may still have found edge-shaped lines "
                 "elsewhere; downstream traversal (review.relations_report / "
-                "review-synthesize) expects this exact heading (Defect #70)"
+                "review-synthesize) expects this exact heading"
             )
         if not parsed_relations.edges and not parsed_relations.malformed:
             findings.append(
@@ -962,7 +963,7 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
             "Never silently dropped (charter §2)."
         )
 
-    # Defect #70(a): canonical '## Concept edges' heading, enforced only when
+    # Canonical '## Concept edges' heading, enforced only when
     # the note actually carries concept edges (Move 5's mandatory gating —
     # whether a note MUST have concept edges at all — stays unchanged/
     # deferred this wave; this only enforces the heading NAME when the note
@@ -971,10 +972,10 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
         findings.append(
             "note has paper→concept edge(s) but no canonical '## Concept "
             "edges' heading found — the heading is required so downstream "
-            "consumers can rely on its exact name (Defect #70)"
+            "consumers can rely on its exact name"
         )
 
-    # ── Defect #71: retrieval-tier gates edge strength — FAMILY-KEYED ──────
+    # ── Retrieval-tier gates edge strength — FAMILY-KEYED ──────
     # A note read at less than full-text (abstract-only/title-only/any other
     # or unstamped read_basis) must not carry a SUPPORTS/CONTRADICTS edge —
     # of ANY scope: paper→paper, paper→concept (both intra-shared, checked
@@ -1006,7 +1007,7 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
                     f"{(read_basis or '(unstamped)')!r}, not 'full-text' — a "
                     "note not read at full-text fidelity cannot assert or "
                     "refute a claim at that strength; cap at [PARTIAL] "
-                    "(Defect #71 retrieval-tier gate)"
+                    "(retrieval-tier gate)"
                 )
         for edge in parsed_concepts.edges:
             if edge["tag"] in strong_tags:
@@ -1016,7 +1017,7 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
                     f"{(read_basis or '(unstamped)')!r}, not 'full-text' — a "
                     "note not read at full-text fidelity cannot assert or "
                     "refute a claim at that strength; cap at [PARTIAL] "
-                    "(Defect #71 retrieval-tier gate)"
+                    "(retrieval-tier gate)"
                 )
         for edge in parsed_other.edges:
             if edge["family"] == "argumentative" and edge["tag"] in strong_tags:
@@ -1026,7 +1027,7 @@ def check_relate_presence(note_path: Path, *, text: str | None = None) -> Relate
                     f"{(read_basis or '(unstamped)')!r}, not 'full-text' — a "
                     "note not read at full-text fidelity cannot assert or "
                     "refute a claim at that strength; cap at [PARTIAL] "
-                    "(Defect #71 retrieval-tier gate, family-keyed to every "
+                    "(retrieval-tier gate, family-keyed to every "
                     "argumentative edge regardless of scope)"
                 )
 

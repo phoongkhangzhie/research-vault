@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/corpus_bound.py — Section C (lit-review search-primary redesign,
-task #86): bound the curated corpus to ``corpus_bound`` (~100) papers via
+"""review/corpus_bound.py — Section C (lit-review search-primary redesign):
+bound the curated corpus to ``corpus_bound`` (~100) papers via
 DETERMINISTIC, stratified selection — never a flat top-N, never an LLM.
 
 Principle 2: "a survey is ~100 well-chosen papers, not an exhaustive net."
@@ -34,7 +34,7 @@ matched ranks it higher within its bucket) — the two roles (bucket
 assignment vs strength signal) are intentionally decoupled. Documented
 here, not silently chosen — see ``_primary_pole``.
 
-Protected stratum (#59): never drop the last IN-paper grounding a live
+Protected stratum: never drop the last IN-paper grounding a live
 concept/MOC region — pinned BEFORE the quota, counted INSIDE the bound.
 ``find_forward_referenced_citekeys`` is a best-effort, CONSERVATIVE
 approximation (see its own docstring for the exact scoping caveat this
@@ -332,7 +332,7 @@ def select_bounded_corpus(
 
 
 # ---------------------------------------------------------------------------
-# Protected stratum (#59) — best-effort forward-reference pin
+# Protected stratum — best-effort forward-reference pin
 # ---------------------------------------------------------------------------
 
 # Matches the OKF concept<->literature edge convention (see
@@ -346,7 +346,7 @@ _LITERATURE_LINK_RE = re.compile(r"\(/literature/([^)/\s]+?)\.md\)")
 def find_forward_referenced_citekeys(
     concepts_dir: Path, candidate_citekeys: set[str] | frozenset[str],
 ) -> set[str]:
-    """Best-effort, CONSERVATIVE approximation of the #59 protected-stratum
+    """Best-effort, CONSERVATIVE approximation of the protected-stratum
     check: which *candidate_citekeys* are already referenced by an
     EXISTING concept note's body via the standard
     ``[display](/literature/<citekey>.md)`` edge convention.
@@ -354,7 +354,7 @@ def find_forward_referenced_citekeys(
     Scoping caveat (surfaced, not hidden): this is NOT a precise "is this
     the LAST/SOLE paper grounding that concept" traversal — it treats ANY
     forward reference as protection-worthy, which is a conservative
-    superset of the exact #59 rule (it can only protect MORE papers than
+    superset of the exact protected-stratum rule (it can only protect MORE papers than
     the precise rule would, never fewer — the safe direction, since the
     goal is "never silently drop a grounding paper"). A true "sole
     grounding" check would need to resolve every OTHER edge on the same
@@ -491,7 +491,7 @@ def _write_residue_note(
     the module docstring's "Do-not-regress" framing carried from the
     design doc)."""
     lines = [
-        "# Corpus-bound residue (Section C, task #86)\n",
+        "# Corpus-bound residue (Section C)\n",
         f"corpus_bound={corpus_bound}, min_hits_per_pole={min_hits_per_pole}\n",
         f"Selected: {len(selection.selected)} · Dropped: {len(selection.dropped)}\n",
     ]

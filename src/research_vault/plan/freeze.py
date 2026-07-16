@@ -11,7 +11,7 @@ PURPOSE (K-3 FIX)
   relabeled child) is caught structurally by the run-state hash, independently
   of git.
 
-WHAT IS HASHED (extension, #23)
+WHAT IS HASHED (extended from the original convention)
   SHA-256 of the canonical string built from three blocks:
 
   Block 1 — covers block (unchanged from the original convention):
@@ -354,7 +354,7 @@ def compute_covers_hash(
     Block 1 — covers block (sorted by child_id):
       "<child_id> stance=<stance_or_MISSING> plan_role=<plan_role_or_MISSING>"
 
-    Block 2 — retries block (#23; sorted by node_id):
+    Block 2 — retries block (sorted by node_id):
       "<node_id> max_retries=<N>" for each node where N > 0 (omit-defaults).
       Empty when manifest_nodes is None or all nodes are at default (0/absent).
 
@@ -423,7 +423,7 @@ def store_freeze_hash(
         plan_note_path: path to the plan master note to freeze.
         notes_root:     directory where child notes live.  Stored as absolute.
 
-    STUB-SOUNDNESS INVARIANT (#49, RunStore.create_stub):
+    STUB-SOUNDNESS INVARIANT (RunStore.create_stub):
         This function reads ONLY run_state.meta (which it writes into) and
         run_state.manifest_path — it never reads node_states or
         edge_registered_ts.  That is exactly what makes a RunStore.create_stub()
@@ -509,7 +509,7 @@ def verify_freeze_hash(
         require_frozen:  if True (default), absent freeze → (False, "not frozen").
                          if False, absent freeze → (True, None) — no-op.
 
-    STUB-SOUNDNESS INVARIANT (#49, RunStore.create_stub):
+    STUB-SOUNDNESS INVARIANT (RunStore.create_stub):
         This function reads ONLY run_state.meta and run_state.manifest_path —
         never node_states or edge_registered_ts.  A RunStore.create_stub()
         sidecar therefore verifies exactly like a run created by `rv dag run`.

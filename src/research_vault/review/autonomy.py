@@ -168,7 +168,7 @@ def classify_disposition(ev: GateEvaluation) -> DispositionResult:
       1. Untrustworthy signal (canary abort)        -> HALT-DECLARE, fail-closed.
          Never auto-retry the same broken judge (charter §10).
       2. Floor gate NOT RUN / incomplete fan-out     -> HALT-DECLARE, fail-closed.
-         A floor gate that didn't run must never look like a pass (explore-rl #3).
+         A floor gate that didn't run must never look like a pass.
       3. Deterministic fixable BLOCK, budget spent   -> HALT-DECLARE.
       4. Deterministic fixable BLOCK, budget left    -> REVISE (bounded auto-revise).
       5. Declared residue (non-convergence)          -> GO-WITH-RESIDUE.
@@ -1145,8 +1145,8 @@ def _op_relevance_screen(
     out: str,
     **_: Any,
 ) -> Any:
-    """The ``relevance_screen`` tool op (design 2026-07-10-trustworthy-
-    curation-relevance-gate-design.md) — the mechanical snowball-screen
+    """The ``relevance_screen`` tool op (the trustworthy-curation
+    relevance-gate design) — the mechanical snowball-screen
     gate between ``review-snowball`` and ``review-curate``. Thin call-
     through to ``review.relevance.screen_corpus_raw`` (charter §6 — no
     mechanism reimplemented here).

@@ -258,7 +258,7 @@ def _build_phase2_manifest(
       section-1 -> section-2 -> ... -> section-N -> assemble -> approve-manuscript (auto-resolved)
 
     Each section node reads its declared ``source_atoms`` (OKF type dirs,
-    absolute paths — Fix #34 lesson: absolute so the reads:-grounding resolver
+    absolute paths — absolute so the reads:-grounding resolver
     finds them regardless of project_root at run/tick time) + the sections/
     working dir. ``assemble`` joins the drafted sections into ``_report.md``
     (RD-1, the internal ``[[citekey]]`` SOURCE — never ``report.md``,
@@ -360,7 +360,7 @@ def _build_phase2_manifest(
         return {"from": from_id, "edge": "afterok"}
 
     def _rel(okf_type: str) -> str:
-        # Absolute path (Fix #34 lesson — project_root at tick time is the
+        # Absolute path (project_root at tick time is the
         # manifest's parent dir, i.e. manuscripts/<slug>/, NOT project_notes_dir).
         return str(project_notes_dir / okf_type)
 
@@ -466,7 +466,7 @@ def cmd_new(
     machinery, and review-revise board plugging into this
     same folder as they land.
 
-    NG-7 (explore-rl friction #6): the manuscript slug is expected to
+    NG-7 (a cross-project lesson): the manuscript slug is expected to
     match its underlying ``rv review`` scope id (``reviews/<slug>/_corpus.md``)
     — a silent mismatch surfaces two DAG nodes deep as an unexplained "no
     frozen corpus" from the ``scope``/``coverage-gate`` machinery. Two fixes:

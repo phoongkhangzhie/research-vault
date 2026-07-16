@@ -615,7 +615,7 @@ _VERB_REGISTRY: dict[str, dict] = {
             "obligation, MECHANICALLY ENFORCED at `rv dag approve <run_id> "
             "approve-protocol`: an empty/missing `counter-position` field REFUSES the "
             "approval (nonzero exit, node stays `awaiting-go`, no state mutation) — "
-            "not agent-prose-only (task #33). Anti-pattern: do NOT hand-approve "
+            "not agent-prose-only. Anti-pattern: do NOT hand-approve "
             "`approve-protocol` by editing run state directly to bypass the gate — "
             "fix `_protocol.md`'s `counter-position` field and re-run approve. "
             "`--reject` remains the explicit escape hatch to abandon/redo the protocol. "
