@@ -903,6 +903,9 @@ def _op_snowball(
     fetch_budget: int | None = None,
     project: str | None = None,
     config: Any = None,
+    search_hits: str | None = None,
+    run_walk: bool = True,
+    walk_trigger: str | None = None,
     **_: Any,
 ) -> Any:
     """The ``snowball`` tool op: run the citation-neighbor relevance walk
@@ -938,8 +941,35 @@ def _op_snowball(
     (``DEFAULT_SEED_CAP``/``DEFAULT_FRONTIER_CAP``/``DEFAULT_FETCH_BUDGET``
     — 25/25/200); passed through explicitly only when the DAG manifest
     overrides them.
+
+    ★ Surgical walk (search-primary redesign, Section D): the blanket 1-hop
+    default is REMOVED. ``run_walk`` (default ``True`` — unchanged for every
+    EXISTING caller, e.g. critic-backtrack's ``seed_ids=`` re-seed) gates
+    whether ``run_citation_neighbor_walk`` runs at all. The shipped Phase-1
+    manifest's ``review-snowball`` node is the one caller that now passes
+    ``run_walk=False``: no citation-neighbor hop fires, no ``_walk.md`` is
+    written (the walk-absent GO state ``review.classify_coverage_gate``
+    already certifies correctly, D-1) — ONLY ``_corpus_raw.md`` is produced,
+    built from the seed-row merge below. A surgical walk fires later, via an
+    explicit, named trigger (``run_thin_pole_fill``/``run_named_anchor_chase``
+    below) — never as this node's own default.
+
+    ``search_hits`` (optional): path to ``_search_hits.md`` — when given,
+    the accepted seed frontier's OWN rows (title/venue/year/abstract/rerank/
+    poles) are carried through into ``_corpus_raw.md``
+    (``sources.snowball.build_seed_rows_from_search_hits`` +
+    ``write_corpus_raw``'s ``seed_rows``) REGARDLESS of ``run_walk`` — this
+    is what makes the corpus non-empty by default now that the walk itself
+    is surgical-only (see ``build_seed_rows_from_search_hits``'s docstring
+    for why this is load-bearing, not cosmetic).
+
+    ``walk_trigger`` (optional, only meaningful when ``run_walk=True``): an
+    explicit provenance tag (``"thin-pole-fill"``/``"named-anchor-chase"``)
+    stamped into ``_walk.md`` — see ``write_walk_report``.
     """
     from research_vault.sources.snowball import (
+        SnowballResult,
+        build_seed_rows_from_search_hits,
         run_citation_neighbor_walk,
         write_corpus_raw,
         write_walk_report,
@@ -960,25 +990,44 @@ def _op_snowball(
             resolved_seed_ids = _extract_seed_ids_from_screen(seed_path.read_text(encoding="utf-8"))
     seed_ids = resolved_seed_ids
 
-    # Resumable / log-as-you-go (2026-07-09): a long walk that gets dropped
-    # mid-flight resumes from its last completed hop instead of restarting
-    # from scratch — the checkpoint lives alongside the other review-dir
-    # artifacts and is removed automatically on clean completion.
     out_dir_path = Path(out_dir)
-    checkpoint_path = out_dir_path / "_snowball_checkpoint.json"
 
-    cap_kwargs: dict[str, int] = {}
-    if seed_cap is not None:
-        cap_kwargs["seed_cap"] = seed_cap
-    if frontier_cap is not None:
-        cap_kwargs["frontier_cap"] = frontier_cap
-    if fetch_budget is not None:
-        cap_kwargs["fetch_budget"] = fetch_budget
+    seed_rows: list[dict[str, str]] = []
+    unmatched_seed_ids: list[str] = []
+    if search_hits:
+        seed_rows, unmatched_seed_ids = build_seed_rows_from_search_hits(
+            Path(search_hits), seed_ids,
+        )
 
-    result = run_citation_neighbor_walk(
-        seed_ids, relevance_hops=relevance_hops, backstop_waves=backstop_waves,
-        checkpoint_path=checkpoint_path, **cap_kwargs,
-    )
+    if run_walk:
+        # Resumable / log-as-you-go (2026-07-09): a long walk that gets
+        # dropped mid-flight resumes from its last completed hop instead of
+        # restarting from scratch — the checkpoint lives alongside the other
+        # review-dir artifacts and is removed automatically on clean
+        # completion.
+        checkpoint_path = out_dir_path / "_snowball_checkpoint.json"
+
+        cap_kwargs: dict[str, int] = {}
+        if seed_cap is not None:
+            cap_kwargs["seed_cap"] = seed_cap
+        if frontier_cap is not None:
+            cap_kwargs["frontier_cap"] = frontier_cap
+        if fetch_budget is not None:
+            cap_kwargs["fetch_budget"] = fetch_budget
+
+        result = run_citation_neighbor_walk(
+            seed_ids, relevance_hops=relevance_hops, backstop_waves=backstop_waves,
+            checkpoint_path=checkpoint_path, **cap_kwargs,
+        )
+    else:
+        # No walk this evaluation (surgical-only default) — a clean,
+        # zero-cost no-op result: no cited_by/references calls, no hops, no
+        # `_walk.md` written below. Never mislabelled with a whitelisted
+        # `stop_reason` (that would fabricate a walk that never ran,
+        # charter §2) — the blank string is the honest "not applicable"
+        # signal, mirrored by `check_walk_terminal`'s own `exists: False`
+        # contract for a genuinely absent file.
+        result = SnowballResult(kept=[], rounds=[], stop_reason="", seed_count=len(seed_ids))
 
     notes_index = None
     notes_title_index = None
@@ -998,13 +1047,95 @@ def _op_snowball(
         result, out_dir_path / "_corpus_raw.md",
         notes_index=notes_index, notes_title_index=notes_title_index,
         attempt_id_backfill=True,
+        seed_rows=seed_rows, unmatched_seed_ids=unmatched_seed_ids,
     )
-    walk_path = write_walk_report(result, out_dir_path / "_walk.md")
+
+    walk_path_str: str | None = None
+    if run_walk:
+        walk_path = write_walk_report(
+            result, out_dir_path / "_walk.md", walk_trigger=walk_trigger,
+        )
+        walk_path_str = str(walk_path)
+
     return {
         "corpus_raw": str(corpus_raw_path),
-        "walk": str(walk_path),
+        "walk": walk_path_str,
+        "walk_ran": run_walk,
         "stop_reason": result.stop_reason,
+        "seed_rows_merged": len(seed_rows),
+        "seed_rows_unmatched": unmatched_seed_ids,
     }
+
+
+def run_thin_pole_fill(
+    *,
+    pole_seed_ids: list[str],
+    out_dir: str,
+    relevance_hops: int = 1,
+    **kwargs: Any,
+) -> Any:
+    """Surgical walk mode 1 (search-primary redesign, Section D):
+    "thin-pole fill" — serves a FACET_REMEDIATE (E) thin-pole finding.
+
+    Walks ONLY from ``pole_seed_ids`` — the already-accepted seeds relevant
+    to the thin pole (never the review's full accepted-seed frontier, never
+    a blanket 1-hop over everything). A thin pole is discharged by
+    *seeking*, not *finding* (E's anti-gaming teeth); this is one more
+    seeking move a remediation round can take before an under-searched-vs-
+    genuinely-sparse judgment, layered on top of (never replacing) the
+    harder re-sweep ``review.facet_remediation``/``review.remediation``
+    already run.
+
+    Fails loud (never a silent zero-seed no-op — charter §2): a caller that
+    fires this trigger with no pole-relevant seeds is a caller bug, not a
+    legitimate "nothing to walk" state.
+    """
+    if not pole_seed_ids:
+        raise ValueError(
+            "run_thin_pole_fill: pole_seed_ids must be non-empty — a "
+            "thin-pole-fill trigger with no pole-relevant seeds is a "
+            "caller bug, never a silent no-op."
+        )
+    return _op_snowball(
+        seed_ids=list(pole_seed_ids), out_dir=out_dir,
+        relevance_hops=relevance_hops, run_walk=True,
+        walk_trigger="thin-pole-fill", **kwargs,
+    )
+
+
+def run_named_anchor_chase(
+    *,
+    anchor_ids: list[str],
+    out_dir: str,
+    relevance_hops: int = 1,
+    **kwargs: Any,
+) -> Any:
+    """Surgical walk mode 2 (search-primary redesign, Section D):
+    "named-anchor chase" — chases a *named, resolved-id* canonical anchor.
+
+    Anchor provenance (never luck-of-the-neighborhood): (i)
+    review-curate/relevance-verify flagging a canonical *cited-but-absent*
+    paper (the Herrmann case) — resolved via A3's id-backfill
+    (``sources.identifiers.backfill_missing_ids``) before it ever reaches
+    here; or (ii) the coverage-critic's thin-pole finding naming a specific
+    anchor rather than a whole pole (contrast with ``run_thin_pole_fill``,
+    which walks a POLE's seed set — this walks explicit ANCHOR ids only).
+
+    Walks ONLY from ``anchor_ids`` — never the full seed frontier. Fails
+    loud on an empty anchor list (a fired trigger with nothing to chase is
+    a caller bug — charter §2).
+    """
+    if not anchor_ids:
+        raise ValueError(
+            "run_named_anchor_chase: anchor_ids must be non-empty — a "
+            "named-anchor-chase trigger with no resolved-id anchors is a "
+            "caller bug, never a silent no-op."
+        )
+    return _op_snowball(
+        seed_ids=list(anchor_ids), out_dir=out_dir,
+        relevance_hops=relevance_hops, run_walk=True,
+        walk_trigger="named-anchor-chase", **kwargs,
+    )
 
 
 def _op_relevance_screen(

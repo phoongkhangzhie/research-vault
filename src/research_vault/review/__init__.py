@@ -1678,16 +1678,37 @@ def _build_phase1_manifest(
         "id": "review-snowball",
         "type": "tool",
         "op": "snowball",
-        "label": "Citation-neighbor relevance walk, depth-bounded (deterministic)",
+        "label": "Carry the accepted seed frontier into the corpus (surgical-only — no blanket walk)",
         "args": {
             "seed": screen_path,
+            "search_hits": search_hits_path,
             "out_dir": str(review_dir),
+            # ★ Surgical walk (search-primary redesign, Section D): the
+            # blanket 1-hop default is REMOVED — this node never runs the
+            # citation-neighbor walk itself (`run_walk=False`). It only
+            # carries the review-screen-accepted seed frontier's OWN rows
+            # (pulled from `_search_hits.md`) into `_corpus_raw.md` — no
+            # `_walk.md` is written (see `produces_optional` below). A
+            # surgical walk fires LATER, on an explicit, named trigger
+            # (thin-pole fill / named-anchor chase — `review.autonomy`'s
+            # `run_thin_pole_fill`/`run_named_anchor_chase`), never as this
+            # node's own default. `relevance_hops` is accepted here (an
+            # adopter override) but has NO effect while `run_walk=False`.
             "relevance_hops": (
                 relevance_hops if relevance_hops is not None else get_relevance_hops(config=config)
             ),
+            "run_walk": False,
             "project": project,
         },
+        # `_walk.md` stays a declared produces: KEY (its static path is how
+        # `coverage-gate`'s wiring resolves review_dir + checks for a walk
+        # record) but is NOT required to exist — `produces_optional` exempts
+        # it from the tool-node "declared produces artifact missing on
+        # disk" fail-closed check (dag/verbs.py::_missing_produces_artifacts).
+        # A node that legitimately produces nothing when no surgical chase
+        # ran must not error.
         "produces": {"_corpus_raw.md": corpus_raw_path, "_walk.md": walk_path},
+        "produces_optional": ["_walk.md"],
         "needs": [
             {
                 "from": "review-screen",

@@ -710,6 +710,70 @@ def _annotate_hit(
     return _corpus_annotation(paper, notes_index=notes_index, notes_title_index=notes_title_index)
 
 
+def build_seed_rows_from_search_hits(
+    search_hits_path: Path,
+    seed_ids: list[str],
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Carry the screen-accepted seed frontier's OWN rows forward into the
+    corpus (search-primary redesign, Section D): pull each seed id's full
+    evidence (title/venue/year/abstract/rerank/poles) from ``_search_hits.md``
+    — the vetted core ``review-screen`` already accepted — rather than
+    letting it be used ONLY as the citation-neighbor walk's frontier and then
+    silently dropped when no walk rediscovers it as a neighbor. ``review-curate``'s
+    own tips document this exact model ("the corpus is the vetted core ...
+    plus its immediate citation neighborhood") — this is the merge step that
+    makes that model actually true, especially now the walk is surgical-only
+    (fires rarely), so most reviews will otherwise have NO corpus at all
+    without it.
+
+    ``_search_hits.md``/``_corpus_raw.md`` share the exact same 9-column
+    table shape (``sweep.write_search_hits`` / ``write_corpus_raw`` both stamp
+    ``| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags
+    | Rerank | Poles |``) — reused via ``review.relevance.parse_corpus_raw_rows``
+    (charter §6: no new table parser), keyed by the ``paper_id`` column.
+
+    Returns ``(matched_rows, unmatched_seed_ids)``. A seed id with no row in
+    ``_search_hits.md`` (e.g. hand-authored into ``_screen.md``, or a
+    ``_search_hits.md`` staler than ``_screen.md``) is NEVER silently
+    dropped (charter §2): it is returned in ``unmatched_seed_ids`` so the
+    caller can render a minimal fallback row for it, distinctly flagged.
+    """
+    from research_vault.review.relevance import parse_corpus_raw_rows
+
+    if not seed_ids or not search_hits_path.exists():
+        return [], list(seed_ids)
+
+    rows_by_id: dict[str, dict[str, str]] = {}
+    for row in parse_corpus_raw_rows(search_hits_path.read_text(encoding="utf-8")):
+        pid = row.get("paper_id", "")
+        if pid:
+            rows_by_id[pid] = row
+
+    matched: list[dict[str, str]] = []
+    unmatched: list[str] = []
+    for sid in seed_ids:
+        row = rows_by_id.get(sid)
+        if row is not None:
+            matched.append(row)
+        else:
+            unmatched.append(sid)
+    return matched, unmatched
+
+
+def _render_seed_row(row: dict[str, str]) -> str:
+    """Render a seed row (dict shape from ``parse_corpus_raw_rows``) into a
+    ``_corpus_raw.md`` table line — same column order ``write_corpus_raw``'s
+    walk-discovered rows use, so the two row families are indistinguishable
+    on disk (a curator reads ONE table, not two)."""
+    return (
+        f"| {row.get('annotation', '')} | {row.get('paper_id', '')} | "
+        f"{row.get('title', '')} | {row.get('venue', '')} | "
+        f"{row.get('year', '')} | {row.get('abstract', '')} | "
+        f"{row.get('flags', '')} | {row.get('rerank', '')} | "
+        f"{row.get('poles', '')} |"
+    )
+
+
 def write_corpus_raw(
     result: SnowballResult,
     out_path: Path,
@@ -718,6 +782,8 @@ def write_corpus_raw(
     notes_title_index: dict[str, list[tuple[str, str]]] | None = None,
     attempt_id_backfill: bool = False,
     backfill_adapters: Any = None,
+    seed_rows: list[dict[str, str]] | None = None,
+    unmatched_seed_ids: list[str] | None = None,
 ) -> Path:
     """Render the RAW (pre-curation) snowball corpus to ``_corpus_raw.md``.
 
@@ -748,6 +814,17 @@ def write_corpus_raw(
     ``backfill_adapters`` list (including ``[]``) opts in. The resolution
     rate is always counted and surfaced (frontmatter + a prose line),
     never silently swallowed.
+
+    ``seed_rows`` (search-primary redesign, Section D): the screen-accepted
+    seed frontier's OWN rows (``build_seed_rows_from_search_hits``), rendered
+    FIRST — this is what makes the corpus non-empty even when the walk is
+    surgical-only and never fires (the default, post-redesign steady state).
+    A walk-discovered row whose paper-id duplicates a seed row is SKIPPED
+    (the seed row already carries fuller evidence — title/venue/year/
+    abstract/rerank/poles from the search sweep — never a duplicate entry
+    for the same paper). ``unmatched_seed_ids`` renders a minimal fallback
+    row for a seed id that had no ``_search_hits.md`` match (never silently
+    dropped — charter §2), flagged ``[SEED-METADATA-UNMATCHED]``.
     """
     from .identifiers import backfill_missing_ids
 
@@ -757,17 +834,32 @@ def write_corpus_raw(
     )
     id_stats = backfill_missing_ids(result.kept, adapters=resolve_with)
 
+    seed_rows = seed_rows or []
+    unmatched_seed_ids = unmatched_seed_ids or []
+    seed_ids_rendered = {r.get("paper_id", "") for r in seed_rows if r.get("paper_id")}
+    seed_ids_rendered.update(unmatched_seed_ids)
+
     lines: list[str] = [
         "---",
         f"id_backfill_missing: {id_stats['missing']}",
         f"id_backfill_resolved: {id_stats['backfilled']}",
         f"id_backfill_unresolved: {id_stats['unresolved']}",
+        f"seed_rows_merged: {len(seed_rows)}",
+        f"seed_rows_unmatched: {len(unmatched_seed_ids)}",
         "---",
         "",
         "# Corpus (raw, pre-curation)\n",
     ]
     lines.append(f"Seed count: {result.seed_count}\n")
     lines.append(f"Stop reason: {result.stop_reason}\n")
+    if unmatched_seed_ids:
+        lines.append(
+            "> Seed metadata unmatched: "
+            f"{len(unmatched_seed_ids)} accepted seed id(s) had no row in "
+            "`_search_hits.md` — rendered below as a minimal fallback row "
+            "(`[SEED-METADATA-UNMATCHED]`), never silently dropped: "
+            f"{', '.join(unmatched_seed_ids)}.\n"
+        )
     if id_stats["missing"]:
         lines.append(
             "> Id-resolution: "
@@ -778,13 +870,24 @@ def write_corpus_raw(
         )
     lines.append("| Annotation | Paper-id | Title | Venue | Year | Abstract/TL;DR | Flags | Rerank | Poles |")
     lines.append("|---|---|---|---|---|---|---|---|---|")
+    for row in seed_rows:
+        lines.append(_render_seed_row(row))
+    for sid in unmatched_seed_ids:
+        lines.append(
+            f"| [NEW] | {sid} |  |  |  |  | [SEED-METADATA-UNMATCHED: no "
+            "_search_hits.md row for this accepted seed] |  |  |"
+        )
     for d in result.kept:
         hit = d.hit
+        pid = _paper_id_of(d.external_ids) or ""
+        if pid and pid in seed_ids_rendered:
+            # Already carried through via its own search-hit seed row
+            # (fuller evidence) — never a duplicate entry for one paper.
+            continue
         annotation = _annotate_hit(
             hit, external_ids=d.external_ids,
             notes_index=notes_index, notes_title_index=notes_title_index,
         )
-        pid = _paper_id_of(d.external_ids) or ""
         flags: list[str] = []
         if not pid:
             flags.append("[NO-ID: cannot resolve doi/arxiv/openalex/s2 — needs manual id lookup]")
@@ -795,10 +898,9 @@ def write_corpus_raw(
         year = str(hit.year) if hit.year is not None else ""
         evidence = _evidence_snippet(hit)
         # A1 (task #86): carry the rerank score through when the hit has
-        # one (e.g. a search-accepted seed re-emitted into the corpus by a
-        # future merge step). A citation-neighbor-walk discovery is a
-        # FRESH PaperHit — never scored — and renders the honest sentinel,
-        # never a fabricated number (see PaperHit.rerank_score docstring).
+        # one. A citation-neighbor-walk discovery is a FRESH PaperHit —
+        # never scored — and renders the honest sentinel, never a
+        # fabricated number (see PaperHit.rerank_score docstring).
         rerank = format_rerank_score(hit.rerank_score)
         # C (task #86): same honest-blank discipline for the DECLARED
         # facet-pole(s) this hit matched — a walk discovery is a FRESH
@@ -820,7 +922,12 @@ def write_corpus_raw(
     return out_path
 
 
-def write_walk_report(result: SnowballResult, out_path: Path) -> Path:
+def write_walk_report(
+    result: SnowballResult,
+    out_path: Path,
+    *,
+    walk_trigger: str | None = None,
+) -> Path:
     """Render the citation-neighbor walk's per-hop coverage report to
     ``_walk.md`` (0.3.1; renamed from ``write_saturation``/``_saturation.md``).
 
@@ -831,12 +938,27 @@ def write_walk_report(result: SnowballResult, out_path: Path) -> Path:
     per-hop body table and an "Unresolvable ids" count (2026-07-09 live-asta
     fix: surface, never silently drop, a seed/frontier id that 404'd —
     charter §2).
+
+    ``walk_trigger`` (search-primary redesign, Section D — surgical walk):
+    an OPTIONAL provenance stamp — ``"thin-pole-fill"`` or
+    ``"named-anchor-chase"`` — recording WHY this walk ran (the surgical
+    walk never fires without an explicit, named reason; this is that
+    reason's audit trail). ``None`` (the default) means the walk ran
+    through the legacy/unrestricted path (e.g. an explicit
+    ``seed_ids=``/``seed=`` call with no trigger classification) — it is
+    ADDITIVE frontmatter, never consulted by
+    ``review.classify_coverage_gate``'s ``stop_reason:`` whitelist.
     """
-    lines: list[str] = [
+    fm: list[str] = [
         "---",
         f"stop_reason: {result.stop_reason}",
         f"unresolvable_count: {len(result.unresolvable_ids)}",
-        "---",
+    ]
+    if walk_trigger:
+        fm.append(f"walk_trigger: {walk_trigger}")
+    fm.append("---")
+    lines: list[str] = [
+        *fm,
         "",
         "# Citation-neighbor relevance walk",
         "",
