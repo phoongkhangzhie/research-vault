@@ -56,16 +56,19 @@
       "id": "review-snowball",
       "type": "tool",
       "op": "snowball",
-      "label": "Citation-neighbor relevance walk, depth-bounded (deterministic)",
+      "label": "Carry the accepted seed frontier into the corpus (surgical-only — no blanket walk)",
       "args": {
         "seed": "reviews/topic/_screen.md",
+        "search_hits": "reviews/topic/_search_hits.md",
         "out_dir": "reviews/topic",
+        "run_walk": false,
         "project": "demo-litreview"
       },
       "produces": {
         "_corpus_raw.md": "reviews/topic/_corpus_raw.md",
         "_walk.md": "reviews/topic/_walk.md"
       },
+      "produces_optional": ["_walk.md"],
       "needs": [
         {
           "from": "review-screen",
@@ -85,14 +88,14 @@
         {
           "from": "review-snowball",
           "edge": "afterok",
-          "watch": "artifact:reviews/topic/_walk.md+fresh"
+          "watch": "artifact:reviews/topic/_corpus_raw.md+fresh"
         }
       ]
     },
     {
       "id": "coverage-gate",
       "type": "human-go",
-      "label": "Gate 2: Approve discovered corpus (_corpus.md + _walk.md); every [NEW] citekey has a relate slot or is MENTION-ONLY. Phase-2 fan-out authorized here.",
+      "label": "Gate 2: Approve discovered corpus (_corpus.md; _walk.md only if a surgical walk fired); every [NEW] citekey has a relate slot or is MENTION-ONLY. Phase-2 fan-out authorized here.",
       "needs": [{"from": "review-curate", "edge": "afterok"}]
     },
     {

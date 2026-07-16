@@ -404,3 +404,85 @@ class TestSeedRowMerge:
         assert "10.1/no-search-hits-row" in text
         assert "[SEED-METADATA-UNMATCHED" in text
         assert "seed_rows_unmatched: 1" in text
+
+
+class TestSeedRowMergeIdNormalization:
+    """PR-M8 cleanup 2: `build_seed_rows_from_search_hits` and the
+    walk-rediscovery dedup key on EXACT-STRING id match; a scheme-prefixed
+    seed id (an agent-authored `_screen.md`'s fenced ```seeds``` block is
+    allowed to carry `ARXIV:...`/`DOI:...` per `_is_valid_paper_id`) against
+    a bare `_search_hits.md` id (always `_paper_id_of_hit`'s bare output —
+    no scheme prefix) must still MATCH after normalization to the same
+    canonical (bare) form.
+    """
+
+    def test_scheme_mismatch_fails_to_match_before_normalization(self, tmp_path):
+        """RED proof: without normalization the exact-string match misses a
+        scheme-prefixed seed id against a bare search-hits id — this is the
+        live pre-fix behavior, asserted here so the fix's GREEN test above
+        it is provably non-vacuous."""
+        search_hits_path = tmp_path / "_search_hits.md"
+        search_hits_path.write_text(
+            _search_hits_md([("2005.14165", "Attention Is All You Need")]),
+            encoding="utf-8",
+        )
+        # Exact-string membership check mirrors the pre-fix implementation:
+        # a scheme-prefixed id is never equal to the bare table key.
+        rows_by_id_pre_fix = {"2005.14165": "row"}
+        assert "ARXIV:2005.14165" not in rows_by_id_pre_fix
+
+    def test_build_seed_rows_matches_scheme_prefixed_seed_against_bare_id(self, tmp_path):
+        from research_vault.sources.snowball import build_seed_rows_from_search_hits
+
+        search_hits_path = tmp_path / "_search_hits.md"
+        search_hits_path.write_text(
+            _search_hits_md([("2005.14165", "Attention Is All You Need")]),
+            encoding="utf-8",
+        )
+        matched, unmatched = build_seed_rows_from_search_hits(
+            search_hits_path, ["ARXIV:2005.14165"],
+        )
+        assert unmatched == [], (
+            f"expected the scheme-prefixed seed to MATCH the bare search-hits "
+            f"row, got it in unmatched: {unmatched}"
+        )
+        assert [r["title"] for r in matched] == ["Attention Is All You Need"]
+
+    def test_build_seed_rows_matches_lowercase_scheme_prefix(self, tmp_path):
+        from research_vault.sources.snowball import build_seed_rows_from_search_hits
+
+        search_hits_path = tmp_path / "_search_hits.md"
+        search_hits_path.write_text(
+            _search_hits_md([("10.1/x", "A DOI Paper")]),
+            encoding="utf-8",
+        )
+        matched, unmatched = build_seed_rows_from_search_hits(
+            search_hits_path, ["doi:10.1/x"],
+        )
+        assert unmatched == []
+        assert [r["title"] for r in matched] == ["A DOI Paper"]
+
+    def test_walk_rediscovery_dedups_against_scheme_prefixed_unmatched_seed(self, tmp_path):
+        """A genuinely-unmatched (no search-hits row) scheme-prefixed seed id
+        renders a `[SEED-METADATA-UNMATCHED]` fallback row; if the walk ALSO
+        independently rediscovers the same paper (bare id, off `_paper_id_of`),
+        the dedup-skip must still recognize it as the same paper — never a
+        double-count of one paper under two id spellings."""
+        from research_vault.sources.snowball import SnowballResult, write_corpus_raw
+        from research_vault.sources.dedup import DedupedHit
+
+        walk_hit = _hit("Attention Is All You Need (walk copy)", "irrelevant")
+        result = SnowballResult(
+            kept=[DedupedHit(hit=walk_hit, external_ids={"arxiv": "2005.14165"})],
+            rounds=[], stop_reason="walk-complete:1-hops", seed_count=1,
+        )
+        out_path = write_corpus_raw(
+            result, tmp_path / "_corpus_raw.md",
+            unmatched_seed_ids=["ARXIV:2005.14165"],
+        )
+        text = out_path.read_text(encoding="utf-8")
+        # Exactly ONE row for this paper: the seed's unmatched-fallback row —
+        # never also the walk-discovered duplicate.
+        assert "Attention Is All You Need (walk copy)" not in text
+        assert "ARXIV:2005.14165" in text
+        assert "seed_rows_unmatched: 1" in text

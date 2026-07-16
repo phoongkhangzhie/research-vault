@@ -710,6 +710,39 @@ def _annotate_hit(
     return _corpus_annotation(paper, notes_index=notes_index, notes_title_index=notes_title_index)
 
 
+def _canonicalize_paper_id(pid: str) -> str:
+    """Strip a known scheme prefix (``ARXIV:``/``DOI:``/``CorpusId:``/etc,
+    case-insensitive) down to the bare form ``_paper_id_of``/
+    ``_paper_id_of_hit`` always produce — the canonical id shape both
+    ``_search_hits.md``'s ``Paper-id`` column and a walk-discovered hit's
+    merged ``external_ids`` use.
+
+    An agent-authored ``_screen.md`` seed (``review_screen_tips``'s fenced
+    ```seeds``` block) is explicitly allowed to carry a scheme-prefixed id
+    (``_is_valid_paper_id`` accepts ``_ASTA_SCHEME_PREFIXES`` forms) while
+    the mechanical ``_search_hits.md``/walk paths are always bare —
+    comparing the two without normalizing first makes an id-shape
+    difference alone (not a genuinely different paper) look like a miss.
+
+    Reuses ``research.py``'s ``_ASTA_SCHEME_PREFIXES`` list (the SSOT for
+    recognised prefixes — charter §6, no second id grammar) rather than
+    inventing a parallel one; lazily imported to avoid the research.py <->
+    sources.snowball import cycle (mirrors this module's other lazy
+    ``research.py`` imports).  An id with no recognised prefix (already
+    bare, or a shape this normalizer doesn't know) passes through
+    unchanged — never guessed at.
+    """
+    if not pid:
+        return pid
+    from research_vault.research import _ASTA_SCHEME_PREFIXES
+
+    upper = pid.upper()
+    for prefix in _ASTA_SCHEME_PREFIXES:
+        if upper.startswith(prefix):
+            return pid[len(prefix):]
+    return pid
+
+
 def build_seed_rows_from_search_hits(
     search_hits_path: Path,
     seed_ids: list[str],
@@ -743,16 +776,21 @@ def build_seed_rows_from_search_hits(
     if not seed_ids or not search_hits_path.exists():
         return [], list(seed_ids)
 
+    # Canonicalize to the bare id form before matching (Cleanup 2): the
+    # mechanical `_search_hits.md` table always carries bare ids, but a
+    # `_screen.md` seed id is agent-authored and may legitimately carry a
+    # scheme prefix (`ARXIV:`/`DOI:`/...) — an id-shape difference alone
+    # must never register as "no such paper".
     rows_by_id: dict[str, dict[str, str]] = {}
     for row in parse_corpus_raw_rows(search_hits_path.read_text(encoding="utf-8")):
         pid = row.get("paper_id", "")
         if pid:
-            rows_by_id[pid] = row
+            rows_by_id[_canonicalize_paper_id(pid)] = row
 
     matched: list[dict[str, str]] = []
     unmatched: list[str] = []
     for sid in seed_ids:
-        row = rows_by_id.get(sid)
+        row = rows_by_id.get(_canonicalize_paper_id(sid))
         if row is not None:
             matched.append(row)
         else:
@@ -836,8 +874,16 @@ def write_corpus_raw(
 
     seed_rows = seed_rows or []
     unmatched_seed_ids = unmatched_seed_ids or []
-    seed_ids_rendered = {r.get("paper_id", "") for r in seed_rows if r.get("paper_id")}
-    seed_ids_rendered.update(unmatched_seed_ids)
+    # Canonicalized (Cleanup 2): `unmatched_seed_ids` may carry an
+    # agent-authored scheme-prefixed id (a genuinely-unmatched `_screen.md`
+    # seed still passes through here verbatim) — normalize before the
+    # walk-rediscovery dedup-skip below compares it against `pid`
+    # (`_paper_id_of`'s always-bare output), so one paper under two id
+    # spellings is never double-rendered.
+    seed_ids_rendered = {
+        _canonicalize_paper_id(r.get("paper_id", "")) for r in seed_rows if r.get("paper_id")
+    }
+    seed_ids_rendered.update(_canonicalize_paper_id(sid) for sid in unmatched_seed_ids)
 
     lines: list[str] = [
         "---",
@@ -880,7 +926,7 @@ def write_corpus_raw(
     for d in result.kept:
         hit = d.hit
         pid = _paper_id_of(d.external_ids) or ""
-        if pid and pid in seed_ids_rendered:
+        if pid and _canonicalize_paper_id(pid) in seed_ids_rendered:
             # Already carried through via its own search-hit seed row
             # (fuller evidence) — never a duplicate entry for one paper.
             continue

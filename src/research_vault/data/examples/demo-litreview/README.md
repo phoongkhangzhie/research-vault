@@ -17,8 +17,11 @@ single static illustration:
    angle matrix; protocol-gated by an artifact-watch on `_protocol.md`
 4. **review-screen** (researcher) — apply inclusion/exclusion to the search hits,
    accept a seed frontier
-5. **review-snowball** (tool, deterministic) — both-direction citation-neighbor
-   relevance walk, depth-bounded by `relevance_hops` (default 1)
+5. **review-snowball** (tool, deterministic) — carries the review-screen-accepted
+   seed frontier into `_corpus_raw.md`; surgical-only (`run_walk: false` by
+   default — no blanket citation-neighbor walk). A depth-bounded walk
+   (`relevance_hops`, default 1) fires only on an explicit, named trigger
+   (thin-pole fill / named-anchor chase), never as this node's own default
 6. **review-curate** (researcher) — concept-tag + curate the raw corpus into
    the final `_corpus.md`
 7. **coverage-gate** — Gate 2: resolved AUTONOMOUSLY (single-human-gate
