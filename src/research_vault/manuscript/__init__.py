@@ -282,7 +282,7 @@ def _build_phase2_manifest(
             whose framework isn't frozen yet, is a correct no-op).
 
     """
-    # NG-7 (next-gen lit-review): a type's custom Phase-2 builder
+    # A type's custom Phase-2 builder
     # (single-pass outline -> draft -> assemble) takes over entirely when
     # present — mirrors ``_build_phase1_manifest``'s delegation exactly.
     if ms_type.phase2_builder is not None:
@@ -335,7 +335,7 @@ def _build_phase2_manifest(
         )
         tips = _inject_source_transform_tips(tips, transform)
 
-    #  NG-8 (next-gen lit-review, supersedes the
+    # The exemplar-pointer design (supersedes the
     # verbatim form): embed the type's exemplar bundle into the matching
     # sections' briefs as MUST-READ POINTERS (``read <path>``), not a
     # verbatim embed and not a prose "write in a synthesis style"
@@ -373,7 +373,7 @@ def _build_phase2_manifest(
     for section in ms_type.section_set:
         node_id = section.name
         reads = [_rel(atom) for atom in section.source_atoms] + [sections_dir_abs]
-        # NG-8: wire the exemplar bundle's absolute dir into `reads:` so the
+        # Wire the exemplar bundle's absolute dir into `reads:` so the
         # harness's reads-grounding resolver surfaces the pointed-at files as
         # available context ("the `reads:` wiring guarantees
         # availability; the outline citation guarantees use").
@@ -381,7 +381,7 @@ def _build_phase2_manifest(
             reads.append(str(exemplar_bundle_dir))
         node_spec = _spec(section.brief_key or section.name)
 
-        # NG-8: the pre-dispatch presence assertion — a driver that
+        # The pre-dispatch presence assertion — a driver that
         # somehow bypassed inject_exemplar_briefs for a section this bundle
         # covers fails LOUDLY here, never silently ships a voiceless brief.
         if exemplar_blocks:
@@ -466,7 +466,7 @@ def cmd_new(
     machinery, and review-revise board plugging into this
     same folder as they land.
 
-    NG-7 (a cross-project lesson): the manuscript slug is expected to
+    A cross-project lesson: the manuscript slug is expected to
     match its underlying ``rv review`` scope id (``reviews/<slug>/_corpus.md``)
     — a silent mismatch surfaces two DAG nodes deep as an unexplained "no
     frozen corpus" from the ``scope``/``coverage-gate`` machinery. Two fixes:
@@ -485,8 +485,8 @@ def cmd_new(
         ms_type_key: the registered ManuscriptType key (e.g. "lit-review").
             Unknown types fail loudly — see ``_unknown_type_error``.
         config: optional Config (loaded if None).
-        from_review: an ``rv review`` scope id to adopt as the slug (NG-7
-            ) — pre-binds the corpus by making the manuscript slug equal
+        from_review: an ``rv review`` scope id to adopt as the slug —
+            pre-binds the corpus by making the manuscript slug equal
             the review scope id, the convention every corpus-lookup keys off.
 
     Returns:
@@ -519,7 +519,7 @@ def cmd_new(
         raise ValueError(
             "rv manuscript new: a slug is required — pass it directly, or "
             "pass --from-review <scope> to adopt the review scope id as the "
-            "slug (NG-7)."
+            "slug."
         )
 
     ms_type = get_type(ms_type_key)
@@ -541,7 +541,7 @@ def cmd_new(
             f"(avoiding a silent overwrite of an in-progress manuscript)."
         )
 
-    # NG-7 warn-at-creation: a slug with no matching frozen review
+    # Warn-at-creation: a slug with no matching frozen review
     # corpus is a silent landmine that surfaces two nodes deep (scope/
     # coverage-gate report "no frozen corpus" with no explanation of why).
     expected_corpus = project_notes_dir / "reviews" / slug / "_corpus.md"
@@ -827,8 +827,8 @@ def _stamp_review_meta(note_path: Path, result: dict[str, Any]) -> None:
 
 
 def _judge_dir(tree_root: Path, gate: str) -> Path:
-    """``manuscripts/<slug>/judge/<gate>/`` — one dir per gate (
-    NG-4's "one file per gate")."""
+    """``manuscripts/<slug>/judge/<gate>/`` — one dir per gate ("one file
+    per gate")."""
     return tree_root / "judge" / gate
 
 
@@ -839,7 +839,7 @@ def cmd_judge_emit(
     config: Config | None = None,
     gate: str = "support-matcher",
 ) -> dict[str, Any]:
-    """Emit the NG-4 cold-agent-judge fan-out task set (
+    """Emit the cold-agent-judge fan-out task set (
     Phase A) — ``rv manuscript <project> judge-emit <slug>``.
 
     Writes ``manuscripts/<slug>/judge/support-matcher/_judge-tasks.json`` +
@@ -899,7 +899,7 @@ def cmd_judge_ingest(
     config: Config | None = None,
     gate: str = "support-matcher",
 ) -> dict[str, Any]:
-    """Ingest ``_judge-verdicts.json`` for the NG-4 fan-out (
+    """Ingest ``_judge-verdicts.json`` for the cold-agent-judge fan-out (
     Phase C) — ``rv manuscript <project> judge-ingest <slug>``.
 
     Reads whatever the hub wrote to

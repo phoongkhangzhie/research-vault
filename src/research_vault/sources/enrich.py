@@ -88,8 +88,9 @@ def _http_get_json(url: str, *, timeout: int = 20) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Shared junk / login-wall screen — ported from HR's WebResult.looks_like_junk
-# / looks_like_login_wall (web/base.py), MINUS the authenticated-crawl parts.
+# Shared junk / login-wall screen — ported from an established web-fetch
+# helper's WebResult.looks_like_junk / looks_like_login_wall (web/base.py),
+# MINUS the authenticated-crawl parts.
 # Every provider's output passes through this before becoming a FetchResult
 # with text — a login-wall or bot-check page means "not actually OA" for
 # tier 1: decline that provider, fall through, record oa_status: closed if

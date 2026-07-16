@@ -26,7 +26,7 @@ THE 5 MOVES → what is checked
                            `## Related papers` heading present + ≥1 typed edge
                            found anywhere in the body (full-body scan).
   5. Concept edges → mandatory gating unchanged this wave (deferred
-                           to ride NG-6a's refresh verb), but the edge FORMAT
+                           to ride the refresh verb), but the edge FORMAT
                            was migrated to OKF markdown links alongside paper
                            edges, and `parse_concept_edges` now
                            mechanically parses them (previously prose-only).

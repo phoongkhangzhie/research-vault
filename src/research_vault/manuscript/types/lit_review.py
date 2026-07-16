@@ -1515,7 +1515,7 @@ READING_ORDER: tuple[str, ...] = (
     "open-problems", "conclusion", "references",
 )
 
-# RD-6 + HR-craft rec 1: drafting-style rules folded into
+# RD-6: drafting-style rules folded into
 # the single consolidated draft brief (was spread across the 9-node chain's
 # individual briefs pre-Wave-B).
 _RD6_STYLE_RULES = (
@@ -1531,7 +1531,7 @@ _RD6_STYLE_RULES = (
     "4. Name every counter-position INLINE by its actual argument — 'X "
     "argue instead that...' — NEVER by an internal handle (`CPk`). The "
     "reader-hygiene leak-gate (RD-5) BLOCKs a literal `CPk`/`Qk` handle.\n\n"
-    "HR-craft rec 1 — integrate-by-scoping, don't append-as-caveat: when "
+    "Integrate-by-scoping, don't append-as-caveat: when "
     "counter-evidence lands, NARROW the claim's scope ('X holds in A; in B, "
     "Z changes the regime') instead of hedging ('X, though this may "
     "differ'). A narrowed claim sharpens the thesis; a hedge dissolves it — "

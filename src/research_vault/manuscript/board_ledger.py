@@ -23,7 +23,7 @@ step is a HALT-class defect (``LedgerReconcileError``), not a warning —
 the run cannot proceed to declare-final.
 
 ★ REVISE_AGENT_BRIEF carries, VERBATIM, the two load-bearing craft rules
-folded in from the HR review-critic lessons: integrate-by-scoping (never
+folded in from established research-writing review-critic lessons: integrate-by-scoping (never
 append-as-caveat) and reject-not-force-fit
 (an oversize finding escalates, it is never retyped as a paragraph-scale
 block). The revise agent this brief is dispatched to is

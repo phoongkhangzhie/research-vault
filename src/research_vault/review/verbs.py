@@ -236,7 +236,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     from ..cli_removed_verbs import add_removed_verb_stub
     add_removed_verb_stub(
         sub, "expand",
-        op_or_transition="the autonomous Phase-1->2 emission (fires when coverage-gate GOes, NG-4)",
+        op_or_transition="the autonomous Phase-1->2 emission (fires when coverage-gate GOes)",
         redirect="rv dag approve <run> coverage-gate --auto (Phase-2 is emitted automatically on GO)",
     )
 
@@ -246,11 +246,11 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         help="List review pointer notes for the project.",
     )
 
-    # ── refresh (NG-6a) ─────────────────────────────────────────────────────
+    # ── refresh ─────────────────────────────────────────────────────────────
     refresh_p = sub.add_parser(
         "refresh",
         help=(
-            "NG-6a: fail-closed re-freeze of the review's corpus_freeze "
+            "Fail-closed re-freeze of the review's corpus_freeze "
             "baseline after an in-scope append. BLOCKS on an undeclared "
             "criteria change or an undeclared corpus delta — never "
             "launders a silent mutation into a fresh hash."
@@ -571,7 +571,7 @@ def run(args: argparse.Namespace) -> int:
             "rv review: missing subcommand. "
             "Use `rv review <project> new <scope> --question '...'` (or the "
             "fused `rv review <project> run <scope> --question '...'`, D2), "
-            "`rv review <project> list`, `rv review <project> refresh <scope>` (NG-6a), "
+            "`rv review <project> list`, `rv review <project> refresh <scope>`, "
             "`rv review <project> declare-delta <scope> --rationale '...'` "
             "(declare a corpus-shrink delta before refresh), "
             "`rv review <project> tips`, "
@@ -724,7 +724,7 @@ def _run_list(args: argparse.Namespace) -> int:
 
 
 def _run_refresh(args: argparse.Namespace) -> int:
-    """NG-6a: fail-closed re-freeze of the review's corpus_freeze baseline."""
+    """Fail-closed re-freeze of the review's corpus_freeze baseline."""
     from research_vault.config import load_config
     from research_vault.review.corpus_freeze import RefreshBlocked, cmd_refresh
     from research_vault.dag.store import StoreError

@@ -1,7 +1,8 @@
 """test_manuscript_reader_hygiene.py — RD-5: the reader-hygiene leak-gate.
 
-Wave B (presentation), next-gen lit-review design §6, RD-5: HR's most
-transferable mechanic, rv's biggest gap. A mechanical, deterministic,
+Wave B (presentation), next-gen lit-review design §6, RD-5: the most
+transferable mechanic from established research-writing practice, rv's
+biggest gap. A mechanical, deterministic,
 fail-closed BLOCK over the assembled reader body — pipeline vocabulary
 (`CP1`, `Q3`, `sha256:...`, artifact filenames, tool/loop tokens) must never
 leak into reader-facing prose.

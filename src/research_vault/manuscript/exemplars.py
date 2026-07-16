@@ -126,7 +126,7 @@ def load_exemplar_bundle(bundle_key: str | None) -> list[dict[str, Any]]:
         text = entry.read_text(encoding="utf-8")
         block = _parse_exemplar_file(text, filename=entry.name)
         block["_file"] = entry.name
-        # NG-8 (next-gen lit-review): each block self-describes its
+        # Each block self-describes its
         # bundle key so downstream pointer-rendering can resolve the
         # installed bundle's absolute path (``resolve_exemplar_bundle_path``)
         # without a second parameter threaded through every caller.
@@ -138,7 +138,7 @@ def load_exemplar_bundle(bundle_key: str | None) -> list[dict[str, Any]]:
 def resolve_exemplar_bundle_path(bundle_key: str | None) -> Any:
     """Return the installed exemplar bundle's absolute filesystem directory.
 
-    NG-8 (next-gen lit-review): "the bundle is package data, not
+    "The bundle is package data, not
     a filesystem path a subagent can ``read``" — this resolver is the fix.
     Package-path resolver (the operator's build-time recommendation):
     NO copy is made — for a normal (non-zip) install, ``importlib.resources
@@ -259,19 +259,19 @@ LIT_REVIEW_SECTION_CATEGORY_MAP: dict[str, tuple[str, ...]] = {
 }
 
 
-# NG-8 (next-gen lit-review): the header marker every injected
+# The header marker every injected
 # pointer block carries — the presence check (``check_exemplar_pointer_presence``)
 # greps for this EXACT string, so it must never be paraphrased at the call site.
 MUST_READ_HEADER = "Must-read before drafting this section — imitate the MOVE, not the words:"
 
 
 def render_exemplar_pointer(block: dict[str, Any]) -> str:
-    """Render one exemplar block as a must-read POINTER line (NG-8), not a
+    """Render one exemplar block as a must-read POINTER line, not a
     verbatim embed.
 
-    NG-8: ``inject_exemplar_briefs`` used to append the excerpt VERBATIM
+    ``inject_exemplar_briefs`` used to append the excerpt VERBATIM
     (original form — bloated the framework brief to ~6900
-    chars). NG-8 replaces that with a ``read <path>`` pointer the drafter
+    chars). This replaces that with a ``read <path>`` pointer the drafter
     actively reads, resolved via ``resolve_exemplar_bundle_path``. When the
     bundle's real filesystem path can't be resolved (e.g. a zip-packed
     install), degrades to an honest id/category-only line — never a
@@ -304,10 +304,10 @@ def inject_exemplar_briefs(
 ) -> dict[str, str]:
     """Append matched exemplar MUST-READ POINTERS to each mapped section's brief.
 
-    NG-8 (next-gen lit-review, supersedes the verbatim-embed
-    form): rather than embedding the excerpt text, this appends a
+    Supersedes the verbatim-embed
+    form: rather than embedding the excerpt text, this appends a
     ``read <path>`` pointer block the drafter actively reads (enforced by
-    the ``outline`` pre-pass citing the exemplar-move it imitates, NG-7).
+    the ``outline`` pre-pass citing the exemplar-move it imitates).
     Keeps the header marker ``MUST_READ_HEADER`` — the presence check
     (``check_exemplar_pointer_presence``) greps for it, so a hand-rolled
     brief that drops this block is CATCHABLE, not silently invisible (design
@@ -363,7 +363,7 @@ def check_exemplar_pointer_presence(
     blocks: list[dict[str, Any]],
     section_category_map: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[bool, str]:
-    """NG-8's presence check — the load-bearing teeth.
+    """The exemplar-pointer presence check — the load-bearing teeth.
 
     A dropped VERBATIM excerpt was at least visible bloat; a dropped
     POINTER is invisible (the section still reads fine, just voiceless).

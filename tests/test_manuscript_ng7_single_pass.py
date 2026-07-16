@@ -495,7 +495,7 @@ def test_cmd_new_slug_with_matching_corpus_no_warning(cfg, recwarn):
 
 
 # ---------------------------------------------------------------------------
-# HR-craft rec 5 (design §7) — the deterministic H2-order diff
+# The deterministic H2-order diff (design §7)
 # ---------------------------------------------------------------------------
 
 def test_heading_order_matches_frozen_contract():

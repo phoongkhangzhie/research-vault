@@ -51,7 +51,7 @@ whole-batch canary failure still HALTs (untrustworthy judge — don't write
 ANY edge from this batch), but an individual missing/garbled per-pair
 verdict just skips that one edge, never blocks the review loop.
 
-THE THREE ARTIFACTS (mirrors judge_seam's NG-4 contract, relate-scoped):
+THE THREE ARTIFACTS (mirrors judge_seam's fan-out contract, relate-scoped):
   _relate-tasks.json       (rv -> hub -> cold judges; carries the round's
                             ``new_citekeys``/``baseline_citekeys`` too, so a
                             LATER ingest can reconstruct which citekeys to
@@ -211,7 +211,7 @@ def _extract_relate_verdict(response: str) -> tuple[str, str] | None:
 
 
 # ---------------------------------------------------------------------------
-# emit / ingest — the NG-4-shaped fan-out contract
+# emit / ingest — the cold-agent-judge-shaped fan-out contract
 # ---------------------------------------------------------------------------
 
 def emit_relate_tasks(

@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """sources/base.py — the SourceAdapter protocol + the normalized PaperHit record.
 
-NG-1 (breadth-then-depth). One narrow interface every source-adapter
-implements; a normalized hit record so cross-source dedup/ranking/discounting
-(NG-2/NG-3/NG-9) never has to branch on which source produced a paper.
+The breadth-then-depth source-adapter refactor. One narrow interface every
+source-adapter implements; a normalized hit record so cross-source
+dedup/ranking/discounting never has to branch on which source produced a
+paper.
 
 ``NotSupported`` is the explicit signal an adapter raises for an operation it
 cannot perform (e.g. arXiv/PubMed have no forward-citation graph) — the width
@@ -56,13 +57,13 @@ class PaperHit:
 
     ``raw`` carries the adapter's native payload for that hit (e.g. the S2
     paper dict downstream `_corpus_annotation`/`_print_candidates` already
-    consume) — this is the zero-behavior-change seam: NG-1 refactors the S2
-    path to *produce* PaperHit, but existing dict-consuming code keeps
-    reading ``hit.raw`` unchanged.
+    consume) — this is the zero-behavior-change seam: the source-adapter
+    refactor makes the S2 path *produce* PaperHit, but existing
+    dict-consuming code keeps reading ``hit.raw`` unchanged.
 
     ``source`` is the adapter's ``name`` (e.g. ``"semantic-scholar"``,
-    ``"arxiv"``, ``"openalex"``, ``"pubmed"``) — the provenance NG-2's dedup
-    unions and NG-3's utility ranker (source-diversity dim) counts.
+    ``"arxiv"``, ``"openalex"``, ``"pubmed"``) — the provenance the dedup
+    unions and the utility ranker (source-diversity dim) count.
     """
 
     title: str
@@ -74,13 +75,13 @@ class PaperHit:
     source: str
     raw: dict[str, Any] = field(default_factory=dict)
 
-    # NG-9: stamped by derivative.mark_derivatives — the id (in this hit's own
+    # Stamped by derivative.mark_derivatives — the id (in this hit's own
     # dedup-identity space) of the paper this one is a >60%-overlap derivative
     # of. None = not flagged (independent). Discount, never delete: the hit
     # stays in the list, just annotated + counted differently by saturation.
     derivative_of: str | None = field(default=None, compare=False)
 
-    # NG-3: stamped by ranker.rank_and_select when a candidate's independent-
+    # Stamped by ranker.rank_and_select when a candidate's independent-
     # source count is below the floor at selection time — "boundary item,
     # needs more sources / snowball attention", never "drop it".
     below_floor: bool = field(default=False, compare=False)

@@ -207,7 +207,7 @@ def classify_disposition(ev: GateEvaluation) -> DispositionResult:
         return DispositionResult(
             GO_WITH_RESIDUE,
             f"declared non-convergence residue: {ev.residue!r} — proceeding "
-            "(HR-style: log the residue and continue), residue surfaced loudly.",
+            "(log the residue and continue), residue surfaced loudly.",
             {"residue": ev.residue},
         )
     return DispositionResult(GO, "every binding gate passes.", {})

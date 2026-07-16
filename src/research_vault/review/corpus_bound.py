@@ -403,7 +403,7 @@ def rows_from_corpus_md(corpus_text: str, verdicts: dict[str, str]) -> list[Corp
     ``sweep_rank`` is the row's POSITIONAL INDEX in the parsed table order
     — a cheap, deterministic proxy that needs no NEW column: ``_corpus.md``
     already preserves the sweep's own ranked order (search rows keep the
-    NG-3 utility rank; walk-discovered rows keep discovery order), carried
+    utility rank; walk-discovered rows keep discovery order), carried
     through unchanged from ``_corpus_raw.md`` -> ``_corpus_raw_screened.md``
     -> ``_corpus.md`` (curate only concept-tags/filters, never reorders).
 

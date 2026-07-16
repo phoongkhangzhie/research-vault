@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""sources/derivative.py — ``derivative-of`` overlap discounting (NG-9, HR-craft
-rec 3,  "recommended", promoted from optional).
+"""sources/derivative.py — ``derivative-of`` overlap discounting
+("recommended", promoted from optional).
 
 >60%-shared-quoted-support / citation-ancestry discounting on the snowball
 frontier: DISCOUNT, never delete. A near-duplicate restatement of an already-

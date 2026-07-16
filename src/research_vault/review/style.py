@@ -188,7 +188,7 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "(~1/facet) + pairwise facet AND-combinations + core multi-facet "
         "precise queries + counter-position queries (each counter facet x "
         "relevant population/outcome facets) + designated citation-chase "
-        "seeds. Lands ~40-70 focused / ~100 broad — HR-scale, DERIVED from "
+        "seeds. Lands ~40-70 focused / ~100 broad — the target corpus scale, DERIVED from "
         "the combinatorics, never guessed. ★ Assert the 40-100 band on the "
         "POST-DEDUP DISTINCT-QUERY count, not the raw combinatorial cell "
         "count — near-literal restatements collapse to one query on a "

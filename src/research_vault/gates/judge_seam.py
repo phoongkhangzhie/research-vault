@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""judge_seam.py — NG-4: the emit-tasks / ingest-verdicts contract for the
+"""judge_seam.py — the emit-tasks / ingest-verdicts contract for the
 cold-agent-judge fan-out (the PRIMARY judge-orchestration path).
 
 The whole framework already runs on the Claude Code harness, so the fidelity
@@ -15,7 +15,7 @@ that originally shared this seam was removed — SIGNAL-only, non-actionable
 under hands-off autonomy, redundant with the review board + RD-6. The
 operator's call; see DEVLOG.)
 
-THE THREE ARTIFACTS (NG-4 contract):
+THE THREE ARTIFACTS (this contract):
   _judge-tasks.json       (rv -> hub -> cold judges; PUBLIC — canaries carry
                            NO marker distinguishing them from real tasks)
   _judge-canary-key.json  (rv-PRIVATE, NEVER emitted to hub/judge — task_id
@@ -57,7 +57,7 @@ from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Schema constants (the NG-4 contract — exact names)
+# Schema constants (the fan-out contract — exact names)
 # ---------------------------------------------------------------------------
 
 TASKS_SCHEMA = "rv-judge-tasks/v1"

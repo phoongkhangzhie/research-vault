@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""sources/sweep.py — the parallel width-sweep orchestrator (NG-3).
+"""sources/sweep.py — the parallel width-sweep orchestrator.
 
 Reads the FROZEN angle matrix + sources list from ``_protocol.md`` (frozen at
 ``approve-protocol`` — a mid-run change to either is a criteria deviation,
@@ -7,8 +7,8 @@ never silently honored here: this module only READS what was frozen, it
 never writes/widens it), runs the cross-product ``(angle-query × source-
 adapter)`` concurrently under the fetch budget, then composes:
 
-  fetch (parallel)  →  dedup (NG-2)  →  derivative-of discount (NG-9)
-                    →  6-dim utility rank + saturation-paired floor (NG-3)
+  fetch (parallel)  →  dedup  →  derivative-of discount
+                    →  6-dim utility rank + saturation-paired floor
                     →  corpus annotation ([NEW] / [IN-CORPUS:<citekey>])
 
 An adapter that fails or raises ``NotSupported`` for a given op is skipped
@@ -30,7 +30,7 @@ from .derivative import count_independent, mark_derivatives
 from .ranker import UtilityScore, rank_and_select, score_hit
 from .registry import DEFAULT_SOURCES, get_adapter
 
-DEFAULT_FETCH_BUDGET = 100 # D-1: HR's diminishing-returns cap (~100 planned
+DEFAULT_FETCH_BUDGET = 100 # D-1: a diminishing-returns cap (~100 planned
 # searches); raised from 65 now that the facet-matrix generator (see
 # `parse_angle_matrix`/`group_facet_stances` below) derives ~40-100 queries
 # per protocol instead of the old fixed 5-angle set — the old 65 cap would
@@ -426,7 +426,7 @@ def validate_matrix_band(
     if n < lo:
         return False, (
             f"query matrix has only {n} distinct queries post-dedup "
-            f"(target band: {lo}-{hi}) — likely too narrow for HR-scale breadth"
+            f"(target band: {lo}-{hi}) — likely too narrow for the target-scale breadth"
         )
     if n > hi:
         return False, (
@@ -864,9 +864,9 @@ def compose_sweep_result(
 ) -> SweepResult:
     """Compose fetched cells into the final ranked, deduped, discounted set.
 
-    Order: dedup (NG-2) -> derivative-of discount (NG-9, on the representative
+    Order: dedup -> derivative-of discount (on the representative
     hit of each deduped identity) -> 6-dim utility rank + saturation-paired
-    floor selection (NG-3).
+    floor selection.
     """
     all_hits: list[PaperHit] = []
     # angle provenance, keyed by normalized IDENTITY (not object id — the same
@@ -886,7 +886,7 @@ def compose_sweep_result(
     total_fetched = len(all_hits)
     deduped = dedup_hits(all_hits)
 
-    # NG-9: discount near-duplicate restatements (mutates hit.derivative_of).
+    # Discount near-duplicate restatements (mutates hit.derivative_of).
     mark_derivatives([d.hit for d in deduped], threshold=derivative_threshold)
     independent_count = count_independent([d.hit for d in deduped])
 
