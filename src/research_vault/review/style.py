@@ -3,14 +3,18 @@
 
 SEAM CONTRACT
   ``get_review_tips(config=None)`` is the call-point for the review DAG nodes'
-  spec/prompt.  The shipped default is the researcher's retrieval-grounded prose:
-  the citation-neighbor relevance walk (0.3.1), counter-position/L-2 gate, and
-  disconfirming obligation, each anchored to the systematic-review methodology it
-  operationalizes (protocol pre-registration, both-direction citation-neighbor
-  walking, concept-centric synthesis).  Adopters override per lab/venue via the
-  ``[review_style]`` section in ``research_vault.toml``.  Method anchors are
-  attributed inline to their sources; a consolidated design-references
-  bibliography is compiled at publish.
+  spec/prompt.  The shipped default is the researcher's retrieval-grounded prose
+  for a SEARCH-PRIMARY, bounded review: a faceted-matrix sweep owns recall,
+  curation bounds + stratifies the corpus to ~100 well-chosen papers, the
+  citation walk is a surgical, off-by-default tool (thin-pole fill / named-
+  anchor chase only — never a blanket 1-hop), and the counter-position/L-2 gate
+  plus disconfirming obligation stay structural throughout.  Each discipline is
+  anchored to the systematic-review methodology it operationalizes (protocol
+  pre-registration, PICO/SPIDER facet framing, concept-centric synthesis).
+  Adopters override per lab/venue via the ``[review_style]`` section in
+  ``research_vault.toml``.  Method anchors are attributed inline to their
+  sources; a consolidated design-references bibliography is compiled at
+  publish.
 
   Shape:
     review_tips = {
@@ -32,13 +36,15 @@ SEAM CONTRACT
   ``research_vault.toml``.
 
   ``get_relevance_hops(config=None)`` returns the DEPTH BOUND (in relevance
-  hops) for the review-snowball citation-neighbor walk — corpus = the vetted
-  core (``review-screen`` output) plus its immediate citation neighborhood.
-  Adopted via ``[review_style] relevance_hops = <int>`` in
+  hops) for the citation walk WHEN a surgical mode (thin-pole fill or
+  named-anchor chase) actually fires — the walk itself is OFF by default
+  (``review-snowball`` runs with ``run_walk=False``, no blanket 1-hop over the
+  vetted core). Adopted via ``[review_style] relevance_hops = <int>`` in
   ``research_vault.toml``; default 1.  Recall is owned by the SEARCH (broad
-  facet queries); precision is owned by this 1-hop bound + ``review-screen``.
-  Deeper (2+) is a deliberate recall/precision tradeoff an adopter can opt
-  into, never the default.
+  facet-matrix queries + deeper fetch/rerank); the surgical walk only patches
+  a proven-thin pole or chases a named, resolved-id anchor — it is never the
+  recall engine.  Deeper (2+) is a deliberate recall/precision tradeoff an
+  adopter can opt into for a surgical chase, never a blanket default.
 
 Two halves independently mergeable:
   - The module plumbing (this file).
@@ -70,9 +76,12 @@ REVIEW_TIPS_KEYS: frozenset[str] = frozenset({
 # ---------------------------------------------------------------------------
 
 _DEFAULT_PREAMBLE: str = (
-    "You are conducting a structured, pre-registered literature review using a "
-    "citation-neighbor relevance walk (0.3.1), following the Research Vault "
-    "structured literature review protocol.\n"
+    "You are conducting a structured, pre-registered, SEARCH-PRIMARY literature "
+    "review, following the Research Vault structured literature review "
+    "protocol: a faceted-matrix sweep owns recall; curation bounds and "
+    "stratifies the corpus (~100 well-chosen papers, not an exhaustive net); "
+    "the citation walk is a surgical, off-by-default tool, never a blanket "
+    "1-hop.\n"
     "Anti-fabrication spine: every claim must trace to a citekey in the corpus; "
     "every citekey must resolve to a `literature/` OKF note; "
     "no invented references, no paraphrased-without-citation claims.\n"
@@ -258,7 +267,8 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "(`review-search`, op `sweep`) — it ran automatically before this node "
         "and wrote `_search_hits.md`. This node is a thin judgment layer on top: read "
         "`_search_hits.md`, apply the frozen protocol's inclusion/exclusion "
-        "criteria, and accept a seed frontier for the snowball walk. Do not "
+        "criteria, and accept a seed frontier that is carried into the corpus "
+        "(surgical-only — no blanket citation walk). Do not "
         "re-run any search yourself — the sweep already happened.\n\n"
         "WHY (methodology): reconstructible search reporting — the PRISMA 2020 "
         "flow-diagram discipline (Page et al., 2021): record every exclusion "
@@ -283,14 +293,15 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "  - Apply inclusion/exclusion from `_protocol.md` to every `[NEW]` "
         "hit. Record each excluded paper WITH the criterion that excluded it "
         "(audit trail) in `_screen.md`.\n"
-        "  - A `[BELOW-FLOOR: needs more sources]` item is a signal for the "
-        "snowball walk to keep chasing it, not a paper to drop outright. If "
+        "  - A `[BELOW-FLOOR: needs more sources]` item is a signal for later "
+        "facet remediation (search-primary, deeper fetch/rerank on that "
+        "facet — not a citation walk), not a paper to drop outright. If "
         "the file instead carries a `> Note: [BELOW-FLOOR] suppressed...` "
         "line, the flag was non-discriminating this run (fired on every "
         "kept row) — treat the WHOLE kept set as boundary-sourced rather "
         "than looking for the flag row-by-row.\n"
-        "  - Accept the surviving `[NEW]` papers as the seed frontier for the "
-        "snowball tool node.\n\n"
+        "  - Accept the surviving `[NEW]` papers as the seed frontier carried "
+        "into the corpus by the (surgical-only, no-blanket-walk) tool node.\n\n"
         "Output: `_screen.md` is a real note — write the prose exclusion "
         "audit trail FREELY (every excluded paper WITH the criterion that "
         "excluded it; this is the deliverable per the WHY above). THEN put "
@@ -311,13 +322,22 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "else inside it."
     ),
     "review_curate_tips": (
-        "★ The citation-neighbor relevance walk itself is now a "
-        "deterministic TOOL node (`review-snowball`, op `snowball`) — it ran "
-        "automatically before this node and wrote `_corpus_raw.md` + "
-        "`_walk.md`. This node is a thin judgment layer on top: "
+        "★ SEARCH-PRIMARY: recall is owned by the width-sweep, not by a "
+        "citation walk. `review-snowball` is a deterministic TOOL node "
+        "(op `snowball`) that ran automatically before this node — by "
+        "default it does NOT walk citations at all (`run_walk=False`, no "
+        "blanket 1-hop); it simply carries the `review-screen`-accepted seed "
+        "frontier into `_corpus_raw.md`, and `_walk.md` is absent (this is "
+        "the normal, expected case — not a failure or something to flag). "
+        "The citation walk exists only as a SURGICAL tool that a later, "
+        "explicit trigger (thin-pole fill or a named, resolved-id anchor "
+        "chase) fires on demand — if it fired for this run, `_walk.md` will "
+        "be present with a `stop_reason:`; otherwise skip every `_walk.md` "
+        "reference below. This node is a thin judgment layer on top: "
         "concept-tag the raw corpus, "
         "apply inclusion/exclusion, and emit the FINAL `_corpus.md` (+ "
-        "`_coverage-gaps.md` when the walk was budget-terminated).\n\n"
+        "`_coverage-gaps.md` only in the specific budget-termination case "
+        "below, which requires a surgical walk to have actually run).\n\n"
         "★ RELEVANCE-GATE PREVENTION (mandatory, cheap — do this FIRST, "
         "before concept-tagging): `_corpus_raw.md` has ALREADY been through "
         "the mechanical snowball-screen relevance gate (off-domain "
@@ -335,23 +355,29 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "apply the SAME bias-to-keep discipline: reject only if you are "
         "confident it is off-field, keep+flag otherwise (a dropped "
         "relevant paper is the worse, invisible error).\n\n"
-        "WHY (methodology): two named disciplines back the walk you're now "
-        "curating.\n"
-        "  - Both-direction snowballing (Wohlin, 2014): the tool op already "
-        "followed BOTH backward references and forward citations each hop — "
-        "a database keyword search alone misses the citation neighbourhood.\n"
-        "  - Citation-neighbor relevance walk (0.3.1): the corpus is the "
-        "vetted core (this project's `review-screen` output) plus its "
-        "immediate citation neighborhood, DEPTH-BOUNDED by `relevance_hops` "
-        "(default 1 — deeper is a deliberate recall/precision tradeoff, "
-        "never the default). Recall is owned by the SEARCH (broad facet "
-        "queries), NOT by chasing citations deep — deep snowballing drifts "
-        "into adjacent fields, which is noise, not coverage. The tool op's "
-        "mechanical stop reads `_walk.md`'s `stop_reason:` — exactly "
+        "WHY (methodology): two named disciplines back this corpus, in "
+        "different roles.\n"
+        "  - The faceted-matrix width-sweep (Cochrane Handbook ch.4 "
+        "building-block method; PICO/SPIDER framing) is the recall engine — "
+        "the corpus you are curating IS the `review-screen`-accepted seed "
+        "frontier (broad facet queries + deeper fetch/rerank), not a "
+        "citation-graph traversal. A dogfooded run confirmed the blanket "
+        "walk was net-negative on precision (it displaced the search-"
+        "accepted core and flooded the pool with off-domain noise) — search "
+        "does the recall work here.\n"
+        "  - Both-direction snowballing (Wohlin, 2014) — following BOTH "
+        "backward references and forward citations — still applies, but "
+        "ONLY to the surgical walk (thin-pole fill or a named, resolved-id "
+        "anchor chase), never as a blanket pass over the whole corpus. "
+        "DEPTH-BOUNDED by `relevance_hops` (default 1) when it fires. If "
+        "`_walk.md` is present (a surgical chase ran this cycle), its "
+        "mechanical stop reads `stop_reason:` — exactly "
         "`walk-complete:N-hops` (ran every hop cleanly to the bound), "
         "`neighborhood-exhausted` (2 consecutive hops found 0 new "
         "independent papers before the bound), or `budget:N-calls` (the "
-        "total-fetch ceiling fired first, bounded corpus).\n\n"
+        "total-fetch ceiling fired first, bounded corpus). If `_walk.md` is "
+        "absent, no surgical chase ran this cycle — that is the normal "
+        "default, not a gap to fill or a term to reason about below.\n\n"
         "  - Each `_corpus_raw.md` candidate now also carries an "
         "Abstract/TL;DR snippet + Venue + Year (mirrors `_search_hits.md`'s "
         "evidence columns) — apply inclusion/exclusion on THAT evidence, "
@@ -370,26 +396,33 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "edges come later in the `relate-<key>` fan-out).\n"
         "  3. `[DERIVATIVE-OF:*]`-flagged candidates stay in the corpus "
         "(discount, never delete — provenance preserved).\n\n"
-        "Direction-starvation check: if `_walk.md` shows a hop flagged "
+        "Direction-starvation check (ONLY when `_walk.md` is present — a "
+        "surgical chase ran this cycle): if `_walk.md` shows a hop flagged "
         "`DIRECTION-STARVED` (one direction consistently 0 while the other is "
         "active), flag this as a premature-plateau risk in `_coverage-gaps.md` "
-        "regardless of `stop_reason`.\n\n"
-        "On BUDGET-TERMINATION (`stop_reason: budget:N-calls`), emit "
+        "regardless of `stop_reason`. If `_walk.md` is absent, skip this "
+        "check entirely — there is no walk to be starved.\n\n"
+        "On BUDGET-TERMINATION of a surgical walk (`_walk.md` present with "
+        "`stop_reason: budget:N-calls`), emit "
         "`_coverage-gaps.md` — the honest residue note. This is the anti-"
-        "fabrication move: a budget-bounded corpus must DECLARE its "
+        "fabrication move: a budget-bounded chase must DECLARE its "
         "incompleteness, not hide it behind a green gate. Required contents:\n"
         "  1. A plain statement: 'terminated by the total-fetch budget; "
-        "corpus is bounded, not depth-complete.'\n"
+        "the surgical chase is bounded, not depth-complete.'\n"
         "  2. Which `counter-position` sub-literature (from `_protocol.md`) "
         "remains open/under-explored, if any.\n"
         "  3. Which `concepts/`/`mocs/` regions were still growing (new "
         "concept-tags still appearing) at termination.\n"
         "  4. The un-screened candidate count: how many citation-graph hits "
         "were discovered in the final hop but not yet processed.\n"
-        "Do NOT emit `_coverage-gaps.md` on `walk-complete:N-hops` or "
-        "`neighborhood-exhausted` termination — both are clean, expected "
-        "terminals at the walk's design-time bound; no residue is owed "
-        "there.\n\n"
+        "Do NOT emit `_coverage-gaps.md` for this reason on `walk-"
+        "complete:N-hops` or `neighborhood-exhausted` termination — both are "
+        "clean, expected terminals at the walk's design-time bound; no "
+        "residue is owed there. And do NOT emit it merely because `_walk.md` "
+        "is absent — an absent walk is the normal default, not an "
+        "incompleteness to declare. A genuinely-sparse facet/pole (no walk "
+        "involved at all) is instead recorded via the coverage-critic's "
+        "thin-pole finding (Section E), not this budget-termination path.\n\n"
         "Output: `_corpus.md` — the FINAL, concept-tagged citekey list "
         "(table: annotation | citekey | title | abstract | rerank | poles), "
         "replacing the raw candidate list. The annotation column MUST use "
@@ -426,12 +459,15 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "dash means the candidate carried no pole tag at sweep time (e.g. "
         "a citation-neighbor-walk discovery) — copy that dash through "
         "unchanged too, never leave the cell truly blank. "
-        "`_corpus.md` and `_walk.md` (and `_coverage-gaps.md` when "
-        "present) are the phase-boundary artifacts: the `coverage-gate` "
-        "human-go reads them before authorizing Phase-2. `rv dag approve "
-        "<run> coverage-gate` structurally reads `stop_reason:` from "
-        "`_walk.md` — adequacy is judged by relevance-verify + source-"
-        "coverage downstream, not by this walk terminal alone."
+        "`_corpus.md` (and `_walk.md`/`_coverage-gaps.md` when a surgical "
+        "chase ran) are the phase-boundary artifacts: the `coverage-gate` "
+        "human-go reads them before authorizing Phase-2. Adequacy is judged "
+        "on facet coverage, source coverage, relevance-verify, and the "
+        "deviation record — NOT primarily on `_walk.md`'s `stop_reason:`. "
+        "`_walk.md` is consulted only when a surgical chase actually ran "
+        "this cycle (its terminal then feeds the same adequacy judgment); "
+        "an absent `_walk.md` is a normal, expected state for a review that "
+        "never needed the surgical walk, not a coverage failure."
     ),
     "review_relevance_verify_tips": (
         "You are the COLD final-corpus relevance verifier (the "
@@ -760,24 +796,34 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "You are the coverage critic (reviewer role). You are a REJECTS-ONLY reviewer: "
         "a `[PASS]` does NOT certify coverage, it only fails to find a blocking hole.\n\n"
         "WHY (methodology): your two hardest axes have named backing. Axis 1 tests "
-        "whether the citation-neighbor walk's coverage is genuine or premature — a walk "
-        "that hit `neighborhood-exhausted` while direction-starved (one snowball "
-        "direction dry; cf. Wohlin, 2014) or tag-under-counted is PREMATURE, not a clean "
-        "terminal. Axis 4 enforces the disconfirming obligation: a review that only "
-        "confirms is fishing, so the pre-registered counter-position must be sought, not "
-        "merely declared.\n\n"
+        "whether the review's CORPUS COVERAGE is genuine or premature — search-primary "
+        "recall (faceted matrix + deeper fetch/rerank, cf. Cochrane ch.4 building-block "
+        "method) is the default recall engine, so coverage is certified on facet/source "
+        "breadth and relevance-verify results, NOT on a citation walk that usually never "
+        "ran. When a surgical walk (thin-pole fill or named-anchor chase, cf. Wohlin, "
+        "2014's both-direction snowballing) DID fire this cycle, its terminal folds into "
+        "the same judgment — a walk that hit `neighborhood-exhausted` while direction-"
+        "starved is PREMATURE, not a clean terminal. Axis 4 enforces the disconfirming "
+        "obligation: a review that only confirms is fishing, so the pre-registered "
+        "counter-position must be sought, not merely declared.\n\n"
         "Judge FOUR axes (each can independently issue `[BLOCK]`):\n\n"
-        "1. WALK COVERAGE — is the citation neighborhood genuinely covered, or premature?\n"
-        "   Read the `_walk.md` hop table + `stop_reason:`. Check:\n"
-        "   - Did the walk reach `walk-complete:N-hops` cleanly (every hop ran to the "
-        "declared depth bound)? (genuinely complete — nothing to flag here)\n"
-        "   - OR did it stop at `neighborhood-exhausted` while one direction (forward OR "
-        "backward) stayed dry across the hops? "
-        "(direction-starved — flag as `DIRECTION-STARVED` and issue `[BLOCK]`)\n"
-        "   - OR did verified concept-edges (from `relate-<key>` notes) consistently "
-        "outrun the cheap concept-tags? (tag-under-counting — issue `[BLOCK]`)\n"
-        "   A `neighborhood-exhausted` terminal reached with direction-starvation or "
-        "tag-under-counting is PREMATURE.\n\n"
+        "1. CORPUS COVERAGE — is the corpus genuinely covered, or premature?\n"
+        "   Certify on facet coverage, source coverage, relevance-verify results, and "
+        "the deviation record (`_search_hits.md`, `_screen.md`, `_relevance-verdict.md`, "
+        "declared deviations) — NOT primarily on `_walk.md`. Check:\n"
+        "   - Did every declared facet/pole clear its hit floor (`get_min_hits_per_pole`), "
+        "or was a thin pole resolved via the recorded, anti-gaming-teeth-verified "
+        "facet-remediation round (a genuinely-sparse pole recorded as a gap+PASS is "
+        "fine; an unresolved thin pole with no remediation round on record is NOT)?\n"
+        "   - Did verified concept-edges (from `relate-<key>` notes) consistently "
+        "outrun the cheap concept-tags? (tag-under-counting — issue `[BLOCK]`, "
+        "independent of whether any walk ran)\n"
+        "   - IF `_walk.md` is present (a surgical chase ran this cycle): did it reach "
+        "`walk-complete:N-hops` cleanly (genuinely complete — nothing extra to flag), "
+        "or stop at `neighborhood-exhausted` while one direction (forward OR backward) "
+        "stayed dry across the hops (direction-starved — flag as `DIRECTION-STARVED` "
+        "and issue `[BLOCK]`)? IF `_walk.md` is ABSENT, that is the normal default (no "
+        "surgical chase was needed) — do not flag its absence as a coverage gap.\n\n"
         "2. ORPHAN CONCEPTS/MOCS — soft flag (do not block, but list)\n"
         "   Do NOT hand-stem-match note filenames to corpus citekeys — run "
         "`rv review <project> coverage <scope>` for the deterministic orphan list "

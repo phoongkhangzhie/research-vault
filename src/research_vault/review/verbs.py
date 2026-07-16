@@ -2,7 +2,10 @@
 """review/verbs.py — rv review subcommand dispatcher.
 
 When to use: use ``rv review new <project> <scope> --question '...'`` to start a
-pre-registered literature review using a citation-neighbor relevance walk.  Phase-2
+pre-registered, SEARCH-PRIMARY literature review — a faceted-matrix sweep owns
+recall; curation bounds + stratifies the corpus to ~100 well-chosen papers; a
+citation walk exists only as a surgical, off-by-default tool (thin-pole fill or
+named-anchor chase, never a blanket 1-hop).  Phase-2
 (the ``relate-*`` fan-out) is HARD-REMOVED as a hand-run verb — it auto-emits when
 ``coverage-gate`` GOes (D1, verb consolidation).  ``rv review list`` enumerates all
 reviews for a project.  ``rv review gap-scan`` detects typed research gaps from the
@@ -10,8 +13,8 @@ OKF corpus and/or a manuscript critic report (the loop-closer).  ``rv review
 gap-scope`` (or the alias ``gap-route``) auto-authors the remedy scope: literature
 (Part-1 review) OR experiment (pre-registration plan), routed by error-asymmetry.
 
-This is the ONLY path that creates the closed protocol-freeze + citation-neighbor
-walk + coverage-critic framework.  A hand-run literature scan gets none of these gates.
+This is the ONLY path that creates the closed protocol-freeze + search-primary
+coverage + coverage-critic framework.  A hand-run literature scan gets none of these gates.
 
 Subcommands:
   rv review <project> new <scope> --question "..."
@@ -24,9 +27,12 @@ Subcommands:
           → coverage-gate (auto-resolved).
       ``review-scope`` MUST file a ``_protocol.md`` with a non-empty ``counter-position``
       field (L-2 gate) — ``review-search`` is gated on the protocol artifact.
-      ``review-snowball`` runs an internal citation-neighbor relevance walk (both
-      forward + backward citation directions, depth-bounded by ``--relevance-hops``,
-      default 1) and produces ``_corpus_raw.md`` + ``_walk.md``.
+      ``review-snowball`` carries the ``review-screen``-accepted seed frontier into
+      ``_corpus_raw.md``; by default it does NOT walk citations (no blanket 1-hop,
+      no ``_walk.md``). A citation walk (both forward + backward directions,
+      depth-bounded by ``--relevance-hops``, default 1) fires only as a later,
+      explicit surgical trigger — thin-pole fill or a named-anchor chase — and
+      only then produces ``_walk.md``.
       The relevance gate (the trustworthy-curation relevance-gate design)
       mechanically screens + a cold agent re-verifies every ``[NEW]`` paper for
       off-domain contamination before the expensive Phase-2 fan-out: below
@@ -93,8 +99,8 @@ Subcommands (the gap-driven pass):
       (the honesty backstop that polices its own promotions).
 
 Anti-pattern: do NOT hand-collect papers without running ``rv review new`` — a
-hand-collected corpus has no ``_protocol.md`` freeze, no citation-neighbor walk,
-and no rejects-only coverage critic.
+hand-collected corpus has no ``_protocol.md`` freeze, no faceted-matrix search
+discipline, and no rejects-only coverage critic.
 
 Anti-pattern: do NOT auto-fire a gap-driven review pass — ``gap-scan`` is a
 SCREEN that PROPOSES work; the human authorizes each targeted pass via ``gap-scope``
@@ -121,19 +127,21 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     """Build the argument parser for the ``review`` verb.
 
     When to use: use ``rv review new <project> <scope> --question '...'`` to scaffold
-    a pre-registered literature review with protocol-freeze, an internal
-    citation-neighbor relevance walk, and coverage-critic gates.
+    a pre-registered, search-primary literature review with protocol-freeze,
+    a bounded/stratified corpus, and coverage-critic gates. The citation walk
+    is a surgical, off-by-default tool, not part of the default recall path.
 
     Anti-pattern: do NOT hand-collect papers without ``rv review new`` — the hand-run
-    path has no protocol-freeze (anti-fishing), no citation-neighbor walk, and no
-    rejects-only critic (the coverage gate cannot fire without the artifacts ``rv
-    review new`` scaffolds).
+    path has no protocol-freeze (anti-fishing), no faceted-matrix search discipline,
+    and no rejects-only critic (the coverage gate cannot fire without the artifacts
+    ``rv review new`` scaffolds).
     """
     desc = (
-        "Staged, pre-registered literature review loop using a citation-neighbor\n"
-        "relevance walk.\n"
+        "Staged, pre-registered, search-primary literature review loop.\n"
         "'rv review new' is the ONLY path that creates the protocol-freeze +\n"
-        "citation-neighbor walk + coverage-critic framework.\n"
+        "search-primary coverage + coverage-critic framework. A citation walk\n"
+        "is a surgical, off-by-default tool (thin-pole fill / named-anchor\n"
+        "chase), never a blanket 1-hop.\n"
         "Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json\n"
         "Phase-2 auto-emits when coverage-gate GOes — no hand-run 'expand' step;\n"
         "then drive it with: rv dag run reviews/<scope>/phase2-dag.json"
@@ -141,7 +149,7 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
     if parent is not None:
         p = parent.add_parser(
             "review",
-            help="Staged literature review loop (pre-registered, citation-neighbor walk).",
+            help="Staged literature review loop (pre-registered, search-primary).",
             description=desc,
         )
     else:
@@ -182,11 +190,12 @@ def build_parser(parent: "argparse._SubParsersAction | None" = None) -> argparse
         default=None,
         metavar="N",
         help=(
-            "Depth bound (in relevance hops) on the citation-neighbor walk — corpus = "
-            "the vetted core (review-screen output) plus its immediate citation "
-            "neighborhood. Default: config's [review_style] relevance_hops, itself "
-            "defaulting to 1. Deeper (2+) trades precision for recall; the default "
-            "keeps the walk a tight, high-precision bound."
+            "Depth bound (in relevance hops) applied ONLY when the surgical citation "
+            "walk fires (thin-pole fill or a named-anchor chase) — the walk is "
+            "off by default; recall is owned by the faceted-matrix search. "
+            "Default: config's [review_style] relevance_hops, itself "
+            "defaulting to 1. Deeper (2+) trades precision for recall on that "
+            "surgical chase; never a blanket-walk setting."
         ),
     )
 
