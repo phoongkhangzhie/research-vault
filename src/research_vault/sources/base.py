@@ -102,7 +102,7 @@ class PaperHit:
     # what's there, never fabricate a venue.
     venue: str | None = field(default=None, compare=False)
 
-    # A1 (lit-review search-primary redesign, task #86): the TF-IDF rerank
+    # A1 (lit-review search-primary redesign): the TF-IDF rerank
     # score (``cross_project.rank_candidates``'s cosine-similarity ``score``,
     # roughly 0-1) this hit scored against the query that surfaced it —
     # stamped by ``sweep._fetch_cell`` at fetch time. This is the strength
@@ -115,7 +115,7 @@ class PaperHit:
     # every other optional PaperHit field already follows.
     rerank_score: float | None = field(default=None, compare=False)
 
-    # C (lit-review search-primary redesign, task #86): the DECLARED
+    # C (lit-review search-primary redesign): the DECLARED
     # facet-pole(s) (``"<angle>.<stance>"`` keys, ``sweep.compute_facet_
     # pole_coverage``'s own key shape) whose cell(s) surfaced this hit at
     # sweep-fetch time — the stratification-bucket signal Section C's

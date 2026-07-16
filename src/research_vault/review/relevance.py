@@ -266,12 +266,12 @@ def parse_corpus_raw_rows(text: str) -> list[dict[str, str]]:
     whose column-0 isn't bracket-shaped (``[...]``) are silently skipped —
     the same narrow structural signal ``review._parse_corpus_citekeys`` uses.
 
-    A1 (task #86): the trailing ``Rerank`` column (8th) is OPTIONAL — a
+    A1: the trailing ``Rerank`` column (8th) is OPTIONAL — a
     legacy 7-column row (written before A1 shipped) parses exactly as
     before, with ``rerank`` defaulting to ``""``. Pure append, no
     positional-format break.
 
-    C (task #86): a further OPTIONAL 9th ``Poles`` column — same tolerant-
+    C: a further OPTIONAL 9th ``Poles`` column — same tolerant-
     append discipline; a legacy 7- or 8-column row parses unchanged with
     ``poles`` defaulting to ``""``.
 
@@ -521,14 +521,14 @@ def parse_corpus_table_with_abstract(text: str) -> list[dict[str, str]]:
     no abstract column gets ``abstract: ""`` — never a crash, never a
     fabricated abstract.
 
-    A1 (task #86): a further OPTIONAL 5th ``Rerank`` column
+    A1: a further OPTIONAL 5th ``Rerank`` column
     (``| Annotation | Citekey | Title | Abstract | Rerank |``) — the
     curate agent's tips (``review.style``'s ``review_curate_tips``)
     instruct it to carry the score verbatim from ``_corpus_raw.md``. A row
     with no 5th column gets ``rerank: ""`` — pure append, no positional-
     format break on either the legacy 3- or 4-column shape.
 
-    C (task #86): a further OPTIONAL 6th ``Poles`` column
+    C: a further OPTIONAL 6th ``Poles`` column
     (``| Annotation | Citekey | Title | Abstract | Rerank | Poles |``) —
     same carry-over discipline as Rerank. A row with no 6th column gets
     ``poles: ""``, pure append.
@@ -962,8 +962,8 @@ def prune_off_domain_from_corpus(
     existing = residue_path.read_text(encoding="utf-8") if residue_path.exists() else (
         "# Relevance-gate residue\n\n"
         "Papers auto-pruned by the cold final-corpus relevance verifier "
-        "(design 2026-07-10-trustworthy-curation-relevance-gate-design.md "
-        ") — verified OFF-DOMAIN, below the HALT threshold, so the run "
+        "(the trustworthy-curation relevance-gate design) — verified "
+        "OFF-DOMAIN, below the HALT threshold, so the run "
         "proceeds with these papers removed from the corpus rather than "
         "halting for human review.\n\n"
     )

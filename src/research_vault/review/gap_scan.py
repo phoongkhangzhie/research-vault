@@ -61,7 +61,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# #26 convergence: use the canonical parser from note.py (now list-aware).
+# Parser convergence: use the canonical parser from note.py (now list-aware).
 # The local _parse_frontmatter_gap is removed — this import replaces all 9 call sites.
 from research_vault.note import _parse_frontmatter as _pfm
 
@@ -735,7 +735,7 @@ def _check_reopen_signal(
 
      (3) — CONSERVATIVE structural reopen (one signal):
 
-    Signal — contradictory re-fires on a MACHINE-CLOSED status (#30):
+    Signal — contradictory re-fires on a MACHINE-CLOSED status:
         The concept note re-acquired both supported_by AND contradicted_by edges.
         Pure structural (OKF graph read via _detect_contradictory) → stamp 'reopened'.
         → stamp 'reopened' + 'reopened_reason: contradictory_edges_reacquired'.
@@ -757,7 +757,7 @@ def _check_reopen_signal(
     is_contradictory = rec.type == GAP_TYPE_CONTRADICTORY
 
     # Signal: contradictory on a MACHINE-CLOSED status (both edges re-acquired — pure structural)
-    # ruling / #30: narrow to machine-closed only (closed-supported, closed-filled).
+    # Ruling: narrow to machine-closed only (closed-supported, closed-filled).
     # proven-open and promoted are HUMAN-BLESSED states — a machine must not silently reverse a
     # human decision (automation-authority + COPE ruling).  Those fall through to WARN-only below.
     if is_contradictory and existing_status in {"closed-supported", "closed-filled"}:
@@ -773,7 +773,7 @@ def _check_reopen_signal(
             f"while status={existing_status!r} — a human-blessed state is NOT auto-reopened. "
             f"A contribution built on a now-contradicted concept may be an overclaim: "
             f"inspect via 'rv review gap-scan' and re-open manually if warranted "
-            f"(closed_by:/promoted_to: audit trail retained).   #30.",
+            f"(closed_by:/promoted_to: audit trail retained).",
             UserWarning,
             stacklevel=4,
         )
@@ -871,7 +871,7 @@ def cmd_gap_scope(
         target = ROUTE_LITERATURE  # back-compat default
 
     if target == ROUTE_EXPERIMENT:
-        # #28: warn if the caller passed a non-empty scope arg for the experiment arm —
+        # Warn if the caller passed a non-empty scope arg for the experiment arm —
         # the plan is named <gap_id>-plan.md (gap-scoped), not after the scope arg.
         if scope:
             warnings.warn(
@@ -1120,7 +1120,7 @@ def _cmd_gap_scope_experiment(
         "six-gap framework. Related secondary taxonomies: Miles (2017); "
         "Robinson et al. (2011).",
     ]
-    # #28: gap-scoped filename mirrors <gap_id>-plan.md — prevents overwrite on 2nd gap
+    # Gap-scoped filename mirrors <gap_id>-plan.md — prevents overwrite on 2nd gap
     context_path = exp_dir / f"{gap_id}-gap-context.md"
     context_path.write_text("\n".join(context_lines), encoding="utf-8")
 
@@ -1176,14 +1176,14 @@ def _append_closes_to_note(note_path: Path, gap_id: str) -> None:
     never silently drop) so the operator knows the backward ``closes:`` edge was
     skipped.  The forward ``closed_by:`` edge is already written in the gap note;
     the audit trail is partially intact but the back-edge is missing until the
-    closer note is created/corrected.  #29.
+    closer note is created/corrected.
     """
     if not note_path.exists():
         warnings.warn(
             f"--by target {note_path!r} not found; forward closed_by: written but "
             f"backward closes: edge skipped — verify the closer ref and re-run "
             f"gap-close once the note exists, or create {note_path.name} first. "
-            f"Gap ID: {gap_id!r} (1) / #29.",
+            f"Gap ID: {gap_id!r}.",
             UserWarning,
             stacklevel=3,
         )

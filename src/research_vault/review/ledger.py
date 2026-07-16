@@ -30,7 +30,7 @@ was missing/malformed>`` line in that section AND flips the top-level
 ``ledger_complete`` scalar to ``false`` — never a silently-partial ledger
 that reads as complete.
 
-Stdlib only (+ intra-package imports). (pre-publish #55 blocker)
+Stdlib only (+ intra-package imports). (a pre-publish blocker)
 """
 from __future__ import annotations
 

@@ -80,7 +80,7 @@ def _review_artifact_dir(project: str, scope_id: str, cfg: Config) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# L-2 anti-fishing structural gate (task #33) — counter-position enforcement
+# L-2 anti-fishing structural gate — counter-position enforcement
 # ---------------------------------------------------------------------------
 
 def check_protocol_gate(protocol_path: Path) -> tuple[bool, str]:
@@ -354,7 +354,7 @@ def check_coverage_critic_verdict(critic_note_path: Path) -> dict[str, Any]:
     field with a fixed 2-value vocab has no such evasion surface.
 
     - Missing artifact -> ``not_run`` (a floor gate that never ran must
-      never look like a pass, priority 2 / explore-rl #3).
+      never look like a pass, priority 2).
     - ``verdict`` field absent, empty, or any value other than exactly
       ``PASS``/``BLOCK`` (case-normalized) -> ``not_run`` (fail-closed;
       HALT-DECLARE upstream, never a silent GO). This is the anti-evasion
@@ -768,7 +768,7 @@ class CorpusSchemaError(ValueError):
     (column 0 looks like ``[...]``) that is NEITHER ``[NEW]`` nor
     ``[IN-CORPUS:*]`` — a malformed hand-written or remediation-appended row.
 
-    The green-but-stale fix (explore-rl #2): the prior parser silently
+    The green-but-stale fix: the prior parser silently
     ``continue``d past such a row, so a malformed remediation append
     vanished from the corpus set and ``coverage_report``/the coverage-gate
     audited a stale subset while reporting green. This is a loud reject
@@ -1476,9 +1476,9 @@ def _build_phase1_manifest(
 ) -> dict[str, Any]:
     """Build the Phase-1 DAG manifest.
 
-    Phase-1 nodes (10, design 2026-07-10-trustworthy-curation-
-    relevance-gate-design.md, adds review-relevance-screen, review-curate's
-    input rewire, review-relevance-verify-prep, and review-relevance-verify
+    Phase-1 nodes (10, the trustworthy-curation relevance-gate design
+    adds review-relevance-screen, review-curate's input rewire,
+    review-relevance-verify-prep, and review-relevance-verify
     to the prior 7-node topology):
       review-scope → [HG:approve-protocol] → review-search (tool) → review-screen (agent)
           → review-snowball (tool) → review-relevance-screen (tool) → review-curate (agent)
@@ -1560,7 +1560,7 @@ def _build_phase1_manifest(
     def _afterok(from_id: str) -> dict[str, Any]:
         return {"from": from_id, "edge": "afterok"}
 
-    # Absolute OKF type-dir pointers (Fix #34: emit absolute paths so the
+    # Absolute OKF type-dir pointers (emit absolute paths so the
     # reads:-grounding resolver finds the real OKF dirs regardless of what
     # project_root=manifest_path.parent is at run/tick time).
     # Previously this returned a bare name like "literature" which resolved
@@ -1718,9 +1718,9 @@ def _build_phase1_manifest(
         ],
     })
 
-    # 6. review-relevance-screen — TOOL node (design 2026-07-10-
-    #    trustworthy-curation-relevance-gate-design.md, CORE not
-    #    deferred): the mechanical, deterministic relevance pre-filter over
+    # 6. review-relevance-screen — TOOL node (the trustworthy-curation
+    #    relevance-gate design, CORE not deferred): the mechanical,
+    #    deterministic relevance pre-filter over
     #    the raw snowball pool. The snowball is the ACTUAL contamination
     #    source (citation-promiscuous — a paper cites a galaxy survey for a
     #    stats method; query-scoping can't help it), so it is gated here,

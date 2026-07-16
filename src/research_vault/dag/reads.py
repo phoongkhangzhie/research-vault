@@ -237,7 +237,7 @@ def resolve_reads_pointer(
 
 
 # ---------------------------------------------------------------------------
-# Produces index — the pending-vs-error classification (task #97 fold-in)
+# Produces index — the pending-vs-error classification
 # ---------------------------------------------------------------------------
 #
 # On a FRESH run, a downstream node's reads: pointer to an upstream artifact

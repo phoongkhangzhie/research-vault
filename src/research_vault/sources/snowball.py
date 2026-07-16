@@ -117,7 +117,7 @@ def _default_progress(msg: str) -> None:
 
 def _hit_to_json_dict(hit: PaperHit) -> dict[str, Any]:
     """``asdict(hit)`` with ``poles`` (a ``frozenset``, not JSON-
-    serializable) converted to a sorted list. C (task #86): everything
+    serializable) converted to a sorted list. C: everything
     else on ``PaperHit`` is already a JSON-safe scalar/dict/list — only the
     new pole set needs this treatment. ``_load_checkpoint``'s reload path
     converts it back to a frozenset explicitly (see that call site)."""
@@ -425,7 +425,7 @@ def run_citation_neighbor_walk(
     if loaded is not None:
         seen_identities = set(loaded["seen_identities"])
         visited_pids = set(loaded["visited_pids"])
-        # C (task #86): ``poles`` is a ``frozenset`` on a live ``PaperHit``
+        # C: ``poles`` is a ``frozenset`` on a live ``PaperHit``
         # but a checkpoint round-trips it through JSON as a sorted list
         # (see the ``_atomic_write_json`` call site below) — reconstruct
         # the frozenset explicitly here rather than silently leaving it a
@@ -897,12 +897,12 @@ def write_corpus_raw(
         venue = (hit.venue or "").replace("|", "/")
         year = str(hit.year) if hit.year is not None else ""
         evidence = _evidence_snippet(hit)
-        # A1 (task #86): carry the rerank score through when the hit has
+        # A1: carry the rerank score through when the hit has
         # one. A citation-neighbor-walk discovery is a FRESH PaperHit —
         # never scored — and renders the honest sentinel, never a
         # fabricated number (see PaperHit.rerank_score docstring).
         rerank = format_rerank_score(hit.rerank_score)
-        # C (task #86): same honest-blank discipline for the DECLARED
+        # C: same honest-blank discipline for the DECLARED
         # facet-pole(s) this hit matched — a walk discovery is a FRESH
         # PaperHit with no cell/angle context, so it renders the sentinel.
         poles = format_poles(hit.poles)

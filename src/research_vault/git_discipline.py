@@ -200,7 +200,7 @@ def _run_leakage_scan(
     # DEV-REPO TOOLING: leakage_scan.sh is a bash script that ships in the repo's
     # scripts/ directory — it is NOT packaged in the wheel (no data/ slot for it).
     # This function is called from the pre-commit hook integration (cmd_check) and
-    # is dev/CI tooling, not a user-facing verb. Task #22 part 2 audit — confirmed
+    # is dev/CI tooling, not a user-facing verb — confirmed
     # dev-only. The graceful fallback (fails-open when script not found) already
     # handles the wheel/non-repo context cleanly.
     # Find the script relative to the package installation or repo root.

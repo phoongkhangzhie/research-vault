@@ -73,7 +73,7 @@ from .config import Config, load_config
 # rules 4/5 silently no-op (0 files found → OK). This is by design: test-hygiene
 # (rules 4a/4b/4c) and F811 (rule 5) guard the FRAMEWORK's own code quality, not
 # the end-user's project. A wheel user has no research_vault tests/ to scan.
-# Task #22 part 2 audit — confirmed dev-only, leave __file__-based. See DEVLOG.
+# Confirmed dev-only, leave __file__-based.
 _FRAMEWORK_ROOT: Path = Path(__file__).parent.parent.parent
 # Default tests directory; monkeypatched by integration tests.
 _TESTS_DIR: Path = _FRAMEWORK_ROOT / "tests"
@@ -89,8 +89,8 @@ _SHIPPED_DOCS_ROOT: Path = _FRAMEWORK_ROOT
 # Shipped-doc noise patterns (rule 9)
 # ---------------------------------------------------------------------------
 
-# SR-tag pattern: "SR-" followed by one or more uppercase letters or digits,
-# with optional additional hyphenated segments (e.g. SR-XPB, SR-CO-REMOTE, SR-1).
+# SR-tag pattern: the two letters "SR" + a hyphen + one or more uppercase
+# letters or digits, with optional additional hyphenated segments.
 _SR_TAG_PAT: re.Pattern[str] = re.compile(r"\bSR-[A-Z0-9]+(?:-[A-Z0-9]+)*\b")
 
 # Build-noise literal strings (case-insensitive).
@@ -658,9 +658,9 @@ def check_shipped_doc_noise(
     """Scan *files* for SR-tags and build-noise strings (rule 9).
 
     Adopter-facing shipped docs must never contain:
-    - **SR-tags** — internal story references (``SR-XPB``, ``SR-CO-REMOTE``, …).
-      These are build-time grounding markers that mean nothing to an adopter
-      and would confuse anyone cloning the framework.
+    - **SR-tags** — internal story references (see ``_SR_TAG_PAT`` above for
+      the exact shape). These are build-time grounding markers that mean
+      nothing to an adopter and would confuse anyone cloning the framework.
     - **Build-noise strings** — ``scratchpad``, ``/private/tmp``, ``live vault``,
       ``living-state``, ``dogfood``.  These are operator-environment artefacts
       that belong in DEVLOG / internal changelogs, not in docs a stranger reads.
@@ -803,7 +803,7 @@ def cmd_lint(cfg: Config, *, strict: bool = False) -> int:
     # in wheel). The intent is to catch private names hardcoded in the FRAMEWORK's
     # own source — a CI gate for framework developers. A wheel user running rv lint
     # without forbidden_patterns configured (the common case) skips this check
-    # entirely. Task #22 part 2 audit — confirmed dev-only, leave __file__-based.
+    # entirely. Confirmed dev-only, leave __file__-based.
     patterns = _get_forbidden_patterns(cfg)
     if patterns:
         src_dir = Path(__file__).parent

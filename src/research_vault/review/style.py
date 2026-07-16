@@ -434,8 +434,8 @@ _DEFAULT_REVIEW_TIPS: dict[str, str] = {
         "coverage downstream, not by this walk terminal alone."
     ),
     "review_relevance_verify_tips": (
-        "You are the COLD final-corpus relevance verifier (design "
-        "2026-07-10-trustworthy-curation-relevance-gate-design.md) — a "
+        "You are the COLD final-corpus relevance verifier (the "
+        "trustworthy-curation relevance-gate design) — a "
         "REJECTS-ONLY, fresh judge with no stake in `review-curate`'s "
         "decisions. A `_corpus_verify_input.md` note has been prepared for "
         "you: one row per `[NEW]` paper in the final `_corpus.md` "
@@ -1183,7 +1183,7 @@ def get_max_facet_remediation_rounds(config: Any = None, *, review_type: str | N
 
 
 # ---------------------------------------------------------------------------
-# Corpus-bound config seam (Section C, task #86) — sibling of
+# Corpus-bound config seam (Section C) — sibling of
 # relevance_hops: the curated-corpus size cap the coverage-gate's
 # stratified selection reads. See review.corpus_bound for the selection
 # algorithm this knob feeds.
@@ -1193,7 +1193,7 @@ DEFAULT_CORPUS_BOUND: int = 100
 
 
 def get_corpus_bound(config: Any = None, *, review_type: str | None = None) -> int:
-    """Return the curated-corpus size bound (Section C, task #86).
+    """Return the curated-corpus size bound (Section C).
 
     Principle 2: "a survey is ~100 well-chosen papers, not an exhaustive
     net." This is the ``N`` the stratified largest-remainder selection

@@ -290,7 +290,7 @@ def _load_notes_index(
 ) -> dict[str, str]:
     """Build a normalized-id → citekey lookup by scanning literature/*.md frontmatter.
 
-    Fix #32: literature notes filed via ``rv note new literature`` are invisible to the
+    Literature notes filed via ``rv note new literature`` are invisible to the
     Zotero library.json-based corpus index.  This function builds a parallel lookup
     from the doi: and arxiv_id: frontmatter fields that literature notes now carry as
     optional placeholders.  The citekey is the note's filename stem.
@@ -508,8 +508,7 @@ def _corpus_annotation(
 
     Checks sources in order:
       1. notes_index        — built from literature/*.md doi/arxiv_id
-                               frontmatter, declared OR url-derived (Fix #32 +
-                               rv-refs-corpus-fix: filed notes count as
+                               frontmatter, declared OR url-derived (filed notes count as
                                in-corpus even before a note carries an id,
                                and even when the note only carries a `url:`
                                field).  Emits the note's own `citekey:`
@@ -537,7 +536,7 @@ def _corpus_annotation(
     doi = _normalize_doi(ext.get("DOI"))
     arxiv = _normalize_arxiv(ext.get("ArXiv"))
 
-    # 1. Check literature/ OKF dir index (Fix #32)
+    # 1. Check literature/ OKF dir index
     ni = notes_index or {}
     if ni:
         if doi and doi in ni:
@@ -592,9 +591,9 @@ def _print_candidates(
 ) -> None:
     """Print S2 paper candidates in a human-readable table.
 
-    When notes_index (loaded from the project's literature/ OKF dir — Fix #32,
-    extended by rv-refs-corpus-fix to mine `url:`) and/or notes_title_index
-    (title+author fallback — rv-refs-corpus-fix) is provided, each candidate is
+    When notes_index (loaded from the project's literature/ OKF dir,
+    also mining `url:`) and/or notes_title_index
+    (title+author fallback) is provided, each candidate is
     annotated [IN-CORPUS:<citekey>] or [NEW] so the lit-review citation-
     neighbor walk can detect when a hop adds no new papers.
     """
@@ -681,7 +680,7 @@ def cmd_find(args: argparse.Namespace) -> int:
             args.query, papers, min_score=min_score, top_k=args.limit
         )
 
-    # Fix #32: check filed literature notes for corpus dedup (zero-infra)
+    # Check filed literature notes for corpus dedup (zero-infra)
     lit_dir = (
         cfg.project_notes_dir(project) / "literature"
         if project else None
@@ -732,7 +731,7 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    # Fix #32: check filed literature notes for corpus dedup
+    # Check filed literature notes for corpus dedup
     lit_dir = (
         cfg.project_notes_dir(project) / "literature"
         if (cfg and project) else None
@@ -785,7 +784,7 @@ def cmd_references(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    # Fix #32: check filed literature notes for corpus dedup
+    # Check filed literature notes for corpus dedup
     lit_dir = (
         cfg.project_notes_dir(project) / "literature"
         if (cfg and project) else None

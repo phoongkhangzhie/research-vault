@@ -657,7 +657,7 @@ class SweepCell:
 
 
 def _stamp_rerank_scores(hits: list[PaperHit], query: str) -> None:
-    """A1 (task #86): TF-IDF-rerank ``hits`` against ``query`` and stamp
+    """A1: TF-IDF-rerank ``hits`` against ``query`` and stamp
     each hit's ``rerank_score`` in place.
 
     Reuses ``cross_project.rank_candidates`` — the SAME TF-IDF cosine-
@@ -722,7 +722,7 @@ def _fetch_cell(
     for attempt in range(retry_attempts):
         try:
             hits = adapter.search(query, limit=limit)
-            # A1 (task #86): rerank at the source — TF-IDF-score each hit
+            # A1: rerank at the source — TF-IDF-score each hit
             # against the query that fetched it, so a strength signal
             # survives all the way to `_corpus.md` (Section C). Stamping
             # here, not in `compose_sweep_result`, means the score is
@@ -890,7 +890,7 @@ def compose_sweep_result(
     mark_derivatives([d.hit for d in deduped], threshold=derivative_threshold)
     independent_count = count_independent([d.hit for d in deduped])
 
-    # C (task #86): per-identity DECLARED facet-pole membership, reusing
+    # C: per-identity DECLARED facet-pole membership, reusing
     # ``compute_facet_pole_coverage`` (charter §6 — the SAME pole-key
     # derivation Layer 2's facet-coverage check already uses, never a
     # second, drifting implementation). A legacy flat (non-thesis/counter)
@@ -1238,13 +1238,13 @@ def write_search_hits(
         venue = (hit.venue or "").replace("|", "/")
         year = str(hit.year) if hit.year is not None else ""
         evidence = _evidence_snippet(hit)
-        # A1 (task #86): the TF-IDF rerank score this hit scored against
+        # A1: the TF-IDF rerank score this hit scored against
         # the angle query that surfaced it — stamped by `_fetch_cell` at
         # fetch time, the strength signal Section C's curation bound
         # reads. Honest-blank sentinel (never a fabricated number) when
         # this hit never went through a rerank pass.
         rerank = format_rerank_score(hit.rerank_score)
-        # C (task #86): the DECLARED facet-pole(s) this hit matched — the
+        # C: the DECLARED facet-pole(s) this hit matched — the
         # stratification-bucket signal. Honest-blank sentinel (never a
         # fabricated pole) when this hit's sweep cell carried no pole
         # structure (legacy flat matrix).

@@ -233,7 +233,7 @@ def _resolve_reads_or_warn(
     declares as its produces: output, whose producing node has not yet
     succeeded) is printed to stdout as advisory, non-alarming information —
     "this artifact does not exist yet because its producer hasn't run", not
-    "the manifest is wrong" (task #97).
+    "the manifest is wrong".
 
     ``node_states`` — pass the run's ``run_state.node_states`` so a
     produces:-matched pointer can be resolved against the producing node's
@@ -579,8 +579,8 @@ def _evaluate_autonomous_gate(
             if isinstance(search_hits_produces, dict):
                 search_hits_path = search_hits_produces.get("_search_hits.md")
 
-        # Relevance-verify (design 2026-07-10-trustworthy-curation-
-        # relevance-gate-design.md) — evaluated BEFORE the corpus_freeze
+        # Relevance-verify (the trustworthy-curation relevance-gate
+        # design) — evaluated BEFORE the corpus_freeze
         # stamp/deviation check below, so any auto-prune this performs is
         # folded into the VERY FIRST frozen baseline (never flagged as an
         # undeclared deviation against its own pruning on a later
@@ -627,7 +627,7 @@ def _evaluate_autonomous_gate(
                     corpus_path, off_domain_citekeys, review_dir / "_relevance-residue.md",
                 )
 
-            # C (task #86): the deterministic, stratified corpus-bound
+            # C: the deterministic, stratified corpus-bound
             # selection — run AFTER the off-domain prune (mirrors that
             # step's own placement comment: any auto-mutation must be
             # folded into the VERY FIRST frozen baseline below, never
@@ -1064,8 +1064,8 @@ def _evaluate_autonomous_gate(
             _autonomy.evaluation_from_structural_payload(_payload)
         )
 
-        # ★ fold in the holistic-quality review board (design
-        # 2026-07-08-autonomous-board-design.md) — a SEPARATE failure
+        # ★ fold in the holistic-quality review board (the autonomous
+        # board design) — a SEPARATE failure
         # class from the mechanical integrity floors above. A missing
         # board-result artifact means the board was never driven for this
         # manuscript (an out-of-band, hub-orchestrated multi-round fanout
@@ -2747,7 +2747,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # L-2 anti-fishing structural gate (task #33): the review loop's
+    # L-2 anti-fishing structural gate: the review loop's
     # ``approve-protocol`` node (see review/_build_phase1_manifest)
     # may not be approved unless the upstream ``review-scope`` node's
     # ``_protocol.md`` carries a non-empty ``counter-position`` field.
