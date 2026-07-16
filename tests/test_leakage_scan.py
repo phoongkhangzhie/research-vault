@@ -1177,3 +1177,110 @@ def test_green_on_task_number_in_tests_dir(tmp_path):
         "# regression pin for task #86\ndef test_fn(): pass\n"
     )
     assert_green(run_scan(tmp_path))
+
+
+def test_red_on_ng_phase_label_in_py_docstring(tmp_path):
+    """An 'NG-<n>' internal spec-phase label in a Python docstring must be
+    flagged (the next-gen lit-review internal redesign phase labels)."""
+    _write_py(tmp_path, '''\
+        """module.py — pure refactor (NG-99).
+        """
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_ng_phase_label_suffixed_in_py_comment(tmp_path):
+    """An 'NG-<n><letter>' suffixed phase label (e.g. 'NG-4b') must also be
+    flagged — the suffixed sub-phase labels are the same internal class."""
+    _write_py(tmp_path, '''\
+        # NG-4b: an incomplete fan-out is the floor-gate-not-run case.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_ng_phase_label_in_md_not_py(tmp_path):
+    """An 'NG-<n>' reference in a .md file is NOT flagged — class 12 is
+    .py-only, mirroring the other dev-ref checks."""
+    doc = tmp_path / "notes.md"
+    doc.write_text("Phase NG-3 is the width-sweep utility ranker.\n")
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_ng_phase_label_in_tests_dir(tmp_path):
+    """An 'NG-<n>' reference inside tests/ is NOT flagged — tests/ is never
+    shipped in the wheel."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_thing.py").write_text(
+        "# NG-7: single-pass outline design\ndef test_fn(): pass\n"
+    )
+    assert_green(run_scan(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Class 1 (codename gate): the "HR" hyperresearch craft-source codename
+# ---------------------------------------------------------------------------
+# "HR" is the internal codename for the hyperresearch craft-source. Gated on
+# the distinctive compound forms only (bare "HR" is never gated — too many
+# legitimate false-positive risks). Runs in BOTH the full scan and
+# --codenames-only mode (class 1, not class 12) — so it applies to .md/.py
+# alike, including tests/.
+
+
+def test_red_on_hr_craft_codename(tmp_path):
+    doc = tmp_path / "notes.md"
+    doc.write_text("HR-craft rec 5: a deterministic heading-order diff.\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_hr_style_codename(tmp_path):
+    doc = tmp_path / "notes.md"
+    doc.write_text("(HR-style: log the residue and continue).\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_hr_mechanic_codename_in_py(tmp_path):
+    _write_py(tmp_path, '''\
+        # the presentation program's most transferable HR mechanic.
+        def fn(): pass
+    ''')
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_hyperresearch_codename(tmp_path):
+    doc = tmp_path / "notes.md"
+    doc.write_text("ported from hyperresearch's WebResult helper.\n")
+    assert_red(run_scan(tmp_path))
+
+
+def test_red_on_hr_codename_in_tests_dir(tmp_path):
+    """Unlike class 12, the codename gate (class 1) DOES scan tests/ —
+    codenames are CI-gated everywhere, not just in shipped src/."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_thing.py").write_text(
+        "# HR-craft rec 1 — integrate-by-scoping.\ndef test_fn(): pass\n"
+    )
+    assert_red(run_scan(tmp_path))
+
+
+def test_green_on_bare_hr_not_flagged(tmp_path):
+    """Bare 'HR' (no compound form) must NOT be flagged — only the
+    distinctive compound forms carry the codename."""
+    doc = tmp_path / "notes.md"
+    doc.write_text(
+        "The href attribute and the HR element are unrelated HTML terms.\n"
+    )
+    assert_green(run_scan(tmp_path))
+
+
+def test_green_on_scrubbed_hr_codename(tmp_path):
+    _write_py(tmp_path, '''\
+        """module.py — the most transferable mechanic from established
+        research-writing practice.
+        """
+        def fn(): pass
+    ''')
+    assert_green(run_scan(tmp_path))

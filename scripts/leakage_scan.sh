@@ -25,7 +25,8 @@
 #                     landing in tests/test_config.py etc.) needs only class 1's narrower net.
 #
 # Marker classes:
-#   1. Private project codenames  (cultural-social-sim, csb, dossier, explore-rl)
+#   1. Private project codenames  (cultural-social-sim, csb, dossier, explore-rl,
+#      the "HR" hyperresearch craft-source codename and its compound forms)
 #   2. Private identity strings   (operator name + handles)
 #   3. Private site / URLs        (operator's personal domain)
 #   4. Private cluster paths      (/juice2/, /scr2/)
@@ -48,9 +49,10 @@
 #      history convention, out of scope here). No grandfather exemption (PR-C2: DEVLOG.md,
 #      the only file that carried one, is now untracked and out of the scanned surface).
 #  12. Dev-process internal references in .py (task/PR-tracker numbers, build-time SR-tags,
-#      internal design-doc filenames) — the class rule 9 (see lint.py's check_shipped_doc_noise)
-#      already enforces for adopter-facing shipped DOCS, extended here to shipped Python
-#      SOURCE, which rule 9 never scanned. Scoped like class 10 (.py-only, tests/ excluded).
+#      internal design-doc filenames, NG-<n> internal spec-phase labels) — the class rule 9
+#      (see lint.py's check_shipped_doc_noise) already enforces for adopter-facing shipped
+#      DOCS, extended here to shipped Python SOURCE, which rule 9 never scanned. Scoped like
+#      class 10 (.py-only, tests/ excluded).
 #
 # Self-exclusion: the scanner skips itself, ci.yml, and the test file
 # (all three intentionally list the marker strings). tests/test_git_discipline.py is also
@@ -439,6 +441,19 @@ _grep_word    "codename/csb"                 "csb"
 _grep_word    "codename/dossier"             "dossier"
 _grep_word    "codename/explore-rl"          "explore-rl"
 
+# "HR" is the internal codename for the hyperresearch craft-source (the
+# operator's prior research-writing tool). Gate on the DISTINCTIVE compound
+# forms only — never bare "HR" (word-boundary \bHR\b would false-positive
+# on legitimate two-letter usages elsewhere in prose/code; the compound
+# forms are what actually carries the codename).
+_grep_literal "codename/hr-craft"           "HR-craft"
+_grep_literal "codename/hr-style"           "HR-style"
+_grep_literal "codename/hr-mechanic"        "HR mechanic"
+_grep_literal "codename/hr-scale"           "HR-scale"
+_grep_literal "codename/hr-possessive"      "HR's"
+_grep_literal "codename/hr-review-critic"   "HR review-critic"
+_grep_word    "codename/hyperresearch"      "hyperresearch"
+
 # ── Classes 2-11: skipped in --codenames-only (see flag doc above) ──────────
 if [ "$CODENAMES_ONLY" -eq 0 ]; then
 
@@ -573,6 +588,7 @@ _grep_py_re "dev-ref/fix-defect-number" '\b(Fix|Defect) #[0-9]+'
 _grep_py_re "dev-ref/pr-number"     '\bPR #[0-9]+'
 _grep_py_re "dev-ref/sr-tag"        '\bSR-[A-Z0-9]+(-[A-Z0-9]+)*\b'
 _grep_py_re "dev-ref/design-doc-filename" '[A-Za-z0-9_-]+-design\.md'
+_grep_py_re "dev-ref/ng-phase-label" '\bNG-[0-9]+[a-z]?\b'
 
 fi  # end CODENAMES_ONLY-skips-classes-2-12 block
 
