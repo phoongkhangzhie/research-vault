@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review — staged, pre-registered literature review loop using a
-citation-neighbor relevance walk (0.3.1).
+"""review — staged, pre-registered, SEARCH-PRIMARY literature review loop.
+A faceted-matrix sweep owns recall; curation bounds and stratifies the
+corpus to ~100 well-chosen papers; the citation walk exists only as a
+surgical, off-by-default tool (thin-pole fill / named-anchor chase),
+never a blanket 1-hop.
 
 The review loop is the manuscript loop's sibling — it composes the DAG engine with zero
 new walker/schema mechanism.  The fan-out over a runtime-discovered corpus is resolved
@@ -1495,9 +1498,12 @@ def _build_phase1_manifest(
                           applies inclusion/exclusion, produces _screen.md
                           (the accepted seed frontier)
       - review-snowball:  TOOL (op "snowball"); needs afterok+watch on _screen.md;
-                          produces _corpus_raw.md + _walk.md (the
-                          citation-neighbor relevance walk, depth-bounded
-                          by relevance_hops — no LLM)
+                          produces _corpus_raw.md — carries the accepted seed
+                          frontier through, surgical-only (run_walk=False by
+                          default, no blanket citation walk); _walk.md is
+                          produces_optional and appears ONLY if a surgical
+                          thin-pole-fill/named-anchor chase fires later
+                          (depth-bounded by relevance_hops — no LLM)
       - review-relevance-screen: TOOL (op "relevance_screen"); needs
                           afterok+watch on _corpus_raw.md; mechanically
                           rejects high-confidence off-domain candidates
@@ -2097,17 +2103,19 @@ def cmd_new(
     """Scaffold a review OKF note + reviews/<scope>/ dir + Phase-1 DAG manifest.
 
     When to use: use ``rv review new <project> <scope> --question '...'`` to
-    start a pre-registered literature review using a citation-neighbor
-    relevance walk.
+    start a pre-registered, search-primary literature review: a faceted-
+    matrix sweep owns recall, curation bounds and stratifies the corpus to
+    ~100 well-chosen papers, and a citation walk exists only as a surgical,
+    off-by-default tool (thin-pole fill or a named-anchor chase).
 
-    This is the ONLY path that creates the protocol-freeze + citation-neighbor
-    walk + coverage-critic framework. A hand-run literature scan gets no
-    ``_protocol.md`` freeze, no per-hop walk coverage report, and no
+    This is the ONLY path that creates the protocol-freeze + search-primary
+    coverage + coverage-critic framework. A hand-run literature scan gets no
+    ``_protocol.md`` freeze, no faceted-matrix search discipline, and no
     rejects-only critic.
 
     Anti-pattern: do NOT hand-collect papers and hand-write a literature section —
-    run ``rv review new`` so every paper traces to the corpus index, the
-    citation neighborhood is walked, and the coverage gate is structural.
+    run ``rv review new`` so every paper traces to the corpus index, coverage is
+    certified mechanically, and the coverage gate is structural.
 
     Args:
         project:     project slug (must be registered in config).
@@ -2115,8 +2123,9 @@ def cmd_new(
         question:    the review research question (frozen in _protocol.md).
         config:      optional Config (loaded if None).
         tip_override: optional per-key tip override (testing / venue customization).
-        relevance_hops: optional override for the citation-neighbor walk's
-            depth bound (default: ``get_relevance_hops(config)``, itself
+        relevance_hops: optional override for the surgical citation walk's
+            depth bound, applied ONLY if a thin-pole fill or named-anchor
+            chase fires later (default: ``get_relevance_hops(config)``, itself
             defaulting to 1). Passed through to ``review-snowball``'s node args.
 
     Returns:
@@ -2160,8 +2169,9 @@ def cmd_new(
         "<!-- Use `rv review new <project> <scope> --question '...'` for creation. -->\n"
         "<!-- The review artifacts live in reviews/<scope>/: -->\n"
         "<!--   _protocol.md  — frozen search protocol (pre-registration) -->\n"
-        "<!--   _corpus.md    — discovered [NEW] citekey list (snowball output) -->\n"
-        "<!--   _walk.md — citation-neighbor walk coverage report (hops × new citekeys) -->\n"
+        "<!--   _corpus.md    — final, bounded/stratified [NEW] citekey list -->\n"
+        "<!--   _walk.md — surgical citation-walk coverage report (present ONLY -->\n"
+        "<!--   if a thin-pole fill or named-anchor chase actually fired) -->\n"
         "<!-- Drive Phase-1 with: rv dag run reviews/<scope>/phase1-dag.json -->\n"
         "<!-- Phase-2 auto-emits when coverage-gate GOes — no hand-run step. -->\n"
         "\n"
