@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""sources/registry.py — source-name -> adapter-instance resolution (NG-2).
+"""sources/registry.py — source-name -> adapter-instance resolution.
 
 ``DEFAULT_SOURCES`` is the operator's D4 default-on set: semantic-scholar + arxiv +
 openalex. PubMed and web are opt-in — a protocol adds them to its ``sources:``

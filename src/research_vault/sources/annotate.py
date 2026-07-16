@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""sources/annotate.py — corpus annotation for cross-source DedupedHits (NG-2).
+"""sources/annotate.py — corpus annotation for cross-source DedupedHits.
 
 Reuses the EXISTING dedup/annotate layer's index (``research._load_notes_index``
 / ``research._load_notes_title_index``  "reuse the existing dedup/

@@ -223,7 +223,7 @@ class TestQueryDedupAndBand:
 
 
 # ---------------------------------------------------------------------------
-# Budget raise (D-1) — HR's diminishing-returns range extends to ~100 planned
+# Budget raise (D-1) — the diminishing-returns range extends to ~100 planned
 # searches; the old 65-cap under-provisions the new facet-matrix breadth.
 # ---------------------------------------------------------------------------
 

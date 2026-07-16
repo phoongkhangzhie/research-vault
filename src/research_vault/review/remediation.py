@@ -28,7 +28,7 @@ enforced by this module's construction, not by convention:
      invariant (``pre==post`` criteria, ``removed==[]``) means this loop
      structurally cannot self-author a criteria change or a removal.
 
-Stdlib only (+ intra-package imports). sr: NG-6a / D-5a
+Stdlib only (+ intra-package imports). sr: D-5a
 """
 from __future__ import annotations
 

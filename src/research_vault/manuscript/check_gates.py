@@ -125,8 +125,9 @@ def _read_draft_text(tree_root: Path) -> str:
 
 # ---------------------------------------------------------------------------
 # check_reader_hygiene — RD-5, next-gen lit-review (deterministic,
-# ALWAYS runs, hard BLOCK, no judge dependency — the presentation program's
-# most transferable HR mechanic, rv's biggest packaging gap before this PR).
+# ALWAYS runs, hard BLOCK, no judge dependency — the most transferable
+# mechanic from established research-writing practice, rv's biggest
+# packaging gap before this PR).
 # ---------------------------------------------------------------------------
 
 # Internal pipeline-vocabulary handles that must never leak into reader prose.
@@ -257,15 +258,15 @@ def check_reader_hygiene(reader_body: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# check_heading_order — HR-craft rec 5, NG-7's structural-mirror
+# check_heading_order — the manuscript structural-mirror
 # H2-order diff (deterministic, ALWAYS runs, SIGNAL only — no judge dependency)
 # ---------------------------------------------------------------------------
 
 def check_heading_order(draft_text: str, expected_order: "list[str] | tuple[str, ...]") -> dict[str, Any]:
-    """HR-craft rec 5: a deterministic H2-heading-order diff.
+    """A deterministic H2-heading-order diff.
 
-    HR's instruction-critic diffs the draft's ordered H2 list element-wise
-    against a frozen heading contract; NG-7's single-pass outline already
+    Diffs the draft's ordered H2 list element-wise against a frozen
+    heading contract; the single-pass outline design already
     freezes a reading-order spine (``lit_review.READING_ORDER``, RD-2) — this
     is the cheap, mechanical cross-check confirming the draft actually
     delivered the frozen frame.
@@ -704,7 +705,7 @@ def compute_coverage_diff(coverage_map_path: Path, reader_body: str) -> dict[str
 
 
 # ---------------------------------------------------------------------------
-# _cold_fanout_dirs_present — NG-4 detector
+# _cold_fanout_dirs_present — cold-agent-judge fan-out detector
 # ---------------------------------------------------------------------------
 
 def _cold_fanout_dirs_present(tree_root: Path) -> bool:
@@ -775,7 +776,7 @@ def build_approve_payload(
     blocking: list[str] = []
     signals: list[str] = []
     not_run: list[str] = []
-    # NG-4b item 3: a support-matcher canary-abort (blind-judge probe fails)
+    # A support-matcher canary-abort (blind-judge probe fails)
     # must be visible to review.autonomy's gate-policy engine as a TOP-LEVEL
     # flag, not buried inside a `blocking` string. classify_disposition's
     # priority order checks `canary_aborted` BEFORE `blocking` (untrustworthy
@@ -844,7 +845,7 @@ def build_approve_payload(
         else:
             signals.extend(f"[support-matcher:PARTIAL] {w}" for w in support_result["warnings"])
     elif _cold_fanout_dirs_present(tree_root):
-        # NG-4 (PRIMARY path): no live judge_fn/env, but an
+        # PRIMARY path: no live judge_fn/env, but an
         # orchestrator-dispatched cold-agent-judge fan-out was emitted for
         # this manuscript (``judge/support-matcher/_judge-tasks.json`` present)
         # — ingest whatever verdicts landed instead of falling into the
@@ -871,7 +872,7 @@ def build_approve_payload(
             canary_aborted = True
             blocking.extend(f"[support-matcher] {e}" for e in support_result["errors"])
         elif support_result.get("halt"):
-            # NG-4b: an incomplete/missing judge-fanout is the "floor
+            # An incomplete/missing judge-fanout is the "floor
             # gate NOT RUN" failure class, NOT a fixable BLOCK — it belongs
             # in `not_run` (-> HALT-DECLARE, priority 2) so the gate-policy
             # engine never dispatches a bounded auto-revise against a floor
@@ -913,7 +914,7 @@ def build_approve_payload(
     hygiene_result = check_reader_hygiene(hygiene_draft_text)
     blocking.extend(f"[reader-hygiene] {e}" for e in hygiene_result["errors"])
 
-    # ── 7. Heading-order diff (HR-craft rec 5, NG-7) — deterministic, ALWAYS
+    # ── 7. Heading-order diff — deterministic, ALWAYS
     #      runs (when the type declares a frozen reading order), SIGNAL only.
     #      Only lit-review declares READING_ORDER today; a type with none is
     #      a correct no-op (never fabricated for a type that hasn't defined one).
@@ -939,7 +940,7 @@ def build_approve_payload(
         "blocking": blocking,
         "signals": signals,
         "not_run": not_run,
-        # NG-4b: top-level canary-abort flag — see comment at the top of
+        # Top-level canary-abort flag — see comment at the top of
         # this function. Consumed by review.autonomy.evaluation_from_structural_payload.
         "canary_aborted": canary_aborted,
     }

@@ -200,4 +200,4 @@ question-framing + sensitivity-first + disconfirming search).
   Questions for LLM Web Agents.* arXiv:2402.17896. https://arxiv.org/abs/2402.17896 — real research
   questions are non-factoid, multi-perspective, decompositional (avg 14.3 sub-questions); factored
   decomposition beats direct answering (+5.6, GPT-4); surfaces "unknown unknowns" / pivotal facts.
-  Grounds LLM sub-query decomposition disciplined by the facet frame to reach HR-scale coverage.
+  Grounds LLM sub-query decomposition disciplined by the facet frame to reach broad, faceted coverage.

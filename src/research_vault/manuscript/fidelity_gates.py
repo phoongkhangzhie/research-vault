@@ -26,7 +26,7 @@ assembly (support-matcher is the citation-fidelity BLOCK floor).
 adapter over ``gates.coldread.run_cold_read()`` — was removed: it was
 SIGNAL-only, non-actionable under hands-off autonomy, and redundant with
 the 2x3 review board's coherence axis + RD-6's hard term-definition gate.
-The operator's call; see DEVLOG. The cold-agent-judge fan-out seam (NG-4) below
+The operator's call; see DEVLOG. The cold-agent-judge fan-out seam below
 is now support-matcher-ONLY.)
 
 Doctrine: data/doctrine/honesty-gates.md, data/doctrine/review-board.md.
@@ -59,7 +59,7 @@ from research_vault.manuscript.citation_pattern import WIKILINK_CITE_RE as _WIKI
 # ``judge_fn``.
 _DEFAULT_JUDGE_MODEL: str = ""
 
-# NG-4 batch sizing: default per-batch task count for emit_support_tasks.
+# Batch sizing: default per-batch task count for emit_support_tasks.
 # Raised from the original 8 -> 20 (the operator's call, live 0.3.0
 # validation run: 82 tasks / 11 batches for a 25-paper survey was too
 # many cold-judge spawns for the hub to fan out; 20 packs the same task
@@ -81,7 +81,7 @@ def _collect_support_items(draft_files: "list[Path]") -> list[tuple[str, str, st
     independently-drifting copies): the inline judge loop
     (``check_support_tally``: test-injected ``judge_fn`` only, no live
     API default) and the cold-fanout emit path
-    (``emit_support_tasks``, NG-4) call this identically so the two paths
+    (``emit_support_tasks``) call this identically so the two paths
     see the EXACT same set of (claim, citekey) pairs for a given draft.
     """
     all_items: list[tuple[str, str, str]] = []
@@ -305,7 +305,7 @@ def check_support_tally(
 
 
 # ---------------------------------------------------------------------------
-# NG-4 — support-matcher cold-agent-judge fan-out (PRIMARY path)
+# Support-matcher cold-agent-judge fan-out (PRIMARY path)
 #
 # emit_support_tasks / ingest_support_verdicts replace the inline
 # ``judge_fn(prompt)`` call above with the emit-tasks -> hub-fanout ->
@@ -342,7 +342,7 @@ _SUPPORT_VERDICT_VOCAB: frozenset[str] = frozenset(
 # doc). Never a certifying value.
 _SUPPORT_FAIL_CLOSED_DEFAULT = "ABSENT"
 
-# NOTE on the design spec's JSON example vs. this vocab: NG-4
+# NOTE on the design spec's JSON example vs. this vocab: the fan-out
 # contract JSON literal shows ``"verdict": "SUPPORTED"`` — but the brief
 # explicitly says the vocab must MATCH THE EXISTING EXTRACTOR, and
 # ``gates.support_matcher._extract_support_verdict`` (the live code, the
@@ -465,7 +465,8 @@ def emit_support_tasks(
     HANDFUL of cold judges, not one per claim.
 
     rv does NOT call an LLM on this path — no judge_fn, no env var. This
-    is the whole point of NG-4: the fan-out is harness-side.
+    is the whole point of the cold-agent-judge design: the fan-out is
+    harness-side.
 
     Args:
         tree_root:        the manuscript folder (``manuscripts/<slug>/``).

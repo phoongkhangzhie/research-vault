@@ -663,7 +663,7 @@ def cmd_find(args: argparse.Namespace) -> int:
     else:
         # Over-fetch: request pool candidates (or just limit when --no-rerank)
         fetch_n = pool if do_rerank else args.limit
-        # NG-1: pure refactor — the S2 search subprocess call now lives in
+        # Source-adapter refactor: the S2 search subprocess call now lives in
         # SemanticScholarAdapter (research_vault.sources); PaperHit.raw carries
         # the original S2 dict so this pipeline is byte-identical downstream.
         hits = SemanticScholarAdapter().search(args.query, limit=fetch_n, fields=fields)
@@ -711,7 +711,7 @@ def cmd_cited_by(args: argparse.Namespace) -> int:
     # F12: normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
     paper_id = _normalize_paper_id_for_asta(args.paper_id)
 
-    # NG-1: pure refactor — the S2 citations subprocess call now lives in
+    # Source-adapter refactor: the S2 citations subprocess call now lives in
     # SemanticScholarAdapter; PaperHit.raw carries the original S2 dict.
     # AdapterFetchError is a catchable Exception (not sys.exit) so the
     # multi-round snowball walk can degrade gracefully on one bad seed
@@ -764,7 +764,7 @@ def cmd_references(args: argparse.Namespace) -> int:
     # F12: normalize bare arXiv/DOI ids to the scheme-prefixed form asta expects
     paper_id = _normalize_paper_id_for_asta(args.paper_id)
 
-    # NG-1: pure refactor — the S2 references subprocess call now lives in
+    # Source-adapter refactor: the S2 references subprocess call now lives in
     # SemanticScholarAdapter; PaperHit.raw carries the original S2 dict.
     # AdapterFetchError is a catchable Exception (not sys.exit) so the
     # multi-round snowball walk can degrade gracefully on one bad seed
@@ -1235,15 +1235,15 @@ def cmd_migrate_citekeys(args: argparse.Namespace) -> int:
 
 
 def cmd_sweep(args: argparse.Namespace) -> int:
-    """sweep: NG-3 parallel width-sweep over the FROZEN _protocol.md angle
+    """sweep: parallel width-sweep over the FROZEN _protocol.md angle
     matrix + sources.
 
     Reads (never widens) the angle matrix + sources frozen at
     `approve-protocol` (anti-fishing) — this command has no write path
     back to `_protocol.md`. Runs the cross-product (angle x source) fetch
     concurrently under the fetch budget, then composes: cross-source dedup
-    (NG-2) -> derivative-of overlap discounting (NG-9) -> the 6-dim utility
-    rank + saturation-paired floor (NG-3). Annotates the kept set vs the
+    -> derivative-of overlap discounting -> the 6-dim utility
+    rank + saturation-paired floor. Annotates the kept set vs the
     project's filed literature notes, same [NEW]/[IN-CORPUS:*] contract as
     `rv research find`.
     """

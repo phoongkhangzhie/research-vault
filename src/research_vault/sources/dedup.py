@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""sources/dedup.py — cross-source identity collapse (NG-2).
+"""sources/dedup.py — cross-source identity collapse.
 
 Multi-source hits collapse on a normalized identity, priority order
 DOI > arXiv > OpenAlex > normalized-title. The union of each group's
 ``external_ids`` is kept, and ``sources`` records every adapter name that
-independently surfaced the paper — the raw signal NG-3's utility-ranker
-"coverage" dim and NG-9's derivative-of discounting both consume.
+independently surfaced the paper — the raw signal the utility-ranker's
+"coverage" dim and the derivative-of discounting both consume.
 """
 from __future__ import annotations
 

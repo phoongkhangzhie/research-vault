@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""review/corpus_freeze.py — NG-6a piece 1: the explicit, versioned
+"""review/corpus_freeze.py — the explicit, versioned
 ``corpus_freeze`` baseline + the fail-closed ``rv review refresh`` re-freeze.
 
 Design of record: internal design note.
@@ -16,14 +16,14 @@ charter §6 reuse-over-create; a sibling module for the corpus, same shape.
 field: ``frozen_corpus_citekeys`` remains the flat SSOT the already-wired D2
 BLOCK (``classify_coverage_gate_with_deviation_check``) reads/writes — that
 wiring + its integration tests are untouched by this module. ``corpus_freeze``
-is the richer, versioned, hashed wrapper NG-6a adds on top: every time this
+is the richer, versioned, hashed wrapper this module adds on top: every time this
 module re-freezes (``refresh``/a remediation round), it writes the SAME
 citekey set into BOTH ``run_state.meta["corpus_freeze"]["corpus_citekeys"]``
 and ``run_state.meta["frozen_corpus_citekeys"]`` — so the next
 ``classify_coverage_gate_with_deviation_check`` call (unmodified) compares
 against the moved-forward baseline, never a stale one.
 
-Stdlib only. sr: NG-6a
+Stdlib only.
 """
 from __future__ import annotations
 
