@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """retrieval/map.py — the `rv map <project>` generator.
 
-This is PR-1 of the knowledge/retrieval layer: the substrate a future
-router/traversal layer will sit on. It makes NO LLM calls and does NO
-traversal — it is a purely mechanical, single-writer, additive, idempotent
-assembler that reads durable OKF note artifacts and emits a per-project
-knowledge map, one Tier-0 index (concepts, MOCs, findings/gaps, edge-type
-legend) at a time.
+The knowledge-map generator: the substrate a future router/traversal layer
+will sit on. It makes NO LLM calls and does NO traversal — it is a purely
+mechanical, single-writer, additive, idempotent assembler that reads
+durable OKF note artifacts and emits a per-project knowledge map, one
+Tier-0 index (concepts, MOCs, findings/gaps, edge-type legend) at a time.
 
 Follows the pattern established by ``review/ledger.py``'s
 ``write_corpus_ledger``: read-only over existing sources, additive (never
@@ -79,7 +78,7 @@ SCHEMA_VERSION = 1
 
 # The project-scoped OKF types this map actually indexes at Tier-0.
 # ``experiments`` and ``methodology`` are project-scoped too (OKF_PROJECT_TYPES)
-# but are not part of the Tier-0 index per the design brief (only
+# but are not part of the Tier-0 index, to keep it context-sized (only
 # mocs/findings/gaps are indexed; a future tier can extend this).
 _MOC_TYPE = "mocs"
 _FINDINGS_GAPS_TYPES: tuple[str, ...] = ("findings", "gaps")
@@ -95,14 +94,24 @@ _SCANNED_PROJECT_TYPES: frozenset[str] = OKF_PROJECT_TYPES
 # is a curated, free-form bullet list (see the shipped demo MOC convention),
 # not necessarily a typed SUPPORTS/GROUNDED-IN edge. Matches EITHER the
 # intra-shared `/concepts/<slug>.md` form or the cross-bundle
-# `okf:concepts/<path>.md` form, anywhere in the MOC body — the widest
-# "this MOC mentions concept X" reading.
+# `okf:concepts/<path>.md` form. Applied PER-LINE, anchored to bullet-list
+# lines only (`_BULLET_LINE_RE`) — NOT anywhere in the MOC body. A bare
+# body-wide scan would count a prose mention as "organized" (e.g. "Unlike
+# [concept-x](/concepts/concept-x.md), we do NOT organize it here." would
+# falsely mark concept-x organized) — a fail-quiet hole in exactly the
+# honesty property this map exists to protect. Curation is a deliberate
+# bulleted-list act; a link that only appears in a sentence is not that.
 _ORGANIZED_CONCEPT_RE = re.compile(
     r"\]\("
     r"(?:/concepts/(?P<i_slug>[A-Za-z0-9][A-Za-z0-9_.\-]*)\.md"
     r"|okf:concepts/(?P<x_path>[A-Za-z0-9][A-Za-z0-9_.\-/]*)\.md)"
     r"\)"
 )
+
+# A markdown list-item line: optional leading whitespace, then a
+# `-`/`*`/`+` bullet marker + a space. This is the anchor the organized-
+# concept scan requires before it will even consider a line's links.
+_BULLET_LINE_RE = re.compile(r"^\s*[-*+]\s")
 
 
 # ---------------------------------------------------------------------------
@@ -172,16 +181,22 @@ def _organized_concepts(cfg: Config, project: str) -> set[str]:
     """Every concept slug organized under at least one of this project's
     MOCs — a plain markdown-link scan (see ``_ORGANIZED_CONCEPT_RE``), not
     the typed-edge grammar, since real MOCs are curated free-form bullet
-    lists (see the shipped demo MOC's convention)."""
+    lists (see the shipped demo MOC's convention). Anchored to bullet-list
+    lines only (``_BULLET_LINE_RE``) — a concept link that only appears in
+    ordinary prose (not a curated list item) does NOT count as organized;
+    see the anchor's own comment for why a body-wide scan is unsafe."""
     organized: set[str] = set()
     moc_dir = cfg.project_notes_dir(project) / _MOC_TYPE
     for note_path in _iter_notes(moc_dir):
         text = note_path.read_text(encoding="utf-8")
         _fields, body = _parse_frontmatter(text)
-        for m in _ORGANIZED_CONCEPT_RE.finditer(body):
-            slug = m.group("i_slug") or _concept_slug_from_x_path(m.group("x_path"))
-            if slug:
-                organized.add(slug)
+        for line in body.splitlines():
+            if not _BULLET_LINE_RE.match(line):
+                continue
+            for m in _ORGANIZED_CONCEPT_RE.finditer(line):
+                slug = m.group("i_slug") or _concept_slug_from_x_path(m.group("x_path"))
+                if slug:
+                    organized.add(slug)
     return organized
 
 
@@ -346,6 +361,10 @@ def _render(
         lines.append("")
 
     lines.append("## Concept index\n")
+    lines.append(
+        "_Concepts this project's notes reference — not the full shared "
+        "concept store._\n"
+    )
     lines.append("| Slug | Title | Description |")
     lines.append("|---|---|---|")
     if not concept_index:
@@ -382,11 +401,17 @@ def _render(
     return "\n".join(lines)
 
 
-def write_map(cfg: Config, project: str, *, out_path: Path | None = None) -> Path:
+def write_map(
+    cfg: Config, project: str, *, out_path: Path | None = None, m: dict[str, Any] | None = None,
+) -> Path:
     """Generate and write ``<project_notes_dir>/_map.md`` (single-writer,
     additive, idempotent — re-running regenerates identically from the same
-    corpus). Returns the path written."""
-    m = generate_map(cfg, project)
+    corpus). Returns the path written.
+
+    ``m``: an already-computed ``generate_map`` result, to avoid a second
+    (redundant) generation pass when the caller already has one (e.g. the
+    CLI dispatch, which also needs the dict for its printed summary)."""
+    m = m if m is not None else generate_map(cfg, project)
     out = out_path or (cfg.project_notes_dir(project) / "_map.md")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(m["rendered"], encoding="utf-8")
@@ -426,8 +451,8 @@ def run(args: argparse.Namespace) -> int:
         print(f"rv map: config error: {e}", file=sys.stderr)
         return 1
 
-    out = write_map(cfg, args.project)
     m = generate_map(cfg, args.project)
+    out = write_map(cfg, args.project, m=m)
     print(f"Knowledge map written: {out}")
     print(
         f"  concepts={len(m['concept_index'])} "

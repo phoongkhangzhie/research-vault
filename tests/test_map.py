@@ -191,6 +191,33 @@ def test_referenced_and_organized_concept_is_not_orphan(tmp_path: Path) -> None:
     assert m["orphan_concepts"] == []
 
 
+def test_prose_only_concept_mention_in_moc_is_not_organized(tmp_path: Path) -> None:
+    """A concept link that only appears in ORDINARY PROSE inside a MOC body
+    (not a curated bullet-list item) must NOT count as "organized" — this
+    is the false-pass the bullet-line anchor exists to close. Before the
+    anchor, ANY `/concepts/<slug>.md` link anywhere in the MOC body
+    (including a prose sentence explicitly saying it is NOT organized here)
+    would silently mark the concept organized and defeat the orphan gate."""
+    cfg = _cfg(tmp_path)
+    _concept_note(cfg, "concept-x")
+    moc_path = cfg.project_notes_dir("demo-proj") / "mocs" / "moc1.md"
+    moc_path.parent.mkdir(parents=True, exist_ok=True)
+    moc_path.write_text(
+        '---\ntype: mocs\ntitle: moc1\ndescription: "A MOC."\n---\n\n'
+        "Unlike [concept-x](/concepts/concept-x.md), we do NOT organize it "
+        "here — it belongs elsewhere.\n",
+        encoding="utf-8",
+    )
+    _findings_note(cfg, "demo-proj", "finding1", concept_edges=["concept-x"])
+
+    m = generate_map(cfg, "demo-proj")
+
+    assert m["map_complete"] is False
+    assert "concept-x" in m["orphan_concepts"]
+    assert "[MAP-GAP]" in m["rendered"]
+    assert "orphan concept: concept-x" in m["rendered"]
+
+
 # ---------------------------------------------------------------------------
 # (c) empty/stub description
 # ---------------------------------------------------------------------------
