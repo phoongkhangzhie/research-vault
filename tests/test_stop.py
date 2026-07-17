@@ -40,6 +40,7 @@ from research_vault.retrieval.stop import (
     REASON_SATURATION,
     CoverageLoop,
     SubClaim,
+    _prime_engine_for_claim_hop,
     emit_check_tasks,
     emit_draft_task,
     ingest_check_verdicts,
@@ -399,6 +400,41 @@ def test_hop_visits_a_new_node_toward_the_uncovered_claim(tmp_path: Path):
 
     assert after - before == {str(cfg.literature_root / "basis2019.md")}
     assert loop.hops_spent == 1
+
+
+class _StandInEngineMissingAttr:
+    """A minimal stand-in that has every TraversalEngine attribute
+    ``_prime_engine_for_claim_hop`` touches EXCEPT one — simulates a
+    traverse.py rename/removal of that attribute (e.g. ``depth`` ->
+    ``hop_budget``). Without the guard, writing to the missing attribute
+    would silently create a phantom instance attribute instead of
+    raising — this fixture is the mutation-proof for that failure mode.
+    """
+
+    def __init__(self, *, omit: str):
+        for attr in ("depth", "done", "routed_tags", "route_matched", "_hop_index"):
+            if attr != omit:
+                setattr(self, attr, 0)
+        if omit != "_frontier":
+            self._frontier = ["a-non-empty-frontier-node"]
+
+
+@pytest.mark.parametrize(
+    "omit", ["depth", "done", "routed_tags", "route_matched", "_frontier", "_hop_index"],
+)
+def test_prime_engine_for_claim_hop_fails_loud_on_renamed_attribute(omit: str):
+    """The regression pin for Argus's finding: a WRITE to a
+    renamed/removed TraversalEngine attribute must raise, not silently
+    create a phantom attribute and lose control of the hop budget.
+
+    Without the guard in ``_prime_engine_for_claim_hop`` this test goes
+    RED — with ``omit="depth"``, ``engine.depth = ...`` would silently
+    succeed (a phantom write), the function returns True, and this test's
+    ``pytest.raises(AssertionError)`` never fires.
+    """
+    stand_in = _StandInEngineMissingAttr(omit=omit)
+    with pytest.raises(AssertionError, match=omit):
+        _prime_engine_for_claim_hop(stand_in, "any claim text")
 
 
 # ---------------------------------------------------------------------------

@@ -65,7 +65,7 @@ emit/ingest pair over ``\\cite`` pairs in drafted prose — a genuinely
 different shape: one designated citekey per claim, bound to a draft's
 citation-set hash) to avoid coupling the retrieval layer to the manuscript
 loop; the layering in this codebase runs manuscript -> gates/retrieval,
-never the reverse. See the module's PR description for this judgment call.
+never the reverse.
 
 Stdlib only (+ intra-package imports).
 """
@@ -445,6 +445,19 @@ def ingest_check_verdicts(
 # traversal hop, driven directly off the wrapped TraversalEngine.
 # ---------------------------------------------------------------------------
 
+# The exact TraversalEngine attribute names this function READS and
+# WRITES directly (private-state coupling, precedented elsewhere in this
+# codebase — e.g. traverse.py importing relate_check._TAG_FAMILY — but a
+# WRITE to a renamed/removed attribute is a silent no-op in Python, not an
+# AttributeError: it would create a phantom attribute on the engine
+# instance and quietly lose control of the claim-targeted one-hop budget.
+# Guarded below so that coupling seam fails LOUD instead of rotting silent
+# (mirrors traverse.py's own _TAG_FAMILY SSOT-drift assertion).
+_ENGINE_COUPLED_ATTRS: tuple[str, ...] = (
+    "depth", "done", "routed_tags", "route_matched", "_frontier", "_hop_index",
+)
+
+
 def _prime_engine_for_claim_hop(engine: TraversalEngine, claim_text: str) -> bool:
     """Reconfigure *engine* to spend exactly ONE more hop toward
     *claim_text* — re-classifies intent off the CLAIM (not the original
@@ -452,7 +465,20 @@ def _prime_engine_for_claim_hop(engine: TraversalEngine, claim_text: str) -> boo
     wherever it currently stands. Returns False when the engine's frontier
     is already empty (nothing left to expand from at all — see
     ``REASON_SATURATION``).
+
+    Fails LOUD (``AssertionError``) if *engine* is missing any of the
+    ``TraversalEngine`` attributes this function reads or writes — a
+    silent write to a renamed/removed attribute would otherwise create a
+    phantom attribute on the instance and silently lose control of the
+    hop budget (a write is not caught by Python's normal
+    ``AttributeError``-on-read fail-loud behaviour; this guard restores it).
     """
+    for attr in _ENGINE_COUPLED_ATTRS:
+        assert hasattr(engine, attr), (
+            f"TraversalEngine missing {attr!r} — retrieval stop-loop "
+            f"(_prime_engine_for_claim_hop) is coupled to traversal "
+            f"internals; update stop.py"
+        )
     if not engine._frontier:
         return False
     engine.routed_tags, engine.route_matched = classify_intent(claim_text)
