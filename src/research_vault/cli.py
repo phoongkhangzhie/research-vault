@@ -122,6 +122,22 @@ _VERB_REGISTRY: dict[str, dict] = {
             "through the central core + the ledger for you."
         ),
     },
+    "map": {
+        "module": "research_vault.retrieval.map",
+        "when_to_use": (
+            "When you need a project's knowledge map — a mechanical, "
+            "generated index over the concepts this project actually "
+            "references, its MOCs, findings, gaps, and the typed-edge "
+            "vocabulary, with a fail-loud check that every referenced "
+            "concept is organized under at least one project MOC. "
+            "`rv map <project>` regenerates `_map.md` fresh from the note "
+            "corpus every run. Anti-pattern: do NOT hand-maintain a "
+            "knowledge map by eye, and do NOT treat this as a retrieval or "
+            "Q&A verb — it makes no LLM calls and does no traversal, it is "
+            "purely the mechanical substrate a future retrieval layer "
+            "consumes."
+        ),
+    },
     "control": {
         "module": "research_vault.control",
         "when_to_use": (
