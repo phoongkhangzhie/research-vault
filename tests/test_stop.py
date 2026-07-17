@@ -423,7 +423,7 @@ class _StandInEngineMissingAttr:
     "omit", ["depth", "done", "routed_tags", "route_matched", "_frontier", "_hop_index"],
 )
 def test_prime_engine_for_claim_hop_fails_loud_on_renamed_attribute(omit: str):
-    """The regression pin for Argus's finding: a WRITE to a
+    """The regression pin for the review finding: a WRITE to a
     renamed/removed TraversalEngine attribute must raise, not silently
     create a phantom attribute and lose control of the hop budget.
 
